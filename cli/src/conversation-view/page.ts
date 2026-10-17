@@ -1273,6 +1273,12 @@ var __name = function (f) { return f; };
     unreadEl.hidden = !unread.count;
     unreadEl.textContent = unread.count ? unread.text : "";
   }
+  // Coding work Flyd found stuck after nudging it, said the same way.
+  var staffEl = document.getElementById("staff");
+  function showStaff(staff) {
+    staffEl.hidden = !staff.text;
+    staffEl.textContent = staff.text || "";
+  }
   // A question waits for its own answer; firstmate's session lines are relayed updates. Once firstmate said the
   // outcome (it sits on the receipt line), the living line carries on only while work on this message does.
   function pairing(el, message) {
@@ -2827,7 +2833,10 @@ ${LEFT_SCRIPT}
     source = new EventSource("/api/stream" + streamQuery);
     source.addEventListener("session", function (event) {
       var session = JSON.parse(event.data);
-      if (current !== session.id && typingPredictions) typingPredictions.reset();
+      if (current && current !== session.id) {
+        if (typingPredictions) typingPredictions.reset();
+        reset();
+      }
       current = session.id;
       assistant = session.assistantLabel;
       document.title = session.title + " · " + session.assistantLabel;
@@ -2836,6 +2845,7 @@ ${LEFT_SCRIPT}
     source.addEventListener("update", function (event) { problem.textContent = ""; apply(JSON.parse(event.data)); });
     source.addEventListener("problem", function (event) { problem.textContent = JSON.parse(event.data).error; });
     source.addEventListener("unread", function (event) { showUnread(JSON.parse(event.data)); });
+    source.addEventListener("staff", function (event) { showStaff(JSON.parse(event.data)); });
     source.onerror = function () {
       problem.textContent = "reconnecting…";
       // The browser retries a dropped stream by itself, but gives up for good
@@ -4153,6 +4163,7 @@ ${LEFT_HTML}
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
     <p class="unread" id="unread" role="alert" hidden></p>
+    <p class="unread" id="staff" role="status" hidden></p>
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">

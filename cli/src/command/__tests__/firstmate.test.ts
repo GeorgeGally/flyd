@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FirstmateDomainTransport, firstmateRequestBody, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
+import { parseDomainResult } from "../result.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, saveDomainRun } from "../store.js";
 import type { DomainRequest, DomainRun } from "../types.js";
@@ -236,8 +237,8 @@ describe("FirstMate domain transport", () => {
     expect(changed!.result?.informationLossRisk).toBe("high");
   });
 
-  it("records an unstructured handoff as incomplete with the reason, keeps the raw detail, and settles it on a later well-formed reply", async () => {
-    const prose = "status=needs_decision: copy swap dispatched (found in invite.html and remind_me.html). Going live stays George's call.";
+  it("takes a prose reply as the outcome its words give, keeps it whole, and notes the format gap", async () => {
+    const prose = "Done and live: the heading now reads 'What we look for in brands' on the partners page.";
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
       createdAt: request().createdAt, updatedAt: request().createdAt,
@@ -247,25 +248,77 @@ describe("FirstMate domain transport", () => {
     const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: replies }), stderr: "" });
     const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
     const sent: string[] = [];
+    const judged: string[] = [];
     const onChanged = (run: DomainRun) => notifyRun(run, async (_title, message) => { sent.push(message); });
+    const judge = async (reply: string, outcome: string) => { judged.push(`${outcome}|${reply}`); return "completed" as const; };
 
-    const [flagged] = await syncFirstmateDomainRuns({ transport, onChanged });
-    expect(flagged!.status).toBe("incomplete");
-    expect(flagged!.incompleteReason).toBe("domain handoff contract unmet: missing brief, report, evidence");
-    expect(flagged!.result?.raw).toEqual([prose]);
-    expect(flagged!.result?.detailedReport).toBe(prose);
-    expect(sent).toEqual([]);
-    expect(listDomainRuns()[0]!.notified).toBeUndefined();
-
-    // Still open: FirstMate's next, well-formed reply settles it and clears the reason.
-    replies[0] = { ...replies[0]!, reply: { id: "note-1", at: "2026-10-09T02:00:00.000Z", body: JSON.stringify({ status: "completed", brief: "Headline swapped on the Christmas branch.", detailed_report: "invite.html and remind_me.html updated.", evidence: ["commit a5bf7ab"] }), cursor: "000000000002" } };
-    const [settled] = await syncFirstmateDomainRuns({ transport, onChanged });
+    const [settled] = await syncFirstmateDomainRuns({ transport, onChanged, judge });
+    expect(judged).toEqual([`${request().intendedOutcome}|${prose}`]);
     expect(settled!.status).toBe("completed");
-    expect(settled!.incompleteReason).toBeUndefined();
-    expect(sent).toEqual(["There is an update on your work."]);
+    expect(settled!.incompleteReason).toBe("domain handoff contract unmet: missing brief, report, evidence");
+    expect(settled!.result?.raw).toEqual([prose]);
+    expect(settled!.result?.detailedReport).toBe(prose);
+    expect(sent).toEqual([prose]);
   });
 
-  it("records a structured handoff with no evidence as incomplete", async () => {
+  it("leaves a prose reply no model could judge open, and asks the staff how it ended", async () => {
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
+      createdAt: request().createdAt, updatedAt: request().createdAt,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+    });
+    const prose = "status=needs_decision: copy swap is ready in invite.html and remind_me.html. Going live stays George's call.";
+    const notes: string[] = [];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: "note-x", saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", body: prose, cursor: "1" } }] }), stderr: "" };
+    };
+    const [read] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }), judge: async () => { throw new Error("no model"); } });
+    expect(read!.status).toBe("working");
+    expect(notes).toHaveLength(1);
+  });
+
+  it("keeps one check-in open until a reply is read, asking for a line it can read without a model", async () => {
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
+      createdAt: request().createdAt, updatedAt: request().createdAt,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+    });
+    const notes: string[] = [];
+    let reply = { body: "Merged and green, all done.", cursor: "1" };
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: `note-${notes.length + 1}`, saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", ...reply } }] }), stderr: "" };
+    };
+    const sync = () => syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }), judge: async () => null });
+    const status = () => listDomainRuns().find((run) => run.id === "domain-test-1")!.status;
+
+    await sync();
+    expect(status()).toBe("working");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('{"status":');
+
+    reply = { body: "completed, merged and green", cursor: "2" };
+    await sync();
+    expect(status()).toBe("working");
+    expect(notes).toHaveLength(1);
+
+    reply = { body: JSON.stringify({ status: "working", brief: "Rebasing before it lands." }), cursor: "3" };
+    await sync();
+    expect(status()).toBe("working");
+    expect(notes).toHaveLength(1);
+
+    reply = { body: "Still going, nearly there.", cursor: "4" };
+    await sync();
+    expect(notes).toHaveLength(2);
+
+    reply = { body: JSON.stringify({ status: "completed", brief: "Merged; the footer link works." }), cursor: "5" };
+    await sync();
+    expect(status()).toBe("completed");
+    expect(notes).toHaveLength(2);
+  });
+
+  it("records a structured handoff with no evidence as done, noting the missing layer", async () => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
       createdAt: request().createdAt, updatedAt: request().createdAt,
@@ -275,10 +328,114 @@ describe("FirstMate domain transport", () => {
     const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
       pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", body, cursor: "1" } }],
     }), stderr: "" });
-    const [flagged] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }) });
-    expect(flagged!.status).toBe("incomplete");
-    expect(flagged!.incompleteReason).toBe("domain handoff contract unmet: missing evidence");
-    expect(flagged!.result?.brief).toBe("Fixed.");
+    const [done] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }) });
+    expect(done!.status).toBe("completed");
+    expect(done!.incompleteReason).toBe("domain handoff contract unmet: missing evidence");
+    expect(done!.result?.brief).toBe("Fixed.");
+  });
+
+  it("keeps a contract-meeting structured reply without a status done, never read as prose", async () => {
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
+      createdAt: request().createdAt, updatedAt: request().createdAt,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+    });
+    const body = JSON.stringify({ brief: "The race is fixed.", detailed_report: "Reworked the lock; the fix is merged.", evidence: ["commit abc123"] });
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
+      pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", body, cursor: "1" } }],
+    }), stderr: "" });
+    let judged = 0;
+    const judge = async () => { judged += 1; return "working" as const; };
+    const [done] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }), judge });
+    expect(done!.status).toBe("completed");
+    expect(done!.incompleteReason).toBeUndefined();
+    expect(judged).toBe(0);
+  });
+
+  it("reads again a structured run left incomplete as done, never read as prose", async () => {
+    const now = new Date("2026-10-17T00:00:00.000Z");
+    const structured = parseDomainResult(JSON.stringify({ status: "completed", brief: "Fixed.", detailed_report: "Changed the call site." })).result;
+    saveDomainRun({
+      id: "domain-structured", request: { ...request(), id: "domain-structured" }, owner: "FirstMate", status: "incomplete",
+      createdAt: request().createdAt, updatedAt: "2026-10-16T20:00:00.000Z",
+      transport: { kind: "firstmate", requestId: "domain-structured", externalId: "note-structured", replyCursor: "1" },
+      result: structured,
+      incompleteReason: "domain handoff contract unmet: missing evidence",
+    });
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: [{ id: "note-structured", request_id: "domain-structured", acknowledged: true, reply: null }] }), stderr: "" });
+    let judged = 0;
+    const judge = async () => { judged += 1; return "working" as const; };
+    const [read] = await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+      now: () => now,
+      judge,
+    });
+    expect(read!.status).toBe("completed");
+    expect(judged).toBe(0);
+  });
+
+  it("reads again a run once left incomplete, announcing it only if recent", async () => {
+    const prose = "Done: the footer link now opens the right page.";
+    const now = new Date("2026-10-17T00:00:00.000Z");
+    const legacy = (id: string, updatedAt: string): DomainRun => ({
+      id, request: { ...request(), id }, owner: "FirstMate", status: "incomplete",
+      createdAt: request().createdAt, updatedAt,
+      transport: { kind: "firstmate", requestId: id, externalId: `note-${id}`, replyCursor: "1" },
+      result: parseDomainResult(prose).result,
+      incompleteReason: "domain handoff contract unmet: missing brief, report, evidence",
+    });
+    saveDomainRun(legacy("domain-recent", "2026-10-16T20:00:00.000Z"));
+    saveDomainRun(legacy("domain-old", "2026-10-12T00:00:00.000Z"));
+    const handled = ["domain-recent", "domain-old"].map((id) => ({ id: `note-${id}`, request_id: id, acknowledged: true, reply: { id: `note-${id}`, body: prose, cursor: "1" } }));
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled }), stderr: "" });
+    const sent: string[] = [];
+    const changed = await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+      now: () => now,
+      judge: async () => "completed" as const,
+      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+    });
+    expect(changed.map((run) => [run.id, run.status, run.notified ?? false]).sort()).toEqual([
+      ["domain-old", "completed", true],
+      ["domain-recent", "completed", false],
+    ]);
+    expect(sent).toEqual([prose]);
+  });
+
+  it("still tells George when a stale re-read is a decision or a failure, silent only on done", async () => {
+    const now = new Date("2026-10-17T00:00:00.000Z");
+    const legacy = (id: string, prose: string): DomainRun => ({
+      id, request: { ...request(), id }, owner: "FirstMate", status: "incomplete",
+      createdAt: request().createdAt, updatedAt: "2026-10-12T00:00:00.000Z",
+      transport: { kind: "firstmate", requestId: id, externalId: `note-${id}`, replyCursor: "1" },
+      result: parseDomainResult(prose).result,
+      incompleteReason: "domain handoff contract unmet: missing brief, report, evidence",
+    });
+    const decided = "status=needs_decision: the copy change is ready; publishing the new pricing page is your call.";
+    const broke = "status=failed: the deploy failed and rolled back.";
+    const done = "Done: the footer link now opens the right page.";
+    saveDomainRun(legacy("domain-decided", decided));
+    saveDomainRun(legacy("domain-broke", broke));
+    saveDomainRun(legacy("domain-done", done));
+    const handled = [["domain-decided", decided], ["domain-broke", broke], ["domain-done", done]].map(([id, body]) => ({
+      id: `note-${id}`, request_id: id, acknowledged: true, reply: { id: `note-${id}`, body, cursor: "1" },
+    }));
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled }), stderr: "" });
+    const sent: string[] = [];
+    const changed = await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+      now: () => now,
+      judge: async (reply) => reply.startsWith("status=needs_decision") ? "needs_decision" : reply.startsWith("status=failed") ? "failed" : "completed",
+      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+    });
+    const byId = Object.fromEntries(changed.map((run) => [run.id, run]));
+    expect(byId["domain-decided"]!.status).toBe("needs_decision");
+    expect(byId["domain-broke"]!.status).toBe("failed");
+    expect(byId["domain-done"]!.status).toBe("completed");
+    expect(sent.some((message) => message.includes("the copy change is ready"))).toBe(true);
+    expect(sent.some((message) => message.includes("the deploy failed"))).toBe(true);
+    expect(sent.some((message) => message.includes("footer link"))).toBe(false);
+    expect(listDomainRuns().find((run) => run.id === "domain-done")?.notified).toBe(true);
   });
 
   it.each([
@@ -447,5 +604,104 @@ describe("FirstMate domain transport", () => {
 
     await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:06:00.000Z") });
     expect(started).toEqual(["claude", "claude"]);
+  });
+
+  const proseReply = (prose: string) => ({
+    id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", body: prose, cursor: "1" },
+  });
+
+  it.each([
+    "All tests passed; zero failed.",
+    "Merged and deployed; nothing broke.",
+    "Investigated the race; the fix still needs a rebase before it can land.",
+  ])("keeps a prose reply no model can read open and silent, and asks the staff how it ended: %s", async (prose) => {
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
+      createdAt: request().createdAt, updatedAt: request().createdAt,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+    });
+    const notes: string[] = [];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: "note-x", saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled: [proseReply(prose)] }), stderr: "" };
+    };
+    const sent: string[] = [];
+    const [read] = await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+      judge: async () => { throw new Error("no model"); },
+      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+    });
+    expect(read!.status).toBe("working");
+    expect(sent).toEqual([]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('{"status": "completed|needs_decision|failed|working"');
+  });
+
+  it("gives a caller that passes no judge Flyd's model, settling a prose reply rather than words alone", async () => {
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
+      createdAt: request().createdAt, updatedAt: request().createdAt,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+    });
+    const prose = "Rebased and merged; green.";
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: [proseReply(prose)] }), stderr: "" });
+    const sent: string[] = [];
+    const savedVitest = process.env.VITEST;
+    const savedFixture = process.env.FLYD_MODEL_FIXTURE;
+    delete process.env.VITEST;
+    process.env.FLYD_MODEL_FIXTURE = JSON.stringify({ fallback: "{\"status\": \"completed\"}" });
+    try {
+      const [settled] = await syncFirstmateDomainRuns({
+        transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+        onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+      });
+      expect(settled!.status).toBe("completed");
+      expect(sent).toEqual([prose]);
+    } finally {
+      if (savedVitest === undefined) delete process.env.VITEST; else process.env.VITEST = savedVitest;
+      if (savedFixture === undefined) delete process.env.FLYD_MODEL_FIXTURE; else process.env.FLYD_MODEL_FIXTURE = savedFixture;
+    }
+  });
+
+  it("never calls an affirmative prose reply failed on the newest reply", async () => {
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
+      createdAt: request().createdAt, updatedAt: request().createdAt,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+    });
+    const prose = "The build couldn't be greener — it's shipped and green.";
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled: [proseReply(prose)] }), stderr: "" });
+    const [read] = await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+      judge: async () => { throw new Error("no model"); },
+    });
+    expect(read!.status).not.toBe("failed");
+  });
+
+  it("reads again a run left incomplete without calling it done or failed", async () => {
+    const now = new Date("2026-10-17T00:00:00.000Z");
+    const legacy = (id: string, prose: string): DomainRun => ({
+      id, request: { ...request(), id }, owner: "FirstMate", status: "incomplete",
+      createdAt: request().createdAt, updatedAt: "2026-10-16T20:00:00.000Z",
+      transport: { kind: "firstmate", requestId: id, externalId: `note-${id}`, replyCursor: "1" },
+      result: parseDomainResult(prose).result,
+      incompleteReason: "domain handoff contract unmet: missing brief, report, evidence",
+    });
+    const unclear = "Investigated the race; the fix still needs a rebase before it can land.";
+    const green = "The build couldn't be greener — it's shipped and green.";
+    saveDomainRun(legacy("domain-unclear", unclear));
+    saveDomainRun(legacy("domain-green", green));
+    const handled = [["domain-unclear", unclear], ["domain-green", green]].map(([id, body]) => ({
+      id: `note-${id}`, request_id: id, acknowledged: true, reply: { id: `note-${id}`, body, cursor: "1" },
+    }));
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled }), stderr: "" });
+    const changed = await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
+      now: () => now,
+      judge: async () => { throw new Error("no model"); },
+    });
+    const byId = Object.fromEntries(changed.map((run) => [run.id, run.status]));
+    expect(byId["domain-unclear"]).not.toBe("completed");
+    expect(byId["domain-green"]).not.toBe("failed");
   });
 });

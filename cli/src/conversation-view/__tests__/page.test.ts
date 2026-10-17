@@ -251,6 +251,19 @@ describe("conversation page", () => {
     expect(banner.hidden).toBe(true);
   });
 
+  it("says stuck coding work over the composer, and clears it when it moves", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const banner = document.getElementById("staff")!;
+    expect(banner.hidden).toBe(true);
+    stream.emit("staff", { text: "I've heard nothing back on \"the footer\" for 3 h." });
+    expect(banner.hidden).toBe(false);
+    expect(banner.textContent).toBe("I've heard nothing back on \"the footer\" for 3 h.");
+    stream.emit("staff", { text: "" });
+    expect(banner.hidden).toBe(true);
+  });
+
   it("never sends again on its own when Flyd is gone, and gives his words back to send himself", async () => {
     load("");
     await settle();
@@ -414,6 +427,21 @@ describe("conversation page", () => {
     open("older", [{ id: "o1", role: "assistant", html: "<p>old reply</p>" }]);
     expect(pending()).toEqual([]);
     expect(document.querySelectorAll(".msg")).toHaveLength(1);
+  });
+
+  it("starts clean on the new live session when the stream reconnects itself after a handoff", async () => {
+    load("");
+    await settle();
+    const stream = open("live-a", [{ id: "a1", role: "assistant", html: "<p>old session reply</p>" }]);
+    await type("a message that has not shown up yet");
+    expect(pending()).toHaveLength(1);
+
+    stream.emit("session", { id: "live-b", title: "live-b", updatedAt: "2026-10-05T20:05:00.000Z", assistantLabel: "firstmate" });
+    stream.emit("update", { order: ["b1"], messages: [{ id: "b1", role: "assistant", html: "<p>new session reply</p>" }], working: false });
+    expect(pending()).toEqual([]);
+    expect(document.querySelectorAll(".msg")).toHaveLength(1);
+    expect(document.querySelector(".msg")!.textContent).toContain("new session reply");
+    expect(document.querySelectorAll(".msg.fresh")).toHaveLength(0);
   });
 
   it("names the conversation by its topic in the picker and the window title", async () => {

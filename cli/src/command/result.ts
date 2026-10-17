@@ -33,7 +33,7 @@ function specialistOutputs(value: unknown): SpecialistOutput[] {
   });
 }
 
-export function parseDomainResult(body: string): { status?: "completed" | "needs_decision" | "failed"; result: DomainResult } {
+export function parseDomainResult(body: string): { status?: "completed" | "needs_decision" | "failed" | "working"; result: DomainResult } {
   const raw = body.trim();
   const match = raw.match(/\{[\s\S]*\}/);
   if (match) {
@@ -45,7 +45,7 @@ export function parseDomainResult(body: string): { status?: "completed" | "needs
         const riskRaw = String(parsed.information_loss_risk ?? parsed.informationLossRisk ?? "low");
         const risk: InformationLossRisk = riskRaw === "high" || riskRaw === "medium" ? riskRaw : "low";
         const statusRaw = String(parsed.status ?? "").trim();
-        const status = statusRaw === "needs_decision" || statusRaw === "failed" || statusRaw === "completed"
+        const status = statusRaw === "needs_decision" || statusRaw === "failed" || statusRaw === "completed" || statusRaw === "working"
           ? statusRaw
           : undefined;
         return {
@@ -110,4 +110,49 @@ export function validateDomainHandoff(result: DomainResult): HandoffValidation {
   return missing.length
     ? { ok: false, missing, reason: `domain handoff contract unmet: missing ${missing.join(", ")}` }
     : { ok: true };
+}
+
+/** How a reply written in plain prose left the work: the staff often answers that way instead of the JSON contract. */
+export type ProseOutcome = "completed" | "needs_decision" | "failed" | "working" | "unclear";
+
+/** Reads a prose reply's outcome, e.g. with Flyd's model; null when it cannot tell. */
+export type ProseJudge = (reply: string, intendedOutcome: string) => Promise<ProseOutcome | null>;
+
+const PROSE_OUTCOMES = new Set<ProseOutcome>(["completed", "needs_decision", "failed", "working"]);
+
+/** The fallback when no model can read the reply: it never guesses. Only Flyd's model or a structured reply calls work done, failed or a decision. */
+export function proseOutcomeByWords(_reply: string): ProseOutcome {
+  return "unclear";
+}
+
+/** Flyd's model, wired for reading prose replies; under vitest no model runs, so words alone never settle a run. */
+export async function defaultProseJudge(): Promise<ProseJudge | undefined> {
+  if (process.env.VITEST) return undefined;
+  const { query } = await import("../lib/llm.js");
+  return modelProseJudge((prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }));
+}
+
+/** Flyd's model reads what a prose reply says happened; any failure leaves it to proseOutcomeByWords. */
+export function modelProseJudge(complete: (prompt: string) => Promise<string>): ProseJudge {
+  return async (reply, intendedOutcome) => {
+    const prompt = [
+      "A member of George's coding staff replied in plain prose to work Flyd handed over. Read what the reply says happened.",
+      "",
+      `The work asked for: ${intendedOutcome.slice(0, 600)}`,
+      "",
+      "The reply:",
+      reply.slice(0, 4_000),
+      "",
+      "Answer with JSON only: {\"status\": \"completed\" | \"needs_decision\" | \"failed\" | \"working\"}",
+      "completed: the work is finished (or the question answered). needs_decision: it asks George to decide, approve or answer something before it can go on.",
+      "failed: it could not be done. working: only progress so far, the outcome is still to come.",
+    ].join("\n");
+    try {
+      const raw = await complete(prompt);
+      const status = String((JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as { status?: unknown }).status ?? "");
+      return PROSE_OUTCOMES.has(status as ProseOutcome) ? status as ProseOutcome : null;
+    } catch {
+      return null;
+    }
+  };
 }

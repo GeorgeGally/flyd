@@ -110,11 +110,11 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "domain_work",
-    description: "Flyd's delegated domain work. action=list shows recent domain runs; show returns the retained layered report for one run, including the detailed report and specialist outputs so Flyd can answer follow-ups without re-summarizing or re-running the work.",
+    description: "Flyd's delegated domain work. action=staff shows what the coding staff is doing right now: work under way, work stuck or waiting on a decision, what Flyd handed over and when it last heard back, and what is held for George — use it for \"what are my coding staff doing?\" or \"is anything stuck?\". action=list shows recent domain runs; show returns the retained layered report for one run, including the detailed report and specialist outputs so Flyd can answer follow-ups without re-summarizing or re-running the work.",
     input_schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list", "show", "ask"], description: "What to inspect or ask" },
+        action: { type: "string", enum: ["staff", "list", "show", "ask"], description: "What to inspect or ask" },
         id: { type: "string", description: "Domain run id for show/ask" },
         question: { type: "string", description: "Follow-up question for ask" },
       },
@@ -343,6 +343,15 @@ export async function runAssistantTool(
         return `Started in the background (job ${id}). The result will come back to George in the chat when it's done. Tell him in a few words what you're doing; don't mention job ids.`;
       }
       case "domain_work": {
+        if (input.action === "staff") {
+          // Core's last read when it is fresh; otherwise read the staff now (read-only: nothing is nudged from chat).
+          const staff = await import("../command/fleet-monitor.js");
+          const view = staff.readStaffView() ?? await (async () => {
+            const snapshot = await new staff.StaffMonitor().read();
+            return { snapshot, concerns: staff.assessStaff(snapshot, undefined, Date.now()) };
+          })();
+          return `${staff.describeStaff(view)}\nTell George in plain words; never name the staff's tools, ids, branches or the people behind Flyd.`;
+        }
         const { listDomainRuns, readDomainRun } = await import("../command/store.js");
         const [{ syncFirstmateDomainRuns }, { syncLibrarianDomainRuns }] = await Promise.all([
           import("../command/firstmate.js"), import("../command/librarian.js"),
@@ -373,7 +382,8 @@ export async function runAssistantTool(
         if (!run.result) return `${run.request.domain} work is ${run.status}: ${run.request.intendedOutcome}`;
         const result = run.result;
         return [
-          run.incompleteReason ? `Not done: ${run.incompleteReason}` : "",
+          `Status: ${run.status}`,
+          run.incompleteReason ? `Reply format gap (the reply still counts): ${run.incompleteReason}` : "",
           `Brief: ${result.brief}`,
           result.recommendation ? `Recommendation: ${result.recommendation.action}${result.recommendation.reasoning ? ` — ${result.recommendation.reasoning}` : ""}` : "",
           `Detailed report:\n${result.detailedReport}`,

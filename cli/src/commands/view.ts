@@ -19,6 +19,7 @@ import { ActivityReader } from "../conversation-view/activity.js";
 import { MemoryReader } from "../conversation-view/memory.js";
 import { UnreadNoteWatcher } from "../conversation-view/note-receipts.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
+import { LiveStaffSession } from "../command/fleet-monitor.js";
 
 export interface ViewOptions {
   project?: string;
@@ -95,10 +96,13 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // Routing, retold answers and status lines are quick jobs: Claude Haiku first.
   const complete: Complete = async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt);
   const wantsInbox = options.project === undefined && inbox.available();
+  const liveSession = wantsInbox ? new LiveStaffSession({ home: inbox.home }) : undefined;
   const source = new ClaudeCodeTranscriptSource({
     projectDir,
     // Skills and commands: ~/.claude plus firstmate's own .claude, as Claude Code lists them.
     ...(wantsInbox ? { inbox, crew: new CrewProgress({ home: inbox.home }), commandRoots: { projectDir: inbox.home } } : {}),
+    // The window follows the session that holds firstmate's lock, not whichever transcript was written last.
+    ...(liveSession ? { liveSession: () => liveSession.current() } : {}),
     // Flyd answers what is not software work itself; the router is one short call to Flyd's model.
     ...(wantsInbox ? {
       desk: {

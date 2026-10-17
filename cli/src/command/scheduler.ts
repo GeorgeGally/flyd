@@ -28,7 +28,8 @@ export const HANDLE_IT_YOURSELF = [
  */
 async function returnedToBoss(run: DomainRun, send: typeof sendRunMessage): Promise<boolean> {
   if (run.status !== "needs_decision" || !run.result || run.transport.kind !== "firstmate") return false;
-  if (run.messages?.some((message) => message.from === "flyd")) return false;
+  // Flyd's check-ins on quiet work (fleet-monitor.ts) are questions, not this return.
+  if (run.messages?.some((message) => message.from === "flyd" && message.kind === "decision")) return false;
   const brief = plainBrief(run.result.brief);
   if (!handsHimInternalDecision(brief)) return false;
   const outcome = await send({ run, kind: "decision", body: HANDLE_IT_YOURSELF, from: "flyd" }).catch(() => ({ delivered: false, run: undefined }));

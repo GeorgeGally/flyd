@@ -7,7 +7,7 @@ export type DomainRunStatus =
   | "working"
   | "needs_decision"
   | "completed"
-  /** The boss claimed success but its handoff missed the brief/report/evidence contract; still open. */
+  /** Legacy: a reply that missed the layered contract was once kept open as this; such runs are read again. */
   | "incomplete"
   | "failed"
   | "cancelled";
@@ -97,7 +97,9 @@ export interface DomainRun {
   failure?: string;
   /** Set while a FirstMate session launch is retried: how many tries and the earliest next one. */
   launchRetry?: { attempts: number; nextAt: string };
-  /** Why the latest handoff was not recorded as done (see validateDomainHandoff). */
+  /** Which layers of the handoff contract the latest reply missed (see validateDomainHandoff); the reply still counts. */
   incompleteReason?: string;
+  /** When Flyd last asked the staff for a clear status; at most one such ask is open until a reply is read. */
+  statusAskedAt?: string;
   notified?: boolean;
 }

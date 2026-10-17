@@ -117,7 +117,7 @@ async function synthesize(run: DomainRun, specialistOutputs: SpecialistOutput[])
   // The boss-level parsed specialist summaries never replace the specialist raw
   // outputs. L2 is supplied from the actual worker records.
   const result = { ...parsed.result, specialistOutputs, raw: [raw, ...specialistOutputs.flatMap((item) => item.raw ? [item.raw] : [])] };
-  const status = parsed.status ?? "completed";
+  const status = parsed.status && parsed.status !== "working" ? parsed.status : "completed";
   const next: DomainRun = {
     ...run,
     status,
