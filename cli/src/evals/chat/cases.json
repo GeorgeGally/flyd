@@ -416,5 +416,18 @@
       ],
       "maxSeconds": 90
     }
+  },
+  {
+    "id": "no-ruled-out-phrases",
+    "category": "conversation",
+    "ask": "what's on for me tomorrow?",
+    "expect": {
+      "notAnswer": [
+        "one moment please sir",
+        "passing this to firstmate",
+        "\\bcaptain\\b"
+      ],
+      "maxSeconds": 30
+    }
   }
 ]

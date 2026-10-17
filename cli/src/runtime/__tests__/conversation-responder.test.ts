@@ -450,6 +450,52 @@ describe("buildConversationPrompt", () => {
     expect(streamed).toEqual([]);
   });
 
+  it("regenerates once and never sends a phrase George has ruled out", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let rewrites = 0;
+    try {
+      const answer = await respondToConversation({
+        message: "Explain how this works",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      }, {
+        runAgentLoop: async () => "<final>Captain, one moment please sir — I'll pull that up now.</final>",
+        rewrite: async () => { rewrites += 1; return "<final>Two meetings tomorrow, then the deadline Friday.</final>"; },
+        persistReceipt: async (input) => input as never,
+      });
+      expect(rewrites).toBe(1);
+      expect(answer).toBe("Two meetings tomorrow, then the deadline Friday.");
+      expect(answer).not.toMatch(/captain|one moment please sir/i);
+      const traces = warn.mock.calls.map((call) => String(call[0]));
+      expect(traces.some((line) => line.includes("[his-voice]") && line.includes("Captain"))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("cuts a ruled-out phrase the rewrite fails to remove", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const answer = await respondToConversation({
+        message: "Explain how this works",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      }, {
+        runAgentLoop: async () => "<final>Sure, one moment please sir, the build is green.</final>",
+        rewrite: async () => "",
+        persistReceipt: async (input) => input as never,
+      });
+      expect(answer).not.toMatch(/one moment please sir/i);
+      expect(answer).toContain("build is green");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("routes a current-work plate question through the agent when a project is inspectable", async () => {
     const streamed: string[] = [];
     let ranLoop = false;
