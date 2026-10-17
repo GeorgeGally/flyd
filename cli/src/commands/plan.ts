@@ -4,6 +4,7 @@ import { RAW_DIR, PLANS_DIR, PROJECT, defaultModel } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
 import { query } from "../lib/llm.js";
 import { search as qmdSearch, updateRaw, embedRaw } from "../lib/qmd.js";
+import { buildRawEntries, extractKeywords } from "../lib/retrieval.js";
 
 // A plan has a fixed shape so it can be read back, shown as an artefact, and
 // handed to a fresh coding session: outcome, files to touch, approval gates,
@@ -46,19 +47,23 @@ Rules:
 - A plan never starts work by itself: name in Approval gates what needs George's approval, and leave landing to his /land.
 - Keep small work to a single phase; break large work into a few ordered phases.`;
 
+/** How many recalled captures the planner reads, and how much of each. */
+const MEMORY_LIMIT = 5;
+const MEMORY_EXCERPT_CHARS = 600;
+
 export async function runPlan(topic: string, model?: string): Promise<void> {
   const m = model ?? defaultModel();
 
   const memoryResults = await qmdSearch(topic, "flyd-raw", 10);
-  const contextLines: string[] = [];
-  for (const r of memoryResults) {
-    contextLines.push(`[memory: ${r.path} (score=${r.score}%)]`);
-  }
-  const context = contextLines.length
-    ? `\nRelevant memory context:\n${contextLines.join("\n")}\n`
+  const memories = buildRawEntries(memoryResults, extractKeywords(topic))
+    .slice(0, MEMORY_LIMIT)
+    .map((entry) => `[memory: ${entry.path}]\n${entry.body.trim().slice(0, MEMORY_EXCERPT_CHARS)}`);
+  const project = `\nProject: ${PROJECT.name}\nRepository folder: ${PROJECT.path}\n`;
+  const context = memories.length
+    ? `\nRelevant memory context:\n${memories.join("\n\n")}\n`
     : "";
 
-  const prompt = PLAN_HEAD + topic + "\n" + context + PLAN_TAIL;
+  const prompt = PLAN_HEAD + topic + "\n" + project + context + PLAN_TAIL;
 
   console.log(`planning: "${topic}"\n`);
 

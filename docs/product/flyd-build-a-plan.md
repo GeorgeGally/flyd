@@ -27,13 +27,14 @@ Frontmatter records the plan's identity: `project`, `repo_path`, `status`, `crea
 
 ## Phase 1 — Inputs and output
 
-**What it does.** `flyd plan <topic>` searches memory for the topic (`qmdSearch(topic, "flyd-raw", 10)`), hands the request and that context to the planner model, and asks for the fixed shape above — outcome, files to touch, approval gates, and phases each ending in checkable `done_when` points. The model produces the whole plan; nothing downstream re-derives it.
+**What it does.** `flyd plan <topic>` searches memory for the topic (`qmdSearch(topic, "flyd-raw", 10)`), reads a bounded excerpt of each of the top recalled captures (`buildRawEntries`, the same read `flyd ask` uses), and hands the request, those excerpts and the project's name and repository folder to the planner model, and asks for the fixed shape above — outcome, files to touch, approval gates, and phases each ending in checkable `done_when` points. The model produces the whole plan; nothing downstream re-derives it.
 
-**Reuse.** The memory search, the LLM query and the plans folder are the ones `flyd plan` already used. The only change is the prompt and the shape it asks for.
+**Reuse.** The memory search, the capture read, the LLM query and the plans folder are existing ones. The only change is the prompt and the shape it asks for.
 
 **Done when:**
 
 - [x] `flyd plan <topic>` still searches memory and passes the topic to the model.
+- [x] The prompt carries a bounded excerpt of each recalled capture's text, not just its path, and the project's name and repository folder.
 - [x] The planner prompt asks for the exact headings `## Outcome`, `## Files to touch`, `## Approval gates`, `**Done when:**` and `## Phase 1`.
 - [x] Every phase the prompt asks for ends in a `**Done when:**` list of checkable points.
 - [x] A test asserts the prompt carries the fixed shape.

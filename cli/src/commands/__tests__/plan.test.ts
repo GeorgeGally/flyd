@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, readFileSync, readdirSync, rmSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, readdirSync, rmSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { randomUUID } from "crypto";
@@ -103,6 +103,21 @@ describe("runPlan", () => {
     expect(llm.query).toHaveBeenCalled();
     const prompt = (llm.query as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(prompt).toContain("TypeScript types");
+  });
+
+  it("gives the planner a bounded excerpt of each recalled capture and the project's context", async () => {
+    const llm = await import("../../lib/llm.js");
+    const qmd = await import("../../lib/qmd.js");
+    const config = await import("../../lib/config.js");
+    writeFileSync(join(rawDir, "auth-note.md"), `---\nsource: capture\n---\nAuth tokens must expire after one hour. ${"padding ".repeat(200)}`, "utf8");
+    (qmd.search as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ path: "auth-note.md", score: 80 }]);
+    const { runPlan } = await import("../plan.js");
+    await runPlan("auth tokens");
+    const prompt = (llm.query as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as string;
+    expect(prompt).toContain("Auth tokens must expire after one hour.");
+    expect(prompt.length).toBeLessThan(4000);
+    expect(prompt).toContain(`Project: ${config.PROJECT.name}`);
+    expect(prompt).toContain(`Repository folder: ${config.PROJECT.path}`);
   });
 
   it("asks for the fixed plan shape, with done_when per phase", async () => {
