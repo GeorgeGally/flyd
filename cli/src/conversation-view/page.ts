@@ -2941,6 +2941,9 @@ ${LEFT_SCRIPT}
   var draftTimer = null;
   var restoring = false;
   var sendsInFlight = 0;
+  // Once a message has gone out, the box is his: a stored draft still on its
+  // way back must not refill it, and clearing it must not be held by the read.
+  var sentSinceLoad = false;
   function draftState() {
     // Paging through earlier messages shows them in the box; the draft is what he had typed.
     var recalling = recall.index !== -1;
@@ -2958,7 +2961,10 @@ ${LEFT_SCRIPT}
   function saveDraftNow(keepalive) {
     clearTimeout(draftTimer);
     draftTimer = null;
-    if (!SEND_TOKEN || restoring) return;
+    if (!SEND_TOKEN) return;
+    // Never overwrite the draft Core holds before it has been read back; a
+    // message that has already gone out clearing the box is not an overwrite.
+    if (restoring && !sentSinceLoad) return;
     // A message on its way keeps its draft until it has landed.
     if (sendsInFlight > 0 && !input.value && !attachments.length) return;
     var state = draftState();
@@ -3028,6 +3034,9 @@ ${LEFT_SCRIPT}
       .catch(function () { return {}; })
       .then(function (data) {
         restoring = false;
+        // A message sent while the draft was still being read back wins: the
+        // box is his, not the record's.
+        if (sentSinceLoad) return;
         // Whatever he has started since the window opened wins.
         if (input.value || attachments.length || voiceBase !== null) {
           if (input.value || attachments.length) saveDraftNow();
@@ -3432,6 +3441,7 @@ ${LEFT_SCRIPT}
     var sending = attachments.slice();
     if ((!text && !sending.length) || !current) return;
     recall.index = -1;
+    sentSinceLoad = true;
     // Created inside the key press, as browsers require for audio.
     wakeAudio();
     var el = pendingMessage(text, sending);

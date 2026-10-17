@@ -652,6 +652,68 @@ describe("conversation page", () => {
     expect(posts.every((draft) => draft.text === "the long note")).toBe(true);
   });
 
+  // Pasted words go out like typed ones: the box clears once. And a stored
+  // draft still on its way back must never put a sent message back in the box.
+  it("clears the box and the stored draft when a pasted message is sent", async () => {
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    let kept: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/draft") {
+        const draft = (JSON.parse(String(init!.body)) as { draft: Record<string, unknown> & { text: string; attachments: unknown[] } }).draft;
+        kept = draft.text || draft.attachments.length ? draft : null;
+        return json({ ok: true });
+      }
+      if (url.startsWith("/api/draft?")) return json({ draft: kept });
+      if (url === "/api/send") return json(sendResponse);
+      return json({ sessions: SESSIONS });
+    }));
+    load("");
+    await settle();
+    open("latest", []);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.value = "line one\nline two\nline three";
+    input.dispatchEvent(new Event("input"));
+    await wait(350);
+    expect(kept).toMatchObject({ text: "line one\nline two\nline three" });
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    await wait(400);
+    expect(input.value).toBe("");
+    expect(kept).toBeNull();
+  });
+
+  it("does not put a sent message back in the box when its stored draft arrives late", async () => {
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    let answer: ((response: Response) => void) | null = null;
+    let kept: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/draft") {
+        const draft = (JSON.parse(String(init!.body)) as { draft: Record<string, unknown> & { text: string; attachments: unknown[] } }).draft;
+        kept = draft.text || draft.attachments.length ? draft : null;
+        return json({ ok: true });
+      }
+      if (url.startsWith("/api/draft?")) return new Promise<Response>((resolve) => { answer = resolve; });
+      if (url === "/api/send") return json(sendResponse);
+      return json({ sessions: SESSIONS });
+    }));
+    load("");
+    await settle();
+    open("latest", []);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    // Sent before the stored draft has been read back.
+    input.value = "a long pasted message\nover several lines";
+    input.dispatchEvent(new Event("input"));
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(input.value).toBe("");
+    // The read back lands after it, carrying the words that just went.
+    answer!(json({ draft: { text: "a long pasted message\nover several lines", selectionStart: 0, selectionEnd: 0, attachments: [], savedAt: 1 } }));
+    await settle();
+    await wait(400);
+    expect(input.value).toBe("");
+    expect(kept).toBeNull();
+  });
+
   it("blips once for a message that went out, and stays quiet when it did not", async () => {
     load("");
     await settle();
@@ -662,6 +724,9 @@ describe("conversation page", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/send" ? json({ error: "firstmate did not take the message: no" }, 502) : json({ sessions: SESSIONS }))));
     await type("pong");
     expect(document.querySelector(".msg.failed")).not.toBeNull();
+    // The words are kept, with one clear line saying they did not go.
+    expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("pong");
+    expect(document.querySelector(".msg.failed .state")?.textContent).toContain("not sent: firstmate did not take the message: no");
     expect(blips).toBe(1);
   });
 
