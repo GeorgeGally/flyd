@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { condense, fitsAtAGlance, georgeMarkdown, MAX_CHARS, outcomesOf, staffLine } from "../for-george.js";
-import { ABOUT_FIXES, THREE_FIXES, STAFF_BLOCKED, STAFF_DECISION, STAFF_LANDED, STAFF_PROGRESS, WHERE_EVERYTHING_STANDS } from "./fixtures/replies.js";
+import { ABOUT_FIXES, THREE_FIXES, STAFF_BLOCKED, STAFF_DECISION, PHANTOM_NOTICES, STAFF_LANDED, STAFF_PROGRESS, WHERE_EVERYTHING_STANDS } from "./fixtures/replies.js";
 
 describe("staffLine", () => {
   it("absorbs a fifteen-line progress report: no message for George", () => {
@@ -35,6 +35,22 @@ describe("staffLine", () => {
     expect(staffLine("What landed earlier was the header fix.").kind).toBe("absorbed");
     expect(staffLine("The fix which shipped yesterday needed a follow-up.").kind).toBe("absorbed");
     expect(staffLine("The island fix is merged: https://github.com/o/r/pull/3")).toMatchObject({ kind: "landed", url: "https://github.com/o/r/pull/3" });
+  });
+
+  it.each([
+    ["Everything that has landed is already running: I restart Flyd after each merge.", "absorbed"],
+    ["What landed earlier was restarted.", "absorbed"],
+    [PHANTOM_NOTICES, "absorbed"],
+    ["Yes that merged: https://github.com/o/r/pull/7", "landed"],
+    ["OK that landed: https://github.com/o/r/pull/7", "landed"],
+    ["Confirmed that has landed: https://github.com/o/r/pull/7", "landed"],
+    ["All of that has landed: https://github.com/o/r/pull/5", "landed"],
+    ["The header fix is green and that merged: https://github.com/o/r/pull/6", "landed"],
+    ["Merged the fix that was blocking login.", "landed"],
+    ["The island fix is merged and is live now.", "landed"],
+    [STAFF_LANDED, "landed"],
+  ])("reads %j as %s: a landing only describes what it names when its clause is the subject of a later verb", (text, kind) => {
+    expect(staffLine(text).kind).toBe(kind);
   });
 
   it("reads a landing in its own clause, whatever follows it", () => {

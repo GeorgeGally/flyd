@@ -72,15 +72,16 @@ const NEXT_STEP = /^(?:(?:so |and )?(?:i['’]?ll|i will|we['’]?ll|we will|nex
 /** Where a clause turns: punctuation, or a word that opens the next one ("…after the review passed"). */
 const CLAUSE = /[;—–]|\b(?:but|once|when|after|before|until|unless|if|because|while)\b/gi;
 /**
- * "Everything that has landed…", "what landed earlier": the verb describes what it names, not news
- * that it happened. "That" only after a word it describes; "all of that has landed" is news.
+ * "Everything that has landed is already running", "what landed earlier was the header fix": the
+ * verb's clause is the subject of a later verb, so it describes what it names, not news that it
+ * happened. Read up to a colon or link, a few words on, never across a new subject.
  */
-const RELATIVE = /(?:\b(?:what|whatever)|(?<=\b(?!(?:of|and|but|so|or|then|is|was|are|were)\b)\w+\s+)(?:that|which))\s+(?:(?:has|have|had)\s+)?(?:been\s+)?$/i;
+const DESCRIBES = /^\s+(?:(?!(?:it|he|she|they|we|i|you|this|that|these|those|there|which|who|and|but|so|or|then)\b)[\w'’-]+\s+){0,3}?(?:is|are|was|were|has|have|had|needs?|needed|stays?|stayed|runs?|ran|keeps?|kept)\b/i;
 
 /** Whether some match of `verb` says it happened, read in its own clause only. */
 function happened(sentence: string, verb: RegExp): boolean {
   for (const match of sentence.matchAll(new RegExp(verb.source, "gi"))) {
-    if (RELATIVE.test(sentence.slice(0, match.index))) continue;
+    if (DESCRIBES.test(sentence.slice(match.index! + match[0].length).split(/:|https?:\/\//)[0]!)) continue;
     let start = 0;
     let end = sentence.length;
     for (const turn of sentence.matchAll(CLAUSE)) {
