@@ -5,33 +5,46 @@ import { serialize } from "../lib/frontmatter.js";
 import { query } from "../lib/llm.js";
 import { search as qmdSearch, updateRaw, embedRaw } from "../lib/qmd.js";
 
-const PLAN_HEAD = `You are an expert technical planner. Create a structured implementation plan.
+// A plan has a fixed shape so it can be read back, shown as an artefact, and
+// handed to a fresh coding session: outcome, files to touch, approval gates,
+// and phases each ending in checkable done_when points. The plan is written as
+// a plain markdown file and mirrored into the capture archive, so the existing
+// search finds it — no new store, ranking or governance layer.
+
+const PLAN_HEAD = `You are an expert technical planner. Turn the request into a phased implementation plan.
 
 Topic: `;
 
 const PLAN_TAIL = `
 
-Structure the plan with these sections:
+Write the plan in exactly this shape, with these exact headings:
 
-## Goal
-
-## Approach
+## Outcome
+One or two sentences: the finished change, in plain terms.
 
 ## Files to touch
+- path — why
 
-## Implementation steps
-- [ ] Step 1:
-- [ ] Step 2:
+## Approval gates
+- what needs George's yes before it happens (landing, sending, anything outward)
 
-## Acceptance criteria
-- [ ]
-- [ ]
+## Phase 1 — <short name>
+- [ ] step
+- [ ] step
+**Done when:**
+- [ ] a checkable point
+- [ ] a checkable point
+
+## Phase 2 — <short name>
+- [ ] step
+**Done when:**
+- [ ] a checkable point
 
 Rules:
-- Be concrete and specific. Name exact files, functions, and patterns.
-- Keep it actionable — each step should be clear enough to execute.
-- If the work is very small (< 1 hour), keep it short (3-5 steps).
-- If the work is large, break it into phases.`;
+- Every phase ends with a **Done when:** list of checkable points — each one a reviewer can confirm, not a vibe.
+- Be concrete: name exact files, functions and patterns.
+- A plan never starts work by itself: name in Approval gates what needs George's approval, and leave landing to his /land.
+- Keep small work to a single phase; break large work into a few ordered phases.`;
 
 export async function runPlan(topic: string, model?: string): Promise<void> {
   const m = model ?? defaultModel();
@@ -64,8 +77,8 @@ export async function runPlan(topic: string, model?: string): Promise<void> {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 60);
-  const datestamp = timestamp.slice(0, 10);
-  const filename = `${datestamp}-${slug}-plan.md`;
+  const created = timestamp.slice(0, 10);
+  const filename = `${created}-${slug}-plan.md`;
   const filepath = join(PLANS_DIR, filename);
 
   const frontmatter = {
@@ -74,13 +87,14 @@ export async function runPlan(topic: string, model?: string): Promise<void> {
     topic,
     status: "draft",
     project: PROJECT.name,
-    project_path: PROJECT.path,
+    repo_path: PROJECT.path,
+    created,
     timestamp,
   };
 
   writeFileSync(filepath, serialize(frontmatter, result), "utf8");
 
-  // Also save as capture for searchability
+  // Also save as a capture so the existing search finds the plan.
   const rawFilename = timestamp.replace(/[ :]/g, "-") + ".md";
   writeFileSync(join(RAW_DIR, rawFilename), serialize(frontmatter, result), "utf8");
 

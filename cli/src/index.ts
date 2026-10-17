@@ -515,12 +515,14 @@ program
 
 program
   .command("work")
-  .description("List plans or show a plan as a checklist")
+  .description("List plans, show a plan as a checklist, or start one")
   .argument("[query]", "plan topic to show (omit for latest)")
   .option("--list", "list all plans")
+  .option("--start", "hand the named plan to a fresh coding session")
   .option("--status", "show work index status via recall router")
-  .action((query: string | undefined, opts: { list?: boolean; status?: boolean }) => {
+  .action((query: string | undefined, opts: { list?: boolean; start?: boolean; status?: boolean }) => {
     if (opts.status) return runWorkStatus(query);
+    if (opts.start) return runWork(query, { start: true });
     if (opts.list) return runWork("--list");
     return runWork(query);
   });

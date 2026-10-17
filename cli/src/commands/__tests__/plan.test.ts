@@ -38,6 +38,8 @@ vi.mock("../../lib/qmd.js", async () => ({
   embedRaw: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../../command/coding.js", () => ({ dispatchCodingDomain: vi.fn() }));
+
 beforeEach(() => {
   mkdirSync(plansDir, { recursive: true });
   mkdirSync(rawDir, { recursive: true });
@@ -101,5 +103,35 @@ describe("runPlan", () => {
     expect(llm.query).toHaveBeenCalled();
     const prompt = (llm.query as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(prompt).toContain("TypeScript types");
+  });
+
+  it("asks for the fixed plan shape, with done_when per phase", async () => {
+    const llm = await import("../../lib/llm.js");
+    const { runPlan } = await import("../plan.js");
+    await runPlan("TypeScript types");
+    const prompt = (llm.query as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as string;
+    for (const heading of ["## Outcome", "## Files to touch", "## Approval gates", "**Done when:**", "## Phase 1"]) {
+      expect(prompt).toContain(heading);
+    }
+  });
+
+  it("records the project, repo path, status and created date in the frontmatter", async () => {
+    const { runPlan } = await import("../plan.js");
+    await runPlan("user auth");
+    const files = readdirSync(plansDir).filter((f) => f.endsWith(".md"));
+    const content = readFileSync(join(plansDir, files[0]), "utf8");
+    expect(content).toMatch(/^project: .+$/m);
+    expect(content).toMatch(/^repo_path: .+$/m);
+    expect(content).toMatch(/^status: draft$/m);
+    expect(content).toMatch(/^created: \d{4}-\d{2}-\d{2}$/m);
+  });
+
+  it("writes only a draft plan and hands nothing off", async () => {
+    const coding = await import("../../command/coding.js");
+    const { runPlan } = await import("../plan.js");
+    await runPlan("ship the plan");
+    expect(coding.dispatchCodingDomain).not.toHaveBeenCalled();
+    const files = readdirSync(plansDir).filter((f) => f.endsWith(".md"));
+    expect(readFileSync(join(plansDir, files[0]), "utf8")).toContain("status: draft");
   });
 });

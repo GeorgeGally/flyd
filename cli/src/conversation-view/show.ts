@@ -14,8 +14,8 @@ import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 // latest word from the fleet), each one headline in Flyd's words. Pure: the
 // same snapshot, clock, readings and projects always pick the same things.
 
-/** call: needs him; live: under way; ready: finished, not landed; waiting: held up; next: queued. */
-export type ShowKind = "call" | "landed" | "live" | "ready" | "waiting" | "next" | "news" | "clear";
+/** call: needs him; live: under way; ready: finished, not landed; waiting: held up; next: queued; plan: a plan he made. */
+export type ShowKind = "call" | "landed" | "live" | "ready" | "waiting" | "next" | "plan" | "news" | "clear";
 
 export interface ShowLink {
   label: string;
