@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkSaid, isIdleNotice, judgeSaid, NOTIFICATION_CHARS, notificationLine, reviewSaid, screenBeforeDisplay, voiceRules } from "../chief-of-staff.js";
+import { checkSaid, isIdleNotice, isPlaceholder, judgeSaid, NOTIFICATION_CHARS, notificationLine, reviewSaid, screenBeforeDisplay, voiceRules } from "../chief-of-staff.js";
 import { collectSaid, noteSaid, readVerdicts, reviewEvidence, runReplyReview, scorecard } from "../reply-review.js";
 import { gatherEvidence } from "../../crew/self-improve.js";
 import { deliverNotification } from "../../runtime/agenda.js";
@@ -255,6 +255,12 @@ describe("notifications", () => {
     expect(long.endsWith("…")).toBe(true);
     expect(long).not.toContain("\n");
     expect(notificationLine("- **Island fix** merged: https://github.com/GeorgeGally/flyd/pull/162")).toBe("Island fix merged: https://github.com/GeorgeGally/flyd/pull/162");
+  });
+
+  it("skip a placeholder opening for the sentence that says something", () => {
+    expect(notificationLine("Looking into it. Your flight to Joburg moved to 14:20.")).toBe("Your flight to Joburg moved to 14:20.");
+    expect(notificationLine("Sir, you're right. The CapFive redirects are live.")).toBe("The CapFive redirects are live.");
+    expect(isPlaceholder(notificationLine("Looking into it. Still working on it."))).toBe(true);
   });
 });
 

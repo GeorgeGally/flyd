@@ -4,6 +4,7 @@ import { retiredPhrasesIn } from "../runtime/honesty-check.js";
 import { readFileSync } from "node:fs";
 import { readSoul } from "../lib/soul.js";
 import { userProfilePath } from "../lib/user-profile.js";
+import { isAcknowledgement } from "../conversation-view/summaries.js";
 
 // The standard Flyd holds its own words to: what a chief of staff puts in
 // front of George. Written down in docs/product/flyd-chief-of-staff-standard.md;
@@ -326,7 +327,8 @@ export function notificationLine(text: string): string {
     .replace(/\s+/g, " ")
     .trim();
   const opened = flat.replace(NOTICE_LEAD, "") || flat;
-  const first = /^(.+?[.!?])(?:\s|$)/.exec(opened)?.[1] ?? opened;
+  const said = opened.match(/.+?[.!?](?=\s|$)|.+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [opened];
+  const first = said.find((sentence) => !isPlaceholder(sentence) && !isAcknowledgement(sentence)) ?? said[0] ?? opened;
   const line = first.length <= NOTIFICATION_CHARS ? first : `${first.slice(0, first.lastIndexOf(" ", NOTIFICATION_CHARS - 1) > 60 ? first.lastIndexOf(" ", NOTIFICATION_CHARS - 1) : NOTIFICATION_CHARS - 1).replace(/[\s,;:—-]+$/, "")}…`;
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
