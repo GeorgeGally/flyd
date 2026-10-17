@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { firstBackstage } from "../lib/backstage.js";
 
 // A last look before an answer reaches George: does it claim work that no
 // tool did this turn, or point at files that are not there? Models complete
@@ -68,12 +69,11 @@ const SLOP = /\b(?:stings?|lonely|the silence|a verdict|in the room|into the (?:
 
 // George only ever talks to Flyd (AGENTS.md "One voice"): the crew, jobs,
 // worktrees and council are Flyd's own backstage.
-const BACKSTAGE = /\b(?:crew ?mates?|crewmember|worktrees?|subagents?|the (?:council|librarian|strategist|critic|muse|scout))\b/i;
 
 export function styleProblems(answer: string): string[] {
   const problems: string[] = [];
-  const backstage = answer.match(BACKSTAGE);
-  if (backstage) problems.push(`It names your own backstage ("${backstage[0]}"). Speak as yourself: say what you're doing, not who inside you is doing it.`);
+  const backstage = firstBackstage(answer);
+  if (backstage) problems.push(`It names your own backstage ("${backstage}"). Speak as yourself: say what you're doing, not who inside you is doing it.`);
   const phrase = answer.match(SLOP);
   if (phrase) problems.push(`It uses stock phrasing ("${phrase[0]}"). Say the literal, specific thing instead, in plain words.`);
   if ((answer.match(/—/g) ?? []).length >= 2) problems.push("It leans on em dashes. Use full stops or commas.");

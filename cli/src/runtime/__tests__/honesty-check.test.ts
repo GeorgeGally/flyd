@@ -51,6 +51,16 @@ describe("style check", () => {
     expect(styleProblems("Started it: a crewmate is adding the clock in its own worktree.")[0]).toMatch(/backstage \("crewmate"\)/);
     expect(styleProblems("I'll build the clock and tell you when it's ready.")).toEqual([]);
   });
+
+  it("shares one backstage denylist with the notification path", async () => {
+    const { styleProblems } = await import("../honesty-check.js");
+    const { hasBackstage, BACKSTAGE_DENYLIST } = await import("../../lib/backstage.js");
+    for (const term of ["Firstmate", "crewmates", "the Council", "Librarian", "Critic", "Strategist", "Muse", "Scout", "Jev", "task id", "run id", "branch", "worktree", "pipeline"]) {
+      expect(hasBackstage(term), term).toBe(true);
+      expect(styleProblems(`It names ${term} here.`)[0], term).toMatch(/backstage/);
+    }
+    expect(BACKSTAGE_DENYLIST.length).toBeGreaterThan(0);
+  });
 });
 
 describe("contrast framing", () => {

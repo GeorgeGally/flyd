@@ -89,6 +89,61 @@ describe("captain notices", () => {
   });
 });
 
+describe("notices keep the one voice", () => {
+  const BACKSTAGE = /firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline/i;
+
+  it("rephrases the notes-a-helper-has-not-read notice, keeping the counts and wait", () => {
+    const notice = captainNotice(run("Firstmate has not read 2 notes you sent; the oldest has waited 57 min."));
+    expect(notice).not.toBeNull();
+    expect(notice!).not.toMatch(BACKSTAGE);
+    expect(notice!).toContain("2 notes");
+    expect(notice!).toContain("57 min");
+  });
+
+  it("scrubs every backstage term on every notice path, keeping the outcome", () => {
+    const cases: Array<[string, string]> = [
+      ["Firstmate has not read 3 notes you sent.", "3 notes"],
+      ["The crewmate finished 2 jobs.", "2 jobs"],
+      ["Jev reviewed 4 requests.", "4 requests"],
+      ["The Council reviewed 6 items.", "6 items"],
+      ["The Librarian curated 12 memories.", "12 memories"],
+      ["The Critic advised on 2 plans.", "2 plans"],
+      ["The Strategist dismissed 3 ideas.", "3 ideas"],
+      ["The Muse offered 5 notes.", "5 notes"],
+      ["The Scout surfaced 4 stories.", "4 stories"],
+      ["Task id task-9 is stuck.", "work is stuck"],
+      ["Run id run-9 is stuck.", "work is stuck"],
+      ["Merged the fix on the branch fm/x; 3 tests added.", "3 tests"],
+      ["Fixed it in the worktree; 2 files changed.", "2 files"],
+      ["The pipeline ran 5 checks.", "5 checks"],
+    ];
+    for (const [reply, kept] of cases) {
+      const notice = captainNotice(run(reply));
+      expect(notice, reply).toBeTruthy();
+      expect(notice!, reply).not.toMatch(BACKSTAGE);
+      expect(notice!, reply).toContain(kept);
+    }
+  });
+
+  it("fails a notice that cannot be rephrased closed to a neutral outcome line", () => {
+    const notice = captainNotice(run("Firstmates reviewed 3 things."));
+    expect(notice).not.toBeNull();
+    expect(notice!).not.toMatch(BACKSTAGE);
+    expect(notice!).not.toContain("Firstmate");
+    expect(notice!).toContain("3");
+  });
+
+  it("scrubs decisions and failures too, not only completions", () => {
+    const decision = captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate asks: merge the branch fm/x or hold?" })));
+    expect(decision).not.toBeNull();
+    expect(decision!).not.toMatch(BACKSTAGE);
+    expect(decision!).toContain("decision");
+    const failure = captainNotice(run(JSON.stringify({ status: "failed", brief: "the branch fm/x is broken" })));
+    expect(failure).not.toBeNull();
+    expect(failure!).not.toMatch(BACKSTAGE);
+  });
+});
+
 describe("notifyRun", () => {
   let dir: string;
   let oldDir: string | undefined;

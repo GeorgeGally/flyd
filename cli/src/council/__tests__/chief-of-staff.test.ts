@@ -15,6 +15,7 @@ import type { DomainRun } from "../../command/types.js";
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
 const PLACEHOLDER = "Working on it";
 const INTERNAL_DECISION = "Firstmate's new turn-end guard needs your call: gate it behind config, or push back.";
+const SHOWN_INTERNAL_DECISION = "I need your decision: the new turn-end guard needs your call: gate it behind config, or push back.";
 
 /** A Jev reply with the given probabilities, standing in for the TypeSafe API. */
 function jev(answers: Record<string, number>, sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = []): typeof fetch {
@@ -162,7 +163,7 @@ describe("before display", () => {
     // Asked again after Flyd sent it back: now it is his.
     const again = { ...decisionRun(INTERNAL_DECISION), messages: [{ id: "m1", kind: "decision" as const, body: HANDLE_IT_YOURSELF, at: "2026-10-14T00:01:00.000Z", from: "flyd" as const }] };
     await notifyRun(again, async (_title, message) => { shown.push(message); }, async () => { throw new Error("not again"); });
-    expect(shown).toEqual([`I need your decision: ${INTERNAL_DECISION}`]);
+    expect(shown).toEqual([SHOWN_INTERNAL_DECISION]);
   });
 
   it("brings George the boss's next reply after sending it back, even the same question again", async () => {
@@ -193,7 +194,7 @@ describe("before display", () => {
     const flydNote = readDomainRun("domain-cos-1")!.messages!.find((message) => message.from === "flyd")!;
     handled.push({ id: "note-2", request_id: flydNote.id, acknowledged: true, reply: { id: "note-2", at: "2026-10-14T02:00:00.000Z", body: ask, cursor: "000000000002" } });
     await syncFirstmateDomainRuns({ transport, onChanged });
-    expect(shown).toEqual([`I need your decision: ${brief}`]);
+    expect(shown).toEqual([SHOWN_INTERNAL_DECISION]);
     expect(sentNotes).toHaveLength(1);
     expect(readDomainRun("domain-cos-1")?.notified).toBe(true);
   });
@@ -209,7 +210,7 @@ describe("before display", () => {
     const shown: string[] = [];
     const run: DomainRun = { ...decisionRun(INTERNAL_DECISION), owner: "Librarian", request: { ...decisionRun(INTERNAL_DECISION).request, domain: "knowledge" }, transport: { kind: "native", requestId: "domain-cos-1" } };
     await notifyRun(run, async (_title, message) => { shown.push(message); }, async () => { throw new Error("should not be returned"); });
-    expect(shown).toEqual([`I need your decision: ${INTERNAL_DECISION}`]);
+    expect(shown).toEqual([SHOWN_INTERNAL_DECISION]);
   });
 
   it("still brings George a decision that is his", async () => {
