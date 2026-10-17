@@ -43,8 +43,8 @@ export function captainNotice(run: DomainRun): string | null {
   if (!run.result) return null;
   const brief = plainBrief(run.result.brief);
   if (!brief) return null;
-  if (run.status === "needs_decision") return scrubBackstage(`I need your decision: ${brief}`);
-  if (run.status === "failed") return scrubBackstage(`Work hit a problem: ${brief}`);
+  if (run.status === "needs_decision") return `I need your decision: ${scrubBackstage(brief)}`;
+  if (run.status === "failed") return `Work hit a problem: ${scrubBackstage(brief)}`;
   if (run.status !== "completed" || isRoutineChatter(brief)) return null;
   return scrubBackstage(brief);
 }

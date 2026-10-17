@@ -58,13 +58,13 @@ export function waited(fromIso: string, now = Date.now()): string {
   return `${Math.floor(hours / 24)} days`;
 }
 
-/** The warning, in plain words: how many notes firstmate has not read, and how long the oldest has waited. */
+/** The warning, in plain words: how many of his notes are still waiting, and how long the oldest has waited. */
 export function unreadWarning(unread: UnreadNotes, now = Date.now()): string {
   const notes = unread.count === 1 ? "1 note" : `${unread.count} notes`;
   const age = waited(unread.oldest, now);
   return unread.count === 1
-    ? `Firstmate has not read ${notes} you sent ${age} ago.`
-    : `Firstmate has not read ${notes} you sent; the oldest has waited ${age}.`;
+    ? `You have 1 note still waiting — sent ${age} ago.`
+    : `${notes} you sent are still waiting; the oldest has waited ${age}.`;
 }
 
 /**

@@ -92,9 +92,9 @@ describe("captain notices", () => {
 describe("notices keep the one voice", () => {
   const BACKSTAGE = /firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline|fm\//i;
 
-  it("scrubs every backstage term on every notice path, keeping the outcome", () => {
-    const cases: Array<[string, string]> = [
-      ["Firstmate has not read 3 notes you sent.", "3"],
+  it("never lets a backstage term reach George, keeping the counts", () => {
+    const cases: Array<[string, string | null]> = [
+      ["Firstmate has not read 3 notes you sent.", "3 notes"],
       ["Firstmate has not read 2 notes you sent; the oldest has waited 57 min.", "57 min"],
       ["Firstmate has not read 13 notes you sent; the oldest has waited 1 h 4 min.", "1 h 4 min"],
       ["Firstmate has not read 1 note you sent 4 min ago.", "1 note"],
@@ -108,9 +108,9 @@ describe("notices keep the one voice", () => {
       ["The Muse offered 5 notes.", "5 notes"],
       ["The Muses offered 5 notes.", "5 notes"],
       ["The Scout surfaced 4 stories.", "4 stories"],
-      ["Merged the fix on fm/island-filter; the island is quiet.", "island is quiet"],
-      ["Task id task-9 is stuck.", "work is stuck"],
-      ["Run id run-9 is stuck.", "work is stuck"],
+      ["Merged the fix on fm/island-filter; the island is quiet.", null],
+      ["Task id task-9 is stuck.", "9"],
+      ["Run id run-9 is stuck.", "9"],
       ["Merged the fix on the branch fm/x; 3 tests added.", "3 tests"],
       ["Fixed it in the worktree; 2 files changed.", "2 files"],
       ["The pipeline ran 5 checks.", "5 checks"],
@@ -118,43 +118,32 @@ describe("notices keep the one voice", () => {
     for (const [reply, kept] of cases) {
       const notice = captainNotice(run(reply));
       expect(notice, reply).toBeTruthy();
-      expect(notice!, reply).not.toMatch(BACKSTAGE);
-      expect(notice!, reply).toContain(kept);
-    }
-  });
-
-  it("fails a notice that cannot be rephrased closed to a neutral outcome line", () => {
-    const notice = captainNotice(run("Checked by 2 Firstmates."));
-    expect(notice).not.toBeNull();
-    expect(notice!).not.toMatch(BACKSTAGE);
-    expect(notice!).not.toContain("Firstmate");
-    expect(notice!).toContain("2");
-  });
-
-  it("scrubs decisions and failures too, not only completions", () => {
-    const decision = captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate asks: merge the branch fm/x or hold?" })));
-    expect(decision).not.toBeNull();
-    expect(decision!).not.toMatch(BACKSTAGE);
-    expect(decision!).toContain("decision");
-    const failure = captainNotice(run(JSON.stringify({ status: "failed", brief: "the branch fm/x is broken" })));
-    expect(failure).not.toBeNull();
-    expect(failure!.trim()).not.toBe("");
-    expect(failure!).not.toMatch(BACKSTAGE);
-    expect(failure!).not.toBe("Work hit a problem: is broken");
-  });
-
-  it("never renders a stranded fragment or an empty notice, falling back to the neutral outcome", () => {
-    expect(captainNotice(run("The fix is on fm/island-filter."))).toBe("There is an update on your work.");
-    expect(captainNotice(run("fm/x"))).toBe("There is an update on your work.");
-    expect(captainNotice(run(JSON.stringify({ status: "failed", brief: "the branch fm/x is broken" })))).toBe("There is an update on your work.");
-    expect(captainNotice(run("the worktree is dirty; 2 files changed"))).toBe("Update — 2");
-    expect(captainNotice(run("Firstmate has not read 3 notes you sent."))).toBe("Update — 3");
-    for (const reply of ["The fix is on fm/island-filter.", "fm/x", "the worktree is dirty; 2 files changed", "Firstmate has not read 3 notes you sent."]) {
-      const notice = captainNotice(run(reply));
-      expect(notice, reply).toBeTruthy();
       expect(notice!.trim(), reply).not.toBe("");
       expect(notice!, reply).not.toMatch(BACKSTAGE);
+      if (kept) expect(notice!, reply).toContain(kept);
     }
+  });
+
+  it("fails a notice that names machinery closed to a neutral outcome line", () => {
+    expect(captainNotice(run("Checked by 2 Firstmates."))).toBe("Update — 2.");
+  });
+
+  it("scrubs decisions and failures too, keeping them readable as a decision or a problem", () => {
+    const decision = captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate asks: merge the branch fm/x or hold?" })));
+    expect(decision).toBe("I need your decision: There is an update on your work.");
+    const failure = captainNotice(run(JSON.stringify({ status: "failed", brief: "the branch fm/x is broken" })));
+    expect(failure).toBe("Work hit a problem: There is an update on your work.");
+  });
+
+  it("never renders a fragment or an empty notice", () => {
+    expect(captainNotice(run("The fix is on fm/island-filter."))).toBe("There is an update on your work.");
+    expect(captainNotice(run("fm/x"))).toBe("There is an update on your work.");
+    expect(captainNotice(run("the worktree is dirty; 2 files changed"))).toBe("Update — 2 files.");
+    expect(captainNotice(run("Firstmate has not read 3 notes you sent."))).toBe("Update — 3 notes.");
+    expect(captainNotice(run("Merged the branch and deployed."))).toBe("There is an update on your work.");
+    expect(captainNotice(run("Dispatched a crewmate to fix the layout and pushed."))).toBe("There is an update on your work.");
+    expect(captainNotice(run("Firstmate merged the island filter."))).toBe("There is an update on your work.");
+    expect(captainNotice(run("Ready for review on the branch feature/dark-mode — 7 files changed."))).toBe("Update — 7 files.");
   });
 });
 

@@ -41,8 +41,8 @@ describe("unreadNotes", () => {
 
 describe("unreadWarning", () => {
   it("says how many notes firstmate has not read and how long the oldest has waited", () => {
-    expect(unreadWarning({ count: 13, oldest: ago(64 * 60_000), ids: [] }, NOW)).toBe("Firstmate has not read 13 notes you sent; the oldest has waited 1 h 4 min.");
-    expect(unreadWarning({ count: 1, oldest: ago(4 * 60_000), ids: [] }, NOW)).toBe("Firstmate has not read 1 note you sent 4 min ago.");
+    expect(unreadWarning({ count: 13, oldest: ago(64 * 60_000), ids: [] }, NOW)).toBe("13 notes you sent are still waiting; the oldest has waited 1 h 4 min.");
+    expect(unreadWarning({ count: 1, oldest: ago(4 * 60_000), ids: [] }, NOW)).toBe("You have 1 note still waiting — sent 4 min ago.");
   });
 
   it("puts long waits in hours and days", () => {
@@ -59,12 +59,12 @@ describe("UnreadNoteWatcher", () => {
     const watcher = new UnreadNoteWatcher(() => exchanges, notify, () => now);
 
     expect(await watcher.check()).toBe(true);
-    expect(notify).toHaveBeenCalledWith("Flyd", "Firstmate has not read 1 note you sent 5 min ago.");
+    expect(notify).toHaveBeenCalledWith("Flyd", "You have 1 note still waiting — sent 5 min ago.");
     expect(await watcher.check()).toBe(false);
 
     now += 3 * 60_000;
     expect(await watcher.check()).toBe(true);
-    expect(notify).toHaveBeenLastCalledWith("Flyd", "Firstmate has not read 2 notes you sent; the oldest has waited 8 min.");
+    expect(notify).toHaveBeenLastCalledWith("Flyd", "2 notes you sent are still waiting; the oldest has waited 8 min.");
 
     exchanges = [note("a", 8 * 60_000, "read"), note("b", 4 * 60_000, "read")];
     expect(await watcher.check()).toBe(false);

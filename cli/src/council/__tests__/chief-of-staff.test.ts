@@ -15,7 +15,7 @@ import type { DomainRun } from "../../command/types.js";
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
 const PLACEHOLDER = "Working on it";
 const INTERNAL_DECISION = "Firstmate's new turn-end guard needs your call: gate it behind config, or push back.";
-const SHOWN_INTERNAL_DECISION = "I need your decision: the new turn-end guard needs your call: gate it behind config, or push back.";
+const SHOWN_INTERNAL_DECISION = "I need your decision: There is an update on your work.";
 
 /** A Jev reply with the given probabilities, standing in for the TypeSafe API. */
 function jev(answers: Record<string, number>, sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = []): typeof fetch {

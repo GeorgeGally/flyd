@@ -25,58 +25,13 @@ export function hasBackstage(text: string): boolean {
   return firstBackstage(text) !== null;
 }
 
-const REWRITES: Array<[RegExp, string]> = [
-  [/\bfirstmate has not read (\d+) notes you sent; the oldest has waited (\d[\dh\s]*(?:min|h|days?))\.?/gi, "$1 notes you sent are still waiting; the oldest has waited $2."],
-  [/\bfirstmate has not read 1 note you sent (\d[\dh\s]*?(?:min|h|days?))\s+ago\b\.?/gi, "You have 1 note still waiting — sent $1 ago."],
-  [/\bfirstmate (?:asks|wants to know|is asking)\s*:?\s*/gi, ""],
-  [/\bfirstmate'?s\s+/gi, "the "],
-  [/\bfirstmate\b\s*/gi, ""],
-  [/\bcrewmembers?\b/gi, "I"],
-  [/\b(?:the\s+|a\s+|your\s+|our\s+)?crew ?mates?\b/gi, "I"],
-  [/\bsubagents?\b/gi, "I"],
-  [/\bjev\b/gi, "I"],
-  [/\b(?:the\s+)?(?:librarian|strategist|critic|muse|scout)s?\b/gi, "I"],
-  [/\b(?:the\s+)?council\b/gi, "I"],
-  [/\b(?:task|run)\s+id\s*[:#]?\s*[^\s,;.)]+/gi, "the work"],
-  [/\b(?:the\s+)?pipelines?\b/gi, "the checks"],
-  [/\s+(?:on|onto|in|to|from|off|using|via)\s+(?:the\s+|a\s+|your\s+|our\s+|its\s+)?(?:[\w./-]+\s+)?(?:branch|worktree)s?\b/gi, ""],
-  [/\b(?:the\s+|a\s+|your\s+|our\s+|its\s+)?(?:branch|worktree)s?\s+[A-Za-z0-9][\w./-]*/gi, ""],
-  [/\b(?:the\s+|a\s+|your\s+|our\s+|its\s+)?(?:branch|worktree)s?\b/gi, ""],
-  [/\s+\b(?:on|onto|in|to|from|off|using|via)\s+fm\/[\w.-]+/gi, ""],
-  [/\bfm\/[\w.-]+/gi, ""],
-  [/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/gi, ""],
-];
-
-function tidy(text: string): string {
-  return text
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .replace(/([,;:])\s*([.!?])/g, "$2")
-    .replace(/^[\s,;:—-]+/, "")
-    .trim()
-    .replace(/^([a-z])/, (c) => c.toUpperCase());
-}
+const COUNT_PHRASE = /\d+(?:\s+(?:\d+|(?:h|hrs?|hours?|mins?|minutes?|days?|weeks?|notes?|files?|items?|jobs?|tests?|checks?|requests?|memories|stories|plans?|ideas?|commits?|updates?|entries?|reports?|tasks?|fixes|points?|lines?|steps?|tickets?|issues?)))*/gi;
 
 function neutralOutcome(text: string): string {
-  const counts = text.match(/\d+/g);
-  return counts?.length ? `Update — ${counts.join(", ")}` : "There is an update on your work.";
-}
-
-const DANGLING_TAIL = /\b(?:the|a|an|of|to|for|on|in|at|by|with|as|and|or|but|is|are|was|were|be|been|being|has|have|had|will|would|can|could)\s*[.!?]?$/i;
-const CLAUSE_OPENS_ON_VERB = /[:;—–]\s*(?:is|are|was|were|be|been|being|has|have|had|do|does|did|will|would|shall|should|can|could|may|might|must)\b/i;
-const SAFE_HEAD = /^(?:the|a|an|this|that|these|those|your|our|my|its|his|her|their|every|all|some|any|no|i|you|we|they|he|she|it|there)\b/i;
-
-function strandedByRewrite(rewritten: string): boolean {
-  const text = rewritten.trim();
-  if (!text) return true;
-  if (/^[a-z]/.test(text) && !SAFE_HEAD.test(text)) return true;
-  if (DANGLING_TAIL.test(text)) return true;
-  return CLAUSE_OPENS_ON_VERB.test(text);
+  const amounts = (text.match(COUNT_PHRASE) ?? []).map((amount) => amount.replace(/\s+/g, " ").trim());
+  return amounts.length ? `Update — ${amounts.join(", ")}.` : "There is an update on your work.";
 }
 
 export function scrubBackstage(text: string): string {
-  const rewritten = REWRITES.reduce((t, [re, to]) => t.replace(re, to), text);
-  if (hasBackstage(rewritten)) return neutralOutcome(text);
-  if (rewritten !== text && strandedByRewrite(rewritten)) return neutralOutcome(text);
-  return tidy(rewritten);
+  return hasBackstage(text) ? neutralOutcome(text) : text;
 }
