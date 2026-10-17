@@ -419,11 +419,16 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
 
   // ── presentation (conversation-view/artefact-judge.ts) ────────────────
   {
-    id: "reply_is_artefact", family: "presentation", type: "noul",
-    instructions: "`reply` is an answer relayed to George in Flyd's conversation window. Is it mainly numbered steps he will carry out himself (settings to change, rules to add or delete, things to click, copy or run), so it is better kept as a checklist he works through than read once as a message? An explanation, a report of work already done, a list of options or findings, or advice to think about: no.",
-    threshold: 0.7, use: "gate", failureMode: "fallback_heuristic",
-    projection: ["reply"], evaluatorVersion: "reply_is_artefact.v1", status: "production",
-    consumer: "conversation-view/artefact-judge.ts ArtefactJudge: asked only for a reply with numbered steps the deterministic rule (summaries.ts replyArtefact) leaves unclear; ≥ threshold shows it as an artefact, else (or Jev off/failing) as text",
+    id: "reply_artefact_kind", family: "presentation", type: "choice",
+    instructions: "`reply` is an answer relayed to George in Flyd's conversation window, with numbered items. What are the items, for him?",
+    criteria: {
+      steps: "Steps he will carry out himself, in order (settings to change, rules to add or delete, things to click, copy or run), even when a step mentions a choice of value or a menu named Options.",
+      options: "A decision he has to make: the items are alternatives he chooses between, even with a recommendation.",
+      text: "An explanation, a report of work already done, a list of findings or causes, or general advice: read once, not worked through.",
+    },
+    threshold: 0.6, use: "choice", failureMode: "fallback_heuristic",
+    projection: ["reply"], evaluatorVersion: "reply_artefact_kind.v1", status: "production",
+    consumer: "conversation-view/artefact-judge.ts ArtefactJudge: asked only for a reply with numbered items the deterministic rule (summaries.ts replyArtefact) leaves unclear; steps or options at ≥ threshold confidence show it as an artefact labelled by that kind, else (or Jev off/failing) as text",
   },
 
   // ── proposed: model routing (replay only) ─────────────────────────────

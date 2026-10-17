@@ -3,19 +3,22 @@ import { familyEgress, predicateThreshold, questionFor } from "../cognition/syst
 
 const KEEP = 50;
 
+/** What a reply's numbered items are to him: steps to carry out, options to choose between, or text to read. */
+export type ReplyKind = "steps" | "options" | "text";
+
 /**
- * Flyd's call on a reply whose numbered steps the rules leave unclear: an
- * artefact he works through, or text he reads. One Jev question
- * (`reply_is_artefact`, benched in the System-1 replay suite) per reply text,
- * remembered for the newest few. A failed call reads as text.
+ * Flyd's call on a reply whose numbered items the rules leave unclear: steps
+ * or options he works through as an artefact, or text he reads. One Jev
+ * question (`reply_artefact_kind`, benched in the System-1 replay suite) per
+ * reply text, remembered for the newest few. A failed or unsure call reads as text.
  */
 export class ArtefactJudge {
-  private readonly judged = new Map<string, boolean>();
+  private readonly judged = new Map<string, ReplyKind>();
   private readonly asking = new Set<string>();
 
   constructor(private readonly options: { apiKey: string; model?: string; fetchFn?: typeof fetch }) {}
 
-  cached(text: string): boolean | undefined {
+  cached(text: string): ReplyKind | undefined {
     return this.judged.get(text);
   }
 
@@ -27,15 +30,16 @@ export class ArtefactJudge {
     if (this.judged.has(text) || this.asking.has(text)) return;
     this.asking.add(text);
     try {
-      const question = questionFor("reply_is_artefact");
+      const question = questionFor("reply_artefact_kind");
       const result = await evaluatePredicates(projectJevState({ reply: text }), [question], {
         apiKey: this.options.apiKey,
         model: this.options.model ?? JEV_PINNED_MODEL,
         timeoutMs: 3_000,
         ...(this.options.fetchFn ? { fetchFn: this.options.fetchFn } : {}),
       }, familyEgress("presentation"));
-      const p = result.answers[question.id]?.probability;
-      this.judged.set(text, result.ok && p !== undefined && p >= predicateThreshold("reply_is_artefact"));
+      const answer = result.answers[question.id];
+      const kind = result.ok && answer && answer.confidence >= predicateThreshold("reply_artefact_kind") ? answer.choice : undefined;
+      this.judged.set(text, kind === "steps" || kind === "options" ? kind : "text");
       for (const old of [...this.judged.keys()].slice(0, Math.max(0, this.judged.size - KEEP))) this.judged.delete(old);
     } finally {
       this.asking.delete(text);

@@ -36,7 +36,7 @@ import type { ActivityPanel, ActivityReader } from "./activity.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
 import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote } from "./replies.js";
-import { answeredForHim, choiceOf, choiceTarget, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
+import { answered, answeredForHim, choiceOf, choiceTarget, labelOf, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import type { AutoAnswers } from "./auto-answers.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
@@ -188,8 +188,8 @@ type Handled = (text: string) => boolean;
 
 /**
  * The replies whose steps the column's Artefacts keeps, by message id: the
- * newest few the rule calls clear or Flyd's judge has said are artefacts. The
- * window points only these there.
+ * newest few the rule calls clear steps or Flyd's judge has called steps or
+ * options. The window points only these there.
  */
 function railReplies(messages: ConversationMessage[], judge?: ArtefactJudge): Map<string, ReplyArtefact> {
   const kept = new Map<string, ReplyArtefact>();
@@ -197,9 +197,28 @@ function railReplies(messages: ConversationMessage[], judge?: ArtefactJudge): Ma
     if (kept.size >= MAX_REPLY_ARTEFACTS) break;
     if (message.role !== "assistant" || kept.has(message.id)) continue;
     const call = replyArtefact(message.text);
-    if (call && (call.clear || judge?.cached(message.text) === true)) kept.set(message.id, call.artefact);
+    if (!call) continue;
+    const kind = call.clear ? "steps" : judge?.cached(message.text);
+    if (kind === "steps" || kind === "options") kept.set(message.id, replyArtefact(message.text, kind)!.artefact);
   }
   return kept;
+}
+
+/**
+ * The column's cards for those replies: steps as a numbered list, options as
+ * a choice whose tap answers the reply with that option, until he has
+ * answered it. A reply that closes on its own question is answered in the
+ * card under it in the window; its options here are only listed.
+ */
+export function replyCards(messages: ConversationMessage[], judge?: ArtefactJudge): RailArtefact[] {
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  return [...railReplies(messages, judge)].map(([id, artifact]) => {
+    if (!artifact.options) return { id: `reply:${id}`, title: artifact.title, steps: artifact.steps };
+    const message = byId.get(id)!;
+    const choice: ReplyChoice = { question: artifact.title, options: artifact.steps.map(labelOf) };
+    const open = !choiceOf(message.text) && !answered(messages, message, choice);
+    return { id: `reply:${id}`, title: artifact.title, choice: { ...choice, ...(open ? { replyTo: choiceTarget(message) } : {}) } };
+  });
 }
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
@@ -323,7 +342,7 @@ export class SnapshotDiffer {
       // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
       const handled = message.role === "assistant" ? handledBy(answered.get(choiceTarget(message))) : undefined;
       const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
-        : artifact ? { body: message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} steps, kept in Artefacts.`), source: "flyd" } }
+        : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
           : !message.answers ? this.summarize(message, fresh, handled)
             : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh, handled)
               : { body: message.text };
@@ -754,7 +773,7 @@ export class ConversationViewServer {
         ...(item.at ? { at: item.at } : {}),
       }));
     // The same replies the window points here, each once, newest first.
-    const reported: RailArtefact[] = [...railReplies(snapshot.messages, this.summaries?.artefacts)].map(([id, artifact]) => ({ id: `reply:${id}`, title: artifact.title, steps: artifact.steps }));
+    const reported = replyCards(snapshot.messages, this.summaries?.artefacts);
     const artefacts: RailArtefact[] = [...sites, ...reported, ...composeArtefact(this.feed.current(), { project })
       .filter((item) => item.kind !== "call")
       .map((item) => ({

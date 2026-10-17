@@ -91,6 +91,14 @@ describe("choiceOf", () => {
     expect(choiceOf("Ready when you are. Pick the ones you want built, from the page in Flyd or here.")).toBeNull();
   });
 
+  it("offers the ones a lead-in asks him to pick, above or below its list, any number of them", () => {
+    // The ask is the line right above the list, in the same block or after a blank line.
+    expect(choiceOf("Pick the ones you want:\n1. Wildcard rule\n2. Separate rules")).toEqual({ question: "Pick the ones you want?", options: ["Wildcard rule", "Separate rules"], multiple: true });
+    expect(choiceOf("Pick the ones you want:\n\n1. Wildcard rule\n2. Separate rules")).toEqual({ question: "Pick the ones you want?", options: ["Wildcard rule", "Separate rules"], multiple: true });
+    // Picking one is a single choice, not several.
+    expect(choiceOf("Pick one:\n1. Wildcard rule\n2. Separate rules")).toEqual({ question: "Pick one?", options: ["Wildcard rule", "Separate rules"] });
+  });
+
   it("puts several questions listed at the end one at a time, never offering one as the answer to another", () => {
     expect(choiceOf(OPEN_QUESTIONS)).toEqual({
       question: "Still waiting on you",

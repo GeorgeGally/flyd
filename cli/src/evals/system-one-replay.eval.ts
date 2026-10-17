@@ -77,7 +77,7 @@ const BASELINES: Record<string, BaselineFn> = {
     memory: [{ id: "c", section: "Facts", text: text(inputs, "candidate"), tier: "aging", date: "2026-09-27" }],
   }).length > 0,
   // Without the judge, only steps the rule calls clear become an artefact.
-  reply_is_artefact: (inputs) => replyArtefact(text(inputs, "reply"))?.clear ?? false,
+  reply_artefact_kind: (inputs) => replyArtefact(text(inputs, "reply"))?.clear ? "steps" : "text",
   // Every invocation that reaches a model uses the main model today.
   needs_reasoning_model: () => true,
   // outcome_supported: the incumbent is an LLM judge (transitions/judge.ts); no deterministic baseline.
@@ -192,10 +192,11 @@ describe("System-1 replay bench", () => {
     }
     expect(predicateReport(report, "cos_internal_decision").rows.every((r) => r.jev === r.label)).toBe(true);
 
-    // reply_is_artefact: steps the rule leaves unclear (a step opening "Order:"
-    // or naming a menu path) are an artefact; done-reports, options, causes
-    // and findings stay text.
-    const artefact = predicateReport(report, "reply_is_artefact").rows;
+    // reply_artefact_kind: steps the rule leaves unclear (a step opening
+    // "Order:", naming a menu path, a value "301 or 302", a menu called
+    // Options) are steps; alternatives to choose between are options;
+    // done-reports, causes and findings stay text.
+    const artefact = predicateReport(report, "reply_artefact_kind").rows;
     expect(artefact.filter((r) => r.jev !== r.label)).toEqual([]);
     // ...and Jev proposes no false lifecycle closure on the curator set, where
     // today's regex closes projects from questions.

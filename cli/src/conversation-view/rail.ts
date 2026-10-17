@@ -1,3 +1,4 @@
+import type { ReplyChoice } from "./choices.js";
 import type { PortServer } from "./port-server.js";
 import type { ServedBy } from "./preview-probe.js";
 import type { WorkState } from "./executive.js";
@@ -65,6 +66,8 @@ export interface RailArtefact {
   title: string;
   line?: string;
   steps?: string[];
+  /** Options a reply put to him: while it waits on him (`replyTo`), one tap answers the reply with that option; else only listed. */
+  choice?: ReplyChoice & { replyTo?: string };
   url?: string;
   /** A live local URL to show inline in the column. */
   preview?: string;

@@ -59,7 +59,7 @@ const TABLE_ROW = /^\s*\|(.*)\|\s*$/;
 const TABLE_RULE = /^\s*\|[\s:|-]*-[\s:|-]*\|?\s*$/;
 
 /** What a listed item is called: its bold lead-in, else its first clause, short. */
-function labelOf(text: string): string {
+export function labelOf(text: string): string {
   const bold = /^\*\*(.+?)\*\*/.exec(text.trim());
   const said = inline(bold ? bold[1]! : text).replace(/[:.]+$/, "").trim();
   const clause = bold ? said : said.split(/\s+[—–-]\s+|:\s|(?<=[a-z])\.\s/)[0]!.trim();
@@ -159,7 +159,7 @@ function yesToAll(question: string): string {
   return /\bboth\b/i.test(question) ? "Yes, both" : "Yes, all of them";
 }
 
-const PICK_ONES = /\b(?:pick|choose|select)\b[^.?!]{0,50}?\b(?:ones?|some|these|those|any|all|each|two|three|four|five|six|\d+)\b/i;
+const PICK_ONES = /\b(?:pick|choose|select)\b[^.?!]{0,50}?\b(?:ones|some|these|those|any|all|each|two|three|four|five|six|\d+)\b/i;
 
 /** One option per listed item: "Only 1: Press feedback". */
 function onlyOne(item: Listed): string {
@@ -206,7 +206,7 @@ export function choiceOf(text: string): ReplyChoice | null {
     return { question: question.replace(/\?$/, ""), options: [], steps: after.map((item) => stepOf(item.text)) };
   }
   // Options listed under the question are the choice.
-  if (after.length >= 2 && after.length <= MAX_OPTIONS) return { question, options: after.map((item) => item.label) };
+  if (after.length >= 2 && after.length <= MAX_OPTIONS) return { question, options: after.map((item) => item.label), ...(PICK_ONES.test(sentence) ? { multiple: true } : {}) };
   const either = alternatives(sentence);
   if (either.length) return { question, options: either };
   const set = numberedSet(before);
@@ -247,30 +247,15 @@ export function openChoice(
   messages: ConversationMessage[],
   routine: (message: ConversationMessage) => boolean = () => false,
 ): { message: ConversationMessage; choice: ReplyChoice } | null {
-  // His newest word on each question he replied to: answered, or Flyd's answer taken back.
-  const replied = new Map<string, boolean>();
   const flyds = answeredForHim(messages);
-  const later: ConversationMessage[] = [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
-    if (message.role === "user") {
-      if (message.replyTo) {
-        if (message.answeredFor === undefined && !replied.has(message.replyTo)) replied.set(message.replyTo, !message.undoes);
-        continue;
-      }
-      // Typed into the session itself, which saw its own question: whatever he said, the session has its answer.
-      if (!/^(?:note|ask):/.test(message.id)) return null;
-      later.push(message);
-      continue;
-    }
-    if (routine(message)) continue;
+    if (message.role === "user" || routine(message)) continue;
     const asked = choiceOf(message.text);
     if (!asked) continue;
-    if (replied.get(choiceTarget(message)) === true) return null;
+    if (answered(messages, message, asked)) return null;
     const choice = leftToHim(asked, flyds.get(choiceTarget(message)));
-    if (!choice) return null;
-    if (later.some((note) => answersIt(note, choice))) return null;
-    return { message, choice };
+    return choice ? { message, choice } : null;
   }
   return null;
 }
@@ -303,6 +288,28 @@ function leftToHim(choice: ReplyChoice, answered: Set<string> | undefined): Repl
   if (steps.length === choice.steps.length) return choice;
   if (steps.length === 0) return null;
   return steps.length === 1 ? { question: steps[0]!.question, options: steps[0]!.options } : { ...choice, steps };
+}
+
+/**
+ * Whether he has answered a reply's choice since it came: his newest reply to
+ * it (unless he took Flyd's answer back), anything he typed into the session
+ * itself, or a note that reads as an answer. Pure.
+ */
+export function answered(messages: ConversationMessage[], reply: ConversationMessage, choice: ReplyChoice): boolean {
+  const target = choiceTarget(reply);
+  let replied: boolean | undefined;
+  for (let index = messages.length - 1; index > messages.indexOf(reply); index -= 1) {
+    const message = messages[index]!;
+    if (message.role !== "user") continue;
+    if (message.replyTo) {
+      if (message.answeredFor === undefined && message.replyTo === target && replied === undefined) replied = !message.undoes;
+      continue;
+    }
+    // Typed into the session itself, which saw its own question: whatever he said, the session has its answer.
+    if (!/^(?:note|ask):/.test(message.id)) return true;
+    if (answersIt(message, choice)) return true;
+  }
+  return replied === true;
 }
 
 /**

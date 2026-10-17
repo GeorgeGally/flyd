@@ -144,11 +144,14 @@ const ACT_ON = /(?:^\s*(?:\d+[.)]\s+|[-*+]\s+)?|[.!?:]\s+)(?:(?:captain|sir|geor
  * A numbered step that tells him what to do: an imperative, after an optional
  * "Then", "Next" or the place to do it ("In MyKinsta, delete…").
  */
-const STEP = /^(?:(?:then|next|now|finally|first|also|after that),?\s+|in\s+[^,\n]{1,40},\s+)*(?:add|delete|remove|keep|move|set|enter|copy|paste|put|type|replace|choose|select|pick|open|click|go|save|check|run|update|change|edit|clear|install|create|make|turn|enable|disable|send|reply|review|compare|use|leave|point|switch|drag|log)\b/i;
+const STEP = /^(?:(?:then|next|now|finally|first|also|after that),?\s+|in\s+[^,\n]{1,40},\s+)*(?:add|delete|remove|move|set|enter|copy|paste|put|type|replace|open|click|save|run|update|change|edit|clear|install|create|enable|disable|send|drag|log)\b/i;
 
-/** Every numbered step of a reply carries out an instruction, and there are at least two. */
-function allSteps(steps: string[]): boolean {
-  return steps.length >= 2 && steps.every((step) => STEP.test(step));
+/** Words that may make numbered items a choice between them rather than steps to carry out: Flyd's judge decides. */
+const CHOICES = /\b(?:options?|ways|either|alternatives?)\b|\sor\s/i;
+
+/** At least two numbered steps, each one an instruction to carry out, and no word of a choice among them. */
+function clearSteps({ intro, steps }: { intro: string; steps: string[] }): boolean {
+  return steps.length >= 2 && !CHOICES.test(intro) && !steps.some((step) => CHOICES.test(step)) && steps.every((step) => STEP.test(step));
 }
 
 /**
@@ -160,7 +163,7 @@ function allSteps(steps: string[]): boolean {
 export function isActionable(text: string): boolean {
   if (/^\s*```/m.test(text)) return true;
   if (/^\s*\|.*\|\s*\n\s*\|[\s:|-]*-[\s:|-]*\|?\s*$/m.test(text)) return true;
-  if (allSteps(stepsOf(text).steps)) return true;
+  if (clearSteps(stepsOf(text))) return true;
   return ACT_ON.test(text.replace(/`[^`]*`/g, ""));
 }
 
@@ -208,18 +211,25 @@ function stepsOf(text: string): { intro: string; steps: string[] } {
 export interface ReplyArtefact {
   title: string;
   steps: string[];
+  /** The items are options to choose between, not steps to carry out. */
+  options?: true;
 }
 
 /**
- * The steps a reply hands him, as an artefact to work from. `clear` when every
- * step is one to carry out (the same rule `isActionable` reads); otherwise the
- * steps are a candidate Flyd judges. None under two steps.
+ * The numbered items a reply hands him, as an artefact to work from, read
+ * after the reply's own "» " summary lines and shown as `kind`. `clear` when
+ * every item is a step to carry out and none is a choice (the same rule
+ * `isActionable` reads); otherwise Flyd's judge says what the items are.
+ * None under two items.
  */
-export function replyArtefact(text: string): { artefact: ReplyArtefact; clear: boolean } | undefined {
-  const { intro, steps } = stepsOf(text);
+export function replyArtefact(text: string, kind: "steps" | "options" = "steps"): { artefact: ReplyArtefact; clear: boolean } | undefined {
+  const parts = stepsOf(authorSummary(text)?.rest ?? text);
+  const { intro, steps } = parts;
   if (steps.length < 2) return undefined;
+  const options = kind === "options";
   const lead = sentences(intro.replace(SALUTATION, ""))[0]?.replace(/[.:!]+$/, "").trim();
-  return { artefact: { title: lead ? clip(capitalise(lead), 70) : "Steps to follow", steps }, clear: allSteps(steps) };
+  const title = lead ? clip(capitalise(lead), 70) : options ? "Options to choose from" : "Steps to follow";
+  return { artefact: { title, steps, ...(options ? { options: true as const } : {}) }, clear: clearSteps(parts) };
 }
 
 const ASKS_ARTEFACT = /\b(?:in|as|into)\s+(?:an?|some|the)?\s*(?:[\w'-]+\s+){0,2}artefacts?\b|\b(?:make|build|create|give|send|show|turn|render|produce|draft|write|put|do|explain)\b[^.!?\n]{0,40}?\bartefacts?\b/i;

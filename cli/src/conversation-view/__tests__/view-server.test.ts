@@ -9,7 +9,7 @@ import type { ConversationMessage, Exchange } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ActivityReader } from "../activity.js";
 import { ArtefactFeed } from "../artefact.js";
-import { ConversationViewServer, SnapshotDiffer } from "../server.js";
+import { ConversationViewServer, replyCards, SnapshotDiffer } from "../server.js";
 import { AutoAnswers } from "../auto-answers.js";
 import { ComposerPredictions } from "../composer-predictions.js";
 import { ComposerDrafts } from "../drafts.js";
@@ -71,7 +71,7 @@ describe("pasted code in the captain's messages", () => {
 
 describe("SnapshotDiffer", () => {
   it("points an actionable numbered reply at Artefacts and keeps the whole reply behind it", () => {
-    const steps = "Captain, update the redirect rules in Kinsta.\n\n1. Delete the existing catch-all rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.\n3. Keep the specific redirect rules above the general rule.\n\nOrder matters: specifics stay above.";
+    const steps = "Captain, update the redirect rules in Kinsta.\n\n1. Delete the existing catch-all rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.\n3. Move the specific redirect rules above the general rule.\n\nOrder matters: specifics stay above.";
     const differ = new SnapshotDiffer();
     const update = differ.next({ messages: [{ id: "answer", role: "assistant", text: steps, answers: "note:redirects" }], working: false });
     expect(update.messages[0]?.summary).toEqual({ html: "<p><strong>Update the redirect rules in Kinsta</strong>: 3 steps, kept in Artefacts.</p>\n", source: "flyd" });
@@ -79,7 +79,7 @@ describe("SnapshotDiffer", () => {
     expect(update.messages[0]?.artifact).toEqual({ title: "Update the redirect rules in Kinsta", steps: [
       "Delete the existing catch-all rule.",
       "Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.",
-      "Keep the specific redirect rules above the general rule.",
+      "Move the specific redirect rules above the general rule.",
     ] });
 
     const plain = differ.next({ messages: [{ id: "plain", role: "assistant", text: "Yes, the specific rules should stay above the general rule.", answers: "note:redirects" }], working: false });
@@ -154,14 +154,14 @@ describe("SnapshotDiffer summaries", () => {
     return { summarizer, landed: () => landed, onSummary: () => (landed += 1) };
   }
 
-  function jev(probability: number): { judge: ArtefactJudge; release: () => void; asked: () => number } {
+  function jev(kind: string, confidence = 0.9): { judge: ArtefactJudge; release: () => void; asked: () => number } {
     let asked = 0;
     let release!: () => void;
     const answered = new Promise<void>((resolve) => (release = resolve));
     const fetchFn = (async () => {
       asked += 1;
       await answered;
-      return { ok: true, status: 200, json: async () => ({ model: "jev-1.13.0", answers: { reply_is_artefact: { type: "noul", noul: probability } }, usage: { input_tokens: 10, output_tokens: 1 } }) };
+      return { ok: true, status: 200, json: async () => ({ model: "jev-1.13.0", answers: { reply_artefact_kind: { type: "choice", choice: kind, confidence, probabilities: { [kind]: confidence } } }, usage: { input_tokens: 10, output_tokens: 1 } }) };
     }) as unknown as typeof fetch;
     return { judge: new ArtefactJudge({ apiKey: "test", fetchFn }), release, asked: () => asked };
   }
@@ -179,7 +179,7 @@ describe("SnapshotDiffer summaries", () => {
   it("lets Flyd's judge decide unclear steps, holding the summary until it has", async () => {
     let calls = 0;
     const model = withModel(async () => (calls++, "x"));
-    const { judge, release, asked } = jev(0.92);
+    const { judge, release, asked } = jev("steps");
     const differ = new SnapshotDiffer({ ...model, artefacts: judge });
     const reply = `${unclear}\n\n${long}`;
     const first = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
@@ -194,8 +194,82 @@ describe("SnapshotDiffer summaries", () => {
     expect(asked()).toBe(1);
   });
 
+  it("labels options Flyd's judge keeps as options, never steps", async () => {
+    const { judge, release } = jev("options");
+    const differ = new SnapshotDiffer({ artefacts: judge });
+    const reply = "Two ways to fix it:\n1. Use a wildcard rule — simpler.\n2. Keep separate rules — more control.";
+    expect(differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!.artifact).toBeUndefined();
+    release();
+    await vi.waitFor(() => expect(judge.cached(reply)).toBe("options"));
+    const judged = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
+    expect(judged.summary).toEqual({ html: "<p><strong>Two ways to fix it</strong>: 2 options, kept in Artefacts.</p>\n", source: "flyd" });
+  });
+
+  it("labels steps that mention a choice as steps when Flyd's judge says they are", async () => {
+    for (const [reply, title] of [
+      ["Captain, fix the redirects.\n1. In MyKinsta, delete the ^/$ rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301 or 302.", "Fix the redirects"],
+      ["1. Open Settings → Options.\n2. Click Save.", "Steps to follow"],
+    ] as const) {
+      const { judge, release } = jev("steps");
+      const differ = new SnapshotDiffer({ artefacts: judge });
+      differ.next({ messages: [message("r1", reply)], working: false });
+      release();
+      await vi.waitFor(() => expect(judge.cached(reply)).toBe("steps"));
+      const judged = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
+      expect(judged.summary).toEqual({ html: `<p><strong>${title}</strong>: 2 steps, kept in Artefacts.</p>\n`, source: "flyd" });
+    }
+  });
+
+  it("puts options in the column as a choice that answers the reply, and steps as a list", async () => {
+    const { judge, release } = jev("options");
+    const options = "Two ways to fix it:\n1. Use a wildcard rule — simpler.\n2. Keep separate rules — more control.";
+    const steps = "Captain, fix the redirects.\n\n1. Delete the ^/$ rule.\n2. Add ^/(.*)$ as a 301.";
+    const messages = [
+      { id: "r1", role: "assistant" as const, text: options, answers: "note:1" },
+      { id: "r2", role: "assistant" as const, text: steps },
+    ];
+    void judge.request(options);
+    release();
+    await vi.waitFor(() => expect(judge.cached(options)).toBe("options"));
+    expect(replyCards(messages, judge)).toEqual([
+      { id: "reply:r2", title: "Fix the redirects", steps: ["Delete the ^/$ rule.", "Add ^/(.*)$ as a 301."] },
+      { id: "reply:r1", title: "Two ways to fix it", choice: { question: "Two ways to fix it", options: ["Use a wildcard rule", "Keep separate rules"], replyTo: "note:1" } },
+    ]);
+    // Answered, by a tap or in his own words, the options are only listed: one tap never answers twice.
+    const listed = { id: "reply:r1", title: "Two ways to fix it", choice: { question: "Two ways to fix it", options: ["Use a wildcard rule", "Keep separate rules"] } };
+    expect(replyCards([messages[0]!, { id: "u1", role: "user", text: "Use a wildcard rule", replyTo: "note:1" }], judge)).toEqual([listed]);
+    expect(replyCards([messages[0]!, { id: "note:2", role: "user", text: "use a wildcard rule, please" }], judge)).toEqual([listed]);
+    expect(replyCards([messages[0]!, { id: "note:2", role: "user", text: "also, the footer is off" }], judge)[0]!.choice!.replyTo).toBe("note:1");
+    // A reply that closes on its own question is answered in the window's card, never a second one here.
+    const asks = `${options}\n\nWhich do you want?`;
+    const asked = jev("options");
+    void asked.judge.request(asks);
+    asked.release();
+    await vi.waitFor(() => expect(asked.judge.cached(asks)).toBe("options"));
+    expect(replyCards([{ id: "r1", role: "assistant", text: asks, answers: "note:1" }], asked.judge)[0]!.choice!.replyTo).toBeUndefined();
+  });
+
+  it("keeps items as text when Flyd's judge is unsure of their kind", async () => {
+    const { judge, release } = jev("options", 0.4);
+    const differ = new SnapshotDiffer({ artefacts: judge });
+    const reply = "Two ways to fix it:\n1. Use a wildcard rule — simpler.\n2. Keep separate rules — more control.";
+    differ.next({ messages: [message("r1", reply)], working: false });
+    release();
+    await vi.waitFor(() => expect(judge.cached(reply)).toBe("text"));
+    const [rendered] = new SnapshotDiffer({ artefacts: judge }).next({ messages: [message("r1", reply)], working: false }).messages;
+    expect(rendered!.artifact).toBeUndefined();
+    expect(rendered!.html).toContain("Use a wildcard rule");
+  });
+
+  it("keeps the reply's own » summary lines out of an artefact's title and body", () => {
+    const reply = "» Fixed the redirects plan.\n\nCaptain, finish the redirects.\n\n1. Delete the ^/$ rule.\n2. Add ^/(.*)$ as a 301.";
+    const [rendered] = new SnapshotDiffer().next({ messages: [message("r1", reply)], working: false }).messages;
+    expect(rendered!.artifact?.title).toBe("Finish the redirects");
+    expect(rendered!.html).not.toContain("Fixed the redirects plan");
+  });
+
   it("re-renders while the judge is out without asking it again", async () => {
-    const { judge, release, asked } = jev(0.92);
+    const { judge, release, asked } = jev("steps");
     let renders = 0;
     const reply = `${unclear}\n\n${long}`;
     const snapshot = { messages: [message("r1", reply)], working: false };
@@ -214,7 +288,7 @@ describe("SnapshotDiffer summaries", () => {
   it("keeps unclear steps as text when Flyd's judge says so", async () => {
     let calls = 0;
     const model = withModel(async () => (calls++, "Redirects explained."));
-    const { judge, release } = jev(0.2);
+    const { judge, release } = jev("text");
     const differ = new SnapshotDiffer({ ...model, artefacts: judge });
     const reply = `${unclear}\n\n${long}`;
     differ.next({ messages: [message("r1", reply)], working: false });
