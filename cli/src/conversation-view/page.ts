@@ -452,6 +452,11 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail[hidden] { display: none; }
 :root[data-rail="on"] main { margin-right: calc(min(430px, 34vw) + 1.5em); }
 :root[data-rail="on"] .composer .row { margin-right: calc(min(430px, 34vw) + 1.875em); }
+/* At phone width the column is the screen, not a sliver beside it. */
+@media (max-width: 720px) {
+  .rail { width: 100vw; font-size: 0.8em; }
+  :root[data-rail="on"] main, :root[data-rail="on"] .composer .row { margin-right: 0; }
+}
 .rail-hide {
   position: absolute; top: 10px; right: 10px; z-index: 1; font: 500 14px/1 var(--sans); color: var(--muted);
   background: transparent; border: 0; cursor: pointer; padding: 6px 8px; border-radius: 6px; transition: color 140ms ease;
@@ -459,46 +464,46 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-hide:hover { color: var(--fg); }
 .rail-hide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rail-tabs { display: flex; gap: 20px; padding: 14px 18px 10px; }
-.rail-tabs button { padding: 0 0 5px; border: 0; border-bottom: 1px solid transparent; background: none; color: var(--muted); font: 500 13px/1.2 var(--mono); cursor: pointer; }
+.rail-tabs button { padding: 0 0 6px; border: 0; border-bottom: 1px solid transparent; background: none; color: var(--muted); font: 500 14px/1.2 var(--sans); cursor: pointer; }
 .rail-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 .rail-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .rail-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
 /* Each pane scrolls as one column: the brief and the body move together under the pinned tabs. */
 .rail-pane[hidden] { display: none; }
 /* The top of the column: one decision that needs him, the jobs under way, and what got done. */
-.brief { flex: none; padding: 18px 18px 6px; border-bottom: 1px solid var(--faint); }
+.brief { flex: none; padding: 20px 20px 10px; border-bottom: 1px solid var(--faint); }
 .brief[hidden], .brief > [hidden] { display: none; }
-.brief > section + section { margin-top: 22px; }
-.brief-top { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; padding-right: 32px; }
-.brief-label { margin: 0; font: 600 13px/1.2 var(--mono); letter-spacing: 0.02em; text-transform: uppercase; color: var(--muted); }
+.brief > section + section { margin-top: 28px; }
+.brief-top { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; padding-right: 32px; }
+.brief-label { margin: 0; font: 600 14px/1.2 var(--sans); color: var(--muted); }
 .needs .brief-label { color: var(--k-call); }
-.needs-nav { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; font: 500 13px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.needs-nav { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; font: 500 13px/1 var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
 .needs-nav button { font: inherit; color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 4px 8px; cursor: pointer; transition: color 140ms ease; }
 .needs-nav button:hover { color: var(--fg); }
 .needs-nav button:disabled { opacity: 0.35; cursor: default; }
 .needs-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.needs-meta { margin: 0 0 4px; font: 400 12px/1.4 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.needs-meta { margin: 0 0 6px; font: 400 13px/1.4 var(--sans); color: var(--muted); }
 .needs-head { margin: 0; font: 500 18px/1.35 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
-.needs-detail { margin: 8px 0 0; font: 400 15px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
-.needs-rec { margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, transparent); font: 400 15px/1.5 var(--sans); color: var(--strong); text-wrap: pretty; }
-.needs-rec b { display: block; margin-bottom: 2px; font: 600 12px/1.3 var(--mono); letter-spacing: 0.02em; color: var(--accent); }
-.needs .call-link { display: inline-block; margin: 10px 14px 0 0; font: 500 14px/1.4 var(--sans); color: var(--link); text-decoration: none; }
-.needs .scene-ask { margin-top: 14px; max-width: none; gap: 10px; }
+.needs-detail { margin: 10px 0 0; font: 400 15px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
+.needs-rec { margin: 14px 0 0; font: 400 15px/1.5 var(--sans); color: var(--strong); text-wrap: pretty; }
+.needs-rec b { display: block; margin-bottom: 2px; font: 600 13px/1.3 var(--sans); color: var(--accent); }
+.needs .call-link { display: inline-block; margin: 18px 16px 0 0; font: 500 14px/1.4 var(--sans); color: var(--link); text-decoration: none; }
+.needs .scene-ask { margin-top: 20px; max-width: none; gap: 10px; }
 .needs .scene-ask .choices { grid-template-columns: 1fr; gap: 6px; }
-.brief-list ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-/* Each item gets the quiet raised treatment used by conversation cards. */
-.brief-list li { display: block; min-width: 0; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
+.brief-list ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+/* One container style for the whole column: the quiet raised tint, no borders, no second box inside it. */
+.brief-list li { display: block; min-width: 0; padding: 14px 16px 15px; border-radius: 12px; background: var(--tint); }
 #underway li::before { content: ""; float: left; width: 6px; height: 6px; margin: 7px 8px 0 0; border-radius: 50%; background: var(--k-live); }
 .brief-line { display: block; min-width: 0; font: 400 15px/1.45 var(--sans); color: var(--fg); white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
 .brief-line a { color: inherit; text-decoration: none; }
 .brief-line a:hover { color: var(--link); }
-.brief-meta { display: block; margin-top: 6px; font: 400 11px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.brief-meta { display: block; margin-top: 6px; font: 400 13px/1.4 var(--sans); color: var(--muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 #done .brief-line { font-weight: 500; color: var(--strong); }
-.brief-more { margin: 6px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
+.brief-more { margin: 12px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .brief-more:hover { color: var(--fg); }
 .brief-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.rail-body { flex: 1 0 auto; padding: 8px 18px 40px; }
-.rail-section { margin: 18px 0 8px; font: 600 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
+.rail-body { flex: 1 0 auto; padding: 12px 20px 40px; }
+.rail-section { margin: 24px 0 10px; font: 600 14px/1.2 var(--sans); color: var(--muted); }
 /* One row per message he sent: his words plainly, where it stands, and its own answer under it. */
 .rail-talk { margin: 0; }
 .rail-body > .rail-talk { padding: 14px 0 15px; border-top: 1px solid var(--faint); }
@@ -508,8 +513,8 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-about a { color: var(--link); text-decoration: none; }
 .rail-about a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .rail-a { margin: 8px 0 0; font: 400 15px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
-.rail-when { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font: 400 11px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.rail-state { font: 500 12px/1.4 var(--sans); }
+.rail-when { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; font: 400 13px/1.4 var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rail-state { font: 500 13px/1.4 var(--sans); }
 .rail-state--needs { color: var(--k-call); }
 .rail-state--underway { color: var(--k-live); }
 /* Scannable at a glance: each message is one line, its answer at most two faded
@@ -519,34 +524,34 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-talk:not(.open) > .rail-a * { display: inline; margin: 0; }
 .rail-talk:not(.open) > .reply { display: none; }
 .rail-talk.is-done:not(.open) > .rail-q { color: var(--muted); font-weight: 400; }
-.rail-card { margin: 0 0 22px; border: 1px solid var(--faint); border-radius: 10px; overflow: hidden; }
-.rail-card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font: 500 14px/1.3 var(--mono); color: var(--fg); }
+.rail-card { margin: 0 0 24px; border-radius: 12px; background: var(--tint); overflow: hidden; }
+.rail-card-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; font: 500 15px/1.35 var(--sans); color: var(--strong); }
 .rail-card-head a { color: var(--link); text-decoration: none; margin-left: auto; white-space: nowrap; }
-.rail-card p { margin: 0; padding: 0 12px 10px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
+.rail-card p { margin: 0; padding: 0 16px 12px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
 .rail-a-md { white-space: normal; }
 .rail-a-md p { margin: 0 0 8px; padding: 0; font: inherit; color: inherit; }
 .rail-a-md p:last-child { margin-bottom: 0; }
 .rail-a-md a { color: var(--link); }
 .rail-card-note { font-style: italic; }
-.rail-card .art-chat { padding: 10px 12px 12px; border-top: 1px solid var(--faint); }
+.rail-card .art-chat { padding: 14px 16px 16px; }
 .rail-card .art-chat-receipt { padding: 0; font-size: 13px; }
 .rail-card--down .rail-card-head span { color: var(--muted); }
-.rail-card p.rail-card-server { margin-top: -6px; font: 400 12px/1.45 var(--mono); overflow-wrap: anywhere; }
+.rail-card p.rail-card-server { margin-top: -6px; font: 400 13px/1.45 var(--sans); overflow-wrap: anywhere; }
 .rail-card-whose { display: block; color: var(--muted); }
 .rail-card-whose::before { content: "✓ "; }
 .rail-card-server--copy .rail-card-whose { color: var(--accent); }
 .rail-card-server--copy .rail-card-whose::before { content: "! "; }
-.rail-card p.rail-card-change { margin: 0 12px 10px; padding: 6px 10px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font: 500 13px/1.4 var(--sans); }
+.rail-card p.rail-card-change { margin: 0 0 12px; color: var(--strong); font: 500 14px/1.4 var(--sans); }
 /* A framed page is laid out at a desktop width and scaled down whole, like a
    screenshot of it: the narrow card never reflows it. The script sets --fit. */
-.rail-frame-box { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; border-top: 1px solid var(--faint); background: #fff; }
+.rail-frame-box { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; background: #fff; }
 .rail-frame {
   position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0; background: #fff; display: block;
   transform: scale(var(--fit, 0.3)); transform-origin: 0 0; pointer-events: none;
 }
 /* Work at phone width is shown on a phone: the page at 390×844, scaled into a
    quiet bezel. With comments on, a click drops a pin and opens a line to say what about it. */
-.rail-phone { padding: 14px 0 16px; border-top: 1px solid var(--faint); background: var(--tint); }
+.rail-phone { padding: 14px 0 16px; }
 .rail-phone-screen {
   position: relative; width: min(236px, 70%); aspect-ratio: 390 / 844; margin: 0 auto; overflow: hidden;
   border-radius: 26px; background: #fff; box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--faint), 0 14px 32px rgba(0, 0, 0, 0.28);
@@ -569,10 +574,10 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-card-head .rail-phone-toggle + a { margin-left: 6px; }
 .rail-phone-toggle:hover, .rail-phone-toggle[aria-pressed="true"] { color: var(--accent); }
 .rail-phone-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.rail-card p.rail-phone-hint { padding: 10px 12px 12px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
+.rail-card p.rail-phone-hint { padding: 10px 16px 14px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
 .rail-card p.rail-phone-hint[hidden], .rail-phone-say[hidden] { display: none; }
-.rail-phone-say { display: grid; gap: 8px; padding: 12px; border-top: 1px solid var(--faint); }
-.rail-phone-where { font: 500 12px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.rail-phone-say { display: grid; gap: 10px; padding: 14px 16px 16px; }
+.rail-phone-where { font: 500 13px/1.4 var(--sans); color: var(--muted); overflow-wrap: anywhere; }
 .rail-phone-say textarea {
   width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px; padding: 8px 10px; border: 1px solid var(--faint); border-radius: 8px;
   background: var(--bg); color: var(--fg); font: 400 15px/1.4 var(--sans);
@@ -594,9 +599,9 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 /* What Flyd remembers: a card each, one plain sentence. What it learned while
    we talked sits in the conversation where it learned it. */
 /* A raised surface with no outline: the fill alone sets each card apart. */
-.rail-mem { margin: 0 0 24px; padding: 12px 14px 13px; border-radius: 10px; background: var(--tint); }
+.rail-mem { margin: 0 0 24px; padding: 14px 16px 15px; border-radius: 12px; background: var(--tint); }
 .rail-body > .rail-mem + .rail-talk { border-top: 0; }
-.rail-mem-kicker { margin: 0 0 6px; font: 500 12px/1.2 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+.rail-mem-kicker { margin: 0 0 6px; font: 600 13px/1.2 var(--sans); color: var(--accent); }
 .rail-mem-text { margin: 0; font: 400 16px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
 .rail-mem--new { background: color-mix(in srgb, var(--accent) 7%, var(--tint)); }
 /* What it already holds here: folded under one line at the top until he opens it. */
@@ -1544,14 +1549,6 @@ var __name = function (f) { return f; };
   var needsDrawn = "";
   var doneAll = false;
   var DONE_FEW = 3;
-  function running(iso) {
-    var minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-    if (isNaN(minutes)) return "";
-    if (minutes < 1) return "just started";
-    if (minutes < 60) return minutes + " min";
-    var hours = Math.round(minutes / 60);
-    return hours < 24 ? hours + " h" : Math.round(hours / 24) + (Math.round(hours / 24) === 1 ? " day" : " days");
-  }
   // "GNM (Good Neighbours Market)" is GNM on a line this small.
   function shortName(project) { return project ? String(project).replace(/\\s*\\([^)]*\\)\\s*$/, "") : ""; }
   function briefTop(label, extra) {
@@ -1653,7 +1650,7 @@ var __name = function (f) { return f; };
     var underway = (show && show.underway) || [];
     var done = (show && show.done) || [];
     drawNeeds(calls);
-    drawList(underwayEl, "Under way", underway, function (item) { return item.started ? running(item.started) : ""; });
+    drawList(underwayEl, "Under way", underway, function (item) { return item.started ? "Started " + ago(item.started) : ""; });
     drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
     briefFilled = calls.length + underway.length + done.length > 0;
     briefEl.hidden = !briefFilled;

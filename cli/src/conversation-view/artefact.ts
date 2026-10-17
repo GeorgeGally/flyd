@@ -310,8 +310,22 @@ export function statusNote(line: string): string {
   return clause > 60 ? cut.slice(0, clause) : cut.replace(/\s+\S*$/, "");
 }
 
+/** Holds that ask him to read or remember something rather than to decide. */
+const NOT_A_DECISION = /\bready to read\b|\(report \+ artefact\)|(?:^|:\s)Read:|^Remind (?:the )?captain\b/i;
+
+/** A hold nobody has touched for this long, with nothing to answer, is no longer a call. */
+export const STALE_CALL_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** Whether a hold is a decision still waiting on him: not a read-me or reminder, and not an old hold with no question to answer. Pure. */
+export function isCurrentDecision(row: ArtefactRow, now: number): boolean {
+  if (NOT_A_DECISION.test(row.label) || (row.detail && NOT_A_DECISION.test(row.detail))) return false;
+  const touched = row.at ? Date.parse(row.at) : Number.NaN;
+  if (row.choices?.length || Number.isNaN(touched)) return true;
+  return now - touched <= STALE_CALL_MS;
+}
+
 /** Bearings' rows with the backlog's full words, last-report times and screenshots. Pure. */
-export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEntry>, extras: Map<string, TaskExtra> = new Map()): FleetArtefact {
+export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEntry>, extras: Map<string, TaskExtra> = new Map(), now = Date.now()): FleetArtefact {
   const enrich = (row: ArtefactRow, call = false): ArtefactRow => {
     const entry = row.task ? backlog.get(row.task) : undefined;
     const extra = row.task ? extras.get(row.task) : undefined;
@@ -342,7 +356,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
   if (fleet.unavailable) return fleet;
   return {
     ...fleet,
-    calls: fleet.calls.map((row) => enrich(row, true)),
+    calls: fleet.calls.map((row) => enrich(row, true)).filter((row) => isCurrentDecision(row, now)),
     live: fleet.live.map((row) => enrich(row)),
     ready: fleet.ready.map((row) => enrich(row)),
     landed: fleet.landed.map((row) => enrich(row)),

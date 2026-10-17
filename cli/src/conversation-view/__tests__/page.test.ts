@@ -1850,7 +1850,7 @@ describe("header and artefact view", () => {
     const job = document.querySelector("#underway li")!;
     expect(job.querySelector(".brief-eyebrow")).toBeNull();
     expect(job.querySelector(".brief-line")!.textContent).toBe("A worker is shrinking the island.");
-    expect(job.querySelector(".brief-meta")!.textContent).toBe("Flyd · 25 min");
+    expect(job.querySelector(".brief-meta")!.textContent).toBe("Flyd · Started 25m ago");
     // Done: one line each, the newest few until he asks for all.
     expect(document.querySelectorAll("#done li")).toHaveLength(3);
     const doneRow = document.querySelector("#done li")!;
@@ -1933,5 +1933,31 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show: { ...SHOW, live: false } });
     expect(document.getElementById("scene-head")!.textContent).toBe("Your move, sir.");
     expect(document.getElementById("show-doing")!.textContent).toBe("Standby");
+  });
+});
+
+describe("the side column's type", () => {
+  const css = /<style>([\s\S]*?)<\/style>/.exec(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) }))![1]!;
+  const rules = [...css.matchAll(/(^|\n)((?:\.rail|\.brief|\.needs)[^{\n]*)\{([^}]*)\}/g)].map((match) => ({ selector: match[2]!.trim(), body: match[3]! }));
+
+  it("covers the column's rules", () => {
+    expect(rules.length).toBeGreaterThan(40);
+  });
+  it("sets every label in one sans family, in sentence case", () => {
+    for (const { selector, body } of rules) {
+      expect(body, selector).not.toContain("var(--mono)");
+      expect(body, selector).not.toContain("text-transform");
+    }
+  });
+  it("tracks no wider than .04em and sets nothing under 13px", () => {
+    for (const { selector, body } of rules) {
+      for (const match of body.matchAll(/letter-spacing:\s*(-?[\d.]+)em/g)) expect(Number(match[1]), selector).toBeLessThanOrEqual(0.04);
+      for (const match of body.matchAll(/font:\s*(?:\w+\s+)?(\d+(?:\.\d+)?)px/g)) expect(Number(match[1]), selector).toBeGreaterThanOrEqual(13);
+    }
+  });
+  it("gives the column one container style: no bordered boxes", () => {
+    for (const { selector, body } of rules.filter((rule) => /^\.(?:rail-card|brief-list li|rail-mem)\b/.test(rule.selector))) {
+      expect(body, selector).not.toMatch(/\bborder:\s*1px/);
+    }
   });
 });

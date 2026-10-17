@@ -64,6 +64,37 @@ describe("parseBearings", () => {
   });
 });
 
+describe("what needs him", () => {
+  const NOW = Date.parse("2026-10-17T03:00:00Z");
+  const fleet = parseBearings({ decisions_open: [
+    { id: "fm-handover", summary: "Smoother handover between firstmate sessions" },
+    { id: "read-me", summary: "Flyd: what the 3 new commits do (artefact ready to read): Read: what they do" },
+    { id: "report", summary: "Flyd: five deep ways to get smarter (report + artefact): Read: five ways" },
+    { id: "remind", summary: "Remind captain this afternoon: finish the lab" },
+    { id: "pick", summary: "Pick a look" },
+  ] });
+  const hold = "Captain picks: 1 Evergreen, 2 Fairy-light";
+  const backlog = parseBacklog(`- [ ] pick - Pick a look (hold: fm-hold-v1:${Buffer.from(hold).toString("base64")})`);
+
+  it("drops read-me, report and reminder holds, which are not decisions", () => {
+    const calls = enrichFleet(fleet, backlog, new Map(), NOW).calls.map((row) => row.task);
+    expect(calls).not.toContain("read-me");
+    expect(calls).not.toContain("report");
+    expect(calls).not.toContain("remind");
+    expect(calls).toEqual(expect.arrayContaining(["fm-handover", "pick"]));
+  });
+  it("drops an old hold with nothing to answer but keeps an old one with options", () => {
+    const old = { at: "2026-10-11T02:44:00Z" };
+    const extras = new Map([["fm-handover", old], ["pick", old]]);
+    const calls = enrichFleet(fleet, backlog, extras, NOW).calls.map((row) => row.task);
+    expect(calls).toEqual(["pick"]);
+  });
+  it("keeps a recent hold with nothing to answer", () => {
+    const extras = new Map([["fm-handover", { at: "2026-10-16T02:44:00Z" }]]);
+    expect(enrichFleet(fleet, backlog, extras, NOW).calls.map((row) => row.task)).toContain("fm-handover");
+  });
+});
+
 describe("the backlog", () => {
   it("keeps the earlier design question answerable beside active Christmas work, without turning a scout report into a new design awaiting landing", () => {
     const question = "Picks the direction (board http://127.0.0.1:4387/session/review): 1 Evergreen luxe (recommended after round 1: green plus luxury), 2 Fairy-light night, 3 Red letter day, 4 Christmas in the tropics, 5 Christmas card, or a mix.";
