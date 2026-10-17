@@ -216,7 +216,7 @@ export function replyCards(messages: ConversationMessage[], judge?: ArtefactJudg
     if (!artifact.options) return { id: `reply:${id}`, title: artifact.title, steps: artifact.steps };
     const message = byId.get(id)!;
     const choice: ReplyChoice = { question: artifact.title, options: artifact.steps.map(labelOf) };
-    const open = !choiceOf(message.text) && !answered(messages, message, choice);
+    const open = message.answers !== undefined && !choiceOf(message.text) && !answered(messages, message, choice);
     return { id: `reply:${id}`, title: artifact.title, choice: { ...choice, ...(open ? { replyTo: choiceTarget(message) } : {}) } };
   });
 }

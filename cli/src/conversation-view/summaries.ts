@@ -144,10 +144,10 @@ const ACT_ON = /(?:^\s*(?:\d+[.)]\s+|[-*+]\s+)?|[.!?:]\s+)(?:(?:captain|sir|geor
  * A numbered step that tells him what to do: an imperative, after an optional
  * "Then", "Next" or the place to do it ("In MyKinsta, delete…").
  */
-const STEP = /^(?:(?:then|next|now|finally|first|also|after that),?\s+|in\s+[^,\n]{1,40},\s+)*(?:add|delete|remove|move|set|enter|copy|paste|put|type|replace|open|click|save|run|update|change|edit|clear|install|create|enable|disable|send|drag|log)\b/i;
+const STEP = /^(?:(?:then|next|now|finally|first|also|after that),?\s+|in\s+[^,\n]{1,40},\s+)*(?:add|delete|remove|move|set|enter|copy|paste|put|type|replace|open|click|save|run|restart|update|change|edit|clear|install|create|enable|disable|send|drag|log)\b/i;
 
 /** Words that may make numbered items a choice between them rather than steps to carry out: Flyd's judge decides. */
-const CHOICES = /\b(?:options?|ways|either|alternatives?)\b|\sor\s/i;
+const CHOICES = /\b(?:options?|ways|either|alternatives?|choose|pick|select|which)\b|\sor\s/i;
 
 /** At least two numbered steps, each one an instruction to carry out, and no word of a choice among them. */
 function clearSteps({ intro, steps }: { intro: string; steps: string[] }): boolean {

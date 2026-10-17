@@ -186,6 +186,19 @@ describe("replyArtefact", () => {
     expect(replyArtefact("1. Delete the old rule.\n2. Add the wildcard or the specific rules.")).toMatchObject({ clear: false, artefact: { title: "Steps to follow" } });
   });
 
+  it("sends a list under a lead-in that signals a choice to Flyd's judge, never the clear-steps path", () => {
+    for (const intro of ["Choose one", "Pick one", "Which rule", "Select one", "Pick the ones you want"]) {
+      const reply = `${intro}:\n1. Delete the old rule.\n2. Remove the cache.`;
+      expect(replyArtefact(reply)?.clear, intro).toBe(false);
+      expect(isActionable(reply)).toBe(false);
+      expect(replyArtefact(reply, "options")?.artefact).toMatchObject({ title: intro, options: true });
+    }
+  });
+
+  it("keeps a plain list of unambiguous steps clear", () => {
+    expect(replyArtefact("Do this:\n1. Delete X.\n2. Restart Y.")).toEqual({ clear: true, artefact: { title: "Do this", steps: ["Delete X.", "Restart Y."] } });
+  });
+
   it("reads the steps after the reply's own summary lines", () => {
     const reply = "» Fixed the redirects plan.\n» Two steps left for you.\n\nCaptain, finish the redirects.\n\n1. Delete the ^/$ rule.\n2. Add ^/(.*)$ as a 301.";
     expect(replyArtefact(reply)).toEqual({ clear: true, artefact: { title: "Finish the redirects", steps: ["Delete the ^/$ rule.", "Add ^/(.*)$ as a 301."] } });

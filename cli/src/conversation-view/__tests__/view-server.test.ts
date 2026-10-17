@@ -249,6 +249,17 @@ describe("SnapshotDiffer summaries", () => {
     expect(replyCards([{ id: "r1", role: "assistant", text: asks, answers: "note:1" }], asked.judge)[0]!.choice!.replyTo).toBeUndefined();
   });
 
+  it("lists an options reply that answers nothing of his, so no tap posts a reply that cannot be routed", async () => {
+    const { judge, release } = jev("options");
+    const reply = "Two ways to fix it:\n1. Use a wildcard rule — simpler.\n2. Keep separate rules — more control.";
+    void judge.request(reply);
+    release();
+    await vi.waitFor(() => expect(judge.cached(reply)).toBe("options"));
+    expect(replyCards([{ id: "r1", role: "assistant", text: reply }], judge)).toEqual([
+      { id: "reply:r1", title: "Two ways to fix it", choice: { question: "Two ways to fix it", options: ["Use a wildcard rule", "Keep separate rules"] } },
+    ]);
+  });
+
   it("keeps items as text when Flyd's judge is unsure of their kind", async () => {
     const { judge, release } = jev("options", 0.4);
     const differ = new SnapshotDiffer({ artefacts: judge });
