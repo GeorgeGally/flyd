@@ -1883,6 +1883,62 @@ describe("header and artefact view", () => {
     expect(receipt.classList.contains("sent")).toBe(true);
   });
 
+  it("shows a reply's options in Artefacts as a choice, answered by one tap, and its steps as a numbered list", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const rail = { conversations: [], artefacts: [
+      { id: "reply:r1", title: "Two ways to fix it", choice: { question: "Two ways to fix it", options: ["Use a wildcard rule", "Keep separate rules"], replyTo: "note:1" } },
+      { id: "reply:r2", title: "Fix the redirects", steps: ["Delete the ^/$ rule.", "Add ^/(.*)$ as a 301."] },
+    ] };
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
+    await settle();
+    const [options, steps] = [...document.querySelectorAll<HTMLElement>(".rail-card")];
+    expect(options!.querySelector(".rail-card-steps")).toBeNull();
+    expect(options!.querySelector(".choice-q")!.textContent).toBe("Two ways to fix it");
+    const buttons = [...options!.querySelectorAll<HTMLButtonElement>(".choice-option")];
+    expect(buttons.map((button) => button.textContent)).toEqual(["Use a wildcard rule", "Keep separate rules"]);
+    expect([...steps!.querySelectorAll(".rail-card-steps li")].map((item) => item.textContent)).toEqual(["Delete the ^/$ rule.", "Add ^/(.*)$ as a 301."]);
+    expect(steps!.querySelector(".choice-option")).toBeNull();
+    buttons[1]!.click();
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String(init!.body)))).toEqual([
+      { session: "latest", text: "Keep separate rules", replyTo: "note:1" },
+    ]);
+    // Once answered, the options are only listed, with nothing to tap.
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations: [], artefacts: [
+      { id: "reply:r1", title: "Two ways to fix it", choice: { question: "Two ways to fix it", options: ["Use a wildcard rule", "Keep separate rules"] } },
+    ] } });
+    await settle();
+    const listed = document.querySelector<HTMLElement>(".rail-card")!;
+    expect(listed.querySelector(".choice-option")).toBeNull();
+    expect([...listed.querySelectorAll(".rail-card-options li")].map((item) => item.textContent)).toEqual(["Use a wildcard rule", "Keep separate rules"]);
+  });
+
+  it("keeps the options he picked when the column redraws", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show = { title: "", summary: "", live: false, counts: {}, items: [] };
+    const choice = { question: "Pick the ones you want built", options: ["One", "Two", "Three", "Four", "Five"], replyTo: "note:9", multiple: true };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [], rail: { conversations: [], artefacts: [{ id: "reply:r9", title: "Pick the ones you want built", choice }] } });
+    await settle();
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>(".rail-card .choice-option")];
+    buttons[1]!.click();
+    buttons[3]!.click();
+    await settle();
+    // A later column change redraws the card.
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [], rail: { conversations: [], artefacts: [{ id: "reply:r9", title: "Pick the ones you want built", choice }, { id: "live:x", title: "Live preview", line: "x", url: "http://127.0.0.1:9000/" }] } });
+    await settle();
+    const after = [...document.querySelectorAll<HTMLButtonElement>(".rail-card .choice-option")];
+    expect(after.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "true", "false", "true", "false"]);
+    document.querySelector<HTMLButtonElement>(".rail-card .choice-send")!.click();
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String(init!.body)))).toEqual([
+      { session: "latest", text: "Two, Four", replyTo: "note:9" },
+    ]);
+  });
+
   it("answers a Needs you line in place, delivering the answer to firstmate", async () => {
     sendResponse = { id: "note:7", timestamp: "2026-10-05T20:02:00.000Z" };
     load("");

@@ -57,6 +57,7 @@ export interface ConversationMessage {
   receipt?: "sent" | "read";
   /** Flyd gave this answer for him, by a standing rule of his: the rule, in his recorded words. */
   answeredFor?: string;
+  flydAsked?: boolean;
   /** He took back the answer Flyd gave for him to the question this replies to. */
   undoes?: boolean;
 }

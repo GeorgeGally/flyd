@@ -37,6 +37,11 @@ describe("unreadNotes", () => {
     const finished: Exchange = { ...note("finished", 60 * 60_000, "sent"), waiting: "", answered: true };
     expect(unreadNotes([settled, finished, note("unread", 60 * 60_000, "sent")], NOW)?.ids).toEqual(["note:unread"]);
   });
+
+  it("does not count Flyd's own chase for a missed artefact as a note he sent", () => {
+    const chase: Exchange = { question: { id: "note:chase", role: "user", text: "Flyd: send that as an artefact, please", timestamp: ago(60 * 60_000), receipt: "sent", flydAsked: true }, handoff: "queued", waiting: "Working on it" };
+    expect(unreadNotes([note("unread", 60 * 60_000, "sent"), chase], NOW)?.ids).toEqual(["note:unread"]);
+  });
 });
 
 describe("unreadWarning", () => {

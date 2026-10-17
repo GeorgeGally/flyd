@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   anthropicProvider,
+  askedForArtefact,
   authorSummary,
   defaultProviders,
   digestMarkdown,
@@ -12,6 +13,7 @@ import {
   isActionable,
   isRoutine,
   isRoutineAnswer,
+  replyArtefact,
   ReplySummarizer,
   SUMMARY_PROMPT,
   xaiProvider,
@@ -129,9 +131,106 @@ describe("isActionable", () => {
   });
 });
 
+describe("replyArtefact", () => {
+  it("makes steps to carry out an artefact, whether a step starts with the place, \"Then\" or the verb", () => {
+    const reply = "Captain, here is how to fix the aicanetwork.com redirects.\n\n1. In MyKinsta, delete the ^/$ rule.\n2. Then add ^/(.*)$ → https://capfive.com/$1 as a 301.\n3. Move the specific rules above it.";
+    expect(replyArtefact(reply)).toEqual({ clear: true, artefact: {
+      title: "Here is how to fix the aicanetwork.com redirects",
+      steps: ["In MyKinsta, delete the ^/$ rule.", "Then add ^/(.*)$ → https://capfive.com/$1 as a 301.", "Move the specific rules above it."],
+    } });
+    expect(isActionable(reply)).toBe(true);
+  });
+
+  it("folds each step's sub-bullets and wrapped lines into it, and leaves a closing note to the reply", () => {
+    const reply = "1. Add a rule:\n - Source: ^/(.*)$\n - Destination: https://capfive.com/$1\n2. Delete the old catch-all.\n\nNote: order matters, keep specifics above.";
+    expect(replyArtefact(reply)).toEqual({ clear: true, artefact: {
+      title: "Steps to follow",
+      steps: ["Add a rule: Source: ^/(.*)$; Destination: https://capfive.com/$1", "Delete the old catch-all."],
+    } });
+  });
+
+  it("keeps a step's code block in the step", () => {
+    expect(replyArtefact("1. Run:\n```\nnpm run build\n```\n2. Restart Core.")?.artefact.steps).toEqual(["Run: npm run build", "Restart Core."]);
+  });
+
+  it("leaves numbered lines inside a code block alone", () => {
+    expect(replyArtefact("Captain, the script is ready.\n\n```\n1. add one\n2. add two\n```")).toBeUndefined();
+  });
+
+  it("leaves steps that are not all instructions for Flyd to judge", () => {
+    const call = replyArtefact("1. Order: the specific rules go first.\n2. Delete the catch-all.");
+    expect(call?.clear).toBe(false);
+    expect(call?.artefact.steps).toEqual(["Order: the specific rules go first.", "Delete the catch-all."]);
+    expect(replyArtefact("1. Fixed the footer.\n2. Merged the hero change.")?.clear).toBe(false);
+    expect(replyArtefact("Delete the catch-all rule.")).toBeUndefined();
+  });
+
+  it("leaves items that may be a choice to Flyd's judge, and shows them as the kind it names", () => {
+    const reply = "Two ways to fix it:\n1. Use a wildcard rule — simpler.\n2. Keep separate rules — more control.";
+    expect(replyArtefact(reply)?.clear).toBe(false);
+    expect(isActionable(reply)).toBe(false);
+    expect(replyArtefact(reply, "options")).toEqual({ clear: false, artefact: {
+      title: "Two ways to fix it",
+      steps: ["Use a wildcard rule — simpler.", "Keep separate rules — more control."],
+      options: true,
+    } });
+    expect(replyArtefact("1. Pick a wildcard rule.\n2. Pick separate rules.", "options")?.artefact.title).toBe("Options to choose from");
+    expect(replyArtefact("1. Keep the specific rules.\n2. Delete the catch-all.")?.clear).toBe(false);
+  });
+
+  it("never reads steps that mention a choice as options on its own", () => {
+    const kinsta = replyArtefact("Captain, fix the redirects.\n1. In MyKinsta, delete the ^/$ rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301 or 302.");
+    expect(kinsta).toEqual({ clear: false, artefact: { title: "Fix the redirects", steps: ["In MyKinsta, delete the ^/$ rule.", "Add ^/(.*)$ → https://capfive.com/$1 as a 301 or 302."] } });
+    const settings = replyArtefact("1. Open Settings → Options.\n2. Click Save.");
+    expect(settings).toEqual({ clear: false, artefact: { title: "Steps to follow", steps: ["Open Settings → Options.", "Click Save."] } });
+    expect(replyArtefact("1. Delete the old rule.\n2. Add the wildcard or the specific rules.")).toMatchObject({ clear: false, artefact: { title: "Steps to follow" } });
+  });
+
+  it("sends a list under a lead-in that signals a choice to Flyd's judge, never the clear-steps path", () => {
+    for (const intro of ["Choose one", "Pick one", "Which rule", "Select one", "Pick the ones you want"]) {
+      const reply = `${intro}:\n1. Delete the old rule.\n2. Remove the cache.`;
+      expect(replyArtefact(reply)?.clear, intro).toBe(false);
+      expect(isActionable(reply)).toBe(false);
+      expect(replyArtefact(reply, "options")?.artefact).toMatchObject({ title: intro, options: true });
+    }
+  });
+
+  it("keeps a plain list of unambiguous steps clear", () => {
+    expect(replyArtefact("Do this:\n1. Delete X.\n2. Restart Y.")).toEqual({ clear: true, artefact: { title: "Do this", steps: ["Delete X.", "Restart Y."] } });
+  });
+
+  it("reads the steps after the reply's own summary lines", () => {
+    const reply = "» Fixed the redirects plan.\n» Two steps left for you.\n\nCaptain, finish the redirects.\n\n1. Delete the ^/$ rule.\n2. Add ^/(.*)$ as a 301.";
+    expect(replyArtefact(reply)).toEqual({ clear: true, artefact: { title: "Finish the redirects", steps: ["Delete the ^/$ rule.", "Add ^/(.*)$ as a 301."] } });
+  });
+});
+
+describe("askedForArtefact", () => {
+  it("reads a request that wants its answer as an artefact", () => {
+    expect(askedForArtefact("explain the new Flyd commits in an artefact")).toBe(true);
+    expect(askedForArtefact("send that as an artefact please")).toBe(true);
+    expect(askedForArtefact("give me an artefact of the redirect rules")).toBe(true);
+  });
+
+  it("leaves a plain answer, and a mention of an artefact that missed, as text", () => {
+    expect(askedForArtefact("so what do i do here?")).toBe(false);
+    expect(askedForArtefact("why is the artefact not showing?")).toBe(false);
+    expect(askedForArtefact("this should definitely be an artefact in flyd")).toBe(false);
+    expect(askedForArtefact("that could've been some neat flyd artefact")).toBe(false);
+    expect(askedForArtefact("explain why the artefact page is blank")).toBe(false);
+    expect(askedForArtefact("show me where the artefact went")).toBe(false);
+    expect(askedForArtefact("can you make a note about the artefact feature")).toBe(false);
+    expect(askedForArtefact("write up the artefact problem")).toBe(false);
+  });
+
+  it("reads a request for an artefact as the deliverable", () => {
+    expect(askedForArtefact("pull and check and then explain in an artefact what they do")).toBe(true);
+    expect(askedForArtefact("show me an artefact of the new commits")).toBe(true);
+  });
+});
+
 describe("ReplySummarizer", () => {
   const cacheFile = () => join(dir, "view", "summaries.json");
-
   it("asks once per reply, keeps the answer on disk, and reuses it after a restart", async () => {
     const provider = counting("fake", async () => "The menu bar is higher now.");
     const summarizer = new ReplySummarizer({ providers: [provider], cacheFile: cacheFile() });

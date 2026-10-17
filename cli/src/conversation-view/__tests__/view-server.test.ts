@@ -2,18 +2,20 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
-import type { ConversationMessage } from "../types.js";
+import type { ConversationMessage, Exchange } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ActivityReader } from "../activity.js";
+import { artefactAsk } from "../replies.js";
 import { ArtefactFeed } from "../artefact.js";
-import { ConversationViewServer, SnapshotDiffer } from "../server.js";
+import { ConversationViewServer, replyCards, SnapshotDiffer } from "../server.js";
 import { AutoAnswers } from "../auto-answers.js";
 import { ComposerPredictions } from "../composer-predictions.js";
 import { ComposerDrafts } from "../drafts.js";
 import { ReplySummarizer } from "../summaries.js";
+import { ArtefactJudge } from "../artefact-judge.js";
 import { unreadNotes } from "../note-receipts.js";
 import { readTaste, writeTaste } from "../../council/taste.js";
 import { KINSTA_RULES, KINSTA_TABLE } from "./fixtures/replies.js";
@@ -69,6 +71,23 @@ describe("pasted code in the captain's messages", () => {
 });
 
 describe("SnapshotDiffer", () => {
+  it("points an actionable numbered reply at Artefacts and keeps the whole reply behind it", () => {
+    const steps = "Captain, update the redirect rules in Kinsta.\n\n1. Delete the existing catch-all rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.\n3. Move the specific redirect rules above the general rule.\n\nOrder matters: specifics stay above.";
+    const differ = new SnapshotDiffer();
+    const update = differ.next({ messages: [{ id: "answer", role: "assistant", text: steps, answers: "note:redirects" }], working: false });
+    expect(update.messages[0]?.summary).toEqual({ html: "<p><strong>Update the redirect rules in Kinsta</strong>: 3 steps, kept in Artefacts.</p>\n", source: "flyd" });
+    expect(update.messages[0]?.html).toContain("Order matters: specifics stay above.");
+    expect(update.messages[0]?.artifact).toEqual({ title: "Update the redirect rules in Kinsta", steps: [
+      "Delete the existing catch-all rule.",
+      "Add ^/(.*)$ → https://capfive.com/$1 as a 301 redirect.",
+      "Move the specific redirect rules above the general rule.",
+    ] });
+
+    const plain = differ.next({ messages: [{ id: "plain", role: "assistant", text: "Yes, the specific rules should stay above the general rule.", answers: "note:redirects" }], working: false });
+    expect(plain.messages[0]?.html).toContain("Yes, the specific rules should stay above the general rule.");
+    expect(plain.messages[0]?.artifact).toBeUndefined();
+  });
+
   it("sends each message once and again only when its text changes", () => {
     const differ = new SnapshotDiffer();
     const first = differ.next({ messages: [{ id: "a", role: "user", text: "hi" }], working: true });
@@ -135,6 +154,162 @@ describe("SnapshotDiffer summaries", () => {
     const summarizer = new ReplySummarizer({ providers: [{ name: "fake", summarize: answer }], cacheFile });
     return { summarizer, landed: () => landed, onSummary: () => (landed += 1) };
   }
+
+  function jev(kind: string, confidence = 0.9): { judge: ArtefactJudge; release: () => void; asked: () => number } {
+    let asked = 0;
+    let release!: () => void;
+    const answered = new Promise<void>((resolve) => (release = resolve));
+    const fetchFn = (async () => {
+      asked += 1;
+      await answered;
+      return { ok: true, status: 200, json: async () => ({ model: "jev-1.13.0", answers: { reply_artefact_kind: { type: "choice", choice: kind, confidence, probabilities: { [kind]: confidence } } }, usage: { input_tokens: 10, output_tokens: 1 } }) };
+    }) as unknown as typeof fetch;
+    return { judge: new ArtefactJudge({ apiKey: "test", fetchFn }), release, asked: () => asked };
+  }
+  const unclear = "Captain, for the aicanetwork.com redirects:\n\n1. Order: the specific rules stay first.\n2. The general rule ^/(.*)$ → https://capfive.com/$1 goes last as a 301.\n3. Delete the old ^/$ catch-all.";
+
+  it("asks no model summary for a reply the rule makes an artefact", () => {
+    let calls = 0;
+    const model = withModel(async () => (calls++, "x"));
+    const reply = `Captain, the redirect fix.\n\n1. In MyKinsta, delete the ^/$ rule.\n2. Then add ^/(.*)$ → https://capfive.com/$1 as a 301.\n\n${long}`;
+    const [rendered] = new SnapshotDiffer(model).next({ messages: [message("r1", reply)], working: false }).messages;
+    expect(rendered!.artifact?.steps).toHaveLength(2);
+    expect(calls).toBe(0);
+  });
+
+  it("lets Flyd's judge decide unclear steps, holding the summary until it has", async () => {
+    let calls = 0;
+    const model = withModel(async () => (calls++, "x"));
+    const { judge, release, asked } = jev("steps");
+    const differ = new SnapshotDiffer({ ...model, artefacts: judge });
+    const reply = `${unclear}\n\n${long}`;
+    const first = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
+    expect(first.artifact).toBeUndefined();
+    expect(asked()).toBe(1);
+    release();
+    await vi.waitFor(() => expect(model.landed()).toBe(1));
+    const judged = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
+    expect(judged.artifact?.title).toBe("For the aicanetwork.com redirects");
+    expect(judged.html).toContain("Delete the old ^/$ catch-all.");
+    expect(calls).toBe(0);
+    expect(asked()).toBe(1);
+  });
+
+  it("labels options Flyd's judge keeps as options, never steps", async () => {
+    const { judge, release } = jev("options");
+    const differ = new SnapshotDiffer({ artefacts: judge });
+    const reply = "Two ways to fix it:\n1. Use a wildcard rule — simpler.\n2. Keep separate rules — more control.";
+    expect(differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!.artifact).toBeUndefined();
+    release();
+    await vi.waitFor(() => expect(judge.cached(reply)).toBe("options"));
+    const judged = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
+    expect(judged.summary).toEqual({ html: "<p><strong>Two ways to fix it</strong>: 2 options, kept in Artefacts.</p>\n", source: "flyd" });
+  });
+
+  it("labels steps that mention a choice as steps when Flyd's judge says they are", async () => {
+    for (const [reply, title] of [
+      ["Captain, fix the redirects.\n1. In MyKinsta, delete the ^/$ rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301 or 302.", "Fix the redirects"],
+      ["1. Open Settings → Options.\n2. Click Save.", "Steps to follow"],
+    ] as const) {
+      const { judge, release } = jev("steps");
+      const differ = new SnapshotDiffer({ artefacts: judge });
+      differ.next({ messages: [message("r1", reply)], working: false });
+      release();
+      await vi.waitFor(() => expect(judge.cached(reply)).toBe("steps"));
+      const judged = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
+      expect(judged.summary).toEqual({ html: `<p><strong>${title}</strong>: 2 steps, kept in Artefacts.</p>\n`, source: "flyd" });
+    }
+  });
+
+  it("puts options in the column as a choice that answers the reply, and steps as a list", async () => {
+    const { judge, release } = jev("options");
+    const options = "Two ways to fix it:\n1. Use a wildcard rule — simpler.\n2. Keep separate rules — more control.";
+    const steps = "Captain, fix the redirects.\n\n1. Delete the ^/$ rule.\n2. Add ^/(.*)$ as a 301.";
+    const messages = [
+      { id: "r1", role: "assistant" as const, text: options, answers: "note:1" },
+      { id: "r2", role: "assistant" as const, text: steps },
+    ];
+    void judge.request(options);
+    release();
+    await vi.waitFor(() => expect(judge.cached(options)).toBe("options"));
+    expect(replyCards(messages, judge)).toEqual([
+      { id: "reply:r2", title: "Fix the redirects", steps: ["Delete the ^/$ rule.", "Add ^/(.*)$ as a 301."] },
+      { id: "reply:r1", title: "Two ways to fix it", choice: { question: "Two ways to fix it", options: ["Use a wildcard rule", "Keep separate rules"], replyTo: "note:1" } },
+    ]);
+    // Answered, by a tap or in his own words, the options are only listed: one tap never answers twice.
+    const listed = { id: "reply:r1", title: "Two ways to fix it", choice: { question: "Two ways to fix it", options: ["Use a wildcard rule", "Keep separate rules"] } };
+    expect(replyCards([messages[0]!, { id: "u1", role: "user", text: "Use a wildcard rule", replyTo: "note:1" }], judge)).toEqual([listed]);
+    expect(replyCards([messages[0]!, { id: "note:2", role: "user", text: "use a wildcard rule, please" }], judge)).toEqual([listed]);
+    expect(replyCards([messages[0]!, { id: "note:2", role: "user", text: "also, the footer is off" }], judge)[0]!.choice!.replyTo).toBe("note:1");
+    // A reply that closes on its own question is answered in the window's card, never a second one here.
+    const asks = `${options}\n\nWhich do you want?`;
+    const asked = jev("options");
+    void asked.judge.request(asks);
+    asked.release();
+    await vi.waitFor(() => expect(asked.judge.cached(asks)).toBe("options"));
+    expect(replyCards([{ id: "r1", role: "assistant", text: asks, answers: "note:1" }], asked.judge)[0]!.choice!.replyTo).toBeUndefined();
+  });
+
+  it("lists an options reply that answers nothing of his, so no tap posts a reply that cannot be routed", async () => {
+    const { judge, release } = jev("options");
+    const reply = "Two ways to fix it:\n1. Use a wildcard rule — simpler.\n2. Keep separate rules — more control.";
+    void judge.request(reply);
+    release();
+    await vi.waitFor(() => expect(judge.cached(reply)).toBe("options"));
+    expect(replyCards([{ id: "r1", role: "assistant", text: reply }], judge)).toEqual([
+      { id: "reply:r1", title: "Two ways to fix it", choice: { question: "Two ways to fix it", options: ["Use a wildcard rule", "Keep separate rules"] } },
+    ]);
+  });
+
+  it("keeps items as text when Flyd's judge is unsure of their kind", async () => {
+    const { judge, release } = jev("options", 0.4);
+    const differ = new SnapshotDiffer({ artefacts: judge });
+    const reply = "Two ways to fix it:\n1. Use a wildcard rule — simpler.\n2. Keep separate rules — more control.";
+    differ.next({ messages: [message("r1", reply)], working: false });
+    release();
+    await vi.waitFor(() => expect(judge.cached(reply)).toBe("text"));
+    const [rendered] = new SnapshotDiffer({ artefacts: judge }).next({ messages: [message("r1", reply)], working: false }).messages;
+    expect(rendered!.artifact).toBeUndefined();
+    expect(rendered!.html).toContain("Use a wildcard rule");
+  });
+
+  it("keeps the reply's own » summary lines out of an artefact's title and body", () => {
+    const reply = "» Fixed the redirects plan.\n\nCaptain, finish the redirects.\n\n1. Delete the ^/$ rule.\n2. Add ^/(.*)$ as a 301.";
+    const [rendered] = new SnapshotDiffer().next({ messages: [message("r1", reply)], working: false }).messages;
+    expect(rendered!.artifact?.title).toBe("Finish the redirects");
+    expect(rendered!.html).not.toContain("Fixed the redirects plan");
+  });
+
+  it("re-renders while the judge is out without asking it again", async () => {
+    const { judge, release, asked } = jev("steps");
+    let renders = 0;
+    const reply = `${unclear}\n\n${long}`;
+    const snapshot = { messages: [message("r1", reply)], working: false };
+    // The stream re-renders on every landed answer, as ConversationViewServer does.
+    const differ: SnapshotDiffer = new SnapshotDiffer({ artefacts: judge, onSummary: () => { renders += 1; if (renders < 50) differ.next(snapshot); } });
+    differ.next(snapshot);
+    differ.next(snapshot);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(renders).toBe(0);
+    expect(asked()).toBe(1);
+    release();
+    await vi.waitFor(() => expect(renders).toBe(1));
+    expect(differ.next(snapshot).messages).toEqual([]);
+  });
+
+  it("keeps unclear steps as text when Flyd's judge says so", async () => {
+    let calls = 0;
+    const model = withModel(async () => (calls++, "Redirects explained."));
+    const { judge, release } = jev("text");
+    const differ = new SnapshotDiffer({ ...model, artefacts: judge });
+    const reply = `${unclear}\n\n${long}`;
+    differ.next({ messages: [message("r1", reply)], working: false });
+    release();
+    await vi.waitFor(() => expect(model.landed()).toBeGreaterThanOrEqual(1));
+    const judged = differ.next({ messages: [message("r1", reply)], working: false }).messages[0]!;
+    expect(judged.artifact).toBeUndefined();
+    await vi.waitFor(() => expect(calls).toBe(1));
+  });
 
   it("leads with the reply's own » summary and keeps the rest as the reply, without calling a model", () => {
     let calls = 0;
@@ -687,6 +862,183 @@ describe("ConversationViewServer", () => {
     expect(receipts).toEqual({ "note:1": "sent", "note:2": "read" });
     const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
     expect(unread).toEqual({ count: 1, oldest: old, text: "You have 1 note still waiting — sent 12 min ago." });
+  });
+
+  it("lists a reply's steps in the column's Artefacts once, as the window points to them", async () => {
+    const inbox = new MemoryInbox();
+    const lines = [captain("hello"), assistantText("Hi, **Captain**.")];
+    const old = new Date(Date.parse(JSON.parse(lines[0]!).timestamp) + 500).toISOString();
+    const reply = "Captain, fix the aicanetwork.com redirects.\n\n1. In MyKinsta, delete the ^/$ rule.\n2. Then add ^/(.*)$ → https://capfive.com/$1 as a 301.";
+    inbox.notes = () => [{
+      question: { id: "note:1791720009-eeeeee", role: "user" as const, text: "so what do i do here?", timestamp: old, receipt: "read" as const },
+      handoff: "queued" as const,
+      waiting: "",
+      answer: { id: "note-reply:1791720009-eeeeee", role: "assistant" as const, text: reply, answers: "note:1791720009-eeeeee" },
+    }];
+    const port = await start(inbox, lines);
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    const cards = update.rail.artefacts.filter((card: { id: string }) => card.id.startsWith("reply:"));
+    expect(cards).toEqual([{ id: "reply:note-reply:1791720009-eeeeee", title: "Fix the aicanetwork.com redirects", steps: ["In MyKinsta, delete the ^/$ rule.", "Then add ^/(.*)$ → https://capfive.com/$1 as a 301."] }]);
+    const rendered = update.messages.find((m: { id: string }) => m.id === "note-reply:1791720009-eeeeee");
+    expect(rendered?.artifact?.title).toBe("Fix the aicanetwork.com redirects");
+    expect(rendered?.summary?.html).toContain("2 steps, kept in Artefacts.");
+    expect(rendered?.expanded).toBeUndefined();
+  });
+
+  it("keeps the newest replies' steps in the column's Artefacts, newest first", async () => {
+    const how = (n: number) => assistantText(`Captain, fix site ${n}.\n\n1. Delete rule ${n}.\n2. Add rule ${n}.`);
+    const port = await start(undefined, [captain("one"), how(1), captain("two"), how(2), captain("three"), how(3), captain("four"), how(4)]);
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    const titles = update.rail.artefacts.filter((card: { id: string }) => card.id.startsWith("reply:")).map((card: { title: string }) => card.title);
+    expect(titles).toEqual(["Fix site 4", "Fix site 3", "Fix site 2"]);
+    // The window points only those replies to Artefacts; the oldest is told as text.
+    const pointed = update.messages.filter((m: { artifact?: { title: string } }) => m.artifact).map((m: { artifact: { title: string } }) => m.artifact.title);
+    expect(pointed).toEqual(["Fix site 2", "Fix site 3", "Fix site 4"]);
+    expect(JSON.stringify(update.messages)).not.toContain("Fix site 1</strong>: 2 steps, kept in Artefacts");
+  });
+
+  const askedNote = (id: string, text: string, answer: string, timestamp = new Date().toISOString()): Exchange => ({
+    question: { id: `note:${id}`, role: "user" as const, text, timestamp, receipt: "read" as const },
+    handoff: "queued" as const,
+    waiting: "",
+    answer: { id: `note-reply:${id}`, role: "assistant" as const, text: answer, answers: `note:${id}` },
+  });
+
+  it("asks firstmate for the artefact a note expected but did not get, in Flyd's own words", async () => {
+    const inbox = new MemoryInbox();
+    inbox.notes = () => [askedNote("1791720009-aaaaaa", "explain the new Flyd commits in an artefact", "The new commits add routine artefacts and tidy the island.")];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(1);
+    expect(inbox.sent[0]!.text).toContain("[Flyd is asking for the artefact to note:1791720009-aaaaaa — his note: \"explain the new Flyd commits in an artefact\"");
+    expect(inbox.sent[0]!.text).toContain("Flyd: send that as an artefact");
+  });
+
+  it("asks for no artefact when the note did not ask for one, or the answer already carries one", async () => {
+    const prose = new MemoryInbox();
+    prose.notes = () => [askedNote("1791720009-bbbbbb", "so what do i do here?", "Delete the catch-all, then add the general rule.")];
+    const prosePort = await start(prose, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(prosePort, "/api/stream");
+    expect(prose.sent).toHaveLength(0);
+
+    const steps = new MemoryInbox();
+    steps.notes = () => [askedNote("1791720009-cccccc", "explain the redirects in an artefact", "Captain, the redirects:\n\n1. Delete the ^/$ rule.\n2. Add ^/(.*)$ → https://capfive.com/$1 as a 301.")];
+    const stepsPort = await start(steps, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(stepsPort, "/api/stream");
+    expect(steps.sent).toHaveLength(0);
+  });
+
+  it("never asks for an artefact over a note that only mentions one, or Flyd's own chase", async () => {
+    const inbox = new MemoryInbox();
+    const prose = "Here is the summary of what changed.";
+    const alreadyChased = artefactAsk(askedNote("1791720009-zzzzzz", "explain the commits in an artefact", "A summary."));
+    inbox.notes = () => [
+      askedNote("1791720009-aaaaaa", "explain why the artefact page is blank", prose),
+      askedNote("1791720009-bbbbbb", "show me where the artefact went", prose),
+      askedNote("1791720009-cccccc", "can you make a note about the artefact feature", prose),
+      askedNote("1791720009-dddddd", "write up the artefact problem", prose),
+      { question: { id: "note:1791720009-eeeeee", role: "user" as const, text: alreadyChased, timestamp: new Date().toISOString(), receipt: "read" as const }, handoff: "queued" as const, waiting: "", answer: { id: "note-reply:1791720009-eeeeee", role: "assistant" as const, text: "Noted.", answers: "note:1791720009-eeeeee" } },
+    ];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(0);
+  });
+
+  it("asks for the artefact a note asked as its deliverable, exactly once, and not again when the window reopens", async () => {
+    const inbox = new MemoryInbox();
+    inbox.notes = () => [askedNote("1791720009-aaaaaa", "pull and check and then explain in an artefact what they do", "They pull, check and explain the commits.")];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(1);
+    const chased = inbox.sent[0]!;
+    // The chase lands in the transcript too; reopening the window reads it back and asks no more.
+    inbox.notes = () => [askedNote("1791720009-aaaaaa", "pull and check and then explain in an artefact what they do", "They pull, check and explain the commits."), { question: chased, handoff: "queued" as const, waiting: "" }];
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(1);
+  });
+
+  it("chases at most one missed artefact per pass, so a backlog never arrives as a burst", async () => {
+    const inbox = new MemoryInbox();
+    inbox.notes = () => [
+      askedNote("1791720009-aaaaaa", "explain the new Flyd commits in an artefact", "A short summary."),
+      askedNote("1791720009-bbbbbb", "explain the redirect rules in an artefact", "Another short summary."),
+    ];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(1);
+  });
+
+  it("hides Flyd's own chase for a missed artefact, so no window message reads as his", async () => {
+    const inbox = new MemoryInbox();
+    const asked = askedNote("1791720009-aaaaaa", "explain the new Flyd commits in an artefact", "The new commits add routine artefacts and tidy the island.");
+    inbox.notes = () => [asked];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(1);
+    const chase = inbox.sent[0]!;
+    // The chase lands in firstmate's inbox; the window reads it back on the next pass.
+    inbox.notes = () => [asked, { question: chase, handoff: "queued" as const, waiting: "" }];
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    expect(update.messages.map((m: { id: string }) => m.id)).not.toContain(chase.id);
+    const shown = update.messages.filter((m: { role: string }) => m.role === "user").map((m: { html: string }) => m.html).join("\n");
+    expect(shown).not.toContain("send that as an artefact");
+    // The Artefacts/Conversations column never shows the chase either.
+    expect(update.rail.conversations.map((talk: { id: string }) => talk.id)).not.toContain(chase.id);
+    expect(JSON.stringify(update.rail)).not.toContain("send that as an artefact");
+  });
+
+  it("does not chase again for a note already chased in an earlier session", async () => {
+    const inbox = new MemoryInbox();
+    const asked = askedNote("1791720009-aaaaaa", "pull and check and then explain in an artefact what they do", "They pull, check and explain the commits.");
+    inbox.notes = () => [asked, { question: { id: "note:1791720009-ffff", role: "user" as const, text: artefactAsk(asked), timestamp: new Date().toISOString(), receipt: "read" as const }, handoff: "queued" as const, waiting: "" }];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(0);
+  });
+
+  it("does not chase a note asked for more than a day ago", async () => {
+    const inbox = new MemoryInbox();
+    const old = new Date(Date.now() - 25 * 60 * 60_000).toISOString();
+    inbox.notes = () => [askedNote("1791720009-aaaaaa", "explain the commits in an artefact", "A summary.", old)];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(0);
   });
 
   it("never warns about a note firstmate answered in its own chat, answered formally, or is working on now", async () => {

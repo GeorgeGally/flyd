@@ -20,9 +20,10 @@ import { readProjects } from "../council/projects.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
-import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, ReplySummarizer, SUMMARY_MIN_CHARS, type SummarySource } from "./summaries.js";
+import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, askedForArtefact, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
+import type { ArtefactJudge } from "./artefact-judge.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf, statusSummaryHtml } from "./executive.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
@@ -34,8 +35,8 @@ import { Workshop } from "./workshop.js";
 import type { ActivityPanel, ActivityReader } from "./activity.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
-import { answerNote, PASSAGE_CHARS, passageNote, replyNote } from "./replies.js";
-import { answeredForHim, choiceOf, choiceTarget, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
+import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote } from "./replies.js";
+import { answered, answeredForHim, choiceOf, choiceTarget, labelOf, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import type { AutoAnswers } from "./auto-answers.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
@@ -76,6 +77,10 @@ const STATUS_SESSION_CHECK_MS = 5_000;
 const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
 /** One attachment, base64-encoded, as it is added to the box. */
 const MAX_DRAFT_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+/** Reply steps kept in the column's Artefacts: the newest few. */
+const MAX_REPLY_ARTEFACTS = 3;
+/** A note older than this is not chased for a missing artefact: opening the window never replays the backlog. */
+const ARTEFACT_CHASE_MAX_AGE_MS = 24 * 60 * 60_000;
 /** Model summaries are only asked for the newest replies; older ones use what is cached. */
 const SUMMARIZE_NEWEST = 20;
 
@@ -97,6 +102,7 @@ export interface RenderedMessage {
   compare?: { html: string; pending?: boolean };
   /** The reply hands the captain something to act on: the page never folds it behind its summary. */
   expanded?: boolean;
+  artifact?: ReplyArtefact;
   /** Routine chatter (an acknowledgement, a status ping): the page mutes it. */
   routine?: boolean;
   timestamp?: string;
@@ -123,6 +129,8 @@ export interface SummaryOptions {
   summarizer?: ReplySummarizer;
   /** Flyd's own reading of firstmate's answer to one of his notes. */
   interpreter?: AnswerInterpreter;
+  /** Flyd's call on replies whose steps the rules leave unclear: artefact or text. */
+  artefacts?: ArtefactJudge;
   /** Also summarise replies that carry their own "» " summary, to compare. */
   always?: boolean;
   /** Called when a requested summary arrives (or fails), so the stream can push it. */
@@ -180,6 +188,41 @@ function briefOf(text: string, handled?: Handled): NonNullable<RenderedMessage["
 /** Of a reply's questions, the ones Flyd already answered for him. */
 type Handled = (text: string) => boolean;
 
+/**
+ * The replies whose steps the column's Artefacts keeps, by message id: the
+ * newest few the rule calls clear steps or Flyd's judge has called steps or
+ * options. The window points only these there.
+ */
+function railReplies(messages: ConversationMessage[], judge?: ArtefactJudge): Map<string, ReplyArtefact> {
+  const kept = new Map<string, ReplyArtefact>();
+  for (const message of [...messages].reverse()) {
+    if (kept.size >= MAX_REPLY_ARTEFACTS) break;
+    if (message.role !== "assistant" || kept.has(message.id)) continue;
+    const call = replyArtefact(message.text);
+    if (!call) continue;
+    const kind = call.clear ? "steps" : judge?.cached(message.text);
+    if (kind === "steps" || kind === "options") kept.set(message.id, replyArtefact(message.text, kind)!.artefact);
+  }
+  return kept;
+}
+
+/**
+ * The column's cards for those replies: steps as a numbered list, options as
+ * a choice whose tap answers the reply with that option, until he has
+ * answered it. A reply that closes on its own question is answered in the
+ * card under it in the window; its options here are only listed.
+ */
+export function replyCards(messages: ConversationMessage[], judge?: ArtefactJudge): RailArtefact[] {
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  return [...railReplies(messages, judge)].map(([id, artifact]) => {
+    if (!artifact.options) return { id: `reply:${id}`, title: artifact.title, steps: artifact.steps };
+    const message = byId.get(id)!;
+    const choice: ReplyChoice = { question: artifact.title, options: artifact.steps.map(labelOf) };
+    const open = message.answers !== undefined && !choiceOf(message.text) && !answered(messages, message, choice);
+    return { id: `reply:${id}`, title: artifact.title, choice: { ...choice, ...(open ? { replyTo: choiceTarget(message) } : {}) } };
+  });
+}
+
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
@@ -193,10 +236,31 @@ export class SnapshotDiffer {
     return model && !isRoutineAnswer(model) ? inFlydsVoice(model) : undefined;
   }
 
+  /** Asks Flyd's judge about a reply in the background; the stream re-renders when it answers. */
+  private judge(judge: ArtefactJudge, text: string): void {
+    void judge.request(text).then(() => this.summaries?.onSummary?.());
+  }
+
   /** Starts a model summary in the background; the stream re-renders when it lands. */
   private ask(text: string): void {
     const summaries = this.summaries!;
     void summaries.summarizer!.request(text).then(() => summaries.onSummary?.());
+  }
+
+  /**
+   * Asks Flyd's interpreter for its own reading of a note firstmate answered,
+   * once, in the background; the stream re-renders when it lands. Its reading
+   * is Flyd's on every reply, an artefact as much as a paragraph.
+   */
+  private readAnswer(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): void {
+    const interpreter = this.summaries?.interpreter;
+    if (!interpreter || !newest || !interpreter.wants(message.text)) return;
+    const at = snapshot.messages.findIndex((candidate) => candidate.id === message.answers);
+    const before = at >= 0 ? at : snapshot.messages.indexOf(message);
+    const summaries = this.summaries!;
+    void interpreter
+      .request({ question: snapshot.messages[at]?.text ?? "", answer: message.text, recent: snapshot.messages.slice(0, Math.max(0, before)) })
+      .then(() => summaries.onSummary?.());
   }
 
   /**
@@ -208,14 +272,7 @@ export class SnapshotDiffer {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
     if (cached) return { body: message.text, summary: { html: statusSummaryHtml(message.text, inFlydsVoice(cached), handled) ?? renderBriefing(inFlydsVoice(cached)), source: "flyd" } };
-    if (interpreter && newest && interpreter.wants(message.text)) {
-      const at = snapshot.messages.findIndex((candidate) => candidate.id === message.answers);
-      const before = at >= 0 ? at : snapshot.messages.indexOf(message);
-      const summaries = this.summaries!;
-      void interpreter
-        .request({ question: snapshot.messages[at]?.text ?? "", answer: message.text, recent: snapshot.messages.slice(0, Math.max(0, before)) })
-        .then(() => summaries.onSummary?.());
-    }
+    this.readAnswer(message, snapshot, newest);
     const pending = interpreter?.pending(message.text) ?? false;
     return { body: message.text, summary: pending ? { html: statusSummaryHtml(message.text, undefined, handled) ?? renderBriefing(digestMarkdown(digestReply(message.text))), source: "digest", pending: true } : briefOf(message.text, handled) };
   }
@@ -283,13 +340,25 @@ export class SnapshotDiffer {
       if (message.undoes) takenBack.add(asked);
       else if (message.answeredFor && takenBack.has(asked)) undone.add(message.id);
     }
+    const judge = this.summaries?.artefacts;
+    const kept = railReplies(snapshot.messages, judge);
     for (const message of snapshot.messages) {
+      // Artefact or text is Flyd's call on every reply: the rule decides clear ones, its judge the rest.
+      const call = message.role === "assistant" ? replyArtefact(message.text) : undefined;
+      // Asked once: a re-render while the verdict is out must not ask again, or each answer re-renders and asks forever.
+      if (call && !call.clear && judge && newest.has(message.id) && judge.cached(message.text) === undefined && !judge.pending(message.text)) this.judge(judge, message.text);
+      const artifact = kept.get(message.id);
+      // No summary is asked for a reply that may yet be an artefact.
+      const fresh = newest.has(message.id) && !(call && judge?.pending(message.text));
+      // An artefact that answers his note still gets Flyd's reading, which the column speaks in its place of firstmate's words.
+      if (artifact && message.answers?.startsWith("note:")) this.readAnswer(message, snapshot, fresh);
       // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
       const handled = message.role === "assistant" ? handledBy(answered.get(choiceTarget(message))) : undefined;
       const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
-        : !message.answers ? this.summarize(message, newest.has(message.id), handled)
-          : message.answers.startsWith("note:") ? this.interpret(message, snapshot, newest.has(message.id), handled)
-            : { body: message.text };
+        : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
+          : !message.answers ? this.summarize(message, fresh, handled)
+            : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh, handled)
+              : { body: message.text };
       const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
       // The card under the reply asks its question; Flyd's briefing does not say it again.
       if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text), handled);
@@ -302,7 +371,7 @@ export class SnapshotDiffer {
       const expanded = parts.expanded === true;
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -318,6 +387,7 @@ export class SnapshotDiffer {
         ...(parts.compare ? { compare: parts.compare } : {}),
         ...(routine ? { routine: true } : {}),
         ...(expanded ? { expanded: true } : {}),
+        ...(artifact ? { artifact } : {}),
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
         ...(message.waiting ? { waiting: message.waiting } : {}),
         ...(message.waiting && message.waitingFailed ? { waitingFailed: true } : {}),
@@ -414,10 +484,11 @@ export class ConversationViewServer {
   private readonly workshop = new Workshop(() => join(firstmateHome(), "data"));
   /** What Core's staff watch found stuck (command/fleet-monitor.ts); nothing under tests unless one sets it. */
   staffView: () => StaffView | null = process.env.VITEST ? () => null : () => readStaffView();
+  private readonly chased = new Set<string>();
 
   constructor(
     private readonly source: ConversationSource,
-    private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; always?: boolean },
+    private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; artefacts?: ArtefactJudge; always?: boolean },
     private readonly plan?: PlanUsageReader,
     private readonly show?: Pick<ShowOptions, "projects">,
     private readonly feed: ArtefactFeed = new ArtefactFeed(),
@@ -714,7 +785,9 @@ export class ConversationViewServer {
         ...(item.shots?.[0] ? { image: item.shots[0].src } : {}),
         ...(item.at ? { at: item.at } : {}),
       }));
-    const artefacts: RailArtefact[] = [...sites, ...composeArtefact(this.feed.current(), { project })
+    // The same replies the window points here, each once, newest first.
+    const reported = replyCards(snapshot.messages, this.summaries?.artefacts);
+    const artefacts: RailArtefact[] = [...sites, ...reported, ...composeArtefact(this.feed.current(), { project })
       .filter((item) => item.kind !== "call")
       .map((item) => ({
         id: item.id,
@@ -744,7 +817,7 @@ export class ConversationViewServer {
     ];
     // A question still under way says in the column what its line says in the window.
     const lines = new Map(snapshot.messages.filter((message) => message.role === "user" && message.waiting).map((message) => [message.id, message.waiting!]));
-    const recorded = this.source.exchanges?.() ?? [];
+    const recorded = (this.source.exchanges?.() ?? []).filter((exchange) => !exchange.question.flydAsked);
     const formal = new Map(recorded.map((exchange) => [exchange.question.id, exchange.answer]));
     const exchanges = withFollowUps(recorded, snapshot.followUps ?? {}, snapshot.working).map((exchange): Exchange & { state?: RailState } => {
       const waiting = !exchange.answer && lines.has(exchange.question.id) ? { ...exchange, waiting: lines.get(exchange.question.id)! } : exchange;
@@ -761,6 +834,7 @@ export class ConversationViewServer {
       return { ...rest, waiting: "", answered: true, state: state === "needs" ? "needs" : state === "underway" ? "underway" : "done" };
     });
     const rail = composeRail(exchanges, artefacts, [...workshop, ...conversationPreviews(snapshot.messages)], {
+      kept: new Set(reported.map((card) => card.id)),
       live: (url) => this.previews.state(url),
       phone: phoneWork(snapshot.messages),
       known: (preview) => board.get(preview.url) ?? preview,
@@ -1215,6 +1289,28 @@ export class ConversationViewServer {
       .catch((error: unknown) => console.warn(`[view] Flyd could not answer for him: ${error instanceof Error ? error.message : String(error)}`));
   }
 
+  private chaseArtefact(session: string, snapshot: ConversationSnapshot): void {
+    if (!this.source.canSend) return;
+    const exchanges = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {}, snapshot.working);
+    const chased = new Set(exchanges.filter((exchange) => exchange.question.flydAsked && exchange.question.replyTo).map((exchange) => exchange.question.replyTo!));
+    const now = Date.now();
+    for (const exchange of exchanges) {
+      const id = exchange.question.id;
+      if (!id.startsWith("note:") || exchange.question.flydAsked || this.chased.has(id) || chased.has(id)) continue;
+      const askedAt = Date.parse(exchange.question.timestamp ?? "");
+      if (!Number.isFinite(askedAt) || now - askedAt > ARTEFACT_CHASE_MAX_AGE_MS) continue;
+      if (!exchange.answer || !askedForArtefact(exchange.question.text) || replyArtefact(exchange.answer.text)) continue;
+      this.chased.add(id);
+      void this.source.send(session, artefactAsk(exchange), [], [], "firstmate")
+        .catch((error: unknown) => {
+          this.chased.delete(id);
+          console.warn(`[view] Flyd could not ask for the artefact: ${error instanceof Error ? error.message : String(error)}`);
+        });
+      // One ask per pass: a backlog of missed artefacts is chased over later passes, never in a burst.
+      break;
+    }
+  }
+
   private async image(res: ServerResponse, session: string | null, id: string | null): Promise<void> {
     let image = null;
     try {
@@ -1354,6 +1450,7 @@ export class ConversationViewServer {
         latest = snapshot;
         this.cachePredictionContext(session.id, snapshot.messages);
         this.autoAnswer(session.id, snapshot);
+        this.chaseArtefact(session.id, snapshot);
         sseEvent(res, "update", differ.next(snapshot));
         emitUnread();
       },

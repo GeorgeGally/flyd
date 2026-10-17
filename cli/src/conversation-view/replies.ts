@@ -15,7 +15,8 @@ import type { ConversationMessage, Exchange } from "./types.js";
 const QUOTE_CHARS = 160;
 
 // A reply to a session's own message names it by its id and quotes its question instead of his note.
-const MARKER = /^\[(Captain is replying from Flyd|Flyd is answering for the captain) to ((?:note|ask):[\w.-]+|reply:[\w.#:-]+) — (?:his note|your question): "([^"\n]*)"([^\n]*)\]\n*/;
+const MARKER = /^\[(Captain is replying from Flyd|Flyd is answering for the captain|Flyd is asking for the artefact) to ((?:note|ask):[\w.-]+|reply:[\w.#:-]+) — (?:his note|your question): "([^"\n]*)"([^\n]*)\]\n*/;
+const ASKING = /^Flyd is asking for the artefact/;
 /** The standing rule an answer Flyd gave for him was settled by, as the line quotes it. */
 const RULE = /; by his standing rule: "([^"\n]*)"/;
 const TAKEN_BACK = /; he takes back the answer Flyd gave for him\b/;
@@ -85,17 +86,26 @@ export function passageNote(passage: { quote: string; from: "user" | "assistant"
   return `Comment on a passage of ${whose} in the conversation ${where}:\n\n${quote}\n\n${words.trim()}`;
 }
 
+export function artefactAsk(parent: Exchange): string {
+  const answer = parent.answer?.text ? parent.answer : undefined;
+  const said = answer ? opening(answer) : "";
+  const marker = `[Flyd is asking for the artefact to ${parent.question.id} — his note: "${quoted(parent.question.text)}"`
+    + `${said ? `; your answer came back as text, beginning: "${said}"` : ""}. Send it as an artefact.]`;
+  return `${marker}\n\nFlyd: send that as an artefact, please — he asked for one and none arrived.`;
+}
+
 /** A message with its reply line read: his own words, and what they answer. Pure. */
 export function readReply(message: ConversationMessage): ConversationMessage {
   const found = MARKER.exec(message.text);
   if (!found) return message;
-  const rule = found[1]!.startsWith("Flyd") ? RULE.exec(found[4]!)?.[1] : undefined;
+  const rule = found[1]!.startsWith("Flyd is answering") ? RULE.exec(found[4]!)?.[1] : undefined;
   return {
     ...message,
     text: ownWords(message.text),
     replyTo: found[2]!,
     replyQuote: found[3]!,
     ...(rule !== undefined ? { answeredFor: rule } : {}),
+    ...(ASKING.test(found[1]!) ? { flydAsked: true } : {}),
     ...(TAKEN_BACK.test(found[4]!) ? { undoes: true } : {}),
   };
 }

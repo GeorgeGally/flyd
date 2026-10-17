@@ -535,6 +535,30 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(again.cached(messages.find((message) => message.answers)!.text)).toContain("Your call");
   });
 
+  it("still reads firstmate's note answer when the reply is an artefact", async () => {
+    const prompts: string[] = [];
+    const interpreter = new AnswerInterpreter({
+      cacheFile: join(dir, "interpretations.json"),
+      profile: () => null,
+      complete: async (prompt) => {
+        prompts.push(prompt);
+        return "Sir, the redirects still point at the old host; delete the catch-all rule and add the general one.";
+      },
+    });
+    let landed!: () => void;
+    const arrived = new Promise<void>((resolve) => { landed = resolve; });
+    const differ = new SnapshotDiffer({ interpreter, onSummary: () => landed() });
+    const messages = noteWithReply(["Captain, fix the redirects.", "1. Delete the catch-all rule.", "2. Add the general rule."].join("\n\n"));
+
+    const shown = differ.next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+    // The reply is an artefact, so its body is the steps, keeps its own words in the column.
+    expect(plain(shown.summary!.html)).toContain("kept in Artefacts");
+    await arrived;
+    // Flyd still reads it for him, so the column speaks Flyd's reading of the note answer, not firstmate's words.
+    expect(prompts).toHaveLength(1);
+    expect(interpreter.cached(messages.find((message) => message.answers)!.text)).toContain("delete the catch-all");
+  });
+
   it("leads with Flyd's whole reading, every sentence kept, when no interpretation is coming", () => {
     // With no model, a local digest cut each answer to a line or two and the
     // window looked empty; now the answer reads in full, in Flyd's voice.

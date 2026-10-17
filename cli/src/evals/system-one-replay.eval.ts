@@ -19,6 +19,7 @@ import {
 } from "../cognition/system-one/replay.js";
 import { classifyEvidenceNeed } from "../evidence/evidence-need.js";
 import { memoryGate } from "../memory-gate.js";
+import { replyArtefact } from "../conversation-view/summaries.js";
 import { routeIntent } from "../resolve.js";
 import { isCompoundNlUtterance } from "../work-intelligence/compound-nl.js";
 import { editableEnvironment, nonEditableEnvironment } from "./helpers.js";
@@ -31,7 +32,7 @@ import { editableEnvironment, nonEditableEnvironment } from "./helpers.js";
 // answers as the next recordings.
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "system-one");
-const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl", "skill-match.jsonl", "note-relevance.jsonl", "self-review.jsonl"];
+const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl", "skill-match.jsonl", "note-relevance.jsonl", "self-review.jsonl", "reply-artefact.jsonl"];
 const RECORDINGS = join(FIXTURES, "recordings.jsonl");
 const LIVE = process.env.FLYD_JEV_EVAL === "1" && Boolean(process.env.TYPESAFE_API_KEY);
 
@@ -75,6 +76,8 @@ const BASELINES: Record<string, BaselineFn> = {
     advisories: [], notes: [],
     memory: [{ id: "c", section: "Facts", text: text(inputs, "candidate"), tier: "aging", date: "2026-09-27" }],
   }).length > 0,
+  // Without the judge, only steps the rule calls clear become an artefact.
+  reply_artefact_kind: (inputs) => replyArtefact(text(inputs, "reply"))?.clear ? "steps" : "text",
   // Every invocation that reaches a model uses the main model today.
   needs_reasoning_model: () => true,
   // outcome_supported: the incumbent is an LLM judge (transitions/judge.ts); no deterministic baseline.
@@ -188,6 +191,13 @@ describe("System-1 replay bench", () => {
       expect(wrong, id).toEqual(id === "cos_placeholder" ? ["self-review-09"] : []);
     }
     expect(predicateReport(report, "cos_internal_decision").rows.every((r) => r.jev === r.label)).toBe(true);
+
+    // reply_artefact_kind: steps the rule leaves unclear (a step opening
+    // "Order:", naming a menu path, a value "301 or 302", a menu called
+    // Options) are steps; alternatives to choose between are options;
+    // done-reports, causes and findings stay text.
+    const artefact = predicateReport(report, "reply_artefact_kind").rows;
+    expect(artefact.filter((r) => r.jev !== r.label)).toEqual([]);
     // ...and Jev proposes no false lifecycle closure on the curator set, where
     // today's regex closes projects from questions.
     expect(predicateReport(report, "marks_completed").jev.wrong).toBe(0);

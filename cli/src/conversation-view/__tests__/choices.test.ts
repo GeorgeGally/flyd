@@ -29,6 +29,16 @@ The site needs very little more motion. Number 1 is worth the most.
 
 Want me to add all three?`;
 
+const RANKED_PICKS = `Captain, the five ways to make Flyd smarter are ready. The page is in your Flyd artefacts and the full report is alongside it. They're ranked:
+
+1. **Keep promises straight.** Each commitment gets one record: where it came from, its status, its next check, and whether it's actually finished. Big job.
+2. **Every background job ends in a checkable result or an honest "blocked".** No more quiet empty or failed runs sitting in Flyd's job list.
+3. **Your corrections become lasting, testable preferences.** When you correct Flyd once, it stays corrected, and there's a test proving it.
+4. **Recall shows why an item belongs and when it may be out of date.** Flyd stops bringing back stale facts with full confidence.
+5. **Proof that learning helps.** Every change to how Flyd behaves gets checked against evidence that it actually improved things.
+
+Pick the ones you want built, from the page in Flyd or here.`;
+
 const reply = (id: string, text: string, extra: Partial<ConversationMessage> = {}): ConversationMessage => ({ id, role: "assistant", text, ...extra });
 const said = (id: string, text: string): ConversationMessage => ({ id, role: "user", text });
 
@@ -57,6 +67,8 @@ describe("choiceOf", () => {
     expect(choiceOf("Checks are still running. Should I merge now or wait for checks?")!.options).toEqual(["Merge now", "Wait for checks"]);
     expect(choiceOf("Do you want A, B or C?")!.options).toEqual(["A", "B", "C"]);
     expect(choiceOf("Is that fine or not?")!.options).toEqual(["Yes", "No"]);
+    // A real A-or-B question that mentions a quantifier keeps its two options, not Yes/No.
+    expect(choiceOf("Should I pick the two new ones, or keep them all?")!.options).toEqual(["Pick the two new ones", "Keep them all"]);
   });
 
   it("offers one button per option listed under the question", () => {
@@ -64,6 +76,46 @@ describe("choiceOf", () => {
       question: "Which do you want?",
       options: ["Evergreen", "Frost"],
     });
+  });
+
+  it("offers the items a reply listed when it asks him to pick the ones he wants, any number of them", () => {
+    const choice = choiceOf(RANKED_PICKS)!;
+    expect(choice.question).toBe("Pick the ones you want built, from the page in Flyd or here.");
+    expect(choice.multiple).toBe(true);
+    expect(choice.options).toHaveLength(5);
+    expect(choice.options[0]).toBe("Keep promises straight");
+    expect(choice.options[4]).toBe("Proof that learning helps");
+    expect(JSON.stringify(choice.options)).not.toContain("From the page in Flyd");
+    expect(choice.options).not.toContain("Here");
+  });
+
+  it("offers the listed items when the ask to pick them ends in a question mark", () => {
+    const choice = choiceOf(RANKED_PICKS.replace(/here\.$/, "here?"))!;
+    expect(choice.multiple).toBe(true);
+    expect(choice.options).toHaveLength(5);
+    expect(choice.options[0]).toBe("Keep promises straight");
+    expect(choice.options).not.toContain("Pick the ones you want built");
+    expect(choice.options).not.toContain("From the page in Flyd");
+    expect(choice.options).not.toContain("Here");
+  });
+
+  it("asks nothing when it says to pick the ones and listed nothing to pick from", () => {
+    expect(choiceOf("Ready when you are. Pick the ones you want built, from the page in Flyd or here.")).toBeNull();
+  });
+
+  it("offers the ones a lead-in asks him to pick, above or below its list, any number of them", () => {
+    // The ask is the line right above the list, in the same block or after a blank line.
+    expect(choiceOf("Pick the ones you want:\n1. Wildcard rule\n2. Separate rules")).toEqual({ question: "Pick the ones you want?", options: ["Wildcard rule", "Separate rules"], multiple: true });
+    expect(choiceOf("Pick the ones you want:\n\n1. Wildcard rule\n2. Separate rules")).toEqual({ question: "Pick the ones you want?", options: ["Wildcard rule", "Separate rules"], multiple: true });
+    // Picking one is a single choice, not several.
+    expect(choiceOf("Pick one:\n1. Wildcard rule\n2. Separate rules")).toEqual({ question: "Pick one?", options: ["Wildcard rule", "Separate rules"] });
+  });
+
+  it("leaves findings listed above an open question to his own words, never as buttons", () => {
+    expect(choiceOf("Here is what I found:\n\n1. The cache is stale.\n2. The token expired.\n\nWhat should we do?")).toEqual({ question: "What should we do?", options: [] });
+    expect(choiceOf("Here is what I found:\n\n1. The cache is stale.\n2. The token expired.\n\nHow do you want to proceed?")).toEqual({ question: "How do you want to proceed?", options: [] });
+    // "Which do you want?" over the same set is about choosing among it: the buttons stay.
+    expect(choiceOf("Here is what I found:\n\n1. The cache is stale.\n2. The token expired.\n\nWhich do you want?")!.options).toEqual(["The cache is stale", "The token expired"]);
   });
 
   it("puts several questions listed at the end one at a time, never offering one as the answer to another", () => {

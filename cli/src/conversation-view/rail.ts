@@ -1,3 +1,4 @@
+import type { ReplyChoice } from "./choices.js";
 import type { PortServer } from "./port-server.js";
 import type { ServedBy } from "./preview-probe.js";
 import type { WorkState } from "./executive.js";
@@ -64,6 +65,9 @@ export interface RailArtefact {
   id: string;
   title: string;
   line?: string;
+  steps?: string[];
+  /** Options a reply put to him: while it waits on him (`replyTo`), one tap answers the reply with that option; else only listed. */
+  choice?: ReplyChoice & { replyTo?: string };
   url?: string;
   /** A live local URL to show inline in the column. */
   preview?: string;
@@ -441,6 +445,8 @@ export interface RailOptions {
   server?: (url: string) => RailServer | undefined;
   /** The work is at phone width: live pages are shown on a phone. */
   phone?: boolean;
+  /** Artefacts the window points to: never cut from the column. */
+  kept?: Set<string>;
 }
 
 /** The column from his exchanges, the previews they showed, and the artefacts beside them. Pure. */
@@ -485,7 +491,7 @@ export function composeRail(
     });
   const attached = new Set(conversations.flatMap((conversation) => (conversation.previews ?? []).map((preview) => preview.id)));
   // One row per message: each with its own answer, never folded into its neighbours.
-  return { conversations: threadReplies(conversations), artefacts: railCards(artefacts, previews, attached, card) };
+  return { conversations: threadReplies(conversations), artefacts: railCards(artefacts, previews, attached, card, options.kept ?? new Set()) };
 }
 
 /** Each reply under the conversation it answers, a reply to a reply under the same one; a reply whose answer is gone stands alone. Pure. */
@@ -510,9 +516,10 @@ export function threadReplies(conversations: RailConversation[]): RailConversati
   return top.map((conversation) => (replies.has(conversation.id) ? { ...conversation, replies: replies.get(conversation.id)! } : conversation));
 }
 
-function railCards(artefacts: RailArtefact[], previews: RailPreview[], attached: Set<string>, card: (preview: RailPreview) => RailArtefact): RailArtefact[] {
-  const cards = [...artefacts];
+function railCards(artefacts: RailArtefact[], previews: RailPreview[], attached: Set<string>, card: (preview: RailPreview) => RailArtefact, kept: Set<string>): RailArtefact[] {
   const own = previews.filter((preview) => !attached.has(preview.id) && (attached.add(preview.id), true));
-  cards.unshift(...own.map(card));
-  return cards.slice(0, MAX_RAIL_ARTEFACTS);
+  const cards = [...own.map(card), ...artefacts];
+  // Cards the window points to keep their place; the rest fill what room is left, in order.
+  let room = MAX_RAIL_ARTEFACTS - cards.filter((entry) => kept.has(entry.id)).length;
+  return cards.filter((entry) => kept.has(entry.id) || room-- > 0);
 }

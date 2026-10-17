@@ -141,15 +141,101 @@ export interface ReplyDigest {
 const ACT_ON = /(?:^\s*(?:\d+[.)]\s+|[-*+]\s+)?|[.!?:]\s+)(?:(?:captain|sir|george|boss),\s+)?(?:(?:please|now|then|next),?\s+)?(?:add|paste|run|set|enter|copy|put|type|replace|clear)\s+(?:these|this|that|each|them|the following|it|rule|all)\b/im;
 
 /**
+ * A numbered step that tells him what to do: an imperative, after an optional
+ * "Then", "Next" or the place to do it ("In MyKinsta, delete…").
+ */
+const STEP = /^(?:(?:then|next|now|finally|first|also|after that),?\s+|in\s+[^,\n]{1,40},\s+)*(?:add|delete|remove|move|set|enter|copy|paste|put|type|replace|open|click|save|run|restart|update|change|edit|clear|install|create|enable|disable|send|drag|log)\b/i;
+
+/** Words that may make numbered items a choice between them rather than steps to carry out: Flyd's judge decides. */
+const CHOICES = /\b(?:options?|ways|either|alternatives?|choose|pick|select|which)\b|\sor\s/i;
+
+/** At least two numbered steps, each one an instruction to carry out, and no word of a choice among them. */
+function clearSteps({ intro, steps }: { intro: string; steps: string[] }): boolean {
+  return steps.length >= 2 && !CHOICES.test(intro) && !steps.some((step) => CHOICES.test(step)) && steps.every((step) => STEP.test(step));
+}
+
+/**
  * Whether the reply hands the captain something to act on: a code block, a
- * table, or an instruction to him to paste, add, run or set what it contains.
- * Such a reply opens with its body shown under the summary; the deliverable
- * is the point.
+ * table, an instruction to him to paste, add, run or set what it contains, or
+ * numbered steps to carry out. Such a reply opens with its body shown under
+ * the summary; the deliverable is the point.
  */
 export function isActionable(text: string): boolean {
   if (/^\s*```/m.test(text)) return true;
   if (/^\s*\|.*\|\s*\n\s*\|[\s:|-]*-[\s:|-]*\|?\s*$/m.test(text)) return true;
+  if (clearSteps(stepsOf(text))) return true;
   return ACT_ON.test(text.replace(/`[^`]*`/g, ""));
+}
+
+/**
+ * A reply's top-level numbered steps, never a numbered line inside a code
+ * block, each with the lines under it (sub-bullets, wrapped text, its code)
+ * folded in; and the text before the first.
+ */
+function stepsOf(text: string): { intro: string; steps: string[] } {
+  const intro: string[] = [];
+  const steps: string[][] = [];
+  let open = false;
+  let blank = false;
+  let fenced = false;
+  for (const line of text.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      blank = false;
+      continue;
+    }
+    const item = !fenced && /^\d+[.)]\s+(.*)$/.exec(line);
+    if (fenced) {
+      if (open && line.trim()) steps.at(-1)!.push(line.trim());
+    } else if (item) {
+      steps.push([item[1]!]);
+      open = true;
+      blank = false;
+    } else if (!line.trim()) {
+      blank = true;
+    } else if (open && (!blank || /^\s/.test(line))) {
+      steps.at(-1)!.push(line.trim().replace(/^(?:[-*+]|\d+[.)])\s+/, ""));
+      blank = false;
+    } else {
+      open = false;
+      blank = false;
+      if (steps.length === 0) intro.push(line);
+    }
+  }
+  return {
+    intro: inline(intro.join(" ")),
+    steps: steps.map(([head, ...rest]) => inline(rest.length ? `${head}${/:$/.test(head!.trim()) ? " " : "; "}${rest.join("; ")}` : head!)),
+  };
+}
+
+export interface ReplyArtefact {
+  title: string;
+  steps: string[];
+  /** The items are options to choose between, not steps to carry out. */
+  options?: true;
+}
+
+/**
+ * The numbered items a reply hands him, as an artefact to work from, read
+ * after the reply's own "» " summary lines and shown as `kind`. `clear` when
+ * every item is a step to carry out and none is a choice (the same rule
+ * `isActionable` reads); otherwise Flyd's judge says what the items are.
+ * None under two items.
+ */
+export function replyArtefact(text: string, kind: "steps" | "options" = "steps"): { artefact: ReplyArtefact; clear: boolean } | undefined {
+  const parts = stepsOf(authorSummary(text)?.rest ?? text);
+  const { intro, steps } = parts;
+  if (steps.length < 2) return undefined;
+  const options = kind === "options";
+  const lead = sentences(intro.replace(SALUTATION, ""))[0]?.replace(/[.:!]+$/, "").trim();
+  const title = lead ? clip(capitalise(lead), 70) : options ? "Options to choose from" : "Steps to follow";
+  return { artefact: { title, steps, ...(options ? { options: true as const } : {}) }, clear: clearSteps(parts) };
+}
+
+const ASKS_ARTEFACT = /\b(?:in|as|into)\s+(?:an?|some)\s+(?:[\w'-]+\s+){0,2}artefacts?\b|\b(?:make|build|create|give|send|show|turn|render|produce|draft|write|put|do|explain)\s+(?:me\s+)?(?:an?|some)\s+(?:[\w'-]+\s+){0,2}artefacts?\b/i;
+
+export function askedForArtefact(text: string): boolean {
+  return ASKS_ARTEFACT.test(text);
 }
 
 /** Whether a reply is routine chatter: short, with no question or numbered report. */

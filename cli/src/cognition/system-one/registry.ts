@@ -23,7 +23,8 @@ export type PredicateFamily =
   | "model_routing"
   | "council"
   | "chat"
-  | "self_review";
+  | "self_review"
+  | "presentation";
 
 /**
  * - `production`: asked by a production call site when Jev is enabled.
@@ -414,6 +415,20 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     threshold: 0.85, use: "recorded", failureMode: "skip_mutation",
     projection: SELF_REVIEW_PROJECTION, evaluatorVersion: "cos_off_voice.v1", status: "production",
     consumer: "council/chief-of-staff.ts judgeSaid: a decided answer that breaks the standard is recorded as a self-review shortfall (council/reply-review.ts) and feeds the daily improver; Jev's judgments never hold a message, while the deterministic screen (screenBeforeDisplay, scheduler returnedToBoss) catches some before display; asked only when FLYD_SELF_REVIEW_JEV=1 and never for email, Drive or WhatsApp content",
+  },
+
+  // ── presentation (conversation-view/artefact-judge.ts) ────────────────
+  {
+    id: "reply_artefact_kind", family: "presentation", type: "choice",
+    instructions: "`reply` is an answer relayed to George in Flyd's conversation window, with numbered items. What are the items, for him?",
+    criteria: {
+      steps: "Steps he will carry out himself, in order (settings to change, rules to add or delete, things to click, copy or run), even when a step mentions a choice of value or a menu named Options.",
+      options: "A decision he has to make: the items are alternatives he chooses between, even with a recommendation.",
+      text: "An explanation, a report of work already done, a list of findings or causes, or general advice: read once, not worked through.",
+    },
+    threshold: 0.6, use: "choice", failureMode: "fallback_heuristic",
+    projection: ["reply"], evaluatorVersion: "reply_artefact_kind.v1", status: "production",
+    consumer: "conversation-view/artefact-judge.ts ArtefactJudge: asked only for a reply with numbered items the deterministic rule (summaries.ts replyArtefact) leaves unclear; steps or options at ≥ threshold confidence show it as an artefact labelled by that kind, else (or Jev off/failing) as text",
   },
 
   // ── proposed: model routing (replay only) ─────────────────────────────

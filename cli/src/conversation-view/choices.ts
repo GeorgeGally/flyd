@@ -29,6 +29,8 @@ export interface ReplyChoice {
   options: string[];
   /** Several questions asked at once: one at a time, and one reply that answers them all. */
   steps?: ChoiceStep[];
+  /** The ask is "pick the ones you want": any number of the options, not just one. */
+  multiple?: boolean;
 }
 
 /** At most this many options; more is a list to read, not a choice to make. */
@@ -57,7 +59,7 @@ const TABLE_ROW = /^\s*\|(.*)\|\s*$/;
 const TABLE_RULE = /^\s*\|[\s:|-]*-[\s:|-]*\|?\s*$/;
 
 /** What a listed item is called: its bold lead-in, else its first clause, short. */
-function labelOf(text: string): string {
+export function labelOf(text: string): string {
   const bold = /^\*\*(.+?)\*\*/.exec(text.trim());
   const said = inline(bold ? bold[1]! : text).replace(/[:.]+$/, "").trim();
   const clause = bold ? said : said.split(/\s+[—–-]\s+|:\s|(?<=[a-z])\.\s/)[0]!.trim();
@@ -141,6 +143,8 @@ function closingAsk(blocks: string[][]): { sentence: string; context: string; af
 
 /** "Should I merge now or wait for checks?": the alternatives, when each is short. */
 function alternatives(question: string): string[] {
+  if (!/\?["”')\]]*$/.test(question.trim())) return [];
+  if (PICK_ONES.test(question)) return [];
   const bare = question.replace(/[?:.]+$/, "").replace(LEAD_IN, "");
   if (/\bor (?:not|so|something|anything|otherwise)\b/i.test(bare)) return [];
   const parts = bare.split(/,\s*(?:or\s+)?|\s+or\s+/i).map((part) => part.trim()).filter(Boolean);
@@ -155,6 +159,8 @@ function yesToAll(question: string): string {
   if (all) return `Yes, all ${all[1]!.toLowerCase()}`;
   return /\bboth\b/i.test(question) ? "Yes, both" : "Yes, all of them";
 }
+
+const PICK_ONES = /\b(?:pick|choose|select)\s+(?:the\s+)?ones\b|\bwhich\s+ones\b|\bany\s+of\s+(?:these|those)\b|\bas\s+many\s+as\b|\ball\s+that\s+apply\b/i;
 
 /** One option per listed item: "Only 1: Press feedback". */
 function onlyOne(item: Listed): string {
@@ -201,13 +207,17 @@ export function choiceOf(text: string): ReplyChoice | null {
     return { question: question.replace(/\?$/, ""), options: [], steps: after.map((item) => stepOf(item.text)) };
   }
   // Options listed under the question are the choice.
-  if (after.length >= 2 && after.length <= MAX_OPTIONS) return { question, options: after.map((item) => item.label) };
+  if (after.length >= 2 && after.length <= MAX_OPTIONS) return { question, options: after.map((item) => item.label), ...(PICK_ONES.test(sentence) ? { multiple: true } : {}) };
   const either = alternatives(sentence);
   if (either.length) return { question, options: either };
   const set = numberedSet(before);
   if (OPEN_WORD.test(lead) || OPEN_WORD.test(sentence) || ASK_IMPERATIVE.test(sentence)) {
-    // "Which of these?" over a numbered set: one button per item; anything else is his to say.
-    return { question, options: ABOUT_SET.test(sentence) && set.length >= 2 && set.length <= MAX_OPTIONS ? set.map((item) => item.label) : [] };
+    // The set becomes buttons only when the ask is about choosing among it ("which of these", "pick the ones").
+    if ((ABOUT_SET.test(sentence) || PICK_ONES.test(sentence)) && set.length >= 2 && set.length <= MAX_OPTIONS) {
+      return { question, options: set.map((item) => item.label), ...(PICK_ONES.test(sentence) ? { multiple: true } : {}) };
+    }
+    if (PICK_ONES.test(sentence)) return null;
+    return { question, options: [] };
   }
   // A yes-or-no question about a numbered set: all of it, one of it, or none.
   if (ABOUT_SET.test(sentence) && set.length >= 2 && set.length <= MAX_OPTIONS - 2) {
@@ -241,30 +251,15 @@ export function openChoice(
   messages: ConversationMessage[],
   routine: (message: ConversationMessage) => boolean = () => false,
 ): { message: ConversationMessage; choice: ReplyChoice } | null {
-  // His newest word on each question he replied to: answered, or Flyd's answer taken back.
-  const replied = new Map<string, boolean>();
   const flyds = answeredForHim(messages);
-  const later: ConversationMessage[] = [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
-    if (message.role === "user") {
-      if (message.replyTo) {
-        if (message.answeredFor === undefined && !replied.has(message.replyTo)) replied.set(message.replyTo, !message.undoes);
-        continue;
-      }
-      // Typed into the session itself, which saw its own question: whatever he said, the session has its answer.
-      if (!/^(?:note|ask):/.test(message.id)) return null;
-      later.push(message);
-      continue;
-    }
-    if (routine(message)) continue;
+    if (message.role === "user" || routine(message)) continue;
     const asked = choiceOf(message.text);
     if (!asked) continue;
-    if (replied.get(choiceTarget(message)) === true) return null;
+    if (answered(messages, message, asked)) return null;
     const choice = leftToHim(asked, flyds.get(choiceTarget(message)));
-    if (!choice) return null;
-    if (later.some((note) => answersIt(note, choice))) return null;
-    return { message, choice };
+    return choice ? { message, choice } : null;
   }
   return null;
 }
@@ -297,6 +292,28 @@ function leftToHim(choice: ReplyChoice, answered: Set<string> | undefined): Repl
   if (steps.length === choice.steps.length) return choice;
   if (steps.length === 0) return null;
   return steps.length === 1 ? { question: steps[0]!.question, options: steps[0]!.options } : { ...choice, steps };
+}
+
+/**
+ * Whether he has answered a reply's choice since it came: his newest reply to
+ * it (unless he took Flyd's answer back), anything he typed into the session
+ * itself, or a note that reads as an answer. Pure.
+ */
+export function answered(messages: ConversationMessage[], reply: ConversationMessage, choice: ReplyChoice): boolean {
+  const target = choiceTarget(reply);
+  let replied: boolean | undefined;
+  for (let index = messages.length - 1; index > messages.indexOf(reply); index -= 1) {
+    const message = messages[index]!;
+    if (message.role !== "user") continue;
+    if (message.replyTo) {
+      if (message.answeredFor === undefined && message.replyTo === target && replied === undefined) replied = !message.undoes;
+      continue;
+    }
+    // Typed into the session itself, which saw its own question: whatever he said, the session has its answer.
+    if (!/^(?:note|ask):/.test(message.id)) return true;
+    if (answersIt(message, choice)) return true;
+  }
+  return replied === true;
 }
 
 /**

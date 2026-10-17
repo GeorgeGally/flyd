@@ -797,6 +797,8 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .choice-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .choice-option:disabled { opacity: 0.5; cursor: default; }
 .choice-option:disabled:hover { color: var(--fg); border-color: var(--faint); }
+.choice-option[aria-pressed="true"], .choice-option[aria-pressed="true"]:hover { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.choice-send { margin-bottom: 0.75em; }
 .choice-free { display: flex; align-items: flex-end; gap: 8px; }
 .choice-free[hidden] { display: none; }
 .choice .reply-note { display: block; margin-top: 0.55em; }
@@ -1848,6 +1850,11 @@ var __name = function (f) { return f; };
   function railCard(card) {
     var kind = card.down ? "blocked" : card.image ? "image" : card.preview ? "preview" : "file";
     var box = keyed(el("div", "rail-card tone-" + kindOf(kind).tone + (card.down ? " rail-card--down" : "")), "card:" + card.id);
+    // Options a reply put to him are a choice he answers with one tap, never a list of steps.
+    if (card.choice && card.choice.replyTo && SEND_TOKEN) {
+      box.appendChild(choiceCard(card.choice, choiceKey(card.choice)));
+      return box;
+    }
     var head = el("div", "rail-card-head");
     head.appendChild(cardIcon(kind));
     var words = el("div", "rail-card-words");
@@ -1869,6 +1876,16 @@ var __name = function (f) { return f; };
       box.appendChild(el("p", "rail-card-change", server.changed.title + (when ? " at " + when : "") + (server.changed.detail ? " — " + server.changed.detail : "")));
     }
     if (card.line) box.appendChild(el("p", "", card.line));
+    if (card.choice) {
+      var options = el("ul", "rail-card-options");
+      card.choice.options.forEach(function (option) { options.appendChild(el("li", "", option)); });
+      box.appendChild(options);
+    }
+    if (card.steps && card.steps.length) {
+      var steps = el("ol", "rail-card-steps");
+      card.steps.forEach(function (step) { steps.appendChild(el("li", "", step)); });
+      box.appendChild(steps);
+    }
     if (server && server.command) {
       var served = el("p", "rail-card-server" + (server.own === false ? " rail-card-server--copy" : ""));
       served.appendChild(el("span", "", [server.command, server.folder].filter(Boolean).join(" · ")));
@@ -2310,9 +2327,12 @@ var __name = function (f) { return f; };
   // the way a reply to an answer does. Drawn from its state alone, so a redraw
   // keeps what he typed and what was sent.
   var choiceStates = new Map();
+  function choiceKey(choice) {
+    return "choice:" + choice.replyTo + ":" + choice.question + ":" + choice.options.join("|") + (choice.multiple ? ":multi" : "") + (choice.steps ? ":" + JSON.stringify(choice.steps) : "");
+  }
   function wireChoice(target, message) {
     var choice = SEND_TOKEN ? message.choice : null;
-    var key = choice ? "choice:" + choice.replyTo + ":" + choice.question + ":" + choice.options.join("|") + (choice.steps ? ":" + JSON.stringify(choice.steps) : "") : "";
+    var key = choice ? choiceKey(choice) : "";
     var old = target.querySelector(":scope > .choice");
     target.classList.toggle("asks", !!choice);
     if (old && old.dataset.key !== key) { old.remove(); old = null; }
@@ -2321,7 +2341,7 @@ var __name = function (f) { return f; };
     if (target.lastElementChild !== old) target.appendChild(old);
   }
   function choiceCard(choice, key) {
-    if (!choiceStates.has(key)) choiceStates.set(key, { draft: "", note: "", sent: false, sending: false, steps: { at: 0, answers: [] } });
+    if (!choiceStates.has(key)) choiceStates.set(key, { draft: "", note: "", sent: false, sending: false, picked: [], steps: { at: 0, answers: [] } });
     var state = choiceStates.get(key);
     var card = el("div", "choice");
     card.dataset.key = key;
@@ -2330,16 +2350,38 @@ var __name = function (f) { return f; };
     card.appendChild(el("p", "choice-q", choice.question));
     if (choice.steps && choice.steps.length) { card.firstChild.classList.add("choice-lead"); return stepsCard(card, choice, state); }
     var buttons = [];
+    var multiple = choice.multiple === true;
+    var picked = state.picked;
+    var pickSend = null;
     if (choice.options.length) {
       var options = el("div", "choice-options");
-      choice.options.forEach(function (option) {
+      choice.options.forEach(function (option, index) {
         var button = el("button", "choice-option", option);
         button.type = "button";
-        button.addEventListener("click", function () { deliver(option); });
+        if (multiple) {
+          var on = picked.indexOf(index) >= 0;
+          button.setAttribute("aria-pressed", on ? "true" : "false");
+          button.addEventListener("click", function () {
+            if (state.sent || state.sending) return;
+            var at = picked.indexOf(index);
+            if (at >= 0) picked.splice(at, 1); else picked.push(index);
+            button.setAttribute("aria-pressed", at >= 0 ? "false" : "true");
+            if (pickSend) pickSend.disabled = picked.length === 0;
+          });
+        } else {
+          button.addEventListener("click", function () { deliver(option); });
+        }
         buttons.push(button);
         options.appendChild(button);
       });
       card.appendChild(options);
+    }
+    if (multiple) {
+      pickSend = el("button", "choice-send reply-send", "Send the ones you picked");
+      pickSend.type = "button";
+      pickSend.disabled = picked.length === 0;
+      pickSend.addEventListener("click", function () { deliver(picked.map(function (index) { return choice.options[index]; }).join(", ")); });
+      card.appendChild(pickSend);
     }
     var form = el("form", "choice-free");
     var input = el("textarea", "reply-input choice-input");
@@ -2360,6 +2402,7 @@ var __name = function (f) { return f; };
     function settle() {
       buttons.forEach(function (button) { button.disabled = state.sent || state.sending; });
       input.disabled = send.disabled = state.sent || state.sending;
+      if (pickSend) pickSend.disabled = state.sent || state.sending || picked.length === 0;
       form.hidden = state.sent;
     }
     function deliver(text) {
