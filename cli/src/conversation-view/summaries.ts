@@ -232,7 +232,7 @@ export function replyArtefact(text: string, kind: "steps" | "options" = "steps")
   return { artefact: { title, steps, ...(options ? { options: true as const } : {}) }, clear: clearSteps(parts) };
 }
 
-const ASKS_ARTEFACT = /\b(?:in|as|into)\s+(?:an?|some|the)?\s*(?:[\w'-]+\s+){0,2}artefacts?\b|\b(?:make|build|create|give|send|show|turn|render|produce|draft|write|put|do|explain)\b[^.!?\n]{0,40}?\bartefacts?\b/i;
+const ASKS_ARTEFACT = /\b(?:in|as|into)\s+(?:an?|some)\s+(?:[\w'-]+\s+){0,2}artefacts?\b|\b(?:make|build|create|give|send|show|turn|render|produce|draft|write|put|do|explain)\s+(?:me\s+)?(?:an?|some)\s+(?:[\w'-]+\s+){0,2}artefacts?\b/i;
 
 export function askedForArtefact(text: string): boolean {
   return ASKS_ARTEFACT.test(text);

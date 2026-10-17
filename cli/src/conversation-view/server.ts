@@ -79,6 +79,8 @@ const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
 const MAX_DRAFT_ATTACHMENT_BYTES = 18 * 1024 * 1024;
 /** Reply steps kept in the column's Artefacts: the newest few. */
 const MAX_REPLY_ARTEFACTS = 3;
+/** A note older than this is not chased for a missing artefact: opening the window never replays the backlog. */
+const ARTEFACT_CHASE_MAX_AGE_MS = 24 * 60 * 60_000;
 /** Model summaries are only asked for the newest replies; older ones use what is cached. */
 const SUMMARIZE_NEWEST = 20;
 
@@ -1280,9 +1282,12 @@ export class ConversationViewServer {
     if (!this.source.canSend) return;
     const exchanges = withFollowUps(this.source.exchanges?.() ?? [], snapshot.followUps ?? {}, snapshot.working);
     const chased = new Set(exchanges.filter((exchange) => exchange.question.flydAsked && exchange.question.replyTo).map((exchange) => exchange.question.replyTo!));
+    const now = Date.now();
     for (const exchange of exchanges) {
       const id = exchange.question.id;
       if (!id.startsWith("note:") || exchange.question.flydAsked || this.chased.has(id) || chased.has(id)) continue;
+      const askedAt = Date.parse(exchange.question.timestamp ?? "");
+      if (!Number.isFinite(askedAt) || now - askedAt > ARTEFACT_CHASE_MAX_AGE_MS) continue;
       if (!exchange.answer || !askedForArtefact(exchange.question.text) || replyArtefact(exchange.answer.text)) continue;
       this.chased.add(id);
       void this.source.send(session, artefactAsk(exchange), [], [], "firstmate")

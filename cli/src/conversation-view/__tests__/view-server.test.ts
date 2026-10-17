@@ -8,6 +8,7 @@ import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage, Exchange } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ActivityReader } from "../activity.js";
+import { artefactAsk } from "../replies.js";
 import { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, replyCards, SnapshotDiffer } from "../server.js";
 import { AutoAnswers } from "../auto-answers.js";
@@ -920,8 +921,8 @@ describe("ConversationViewServer", () => {
     expect(JSON.stringify(update.messages)).not.toContain("Fix site 1</strong>: 2 steps, kept in Artefacts");
   });
 
-  const askedNote = (id: string, text: string, answer: string): Exchange => ({
-    question: { id: `note:${id}`, role: "user" as const, text, timestamp: "2026-10-16T02:00:00.000Z", receipt: "read" as const },
+  const askedNote = (id: string, text: string, answer: string, timestamp = new Date().toISOString()): Exchange => ({
+    question: { id: `note:${id}`, role: "user" as const, text, timestamp, receipt: "read" as const },
     handoff: "queued" as const,
     waiting: "",
     answer: { id: `note-reply:${id}`, role: "assistant" as const, text: answer, answers: `note:${id}` },
@@ -949,6 +950,53 @@ describe("ConversationViewServer", () => {
     const stepsPort = await start(steps, [captain("hello"), assistantText("Hi, **Captain**.")]);
     await get(stepsPort, "/api/stream");
     expect(steps.sent).toHaveLength(0);
+  });
+
+  it("never asks for an artefact over a note that only mentions one, or Flyd's own chase", async () => {
+    const inbox = new MemoryInbox();
+    const prose = "Here is the summary of what changed.";
+    const alreadyChased = artefactAsk(askedNote("1791720009-zzzzzz", "explain the commits in an artefact", "A summary."));
+    inbox.notes = () => [
+      askedNote("1791720009-aaaaaa", "explain why the artefact page is blank", prose),
+      askedNote("1791720009-bbbbbb", "show me where the artefact went", prose),
+      askedNote("1791720009-cccccc", "can you make a note about the artefact feature", prose),
+      askedNote("1791720009-dddddd", "write up the artefact problem", prose),
+      { question: { id: "note:1791720009-eeeeee", role: "user" as const, text: alreadyChased, timestamp: new Date().toISOString(), receipt: "read" as const }, handoff: "queued" as const, waiting: "", answer: { id: "note-reply:1791720009-eeeeee", role: "assistant" as const, text: "Noted.", answers: "note:1791720009-eeeeee" } },
+    ];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(0);
+  });
+
+  it("asks for the artefact a note asked as its deliverable, exactly once, and not again when the window reopens", async () => {
+    const inbox = new MemoryInbox();
+    inbox.notes = () => [askedNote("1791720009-aaaaaa", "pull and check and then explain in an artefact what they do", "They pull, check and explain the commits.")];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(1);
+    const chased = inbox.sent[0]!;
+    // The chase lands in the transcript too; reopening the window reads it back and asks no more.
+    inbox.notes = () => [askedNote("1791720009-aaaaaa", "pull and check and then explain in an artefact what they do", "They pull, check and explain the commits."), { question: chased, handoff: "queued" as const, waiting: "" }];
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(1);
+  });
+
+  it("does not chase again for a note already chased in an earlier session", async () => {
+    const inbox = new MemoryInbox();
+    const asked = askedNote("1791720009-aaaaaa", "pull and check and then explain in an artefact what they do", "They pull, check and explain the commits.");
+    inbox.notes = () => [asked, { question: { id: "note:1791720009-ffff", role: "user" as const, text: artefactAsk(asked), timestamp: new Date().toISOString(), receipt: "read" as const }, handoff: "queued" as const, waiting: "" }];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(0);
+  });
+
+  it("does not chase a note asked for more than a day ago", async () => {
+    const inbox = new MemoryInbox();
+    const old = new Date(Date.now() - 25 * 60 * 60_000).toISOString();
+    inbox.notes = () => [askedNote("1791720009-aaaaaa", "explain the commits in an artefact", "A summary.", old)];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(0);
   });
 
   it("never warns about a note firstmate answered in its own chat, answered formally, or is working on now", async () => {

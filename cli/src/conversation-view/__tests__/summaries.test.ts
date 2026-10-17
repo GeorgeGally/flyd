@@ -217,6 +217,15 @@ describe("askedForArtefact", () => {
     expect(askedForArtefact("why is the artefact not showing?")).toBe(false);
     expect(askedForArtefact("this should definitely be an artefact in flyd")).toBe(false);
     expect(askedForArtefact("that could've been some neat flyd artefact")).toBe(false);
+    expect(askedForArtefact("explain why the artefact page is blank")).toBe(false);
+    expect(askedForArtefact("show me where the artefact went")).toBe(false);
+    expect(askedForArtefact("can you make a note about the artefact feature")).toBe(false);
+    expect(askedForArtefact("write up the artefact problem")).toBe(false);
+  });
+
+  it("reads a request for an artefact as the deliverable", () => {
+    expect(askedForArtefact("pull and check and then explain in an artefact what they do")).toBe(true);
+    expect(askedForArtefact("show me an artefact of the new commits")).toBe(true);
   });
 });
 
