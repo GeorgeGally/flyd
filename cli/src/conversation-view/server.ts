@@ -1295,6 +1295,8 @@ export class ConversationViewServer {
           this.chased.delete(id);
           console.warn(`[view] Flyd could not ask for the artefact: ${error instanceof Error ? error.message : String(error)}`);
         });
+      // One ask per pass: a backlog of missed artefacts is chased over later passes, never in a burst.
+      break;
     }
   }
 

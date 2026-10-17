@@ -981,6 +981,17 @@ describe("ConversationViewServer", () => {
     expect(inbox.sent).toHaveLength(1);
   });
 
+  it("chases at most one missed artefact per pass, so a backlog never arrives as a burst", async () => {
+    const inbox = new MemoryInbox();
+    inbox.notes = () => [
+      askedNote("1791720009-aaaaaa", "explain the new Flyd commits in an artefact", "A short summary."),
+      askedNote("1791720009-bbbbbb", "explain the redirect rules in an artefact", "Another short summary."),
+    ];
+    const port = await start(inbox, [captain("hello"), assistantText("Hi, **Captain**.")]);
+    await get(port, "/api/stream");
+    expect(inbox.sent).toHaveLength(1);
+  });
+
   it("does not chase again for a note already chased in an earlier session", async () => {
     const inbox = new MemoryInbox();
     const asked = askedNote("1791720009-aaaaaa", "pull and check and then explain in an artefact what they do", "They pull, check and explain the commits.");

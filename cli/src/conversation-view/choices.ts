@@ -211,7 +211,10 @@ export function choiceOf(text: string): ReplyChoice | null {
   if (either.length) return { question, options: either };
   const set = numberedSet(before);
   if (OPEN_WORD.test(lead) || OPEN_WORD.test(sentence) || ASK_IMPERATIVE.test(sentence)) {
-    if (set.length >= 2 && set.length <= MAX_OPTIONS) return { question, options: set.map((item) => item.label), ...(PICK_ONES.test(sentence) ? { multiple: true } : {}) };
+    // The set becomes buttons only when the ask is about choosing among it ("which of these", "pick the ones").
+    if ((ABOUT_SET.test(sentence) || PICK_ONES.test(sentence)) && set.length >= 2 && set.length <= MAX_OPTIONS) {
+      return { question, options: set.map((item) => item.label), ...(PICK_ONES.test(sentence) ? { multiple: true } : {}) };
+    }
     if (PICK_ONES.test(sentence)) return null;
     return { question, options: [] };
   }
