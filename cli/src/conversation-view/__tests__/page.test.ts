@@ -1726,9 +1726,9 @@ describe("header and artefact view", () => {
     load("");
     await settle();
     const controls = Array.from(document.querySelectorAll("header .controls button")).map((button) => button.textContent);
-    expect(controls).toEqual(["preferences", "artefact"]);
+    expect(controls).toEqual(["activity", "preferences", "artefact"]);
     const switches = Array.from(document.querySelectorAll('header .controls button[role="switch"], #prefs button[role="switch"]')).map((button) => button.id);
-    expect(switches).toEqual(["flip", "mode", "theme", "rail-toggle"]);
+    expect(switches).toEqual(["flip", "mode", "theme", "rail-toggle", "left-toggle"]);
     const flip = document.getElementById("flip")!;
     expect(flip.getAttribute("aria-checked")).toBe("false");
     flip.click();
@@ -1751,7 +1751,7 @@ describe("header and artefact view", () => {
     opener.click();
     expect(prefs.hidden).toBe(false);
     expect(opener.getAttribute("aria-expanded")).toBe("true");
-    expect([...prefs.querySelectorAll(".prefs-name")].map((node) => node.textContent)).toEqual(["Full replies", "Light theme", "Side column", "Local preparation", "Routines", "Taste"]);
+    expect([...prefs.querySelectorAll(".prefs-name")].map((node) => node.textContent)).toEqual(["Full replies", "Light theme", "Side column", "Activity column", "Local preparation", "Routines", "Taste"]);
     // A switch inside keeps it open; Escape or a click elsewhere closes it.
     document.getElementById("theme")!.click();
     expect(prefs.hidden).toBe(false);
@@ -1933,5 +1933,75 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show: { ...SHOW, live: false } });
     expect(document.getElementById("scene-head")!.textContent).toBe("Your move, sir.");
     expect(document.getElementById("show-doing")!.textContent).toBe("Standby");
+  });
+
+  it("shows Flyd's own activity in a left column that is a drawer on a narrow window, and stays shut until asked", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const leftColumn = {
+      now: [{ id: "job:1", kind: "work", title: "Working on a job for you", line: "Tidy the notes.", at: new Date(Date.now() - 4 * 60_000).toISOString() }],
+      recent: [{ id: "log:memory", kind: "memory", title: "Kept its memory of you up to date", line: "Read 3 conversations.", at: new Date(Date.now() - 2 * 3_600_000).toISOString() }],
+    };
+    expect(document.getElementById("left-open")!.hidden).toBe(true);
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn });
+    expect(document.getElementById("left-open")!.hidden).toBe(false);
+    const left = document.getElementById("left")!;
+    // Narrow window: nothing opens by itself, but the header offers it.
+    expect(left.hidden).toBe(true);
+    expect(document.documentElement.getAttribute("data-left")).toBe("off");
+    document.getElementById("left-open")!.click();
+    expect(left.hidden).toBe(false);
+    expect(document.documentElement.getAttribute("data-left")).toBe("drawer");
+    expect(localStorage.getItem("flyd-left")).toBe("on");
+    const cards = (id: string) => Array.from(document.querySelectorAll(`#${id} .left-card`));
+    expect(cards("left-now")).toHaveLength(1);
+    expect(cards("left-now")[0]!.querySelector(".left-title")!.textContent).toBe("Working on a job for you");
+    expect(cards("left-now")[0]!.querySelector(".left-meta")!.textContent).toBe("Started 4m ago");
+    expect(cards("left-recent")[0]!.querySelector(".left-meta")!.textContent).toBe("2h ago");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(left.hidden).toBe(true);
+    expect(localStorage.getItem("flyd-left")).toBe("off");
+  });
+
+  it("opens the left column by itself on a wide window, and says so plainly when nothing is under way", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("1480"), media: query, addEventListener() {}, removeEventListener() {} }));
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "log:news", kind: "news", title: "Watched the news for you", at: new Date(Date.now() - 9 * 60_000).toISOString() }] } });
+    expect(document.documentElement.getAttribute("data-left")).toBe("inline");
+    expect(document.querySelector("#left-now .left-title")!.textContent).toBe("Nothing under way right now.");
+    expect(document.querySelector("#left-now .left-meta")!.textContent).toBe("Last active 9m ago");
+    // He can still put it away; it stays away.
+    document.getElementById("left-hide")!.click();
+    expect(document.documentElement.getAttribute("data-left")).toBe("off");
+    document.getElementById("left-toggle")!.click();
+    expect(document.documentElement.getAttribute("data-left")).toBe("inline");
+  });
+
+  it("folds the earlier activity to a few cards and opens the rest on request", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const recent = Array.from({ length: 8 }, (_, index) => ({ id: `r${index}`, kind: "noted", title: `Thing ${index}`, at: new Date(Date.now() - (index + 1) * 60_000).toISOString() }));
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent } });
+    const shown = () => document.querySelectorAll("#left-recent .left-card").length;
+    const more = document.getElementById("left-more") as HTMLButtonElement;
+    expect(shown()).toBe(5);
+    expect(more.textContent).toBe("Show 3 more");
+    more.click();
+    expect(shown()).toBe(8);
+    expect(more.textContent).toBe("Show fewer");
+  });
+
+  it("offers no left column when Core sends no activity", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: [], messages: [], working: false });
+    expect(document.getElementById("left")!.hidden).toBe(true);
+    expect(document.getElementById("left-open")!.hidden).toBe(true);
   });
 });

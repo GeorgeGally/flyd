@@ -15,6 +15,7 @@ import { tastePath } from "../council/taste.js";
 import { userProfilePath } from "../lib/user-profile.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
 import { WeatherReader } from "../conversation-view/weather.js";
+import { ActivityReader } from "../conversation-view/activity.js";
 import { MemoryReader } from "../conversation-view/memory.js";
 import { UnreadNoteWatcher } from "../conversation-view/note-receipts.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
@@ -129,7 +130,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   const autoAnswers = wantsInbox && process.env.FLYD_AUTO_ANSWER !== "0"
     ? new AutoAnswers({ preferences: recordedPreferences, logFile: defaultAutoAnswerLog() })
     : undefined;
-  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), autoAnswers);
+  const server = new ConversationViewServer(source, { summarizer, interpreter, always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), autoAnswers, undefined, new ActivityReader());
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);
