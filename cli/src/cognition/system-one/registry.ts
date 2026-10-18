@@ -449,6 +449,18 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     consumer: "conversation-view/semantic-judge.ts SemanticJudge: shadow classification of grounded ShowItems; deterministic semantic mapping remains the fallback and visual rendering is unchanged",
   },
 
+  {
+    id: "matters_to_george", family: "presentation", type: "noul",
+    instructions: "Flyd is George's chief of staff and decides what reaches his screen; it can only show him a handful of things. `item` is one candidate (`kind`, `headline`, `detail`, `project`, `status`, `age_hours`). `his_recent_words` are the last things George himself said, which show what he is busy with and cares about now. Would George, a busy founder, want this in front of him right now?",
+    criteria: {
+      true: "It is his: a decision only he can make about what he wants, his money, his name or the people he deals with; a finished result of something he asked for or is busy with; or a real problem with his work, sites or money that he must know about.",
+      false: "Flyd should keep it: staff admin, tooling, sessions, permissions, scripts or process; work waiting on a routine step Flyd can take itself; something he has not been near for days that changes nothing for him today; a duplicate of something more important; or news with no consequence for him.",
+    },
+    threshold: 0.7, use: "gate", failureMode: "fallback_heuristic",
+    projection: ["kind", "headline", "detail", "project", "status", "age_hours", "his_recent_words"], evaluatorVersion: "matters_to_george.v1", status: "production",
+    consumer: "conversation-view/importance-judge.ts ImportanceJudge: an item judged false at or above the threshold leaves the big screen; until a judgment lands (or with Jev off or failing) the item shows as before",
+  },
+
   // ── proposed: model routing (replay only) ─────────────────────────────
   {
     id: "needs_reasoning_model", family: "model_routing", type: "noul",

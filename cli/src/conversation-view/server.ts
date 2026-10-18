@@ -25,6 +25,7 @@ import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exc
 import type { AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
 import type { SemanticJudge } from "./semantic-judge.js";
+import type { ImportanceJudge } from "./importance-judge.js";
 import { activityObjectsFromShow, decisionObjectsFromShow, semanticEvents, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
@@ -143,6 +144,7 @@ export interface SummaryOptions {
   artefacts?: ArtefactJudge;
   /** Jev's bounded semantic decision layer; shadow-only while ShowItem still renders the UI. */
   semantic?: SemanticJudge;
+  importance?: ImportanceJudge;
   /** Also summarise replies that carry their own "» " summary, to compare. */
   always?: boolean;
   /** Called when a requested summary arrives (or fails), so the stream can push it. */
@@ -515,6 +517,20 @@ export class SnapshotDiffer {
         reading: (message) => this.reading(message),
         muted: (message) => this.routine(message, handledOf(message)),
       });
+    // Flyd's judgment on what is his: an item it is sure he would not want leaves the screen.
+    const importance = this.summaries?.importance;
+    if (importance) {
+      const his = snapshot.messages.filter((message) => message.role === "user").slice(-6).map((message) => message.text);
+      for (const item of show.items) {
+        if (item.kind === "clear" || importance.matters(item) !== undefined || importance.pending(item)) continue;
+        void importance.request(item, his).then(() => this.summaries?.onSummary?.());
+      }
+      const kept = show.items.filter((item) => importance.matters(item) !== false);
+      if (kept.length !== show.items.length) {
+        show.items = kept.length ? kept : [{ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" }];
+        if (show.calls) show.calls = show.calls.filter((call) => importance.matters(call) !== false);
+      }
+    }
     const semanticJudge = this.summaries?.semantic;
     if (semanticJudge) {
       for (const item of show.items) if (!item.task && item.kind !== "call" && !item.decision && !semanticJudge.cached(item) && !semanticJudge.pending(item)) this.judgeSemantic(semanticJudge, item);
@@ -611,7 +627,7 @@ export class ConversationViewServer {
 
   constructor(
     private readonly source: ConversationSource,
-    private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; artefacts?: ArtefactJudge; semantic?: SemanticJudge; always?: boolean },
+    private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; artefacts?: ArtefactJudge; semantic?: SemanticJudge; importance?: ImportanceJudge; always?: boolean },
     private readonly plan?: PlanUsageReader,
     private readonly show?: Pick<ShowOptions, "projects">,
     private readonly feed: ArtefactFeed = new ArtefactFeed(),
