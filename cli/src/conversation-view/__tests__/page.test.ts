@@ -2790,7 +2790,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(document.querySelector(".outcomes-lead")!.textContent).toBe("Here's where the three Flyd fixes stand:");
   });
 
-  it("keeps one semantic Activity card alive as a task moves from working to needs-you to finished", async () => {
+  it("keeps one semantic Activity-column object alive as a task moves from working to needs-you to finished", async () => {
+    localStorage.setItem("flyd-left", "on");
     load("");
     await settle();
     const stream = open("latest", []);
@@ -2799,27 +2800,24 @@ describe("what Flyd shows of its staff, at a glance", () => {
       project: "Flyd", evidence: [], actions: [], source: { showItemId: "live:t1", task: "t1" },
     };
     stream.emit("update", {
-      order: [], messages: [], working: false, boxes: [],
-      show: {
-        title: "", summary: "", live: false, counts: {}, items: [],
-        underway: [{ id: "live:t1", task: "t1", kind: "live", headline: "Reworking Flyd activity", why: "", started: "2026-10-18T09:00:00Z" }],
-        activities: [{ ...base, lifecycle: "active", activity: { phase: "working", started: "2026-10-18T09:00:00Z" } }],
+      order: [], messages: [], working: false,
+      leftColumn: {
+        now: [], recent: [], week: [],
+        semantic: [{ ...base, lifecycle: "active", activity: { phase: "working", started: "2026-10-18T09:00:00Z" } }],
       },
     });
     await settle();
-    const first = document.querySelector("#underway .activity-card") as HTMLElement;
+    const first = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
     expect(first).not.toBeNull();
     expect(first.dataset.semanticId).toBe("task:t1");
     expect(first.dataset.phase).toBe("working");
-    expect(document.querySelectorAll("#underway .activity-card")).toHaveLength(1);
-    expect(document.querySelectorAll("#needs > *")).toHaveLength(0);
+    expect(document.querySelectorAll("#left-semantic .semantic-activity")).toHaveLength(1);
 
     stream.emit("update", {
-      order: [], messages: [], working: false, boxes: [],
-      show: {
-        title: "", summary: "", live: false, counts: {}, items: [],
-        calls: [{ id: "call:t1", task: "t1", kind: "call", headline: "Reworking Flyd activity", why: "", decision: { task: "t1", question: "Ship it?", choices: ["Ship", "Hold"] } }],
-        activities: [{
+      order: [], messages: [], working: false,
+      leftColumn: {
+        now: [], recent: [], week: [],
+        semantic: [{
           ...base, lifecycle: "interrupted", activity: { phase: "needs_you" },
           source: { showItemId: "call:t1", task: "t1" },
           decision: { question: "Ship it?", alternatives: ["Ship", "Hold"] },
@@ -2828,27 +2826,25 @@ describe("what Flyd shows of its staff, at a glance", () => {
       },
     });
     await settle();
-    const second = document.querySelector("#underway .activity-card") as HTMLElement;
+    const second = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
     expect(second).toBe(first);
     expect(second.dataset.phase).toBe("needs_you");
-    expect(document.querySelectorAll("#needs > *")).toHaveLength(0);
+    expect(document.querySelectorAll("#left-semantic .semantic-activity")).toHaveLength(1);
 
     stream.emit("update", {
-      order: [], messages: [], working: false, boxes: [],
-      show: {
-        title: "", summary: "", live: false, counts: {}, items: [],
-        done: [{ id: "landed:t1", task: "t1", kind: "landed", headline: "Reworking Flyd activity", why: "", at: "2026-10-18T10:00:00Z" }],
-        activities: [{
+      order: [], messages: [], working: false,
+      leftColumn: {
+        now: [], recent: [], week: [],
+        semantic: [{
           ...base, lifecycle: "resolved", activity: { phase: "finished" },
           source: { showItemId: "landed:t1", task: "t1" }, updatedAt: "2026-10-18T10:00:00Z",
         }],
       },
     });
     await settle();
-    const third = document.querySelector("#underway .activity-card") as HTMLElement;
+    const third = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
     expect(third).toBe(first);
     expect(third.dataset.phase).toBe("finished");
-    expect(document.querySelectorAll("#done .brief-card")).toHaveLength(0);
     expect(third.querySelector(".card-meta")!.textContent).toBe("Done");
   });
 
