@@ -522,8 +522,9 @@ export class SnapshotDiffer {
     if (importance) {
       const his = snapshot.messages.filter((message) => message.role === "user").slice(-6).map((message) => message.text);
       for (const item of show.items) {
-        if (item.kind === "clear" || importance.matters(item) !== undefined || importance.pending(item)) continue;
-        void importance.request(item, his).then(() => this.summaries?.onSummary?.());
+        if (item.kind === "clear" || importance.asked(item) || importance.pending(item)) continue;
+        // Redraw only when the answer takes something off his screen; a yes or an unsure changes nothing.
+        void importance.request(item, his).then((changed) => { if (changed) this.summaries?.onSummary?.(); });
       }
       const kept = show.items.filter((item) => importance.matters(item) !== false);
       if (kept.length !== show.items.length) {

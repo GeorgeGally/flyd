@@ -11,7 +11,8 @@ const KEEP = 200;
  * fails, it stays, so nothing is ever hidden on a guess.
  */
 export class ImportanceJudge {
-  private readonly judged = new Map<string, boolean>();
+  // true / false: settled; null: asked and unsure or failed, so it shows and is not asked again.
+  private readonly judged = new Map<string, boolean | null>();
   private readonly asking = new Set<string>();
 
   constructor(private readonly options: { apiKey: string; model?: string; fetchFn?: typeof fetch; now?: () => number }) {}
@@ -22,16 +23,22 @@ export class ImportanceJudge {
 
   /** False only when Jev said, confidently, that it is not his. */
   matters(item: ShowItem): boolean | undefined {
-    return this.judged.get(this.key(item));
+    return this.judged.get(this.key(item)) ?? undefined;
+  }
+
+  /** Already asked, settled or not: asking again would only redraw his screen for nothing. */
+  asked(item: ShowItem): boolean {
+    return this.judged.has(this.key(item));
   }
 
   pending(item: ShowItem): boolean {
     return this.asking.has(this.key(item));
   }
 
-  async request(item: ShowItem, recentWords: string[]): Promise<void> {
+  /** Resolves true when the answer changes what he sees (a clear no), so only then is the screen redrawn. */
+  async request(item: ShowItem, recentWords: string[]): Promise<boolean> {
     const key = this.key(item);
-    if (this.judged.has(key) || this.asking.has(key)) return;
+    if (this.judged.has(key) || this.asking.has(key)) return false;
     this.asking.add(key);
     try {
       const at = item.at ? Date.parse(item.at) : NaN;
@@ -54,11 +61,16 @@ export class ImportanceJudge {
       const answer = result.answers[question.id];
       // Noul: P(it is his). Only a clear yes or a clear no settles it; in between it shows.
       const threshold = predicateThreshold("matters_to_george");
-      if (result.ok && answer) {
-        if (answer.probability >= threshold) this.judged.set(key, true);
-        else if (answer.probability <= 1 - threshold) this.judged.set(key, false);
-      }
+      const verdict = !result.ok || !answer ? null
+        : answer.probability >= threshold ? true
+        : answer.probability <= 1 - threshold ? false
+        : null;
+      this.judged.set(key, verdict);
       for (const old of [...this.judged.keys()].slice(0, Math.max(0, this.judged.size - KEEP))) this.judged.delete(old);
+      return verdict === false;
+    } catch {
+      this.judged.set(key, null);
+      return false;
     } finally {
       this.asking.delete(key);
     }

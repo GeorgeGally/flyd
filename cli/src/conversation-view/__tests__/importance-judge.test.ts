@@ -32,9 +32,18 @@ describe("ImportanceJudge", () => {
     expect(judge.matters(stale)).toBe(true);
   });
 
-  it("leaves an unsure call unsettled, so the item still shows", async () => {
-    const { judge } = jev(0.5);
-    await judge.request(stale, []);
+  it("leaves an unsure call unsettled, so the item still shows, and never asks it again", async () => {
+    const { judge, bodies } = jev(0.5);
+    expect(await judge.request(stale, [])).toBe(false);
     expect(judge.matters(stale)).toBeUndefined();
+    expect(judge.asked(stale)).toBe(true);
+    // Asking again on every refresh redrew his screen in a loop.
+    expect(await judge.request(stale, [])).toBe(false);
+    expect(bodies).toHaveLength(1);
+  });
+
+  it("says the screen must change only when an item comes off it", async () => {
+    expect(await jev(0.1).judge.request(stale, [])).toBe(true);
+    expect(await jev(0.95).judge.request(stale, [])).toBe(false);
   });
 });
