@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-import { runDoctor } from "./commands/doctor.js";
-import { runEvidenceResearch } from "./commands/evidence-research.js";
-import { runDoctorRepos } from "./commands/repos.js";
-import { runPlanningEval } from "./commands/planning-eval.js";
-import { runDecisions, runFuture, runTrajectory } from "./commands/planning-inspect.js";
 
 // Tells index.ts it is being loaded as entry.ts's fallback, not as the binary.
 (globalThis as { __flydEntry?: boolean }).__flydEntry = true;
@@ -33,6 +28,11 @@ function positionalArgs(args: string[], valued: Set<string>): string[] {
 }
 
 async function main(): Promise<void> {
+  if (process.argv[2] === "mobile") {
+    const { runMobile } = await import("./mobile/entry.js");
+    await runMobile(process.argv.slice(3));
+    return;
+  }
   if (process.argv[2] === "whatsapp") {
     const { runWhatsApp } = await import("./commands/whatsapp.js");
     await runWhatsApp(process.argv.slice(3));
@@ -46,12 +46,12 @@ async function main(): Promise<void> {
   if (process.argv[2] === "doctor") {
     const args = process.argv.slice(3);
     if (args[0] === "repos") {
-      await runDoctorRepos();
+      await (await import("./commands/repos.js")).runDoctorRepos();
       return;
     }
     const unknown = args.filter((arg) => arg !== "--json");
     if (unknown.length > 0) throw new Error(`Unknown doctor option: ${unknown[0]}`);
-    await runDoctor({ json: args.includes("--json") });
+    await (await import("./commands/doctor.js")).runDoctor({ json: args.includes("--json") });
     return;
   }
 
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
     if (unknown.length > 0) throw new Error(`Unknown evidence research option: ${unknown[0]}`);
     const query = args.filter((arg) => !arg.startsWith("--")).join(" ").trim();
     const depth = flags.has("--deep") ? "deep" : flags.has("--quick") ? "quick" : "default";
-    await runEvidenceResearch(query, { depth, json: flags.has("--json") });
+    await (await import("./commands/evidence-research.js")).runEvidenceResearch(query, { depth, json: flags.has("--json") });
     return;
   }
 
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
     const args = process.argv.slice(4);
     const unknown = args.filter((arg) => arg !== "--json");
     if (unknown.length > 0) throw new Error(`Unknown planning eval option: ${unknown[0]}`);
-    await runPlanningEval({ json: args.includes("--json") });
+    await (await import("./commands/planning-eval.js")).runPlanningEval({ json: args.includes("--json") });
     return;
   }
 
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
     if (unknown.length > 0) throw new Error(`Unknown future option: ${unknown[0]}`);
     const explicitGoal = optionValue(args, "--goal");
     const positionalGoal = positionalArgs(args, valued).join(" ").trim();
-    await runFuture((explicitGoal ?? positionalGoal) || undefined, { json: args.includes("--json") });
+    await (await import("./commands/planning-inspect.js")).runFuture((explicitGoal ?? positionalGoal) || undefined, { json: args.includes("--json") });
     return;
   }
 
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
     const limit = limitValue ? Number.parseInt(limitValue, 10) : undefined;
     if (limitValue && (!Number.isInteger(limit) || (limit ?? 0) <= 0)) throw new Error("--limit must be a positive integer");
     const repositoryRoot = optionValue(args, "--repo");
-    await runTrajectory({
+    await (await import("./commands/planning-inspect.js")).runTrajectory({
       json: args.includes("--json"),
       ...(limit ? { limit } : {}),
       ...(repositoryRoot ? { repositoryRoot } : {}),
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     const limitValue = optionValue(args, "--limit");
     const limit = limitValue ? Number.parseInt(limitValue, 10) : undefined;
     if (limitValue && (!Number.isInteger(limit) || (limit ?? 0) <= 0)) throw new Error("--limit must be a positive integer");
-    await runDecisions({ json: args.includes("--json"), ...(limit ? { limit } : {}) });
+    await (await import("./commands/planning-inspect.js")).runDecisions({ json: args.includes("--json"), ...(limit ? { limit } : {}) });
     return;
   }
 

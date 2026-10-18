@@ -1,9 +1,11 @@
 # Flyd everywhere: mobile + Hetzner + Mac companion
 
 Date: 2026-10-14
-Status: implementation plan only; no deployment or migration authorised by this document.
+Status: mobile server adapter implemented 2026-10-18; deployment, state migration and Mac companion outstanding.
 Owner: George Galanakis
 Code baseline inspected: `ced9af48d8f8dde88dbfef82de61867937c13ca2` on main.
+
+Implementation checkpoint (2026-10-18): the server-native mobile adapter, pairing/session gateway, canonical idempotent request receipts, bounded voice and existing service integration path are implemented. Setup and exact limits: [mobile setup](flyd-mobile-setup.md). Host preflight, real account/state cutover, the Mac companion, scheduler ownership migration and iPhone hardware acceptance are not complete. This document remains the plan for those remaining phases.
 
 ## 1. Outcome and decision
 

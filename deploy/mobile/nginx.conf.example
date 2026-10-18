@@ -1,0 +1,20 @@
+# Integrate with EXISTING ingress. Do not install a second 80/443 listener or
+# overwrite other sites. Substitute the approved domain and certificate paths.
+server {
+    listen 443 ssl;
+    server_name flyd.example.com;
+    ssl_certificate /etc/letsencrypt/live/flyd.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/flyd.example.com/privkey.pem;
+    client_max_body_size 3m;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    location / {
+        proxy_pass http://127.0.0.1:4819;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+        proxy_http_version 1.1;
+        proxy_read_timeout 65s;
+        proxy_send_timeout 65s;
+        # Preserve Origin; the app compares it to its exact configured HTTPS origin.
+        # No route here exposes Core ports 4815–4818 or the compose server.
+    }
+}

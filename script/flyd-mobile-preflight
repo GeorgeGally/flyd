@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Read-only host inventory. Run privately on the target host over existing SSH.
+# No credentials, environment contents or process arguments are printed.
+set -eu
+printf 'OS and architecture\n'
+uname -srm
+printf '\nNode (must satisfy cli/package.json engines)\n'
+if command -v node >/dev/null; then node --version; else printf 'Node missing\n'; fi
+printf '\nMemory\n'
+if command -v free >/dev/null; then free -h; fi
+printf '\nFilesystem capacity\n'
+df -h /
+printf '\nLargest resident processes (names only)\n'
+ps -eo pid,comm,rss --sort=-rss | head -16
+printf '\nListening TCP services (no credentials)\n'
+if command -v ss >/dev/null; then ss -ltn; fi
+printf '\nService management\n'
+if command -v systemctl >/dev/null; then systemctl --no-pager list-units --type=service --state=running; fi
+printf '\nNext: observe representative peaks, inspect ingress privately, check backups and sibling-site isolation. No changes made.\n'

@@ -126,6 +126,10 @@ Direct Google APIs and DreamHost IMAP live in `cli/src/connectors/`, exposed thr
 
 Personal WhatsApp transport lives in `cli/src/connectors/whatsapp*.ts`; setup/limits: `docs/product/flyd-whatsapp-setup.md`. The People artefact (`conversation-view/whatsapp-page.ts`, `/whatsapp`) owns inbox/thread/reply review; Core owns the linked-device socket, other processes use its authenticated loopback API. Credentials and partial text history stay private/local; provider messages are untrusted evidence, not automatic memory. Outward sends use immutable reviewed drafts, atomically claimed once; uncertain sends never retry.
 
+### Mobile server presence
+
+`flyd mobile serve|pair|revoke` (`cli/src/mobile/`) is the server-native web adapter on private port 4819. It reuses the conversation runtime with an enforced mobile capability ceiling, canonical request receipts and separate browser session auth. No Mac bridge/schedulers or automatic state migration ship here. Setup and cutover: `docs/product/flyd-mobile-setup.md`; never expose the loopback desktop view/Core as a shortcut.
+
 ### Routine artefacts
 
 Explicit repeated conversation-view requests can suggest reusable purpose/request artefacts; Preferences → Routines owns editing, named inputs and run history. Definitions and receipts use the canonical event spine; runs enter the existing source router and never confer permissions. Controls and limits: `docs/product/flyd-routine-artefacts.md`.

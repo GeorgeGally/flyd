@@ -1244,18 +1244,22 @@ async function handleTts(req: IncomingMessage, res: ServerResponse) {
 }
 
 let serverInstance: ReturnType<typeof createServer> | null = null;
+let releaseDesktopOwner: (() => void) | undefined;
 
 export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
-  if (serverInstance) {
+  const { acquireDesktopOwner } = await import("./mobile/owner.js");
+  if (serverInstance || releaseDesktopOwner) {
     throw new Error("Server is already running");
   }
+
+  releaseDesktopOwner = acquireDesktopOwner(process.env.FLYD_DIR || join(homedir(), ".flyd"));
 
   // Fail repository-action runs stranded by a previous process BEFORE the
   // socket opens — otherwise this sweep can clobber jobs started moments
   // after listen(). Parked runs survive restarts untouched.
   await repositoryActionJobs.recoverInterrupted().catch(() => undefined);
 
-  return new Promise((resolvePromise, reject) => {
+  return new Promise<void>((resolvePromise, reject) => {
     const server = createServer((req, res) => {
       const url = new URL(req.url || "/", `http://${host}:${port}`);
 
@@ -1808,6 +1812,7 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
       }
     });
 
+    server.once("close", () => { releaseDesktopOwner?.(); releaseDesktopOwner = undefined; });
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
         reject(new Error(`Port ${port} is already in use. Is Flyd Core already running?`));
@@ -1890,7 +1895,7 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
 
       resolvePromise();
     });
-  });
+  }).catch(error => { releaseDesktopOwner?.(); releaseDesktopOwner = undefined; throw error; });
 }
 
 export function stopServer(): Promise<void> {

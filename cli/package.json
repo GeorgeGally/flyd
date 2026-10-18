@@ -21,7 +21,8 @@
     "routing": "tsx scripts/routing-learning.ts",
     "test:routing-learning": "node --experimental-transform-types --test scripts/routing-learning.selftest.mjs",
     "test:composer-predictions": "node --experimental-transform-types --test scripts/composer-predictions.selftest.mjs",
-    "evals:composer": "tsx scripts/eval-composer-predictions.ts"
+    "evals:composer": "tsx scripts/eval-composer-predictions.ts",
+    "mobile": "tsx src/mobile/entry.ts"
   },
   "files": [
     "dist",

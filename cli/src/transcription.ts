@@ -346,7 +346,7 @@ async function completeDictation(
   sendJson(clientWs, { type: "complete", text: result.text, rawText: transcript, profile: result.profile });
 }
 
-export async function transcribeBufferedAudio(chunks: Buffer[], clientWs: Pick<WebSocket, "send">, purpose: TranscriptionPurpose): Promise<void> {
+export async function transcribeBufferedAudio(chunks: Buffer[], clientWs: Pick<WebSocket, "send">, purpose: TranscriptionPurpose, signal?: AbortSignal): Promise<void> {
   const pcm = Buffer.concat(chunks);
   if (pcm.length < 1600) {
     sendJson(clientWs, { type: "error", message: "No speech detected" });
@@ -372,6 +372,7 @@ export async function transcribeBufferedAudio(chunks: Buffer[], clientWs: Pick<W
     form.append("file", new Blob([new Uint8Array(wav)], { type: "audio/wav" }), "voice.wav");
 
     const response = await dictationFetch("https://api.openai.com/v1/audio/transcriptions", {
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(45_000)]) : AbortSignal.timeout(45_000),
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}` },
       body: form,

@@ -93,6 +93,10 @@ function openInBrowser(url: string): void {
 
 /** `flyd view`: a calm view of a conversation, served on loopback, with a box to message firstmate. */
 export async function runView(options: ViewOptions = {}): Promise<void> {
+  const { acquireDesktopOwner } = await import("../mobile/owner.js");
+  const { FLYD_DIR } = await import("../lib/config.js");
+  const releaseOwner = acquireDesktopOwner(FLYD_DIR);
+  try {
   if (options.port !== undefined && !(Number.isInteger(options.port) && options.port > 0 && options.port < 65536)) {
     throw new Error("--port must be an integer between 1 and 65535");
   }
@@ -184,4 +188,5 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       }, 2_000);
     }
   });
+  } finally { releaseOwner(); }
 }

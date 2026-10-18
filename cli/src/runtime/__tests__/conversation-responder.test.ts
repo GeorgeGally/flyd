@@ -1417,3 +1417,52 @@ describe("conversation action tools", () => {
     }
   });
 });
+
+describe("mobile transport ceiling", () => {
+  it("blocks hidden device, shell, handoff and send calls even with full autonomy", async () => {
+    vi.stubEnv("FLYD_AUTONOMY", "full");
+    const outputs: string[] = [];
+    await respondToConversation({
+      surface: "mobile", mobileAccounts: true, sessionId: "mobile-test", turnNumber: 1,
+      message: "Help me think through this idea", history: [], memory: { verdict: "insufficient", matches: [] }, situation: null, onToken: () => {},
+    }, {
+      readOnly: true,
+      routeTurn: async () => ({ route: "act", confidence: 1, source: "jev", decided: true, needsCode: true }),
+      runAgentLoop: async (system, _prompt, tools, handler) => {
+        const offered = tools.map(tool => tool.name);
+        for (const name of ["bash", "read_file", "write_file", "start_coding_task", "start_knowledge_task", "pass_on_question", "reminders", "schedule", "whatsapp_send", "email_draft", "drive_compose"]) {
+          expect(offered).not.toContain(name);
+          outputs.push(await handler(name, { command: "touch /tmp/forged-mobile-call", id: "forged" }));
+        }
+        expect(offered).toContain("web_search"); expect(offered).toContain("recall");
+        expect(system).toContain("surface=mobile"); expect(system).not.toContain("--- PROJECT EVIDENCE ---");
+        return "<final>Here is a way to think about it.</final>";
+      },
+      persistReceipt: async input => input as never,
+    });
+    expect(outputs.every(text => text.includes("no desktop work was dispatched"))).toBe(true);
+  });
+  it("does not turn a research delegation into an empty mobile tool set", async () => {
+    await respondToConversation({
+      surface: "mobile", sessionId: "mobile-research-test", turnNumber: 1,
+      message: "Research this idea", history: [], memory: { verdict: "insufficient", matches: [] }, situation: null, onToken: () => {},
+    }, {
+      readOnly: true,
+      routeTurn: async () => ({ route: "delegate", domain: "knowledge", confidence: 1, source: "jev", decided: true, needsCode: false }),
+      runAgentLoop: async (_system, _prompt, tools, handler) => {
+        expect(tools.some(tool => tool.name === "web_search")).toBe(true);
+        expect(tools.some(tool => tool.name === "email_search")).toBe(false);
+        expect(await handler("connected_accounts", {})).toContain("no desktop work was dispatched");
+        return "<final>I can investigate with the available web tools.</final>";
+      },
+      persistReceipt: async input => input as never,
+    });
+  });
+  it("keeps accounts disabled until the server explicitly enables them", async () => {
+    const loop = vi.fn();
+    const answer = await respondToConversation({
+      surface: "mobile", message: "Check my recent email", history: [], memory: { verdict: "insufficient", matches: [] }, situation: null, onToken: () => {},
+    }, { runAgentLoop: loop });
+    expect(answer).toContain("not enabled"); expect(loop).not.toHaveBeenCalled();
+  });
+});

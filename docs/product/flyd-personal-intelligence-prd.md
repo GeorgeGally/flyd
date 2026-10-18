@@ -19,6 +19,10 @@ Full-life personal intelligence is the product — Flyd is for George, not only 
 
 Flyd may **observe and reason only within active source consent**. It may **act only through a capability grant that permits the exact effect**. High-impact and irreversible actions remain human-confirmed.
 
+### Optional server presence
+
+George may run the same TypeScript intelligence runtime on a personally administered server and access it through the mobile web adapter. Explicit invocation input and approved personal state then reside on that host; configured provider egress and source retention still apply. This is a deployment choice, not a second intelligence or permission to export ambient desktop sensing. PRESENT remains unchanged. Only one canonical writable owner may be active; Mac capability execution requires a separately paired companion (not yet implemented). Operational limits and cutover requirements: [mobile setup](flyd-mobile-setup.md).
+
 ## 2. Canonical intelligence state
 
 ### 2.1 The durable unit is an event

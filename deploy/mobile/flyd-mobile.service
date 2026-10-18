@@ -1,0 +1,45 @@
+# Example only. Confirm paths, Node version, resource budget and existing ingress
+# with script/flyd-mobile-preflight before installing on a shared host.
+[Unit]
+Description=Flyd mobile presence (TypeScript Core adapter)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=flyd
+Group=flyd
+Environment=HOME=/var/lib/flyd
+Environment=FLYD_DIR=/var/lib/flyd/.flyd
+EnvironmentFile=/etc/flyd/mobile.env
+WorkingDirectory=/opt/flyd/current/cli
+ExecStart=/usr/bin/node /opt/flyd/current/cli/dist/mobile/entry.js serve
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=240
+UMask=0077
+StateDirectory=flyd
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/flyd
+# Extend after auditing actual sibling application paths on this host.
+InaccessiblePaths=-/srv -/var/www
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Initial containment values only; validate under load before activation.
+CPUQuota=50%
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
