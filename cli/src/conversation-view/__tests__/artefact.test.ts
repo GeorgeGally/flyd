@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
@@ -306,10 +306,15 @@ describe("composeArtefact", () => {
     });
   });
 
-  it("says so plainly when the fleet snapshot could not be read", () => {
-    const items = composeArtefact({ fleet: { unavailable: "timed out", calls: [], live: [], ready: [], landed: [], held: [], next: [] }, memories: [], news: [], taste: [] });
-    expect(items[0]).toMatchObject({ kind: "news", why: "fleet status unknown" });
-    expect(items[0]!.headline).toContain("timed out");
+  it("omits a fleet it could not read, and says one plain line only when the read has long been stale", () => {
+    const empty = { calls: [], live: [], ready: [], landed: [], held: [], next: [] };
+    // A failed read is Flyd's own hiccup: nothing on screen, and never the reason or the command.
+    const unreachable = composeArtefact({ fleet: { ...empty, unavailable: "Command failed: /x/fm-bearings-snapshot.sh --json" }, memories: [], news: [], taste: [] });
+    expect(unreachable).toEqual([]);
+    // A long outage earns one plain line, with no path and no command in it.
+    const stale = composeArtefact({ fleet: { ...empty, unavailable: "read failed", outOfDate: true }, memories: [], news: [], taste: [] });
+    expect(stale).toMatchObject([{ kind: "news", id: "news:fleet-out-of-date", headline: "Fleet status is out of date" }]);
+    expect(JSON.stringify(stale)).not.toContain("fm-bearings");
   });
 });
 
@@ -459,4 +464,102 @@ describe("ArtefactFeed", () => {
     expect(feed.current().fleet!.live[0]!.label).toBe("Drag and drop documents, take three");
     expect(asked).toHaveLength(2);
   });
+
+  it("reuses the last good snapshot silently while reads fail, and never says a command or a path", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-good-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "a", state: "working", repo: "flyd", name: "Still going", doing: "harness busy" }] }));
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a"]);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // The script now fails: the good snapshot is shown as-is, with no reason leaking to the screen.
+      writeFileSync(script, `#!/bin/sh\necho 'Command failed: ${script} --json' >&2\nexit 1\n`, { mode: 0o755 });
+      await feed.refresh();
+      expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a"]);
+      expect(feed.current().fleet!.unavailable).toBeUndefined();
+      expect(feed.current().fleet!.outOfDate).toBeUndefined();
+      // The reason goes to Flyd's own log only.
+      expect(warn.mock.calls.flat().join(" ")).toContain("fm-bearings");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("omits the fleet entirely before any good read, keeping the reason off the screen", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-none-"));
+    const feed = new ArtefactFeed({ home: join(home, "no-firstmate-here"), memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await feed.refresh();
+      // No error card, no line: the fleet is simply absent.
+      expect(composeArtefact(feed.current())).toEqual([]);
+      expect(warn.mock.calls.flat().join(" ")).toContain("fleet snapshot unreadable");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("says one plain out-of-date line only after reads have failed a long time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const home = mkdtempSync(join(tmpdir(), "artefact-stale-"));
+      mkdirSync(join(home, "bin"));
+      mkdirSync(join(home, "state"));
+      writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+      const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await feed.refresh();
+        expect(feed.current().fleet!.outOfDate).toBeUndefined();
+        vi.setSystemTime(Date.now() + 31 * 60 * 1000);
+        await feed.refresh();
+        expect(feed.current().fleet!.outOfDate).toBe(true);
+        const items = composeArtefact(feed.current());
+        expect(items).toMatchObject([{ id: "news:fleet-out-of-date", headline: "Fleet status is out of date" }]);
+        expect(JSON.stringify(items)).not.toContain("fm-bearings");
+      } finally {
+        warn.mockRestore();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never runs two snapshot reads at once", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-single-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    const runs = join(home, "runs");
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\necho x >> '${runs}'\nsleep 0.3\necho '{"in_flight":[]}'\n`, { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    try {
+      await Promise.all([feed.refresh(), feed.refresh()]);
+      expect(readFileSync(runs, "utf8").trim().split("\n")).toHaveLength(1);
+    } finally {
+      feed.stop();
+    }
+  }, 30_000);
+
+  it("gives up on a read that overruns its timeout and keeps it off the screen", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-timeout-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), "#!/bin/sh\nsleep 1\necho '{\"in_flight\":[]}'\n", { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, timeoutMs: 50, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await feed.refresh();
+      expect(feed.current().fleet!.unavailable).toBe("unreadable");
+      expect(composeArtefact(feed.current())).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  }, 30_000);
 });

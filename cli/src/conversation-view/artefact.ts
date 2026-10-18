@@ -45,8 +45,10 @@ export interface ArtefactRow {
 export interface FleetArtefact {
   /** When firstmate generated the snapshot, as it reported. */
   generated?: string;
-  /** A plain reason the snapshot could not be read; never a made-up feed. */
+  /** A plain reason the snapshot could not be read; never a made-up feed. Internal only: never shown. */
   unavailable?: string;
+  /** Reads have failed for so long that the screen may say once, plainly, that the fleet is out of date. */
+  outOfDate?: boolean;
   /** Captain holds: calls only he can make. */
   calls: ArtefactRow[];
   /** Work moving right now. */
@@ -100,7 +102,9 @@ export interface DayCount {
 
 export const EMPTY_ARTEFACT: ArtefactInputs = { memories: [], news: [], taste: [] };
 
-const FLEET_UNAVAILABLE = (reason: string): FleetArtefact => ({ unavailable: reason, calls: [], live: [], ready: [], landed: [], held: [], next: [] });
+const EMPTY_FLEET: FleetArtefact = { calls: [], live: [], ready: [], landed: [], held: [], next: [] };
+
+const FLEET_UNAVAILABLE = (reason: string): FleetArtefact => ({ ...EMPTY_FLEET, unavailable: reason });
 
 /** How many of each kind the artefact shows; the section says how many more there are. */
 export const ARTEFACT_LIMITS = { call: 4, live: 4, ready: 4, landed: 8, waiting: 4, next: 3 } as const;
@@ -719,7 +723,9 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   };
 
   const fleet = inputs.fleet;
-  if (fleet?.unavailable) add("news", "fleet-unavailable", `Firstmate's fleet snapshot is unreadable: ${fleet.unavailable}.`, "fleet status unknown");
+  // A read that failed is Flyd's own hiccup, not news: the last good snapshot is reused silently and a
+  // reason never reaches the screen. Only a long outage earns one plain line, with no command or path.
+  if (fleet?.outOfDate) add("news", "fleet-out-of-date", "Fleet status is out of date", "firstmate's fleet has gone quiet");
   rowsOf("call", fleet?.calls);
   rowsOf("live", fleet?.live);
   rowsOf("ready", fleet?.ready);
@@ -813,6 +819,10 @@ function reason(error: unknown): string {
 const REPORT_SETTLE_MS = 2_000;
 /** The fleet is read at most this often when jobs report: the bearings script is not free. */
 const REPORT_GAP_MS = 15_000;
+/** How long the bearings script may take before its read is abandoned; it runs long on a loaded machine. */
+const FLEET_READ_TIMEOUT_MS = 60_000;
+/** Reads failing this long without a good snapshot: only then may the screen say the fleet is out of date. */
+const FLEET_OUT_OF_DATE_MS = 30 * 60 * 1000;
 
 /**
  * Whether the staff's record of a pending call's task says it was overtaken
@@ -847,6 +857,13 @@ export class ArtefactFeed {
   private again = false;
   private refreshing = false;
   private generation = 0;
+  /** The last snapshot read cleanly, reused silently while reads fail; with when it was read. */
+  private lastGood?: FleetArtefact;
+  private lastGoodAt = 0;
+  /** When the current run of failed reads began; zero between runs. */
+  private failedSince = 0;
+  /** A snapshot read already under way, so two never run at once. */
+  private inflight?: Promise<FleetArtefact>;
   /** The last words Flyd said for each task on screen, shown while new ones are asked for. */
   private lastSaid = new Map<string, Said>();
   private readonly listeners = new Set<() => void>();
@@ -901,9 +918,15 @@ export class ArtefactFeed {
     }
   }
 
-  private async readFleet(): Promise<FleetArtefact> {
+  /** Reads the fleet, reusing a read already under way so two never run at once. */
+  private readFleet(): Promise<FleetArtefact> {
+    if (!this.inflight) this.inflight = this.readFleetOnce().finally(() => { this.inflight = undefined; });
+    return this.inflight;
+  }
+
+  private async readFleetOnce(): Promise<FleetArtefact> {
     const script = join(this.paths().home, "bin", "fm-bearings-snapshot.sh");
-    const timeout = this.options.timeoutMs ?? 20_000;
+    const timeout = this.options.timeoutMs ?? FLEET_READ_TIMEOUT_MS;
     try {
       const out = await new Promise<string>((resolve, reject) => {
         execFile(script, ["--json"], { timeout, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
@@ -911,10 +934,25 @@ export class ArtefactFeed {
           else resolve(stdout);
         });
       });
-      return parseBearings(JSON.parse(out));
+      const fleet = parseBearings(JSON.parse(out));
+      if (fleet.unavailable) throw new Error(fleet.unavailable);
+      this.lastGood = fleet;
+      this.lastGoodAt = Date.now();
+      this.failedSince = 0;
+      return fleet;
     } catch (error) {
-      return FLEET_UNAVAILABLE(reason(error));
+      if (!this.failedSince) this.failedSince = Date.now();
+      const since = this.lastGoodAt ? ` (last good read ${Math.round((Date.now() - this.lastGoodAt) / 1000)}s ago)` : " (no good read yet)";
+      console.warn(`[view] fleet snapshot unreadable${since}: ${reason(error)}`);
+      return this.staleFleet();
     }
+  }
+
+  /** While reads fail: the last good snapshot, silent; before the first, nothing; after a long outage, one plain flag. */
+  private staleFleet(): FleetArtefact {
+    const base = this.lastGood ?? EMPTY_FLEET;
+    if (Date.now() - this.failedSince >= FLEET_OUT_OF_DATE_MS) return { ...base, outOfDate: true };
+    return this.lastGood ? { ...base } : { ...base, unavailable: "unreadable" };
   }
 
   /** The absolute path of a screenshot the artefact listed, or null for anything else. */

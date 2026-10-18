@@ -167,8 +167,8 @@ describe("showOf", () => {
     expect(screen.read).toBe("2026-10-09T11:58:00Z");
   });
 
-  it("says plainly when the fleet could not be read", () => {
-    expect(situationOf({}, "timed out")).toBe("I couldn't read firstmate's fleet just now (timed out).");
+  it("keeps a fleet read failure off the line: no reason, no path, just the figures", () => {
+    expect(situationOf({})).toBe("Nothing waits on you.");
     expect(situationOf({ call: 2, waiting: 1 })).toBe("2 calls wait on you, 1 held up.");
   });
 
@@ -235,6 +235,13 @@ describe("showOf", () => {
   it("titles the screen by the most important thing on it", () => {
     expect(titleOf([{ id: "x", kind: "live", headline: "", why: "" }])).toBe("Under way, sir.");
     expect(titleOf([{ id: "x", kind: "news", headline: "", why: "" }, { id: "y", kind: "landed", headline: "", why: "" }])).toBe("Good news, sir.");
+  });
+
+  it("damps good news beside a problem, so nothing reads as false cheer", () => {
+    const landed = { id: "l", kind: "landed" as const, headline: "", why: "" };
+    const stale = { id: "n", kind: "news" as const, headline: "Fleet status is out of date", why: "" };
+    expect(titleOf([landed])).toBe("Good news, sir.");
+    expect(titleOf([landed, stale], false, true)).toBe("Here's where things stand, sir.");
   });
 });
 
