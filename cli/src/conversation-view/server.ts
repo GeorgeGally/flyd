@@ -31,7 +31,8 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
-import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
+import { ArtefactFeed, composeArtefact, WHATSAPP_LINK, type ArtefactInputs } from "./artefact.js";
+import type { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail, RailState } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
@@ -165,6 +166,8 @@ export interface ShowOptions {
   leftColumn?: () => ActivityPanel;
   /** Whether a page on this machine answers, so a link to one that closed is said in words. */
   live?: (url: string) => string;
+  /** Whether WhatsApp still needs linking: the offer card is shown in the timeline and the panel only while it does. */
+  whatsappUnlinked?: () => boolean;
 }
 
 interface StreamUpdate {
@@ -509,6 +512,15 @@ export class SnapshotDiffer {
         ...(message.answeredFor !== undefined ? { answeredFor: message.answeredFor, ...(undone.has(message.id) ? { undone: true } : {}) } : {}),
       });
     }
+    // WhatsApp unlinked: the one action card, last in the timeline, until he links it.
+    if (this.show?.whatsappUnlinked?.()) {
+      order.push(WHATSAPP_LINK.id);
+      seen.add(WHATSAPP_LINK.id);
+      if (this.sent.get(WHATSAPP_LINK.id) !== "1") {
+        this.sent.set(WHATSAPP_LINK.id, "1");
+        changed.push({ id: WHATSAPP_LINK.id, role: "assistant", html: "", card: { kind: "decision", line: WHATSAPP_LINK.title, sub: WHATSAPP_LINK.line, url: WHATSAPP_LINK.url } });
+      }
+    }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
     const show = showOf(snapshot, {
         ...(this.show?.assistant ? { assistant: this.show.assistant } : {}),
@@ -668,6 +680,8 @@ export class ConversationViewServer {
     private readonly routines = new RoutineArtefacts(),
     /** Flyd's own activity records, read for the left column; without it the column is not offered. */
     private readonly activity?: ActivityReader,
+    /** WhatsApp, when it still needs linking: the code is drawn here, and the offers are shown here. */
+    private readonly whatsapp?: WhatsAppPairing,
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -740,6 +754,26 @@ export class ConversationViewServer {
         if (!wa.whatsappTools.some(t => t.name === body.name) || !body.input || typeof body.input !== "object") { sendJson(res, 400, { error: "invalid action" }); return; }
         sendJson(res, 200, { result: await wa.runWhatsAppTool(body.name, body.input) });
       } catch { sendJson(res, 400, { error: "WhatsApp action unavailable. Check pairing and Core connection; do not retry an uncertain send." }); }
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/whatsapp-pair") {
+      const origin = req.headers.origin;
+      if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) { sendJson(res, 403, { error: "forbidden" }); return; }
+      if (!this.whatsapp) { sendJson(res, 200, { result: { paired: false, linking: false } }); return; }
+      let action = "start";
+      try { const body = JSON.parse(await readBody(req, 8 * 1024)) as { action?: unknown }; if (body.action === "stop") action = "stop"; } catch { /* a body that does not parse starts the session */ }
+      if (action === "stop") this.whatsapp.stop(); else this.whatsapp.start();
+      const { paired, code } = this.whatsapp.state();
+      sendJson(res, 200, { result: { paired, linking: Boolean(code) } });
+      return;
+    }
+    if (url.pathname === "/api/whatsapp-qr") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
+      const code = this.whatsapp?.state().code;
+      if (!code) { sendJson(res, 404, { error: "no pairing code" }); return; }
+      const { qrSvg } = await import("../connectors/whatsapp-pairing.js");
+      res.writeHead(200, { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'", "x-content-type-options": "nosniff" });
+      res.end(qrSvg(code));
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/send") {
@@ -941,6 +975,17 @@ export class ConversationViewServer {
     res.end(data);
   }
 
+  /** Whether WhatsApp still needs linking. The offers are shown only while it does. */
+  private whatsappUnlinked(): boolean {
+    return Boolean(this.whatsapp && !this.whatsapp.state().paired);
+  }
+
+  /** The artefact inputs with the unlinked-WhatsApp offer folded in, when it applies. */
+  private artefactInputs(): ArtefactInputs {
+    const inputs = this.feed.current();
+    return this.whatsappUnlinked() ? { ...inputs, whatsappLink: true } : inputs;
+  }
+
   /** Flyd's right column: his questions with their answers, and the artefacts beside them. */
   private rail(snapshot: ConversationSnapshot): Rail {
     const projects = this.show?.projects?.() ?? [];
@@ -961,7 +1006,7 @@ export class ConversationViewServer {
       }));
     // The same replies the window points here, each once, newest first.
     const reported = replyCards(snapshot.messages, this.summaries?.artefacts);
-    const artefacts: RailArtefact[] = [...sites, ...reported, ...composeArtefact(this.feed.current(), { project })
+    const artefacts: RailArtefact[] = [...sites, ...reported, ...composeArtefact(this.artefactInputs(), { project })
       .filter((item) => item.kind !== "call")
       .map((item) => ({
         id: item.id,
@@ -1602,11 +1647,12 @@ export class ConversationViewServer {
       : undefined, {
         assistant: this.source.assistantLabel,
         ...this.show,
-        artefact: () => this.feed.current(),
+        artefact: () => this.artefactInputs(),
         readings: () => ({ plan: this.plan?.current() ?? null, weather: this.weather?.current() ?? null }),
         rail: (snapshot) => this.rail(snapshot),
         ...(this.activity ? { leftColumn: () => this.activity!.current() } : {}),
         live: (url) => this.previews.state(url),
+        whatsappUnlinked: () => this.whatsappUnlinked(),
       });
     const follower = this.source.follow(
       session.id,
@@ -1632,6 +1678,10 @@ export class ConversationViewServer {
     });
     // Flyd did or started something: the left column's cards change.
     const stopActivity = this.activity?.onChange(() => {
+      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+    });
+    // WhatsApp linked (or a new code drawn): the offer goes, or its code turns over.
+    const stopPairing = this.whatsapp?.onChange(() => {
       if (!closed && latest) sseEvent(res, "update", differ.next(latest));
     });
     emitStaff();
@@ -1661,6 +1711,7 @@ export class ConversationViewServer {
       stopPreviews();
       stopMemory?.();
       stopActivity?.();
+      stopPairing?.();
       follower.close();
       this.predictionContexts.delete(session.id);
     });

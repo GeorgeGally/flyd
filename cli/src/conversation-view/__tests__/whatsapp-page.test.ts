@@ -35,4 +35,21 @@ describe("People artefact", () => {
     expect(html).toContain("prefers-reduced-motion"); expect(html).toContain("max-width:520px");
     expect(html).not.toMatch(/<script[^>]+src=|<link[^>]+href=/);
   });
+  it("offers the live pairing code in the page while WhatsApp is unlinked", async () => {
+    vi.stubGlobal("setInterval", vi.fn());
+    vi.stubGlobal("fetch", vi.fn(async (url, options) => {
+      if (url === "/api/whatsapp-pair") return new Response(JSON.stringify({ result: { paired: false, linking: true } }), { status: 200 });
+      const { name } = JSON.parse(options.body); let result: unknown;
+      if (name === "whatsapp_status") result = { paired: false, state: "disconnected" };
+      return new Response(JSON.stringify({ result }), { status: 200 });
+    }));
+    const html = renderWhatsAppPage("test-token");
+    document.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(html)![1].replace(/<script>[\s\S]*<\/script>/, "");
+    new Function(/<script>([\s\S]*)<\/script>/.exec(html)![1])();
+    await settle();
+    const qr = document.querySelector(".qr") as HTMLImageElement;
+    expect(qr.src).toContain("/api/whatsapp-qr?token=test-token");
+    expect(document.getElementById("messages")!.textContent).toContain("Link a device");
+    expect(document.body.textContent).not.toContain("flyd whatsapp connect");
+  });
 });
