@@ -25,7 +25,7 @@ import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exc
 import type { AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
 import type { SemanticJudge } from "./semantic-judge.js";
-import { semanticObjectsFromShow } from "./semantic.js";
+import { semanticEvents, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
@@ -261,6 +261,7 @@ const heldRelays = new Set<string>();
 
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
+  private semantic: SemanticObject[] = [];
 
   constructor(private readonly summaries?: SummaryOptions, private readonly show?: ShowOptions) {}
 
@@ -519,6 +520,8 @@ export class SnapshotDiffer {
       for (const item of show.items) if (!semanticJudge.cached(item) && !semanticJudge.pending(item)) this.judgeSemantic(semanticJudge, item);
       show.semantic = semanticObjectsFromShow(show.items, (item) => semanticJudge.cached(item)?.kind);
     }
+    show.events = semanticEvents(this.semantic, show.semantic);
+    this.semantic = show.semantic;
     const live = this.show?.live ?? (() => "up");
     const found = currentPage(snapshot.messages);
     // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
