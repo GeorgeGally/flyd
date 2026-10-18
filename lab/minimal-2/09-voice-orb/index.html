@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Voice orb</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* 09 · Voice orb. Flyd is a presence that speaks; the window is its captions. The orb is Flyd, and its
+     halo is the state of the work: three green marks for what was done, a blue arc filling for the job
+     running, one amber point where George is needed. The words light up as Flyd says them, TV-style. */
+  :root { --bg:#06070b; --ink:#f1f3fa; --dim:#8a90a6; --mute:#4a4f63; --amber:#ffbf5e; --blue:#6f9dff; --green:#58d68d; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; background:var(--bg); color:var(--ink); font-family:Manrope, system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  .lights { position:absolute; left:22px; top:22px; display:flex; gap:8px; }
+  .lights i { width:12px; height:12px; border-radius:50%; background:#181a24; }
+  .glow { position:absolute; left:-140px; top:-60px; width:1000px; height:1000px; border-radius:50%; background:radial-gradient(closest-side, rgba(111,157,255,.14), rgba(160,110,255,.06) 55%, transparent); animation:breathe 7s ease-in-out infinite alternate; }
+  @keyframes breathe { from { opacity:.6; } to { opacity:1; } }
+  header { position:absolute; left:120px; top:48px; display:flex; gap:22px; align-items:baseline; font-size:17px; }
+  header b { font-size:22px; font-weight:700; }
+  header span { color:var(--dim); }
+
+  /* the orb */
+  .orb { position:absolute; left:170px; top:250px; width:380px; height:380px; border-radius:50%; overflow:hidden;
+    background:radial-gradient(circle at 35% 30%, #2a3566, #0c1024 70%); box-shadow:0 0 120px rgba(111,157,255,.25), inset 0 0 60px rgba(0,0,0,.5); }
+  .orb i { position:absolute; border-radius:50%; filter:blur(36px); mix-blend-mode:screen; }
+  .orb .b1 { width:260px; height:260px; left:30px; top:60px; background:#5b7cff; animation:orbit 11s linear infinite; transform-origin:190px 190px; }
+  .orb .b2 { width:220px; height:220px; left:140px; top:120px; background:#b06bff; opacity:.75; animation:orbit 15s linear infinite reverse; transform-origin:110px 80px; }
+  .orb .b3 { width:180px; height:180px; left:90px; top:190px; background:#35d1c4; opacity:.6; animation:orbit 9s linear infinite; transform-origin:160px 20px; }
+  @keyframes orbit { to { transform:rotate(360deg); } }
+  .orb::after { content:""; position:absolute; inset:0; border-radius:50%; background:radial-gradient(circle at 32% 24%, rgba(255,255,255,.35), transparent 22%); }
+
+  svg.halo { position:absolute; left:110px; top:190px; width:500px; height:500px; }
+  .halo circle { fill:none; }
+  .halo .runFill { stroke:var(--blue); stroke-width:6; stroke-linecap:round; stroke-dasharray:0 1500; animation:fill 2.4s .5s cubic-bezier(.2,.7,.2,1) forwards; filter:drop-shadow(0 0 6px rgba(111,157,255,.7)); }
+  @keyframes fill { to { stroke-dasharray:var(--len) 1500; } }
+  .tag { position:absolute; font-size:16px; color:var(--dim); white-space:nowrap; cursor:default; transition:color .25s; }
+  .tag b { font-weight:600; color:var(--ink); }
+  .tag:hover { color:var(--ink); }
+
+  /* captions */
+  .say { position:absolute; left:700px; top:236px; width:620px; }
+  .say .k { font-size:17px; color:var(--amber); display:flex; align-items:center; gap:12px; margin-bottom:26px; }
+  .wave { display:flex; gap:3px; align-items:center; height:18px; }
+  .wave i { width:3px; height:6px; border-radius:2px; background:var(--amber); animation:talk 1.1s ease-in-out infinite; }
+  .wave i:nth-child(2) { animation-delay:.15s; } .wave i:nth-child(3) { animation-delay:.3s; } .wave i:nth-child(4) { animation-delay:.45s; } .wave i:nth-child(5) { animation-delay:.6s; }
+  @keyframes talk { 50% { height:18px; } }
+  .say h1 { font-size:56px; line-height:1.1; font-weight:600; letter-spacing:-.03em; }
+  .say h1 span { color:var(--mute); animation:lit .5s ease forwards; }
+  @keyframes lit { to { color:var(--ink); } }
+  .say h1 span.q { animation-name:litq; } @keyframes litq { to { color:var(--amber); } }
+  .actions { margin-top:56px; display:flex; gap:12px; align-items:center; }
+  button { font:inherit; font-size:18px; font-weight:600; height:58px; padding:0 30px; border-radius:999px; cursor:pointer;
+    border:1px solid #2a2e3d; background:#11131b; color:var(--ink); transition:background-color .25s, border-color .25s, color .25s; }
+  button.go { background:var(--ink); color:#0a0b10; border-color:var(--ink); }
+  button.go:hover { background:var(--amber); border-color:var(--amber); }
+  button:not(.go):hover { border-color:var(--dim); }
+  .hint { margin-left:16px; font-size:16px; color:var(--dim); }
+  .hint kbd { font:inherit; color:var(--ink); padding:2px 8px; border:1px solid #2a2e3d; border-radius:6px; }
+
+  .art { position:absolute; left:700px; top:672px; display:flex; gap:22px; align-items:center; color:inherit; text-decoration:none; }
+  .art img { width:200px; aspect-ratio:16/10; object-fit:cover; border-radius:10px; display:block; outline:1px solid rgba(255,255,255,.1); transition:filter .3s; filter:brightness(.92); }
+  .art:hover img { filter:brightness(1.08); }
+  .art p { font-size:20px; font-weight:600; line-height:1.3; max-width:400px; }
+  .art p small { display:block; font-size:16px; font-weight:500; color:var(--dim); margin-top:4px; transition:color .25s; }
+  .art:hover p small { color:var(--ink); }
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; } .say h1 span { color:var(--ink); } .say h1 span.q { color:var(--amber); } .halo .runFill { stroke-dasharray:var(--len) 1500; } }
+</style>
+</head>
+<body>
+  <div class="lights"><i></i><i></i><i></i></div>
+  <div class="glow"></div>
+  <header><b>Flyd</b><span>Sunday 18 October, 09:12</span></header>
+
+  <div class="orb" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+  <svg class="halo" viewBox="0 0 500 500" aria-label="State of the work">
+    <circle cx="250" cy="250" r="236" stroke="rgba(255,255,255,.07)" stroke-width="2"/>
+    <!-- CapFive: arc from 100° to 190°, filled 62% -->
+    <circle id="runTrack" cx="250" cy="250" r="236" stroke="rgba(111,157,255,.2)" stroke-width="6" stroke-linecap="round"/>
+    <circle id="runFill" class="runFill" cx="250" cy="250" r="236"/>
+    <g id="marks"></g>
+  </svg>
+  <p class="tag" style="left:534px;top:226px" title="Good Neighbours"><b style="color:var(--amber)">Needs you</b></p>
+  <p class="tag" style="left:500px;top:676px" title="Started 07:00 · done about 10:10"><b>62%</b> CapFive tiles</p>
+  <p class="tag" style="left:84px;top:668px" title="21:10, 02:30, 07:40"><b>3</b> done overnight</p>
+
+  <section class="say">
+    <p class="k"><span class="wave"><i></i><i></i><i></i><i></i><i></i></span>Flyd, speaking</p>
+    <h1 id="cap">A test entry is still in your live vendor list. Shall I delete it?</h1>
+    <div class="actions"><button class="go">Delete it</button><button>Keep it</button><span class="hint">or hold <kbd>fn</kbd> and say so</span></div>
+  </section>
+
+  <a class="art" href="#">
+    <img src="../assets/xmas-site.jpg" alt="The Good Neighbours 8 Days of Christmas website">
+    <p>When you are ready, I can show you the 8 Days of Christmas site.<small>Open it now ↗</small></p>
+  </a>
+
+<script>
+  // captions: each word lights as it is said; the question lights amber
+  const cap = document.getElementById('cap'), words = cap.textContent.split(' ');
+  cap.innerHTML = words.map((w, i) => `<span class="${i >= 10 ? 'q' : ''}" style="animation-delay:${.3 + i * .17}s">${w}</span>`).join(' ');
+
+  // halo: angles measured clockwise from the top
+  const C = 250, R = 236, circ = 2 * Math.PI * R;
+  const at = (deg, r = R) => { const a = (deg - 90) * Math.PI / 180; return [C + r * Math.cos(a), C + r * Math.sin(a)]; };
+  const span = (el, from, to, part) => { el.setAttribute('transform', `rotate(${from - 90} ${C} ${C})`); el.style.setProperty('--len', (to - from) / 360 * circ * part); };
+  const track = document.getElementById('runTrack');
+  track.setAttribute('transform', `rotate(${100 - 90} ${C} ${C})`); track.setAttribute('stroke-dasharray', `${90 / 360 * circ} ${circ}`);
+  span(document.getElementById('runFill'), 100, 190, .62);
+  const NS = 'http://www.w3.org/2000/svg', marks = document.getElementById('marks');
+  [215, 228, 241].forEach(d => { const [x, y] = at(d); const c = document.createElementNS(NS, 'circle'); c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', 7); c.style.fill = '#58d68d'; c.style.filter = 'drop-shadow(0 0 6px rgba(88,214,141,.7))'; marks.appendChild(c); });
+  const [ax, ay] = at(40); const a = document.createElementNS(NS, 'circle');
+  a.setAttribute('cx', ax); a.setAttribute('cy', ay); a.setAttribute('r', 10); a.style.fill = '#ffbf5e'; a.style.filter = 'drop-shadow(0 0 10px #ffbf5e)'; marks.appendChild(a);
+</script>
+</body>
+</html>

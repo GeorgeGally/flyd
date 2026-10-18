@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Ambient light</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* 06 · Ambient light. A Turrell room. Everything in it is a light: a warm pool where George is needed,
+     a skylight that is the finished artefact (its colours spill onto the wall; hover brings it into focus),
+     a horizon that brightens as the running job fills, and three small lamps for what was done. */
+  :root { --wall:#100d0c; --ink:#f6eee4; --dim:#a59a8e; --mute:#5f564e; --warm:#ffb36b; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; background:var(--wall); color:var(--ink); font-family:Figtree, system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  .lights { position:absolute; left:22px; top:22px; display:flex; gap:8px; z-index:5; }
+  .lights i { width:12px; height:12px; border-radius:50%; background:#221d1a; }
+
+  .pool { position:absolute; left:-200px; top:60px; width:1100px; height:760px; border-radius:50%;
+    background:radial-gradient(closest-side, rgba(255,166,92,.16), rgba(255,166,92,.05) 60%, transparent); animation:breathe 9s ease-in-out infinite alternate; }
+  .spill { position:absolute; left:640px; top:-60px; width:960px; height:960px; border-radius:50%; opacity:.5; filter:blur(120px) saturate(1.6);
+    background:url(../assets/block42-roof.jpg) center / cover; animation:breathe 11s ease-in-out infinite alternate; }
+  @keyframes breathe { from { opacity:.38; } to { opacity:.62; } }
+
+  header { position:absolute; left:120px; top:48px; display:flex; gap:22px; align-items:baseline; font-size:17px; z-index:3; }
+  header b { font-family:Fraunces, serif; font-weight:400; font-size:26px; }
+  header span { color:var(--dim); }
+
+  .ask { position:absolute; left:120px; top:200px; width:600px; z-index:3; animation:fade 1.6s ease both; }
+  @keyframes fade { from { opacity:0; } }
+  .ask .k { font-size:17px; color:var(--warm); margin-bottom:24px; }
+  .ask h1 { font-family:Fraunces, serif; font-weight:300; font-size:68px; line-height:1.04; letter-spacing:-.02em; }
+  .ask h1 em { font-style:italic; color:var(--warm); }
+  .actions { margin-top:56px; display:flex; gap:14px; }
+  button { font:inherit; font-size:18px; font-weight:500; height:58px; padding:0 34px; border-radius:999px; cursor:pointer;
+    border:1px solid rgba(246,238,228,.25); background:transparent; color:var(--ink); transition:background-color .4s, color .4s, border-color .4s, box-shadow .4s; }
+  button.go { background:var(--warm); border-color:var(--warm); color:#1d1006; box-shadow:0 0 40px rgba(255,179,107,.25); }
+  button.go:hover { background:var(--ink); border-color:var(--ink); box-shadow:0 0 60px rgba(255,236,210,.35); }
+  button:not(.go):hover { background:rgba(246,238,228,.08); }
+
+  /* the skylight */
+  .sky { position:absolute; left:820px; top:110px; width:500px; height:500px; border-radius:50%; overflow:hidden; display:block; color:var(--ink); text-decoration:none; z-index:2;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.08), 0 0 120px rgba(90,160,220,.22); }
+  .sky .img { position:absolute; inset:-4%; background:url(../assets/block42-roof.jpg) 50% 30% / cover; filter:blur(2px) saturate(1.25) brightness(1.15); transition:filter 1.2s ease; animation:drift 50s ease-in-out infinite alternate; }
+  @keyframes drift { to { background-position:50% 70%; } }
+  .sky::after { content:""; position:absolute; inset:0; border-radius:50%; box-shadow:inset 0 0 80px rgba(0,0,0,.55); pointer-events:none; }
+  .sky:hover .img { filter:saturate(1.3) brightness(1.35); }
+  .sky .cap { position:absolute; left:0; right:0; bottom:58px; text-align:center; font-size:17px; font-weight:500; opacity:0; transition:opacity .6s .3s; z-index:2; }
+  .sky:hover .cap { opacity:1; }
+  .art { position:absolute; left:820px; top:642px; width:500px; z-index:3; }
+  .art h2 { font-family:Fraunces, serif; font-weight:300; font-size:32px; line-height:1.15; letter-spacing:-.01em; }
+  .art p { font-size:17px; color:var(--dim); margin-top:8px; }
+
+  /* the horizon */
+  .horizon { position:absolute; left:120px; right:120px; top:792px; height:2px; background:rgba(246,238,228,.08); z-index:3; }
+  .horizon b { position:absolute; left:0; top:0; height:2px; width:0; background:linear-gradient(90deg, rgba(122,170,255,.0), #9cc0ff 70%, #fff);
+    box-shadow:0 0 18px rgba(156,192,255,.7), 0 0 60px rgba(156,192,255,.35); animation:rise 2.8s .5s cubic-bezier(.2,.7,.2,1) forwards; }
+  .horizon b::after { content:""; position:absolute; right:-4px; top:-4px; width:10px; height:10px; border-radius:50%; background:#fff; box-shadow:0 0 18px #cfe0ff; }
+  @keyframes rise { to { width:62%; } }
+  .run { position:absolute; left:120px; top:748px; font-size:18px; z-index:3; }
+  .run span { color:var(--dim); }
+
+  .lamps { position:absolute; left:120px; top:826px; display:flex; gap:36px; font-size:17px; color:var(--dim); z-index:3; }
+  .lamps p { display:flex; align-items:center; gap:10px; cursor:default; transition:color .4s; }
+  .lamps p::before { content:""; width:7px; height:7px; border-radius:50%; background:#ffe3b8; box-shadow:0 0 10px #ffcf8a, 0 0 24px rgba(255,207,138,.5); }
+  .lamps p:hover { color:var(--ink); }
+  .talk { position:absolute; right:120px; top:826px; font-size:17px; color:var(--dim); z-index:3; }
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; } .horizon b { width:62%; } }
+</style>
+</head>
+<body>
+  <div class="lights"><i></i><i></i><i></i></div>
+  <div class="pool"></div>
+  <div class="spill"></div>
+  <header><b>Flyd</b><span>Sunday morning, 09:12</span></header>
+
+  <section class="ask">
+    <p class="k">One thing needs you</p>
+    <h1>A test entry is still in the live vendor list. <em>Shall I delete it?</em></h1>
+    <div class="actions"><button class="go">Delete it</button><button>Keep it</button></div>
+  </section>
+
+  <a class="sky" href="#"><div class="img" role="img" aria-label="The roof of Block42, the Christmas market venue"></div><span class="cap">Open the venue page ↗</span></a>
+  <section class="art">
+    <h2>The new Block42 venue page is ready to look over.</h2>
+    <p>The roof photo leads it · Good Neighbours</p>
+  </section>
+
+  <p class="run">CapFive tiles are 62% of the way <span>· about an hour left</span></p>
+  <div class="horizon"><b></b></div>
+
+  <div class="lamps">
+    <p title="21:10">Both test applications passed</p>
+    <p title="02:30">Logo uploads work again</p>
+    <p title="07:40">Past markets are live</p>
+  </div>
+  <p class="talk">Hold fn to talk</p>
+</body>
+</html>
