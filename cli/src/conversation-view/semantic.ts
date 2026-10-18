@@ -135,7 +135,7 @@ function actionsFor(item: ShowItem): SemanticAction[] {
 }
 
 export function semanticObjectFromShow(item: ShowItem, override?: SemanticKind): SemanticObject {
-  const kind = override ?? semanticKindFor(item);
+  const kind = item.task && item.kind !== "plan" ? "activity" : override ?? semanticKindFor(item);
   return {
     id: semanticIdentityFor(item),
     kind,
