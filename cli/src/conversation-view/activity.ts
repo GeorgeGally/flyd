@@ -376,6 +376,7 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
   const written = activityFromRecords(inputs.records, now);
   live.push(...written.now);
   done.push(...written.done);
+  const monitors = monitorsFromActivityRecords(inputs.records);
   const liveIds = new Set(live.map((item) => item.id));
   const cutoff = now - RECENT_WINDOW_MS;
   const nowItems = live.sort(byNewest);
@@ -384,6 +385,7 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
     now: nowItems,
     recent: windowed.slice(0, MAX_RECENT),
     week: activityByDay([...nowItems, ...windowed], now),
+    monitors,
   };
 }
 
