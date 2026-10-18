@@ -517,13 +517,15 @@ export class SnapshotDiffer {
       });
     const semanticJudge = this.summaries?.semantic;
     if (semanticJudge) {
-      for (const item of show.items) if (!semanticJudge.cached(item) && !semanticJudge.pending(item)) this.judgeSemantic(semanticJudge, item);
+      for (const item of show.items) if (!item.task && !semanticJudge.cached(item) && !semanticJudge.pending(item)) this.judgeSemantic(semanticJudge, item);
       show.semantic = semanticObjectsFromShow(show.items, (item) => semanticJudge.cached(item)?.kind);
     }
-    const semantic = show.semantic ?? semanticObjectsFromShow(show.items);
+    const visibleSemantic = show.semantic ?? semanticObjectsFromShow(show.items);
+    show.activities = activityObjectsFromShow(show);
+    const activityIds = new Set(show.activities.map((activity) => activity.id));
+    const semantic = [...show.activities, ...visibleSemantic.filter((object) => !activityIds.has(object.id))];
     show.events = semanticEvents(this.semantic, semantic);
     show.semantic = semantic;
-    show.activities = activityObjectsFromShow(show);
     this.semantic = semantic;
     const live = this.show?.live ?? (() => "up");
     const found = currentPage(snapshot.messages);
