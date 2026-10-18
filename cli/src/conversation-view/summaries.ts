@@ -7,10 +7,10 @@ import type { ClaudeUsage } from "../lib/claude-spend.js";
 // Plain-English summaries of the assistant's replies, so the captain can read
 // the outcome first and open the full reply only when he wants it.
 //
-// A summary keeps every outcome, decision and ask in the reply, shorter; it
-// never keeps just the opening line. Routine chatter (an acknowledgement, a
-// status ping, "nothing changed") is marked routine so the view can mute it
-// and the island can stay quiet.
+// A summary is what the reply comes to for him in at most three short lines,
+// outcome first, its links and numbers kept. Staff chatter (progress, review
+// findings, check status, internal calls, an acknowledgement) is marked
+// routine so the view can mute it and the island can stay quiet.
 //
 // A reply can carry its own summary: its leading lines that start with "» "
 // (up to about three sentences). Any other long reply gets a short summary
@@ -31,17 +31,17 @@ export function isRoutineAnswer(text: string): boolean {
 }
 
 export const SUMMARY_PROMPT =
-  "You condense an engineering assistant's report for its boss, who reads it at a glance. " +
-  "Keep every outcome (what changed, what was found), every decision taken and every question or ask for the boss: none may be dropped. " +
-  "His chief of staff settles routine questions in his place under his standing rules (committing, syncing, pushing or merging green work, the obvious follow-up build, wording and formatting): say those are being handled, never that they wait on him. " +
-  "Only what is destructive or irreversible, costs money, touches security or access, goes public or speaks for him, or is a genuine taste or strategy call waits on the boss. " +
-  "Lead with what waits on the boss (a decision or question), else the overall result, in a few words, then say the rest in a few short plain-English sentences of prose, never a list. " +
-  "No jargon, file names, code or tool names, and no URLs, PR or issue numbers, branch names, commit hashes or check counts: name the work by what it does. " +
-  "Drop process narration, greetings and sign-offs, and progress chatter: who is doing the work, promises to report later, where a screenshot was opened. " +
-  `If the message has no outcome, decision or ask (an acknowledgement, a status ping, "nothing changed", "still waiting"), reply exactly ${ROUTINE}. ` +
-  "Reply with the summary only.";
+  "You are a chief of staff telling your boss, at a glance, what an engineering assistant's report comes to for him. " +
+  "Say at most three short lines of plain prose, never a list, a heading or a table. " +
+  "Lead with the outcome: what landed or went live, else the decision only he can make, else what is stuck and what happens next. " +
+  "You settle routine questions in his place under his standing rules (committing, syncing, pushing or merging green work, the obvious follow-up build, wording and formatting): say those are being handled, never that they wait on him. " +
+  "Only what is destructive or irreversible, costs money, touches security or access, goes public or speaks for him, or is a genuine taste or strategy call waits on him. " +
+  "Keep the link to what landed and any number that matters to him (a price, a date, how many). " +
+  "Leave out how the work was done: reviews and their findings, checks and tests, tools, files, branches, commit hashes, who did it, internal choices, promises to report later. " +
+  `If the report only shows work in progress, review findings, check status, internal decisions or an acknowledgement, with nothing landed, nothing for him to decide and nothing stuck, reply exactly ${ROUTINE}. ` +
+  "Reply with the lines only.";
 /** Bumped when SUMMARY_PROMPT changes, so cached summaries from an older prompt are asked again. */
-const PROMPT_VERSION = "5";
+const PROMPT_VERSION = "6";
 
 /** Replies shorter than this are already a summary; they show in full. */
 export const SUMMARY_MIN_CHARS = 240;

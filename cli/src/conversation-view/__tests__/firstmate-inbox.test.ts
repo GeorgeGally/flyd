@@ -209,6 +209,8 @@ describe("FirstmateInbox", () => {
   it("leaves out the notes Flyd's command layer writes for its domain runs, and their replies", () => {
     writeNote("", "100-a", "2026-10-05T20:00:00Z", "fix the header");
     const target = join(home, "state", "inbox");
+    // Flyd's own note closing an overtaken decision is not something he said either.
+    writeFileSync(join(target, "150-f.note"), "id=150-f\nat=2026-10-05T20:05:00Z\nsource=text\nrequest_id=flyd-close-gnm-sell-step-pick\n--\nFlyd's own note, not George's: the pending decision looks overtaken.\n");
     writeFileSync(join(target, "200-b.note"), "id=200-b\nat=2026-10-05T20:10:00Z\nsource=text\nrequest_id=domain-d9b0f61c\n--\nFLYD DOMAIN REQUEST\nFlyd is mediating this coding request for George.\n");
     mkdirSync(join(target, "handled"), { recursive: true });
     writeFileSync(join(target, "handled", "300-c.note"), "id=300-c\nat=2026-10-05T20:20:00Z\nsource=text\nrequest_id=domain-d9b0f61c:decision:abc\n--\nFLYD DECISION FOR ACTIVE DOMAIN RUN domain-d9b0f61c\n");
@@ -285,11 +287,11 @@ describe("firstmate's replies to notes", () => {
     writeNote("", "1791516064-ZGKFlI", "2026-10-09T03:21:04Z", question);
     const inbox = new FirstmateInbox({ home });
     let merged = mergeNotes(relayed([unrelated]), inbox.notes(), {});
-    expect(merged.map((m) => [m.id, m.waiting])).toEqual([["note:1791516064-ZGKFlI", "Queued for a next step"], ["t1", undefined]]);
+    expect(merged.map((m) => [m.id, m.waiting])).toEqual([["note:1791516064-ZGKFlI", ""], ["t1", undefined]]);
 
     mkdirSync(join(home, "state", "inbox", "handled"));
     renameSync(join(home, "state", "inbox", "1791516064-ZGKFlI.note"), join(home, "state", "inbox", "handled", "1791516064-ZGKFlI.note"));
-    expect(mergeNotes([], inbox.notes(), {})[0]!.waiting).toBe("Waiting for a clear next step");
+    expect(mergeNotes([], inbox.notes(), {})[0]!.waiting).toBe("");
 
     writeReply("1791516064-ZGKFlI", "2026-10-09T03:22:45Z", 1, "Tonight: art bangkok.");
     merged = mergeNotes(relayed([unrelated]), inbox.notes(), {});

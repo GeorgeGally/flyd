@@ -45,9 +45,11 @@ describe("authorSummary", () => {
 });
 
 describe("SUMMARY_PROMPT", () => {
-  it("asks for every outcome, decision and ask, and for ROUTINE when there is none", () => {
-    expect(SUMMARY_PROMPT).toMatch(/every outcome/);
-    expect(SUMMARY_PROMPT).toMatch(/none may be dropped/);
+  it("asks for at most three lines, outcome first, links kept, and ROUTINE for staff chatter", () => {
+    expect(SUMMARY_PROMPT).toMatch(/at most three short lines/);
+    expect(SUMMARY_PROMPT).toMatch(/Lead with the outcome/);
+    expect(SUMMARY_PROMPT).toMatch(/Keep the link/);
+    expect(SUMMARY_PROMPT).toMatch(/review findings, check status, internal decisions/);
     expect(SUMMARY_PROMPT).toContain("reply exactly ROUTINE");
   });
 });

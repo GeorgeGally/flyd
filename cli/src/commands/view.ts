@@ -21,6 +21,7 @@ import { PlanUsageReader } from "../conversation-view/plan-usage.js";
 import { WeatherReader } from "../conversation-view/weather.js";
 import { ActivityReader } from "../conversation-view/activity.js";
 import { MemoryReader } from "../conversation-view/memory.js";
+import { OvertakenCalls } from "../conversation-view/overtaken.js";
 import { UnreadNoteWatcher } from "../conversation-view/note-receipts.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 import { LiveStaffSession } from "../command/fleet-monitor.js";
@@ -139,7 +140,11 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // Firstmate's answer to each note is told by Flyd, through Flyd's own model.
   const interpreter = new AnswerInterpreter({ complete, cacheFile: defaultInterpretationCache() });
   // The artefact says each piece of work in Flyd's own words, through Flyd's own model.
-  const feed = new ArtefactFeed({ voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }) });
+  // A call whose task the staff's record shows finished, answered or released leaves Needs you, and firstmate is told to close it.
+  const overtaken = wantsInbox && process.env.FLYD_CLOSE_OVERTAKEN !== "0"
+    ? new OvertakenCalls({ send: (note, requestId) => inbox.sendOwn(note, requestId) })
+    : undefined;
+  const feed = new ArtefactFeed({ voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }), ...(overtaken ? { overtaken } : {}) });
   // Show mode names things by his own projects; the column shows what Flyd remembers for the one we are on.
   // Firstmate's routine questions that his standing rules settle are answered for him, each one he can take back.
   const autoAnswers = wantsInbox && process.env.FLYD_AUTO_ANSWER !== "0"

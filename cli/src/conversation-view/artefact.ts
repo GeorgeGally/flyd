@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
@@ -29,6 +30,8 @@ export interface ArtefactRow {
   task?: string;
   /** When the task last reported, as an ISO time. */
   at?: string;
+  /** When a call was raised, from the backlog: unlike `at`, a status line never moves it. */
+  raised?: string;
   /** When its worker started, as an ISO time. */
   started?: string;
   /** Screenshots the task saved, as paths under its data directory. */
@@ -358,6 +361,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
       const related = [...backlog].filter(([task, other]) => task !== row.task && other.repo === next.repo);
       next.context = related.slice(-6).map(([, other]) => `${other.finished ? `Finished ${other.finished}` : "Still open"}: ${other.title}. ${other.notes ?? ""}`).join("\n").slice(0, 2400);
     }
+    if (call && entry?.since) next.raised = entry.since;
     if (extra?.at) next.at = extra.at;
     else if (call && entry?.since) next.at = entry.since;
     if (extra?.started) next.started = extra.started;
@@ -760,6 +764,26 @@ const REPORT_SETTLE_MS = 2_000;
 /** The fleet is read at most this often when jobs report: the bearings script is not free. */
 const REPORT_GAP_MS = 15_000;
 
+/**
+ * Whether the staff's record of a pending call's task says it was overtaken
+ * (see overtaken.ts), and the note that tells the staff to close one that was.
+ */
+export interface OvertakenCheck {
+  /** What overtook the call, or undefined while it may still be live. */
+  check(entry: BacklogEntry | undefined): string | undefined;
+  /** Tells the staff to close it; rejects when they did not take the note. */
+  close(row: ArtefactRow, why: string): Promise<void>;
+}
+
+/**
+ * One raising of a call: when it was raised and what it asks, then its task.
+ * A status line never changes it; the call reopened with what changed does. Pure.
+ */
+export function callId(row: ArtefactRow): string {
+  const asked = createHash("sha256").update(`${row.raised ?? ""}\0${row.detail ?? row.label}`).digest("hex").slice(0, 12);
+  return `${asked}-${row.task ?? ""}`;
+}
+
 /** Runs the bearings script and reads the other three inputs. Bounded; never throws. */
 export class ArtefactFeed {
   private inputs: ArtefactInputs = EMPTY_ARTEFACT;
@@ -776,6 +800,8 @@ export class ArtefactFeed {
   /** The last words Flyd said for each task on screen, shown while new ones are asked for. */
   private lastSaid = new Map<string, Said>();
   private readonly listeners = new Set<() => void>();
+  /** Calls already found overtaken and closed with the staff, by callId: kept out of Needs you. */
+  private readonly overtaken = new Map<string, string>();
 
   constructor(
     private readonly options: {
@@ -787,6 +813,8 @@ export class ArtefactFeed {
       plansDir?: string;
       /** Flyd's model, to say each row in its own words. */
       voice?: ArtefactVoice;
+      /** Reads whether old calls were overtaken; without it every call is shown. */
+      overtaken?: OvertakenCheck;
       intervalMs?: number;
       timeoutMs?: number;
     } = {},
@@ -925,7 +953,7 @@ export class ArtefactFeed {
       const extras = await this.extras([...new Set([...listed, ...recent.map(({ task }) => task), ...referenced])]);
       this.shots = new Map([...extras].map(([task, extra]) => [task, new Set(extra.shots ?? [])]));
       const withRecent = bearings.unavailable ? bearings : { ...bearings, landed: [...bearings.landed, ...landedRows(recent, extras)] };
-      const enriched = enrichFleet(withRecent, entries, extras);
+      const enriched = await this.withoutOvertaken(enrichFleet(withRecent, entries, extras), entries);
       const voice = this.options.voice;
       const generation = ++this.generation;
       const { fleet, unsaid } = voice ? this.voiced(voice, enriched) : { fleet: enriched, unsaid: [] };
@@ -943,6 +971,31 @@ export class ArtefactFeed {
       this.refreshing = false;
       if (this.again) this.refreshSoon();
     }
+  }
+
+  /**
+   * The fleet without the calls the work has moved past: George is never
+   * asked a question the record already answers. Each is closed with the
+   * staff once.
+   */
+  private async withoutOvertaken(fleet: FleetArtefact, entries: Map<string, BacklogEntry>): Promise<FleetArtefact> {
+    const check = this.options.overtaken;
+    if (!check || fleet.unavailable) return fleet;
+    const calls = fleet.calls.map((row) => ({ row, call: callId(row) }));
+    for (const call of this.overtaken.keys()) if (!calls.some((item) => item.call === call)) this.overtaken.delete(call);
+    const verdicts = await Promise.all(calls.map(async ({ row, call }) => {
+      if (!row.task) return undefined;
+      const known = this.overtaken.get(call);
+      if (known) return known;
+      const why = check.check(entries.get(row.task));
+      if (!why) return undefined;
+      // A call the staff were not told to close stays in front of him.
+      const closed = await check.close(row, why).then(() => true, () => false);
+      if (!closed) return undefined;
+      this.overtaken.set(call, why);
+      return why;
+    }));
+    return { ...fleet, calls: fleet.calls.filter((_row, index) => !verdicts[index]) };
   }
 
   /**

@@ -20,12 +20,13 @@ import { readProjects } from "../council/projects.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { statusOf } from "./status.js";
-import { authorSummary, digestMarkdown, digestReply, isActionable, isRoutine, isRoutineAnswer, askedForArtefact, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
+import { authorSummary, digestReply, isActionable, isRoutine, isRoutineAnswer, askedForArtefact, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { handledBy, renderBriefing, stateOf, statusSummaryHtml } from "./executive.js";
+import { handledBy, renderBriefing, stateOf } from "./executive.js";
+import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
 import { showOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
@@ -105,6 +106,14 @@ export interface RenderedMessage {
   artifact?: ReplyArtefact;
   /** Routine chatter (an acknowledgement, a status ping): the page mutes it. */
   routine?: boolean;
+  /**
+   * A relayed staff update as Flyd shows it: one line, what kind of news it is,
+   * and the link to what landed. The page draws it as a compact card; the staff's
+   * own words wait behind "more".
+   */
+  card?: { kind: "landed" | "decision" | "blocker" | "underway" | "note"; line: string; sub?: string; url?: string };
+  /** A reply that reports several pieces of work: its opening line and a card per piece. */
+  outcomes?: Outcomes;
   timestamp?: string;
   waiting?: string;
   waitingFailed?: boolean;
@@ -176,13 +185,27 @@ interface StreamUpdate {
 }
 
 /**
- * With no model reading coming, Flyd's briefing of the whole reply leads: the
- * engineering stubs gone and several pieces of work as a status card, but every
- * sentence kept. A local digest cut a reply to its lead and left him almost
- * nothing to read; it only stands in while a model summary is on its way.
+ * What he reads first of a reply, whoever wrote the reading: a few short
+ * lines at most, never a list or a status card. The full words, links and
+ * all, wait behind "more".
  */
-function briefOf(text: string, handled?: Handled): NonNullable<RenderedMessage["summary"]> {
-  return { html: renderBriefing(text, {}, handled), source: "brief" };
+function glance(text: string, source: NonNullable<RenderedMessage["summary"]>["source"], pending = false, keepAsk = true): NonNullable<RenderedMessage["summary"]> {
+  return { html: renderMarkdown(condense(text, { keepAsk })), source, ...(pending ? { pending: true } : {}) };
+}
+
+/** With no model reading coming, the reply itself, held to a glance; without its question when a card asks it. */
+function briefOf(text: string, keepAsk = true): NonNullable<RenderedMessage["summary"]> {
+  return glance(text, "brief", false, keepAsk);
+}
+
+/**
+ * A relayed update from his staff that Flyd keeps rather than shows him:
+ * progress, findings, checks, internal calls, acknowledgements. One that
+ * hands him something to act on (rules to paste, steps to carry out) is
+ * never kept back.
+ */
+function absorbed(message: ConversationMessage, handled?: Handled): boolean {
+  return message.role === "assistant" && message.aside === true && staffLine(message.text, handled).kind === "absorbed" && !isActionable(message.text);
 }
 
 /** Of a reply's questions, the ones Flyd already answered for him. */
@@ -221,6 +244,12 @@ export function replyCards(messages: ConversationMessage[], judge?: ArtefactJudg
     const open = message.answers !== undefined && !choiceOf(message.text) && !answered(messages, message, choice);
     return { id: `reply:${id}`, title: artifact.title, choice: { ...choice, ...(open ? { replyTo: choiceTarget(message) } : {}) } };
   });
+}
+
+/** For each reply, the questions Flyd answered for him, by the notes that answered them. */
+function handledIn(messages: ConversationMessage[]): (message: ConversationMessage) => Handled | undefined {
+  const answered = answeredForHim(messages);
+  return (message) => (message.role === "assistant" ? handledBy(answered.get(choiceTarget(message))) : undefined);
 }
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
@@ -268,17 +297,17 @@ export class SnapshotDiffer {
    * leads, firstmate's own words wait behind "more". Until it lands the lead
    * is the answer's local digest; with none coming, Flyd's whole briefing of it.
    */
-  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean, handled?: Handled): Pick<RenderedMessage, "summary"> & { body: string } {
+  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
-    if (cached) return { body: message.text, summary: { html: statusSummaryHtml(message.text, inFlydsVoice(cached), handled) ?? renderBriefing(inFlydsVoice(cached)), source: "flyd" } };
+    if (cached) return { body: message.text, summary: glance(inFlydsVoice(cached), "flyd") };
     this.readAnswer(message, snapshot, newest);
     const pending = interpreter?.pending(message.text) ?? false;
-    return { body: message.text, summary: pending ? { html: statusSummaryHtml(message.text, undefined, handled) ?? renderBriefing(digestMarkdown(digestReply(message.text))), source: "digest", pending: true } : briefOf(message.text, handled) };
+    return { body: message.text, summary: pending ? glance(message.text, "digest", true) : briefOf(message.text) };
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
-  private summarize(message: ConversationMessage, newest: boolean, handled?: Handled): Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } {
+  private summarize(message: ConversationMessage, newest: boolean): Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } {
     const author = authorSummary(message.text);
     const summarizer = this.summaries?.summarizer;
     const modelFor = (text: string): { text?: string; pending: boolean } => {
@@ -291,7 +320,7 @@ export class SnapshotDiffer {
     if (author) {
       const parts: Pick<RenderedMessage, "summary" | "compare" | "expanded"> & { body: string } = {
         body: author.rest,
-        summary: { html: statusSummaryHtml(author.rest, author.summary, handled) ?? renderBriefing(author.summary), source: "author" },
+        summary: glance(author.summary, "author"),
         ...(isActionable(author.rest) ? { expanded: true } : {}),
       };
       if (this.summaries?.always && author.rest.length >= SUMMARY_MIN_CHARS) {
@@ -304,18 +333,27 @@ export class SnapshotDiffer {
     // Rules to paste, steps to carry out: the summary leads, the reply shows open under it.
     const actionable = isActionable(message.text);
     const model = modelFor(message.text);
-    const digest = digestReply(message.text);
     // The model found no outcome, decision or ask: one muted line.
-    if (model.text && isRoutineAnswer(model.text) && !actionable) return { body: message.text, routine: true, summary: { html: renderMarkdown(digest.lead), source: "model" } };
+    if (model.text && isRoutineAnswer(model.text) && !actionable) return { body: message.text, routine: true, summary: { html: renderMarkdown(digestReply(message.text).lead), source: "model" } };
     const summary: NonNullable<RenderedMessage["summary"]> = model.text && !isRoutineAnswer(model.text)
-      ? { html: statusSummaryHtml(message.text, model.text, handled) ?? renderBriefing(model.text), source: "model" }
-      : model.pending ? { html: statusSummaryHtml(message.text, undefined, handled) ?? renderBriefing(digestMarkdown(digest)), source: "digest", pending: true } : briefOf(message.text, handled);
-    return { body: message.text, summary, ...(actionable && summary.source !== "brief" ? { expanded: true } : {}) };
+      ? glance(model.text, "model")
+      : model.pending ? glance(message.text, "digest", true) : briefOf(message.text);
+    return { body: message.text, summary, ...(actionable ? { expanded: true } : {}) };
+  }
+
+  /** An answer to him, or a relayed update that answers him, as one compact card: Flyd's reading when it has one. */
+  private answerCard(message: ConversationMessage): RenderedMessage["card"] {
+    const reading = message.answers?.startsWith("note:") ? this.summaries?.interpreter?.cached(message.text) : undefined;
+    const said = replyCard(inFlydsVoice(reading ?? message.text));
+    if (!said) return undefined;
+    const kinds: Record<OutcomeState, NonNullable<RenderedMessage["card"]>["kind"]> = { landed: "landed", needs: "decision", stuck: "blocker", underway: "underway", note: "note", handled: "note" };
+    const url = message.text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/)?.[0];
+    return { kind: kinds[said.state], line: said.line, ...(said.sub ? { sub: said.sub } : {}), ...(url && said.state === "landed" ? { url } : {}) };
   }
 
   /** A reply Flyd's model judged routine (nothing asked, nothing to act on), or one plainly routine. */
-  private routine(message: ConversationMessage): boolean {
-    if (isRoutine(message.text)) return true;
+  private routine(message: ConversationMessage, handled?: Handled): boolean {
+    if (isRoutine(message.text) || absorbed(message, handled)) return true;
     const model = message.answers ? undefined : this.summaries?.summarizer?.cached(message.text);
     return model !== undefined && isRoutineAnswer(model) && !isActionable(message.text);
   }
@@ -329,8 +367,8 @@ export class SnapshotDiffer {
     );
     // The question a reply put to him, until he answers it.
     const open = openChoice(snapshot.messages, (message) => this.routine(message));
-    // The questions Flyd answered for him: each reply's card shows them handled, not waiting on him.
-    const answered = answeredForHim(snapshot.messages);
+    // The questions Flyd answered for him: each reply shows them handled, not waiting on him.
+    const handledOf = handledIn(snapshot.messages);
     // Answers Flyd gave for him that he took back since.
     const undone = new Set<string>();
     const takenBack = new Set<string>();
@@ -342,7 +380,22 @@ export class SnapshotDiffer {
     }
     const judge = this.summaries?.artefacts;
     const kept = railReplies(snapshot.messages, judge);
-    for (const message of snapshot.messages) {
+    // The same line relayed again ("still waiting on you: may I delete…" asked twice) is shown once, where it was said last.
+    const repeated = new Set<string>();
+    const lines = new Set<string>();
+    for (const message of [...snapshot.messages].reverse()) {
+      if (message.role !== "assistant" || !message.aside) continue;
+      const said = staffLine(message.text, handledOf(message));
+      if (said.kind === "absorbed") continue;
+      const key = `${said.kind} ${said.kind === "landed" ? said.url ?? "" : ""} ${said.line.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
+      if (lines.has(key)) repeated.add(message.id);
+      lines.add(key);
+    }
+    // Where he last said anything: a question before it is answered or moved past.
+    const lastSaid = snapshot.messages.map((message) => message.role).lastIndexOf("user");
+    let previous: ConversationMessage | undefined;
+    for (const [index, message] of snapshot.messages.entries()) {
+      if (repeated.has(message.id)) continue;
       // Artefact or text is Flyd's call on every reply: the rule decides clear ones, its judge the rest.
       const call = message.role === "assistant" ? replyArtefact(message.text) : undefined;
       // Asked once: a re-render while the verdict is out must not ask again, or each answer re-renders and asks forever.
@@ -352,26 +405,46 @@ export class SnapshotDiffer {
       const fresh = newest.has(message.id) && !(call && judge?.pending(message.text));
       // An artefact that answers his note still gets Flyd's reading, which the column speaks in its place of firstmate's words.
       if (artifact && message.answers?.startsWith("note:")) this.readAnswer(message, snapshot, fresh);
-      // An answer to his own question is never muted as routine: Flyd's shows whole, firstmate's is told by Flyd.
-      const handled = message.role === "assistant" ? handledBy(answered.get(choiceTarget(message))) : undefined;
+      // His staff's chatter is Flyd's to keep; only what landed, his own decisions and real blockers reach him.
+      // A reply to words he typed into the session himself answers him, and is never kept back.
+      const toHim = previous?.role === "user" && !/^(?:note|ask):/.test(previous.id);
+      previous = message;
+      const handled = handledOf(message);
+      if (!toHim && absorbed(message, handled)) continue;
+      // Landed, his call or stuck: a compact card, whether or not it answers something he typed.
+      const relay = message.role === "assistant" && message.aside ? staffLine(message.text, handled) : undefined;
+      // An answer to his own question is never muted as routine: firstmate's is told by Flyd, Flyd's own
+      // shows whole when it fits a glance and else leads with its first few lines.
       const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
         : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
-          : !message.answers ? this.summarize(message, fresh, handled)
-            : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh, handled)
-              : { body: message.text };
-      const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) } : undefined;
+          : relay && relay.kind !== "absorbed" ? { body: message.text, summary: { html: renderMarkdown(georgeMarkdown(relay)), source: "flyd" } }
+            : !message.answers ? this.summarize(message, fresh)
+              : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh)
+                : fitsAtAGlance(message.text) ? { body: message.text }
+                  : { body: message.text, summary: glance(message.text, "flyd"), ...(isActionable(message.text) ? { expanded: true } : {}) };
+      // A question the staff put to him mid-reply is answerable where it stands too, until he has spoken since.
+      const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) }
+        : relay?.kind === "decision" && !open && index > lastSaid ? { question: inFlydsVoice(relay.line), options: relay.options, replyTo: choiceTarget(message) } : undefined;
       // The card under the reply asks its question; Flyd's briefing does not say it again.
-      if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text), handled);
+      if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text), false);
       if (parts.summary?.source === "brief" && parts.summary.html === renderMarkdown(parts.body)) delete parts.summary;
       const routine = parts.routine === true;
       // Relayed updates are only worth his attention when they carry an outcome, decision or ask.
       if (message.aside && routine) continue;
       order.push(message.id);
       seen.add(message.id);
-      const expanded = parts.expanded === true;
       // Only Flyd's own copies are shown; a relayed update's transcript ids are not.
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
+      const card: RenderedMessage["card"] = relay && relay.kind !== "absorbed"
+        ? { kind: relay.kind, line: inFlydsVoice(relay.line).replace(/[:;,]$/, ""), ...(relay.kind === "landed" && relay.url ? { url: relay.url } : {}) }
+        : message.role === "assistant" && !routine && !message.answers?.startsWith("ask:") && (message.aside || message.answers) ? this.answerCard(message) : undefined;
+      // The card is his glance: the reply as written waits behind it, never shown twice.
+      if (card && !parts.summary) parts.summary = briefOf(message.text);
+      // What he has to act on stays open under the card, never folded behind "as written".
+      const expanded = parts.expanded === true || (card !== undefined && !artifact && isActionable(message.text));
+      // Several pieces of work read as a card each, not as paragraphs; Flyd's own answers stay as written.
+      const outcomes = message.role === "assistant" && !routine && !message.answers?.startsWith("ask:") ? outcomesOf(message.text, handled) ?? undefined : undefined;
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, card, outcomes, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
@@ -388,6 +461,8 @@ export class SnapshotDiffer {
         ...(routine ? { routine: true } : {}),
         ...(expanded ? { expanded: true } : {}),
         ...(artifact ? { artifact } : {}),
+        ...(card ? { card } : {}),
+        ...(outcomes ? { outcomes } : {}),
         ...(message.timestamp ? { timestamp: message.timestamp } : {}),
         ...(message.waiting ? { waiting: message.waiting } : {}),
         ...(message.waiting && message.waitingFailed ? { waitingFailed: true } : {}),
@@ -406,7 +481,7 @@ export class SnapshotDiffer {
         projects: this.show?.projects?.() ?? [],
         ...(this.show?.artefact ? { artefact: this.show.artefact() } : {}),
         reading: (message) => this.reading(message),
-        muted: (message) => this.routine(message),
+        muted: (message) => this.routine(message, handledOf(message)),
       });
     const live = this.show?.live ?? (() => "up");
     const found = currentPage(snapshot.messages);
@@ -844,10 +919,10 @@ export class ConversationViewServer {
         return served ? railServer(url, served, projects, homedir()) : undefined;
       },
       // An answer to a note is told as Flyd tells it in the window; until Flyd has read it, its words without the machine header.
-      // Either way it leads with what changed, never a salutation or a bare "done".
+      // Either way it leads with what changed, never a salutation or a bare "done", in a few lines: the whole answer is in the window.
       voice: (answer) => {
         const reading = answer.answers?.startsWith("note:") ? interpreter?.cached(answer.text) : undefined;
-        return renderBriefing(outcomeFirst(reading ? inFlydsVoice(reading) : spoken(answer.text), spoken(answer.text)), RAIL_CARD_TITLES);
+        return renderBriefing(condense(outcomeFirst(reading ? inFlydsVoice(reading) : spoken(answer.text), spoken(answer.text))), RAIL_CARD_TITLES);
       },
     });
     return this.memory ? { ...rail, memory: composeMemory(this.memory.current(), snapshot.messages, projects) } : rail;

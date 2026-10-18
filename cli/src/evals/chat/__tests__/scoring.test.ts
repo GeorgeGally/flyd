@@ -101,3 +101,17 @@ describe("helpers", () => {
     expect(median([])).toBe(0);
   });
 });
+
+describe("the chief-of-staff brevity case", () => {
+  it("passes a short answer and fails a long one that explains its working", async () => {
+    const { readFileSync } = await import("node:fs");
+    const cases = JSON.parse(readFileSync(new URL("../cases.json", import.meta.url), "utf8")) as ChatEvalCase[];
+    const brief = cases.find((testCase) => testCase.id === "cos-brief-answer")!;
+    // The judge is live; here it is taken as satisfied so the deterministic limits are what is tested.
+    const run = (answer: string) => scoreChatEval(brief, { ...base, answer, judgeScore: 9 }, { tomorrow: "2026-10-18", weekday: "Saturday" });
+    expect(run("69 days, sir: Christmas is a Friday this year.").failures).toEqual([]);
+    const rambling = "Let me work that out. I checked today's date against the calendar: it's 17 October, so there are 14 days left in October, 30 in November and 25 in December, which comes to 69 days. I can set a reminder for your Christmas shopping if you like, or draft a gift list?";
+    expect(run(rambling).failures).toEqual([expect.stringMatching(/checked/), expect.stringMatching(/let me/)]);
+    expect(run(`69 days. ${"Christmas falls on a Friday this year, so the long weekend runs into Monday. ".repeat(4)}`).failures).toEqual([expect.stringMatching(/chars > 280/)]);
+  });
+});

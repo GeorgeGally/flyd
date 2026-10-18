@@ -154,7 +154,8 @@ describe("the status line George is shown", () => {
   it("living.ts never renders a placeholder as its living line", () => {
     for (const text of PLACEHOLDERS) {
       const taken = handoffLine("taken", { activity: text });
-      expect(isPlaceholderStatus(taken), `${text} -> ${taken}`).toBe(false);
+      // Nothing concrete to say shows no line at all, never the placeholder.
+      expect(taken === "" || !isPlaceholderStatus(taken), `${text} -> ${taken}`).toBe(true);
       const note: Exchange = { question: { id: "q1", role: "user", text: "fix the footer on GNM" }, waiting: "", handoff: "taken" };
       const [live] = livened([note], { activity: text, workingOn: ["q1"] });
       expect(isPlaceholderStatus(live!.waiting), `${text} -> ${live!.waiting}`).toBe(false);

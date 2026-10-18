@@ -88,14 +88,16 @@ function projectIn(text: string, projects: string[]): string | undefined {
 
 /**
  * The line for a note to firstmate: the work itself, never the handoff. Once the session's current step is known it
- * says that; before then, what his message asks for, with the project when he named one.
+ * says that; before then, what his message asks for, with the project when he named one; else nothing.
  */
 export function handoffLine(handoff: Handoff, details: { activity?: string; text?: string; projects?: string[] } = {}): string {
   // A relayed activity that only says something is happening is dropped, so the living line always names the
   // concrete thing (his message's own subject), never a placeholder.
   const activity = handoff === "taken" && details.activity && !isPlaceholderStatus(details.activity) ? clip(details.activity) : "";
   if (activity) return upperFirst(activity);
-  const subject = (details.text ? subjectOf(details.text) : "") || (handoff === "queued" ? "Queued for a next step" : "Waiting for a clear next step");
+  // With nothing concrete to say ("Queued for a next step" told him nothing), no line at all.
+  const subject = details.text ? subjectOf(details.text) : "";
+  if (!subject) return "";
   const project = details.text ? projectIn(details.text, details.projects ?? []) : undefined;
   return project && !new RegExp(project.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(subject) ? `${project}: ${subject}` : subject;
 }
