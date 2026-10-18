@@ -116,6 +116,7 @@ describe("notices keep the one voice", () => {
   it("keeps a completion that only carries a commit id or the plain word branch, the id dropped", () => {
     expect(captainNotice(run("The sidebar fix is merged at a1b2c3d."))).toBe("The sidebar fix is merged.");
     expect(captainNotice(run("Merged the branch and deployed."))).toBe("Merged the branch and deployed.");
+    expect(captainNotice(run("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683"))).toBe("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683");
   });
 
   it("brings a decision or failure that names backstage as a line naming the work, and records it", () => {

@@ -182,6 +182,9 @@ describe("relay checks: what reaches George outside a chat answer", () => {
     // Text with no commit id is left byte-for-byte, line breaks and all.
     expect(stripCommitIds("fetch(url)\n .then(next)")).toBe("fetch(url)\n .then(next)");
     expect(relayShortfalls("domain-cf340333 is done.")[0]!.requirement).toBe("backstage_hidden");
+    // A commit link is news George can check, not machinery.
+    expect(relayShortfalls("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683")).toEqual([]);
+    expect(relayShortfalls("See https://github.com/GeorgeGally/flyd/tree/fm/sidebar")[0]!.requirement).toBe("backstage_hidden");
   });
 
   it("flags a phrase he has ruled out, and calls a whistle a whistle with no problem", async () => {

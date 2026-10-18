@@ -612,6 +612,18 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(plain(shown.html)).toContain("fetch(url)\n  .then(");
   });
 
+  it("records a held relay once, however often the window reconnects", () => {
+    const reply = "Firstmate is still on the idle-row guard, nothing to report.";
+    const messages = noteWithReply(reply);
+    for (let reconnect = 0; reconnect < 3; reconnect += 1) {
+      expect(new SnapshotDiffer().next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)).toBeUndefined();
+    }
+    const held = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "verdicts.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; source?: string })
+      .filter((verdict) => verdict.source === "relay:staff" && verdict.text.includes("idle-row guard, nothing to report"));
+    expect(held).toHaveLength(1);
+  });
+
   it("keeps a retelling that carries a commit id, the id dropped", async () => {
     const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "sha.json"), profile: () => null, complete: async () => "The sidebar fix is merged at a1b2c3d." });
     const messages = noteWithReply("Captain, merged the sidebar fix.");

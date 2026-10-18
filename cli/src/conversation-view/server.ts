@@ -252,9 +252,11 @@ function handledIn(messages: ConversationMessage[]): (message: ConversationMessa
 }
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
+/** Held relays already recorded in this process, so a reload or a reconnect does not record one twice. */
+const heldRelays = new Set<string>();
+
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
-  private readonly held = new Set<string>();
 
   constructor(private readonly summaries?: SummaryOptions, private readonly show?: ShowOptions) {}
 
@@ -274,8 +276,8 @@ export class SnapshotDiffer {
     const said = inFlydsVoice(text);
     const held = relayShortfalls(said);
     if (!held.length) return false;
-    if (!this.held.has(said)) {
-      this.held.add(said);
+    if (!heldRelays.has(said)) {
+      heldRelays.add(said);
       recordHeld({ surface: "relay", source: "relay:staff", text: said }, held);
     }
     return true;

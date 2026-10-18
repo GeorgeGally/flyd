@@ -184,12 +184,12 @@ export function stripCommitIds(text: string): string {
   return text.replace(/\s*\(?\b(?:(?:at|in|as|via|commit)\s+){0,2}(?<![\w/-])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b\)?/gi, "");
 }
 
-/** Why text Flyd is about to relay to George may not be shown as written: backstage machinery (a commit id or the plain word "branch" is not), a ruled-out phrase, or a placeholder status. As chief-of-staff shortfalls, so a held text records against the standard. Pure. */
+/** Why text Flyd is about to relay to George may not be shown as written: backstage machinery (a commit id, also inside a link, or the plain word "branch" is not), a ruled-out phrase, or a placeholder status. As chief-of-staff shortfalls, so a held text records against the standard. Pure. */
 export function relayShortfalls(text: string): Shortfall[] {
   const said = text.replace(/\s+/g, " ").trim();
   if (!said) return [{ requirement: "real_status", reason: "It says nothing.", quote: "", by: "check" }];
   const shortfalls: Shortfall[] = [];
-  const backstage = firstBackstage(stripCommitIds(said).replace(/\bbranch(?:es)?\b/gi, ""));
+  const backstage = firstBackstage(stripCommitIds(said).replace(/https?:\/\/\S+/g, (url) => url.replace(/[0-9a-f]{7,40}/gi, "")).replace(/\bbranch(?:es)?\b/gi, ""));
   if (backstage) shortfalls.push({ requirement: "backstage_hidden", reason: `It names your own backstage ("${backstage}").`, quote: said.slice(0, 240), by: "check" });
   const retired = retiredPhrasesIn(said)[0];
   if (retired) shortfalls.push({ requirement: "his_voice", reason: `It uses a phrase George has ruled out ("${retired}").`, quote: said.slice(0, 240), by: "check" });
