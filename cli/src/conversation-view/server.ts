@@ -572,7 +572,13 @@ export class SnapshotDiffer {
       show,
       boxes: withClosedLinks(boxesOf(show, this.show?.readings?.() ?? {}), live),
       ...(this.show?.rail ? { rail: this.show.rail(snapshot) } : {}),
-      ...(this.show?.leftColumn ? { leftColumn: { ...this.show.leftColumn(), semantic: show.activities } } : {}),
+      ...(this.show?.leftColumn ? (() => {
+        const left = this.show!.leftColumn!();
+        show.monitors = left.monitors ?? [];
+        const nativeIds = new Set([...(show.activities ?? []), ...(show.decisions ?? []), ...(show.artifacts ?? []), ...show.monitors].map((object) => object.id));
+        show.semantic = [...(show.activities ?? []), ...(show.decisions ?? []), ...(show.artifacts ?? []), ...show.monitors, ...(show.semantic ?? []).filter((object) => !nativeIds.has(object.id))];
+        return { leftColumn: { ...left, semantic: show.activities } };
+      })() : {}),
       ...(page ? { page } : {}),
     };
   }

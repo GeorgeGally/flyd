@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kindVisual } from "../cards.js";
-import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, MAX_RECENT, recordActivity } from "../activity.js";
+import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, MAX_RECENT, monitorsFromActivityRecords, recordActivity } from "../activity.js";
 
 const NOW = Date.parse("2026-10-17T12:00:00.000Z");
 const minutesAgo = (minutes: number): string => new Date(NOW - minutes * 60_000).toISOString();
@@ -252,5 +252,27 @@ describe("the record file and reader", () => {
   it("never throws when the record cannot be written", () => {
     writeFileSync(join(dir, "activity"), "a file where the folder should be");
     expect(() => recordActivity({ kind: "noted", title: "x" }, dir)).not.toThrow();
+  });
+});
+
+
+describe("activity-backed semantic monitors", () => {
+  it("promotes keyed watching records out of transient Activity", () => {
+    const records = [{ key: "watch:staff", kind: "watching", title: "Watching your staff", line: "Tell you when something changes.", state: "now", at: minutesAgo(90) }];
+    expect(activityFromRecords(records, NOW).now).toEqual([]);
+    expect(monitorsFromActivityRecords(records)).toMatchObject([{
+      id: "monitor:watch:staff", kind: "monitor", lifecycle: "active",
+      subject: "Watching your staff", monitor: { phase: "quiet" },
+    }]);
+  });
+
+  it("uses the latest keyed watch record and resolves only explicitly", () => {
+    const records = [
+      { key: "watch:staff", kind: "watching", title: "Watching your staff", state: "now", at: minutesAgo(90) },
+      { key: "watch:staff", kind: "watching", title: "Watching your staff", line: "Stopped.", state: "done", at: minutesAgo(1) },
+    ];
+    expect(monitorsFromActivityRecords(records)).toMatchObject([{
+      id: "monitor:watch:staff", lifecycle: "resolved", monitor: { phase: "resolved" },
+    }]);
   });
 });

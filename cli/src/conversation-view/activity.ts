@@ -4,7 +4,7 @@ import { checkSaid } from "../council/chief-of-staff.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { clip, inline, sentences } from "./summaries.js";
 import type { DayCount } from "./artefact.js";
-import type { SemanticObject } from "./semantic.js";
+import { monitorObjectsFromSources, type SemanticObject } from "./semantic.js";
 
 // Flyd's left column: what Flyd itself is doing, as cards. Its own background
 // work (watching the news, reading back its answers, keeping memory, running
@@ -46,6 +46,8 @@ export interface ActivityPanel {
   week: DayCount[];
   /** Firstmate jobs as canonical semantic Activities. These stay one object across phases. */
   semantic?: SemanticObject[];
+  /** Durable watches. Quiet watches remain here even when no check is running. */
+  monitors?: SemanticObject[];
 }
 
 /**
@@ -235,6 +237,29 @@ export function activityFromAdvice(entry: { id?: unknown; text?: unknown; at?: u
   return { id: `thought:${id}`, kind: "noted", title: "Noticed something about your projects", line, ...(detail ? { detail } : {}), at };
 }
 
+
+/** Keyed watching records become durable semantic Monitors instead of expiring Activities. */
+export function monitorsFromActivityRecords(records: unknown[]): SemanticObject[] {
+  const sources: Array<{ id: string; title: string; condition?: string; detail?: string; at: string; state?: "quiet" | "changed" | "needs_you" | "failed" | "resolved" }> = [];
+  records.forEach((raw) => {
+    const record = raw as Partial<ActivityRecord> | null;
+    const key = text(record?.key);
+    const title = text(record?.title);
+    const at = stamp(record?.at);
+    if (!record || record.kind !== "watching" || !key || !title || !at) return;
+    const line = plainLine(record.line);
+    const lower = `${title} ${line ?? ""}`.toLowerCase();
+    const state =
+      record.state === "done" ? "resolved"
+      : /(?:failed|error|couldn.t|unreachable)/.test(lower) ? "failed"
+      : /(?:needs you|your decision|waiting for you)/.test(lower) ? "needs_you"
+      : /(?:changed|new |update|alert|found|must-know)/.test(lower) ? "changed"
+      : "quiet";
+    sources.push({ id: key, title: title.trim(), ...(line ? { condition: line } : {}), at, state });
+  });
+  return monitorObjectsFromSources(sources);
+}
+
 /** Records, newest word per key: the one-offs as written, the keyed ones as they last stood. */
 export function activityFromRecords(records: unknown[], now: number): { now: ActivityItem[]; done: ActivityItem[] } {
   const latest = new Map<string, ActivityRecord & { at: string }>();
@@ -351,6 +376,7 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
   const written = activityFromRecords(inputs.records, now);
   live.push(...written.now);
   done.push(...written.done);
+  const monitors = monitorsFromActivityRecords(inputs.records);
   const liveIds = new Set(live.map((item) => item.id));
   const cutoff = now - RECENT_WINDOW_MS;
   const nowItems = live.sort(byNewest);
@@ -359,6 +385,7 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
     now: nowItems,
     recent: windowed.slice(0, MAX_RECENT),
     week: activityByDay([...nowItems, ...windowed], now),
+    monitors,
   };
 }
 

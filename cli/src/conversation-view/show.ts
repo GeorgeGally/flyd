@@ -81,6 +81,8 @@ export interface ShowScreen {
   decisions?: SemanticObject[];
   /** Durable results: distinct from the Activity that produced them. */
   artifacts?: SemanticObject[];
+  /** Durable watches: quiet until a meaningful change deserves foregrounding. */
+  monitors?: SemanticObject[];
   /** Snapshot-to-snapshot semantic lifecycle deltas; populated by SnapshotDiffer, not by pure showOf. */
   events?: SemanticEvent[];
   /** How many of each kind exist, including those past the screen's limits. */
