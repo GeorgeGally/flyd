@@ -26,6 +26,8 @@ export interface SemanticWorkObject {
   kind: WorkObjectKind;
   ref: string;
   label?: string;
+  /** Evidence that used to be live but is no longer reachable. */
+  closed?: boolean;
 }
 
 export interface SemanticObject {
@@ -51,6 +53,8 @@ export interface SemanticObject {
     started?: string;
   };
   decision?: {
+    /** Where a choice is sent. This is routing identity, not presentation. */
+    target: string;
     question: string;
     alternatives: string[];
     recommended?: string;
@@ -118,9 +122,9 @@ function lifecycleFor(item: ShowItem): SemanticLifecycle {
 function evidenceFor(item: ShowItem): SemanticWorkObject[] {
   const evidence: SemanticWorkObject[] = [];
   for (const shot of item.shots ?? []) evidence.push({ kind: "image", ref: shot.src, label: shot.label });
-  if (item.open) evidence.push({ kind: "web", ref: item.open.url, label: item.open.label });
+  if (item.open) evidence.push({ kind: "web", ref: item.open.url, label: item.open.label, ...(item.open.closed ? { closed: true } : {}) });
   for (const link of item.links ?? []) {
-    if (!evidence.some((object) => object.ref === link.url)) evidence.push({ kind: "web", ref: link.url, label: link.label });
+    if (!evidence.some((object) => object.ref === link.url)) evidence.push({ kind: "web", ref: link.url, label: link.label, ...(link.closed ? { closed: true } : {}) });
   }
   return evidence;
 }
@@ -155,6 +159,7 @@ export function semanticObjectFromShow(item: ShowItem, override?: SemanticKind):
     ...(activityPhaseFor(item) ? { activity: activityPhaseFor(item) } : {}),
     ...(item.decision ? {
       decision: {
+        target: item.decision.task,
         question: item.decision.question,
         alternatives: item.decision.choices,
         ...(item.decision.recommended ? { recommended: item.decision.recommended } : {}),
@@ -235,4 +240,28 @@ export function activityObjectsFromShow(source: ActivitySources): SemanticObject
     activities.push(object);
   }
   return activities;
+}
+
+
+export interface DecisionSources {
+  calls?: readonly ShowItem[];
+}
+
+/**
+ * Standalone decisions only. A call attached to a Firstmate task belongs inside
+ * that Activity; a conversational choice with its own reply target is a native
+ * Decision. Explicit decisions are semantic facts, so Jev is reserved for
+ * ambiguous objects rather than asked to rediscover them.
+ */
+export function decisionObjectsFromShow(source: DecisionSources): SemanticObject[] {
+  const seen = new Set<string>();
+  const decisions: SemanticObject[] = [];
+  for (const item of source.calls ?? []) {
+    if (item.task || !item.decision) continue;
+    const object = semanticObjectFromShow(item);
+    if (object.kind !== "decision" || seen.has(object.id)) continue;
+    seen.add(object.id);
+    decisions.push(object);
+  }
+  return decisions;
 }
