@@ -76,6 +76,6 @@ export class SemanticJudge {
 /** Optional shadow semantic judge; deterministic semantics still render the UI. */
 export function semanticJudgeFromEnv(): SemanticJudge | undefined {
   const apiKey = process.env.TYPESAFE_API_KEY;
-  if (!apiKey || process.env.FLYD_SEMANTIC_JUDGE === "0") return undefined;
+  if (!apiKey || process.env.FLYD_SEMANTIC_JUDGE !== "1") return undefined;
   return new SemanticJudge({ apiKey, ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) });
 }
