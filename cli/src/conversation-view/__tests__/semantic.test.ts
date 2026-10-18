@@ -7,6 +7,7 @@ import {
   semanticObjectsFromShow,
 } from "../semantic.js";
 import type { ShowItem } from "../show.js";
+import { SemanticJudge } from "../semantic-judge.js";
 
 const item = (overrides: Partial<ShowItem> = {}): ShowItem => ({
   id: "live:t1",
@@ -60,6 +61,29 @@ describe("canonical semantic artefacts", () => {
     const [semantic] = semanticObjectsFromShow([legacy], () => "investigation");
     expect(legacy.kind).toBe("news");
     expect(semantic.kind).toBe("investigation");
+  });
+
+
+  it("lets Jev choose the semantic primitive without choosing layout", async () => {
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { questions: Record<string, { criteria?: Record<string, string> }> };
+      expect(Object.keys(body.questions.semantic_object_kind.criteria ?? {})).toEqual([
+        "conversation", "activity", "decision", "investigation", "action", "artifact", "monitor",
+      ]);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: "jev-1.13.0",
+          answers: { semantic_object_kind: { type: "choice", choice: "investigation", confidence: 0.94, probabilities: { investigation: 0.94 } } },
+          usage: { input_tokens: 10, output_tokens: 1 },
+        }),
+      };
+    }) as unknown as typeof fetch;
+    const judge = new SemanticJudge({ apiKey: "test", fetchFn });
+    const candidate = item({ kind: "news", headline: "Why applications dropped" });
+    await judge.request(candidate);
+    expect(judge.cached(candidate)).toEqual({ kind: "investigation", confidence: 0.94 });
   });
 
   it("emits lifecycle deltas for one stable object instead of inventing new cards", () => {
