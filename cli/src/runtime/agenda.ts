@@ -298,14 +298,23 @@ export async function runDueAgenda(deps: RunDueDependencies): Promise<RunDueResu
       let result: string;
       try {
         result = (await deps.runTask(item.task, item)).trim() || "(no answer)";
-      } catch (error) {
-        status = "failed";
-        result = `Could not complete: ${error instanceof Error ? error.message : String(error)}`;
+      } catch {
+        // Flyd's own to repair: run it again once, and only then is a failure George's to hear about.
+        try {
+          result = (await deps.runTask(item.task, item)).trim() || "(no answer)";
+        } catch (error) {
+          status = "failed";
+          result = `Could not complete: ${error instanceof Error ? error.message : String(error)}`;
+        }
       }
       writeAgenda(readAgenda(paths).map((existing) => existing.id === item.id ? { ...existing, lastStatus: status } : existing), paths);
       appendInbox({ id: randomUUID().slice(0, 8), itemId: item.id, task: item.task, at: now.toISOString(), status, result, read: false }, paths);
-      // A run that failed is Flyd's own to repair; it stays in the inbox and the next briefing.
-      await (deps.notify ?? notifyMac)(`Flyd — ${item.task.slice(0, 60)}`, result, status === "failed" ? "fault" : "deliverable").catch(() => undefined);
+      // A failure it has already run twice is his to hear about, plainly: what failed, that it was tried again, and the one thing that clears it.
+      await (deps.notify ?? notifyMac)(
+        `Flyd — ${item.task.slice(0, 60)}`,
+        status === "failed" ? `"${item.task}" is blocked: I ran it again and it failed. Tell me whether to try another way or drop it.` : result,
+        status === "failed" ? "blocker" : "deliverable",
+      ).catch(() => undefined);
       ran.push({ id: item.id, task: item.task, status });
     }
   } finally {

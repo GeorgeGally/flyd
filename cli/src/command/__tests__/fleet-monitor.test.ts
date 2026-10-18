@@ -217,6 +217,29 @@ describe("Flyd's watch on its coding staff", () => {
     expect(told).toEqual([]);
   });
 
+  it("does not give up on a stall it has only just started chasing, however old the stall is", async () => {
+    saveDomainRun(run(), dir);
+    let now = T0 + ESCALATE_MS + MIN;
+    const told: Array<{ message: string; kind?: string }> = [];
+    let nudges = 0;
+    const sendRun: typeof sendRunMessage = async () => { nudges += 1; return { delivered: true }; };
+    const watch = monitor(() => now, { notify: async (_title, message, kind?: string) => { told.push({ message, kind }); }, sendRun });
+
+    await watch.tick();
+    expect(nudges).toBe(1);
+    expect(told).toEqual([]);
+
+    now += RENUDGE_MS - MIN;
+    await watch.tick();
+    expect(nudges).toBe(1);
+    expect(told).toEqual([]);
+
+    now += MIN;
+    await watch.tick();
+    expect(told).toHaveLength(1);
+    expect(told[0]!.kind).toBe("blocker");
+  });
+
   it("forgets a stall once the staff answers", async () => {
     saveDomainRun(run(), dir);
     let now = T0 + STALE_HANDOFF_MS + MIN;

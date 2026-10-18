@@ -446,8 +446,9 @@ export class StaffMonitor {
   private async act(concern: StaffConcern, state: MonitorState, nobodyThere: boolean, now: number): Promise<void> {
     if (state.told[concern.key]) return;
     const nudgedAt = state.nudged[concern.key];
-    // Chased and unanswered for two days: Flyd is out of moves, so he hears it once, and it is chased no more.
-    const outOfMoves = !nobodyThere && concern.subject && nudgedAt && now - Date.parse(concern.since) > ESCALATE_MS;
+    // Chased, unanswered for a whole grace, and stuck two days: Flyd is out of moves,
+    // so he hears it once, and it is chased no more.
+    const outOfMoves = !nobodyThere && concern.subject && nudgedAt && now - Date.parse(concern.since) > ESCALATE_MS && now - Date.parse(nudgedAt) >= RENUDGE_MS;
     const gated = outOfMoves
       ? reachesGeorge({ kind: "blocker", text: outOfMovesLine(concern, now) }, "notification")
       : reachesGeorge({ kind: concernKind(concern), text: concern.text }, "notification");

@@ -140,4 +140,23 @@ describe("agenda", () => {
     expect(result.ran[0].status).toBe("failed");
     expect(unreadInbox(paths)[0].result).toBe("Could not complete: provider down");
   });
+
+  it("runs a failed item again once, and only then tells George plainly, without the error", async () => {
+    addAgendaItem({ task: "Call the bank", when: "2026-09-26 08:00" }, paths, at("2026-09-26 07:00"));
+    const seen: Array<{ message: string; kind?: string }> = [];
+    const notify = async (_title: string, message: string, kind?: string) => { seen.push({ message, kind }); };
+
+    let calls = 0;
+    const flaky = vi.fn(async () => { calls += 1; if (calls === 1) throw new Error("provider down"); return "Rang them; all clear."; });
+    await runDueAgenda({ paths, now: () => at("2026-09-26 08:05"), runTask: flaky, notify });
+    expect(flaky).toHaveBeenCalledTimes(2);
+    expect(seen).toEqual([{ message: "Rang them; all clear.", kind: "deliverable" }]);
+
+    addAgendaItem({ task: "Second try", when: "2026-09-26 09:00" }, paths, at("2026-09-26 07:00"));
+    const down = vi.fn(async () => { throw new Error("Command failed: ENOENT /tmp/x.sh"); });
+    await runDueAgenda({ paths, now: () => at("2026-09-26 09:05"), runTask: down, notify });
+    expect(down).toHaveBeenCalledTimes(2);
+    expect(seen[1]).toEqual({ message: "\"Second try\" is blocked: I ran it again and it failed. Tell me whether to try another way or drop it.", kind: "blocker" });
+    expect(seen[1]!.message).not.toMatch(/ENOENT|Command failed|\/tmp/);
+  });
 });
