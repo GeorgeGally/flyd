@@ -31,6 +31,9 @@ export function qrSvg(code: string, module = 8): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path d="${path}" fill="#000"/></svg>`;
 }
 
+/** Drawn where the code will be, until the first code arrives, so the box is never blank. Never the code. */
+export const PAIRING_PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="230" height="230" viewBox="0 0 230 230" shape-rendering="crispEdges"><rect width="230" height="230" fill="#fff"/><text x="115" y="118" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" fill="#8a8a8a">Drawing your code…</text></svg>`;
+
 /**
  * A live pairing session: the code to scan while WhatsApp is unlinked, and
  * whether it has linked. One per process; it holds the same socket the

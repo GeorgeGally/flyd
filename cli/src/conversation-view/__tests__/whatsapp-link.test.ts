@@ -61,7 +61,7 @@ describe("the offer card", () => {
   it("leads the artefact while WhatsApp is unlinked, and is gone once it is", () => {
     const linked = composeArtefact({ ...EMPTY, whatsappLink: true });
     expect(linked[0]).toMatchObject({ id: "news:whatsapp-link", headline: WHATSAPP_LINK.title, links: [{ url: "/whatsapp" }] });
-    expect(composeArtefact(EMPTY).some((item) => item.id === "whatsapp-link")).toBe(false);
+    expect(composeArtefact(EMPTY).some((item) => item.id === "news:whatsapp-link")).toBe(false);
   });
 
   it("appears in the timeline last, and disappears the moment WhatsApp is linked", () => {
@@ -103,6 +103,19 @@ describe("the pairing endpoints", () => {
       // The artefacts column carries the same offer, opening the code.
       const rail = (server as unknown as { rail: (snapshot: ConversationSnapshot) => { artefacts: Array<{ id: string; title: string; url?: string }> } }).rail(snapshot());
       expect(rail.artefacts.find((card) => card.id === "news:whatsapp-link")).toMatchObject({ title: WHATSAPP_LINK.title, url: "/whatsapp" });
+    } finally { await server.close(); }
+  });
+
+  it("answers with an image before the first code is drawn, so the box is never blank", async () => {
+    const feed = { start() {}, stop() {}, current: () => EMPTY, onRefresh: () => () => {} };
+    const server = new ConversationViewServer({ assistantLabel: "Flyd", canSend: false } as never, undefined, undefined, undefined, feed as never, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, pairing());
+    try {
+      const base = `http://127.0.0.1:${await server.listen(0)}`;
+      const token = (await (await fetch(base + "/api/token")).json()).token;
+      const qr = await fetch(base + "/api/whatsapp-qr?token=" + token);
+      expect(qr.status).toBe(200);
+      expect(qr.headers.get("content-type")).toContain("image/svg+xml");
+      expect((await qr.text()).startsWith("<svg")).toBe(true);
     } finally { await server.close(); }
   });
 });

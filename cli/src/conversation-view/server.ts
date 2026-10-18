@@ -767,11 +767,10 @@ export class ConversationViewServer {
     }
     if (url.pathname === "/api/whatsapp-qr") {
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
+      const { qrSvg, PAIRING_PLACEHOLDER_SVG } = await import("../connectors/whatsapp-pairing.js");
       const code = this.whatsapp?.state().code;
-      if (!code) { sendJson(res, 404, { error: "no pairing code" }); return; }
-      const { qrSvg } = await import("../connectors/whatsapp-pairing.js");
       res.writeHead(200, { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'", "x-content-type-options": "nosniff" });
-      res.end(qrSvg(code));
+      res.end(code ? qrSvg(code) : PAIRING_PLACEHOLDER_SVG);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/send") {
