@@ -279,7 +279,7 @@ function storyOf(raw: unknown): ActivityStory | null {
   const item = raw as Record<string, unknown> | null;
   const title = typeof item?.title === "string" ? item.title.replace(/\s+/g, " ").trim() : "";
   const url = typeof item?.url === "string" ? item.url.trim() : "";
-  if (!title || !url) return null;
+  if (!title || !/^https?:\/\//i.test(url)) return null;
   const gist = typeof item?.why === "string" ? item.why.replace(/\s+/g, " ").trim() : "";
   const source = typeof item?.source === "string" ? item.source.trim() : "";
   return { title, url, ...(gist ? { gist } : {}), ...(source ? { source } : {}) };

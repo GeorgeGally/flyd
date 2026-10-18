@@ -1498,8 +1498,8 @@ describe("header and artefact view", () => {
     await settle();
     const figure = document.querySelector<HTMLButtonElement>("#readouts .ro-open")!;
     expect(figure.textContent).toBe("2 need you");
-    // Every figure opens what it counts; the one that needs him opens its calls.
-    expect(document.querySelectorAll("#readouts button")).toHaveLength(2);
+    // Only a figure with its own work behind it opens one; the rest stay readings.
+    expect(document.querySelectorAll("#readouts button")).toHaveLength(1);
     figure.click();
     const sheet = document.getElementById("calls")!;
     expect(sheet.hidden).toBe(false);
@@ -1557,6 +1557,29 @@ describe("header and artefact view", () => {
     expect(drill.querySelectorAll("#drill-list > .card")).toHaveLength(1);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(drill.hidden).toBe(true);
+  });
+
+  it("opens the week's landed figure onto its own week's work, not the column's list", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const landedWeek = [
+      { id: "landed-week:a", kind: "landed", headline: "Ticket modal", why: "", status: "merged", project: "GNM", at: "2026-10-17" },
+      { id: "landed-week:b", kind: "landed", headline: "Slide-in", why: "", at: "2026-10-15" },
+    ];
+    const show = { title: "", summary: "", live: false, counts: { landed: 2 }, items: [], landedWeek, landedByDay: [{ day: "2026-10-17", count: 2 }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "landed-week", kind: "bars", size: "small", title: "2 landed this week", why: "" }] });
+    await settle();
+    const figure = document.querySelector<HTMLButtonElement>("#readouts .ro-open")!;
+    expect(figure.textContent).toBe("2 landed this week");
+    figure.click();
+    expect(document.getElementById("drill-title")!.textContent).toBe("Landed");
+    const items = [...document.querySelectorAll<HTMLElement>("#drill-list > .card")];
+    expect(items.map((node) => node.querySelector(".card-line")!.textContent)).toEqual(["Ticket modal", "Slide-in"]);
+    // "merged" only repeats the chip: the project reads where it stands instead.
+    expect(items[0]!.querySelector(".card-sub")!.textContent).toBe("GNM");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.getElementById("drill")!.hidden).toBe(true);
   });
 
   it("offers a comment on words he selects in a message, and sends it quoting them", async () => {

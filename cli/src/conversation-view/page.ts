@@ -4103,8 +4103,8 @@ ${LEFT_SCRIPT}
       box.bars.forEach(function (bar) { node.appendChild(readoutFigure(bar.value, bar.label, bar.tone)); });
       return node;
     }
-    if (box.id === "landed-week") {
-      // The week's figure opens what landed, like every other state figure.
+    if (box.id === "landed-week" && lastScreen && lastScreen.landedWeek && lastScreen.landedWeek.length) {
+      // The week's figure opens its own week's work, like every other state figure.
       var done = el("button", "ro-part k-landed ro-open");
       done.type = "button";
       done.setAttribute("aria-haspopup", "dialog");
@@ -4131,18 +4131,23 @@ ${LEFT_SCRIPT}
   }
   // A figure that opens what it counts: "7 need you" opens its calls, each
   // answerable where it stands; every other state opens that group's own work.
+  // A figure with nothing behind it stays the plain reading it was before.
   function readoutFigure(value, label, tone) {
     var opensCalls = tone === "call" && lastScreen && lastScreen.calls && lastScreen.calls.length;
-    var part = el("button", "ro-part k-" + (tone || "news") + " ro-open");
-    part.type = "button";
-    part.setAttribute("aria-haspopup", "dialog");
-    part.setAttribute("aria-controls", opensCalls ? "calls" : "drill");
+    var group = DRILL[tone];
+    var opens = !!opensCalls || !!(group && lastScreen && group.pick(lastScreen).length);
+    var part = el(opens ? "button" : "span", "ro-part k-" + (tone || "news") + (opens ? " ro-open" : ""));
     part.appendChild(el("b", "", String(value)));
     part.appendChild(document.createTextNode(" " + label));
-    part.addEventListener("click", function () {
-      if (opensCalls) showCalls(true, part);
-      else openDrill(tone, part);
-    });
+    if (opens) {
+      part.type = "button";
+      part.setAttribute("aria-haspopup", "dialog");
+      part.setAttribute("aria-controls", opensCalls ? "calls" : "drill");
+      part.addEventListener("click", function () {
+        if (opensCalls) showCalls(true, part);
+        else openDrill(tone, part);
+      });
+    }
     return part;
   }
   function flicker() {
@@ -4249,7 +4254,7 @@ ${LEFT_SCRIPT}
   var drawnDrill = "";
   var drillOpen = {};
   var DRILL = {
-    landed: { title: "Landed", tone: "landed", pick: function (show) { return show.done || []; } },
+    landed: { title: "Landed", tone: "landed", pick: function (show) { return show.landedWeek || []; } },
     live: { title: "Under way", tone: "live", pick: function (show) { return show.underway || []; } },
     ready: { title: "To land", tone: "ready", pick: function (show) { return show.ready || []; } },
     waiting: { title: "Held up", tone: "waiting", pick: function (show) { return show.held || []; } },
@@ -4259,7 +4264,7 @@ ${LEFT_SCRIPT}
   function drillItem(item) {
     var key = item.id;
     // Where it stands, in a word or two: its state unless that only repeats the chip.
-    var line = item.status && !/^(?:landed|done|queued)$/i.test(item.status) ? item.status : (item.project || "");
+    var line = item.status && !/^(?:landed|done|queued|merged)$/i.test(item.status) ? item.status : (item.project || "");
     var open = item.links && item.links.length && !item.links[0].closed ? { url: item.links[0].url } : {};
     return visualCard(Object.assign({}, item, open), {
       kind: item.kind,

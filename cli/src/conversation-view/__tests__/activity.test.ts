@@ -180,12 +180,14 @@ describe("the stories behind a news card", () => {
 
   it("reads the day's stories from an edition, and only its own day", () => {
     expect(editionStories({ date: "2026-10-17", items: [raw] }, "2026-10-17")).toEqual({ day: "2026-10-17", stories: [story] });
+    expect(editionStories({ date: "2026-10-17", items: [raw, { ...raw, url: "javascript:alert(1)" }] }, "2026-10-17")).toEqual({ day: "2026-10-17", stories: [story] });
     expect(editionStories({ date: "2026-10-16", items: [raw] }, "2026-10-17")).toBeUndefined();
     expect(editionStories(null, "2026-10-17")).toBeUndefined();
   });
 
-  it("reads the watch's flashes for a day, and keeps only stories with a headline and a link", () => {
-    expect(flashStories([{ ...raw, date: "2026-10-17" }, { ...raw, date: "2026-10-16" }, { title: "No link", date: "2026-10-17" }], "2026-10-17")).toEqual({ day: "2026-10-17", stories: [story] });
+  it("reads the watch's flashes for a day, and keeps only stories with a headline and an http(s) link", () => {
+    const rows = [{ ...raw, date: "2026-10-17" }, { ...raw, date: "2026-10-16" }, { title: "No link", date: "2026-10-17" }, { ...raw, url: "javascript:alert(1)", date: "2026-10-17" }];
+    expect(flashStories(rows, "2026-10-17")).toEqual({ day: "2026-10-17", stories: [story] });
   });
 
   it("opens a news card onto its own day's stories, and leaves another day's out", () => {

@@ -3,7 +3,7 @@ import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
 import { withoutStubs } from "./executive.js";
 import { choiceOf, choiceTarget, openChoice, type ChoiceStep } from "./choices.js";
-import { callItems, composeArtefact, doneItems, fleetCounts, heldItems, nextItems, readyItems, underwayItems, type ArtefactInputs, type DayCount } from "./artefact.js";
+import { callItems, composeArtefact, doneItems, fleetCounts, heldItems, nextItems, readyItems, underwayItems, weekLandedItems, type ArtefactInputs, type DayCount } from "./artefact.js";
 import { railImageSrc } from "./rail.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
@@ -87,6 +87,8 @@ export interface ShowScreen {
   next?: ShowItem[];
   /** Work landed on each of the last seven days, oldest first. */
   landedByDay?: DayCount[];
+  /** Every piece of work behind the week's landed figure, newest first. */
+  landedWeek?: ShowItem[];
   /** When firstmate's fleet snapshot was read. */
   read?: string;
   /** The assistant is working right now. */
@@ -424,6 +426,8 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const ready = readyItems(fleet, { project: projectOfRepo });
   const held = heldItems(fleet, { project: projectOfRepo });
   const next = nextItems(fleet, { project: projectOfRepo });
+  // The week's landed figure opens its own week's work, not the column's eight.
+  const landedWeek = weekLandedItems(inputs.artefact, { project: projectOfRepo });
   return {
     title: titleOf(chosen, recap && artefact.length === 0),
     summary: situationOf(counts, fleet?.unavailable),
@@ -436,6 +440,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
     ...(held.length ? { held } : {}),
     ...(next.length ? { next } : {}),
     ...(inputs.artefact?.landedByDay ? { landedByDay: inputs.artefact.landedByDay } : {}),
+    ...(landedWeek.length ? { landedWeek } : {}),
     ...(fleet?.generated ? { read: fleet.generated } : {}),
     live: status.working,
     ...(doing ? { doing } : {}),
