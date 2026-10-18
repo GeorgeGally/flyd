@@ -32,7 +32,9 @@ export const LEFT_STYLE = `
 .left-pane > section + section { margin-top: 30px; }
 .left-label { margin: 0 0 14px; font: 600 14px/1.2 var(--sans); color: var(--muted); }
 .left-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
-.left-week[hidden] { display: none; }
+.left-week[hidden], .left-semantic[hidden] { display: none; }
+.left-semantic .scene-ask { margin-top: 10px; width: 100%; }
+.left-semantic .scene-ask .choices { grid-template-columns: 1fr; gap: 6px; }
 /* The earlier list runs down one hairline: a card's icon tile sits on it, and the line shows in the gaps between. */
 .left-timeline { position: relative; }
 .left-timeline::before { content: ""; position: absolute; left: 33px; top: 6px; bottom: 6px; width: 1px; background: var(--faint); }
@@ -74,6 +76,7 @@ export const LEFT_HTML = `<aside class="left" id="left" hidden aria-label="What 
       <h3 class="left-label">This week</h3>
       <div class="mini-bars" id="left-week"></div>
     </section>
+    <section class="left-semantic" id="left-semantic-section" aria-label="Tasks" hidden><h3 class="left-label">Tasks</h3><ul class="left-list" id="left-semantic"></ul></section>
     <section aria-label="Right now"><h3 class="left-label">Right now</h3><ul class="left-list" id="left-now"></ul></section>
     <section aria-label="Earlier"><h3 class="left-label">Earlier</h3><ul class="left-list left-timeline" id="left-recent"></ul><button class="left-more" id="left-more" type="button" hidden></button></section>
   </div>
@@ -82,6 +85,8 @@ export const LEFT_HTML = `<aside class="left" id="left" hidden aria-label="What 
 export const LEFT_SCRIPT = `
   // The left column: Flyd's own activity. Open by default only where it fits beside the chat.
   var leftEl = document.getElementById("left");
+  var leftSemanticEl = document.getElementById("left-semantic");
+  var leftSemanticSection = document.getElementById("left-semantic-section");
   var leftNowEl = document.getElementById("left-now");
   var leftRecentEl = document.getElementById("left-recent");
   var leftMoreEl = document.getElementById("left-more");
@@ -163,6 +168,61 @@ export const LEFT_SCRIPT = `
       onHide: drawActivity,
     });
   }
+  function leftSemanticVisual(activity) {
+    var phase = activity.activity && activity.activity.phase;
+    return phase === "needs_you" ? "call"
+      : phase === "paused" ? "waiting"
+      : phase === "ready" ? "ready"
+      : phase === "finished" ? "landed"
+      : phase === "queued" ? "next"
+      : "live";
+  }
+  function leftSemanticActivityCard(activity) {
+    var phase = activity.activity && activity.activity.phase || "working";
+    var visual = leftSemanticVisual(activity);
+    var at = activity.activity && activity.activity.started || activity.updatedAt || activity.createdAt || "";
+    var key = activity.id + "|semantic";
+    var card = visualCard({
+      kind: visual,
+      title: activity.subject,
+      line: activity.detail || activity.summary || "",
+      at: at,
+    }, {
+      className: "left-card semantic-activity",
+      key: key,
+      when: phase === "working" && at ? "Started " + ago(at) : phase === "finished" && at ? ago(at) : "",
+      whenClass: "left-meta",
+      titleClass: "left-title",
+      detail: activity.detail || activity.summary || "",
+      detailWhen: at ? dayOf(at) + ", " + clock(at) : "",
+      open: !!leftOpen[key],
+      onToggle: function (open) { if (open) leftOpen[key] = 1; else delete leftOpen[key]; },
+      dismiss: phase === "finished",
+      onHide: drawActivity,
+    });
+    card.dataset.semanticId = activity.id;
+    card.dataset.phase = phase;
+    if (activity.decision && phase === "needs_you" && VIEW_TOKEN) {
+      card.appendChild(sceneAsk({
+        title: activity.subject,
+        decision: {
+          task: activity.source.task || activity.id,
+          question: activity.decision.question,
+          choices: activity.decision.alternatives || [],
+          recommended: activity.decision.recommended,
+          replyTo: activity.decision.replyTo,
+        },
+      }, "flyd-activity:" + activity.id + ":" + activity.decision.question));
+    }
+    return card;
+  }
+  function drawSemanticActivities(activities) {
+    activities = (activities || []).filter(function (activity) {
+      return !cardGone(activity.id + "|semantic");
+    });
+    leftSemanticSection.hidden = !activities.length;
+    patch(leftSemanticEl, activities.map(leftSemanticActivityCard));
+  }
   function quietCard(recent) {
     var last = recent[0];
     var key = "quiet|" + (last ? last.at : "");
@@ -181,9 +241,12 @@ export const LEFT_SCRIPT = `
   }
   function drawActivity() {
     if (!leftPanel) return;
+    var semantic = leftPanel.semantic || [];
     var now = (leftPanel.now || []).filter(function (item) { return !cardGone(activityKey(item, true)); });
     var recent = (leftPanel.recent || []).filter(function (item) { return !cardGone(activityKey(item, false)); });
-    leftLiveEl.textContent = now.length ? "Working on " + now.length + (now.length === 1 ? " thing." : " things.") : "Nothing under way.";
+    var moving = semantic.filter(function (activity) { return activity.activity && activity.activity.phase !== "finished"; }).length + now.length;
+    leftLiveEl.textContent = moving ? "Working on " + moving + (moving === 1 ? " thing." : " things.") : "Nothing under way.";
+    drawSemanticActivities(semantic);
     drawWeek(leftPanel.week);
     var nowCards = now.map(function (item) { return activityCard(item, true); });
     if (!nowCards.length) nowCards.push(quietCard(recent));
