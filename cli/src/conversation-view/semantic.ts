@@ -257,7 +257,7 @@ export function decisionObjectsFromShow(source: DecisionSources): SemanticObject
   const seen = new Set<string>();
   const decisions: SemanticObject[] = [];
   for (const item of source.calls ?? []) {
-    if (item.task || !item.decision) continue;
+    if (item.task) continue;
     const object = semanticObjectFromShow(item);
     if (object.kind !== "decision" || seen.has(object.id)) continue;
     seen.add(object.id);
