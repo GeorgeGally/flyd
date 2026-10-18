@@ -3,7 +3,7 @@ import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
 import { withoutStubs } from "./executive.js";
 import { choiceOf, choiceTarget, openChoice, type ChoiceStep } from "./choices.js";
-import { callItems, composeArtefact, doneItems, fleetCounts, underwayItems, type ArtefactInputs, type DayCount } from "./artefact.js";
+import { callItems, composeArtefact, doneItems, fleetCounts, heldItems, nextItems, readyItems, underwayItems, weekLandedItems, type ArtefactInputs, type DayCount } from "./artefact.js";
 import { railImageSrc } from "./rail.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
@@ -79,8 +79,16 @@ export interface ShowScreen {
   underway?: ShowItem[];
   /** Work that landed, newest first. */
   done?: ShowItem[];
+  /** Finished work that waits to land, newest first. */
+  ready?: ShowItem[];
+  /** Work that stopped — paused, failed, gone quiet — newest first. */
+  held?: ShowItem[];
+  /** Work queued next. */
+  next?: ShowItem[];
   /** Work landed on each of the last seven days, oldest first. */
   landedByDay?: DayCount[];
+  /** Every piece of work behind the week's landed figure, newest first. */
+  landedWeek?: ShowItem[];
   /** When firstmate's fleet snapshot was read. */
   read?: string;
   /** The assistant is working right now. */
@@ -414,6 +422,12 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const calls = fleet && !fleet.unavailable ? callItems(fleet, { project: projectOfRepo }) : asked;
   const underway = underwayItems(fleet, { project: projectOfRepo });
   const done = doneItems(fleet, { project: projectOfRepo });
+  // What each state figure opens: every piece of work behind the number.
+  const ready = readyItems(fleet, { project: projectOfRepo });
+  const held = heldItems(fleet, { project: projectOfRepo });
+  const next = nextItems(fleet, { project: projectOfRepo });
+  // The week's landed figure opens its own week's work, not the column's eight.
+  const landedWeek = weekLandedItems(inputs.artefact, { project: projectOfRepo });
   return {
     title: titleOf(chosen, recap && artefact.length === 0),
     summary: situationOf(counts, fleet?.unavailable),
@@ -422,7 +436,11 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
     ...(calls.length ? { calls } : {}),
     ...(underway.length ? { underway } : {}),
     ...(done.length ? { done } : {}),
+    ...(ready.length ? { ready } : {}),
+    ...(held.length ? { held } : {}),
+    ...(next.length ? { next } : {}),
     ...(inputs.artefact?.landedByDay ? { landedByDay: inputs.artefact.landedByDay } : {}),
+    ...(landedWeek.length ? { landedWeek } : {}),
     ...(fleet?.generated ? { read: fleet.generated } : {}),
     live: status.working,
     ...(doing ? { doing } : {}),

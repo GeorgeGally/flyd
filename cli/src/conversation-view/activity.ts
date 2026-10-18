@@ -14,6 +14,14 @@ import type { DayCount } from "./artefact.js";
 
 export type ActivityKind = "watching" | "decided" | "reviewed" | "news" | "memory" | "routine" | "work" | "done" | "held" | "noted";
 
+/** One story behind a news card: its headline, a one-line gist, and where it came from. */
+export interface ActivityStory {
+  title: string;
+  gist?: string;
+  url: string;
+  source?: string;
+}
+
 export interface ActivityItem {
   id: string;
   kind: ActivityKind;
@@ -23,6 +31,8 @@ export interface ActivityItem {
   line?: string;
   /** The fuller outcome behind the card, shown only when he opens it. */
   detail?: string;
+  /** The actual stories behind a news card, shown only when he opens it. */
+  stories?: ActivityStory[];
   at: string;
 }
 
@@ -254,6 +264,42 @@ export interface ActivityInputs {
   jobs: JobFile[];
   advice: Array<{ id?: unknown; text?: unknown; at?: unknown; createdAt?: unknown }>;
   records: unknown[];
+  /** The stories behind today's news cards: the day's edition, and the watch's must-knows. */
+  news?: NewsStories;
+}
+
+/** The stories a news card opens onto, each bound to the day it belongs to. */
+export interface NewsStories {
+  edition?: { day: string; stories: ActivityStory[] };
+  watch?: { day: string; stories: ActivityStory[] };
+}
+
+/** One story from a scout edition item or a flash row, in the terms a news card shows it. Pure. */
+function storyOf(raw: unknown): ActivityStory | null {
+  const item = raw as Record<string, unknown> | null;
+  const title = typeof item?.title === "string" ? item.title.replace(/\s+/g, " ").trim() : "";
+  const url = typeof item?.url === "string" ? item.url.trim() : "";
+  if (!title || !/^https?:\/\//i.test(url)) return null;
+  const gist = typeof item?.why === "string" ? item.why.replace(/\s+/g, " ").trim() : "";
+  const source = typeof item?.source === "string" ? item.source.trim() : "";
+  return { title, url, ...(gist ? { gist } : {}), ...(source ? { source } : {}) };
+}
+
+/** The stories in a scout edition file, or none when it is for another day. Pure. */
+export function editionStories(raw: unknown, day: string): { day: string; stories: ActivityStory[] } | undefined {
+  const data = raw as { date?: unknown; items?: unknown } | null;
+  if (!data || typeof data !== "object" || data.date !== day || !Array.isArray(data.items)) return undefined;
+  const stories = data.items.map(storyOf).filter((item): item is ActivityStory => item !== null);
+  return stories.length ? { day, stories } : undefined;
+}
+
+/** The must-know stories the watch kept for a day. Pure. */
+export function flashStories(rows: unknown[], day: string): { day: string; stories: ActivityStory[] } | undefined {
+  const stories = rows
+    .filter((row) => (row as { date?: unknown } | null)?.date === day)
+    .map(storyOf)
+    .filter((item): item is ActivityStory => item !== null);
+  return stories.length ? { day, stories } : undefined;
 }
 
 const byNewest = (a: ActivityItem, b: ActivityItem): number => Date.parse(b.at) - Date.parse(a.at);
@@ -278,11 +324,18 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
   const done: ActivityItem[] = [];
   // Upkeep that repeats every few minutes shows once, as its latest run.
   const seen = new Set<string>();
+  // The stories behind a news run, only while the card is the day they belong to.
+  const storiesOf = (group: string, at: string): ActivityStory[] => {
+    const day = localDay(new Date(at));
+    const found = group === "edition" ? inputs.news?.edition : group === "watch-news" ? inputs.news?.watch : undefined;
+    return found && found.day === day ? found.stories : [];
+  };
   for (const raw of [...inputs.log].reverse()) {
     const entry = activityFromLogLine(raw);
     if (!entry || seen.has(entry.group)) continue;
     seen.add(entry.group);
-    done.push({ id: `log:${entry.group}:${entry.at}`, kind: entry.kind, title: entry.title, ...(entry.line ? { line: entry.line } : {}), at: entry.at });
+    const stories = storiesOf(entry.group, entry.at);
+    done.push({ id: `log:${entry.group}:${entry.at}`, kind: entry.kind, title: entry.title, ...(entry.line ? { line: entry.line } : {}), ...(stories.length ? { stories } : {}), at: entry.at });
   }
   for (const job of inputs.jobs) {
     const made = activityFromJob(job, now);
@@ -322,6 +375,15 @@ function jsonLines(path: string, keep: number): unknown[] {
       return [];
     }
   });
+}
+
+/** One JSON file's content, or null when it is absent or unreadable. */
+function oneJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 export interface ActivityReaderOptions {
@@ -365,12 +427,19 @@ export class ActivityReader {
 
   /** Re-reads everything; returns whether the panel changed. */
   refresh(): boolean {
+    const now = this.now();
+    const day = localDay(new Date(now));
+    const scout = join(this.dir, "scout");
     const panel = composeActivity({
       log: lines(join(this.dir, "logs", "agenda.log"), 600),
       jobs: this.jobs(),
       advice: jsonLines(join(this.dir, "council", "advisories.jsonl"), 4) as ActivityInputs["advice"],
       records: jsonLines(activityRecordPath(this.dir), 300),
-    }, this.now());
+      news: {
+        edition: editionStories(oneJson(join(scout, "edition-latest.json")), day),
+        watch: flashStories(jsonLines(join(scout, "flash.jsonl"), 200), day),
+      },
+    }, now);
     const signature = JSON.stringify(panel);
     this.panel = panel;
     if (signature === this.signature) return false;

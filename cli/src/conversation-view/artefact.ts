@@ -88,6 +88,8 @@ export interface ArtefactInputs {
   plans?: PlanArtefact[];
   /** Work landed on each of the last seven days, oldest first. */
   landedByDay?: DayCount[];
+  /** Every piece of work that landed in that same week, newest first. */
+  landedWeek?: ArtefactRow[];
 }
 
 export interface DayCount {
@@ -441,17 +443,35 @@ export function decisionChoices(question: string): string[] {
   return choices.length >= 2 && choices.length <= 8 ? choices : [];
 }
 
+/** The seven days "landed this week" covers, oldest first, as YYYY-MM-DD. Pure. */
+function weekDays(now: number): string[] {
+  return Array.from({ length: 7 }, (_unused, back) => new Date(now - (6 - back) * 86_400_000).toISOString().slice(0, 10));
+}
+
 /** How much landed on each of the last seven days, from the backlog's finish dates. Pure. */
 export function landedByDay(backlog: Map<string, BacklogEntry>, now: number): DayCount[] {
-  const days: DayCount[] = [];
-  for (let back = 6; back >= 0; back -= 1) {
-    days.push({ day: new Date(now - back * 86_400_000).toISOString().slice(0, 10), count: 0 });
-  }
+  const days: DayCount[] = weekDays(now).map((day) => ({ day, count: 0 }));
   for (const entry of backlog.values()) {
     const day = days.find((slot) => slot.day === entry.finished);
     if (day) day.count += 1;
   }
   return days;
+}
+
+/** Every piece of work that landed in that week, newest first, one row each. Pure. */
+export function weekLandedRows(entries: Map<string, BacklogEntry>, now: number): ArtefactRow[] {
+  const week = new Set(weekDays(now));
+  return [...entries]
+    .filter(([, entry]) => Boolean(entry.finished && week.has(entry.finished)))
+    .sort((a, b) => (b[1].finished ?? "").localeCompare(a[1].finished ?? ""))
+    .map(([task, entry]) => ({
+      label: entry.title,
+      task,
+      status: "landed",
+      at: entry.finished!,
+      ...(entry.repo ? { repo: entry.repo } : {}),
+      ...(entry.url ? { url: entry.url } : {}),
+    }));
 }
 
 const IMAGE = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
@@ -620,6 +640,33 @@ export function doneItems(fleet: FleetArtefact | undefined, options: ComposeOpti
   const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
   return [...fleet.landed].sort((a, b) => when(b) - when(a)).slice(0, limit)
     .flatMap((row, index) => rowItem("landed", `landed-${row.task ?? index}`, row, options) ?? []);
+}
+
+/** Finished work that waits to land, newest first, one line each. Pure. */
+export function readyItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
+  if (!fleet || fleet.unavailable) return [];
+  const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
+  return [...fleet.ready].filter((row) => row.status !== "report available").sort((a, b) => when(b) - when(a))
+    .flatMap((row, index) => rowItem("ready", `ready-${row.task ?? index}`, row, options) ?? []);
+}
+
+/** Work that stopped — paused, failed, gone quiet — newest first, one line each. Pure. */
+export function heldItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
+  if (!fleet || fleet.unavailable) return [];
+  const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
+  return [...fleet.held].sort((a, b) => when(b) - when(a))
+    .flatMap((row, index) => rowItem("waiting", `held-${row.task ?? index}`, row, options) ?? []);
+}
+
+/** Work queued next, in the fleet's own order, one line each. Pure. */
+export function nextItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
+  if (!fleet || fleet.unavailable) return [];
+  return fleet.next.flatMap((row, index) => rowItem("next", `next-${row.task ?? index}`, row, options) ?? []);
+}
+
+/** Every piece of work that landed this week, uncapped, newest first, one line each. Pure. */
+export function weekLandedItems(inputs: ArtefactInputs | undefined, options: ComposeOptions = {}): ShowItem[] {
+  return (inputs?.landedWeek ?? []).flatMap((row, index) => rowItem("landed", `landed-week-${row.task ?? index}`, row, options) ?? []);
 }
 
 /** When a task's worker was started: firstmate stamps its spawn as `spawn_gen=s<epoch>.…` in the task's meta. Pure. */
@@ -961,7 +1008,7 @@ export class ArtefactFeed {
       const { fleet, unsaid } = voice ? this.voiced(voice, enriched) : { fleet: enriched, unsaid: [] };
       this.inputs = {
         fleet,
-        ...(bearings.unavailable ? {} : { landedByDay: landedByDay(entries, Date.now()) }),
+        ...(bearings.unavailable ? {} : { landedByDay: landedByDay(entries, Date.now()), landedWeek: weekLandedRows(entries, Date.now()) }),
         memories: memoryHighlights(memoryText),
         news: newsHighlights(newsRaw),
         taste: tasteHighlights(tasteText),

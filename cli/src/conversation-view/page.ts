@@ -353,6 +353,23 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .call .choice-pick { min-height: 44px; font-size: 15px; }
 .call-link.closed { color: var(--muted); font-style: italic; }
 
+/* A figure's own group, opened: one calm sheet, every piece of work one line,
+   newest first, each unfolding its card detail where it stands. */
+.drill { position: fixed; inset: 0; z-index: 9; display: grid; place-items: center; padding: 64px 16px 24px; background: color-mix(in srgb, var(--bg) 62%, transparent); }
+.drill[hidden] { display: none; }
+.drill-sheet {
+  display: flex; flex-direction: column; width: min(560px, 100%); max-height: calc(100vh - 88px); border: 1px solid var(--faint); border-radius: 20px;
+  background: var(--bg); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.32); animation: choice-in 160ms ease both;
+}
+.drill-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 26px 28px 20px; border-bottom: 1px solid var(--faint); }
+.drill-top h2 { margin: 0; font: 600 21px/1.2 var(--sans); color: var(--k, var(--strong)); }
+.drill-top button { font: 500 15px/1 var(--mono); color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+.drill-top button:hover { color: var(--fg); }
+.drill-top button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drill-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 20px 22px 26px; list-style: none; display: grid; gap: 12px; align-content: start; }
+.drill-empty { margin: 0; padding: 6px 4px; font: 400 15px/1.5 var(--sans); color: var(--muted); }
+.drill-sheet:focus { outline: none; }
+
 /* The foot: what Flyd is doing, and how to talk to it. */
 .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; padding-bottom: 24px; }
 .foot .hint { font: 500 12px/1.4 var(--mono); color: var(--muted); }
@@ -4083,20 +4100,18 @@ ${LEFT_SCRIPT}
     var node = el("span", "ro");
     node.dataset.id = box.id;
     if (box.id === "work-state" && box.bars) {
-      box.bars.forEach(function (bar) {
-        // "7 need you" opens the list of what needs him, each with its question to answer.
-        var opens = bar.tone === "call" && lastScreen && lastScreen.calls && lastScreen.calls.length;
-        var part = el(opens ? "button" : "span", "ro-part k-" + (bar.tone || "news") + (opens ? " ro-open" : ""));
-        part.appendChild(el("b", "", String(bar.value)));
-        part.appendChild(document.createTextNode(" " + bar.label));
-        if (opens) {
-          part.type = "button";
-          part.setAttribute("aria-haspopup", "dialog");
-          part.setAttribute("aria-controls", "calls");
-          part.addEventListener("click", function () { showCalls(true, part); });
-        }
-        node.appendChild(part);
-      });
+      box.bars.forEach(function (bar) { node.appendChild(readoutFigure(bar.value, bar.label, bar.tone)); });
+      return node;
+    }
+    if (box.id === "landed-week" && lastScreen && lastScreen.landedWeek && lastScreen.landedWeek.length) {
+      // The week's figure opens its own week's work, like every other state figure.
+      var done = el("button", "ro-part k-landed ro-open");
+      done.type = "button";
+      done.setAttribute("aria-haspopup", "dialog");
+      done.setAttribute("aria-controls", "drill");
+      done.appendChild(el("b", "", box.title));
+      done.addEventListener("click", function () { openDrill("landed", done); });
+      node.appendChild(done);
       return node;
     }
     if (box.gauges && box.gauges.length) {
@@ -4113,6 +4128,27 @@ ${LEFT_SCRIPT}
     node.appendChild(el("b", "", box.title));
     if (box.line) node.appendChild(document.createTextNode(" " + box.line));
     return node;
+  }
+  // A figure that opens what it counts: "7 need you" opens its calls, each
+  // answerable where it stands; every other state opens that group's own work.
+  // A figure with nothing behind it stays the plain reading it was before.
+  function readoutFigure(value, label, tone) {
+    var opensCalls = tone === "call" && lastScreen && lastScreen.calls && lastScreen.calls.length;
+    var group = DRILL[tone];
+    var opens = !!opensCalls || !!(group && lastScreen && group.pick(lastScreen).length);
+    var part = el(opens ? "button" : "span", "ro-part k-" + (tone || "news") + (opens ? " ro-open" : ""));
+    part.appendChild(el("b", "", String(value)));
+    part.appendChild(document.createTextNode(" " + label));
+    if (opens) {
+      part.type = "button";
+      part.setAttribute("aria-haspopup", "dialog");
+      part.setAttribute("aria-controls", opensCalls ? "calls" : "drill");
+      part.addEventListener("click", function () {
+        if (opensCalls) showCalls(true, part);
+        else openDrill(tone, part);
+      });
+    }
+    return part;
   }
   function flicker() {
     if (reduced) return;
@@ -4154,6 +4190,7 @@ ${LEFT_SCRIPT}
     renderReadouts(parts.readouts);
     renderDoing();
     if (!callsEl.hidden) drawCalls();
+    if (!drillEl.hidden) drawDrill();
   }
 
   // What needs him, every one: a sheet over the artefact, each call with its question and a way to answer.
@@ -4205,6 +4242,79 @@ ${LEFT_SCRIPT}
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape" && !callsEl.hidden) { event.preventDefault(); showCalls(false); }
   });
+
+  // A figure's own group, opened: every piece of work behind the number, one
+  // plain line each, newest first, each unfolding its card detail where it stands.
+  var drillEl = document.getElementById("drill");
+  var drillSheet = drillEl.querySelector(".drill-sheet");
+  var drillList = document.getElementById("drill-list");
+  var drillTitle = document.getElementById("drill-title");
+  var drillFrom = null;
+  var drillKind = "";
+  var drawnDrill = "";
+  var drillOpen = {};
+  var DRILL = {
+    landed: { title: "Landed", tone: "landed", pick: function (show) { return show.landedWeek || []; } },
+    live: { title: "Under way", tone: "live", pick: function (show) { return show.underway || []; } },
+    ready: { title: "To land", tone: "ready", pick: function (show) { return show.ready || []; } },
+    waiting: { title: "Held up", tone: "waiting", pick: function (show) { return show.held || []; } },
+    next: { title: "Queued", tone: "next", pick: function (show) { return show.next || []; } },
+  };
+  function drillWhen(item) { return item.at ? Date.parse(item.at) : 0; }
+  function drillItem(item) {
+    var key = item.id;
+    // Where it stands, in a word or two: its state unless that only repeats the chip.
+    var line = item.status && !/^(?:landed|done|queued|merged)$/i.test(item.status) ? item.status : (item.project || "");
+    var open = item.links && item.links.length && !item.links[0].closed ? { url: item.links[0].url } : {};
+    return visualCard(Object.assign({}, item, open), {
+      kind: item.kind,
+      className: "drill-card",
+      key: key,
+      line: line,
+      when: item.at ? ago(item.at) : "",
+      detail: item.detail || "",
+      detailWhen: item.at ? dayOf(item.at) + ", " + clock(item.at) : "",
+      linkLabel: "Open",
+      open: !!drillOpen[key],
+      onToggle: function (isOpen) { if (isOpen) drillOpen[key] = 1; else delete drillOpen[key]; },
+    });
+  }
+  function drawDrill() {
+    var group = DRILL[drillKind];
+    if (!group || !lastScreen) return;
+    var items = group.pick(lastScreen).slice().sort(function (a, b) { return drillWhen(b) - drillWhen(a); });
+    var key = drillKind + "|" + JSON.stringify(items);
+    if (key === drawnDrill) return;
+    drawnDrill = key;
+    drillSheet.className = "drill-sheet k-" + group.tone;
+    drillTitle.textContent = group.title;
+    drillList.textContent = "";
+    if (!items.length) { drillList.appendChild(el("li", "drill-empty", "Nothing here right now.")); return; }
+    items.forEach(function (item) { drillList.appendChild(drillItem(item)); });
+  }
+  function closeDrill() {
+    drillEl.hidden = true;
+    if (drillFrom && drillFrom.isConnected) drillFrom.focus();
+    drillFrom = null;
+  }
+  function openDrill(kind, from) {
+    if (!DRILL[kind]) return;
+    // Clicking the figure it is already showing closes it again.
+    if (!drillEl.hidden && drillKind === kind) { closeDrill(); return; }
+    drillKind = kind;
+    drillFrom = from || null;
+    drillOpen = {};
+    drawnDrill = "";
+    drawDrill();
+    drillEl.hidden = false;
+    drillSheet.focus();
+  }
+  document.getElementById("drill-close").addEventListener("click", closeDrill);
+  drillEl.addEventListener("click", function (event) { if (event.target === drillEl) closeDrill(); });
+  // On the way down: Escape closes the sheet before the column behind it hears the key.
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !drillEl.hidden) { event.preventDefault(); event.stopPropagation(); closeDrill(); }
+  }, true);
   setInterval(function () {
     sceneMeta.querySelectorAll(".ago").forEach(function (node) { node.textContent = ago(node.dataset.at); });
     renderDoing();
@@ -4376,6 +4486,12 @@ ${LEFT_HTML}
     <div class="calls-sheet" tabindex="-1">
       <div class="calls-top"><h2 id="calls-title">Your decisions</h2><button id="calls-close" type="button" aria-label="Close">✕</button></div>
       <ol class="calls-list" id="calls-list"></ol>
+    </div>
+  </div>
+  <div class="drill" id="drill" hidden role="dialog" aria-modal="true" aria-labelledby="drill-title">
+    <div class="drill-sheet" tabindex="-1">
+      <div class="drill-top"><h2 id="drill-title"></h2><button id="drill-close" type="button" aria-label="Close">✕</button></div>
+      <ul class="drill-list" id="drill-list"></ul>
     </div>
   </div>
   <div class="foot"><p class="doing" id="show-doing">Standby</p><span class="hint">type to talk · tab for the conversation</span></div>

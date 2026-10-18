@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kindVisual } from "../cards.js";
-import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, MAX_RECENT, recordActivity } from "../activity.js";
+import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, MAX_RECENT, recordActivity } from "../activity.js";
 
 const NOW = Date.parse("2026-10-17T12:00:00.000Z");
 const minutesAgo = (minutes: number): string => new Date(NOW - minutes * 60_000).toISOString();
@@ -167,6 +167,46 @@ describe("composeActivity", () => {
     const panel = composeActivity({ log: [], jobs: [], advice: [], records }, NOW);
     expect(panel.recent).toHaveLength(MAX_RECENT);
     expect(panel.week.slice(-2).map((day) => day.count)).toEqual([5, 20]);
+  });
+});
+
+describe("the stories behind a news card", () => {
+  // The shape a card shows: a headline, a one-line gist, and where it came from.
+  const story = { title: "Flyd ships a new sidebar", url: "https://example.com/a", gist: "It affects your project.", source: "Example" };
+  const raw = { ...story, why: story.gist };
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "flyd-news-")); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it("reads the day's stories from an edition, and only its own day", () => {
+    expect(editionStories({ date: "2026-10-17", items: [raw] }, "2026-10-17")).toEqual({ day: "2026-10-17", stories: [story] });
+    expect(editionStories({ date: "2026-10-17", items: [raw, { ...raw, url: "javascript:alert(1)" }] }, "2026-10-17")).toEqual({ day: "2026-10-17", stories: [story] });
+    expect(editionStories({ date: "2026-10-16", items: [raw] }, "2026-10-17")).toBeUndefined();
+    expect(editionStories(null, "2026-10-17")).toBeUndefined();
+  });
+
+  it("reads the watch's flashes for a day, and keeps only stories with a headline and an http(s) link", () => {
+    const rows = [{ ...raw, date: "2026-10-17" }, { ...raw, date: "2026-10-16" }, { title: "No link", date: "2026-10-17" }, { ...raw, url: "javascript:alert(1)", date: "2026-10-17" }];
+    expect(flashStories(rows, "2026-10-17")).toEqual({ day: "2026-10-17", stories: [story] });
+  });
+
+  it("opens a news card onto its own day's stories, and leaves another day's out", () => {
+    const log = ["2026-10-17T11:00:00.000Z scout: edition: 1 items"];
+    const today = composeActivity({ log, jobs: [], advice: [], records: [], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
+    expect(today.recent[0]).toMatchObject({ title: "Put together today's news", stories: [story] });
+    const other = composeActivity({ log, jobs: [], advice: [], records: [], news: { edition: { day: "2026-10-16", stories: [story] } } }, NOW);
+    expect(other.recent[0]!.stories).toBeUndefined();
+  });
+
+  it("reads the edition and the watch's flashes already on disk", () => {
+    mkdirSync(join(dir, "scout"), { recursive: true });
+    mkdirSync(join(dir, "logs"), { recursive: true });
+    writeFileSync(join(dir, "logs", "agenda.log"), "2026-10-17T11:10:00.000Z scout: edition: 1 items\n2026-10-17T11:05:00.000Z scout: watch: 1 must-know\n");
+    writeFileSync(join(dir, "scout", "edition-latest.json"), JSON.stringify({ date: "2026-10-17", items: [raw] }));
+    writeFileSync(join(dir, "scout", "flash.jsonl"), `${JSON.stringify({ ...raw, date: "2026-10-17" })}\n`);
+    const panel = new ActivityReader({ dir, now: () => NOW }).current();
+    expect(panel.recent.find((item) => item.title === "Put together today's news")!.stories).toEqual([story]);
+    expect(panel.recent.find((item) => item.title === "Watched the news for you")!.stories).toEqual([story]);
   });
 });
 

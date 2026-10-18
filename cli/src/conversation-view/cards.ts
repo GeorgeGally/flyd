@@ -116,6 +116,13 @@ export const CARD_STYLE = `
 .card-detail[hidden] { display: none; }
 .card-detail-when { margin: 0; font: 500 12px/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); font-variant-numeric: tabular-nums; }
 .card-detail-text { margin: 6px 0 0; font: 400 14px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
+/* The actual stories behind a news card, each with its gist and where it came from. */
+.card-stories { margin: 8px 0 0; padding: 0; list-style: none; }
+.card-stories li + li { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--faint); }
+.card-story-head { margin: 0; font: 500 15px/1.4 var(--sans); color: var(--link); text-decoration: none; text-wrap: pretty; }
+.card-story-head:hover { color: var(--strong); }
+.card-story-line { margin: 5px 0 0; font: 400 14px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }
+.card-story-src { margin: 5px 0 0; font: 500 12px/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); }
 /* Putting a card away: a quiet cross that shows on hover, a colour tween, nothing moves. */
 .card-dismiss { position: absolute; top: 11px; right: 11px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; background: none; cursor: pointer; font: 400 16px/24px var(--sans); color: var(--muted); opacity: 0; transition: opacity 140ms ease, color 140ms ease; }
 .card .card-dismiss { right: 11px; }
@@ -159,7 +166,7 @@ export const CARD_SCRIPT = `
     opts = opts || {};
     var kind = item.kind || opts.kind || "clear";
     var v = kindOf(kind);
-    var unfold = opts.detail !== undefined || opts.detailWhen;
+    var unfold = opts.detail !== undefined || opts.detailWhen || opts.extra;
     var card = el("li", "card card-" + kind + " tone-" + v.tone + (opts.className ? " " + opts.className : "") + (unfold ? " is-expandable" : "") + (unfold && opts.open ? " is-open" : ""));
     card.dataset.key = opts.key;
     card.appendChild(cardIcon(kind));
@@ -188,6 +195,7 @@ export const CARD_SCRIPT = `
       var detail = el("div", "card-detail");
       if (opts.detailWhen) detail.appendChild(el("p", "card-detail-when", opts.detailWhen));
       if (opts.detail) detail.appendChild(el("p", "card-detail-text", opts.detail));
+      if (opts.extra) detail.appendChild(opts.extra);
       detail.hidden = !opts.open;
       text.appendChild(detail);
       card.tabIndex = 0;

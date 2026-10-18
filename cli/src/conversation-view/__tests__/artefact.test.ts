@@ -6,7 +6,7 @@ import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
-  doneItems, underwayItems, workerStarted,
+  doneItems, underwayItems, workerStarted, weekLandedRows,
 } from "../artefact.js";
 
 const BEARINGS = {
@@ -179,6 +179,12 @@ describe("the backlog", () => {
     expect(days).toHaveLength(7);
     expect(days.at(-1)).toEqual({ day: "2026-10-10", count: 0 });
     expect(days.find((day) => day.day === "2026-10-09")).toEqual({ day: "2026-10-09", count: 1 });
+  });
+
+  it("gives the week's figure every piece of work behind it, uncapped, and none outside the week", () => {
+    const rows = weekLandedRows(parseBacklog(BACKLOG), Date.parse("2026-10-10T12:00:00Z"));
+    expect(rows).toEqual([{ label: "Flyd: visual show mode", task: "flyd-show-mode", status: "landed", at: "2026-10-09", url: "https://github.com/GeorgeGally/flyd/pull/79", repo: "flyd" }]);
+    expect(weekLandedRows(parseBacklog(BACKLOG), Date.parse("2026-10-20T12:00:00Z"))).toEqual([]);
   });
 
   it("says a captain hold's encoded reason in plain words, never the marker", () => {
