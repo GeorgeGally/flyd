@@ -71,7 +71,7 @@ export class WhatsAppPairing {
         this.release = setTimeout(() => this.stop(), PAIRING_SYNC_MS);
         this.release.unref?.();
       })
-      .catch(() => undefined)
+      .catch(() => this.stop())
       .finally(() => { this.running = undefined; });
   }
 
