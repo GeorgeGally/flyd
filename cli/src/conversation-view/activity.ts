@@ -300,8 +300,8 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
   const done: ActivityItem[] = [];
   for (const [key, record] of latest) {
     const line = plainLine(record.line);
-    const detail = plainDetail(record.detail) ?? detailBehind(record.line, line);
     const stories = recordStories(record.stories);
+    const detail = stories.length ? undefined : plainDetail(record.detail) ?? detailBehind(record.line, line);
     const item: ActivityItem = { id: `record:${key}`, kind: record.kind, title: record.title.trim(), ...(line ? { line } : {}), ...(detail ? { detail } : {}), ...(stories.length ? { stories } : {}), at: record.at };
     if (record.state === "now") {
       if (now - Date.parse(record.at) <= NOW_MAX_AGE_MS) live.push(item);

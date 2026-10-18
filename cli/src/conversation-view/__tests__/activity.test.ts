@@ -118,6 +118,13 @@ describe("activity records", () => {
     const out = activityFromRecords([{ key: "scout-edition", kind: "news", title: "Put together today's news", stories, state: "done", at: minutesAgo(2) }], NOW);
     expect(out.done[0]!.stories).toEqual([{ title: "A real find", url: "https://x.test/a", gist: "why it matters", source: "r/ordinals" }]);
   });
+
+  it("shows a record's stories alone, not a second full-text copy beside them", () => {
+    const stories = [{ title: "A real find", url: "https://x.test/a", gist: "why it matters" }];
+    const out = activityFromRecords([{ key: "scout-edition", kind: "news", title: "Put together today's news", line: "1 story from your sources.", detail: "Bitcoin & Crypto Art\n1. A real find — why it matters (r/ordinals)\n   https://x.test/a", stories, state: "done", at: minutesAgo(2) }], NOW);
+    expect(out.done[0]!.stories).toEqual(stories);
+    expect(out.done[0]!.detail).toBeUndefined();
+  });
 });
 
 describe("composeActivity", () => {
