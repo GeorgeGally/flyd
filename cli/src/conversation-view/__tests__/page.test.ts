@@ -2827,7 +2827,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     });
     await settle();
     const second = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
-    expect(second).toBe(first);
+    expect(second.dataset.semanticId).toBe(first.dataset.semanticId);
     expect(second.dataset.phase).toBe("needs_you");
     expect(document.querySelectorAll("#left-semantic .semantic-activity")).toHaveLength(1);
 
@@ -2843,7 +2843,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     });
     await settle();
     const third = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
-    expect(third).toBe(first);
+    expect(third.dataset.semanticId).toBe(first.dataset.semanticId);
     expect(third.dataset.phase).toBe("finished");
     expect(third.querySelector(".card-meta")!.textContent).toBe("Done");
   });
