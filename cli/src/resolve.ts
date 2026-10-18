@@ -652,6 +652,7 @@ export function parseResolutionResponse(
       : [],
     augmentations: normalizeAugmentations(parsed.augmentations),
     composeRationale: parsed.compose_rationale || parsed.composeRationale || undefined,
+    composeUrl: parsed.compose_url || parsed.composeUrl || undefined,
   };
 }
 

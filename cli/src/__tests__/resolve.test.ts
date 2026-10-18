@@ -25,6 +25,17 @@ const env = {
 };
 
 describe("parseResolutionResponse", () => {
+  it("preserves a resolution-bound compose URL from the model", () => {
+    const resolution = parseResolutionResponse(JSON.stringify({
+      resolution_id: "res-investigation",
+      mode: "requires_compose",
+      rationale: "Needs evidence.",
+      composeRationale: "Deep investigation.",
+      composeUrl: "http://127.0.0.1:3000/surface/surface-1",
+    }), "inv-1");
+    expect(resolution.composeUrl).toBe("http://127.0.0.1:3000/surface/surface-1");
+  });
+
   it("accepts camelCase compose rationale from the model prompt", () => {
     const resolution = parseResolutionResponse(JSON.stringify({
       resolution_id: "res-1",

@@ -3,6 +3,7 @@ import { clusterEvidence } from "../clustering.js";
 import { extractEvidenceConflicts } from "../contradictions.js";
 import {
   evidenceSurfaceIdForResolution,
+  evidenceSurfaceSemanticObject,
   finalizeEvidenceSurface,
   parseEvidenceSurfaceRoute,
   publishEvidenceSurface,
@@ -115,6 +116,57 @@ describe("E4 deep research", () => {
     expect(result.prompt).toContain('Return mode "requires_compose"');
     expect(result.prompt).toContain("surfaceSynthesis");
     expect(result.prompt).toContain('"composeUrl": "http://127.0.0.1:3000/surface/surface-1"');
+  });
+
+  it("projects a finalized dossier as one native semantic Investigation", async () => {
+    const bundle: EvidenceBundle = {
+      query: "Why did vendor applications slow down?",
+      intent: "factual",
+      generatedAt: "2026-10-18T14:00:00.000Z",
+      plan: { query: "vendor applications", intent: "factual", depth: "deep", sourceWeights: {}, subqueries: [], maxResults: 20, maxPerStream: 10 },
+      evidence: [ranked("traffic", "Instagram referral traffic fell after the campaign ended.", "web", 1, "Traffic report")],
+      clusters: [],
+      conflicts: [{ left: "traffic", right: "other", topic: "Cause", reason: "Sources disagree on whether reach or conversion changed.", confidence: 0.6 }],
+      gaps: [{ code: "insufficient_evidence", message: "No paid campaign conversion data." }],
+      capabilityHealth: [],
+    };
+    const published = await publishEvidenceSurface(bundle);
+    expect(published.ready).toBe(true);
+    finalizeEvidenceSurface(published.surfaceId, JSON.stringify({
+      resolution_id: "33333333-3333-3333-3333-333333333333",
+      surfaceSynthesis: {
+        title: "Applications slowed with Instagram traffic",
+        executiveSummary: "The clearest change is lower referral traffic.",
+        findings: [{ heading: "Reach fell", summary: "Instagram sent fewer visitors.", evidenceIds: ["traffic"], confidence: "high" }],
+        recommendation: "Restore the strongest campaign distribution.",
+        uncertainties: ["Conversion quality is still unknown."],
+      },
+    }));
+
+    // Claim the compatibility handoff so this test does not leak a ready
+    // dossier into the next concurrency test; historical semantic projection
+    // remains available by stable surface id.
+    const claim = await fetch("http://127.0.0.1:3000/surface", { redirect: "manual" });
+    expect(claim.status).toBe(302);
+
+    const semantic = evidenceSurfaceSemanticObject(published.surfaceId!);
+    expect(semantic).toMatchObject({
+      id: `investigation:${published.surfaceId}`,
+      kind: "investigation",
+      lifecycle: "resolved",
+      subject: "Applications slowed with Instagram traffic",
+      summary: "The clearest change is lower referral traffic.",
+      detail: "Restore the strongest campaign distribution.",
+      investigation: {
+        question: "Why did vendor applications slow down?",
+        sourceCount: 1,
+        findings: [{ heading: "Reach fell", summary: "Instagram sent fewer visitors.", evidenceIds: ["traffic"], confidence: "high" }],
+        uncertainties: ["Conversion quality is still unknown."],
+        conflicts: [{ topic: "Cause", reason: "Sources disagree on whether reach or conversion changed.", confidence: 0.6 }],
+      },
+    });
+    expect(semantic?.evidence[0]).toMatchObject({ kind: "document", label: "Research dossier" });
+    expect(semantic?.actions[0]).toMatchObject({ kind: "inspect", label: "Open research" });
   });
 
   it("binds concurrent dossiers to their own resolution ids and claims only the requested handoff", async () => {
