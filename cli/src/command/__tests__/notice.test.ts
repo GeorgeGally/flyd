@@ -125,6 +125,20 @@ describe("notices keep the one voice", () => {
     expect(failure).toBe('Work on "Fix the island" hit a problem.');
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "I need your decision: Firstmate needs your call on a composer idle-row guard.", surface: "notification", held: true }));
   });
+
+  it("names the work in a few words, and never falls to a content-free line when the work itself names backstage", () => {
+    const withOutcome = (intendedOutcome: string, brief: string, status: DomainRunStatus) => {
+      const base = run(JSON.stringify({ status, brief }));
+      return captainNotice({ ...base, request: { ...base.request, intendedOutcome } });
+    };
+    const machinery = "Guard relayed updates from firstmate, crewmates and the Council";
+    expect(withOutcome(machinery, "Working on it", "needs_decision")).toBe("I need your decision on some of your work.");
+    expect(withOutcome(machinery, "Working on it", "failed")).toBe("Some of your work hit a problem.");
+    const long = withOutcome(`The sidebar opens on Artefacts by default. ${"More detail follows here. ".repeat(10)}`, "Looking into it", "needs_decision")!;
+    expect(long.length).toBeLessThan(130);
+    expect(long).toMatch(/^I need your decision on "The sidebar opens on Artefacts by default\. .*…"\.$/);
+    expect(long).not.toMatch(/There is an update/);
+  });
 });
 
 describe("a notice the outgoing-answer checks hold back", () => {

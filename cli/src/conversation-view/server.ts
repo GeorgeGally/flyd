@@ -45,7 +45,7 @@ import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from ".
 import { ComposerDrafts, draftKey } from "./drafts.js";
 import { readStaffView, type StaffView } from "../command/fleet-monitor.js";
 import { noteSaid, recordHeld } from "../council/reply-review.js";
-import { relayShortfalls } from "../runtime/honesty-check.js";
+import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -316,12 +316,13 @@ export class SnapshotDiffer {
   private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): (Pick<RenderedMessage, "summary"> & { body: string }) | null {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
+    const shown = stripCommitIds(message.text);
     if (cached) return { body: message.text, summary: glance(inFlydsVoice(cached), "flyd") };
     this.readAnswer(message, snapshot, newest);
     // With no reading of Flyd's to lead, staff words that fail the checks are not shown at all: Flyd handles them.
     if (this.heldRelay(message.text)) return null;
     const pending = interpreter?.pending(message.text) ?? false;
-    return { body: message.text, summary: pending ? glance(message.text, "digest", true) : briefOf(message.text) };
+    return { body: message.text, summary: pending ? glance(shown, "digest", true) : briefOf(shown) };
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
@@ -445,7 +446,7 @@ export class SnapshotDiffer {
       const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) }
         : relay?.kind === "decision" && !open && index > lastSaid ? { question: inFlydsVoice(relay.line), options: relay.options, replyTo: choiceTarget(message) } : undefined;
       // The card under the reply asks its question; Flyd's briefing does not say it again.
-      if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text), false);
+      if (choice && parts.summary?.source === "brief") parts.summary = briefOf(stripCommitIds(withoutClosingAsk(message.text)), false);
       if (parts.summary?.source === "brief" && parts.summary.html === renderMarkdown(parts.body)) delete parts.summary;
       const routine = parts.routine === true;
       // Relayed updates are only worth his attention when they carry an outcome, decision or ask.

@@ -177,6 +177,9 @@ describe("relay checks: what reaches George outside a chat answer", () => {
     expect(relayShortfalls("Merged fm/sidebar-default.")[0]!.requirement).toBe("backstage_hidden");
     expect(stripCommitIds("The sidebar fix is merged at a1b2c3d.")).toBe("The sidebar fix is merged.");
     expect(stripCommitIds("Fixed it in commit 0a1b2c3d, all green.")).toBe("Fixed it, all green.");
+    // A run id is backstage, not a commit: it is neither stripped nor let through.
+    expect(stripCommitIds("Run domain-cf340333 is done.")).toBe("Run domain-cf340333 is done.");
+    expect(relayShortfalls("domain-cf340333 is done.")[0]!.requirement).toBe("backstage_hidden");
   });
 
   it("flags a phrase he has ruled out, and calls a whistle a whistle with no problem", async () => {

@@ -1,5 +1,4 @@
 import { recordHeld } from "../council/reply-review.js";
-import { scrubBackstage } from "../lib/backstage.js";
 import { relayShortfalls, stripCommitIds, stripRetiredPhrases } from "../runtime/honesty-check.js";
 import type { DomainRun } from "./types.js";
 
@@ -69,6 +68,12 @@ function decisionNotice(run: DomainRun, brief: string): string {
   recordHeld({ surface: "notification", source: `domain:${run.id}`, text: lead + brief }, held);
   const kept = stripRetiredPhrases(brief);
   if (kept && !relayShortfalls(kept).length) return lead + kept;
-  const outcome = scrubBackstage(plainBrief(run.request.intendedOutcome));
-  return run.status === "needs_decision" ? `I need your decision on "${outcome}".` : `Work on "${outcome}" hit a problem.`;
+  const outcome = clip(stripCommitIds(plainBrief(run.request.intendedOutcome)));
+  const named = outcome && !relayShortfalls(outcome).length ? `"${outcome}"` : "";
+  if (run.status === "needs_decision") return `I need your decision on ${named || "some of your work"}.`;
+  return named ? `Work on ${named} hit a problem.` : "Some of your work hit a problem.";
+}
+
+function clip(text: string, max = 90): string {
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
