@@ -2807,8 +2807,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
       },
     });
     await settle();
-    const first = document.querySelector('[data-semantic-id="task:t1"]') as HTMLElement;
+    const first = document.querySelector("#underway .activity-card") as HTMLElement;
     expect(first).not.toBeNull();
+    expect(first.dataset.semanticId).toBe("task:t1");
     expect(first.dataset.phase).toBe("working");
     expect(document.querySelectorAll("#underway .activity-card")).toHaveLength(1);
     expect(document.querySelectorAll("#needs > *")).toHaveLength(0);
@@ -2827,7 +2828,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
       },
     });
     await settle();
-    const second = document.querySelector('[data-semantic-id="task:t1"]') as HTMLElement;
+    const second = document.querySelector("#underway .activity-card") as HTMLElement;
     expect(second).toBe(first);
     expect(second.dataset.phase).toBe("needs_you");
     expect(document.querySelectorAll("#needs > *")).toHaveLength(0);
@@ -2844,7 +2845,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
       },
     });
     await settle();
-    const third = document.querySelector('[data-semantic-id="task:t1"]') as HTMLElement;
+    const third = document.querySelector("#underway .activity-card") as HTMLElement;
     expect(third).toBe(first);
     expect(third.dataset.phase).toBe("finished");
     expect(document.querySelectorAll("#done .brief-card")).toHaveLength(0);
