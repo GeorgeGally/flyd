@@ -45,7 +45,6 @@ import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from ".
 import { ComposerDrafts, draftKey } from "./drafts.js";
 import { readStaffView, type StaffView } from "../command/fleet-monitor.js";
 import { noteSaid, recordHeld } from "../council/reply-review.js";
-import { neutralOutcome } from "../lib/backstage.js";
 import { relayShortfalls } from "../runtime/honesty-check.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
@@ -314,13 +313,13 @@ export class SnapshotDiffer {
    * leads, firstmate's own words wait behind "more". Until it lands the lead
    * is the answer's local digest; with none coming, Flyd's whole briefing of it.
    */
-  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
+  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): (Pick<RenderedMessage, "summary"> & { body: string }) | null {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
     if (cached) return { body: message.text, summary: glance(inFlydsVoice(cached), "flyd") };
     this.readAnswer(message, snapshot, newest);
-    // With no reading of Flyd's to lead, the staff's own words never lead in its place when they fail the checks.
-    if (this.heldRelay(message.text)) return { body: message.text, summary: { html: renderMarkdown(neutralOutcome(inFlydsVoice(message.text))), source: "flyd" } };
+    // With no reading of Flyd's to lead, staff words that fail the checks are not shown at all: Flyd handles them.
+    if (this.heldRelay(message.text)) return null;
     const pending = interpreter?.pending(message.text) ?? false;
     return { body: message.text, summary: pending ? glance(message.text, "digest", true) : briefOf(message.text) };
   }
@@ -434,13 +433,14 @@ export class SnapshotDiffer {
       const relay = message.role === "assistant" && message.aside ? staffLine(message.text, handled) : undefined;
       // An answer to his own question is never muted as routine: firstmate's is told by Flyd, Flyd's own
       // shows whole when it fits a glance and else leads with its first few lines.
-      const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
+      const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.role !== "assistant" ? { body: message.text }
         : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
           : relay && relay.kind !== "absorbed" ? { body: message.text, summary: { html: renderMarkdown(georgeMarkdown(relay)), source: "flyd" } }
             : !message.answers ? this.summarize(message, fresh)
               : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh)
                 : fitsAtAGlance(message.text) ? { body: message.text }
                   : { body: message.text, summary: glance(message.text, "flyd"), ...(isActionable(message.text) ? { expanded: true } : {}) };
+      if (!parts) continue;
       // A question the staff put to him mid-reply is answerable where it stands too, until he has spoken since.
       const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) }
         : relay?.kind === "decision" && !open && index > lastSaid ? { question: inFlydsVoice(relay.line), options: relay.options, replyTo: choiceTarget(message) } : undefined;

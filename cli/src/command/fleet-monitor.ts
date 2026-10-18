@@ -442,7 +442,7 @@ export class StaffMonitor {
       const run = listDomainRuns(this.dir()).find((item) => item.id === concern.runId);
       if (!run) return false;
       const body = [
-        `Flyd has had no word on this handoff since ${concern.since}.`,
+        `Flyd has had no word on this handoff since ${concern.since}; asking again as of ${new Date(Math.floor(now / RENUDGE_MS) * RENUDGE_MS).toISOString()}.`,
         "Reply with where it stands. Plain prose is fine: done (and what changed), needs George's decision (and your recommendation), failed (and why), or still working (and what is next).",
       ].join(" ");
       const outcome = await (this.options.sendRun ?? sendRunMessage)({ run, kind: "question", body, from: "flyd" }).catch(() => ({ delivered: false }));

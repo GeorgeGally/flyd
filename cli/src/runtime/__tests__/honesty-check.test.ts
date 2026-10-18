@@ -170,6 +170,15 @@ describe("relay checks: what reaches George outside a chat answer", () => {
     expect(relayShortfalls("Reading cli/src/runtime/acceptance.ts to check the done_when gate")).toEqual([]);
   });
 
+  it("does not hold a line for a commit id or the plain word branch, but still for a branch name", async () => {
+    const { relayShortfalls, stripCommitIds } = await import("../honesty-check.js");
+    expect(relayShortfalls("The sidebar fix is merged at a1b2c3d.")).toEqual([]);
+    expect(relayShortfalls("The sidebar fix is merged into the main branch.")).toEqual([]);
+    expect(relayShortfalls("Merged fm/sidebar-default.")[0]!.requirement).toBe("backstage_hidden");
+    expect(stripCommitIds("The sidebar fix is merged at a1b2c3d.")).toBe("The sidebar fix is merged.");
+    expect(stripCommitIds("Fixed it in commit 0a1b2c3d, all green.")).toBe("Fixed it, all green.");
+  });
+
   it("flags a phrase he has ruled out, and calls a whistle a whistle with no problem", async () => {
     const { relayShortfalls } = await import("../honesty-check.js");
     expect(relayShortfalls("One moment please sir, pulling that up now.")[0]!.requirement).toBe("his_voice");

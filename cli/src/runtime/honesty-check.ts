@@ -179,12 +179,17 @@ export function stripInternalNarration(answer: string): { cleaned: string; remov
 // the relay and notice paths did not, so machinery and placeholders leaked
 // there. Same checks, one place.
 
-/** Why text Flyd is about to relay to George may not be shown as written: backstage machinery, a ruled-out phrase, or a placeholder status. As chief-of-staff shortfalls, so a held text records against the standard. Pure. */
+/** A commit id is plumbing, not news: dropped with the word that points at it ("merged at a1b2c3d." → "merged."). Pure. */
+export function stripCommitIds(text: string): string {
+  return text.replace(/\s*\(?\b(?:(?:at|in|as|via|commit)\s+){0,2}(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b\)?/gi, "").replace(/\s+([.,;:!?])/g, "$1");
+}
+
+/** Why text Flyd is about to relay to George may not be shown as written: backstage machinery (a commit id or the plain word "branch" is not), a ruled-out phrase, or a placeholder status. As chief-of-staff shortfalls, so a held text records against the standard. Pure. */
 export function relayShortfalls(text: string): Shortfall[] {
   const said = text.replace(/\s+/g, " ").trim();
   if (!said) return [{ requirement: "real_status", reason: "It says nothing.", quote: "", by: "check" }];
   const shortfalls: Shortfall[] = [];
-  const backstage = firstBackstage(said);
+  const backstage = firstBackstage(stripCommitIds(said).replace(/\bbranch(?:es)?\b/gi, ""));
   if (backstage) shortfalls.push({ requirement: "backstage_hidden", reason: `It names your own backstage ("${backstage}").`, quote: said.slice(0, 240), by: "check" });
   const retired = retiredPhrasesIn(said)[0];
   if (retired) shortfalls.push({ requirement: "his_voice", reason: `It uses a phrase George has ruled out ("${retired}").`, quote: said.slice(0, 240), by: "check" });

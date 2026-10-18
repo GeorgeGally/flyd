@@ -15,9 +15,9 @@ import {
   staffFile,
   type StaffView,
 } from "../fleet-monitor.js";
-import type { FirstmateExec } from "../firstmate.js";
-import type { sendRunMessage } from "../messages.js";
-import { saveDomainRun } from "../store.js";
+import { FirstmateDomainTransport, type FirstmateExec } from "../firstmate.js";
+import { sendRunMessage } from "../messages.js";
+import { readDomainRun, saveDomainRun } from "../store.js";
 import type { DomainRun } from "../types.js";
 
 const T0 = Date.parse("2026-10-17T00:00:00.000Z");
@@ -142,6 +142,29 @@ describe("Flyd's watch on its coding staff", () => {
     await watch.tick();
     expect(nudged).toHaveLength(2);
     expect(told).toEqual([]);
+  });
+
+  it("asks again for real every six hours: each re-chase reaches the inbox as its own note", async () => {
+    const before = process.env.FLYD_COMMAND_DIR;
+    process.env.FLYD_COMMAND_DIR = dir;
+    try {
+      saveDomainRun(run(), dir);
+      let now = T0 + STALE_HANDOFF_MS + MIN;
+      const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+      const watch = monitor(() => now, { sendRun: (input) => sendRunMessage({ ...input, transport }) });
+      await watch.tick();
+      now += RENUDGE_MS;
+      await watch.tick();
+      now += RENUDGE_MS;
+      await watch.tick();
+      const ids = notes.map((note) => note.args[2]);
+      expect(ids).toHaveLength(3);
+      expect(new Set(ids).size).toBe(3);
+      expect(readDomainRun("domain-quiet")!.messages).toHaveLength(3);
+    } finally {
+      if (before === undefined) delete process.env.FLYD_COMMAND_DIR;
+      else process.env.FLYD_COMMAND_DIR = before;
+    }
   });
 
   it("tells George once, naming the work and what Flyd does next, only after two days with no reply", async () => {

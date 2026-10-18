@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { recordHeld } from "../council/reply-review.js";
-import { relayShortfalls } from "../runtime/honesty-check.js";
+import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import type { Complete } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -131,7 +131,7 @@ export class AnswerInterpreter {
           timer = setTimeout(() => reject(new Error("timed out")), this.options.timeoutMs ?? TIMEOUT_MS);
         }),
       ]);
-      const text = inFlydsVoice(raw.trim());
+      const text = stripCommitIds(inFlydsVoice(raw.trim()));
       if (!text || isRoutine(text) || isAcknowledgement(text)) throw new Error("no interpretation");
       // The relayed update reaches George under the same outgoing-answer checks
       // a chat reply passes: one that names backstage machinery or is a

@@ -576,24 +576,22 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     const helperReport = "Firstmate needs your call on a composer idle-row guard. Upstream reviewers call this new default behaviour, not a fix.";
     const placeholder = "Working on it";
     const cleanLine = "Reading cli/src/runtime/acceptance.ts to check the done_when gate";
-    const relay = async (reply: string, file: string) => {
-      // The model retells the reply word for word, as a leaky retelling would.
-      const interpreter = new AnswerInterpreter({ cacheFile: join(dir, file), profile: () => null, complete: async () => reply });
+    const relay = async (reply: string, file: string, retelling = reply) => {
+      const interpreter = new AnswerInterpreter({ cacheFile: join(dir, file), profile: () => null, complete: async () => retelling });
       const messages = noteWithReply(reply);
       const answer = messages.find((message) => message.answers === `note:${NOTE}`)!.text;
-      const first = new SnapshotDiffer({ interpreter }).next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+      const shownOf = () => new SnapshotDiffer({ interpreter }).next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`);
+      const first = shownOf();
       const told = await interpreter.request({ question: "q", answer, recent: [] });
-      const shown = new SnapshotDiffer({ interpreter }).next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
-      return { told, leads: [first.summary, shown.summary].map((summary) => plain(summary?.html ?? "")), cached: interpreter.cached(answer) };
+      return { told, shown: [first, shownOf()], cached: interpreter.cached(answer) };
     };
 
     for (const [reply, file] of [[helperReport, "helper.json"], [placeholder, "placeholder.json"]] as const) {
-      const { told, leads } = await relay(reply, file);
+      // The model retells the reply word for word, as a leaky retelling would.
+      const { told, shown } = await relay(reply, file);
       expect(told).toBeUndefined();
-      for (const lead of leads) {
-        expect(lead).not.toContain(reply);
-        expect(lead).not.toMatch(/firstmate|working on it/i);
-      }
+      // Nothing of it is rendered: no summary, no body behind "more".
+      expect(shown).toEqual([undefined, undefined]);
     }
     const verdicts = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "verdicts.jsonl"), "utf8")
       .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
@@ -602,7 +600,17 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     const clean = await relay(cleanLine, "clean.json");
     expect(clean.told).toBe(cleanLine);
     expect(clean.cached).toBe(cleanLine);
-    expect(clean.leads[1]).toContain("acceptance.ts");
+    expect(plain(clean.shown[1]!.summary!.html)).toContain("acceptance.ts");
+  });
+
+  it("keeps a retelling that carries a commit id, the id dropped", async () => {
+    const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "sha.json"), profile: () => null, complete: async () => "The sidebar fix is merged at a1b2c3d." });
+    const messages = noteWithReply("Captain, merged the sidebar fix.");
+    const answer = messages.find((message) => message.answers === `note:${NOTE}`)!.text;
+    expect(await interpreter.request({ question: "q", answer, recent: [] })).toBe("The sidebar fix is merged.");
+    const shown = new SnapshotDiffer({ interpreter }).next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+    expect(plain(shown.summary!.html)).toContain("The sidebar fix is merged.");
+    expect(plain(shown.summary!.html)).not.toContain("a1b2c3d");
   });
 
   it("falls back to the digest when the model only acknowledges or fails", async () => {

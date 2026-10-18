@@ -36,8 +36,7 @@ const COUNT_PHRASE = new RegExp(
   "gi",
 );
 
-/** A line that says only that there is news, with any amounts it named. */
-export function neutralOutcome(text: string): string {
+function neutralOutcome(text: string): string {
   const amounts = (text.match(COUNT_PHRASE) ?? []).map((amount) => amount.replace(/\s+/g, " ").trim());
   return amounts.length ? `Update — ${amounts.join(", ")}.` : "There is an update on your work.";
 }
