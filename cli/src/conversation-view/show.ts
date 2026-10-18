@@ -5,6 +5,7 @@ import { withoutStubs } from "./executive.js";
 import { choiceOf, choiceTarget, openChoice, type ChoiceStep } from "./choices.js";
 import { callItems, composeArtefact, doneItems, fleetCounts, heldItems, nextItems, readyItems, underwayItems, weekLandedItems, type ArtefactInputs, type DayCount } from "./artefact.js";
 import { railImageSrc } from "./rail.js";
+import { semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
 // Show mode: Flyd's own picture of what matters now, for the Conversation
@@ -71,6 +72,8 @@ export interface ShowScreen {
   /** One line on the whole situation: what waits on him, what is moving. */
   summary: string;
   items: ShowItem[];
+  /** Canonical semantic objects for the same visible items; rendering still uses ShowItem during migration. */
+  semantic: SemanticObject[];
   /** How many of each kind exist, including those past the screen's limits. */
   counts: Partial<Record<ShowKind, number>>;
   /** Every call that needs him, as many as counts.call says, each with its question to answer. */
@@ -432,6 +435,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
     title: titleOf(chosen, recap && artefact.length === 0),
     summary: situationOf(counts, fleet?.unavailable),
     items: chosen,
+    semantic: semanticObjectsFromShow(chosen),
     counts,
     ...(calls.length ? { calls } : {}),
     ...(underway.length ? { underway } : {}),
