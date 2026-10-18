@@ -474,7 +474,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail {
   position: fixed; top: 52px; right: 0; bottom: 0; width: min(430px, 34vw); z-index: 6;
   display: flex; flex-direction: column; background: var(--bg);
-  border-left: 1px solid var(--faint); font-size: 0.62em;
+  font-size: 0.62em;
 }
 .rail[hidden] { display: none; }
 :root[data-rail="on"] main { margin-right: calc(min(430px, 34vw) + 1.5em); }
