@@ -22,6 +22,7 @@ import type { Resolution, ResolutionOutcome } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
 import { loadFlydWorkerConfig, loadFlydRouterConfig } from "./runtime/flyd-worker-config.js";
 import { checkUrlResponds, checkArtifacts } from "./artifact-check.js";
+import { evidenceSurfaceIdForResolution, evidenceSurfaceSemanticObject, evidenceSurfaceUrl } from "./evidence/compose-surface.js";
 import type { ArtifactClaim } from "./verification-types.js";
 import { overlayMetricsSnapshot, recordDelegationCompletion } from "./overlay-metrics.js";
 import { checkVoiceSetup, startTranscriptionServer, stopTranscriptionServer } from "./transcription.js";
@@ -536,11 +537,20 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
     }
 
     if (resolution.mode === "requires_compose") {
-      // Never hand the user a dead link — verify the surface server is
-      // actually alive before promising it.
-      const liveness = await checkUrlResponds(COMPOSE_URL, COMPOSE_LIVENESS_TIMEOUT_MS);
+      // Deep research has a resolution-bound native Investigation. Prefer its
+      // unique dossier over the generic compose handoff so identity survives
+      // across surfaces and historical investigations remain addressable.
+      const evidenceSurfaceId = evidenceSurfaceIdForResolution(resolution.resolutionId);
+      if (evidenceSurfaceId) {
+        resolution.composeUrl = evidenceSurfaceUrl(evidenceSurfaceId);
+        resolution.semantic = evidenceSurfaceSemanticObject(evidenceSurfaceId);
+      }
+      // Other composed work keeps the generic liveness gate.
+      const liveness = resolution.composeUrl
+        ? { ok: true }
+        : await checkUrlResponds(COMPOSE_URL, COMPOSE_LIVENESS_TIMEOUT_MS);
       if (liveness.ok) {
-        resolution.composeUrl = COMPOSE_URL;
+        resolution.composeUrl ||= COMPOSE_URL;
       } else {
         resolution.mode = "requires_augment";
         resolution.augmentations = [{
