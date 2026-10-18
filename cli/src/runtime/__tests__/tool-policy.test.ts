@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  allowForSession, autonomyLevel, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, resetSessionAllowances,
+  advanceSemanticAction, allowForSession, autonomyLevel, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, resetSessionAllowances, semanticActionForToolCall,
 } from "../tool-policy.js";
 
 describe("isReadOnlyCommand", () => {
@@ -162,3 +162,50 @@ describe("approving crew follow-ups at dispatch", () => {
   });
 });
 
+
+
+describe("semantic Action lifecycle", () => {
+  const clean = { tainted: false };
+
+  it("does not manufacture an Action for reads", () => {
+    expect(semanticActionForToolCall("bash", { command: "git status" }, clean, "trusted")).toBeUndefined();
+  });
+
+  it("lets local reversible Action proceed without adding an approval gate", () => {
+    const action = semanticActionForToolCall("edit_file", { path: "notes.md" }, clean, "trusted");
+    expect(action).toMatchObject({
+      kind: "action", lifecycle: "active", summary: "Ready to execute.",
+      action: { phase: "approved", category: "local", requiresApproval: false },
+      actions: [],
+    });
+  });
+
+  it("manifests the existing outward authority boundary as a proposed Action", () => {
+    const action = semanticActionForToolCall("bash", { command: "git push origin main" }, clean, "trusted");
+    expect(action).toMatchObject({
+      kind: "action", lifecycle: "interrupted",
+      action: { phase: "proposed", category: "outward", requiresApproval: true },
+      actions: [
+        { id: "approve", kind: "approve", label: "Approve" },
+        { id: "revise", kind: "revise", label: "Revise" },
+      ],
+    });
+    expect(action?.detail).toContain("leaves this machine");
+  });
+
+  it("keeps one Action identity while linking execution Activity and completed Artifact", () => {
+    const proposed = semanticActionForToolCall("bash", { command: "git push origin main" }, clean, "trusted")!;
+    const executing = advanceSemanticAction(proposed, "executing", { activityId: "task:push-1" });
+    const completed = advanceSemanticAction(executing, "completed", { artifactId: "artifact:push-receipt-1" });
+    expect(executing.id).toBe(proposed.id);
+    expect(completed.id).toBe(proposed.id);
+    expect(executing).toMatchObject({ lifecycle: "active", action: { phase: "executing", activityId: "task:push-1" } });
+    expect(completed).toMatchObject({ lifecycle: "resolved", summary: "Completed.", action: { phase: "completed", activityId: "task:push-1", artifactId: "artifact:push-receipt-1" } });
+  });
+
+  it("gives the same intended operation a deterministic Action identity", () => {
+    const a = semanticActionForToolCall("bash", { repo: "/tmp/flyd", command: "git push" }, clean, "trusted");
+    const b = semanticActionForToolCall("bash", { command: "git push", repo: "/tmp/flyd" }, clean, "trusted");
+    expect(a?.id).toBe(b?.id);
+  });
+});
