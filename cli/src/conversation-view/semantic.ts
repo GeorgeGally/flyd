@@ -60,6 +60,17 @@ export interface SemanticObject {
     recommended?: string;
     replyTo?: string;
   };
+  /** Action is one intended state change across approval, execution and outcome. */
+  action?: {
+    phase: "proposed" | "approved" | "executing" | "completed" | "declined" | "failed";
+    operation: string;
+    category: "local" | "outward" | "destructive";
+    requiresApproval: boolean;
+    /** Stable execution identity once this Action becomes an Activity. */
+    activityId?: string;
+    /** Stable durable result identity once execution produces an Artifact. */
+    artifactId?: string;
+  };
   /** Investigation is an evidence-backed question, not a layout. */
   investigation?: {
     question: string;
@@ -190,10 +201,10 @@ export function semanticObjectsFromShow(items: readonly ShowItem[], override?: S
 function sameMeaning(a: SemanticObject, b: SemanticObject): boolean {
   return JSON.stringify({
     kind: a.kind, lifecycle: a.lifecycle, subject: a.subject, summary: a.summary, detail: a.detail,
-    project: a.project, status: a.status, evidence: a.evidence, actions: a.actions, activity: a.activity, decision: a.decision, investigation: a.investigation,
+    project: a.project, status: a.status, evidence: a.evidence, actions: a.actions, activity: a.activity, decision: a.decision, investigation: a.investigation, action: a.action,
   }) === JSON.stringify({
     kind: b.kind, lifecycle: b.lifecycle, subject: b.subject, summary: b.summary, detail: b.detail,
-    project: b.project, status: b.status, evidence: b.evidence, actions: b.actions, activity: b.activity, decision: b.decision, investigation: b.investigation,
+    project: b.project, status: b.status, evidence: b.evidence, actions: b.actions, activity: b.activity, decision: b.decision, investigation: b.investigation, action: b.action,
   });
 }
 
