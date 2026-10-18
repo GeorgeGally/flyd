@@ -431,6 +431,11 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   }
   // The figure "N need you" opens: the fleet's every call when it has a snapshot, else the one just asked.
   const calls = fleet && !fleet.unavailable ? callItems(fleet, { project: projectOfRepo }) : asked;
+  // "N need you" is exactly the calls it opens: a call the sheet cannot show is not counted.
+  if (fleet && !fleet.unavailable) {
+    if (calls.length) counts.call = calls.length;
+    else delete counts.call;
+  }
   const underway = underwayItems(fleet, { project: projectOfRepo });
   const done = doneItems(fleet, { project: projectOfRepo });
   // What each state figure opens: every piece of work behind the number.

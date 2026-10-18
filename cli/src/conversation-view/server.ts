@@ -528,7 +528,15 @@ export class SnapshotDiffer {
       const kept = show.items.filter((item) => importance.matters(item) !== false);
       if (kept.length !== show.items.length) {
         show.items = kept.length ? kept : [{ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" }];
-        if (show.calls) show.calls = show.calls.filter((call) => importance.matters(call) !== false);
+      }
+      // A call Flyd is sure is not his leaves the sheet too, and "N need you" counts only what the sheet can open.
+      if (show.calls) {
+        const calls = show.calls.filter((call) => importance.matters(call) !== false);
+        if (calls.length !== show.calls.length) {
+          show.counts = { ...show.counts, call: calls.length };
+          if (calls.length) show.calls = calls;
+          else delete show.calls;
+        }
       }
     }
     const semanticJudge = this.summaries?.semantic;
