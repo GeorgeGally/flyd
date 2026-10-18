@@ -254,3 +254,25 @@ describe("the record file and reader", () => {
     expect(() => recordActivity({ kind: "noted", title: "x" }, dir)).not.toThrow();
   });
 });
+
+
+describe("activity-backed semantic monitors", () => {
+  it("promotes keyed watching records out of transient Activity", () => {
+    const records = [{ key: "watch:staff", kind: "watching", title: "Watching your staff", line: "Tell you when something changes.", state: "now", at: minutesAgo(90) }];
+    expect(activityFromRecords(records, NOW).now).toEqual([]);
+    expect(monitorsFromActivityRecords(records)).toMatchObject([{
+      id: "monitor:watch:staff", kind: "monitor", lifecycle: "active",
+      subject: "Watching your staff", monitor: { phase: "quiet" },
+    }]);
+  });
+
+  it("uses the latest keyed watch record and resolves only explicitly", () => {
+    const records = [
+      { key: "watch:staff", kind: "watching", title: "Watching your staff", state: "now", at: minutesAgo(90) },
+      { key: "watch:staff", kind: "watching", title: "Watching your staff", line: "Stopped.", state: "done", at: minutesAgo(1) },
+    ];
+    expect(monitorsFromActivityRecords(records)).toMatchObject([{
+      id: "monitor:watch:staff", lifecycle: "resolved", monitor: { phase: "resolved" },
+    }]);
+  });
+});
