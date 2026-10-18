@@ -2844,6 +2844,40 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(sends.at(-1)).toEqual({ session: "latest", replyTo: "reply:a#2", text: "B" });
   });
 
+  it("shows a call's designs, named, over the message box when he clicks its card", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", {
+      order: [], messages: [], working: false,
+      leftColumn: {
+        now: [], recent: [], week: [],
+        semantic: [{
+          id: "task:pick", kind: "activity", lifecycle: "interrupted", subject: "Pick one of ten left-column card designs for Flyd.",
+          summary: "Ten designs are ready.", project: "Flyd", actions: [], activity: { phase: "needs_you" },
+          source: { showItemId: "call:pick", task: "pick" },
+          decision: { target: "pick", question: "Which design (1-10) should Flyd use?", alternatives: [] },
+          evidence: [
+            { kind: "image", ref: "/api/rail-image?path=a%2F01-hairline.png", label: "01-hairline.png" },
+            { kind: "image", ref: "/api/rail-image?path=a%2F03-side-pane.png", label: "03-side-pane.png" },
+            { kind: "web", ref: "https://example.com/review", label: "Open design review" },
+          ],
+        }],
+      },
+    });
+    await settle();
+    const card = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
+    // The card itself is just its title.
+    expect(card.querySelector(".card-sub")).toBeNull();
+    card.click();
+    const shots = Array.from(document.querySelectorAll<HTMLButtonElement>("#about-body .about-shot"));
+    expect(shots.map((shot) => shot.querySelector(".about-shot-name")!.textContent)).toEqual(["01 hairline", "03 side pane"]);
+    expect(shots[0]!.querySelector("img")!.getAttribute("src")).toContain("token=");
+    expect(document.querySelector<HTMLAnchorElement>("#about-body .card-link")!.href).toBe("https://example.com/review");
+    expect(Array.from(document.querySelectorAll("#about-body .about-text")).map((p) => p.textContent)).toEqual(["Ten designs are ready.", "Which design (1-10) should Flyd use?"]);
+  });
+
   it("keeps one semantic Activity-column object alive as a task moves from working to needs-you to finished", async () => {
     localStorage.setItem("flyd-left", "on");
     load("");

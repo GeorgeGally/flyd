@@ -126,6 +126,34 @@ export const LEFT_SCRIPT = `
     if (info.detail && info.detail !== info.line && info.detail !== info.title) box.appendChild(el("p", "about-text", info.detail));
     var stories = storiesNode(info.stories);
     if (stories) box.appendChild(stories);
+    // Its pictures (the designs a call asks him to pick between), each named, opening full size; then its links.
+    var evidence = info.evidence || [];
+    var pictures = evidence.filter(function (object) { return object.kind === "image" && !object.closed; });
+    if (pictures.length) {
+      var grid = el("div", "about-shots");
+      pictures.forEach(function (picture) {
+        var src = withToken(picture.ref);
+        var shot = el("button", "about-shot");
+        shot.type = "button";
+        shot.setAttribute("aria-label", "Open " + (picture.label || "image"));
+        var img = el("img", "");
+        img.src = src;
+        img.alt = "";
+        img.loading = "lazy";
+        shot.appendChild(img);
+        if (picture.label) shot.appendChild(el("span", "about-shot-name", picture.label.replace(/\\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ")));
+        shot.addEventListener("click", function () { openImage(src); });
+        grid.appendChild(shot);
+      });
+      box.appendChild(grid);
+    }
+    evidence.filter(function (object) { return object.kind === "web" && !object.closed; }).forEach(function (link) {
+      var a = el("a", "card-link", (link.label || "Open") + " ↗");
+      a.href = link.ref;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      box.appendChild(a);
+    });
     if (info.detailWhen) box.appendChild(el("p", "about-at", info.detailWhen));
     return box;
   }
@@ -224,7 +252,7 @@ export const LEFT_SCRIPT = `
       detailWhen: at ? dayOf(at) + ", " + clock(at) : "",
       dismiss: phase === "finished",
       onHide: drawActivity,
-    }, chatOpts({ key: key, kind: visual, title: activity.subject, when: when, line: activity.summary || "", detail: activity.decision && phase === "needs_you" ? activity.decision.question : activity.detail || "", detailWhen: at ? dayOf(at) + ", " + clock(at) : "" })));
+    }, chatOpts({ key: key, kind: visual, title: activity.subject, when: when, line: activity.summary || "", detail: activity.decision && phase === "needs_you" ? activity.decision.question : activity.detail || "", evidence: activity.evidence, detailWhen: at ? dayOf(at) + ", " + clock(at) : "" })));
     card.dataset.semanticId = activity.id;
     card.dataset.phase = phase;
     return card;

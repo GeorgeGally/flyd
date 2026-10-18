@@ -991,7 +991,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .composer .unread::before { content: ""; flex: none; width: 0.42em; height: 0.42em; margin-top: 0.52em; border-radius: 50%; background: currentColor; }
 .composer .unread[hidden] { display: none; }
 /* The card his next message is about, picked from the activity column: everything it has to say, over the message box. */
-.composer .about { position: relative; max-height: 42vh; overflow-y: auto; margin: 0 0 0.75em -0.75em; padding: 1em 1.1em 1.1em; border-radius: 0.4em; background: var(--tint); animation: card-in 200ms ease both; }
+.composer .about { position: relative; max-height: 56vh; overflow-y: auto; margin: 0 0 0.75em -0.75em; padding: 1em 1.1em 1.1em; border-radius: 0.4em; background: var(--tint); animation: card-in 200ms ease both; }
 .composer .about[hidden] { display: none; }
 .composer .about-head { display: flex; align-items: center; gap: 0.6em; padding-right: 2em; }
 .composer .about .card-icon { width: 1.9em; height: 1.9em; }
@@ -1008,6 +1008,13 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .composer .about-text { margin: 0.5em 0 0; font: 400 0.95em/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; white-space: pre-line; }
 .composer .about-at { margin: 0.8em 0 0; font: 500 0.75em/1.4 var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
 .composer .about .card-stories { margin-top: 0.8em; }
+.composer .about .card-link { display: inline-block; margin: 0.8em 1.2em 0 0; font-size: 0.9em; }
+.composer .about-shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5em, 1fr)); gap: 0.9em 0.75em; margin-top: 1em; }
+.composer .about-shot { display: flex; flex-direction: column; gap: 0.4em; min-width: 0; margin: 0; padding: 0; border: 0; background: none; cursor: zoom-in; text-align: left; }
+.composer .about-shot img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; object-position: top; border-radius: 0.4em; background: var(--faint); transition: opacity 140ms ease; }
+.composer .about-shot:hover img { opacity: 0.85; }
+.composer .about-shot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 0.4em; }
+.composer .about-shot-name { font: 500 0.78em/1.3 var(--sans); color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .composer .about-clear { position: absolute; top: 0.8em; right: 0.8em; width: 1.7em; height: 1.7em; padding: 0; border: 0; border-radius: 0.3em; background: none; cursor: pointer; font: 400 0.95em/1 var(--sans); color: var(--muted); transition: color 140ms ease, background 140ms ease; }
 .composer .about-clear:hover { color: var(--strong); background: var(--faint); }
 .composer .row {
