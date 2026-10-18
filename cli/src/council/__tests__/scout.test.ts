@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  evolveScout, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
-  runScout, scoutTick, SEED_TASTE, takeEvolutionNotes, watchScout, writeSources, type ScoutSource,
+  editionActivityRecord, editionBrief, evolveScout, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
+  runScout, scoutTick, SEED_TASTE, takeEvolutionNotes, watchScout, writeSources, type Edition, type ScoutSource,
 } from "../scout.js";
 
 let dir: string;
@@ -125,6 +125,40 @@ describe("edition, feedback, and watch", () => {
     // Already examined: the next watch does not even call the model.
     expect(await watchScout({ complete, fetchFn, notify, dir, redditSpacingMs: 0, now: () => now })).toEqual([]);
     expect(complete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("edition brief", () => {
+  const edition: Edition = {
+    date: "2026-10-18",
+    generatedAt: "2026-10-18T06:00:00.000Z",
+    topics: ["Bitcoin & Crypto Art", "Creative Coding"],
+    items: [
+      { n: 1, title: "A new ordinal generative technique", url: "https://x.test/ordinal", source: "r/ordinals", topic: "Bitcoin & Crypto Art", why: "Direct precedent for your work", kind: "must" },
+      { n: 2, title: "Game of Life on a torus", url: "https://x.test/torus", source: "r/creativecoding", topic: "Creative Coding", why: "Creative coding you love", kind: "rabbit_hole" },
+    ],
+  };
+
+  it("keeps the whole brief as one record whose card opens to it", () => {
+    const record = editionActivityRecord(edition);
+    expect(record).toMatchObject({ key: "scout-edition", kind: "news", title: "Put together today's news", line: "2 stories from your sources.", state: "done", at: edition.generatedAt });
+    expect(record.detail).toContain("Bitcoin & Crypto Art");
+    expect(record.detail).toContain("1. ❗ A new ordinal generative technique — Direct precedent for your work (r/ordinals)");
+    expect(record.detail).toContain("https://x.test/ordinal");
+    expect(record.detail).toContain("2. 🐇 Game of Life on a torus");
+    expect(editionBrief(edition).indexOf("Bitcoin & Crypto Art")).toBeLessThan(editionBrief(edition).indexOf("Creative Coding"));
+  });
+
+  it("records the day's brief with the activity only when it has stories and is wired to", async () => {
+    onlySources([{ kind: "rss", name: "Waxy.org", target: "https://waxy.org/feed/" }]);
+    const fetchFn = fakeFetch({ "waxy.org": rss([{ title: "Story", link: "https://waxy.org/s" }]) });
+    const planning = '{"topics": []}';
+    const empty = vi.fn();
+    await runScout({ complete: vi.fn(async (prompt: string) => prompt.startsWith("Plan 4") ? planning : '{"picks": []}'), fetchFn, dir, record: empty, now: () => at("2026-09-26T07:00:00Z") });
+    expect(empty).not.toHaveBeenCalled();
+    const record = vi.fn();
+    await runScout({ complete: vi.fn(async (prompt: string) => prompt.startsWith("Plan 4") ? planning : '{"picks": [{"index": 0, "kind": "relevant", "why": "worth his time"}]}'), fetchFn, dir, record, force: true, now: () => at("2026-09-27T07:00:00Z") });
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ date: "2026-09-27" }));
   });
 });
 

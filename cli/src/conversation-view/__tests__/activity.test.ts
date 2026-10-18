@@ -129,6 +129,15 @@ describe("composeActivity", () => {
     expect(panel.recent[2]!.line).toBe("10 recent answers checked; all held up.");
   });
 
+  it("keeps a record's own detail for its card, and lets it supersede the log line that repeats it", () => {
+    const records = [{ key: "scout-edition", kind: "news", title: "Put together today's news", line: "12 stories from your sources.", detail: "Bitcoin & Crypto Art\n1. ❗ A new ordinal technique — precedent for you (r/ordinals)\n   https://x.test/a", state: "done", at: minutesAgo(2) }];
+    expect(activityFromRecords(records, NOW).done[0]!.detail).toContain("https://x.test/a");
+    // The log line for the same news does not make a second card.
+    const panel = composeActivity({ log: ["2026-10-17T11:58:00.000Z scout: edition: 12 items"], jobs: [], advice: [], records }, NOW);
+    expect(panel.recent.filter((item) => item.title === "Put together today's news")).toHaveLength(1);
+    expect(panel.recent[0]!.detail).toContain("https://x.test/a");
+  });
+
   it("drops what is older than a week and caps the list", () => {
     const records = Array.from({ length: 30 }, (_, index) => ({ kind: "noted", title: `Note ${index}`, at: minutesAgo(index + 1) }));
     const old = { kind: "noted", title: "Ancient", at: minutesAgo(60 * 24 * 8) };

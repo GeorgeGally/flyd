@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import { RssAdapter } from "../evidence/adapters/rss.js";
+import type { ActivityRecord } from "../conversation-view/activity.js";
 import { localDay, memoryPromptText } from "./memory-store.js";
 
 // The Scout: what's happening in the world that George would want to know —
@@ -51,6 +52,10 @@ export interface EditionItem { n: number; title: string; url: string; source: st
 export interface Edition { date: string; generatedAt: string; topics: string[]; items: EditionItem[] }
 export interface ScoutFeedback { at: string; verdict: "more" | "less"; title: string; topic: string; source: string; sourceId?: string; why: string }
 
+/** How many picks a daily brief aims for; the model curates within this, a quiet day may be lean. */
+export const BRIEF_MIN = 10;
+export const BRIEF_MAX = 14;
+
 export function scoutDir(): string {
   return process.env.FLYD_SCOUT_DIR?.trim() || join(FLYD_DIR, "scout");
 }
@@ -95,14 +100,14 @@ export const SEED_TASTE = [
 ].join("\n");
 
 const SEED_SUBREDDITS: Record<string, string[]> = {
-  "Bitcoin & Crypto Art": ["ordinals", "CryptoArt", "GenerativeOrdinals"],
-  "AI Art": ["StableDiffusion", "comfyui", "aivideo"],
-  "Creative Coding": ["creativecoding", "generative", "p5js", "touchdesigner", "vjing"],
-  "Hardware Hacking": ["esp32", "cyberDeck", "synthdiy"],
+  "Bitcoin & Crypto Art": ["ordinals", "Bitcoin", "CryptoArt", "GenerativeOrdinals"],
+  "AI Art": ["StableDiffusion", "comfyui", "aivideo", "Deforum"],
+  "Creative Coding": ["creativecoding", "generative", "p5js", "touchdesigner", "vjing", "vibecoding"],
+  "Hardware Hacking": ["hardwarehacking", "esp32", "cyberDeck", "synthdiy"],
   "AI & ML": ["LocalLLaMA", "generativeAI"],
-  "Internet & Web": ["InternetIsBeautiful", "selfhosted"],
-  "Startups": ["SideProject", "indiehackers"],
-  "Deep Cuts": ["ReverseEngineering", "HobbyDrama"],
+  "Internet & Web": ["InternetIsBeautiful", "selfhosted", "DataHoarder"],
+  "Startups": ["SideProject", "indiehackers", "SaaS"],
+  "Deep Cuts": ["ReverseEngineering", "HobbyDrama", "electronics", "AskHistorians"],
 };
 
 const SEED_RSS: Array<[string, string, string]> = [
@@ -325,15 +330,17 @@ export function rankPrompt(
       "Mark such items kind 'must'. At most 2.",
     ]
     : [
-      "Choose today's edition: at most 6 items he would genuinely want to know.",
-      "The test for each: would this change a decision, unblock a project, or spark an idea for George this week? Popularity alone is not a reason. Skip off-topic, promotional, low-effort, repeated, or merely keyword-matching items.",
-      "kind: 'must' (affects an active project/decision now — use rarely), 'relevant', or exactly one 'rabbit_hole' (deep, weird, inspiring; not a news article).",
+      `Curate George's full daily briefing — a good curator's dozen or so, not a shortlist of two. Aim for around ${BRIEF_MIN}–${BRIEF_MAX} picks on a day that supports it; a quiet day is honestly fewer, never padded.`,
+      "Sections, in this order: (1) Bitcoin & Crypto Art first — real on-chain art (Ordinals, generative, 1/1s, innovations). (2) Creative Tech / AI Art — what people are actually building: new tools, techniques, creative coding, AI art experiments, projects over news. (3) Everything else worth knowing — the weird, niche and interesting, best first. (4) Exactly one rabbit_hole — the single most interesting deep, weird or inspiring link, not a news article.",
+      "kind: 'must' for genuinely novel or important (Hot), 'relevant' for worth a look, 'rabbit_hole' for the one deep pick (exactly one).",
+      "Be opinionated: curate, don't list, and mark a 'Skip' by omitting it. Write 'why' as one sharp sentence in your own voice on why this is worth his time, grounded in what the item actually says — never a stretch to his projects and never generic filler ('could inspire your work', 'can enhance your process').",
+      "Skip generic world or mainstream tech news, politics, crypto price talk and PFP/NFT market chatter: they do not clear the bar however fresh they are. Every pick must carry a working link.",
     ];
   return [
     "You are Flyd's Scout, curating for George. Be opinionated: curate, don't list.",
     `Today is ${context.today}.`,
     ...task,
-    "'why' is one plain sentence to George saying why it matters to HIM (name the project, decision, or interest) — not a summary.",
+    "'why' is one sharp, opinionated sentence on why this is worth his time, grounded in what the item actually says — never a stretch to his projects and never filler.",
     "Source fit is how much he has liked a source before (0.5 = unknown); use it as a tiebreaker, not a rule.",
     'Reply with JSON only: {"picks": [{"index": 0, "kind": "must|relevant|rabbit_hole", "why": "..."}]} — {"picks": []} if nothing clears the bar.',
     `--- George's taste (he wrote the seed; it evolves with his feedback) ---\n${context.taste}`,
@@ -344,7 +351,7 @@ export function rankPrompt(
   ].join("\n\n");
 }
 
-export function parsePicks(text: string, candidates: ScoutCandidate[], max = 6): EditionItem[] {
+export function parsePicks(text: string, candidates: ScoutCandidate[], max = BRIEF_MAX): EditionItem[] {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error("Scout ranker returned no JSON");
   const parsed = JSON.parse(match[0]) as { picks?: Array<{ index?: unknown; kind?: unknown; why?: unknown }> };
@@ -417,6 +424,8 @@ export interface ScoutDependencies {
   dir?: string;
   force?: boolean;
   notify?: (title: string, message: string) => Promise<void>;
+  /** Records the day's brief with Flyd's activity feed, so its card opens to the whole brief. */
+  record?: (edition: Edition) => void;
   redditSpacingMs?: number;
 }
 
@@ -453,7 +462,37 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   atomicWrite(join(dir, "editions", `${today}.json`), `${JSON.stringify(edition, null, 2)}\n`);
   atomicWrite(join(dir, "edition-latest.json"), `${JSON.stringify(edition, null, 2)}\n`);
   appendJsonl(join(dir, "seen.jsonl"), items.map((item) => ({ url: item.url, date: today })));
+  if (items.length) deps.record?.(edition);
   return { edition, failedTopics: failed };
+}
+
+/** The whole brief as plain text: each story on its own line, under its section. */
+export function editionBrief(edition: Edition): string {
+  const sections = new Map<string, EditionItem[]>();
+  for (const item of edition.items) sections.set(item.topic, [...(sections.get(item.topic) ?? []), item]);
+  const lines: string[] = [];
+  for (const [topic, items] of sections) {
+    lines.push(topic);
+    for (const item of items) {
+      const mark = item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : "";
+      lines.push(`${item.n}. ${mark}${item.title} — ${item.why} (${item.source})`);
+      lines.push(`   ${item.url}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/** The day's edition as an activity record, so its card can open to the whole brief. */
+export function editionActivityRecord(edition: Edition): ActivityRecord {
+  return {
+    key: "scout-edition",
+    kind: "news",
+    title: "Put together today's news",
+    line: `${edition.items.length} ${edition.items.length === 1 ? "story" : "stories"} from your sources.`,
+    detail: editionBrief(edition),
+    state: "done",
+    at: edition.generatedAt,
+  };
 }
 
 export const WATCH_NOTIFICATIONS_PER_DAY = 1;

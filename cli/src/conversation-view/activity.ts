@@ -61,6 +61,8 @@ export interface ActivityRecord {
   kind: ActivityKind;
   title: string;
   line?: string;
+  /** The fuller outcome behind the card — e.g. the whole brief — shown only when he opens it. */
+  detail?: string;
   state?: "now" | "done";
   at?: string;
 }
@@ -73,6 +75,8 @@ export const MAX_RECENT = 14;
 const LINE_LIMIT = 140;
 /** How much of the outcome behind a card is kept for when he opens it. */
 const DETAIL_LIMIT = 240;
+/** A record's own detail may be long — the whole brief, not a glance — so it gets a generous bound. */
+const RECORD_DETAIL_LIMIT = 2000;
 
 export function activityRecordPath(dir = FLYD_DIR): string {
   return join(dir, "activity", "records.jsonl");
@@ -113,6 +117,12 @@ function detailBehind(text: string | undefined, line: string | undefined): strin
   const said = clip(sentences(inline(text ?? "")).filter((one) => !leaks(one)).join(" "), DETAIL_LIMIT).trim();
   const bare = (one: string): string => one.replace(/[.!?…\s]+$/, "").toLowerCase();
   return said && bare(said) !== bare(line) ? said : undefined;
+}
+
+/** A record's own detail, kept as written so a brief can open whole; machinery-naming text stays out. */
+function plainDetail(text: string | undefined): string | undefined {
+  const said = (text ?? "").trim();
+  return said && !leaks(said) ? clip(said, RECORD_DETAIL_LIMIT).trim() || undefined : undefined;
 }
 
 /** What a scheduled task is called: its words up to the colon ("Morning brief: …"), else its first sentence. */
@@ -276,7 +286,7 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
   const done: ActivityItem[] = [];
   for (const [key, record] of latest) {
     const line = plainLine(record.line);
-    const detail = detailBehind(record.line, line);
+    const detail = plainDetail(record.detail) ?? detailBehind(record.line, line);
     const item: ActivityItem = { id: `record:${key}`, kind: record.kind, title: record.title.trim(), ...(line ? { line } : {}), ...(detail ? { detail } : {}), at: record.at };
     if (record.state === "now") {
       if (now - Date.parse(record.at) <= NOW_MAX_AGE_MS) live.push(item);
@@ -350,6 +360,9 @@ export function activityByDay(items: ActivityItem[], now: number): DayCount[] {
 export function composeActivity(inputs: ActivityInputs, now: number): ActivityPanel {
   const live: ActivityItem[] = [];
   const done: ActivityItem[] = [];
+  const written = activityFromRecords(inputs.records, now);
+  // A record's own word supersedes the log line that would otherwise repeat it (the news brief).
+  const covered = new Set([...written.now, ...written.done].map((item) => `${item.kind}|${item.title}`));
   // Upkeep that repeats every few minutes shows once, as its latest run.
   const seen = new Set<string>();
   // The stories behind a news run, only while the card is the day they belong to.
@@ -360,7 +373,7 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
   };
   for (const raw of [...inputs.log].reverse()) {
     const entry = activityFromLogLine(raw);
-    if (!entry || seen.has(entry.group)) continue;
+    if (!entry || seen.has(entry.group) || covered.has(`${entry.kind}|${entry.title}`)) continue;
     seen.add(entry.group);
     const stories = storiesOf(entry.group, entry.at);
     done.push({ id: `log:${entry.group}:${entry.at}`, kind: entry.kind, title: entry.title, ...(entry.line ? { line: entry.line } : {}), ...(stories.length ? { stories } : {}), at: entry.at });
@@ -373,7 +386,6 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
     const made = activityFromAdvice(entry);
     if (made) done.push(made);
   }
-  const written = activityFromRecords(inputs.records, now);
   live.push(...written.now);
   done.push(...written.done);
   const monitors = monitorsFromActivityRecords(inputs.records);
