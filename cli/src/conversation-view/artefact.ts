@@ -765,12 +765,12 @@ const REPORT_SETTLE_MS = 2_000;
 const REPORT_GAP_MS = 15_000;
 
 /**
- * Whether a pending call was overtaken by work done since (see overtaken.ts),
- * and the note that tells the staff to close one that was.
+ * Whether the staff's record of a pending call's task says it was overtaken
+ * (see overtaken.ts), and the note that tells the staff to close one that was.
  */
 export interface OvertakenCheck {
-  /** What overtook the call, or undefined while it may still be live. Never throws. */
-  check(row: ArtefactRow, finished: BacklogEntry[], now: number): Promise<string | undefined>;
+  /** What overtook the call, or undefined while it may still be live. */
+  check(entry: BacklogEntry | undefined): string | undefined;
   /** Tells the staff to close it; rejects when they did not take the note. */
   close(row: ArtefactRow, why: string): Promise<void>;
 }
@@ -953,7 +953,7 @@ export class ArtefactFeed {
       const extras = await this.extras([...new Set([...listed, ...recent.map(({ task }) => task), ...referenced])]);
       this.shots = new Map([...extras].map(([task, extra]) => [task, new Set(extra.shots ?? [])]));
       const withRecent = bearings.unavailable ? bearings : { ...bearings, landed: [...bearings.landed, ...landedRows(recent, extras)] };
-      const enriched = await this.withoutOvertaken(enrichFleet(withRecent, entries, extras), [...entries.values()]);
+      const enriched = await this.withoutOvertaken(enrichFleet(withRecent, entries, extras), entries);
       const voice = this.options.voice;
       const generation = ++this.generation;
       const { fleet, unsaid } = voice ? this.voiced(voice, enriched) : { fleet: enriched, unsaid: [] };
@@ -978,16 +978,16 @@ export class ArtefactFeed {
    * asked a question the record already answers. Each is closed with the
    * staff once.
    */
-  private async withoutOvertaken(fleet: FleetArtefact, finished: BacklogEntry[]): Promise<FleetArtefact> {
+  private async withoutOvertaken(fleet: FleetArtefact, entries: Map<string, BacklogEntry>): Promise<FleetArtefact> {
     const check = this.options.overtaken;
-    if (!check || fleet.unavailable || fleet.calls.length === 0) return fleet;
-    const now = Date.now();
-    const verdicts = await Promise.all(fleet.calls.map(async (row) => {
+    if (!check || fleet.unavailable) return fleet;
+    const calls = fleet.calls.map((row) => ({ row, call: callId(row) }));
+    for (const call of this.overtaken.keys()) if (!calls.some((item) => item.call === call)) this.overtaken.delete(call);
+    const verdicts = await Promise.all(calls.map(async ({ row, call }) => {
       if (!row.task) return undefined;
-      const call = callId(row);
       const known = this.overtaken.get(call);
       if (known) return known;
-      const why = await check.check(row, finished, now).catch(() => undefined);
+      const why = check.check(entries.get(row.task));
       if (!why) return undefined;
       // A call the staff were not told to close stays in front of him.
       const closed = await check.close(row, why).then(() => true, () => false);

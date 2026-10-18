@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
 import { artefactJudgeFromEnv } from "../conversation-view/artefact-judge.js";
 import { ArtefactVoice, defaultVoiceCache } from "../conversation-view/artefact-voice.js";
@@ -136,12 +136,9 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // Firstmate's answer to each note is told by Flyd, through Flyd's own model.
   const interpreter = new AnswerInterpreter({ complete, cacheFile: defaultInterpretationCache() });
   // The artefact says each piece of work in Flyd's own words, through Flyd's own model.
-  // A call more than a day old that the work has since moved past leaves Needs you, and firstmate is told to close it.
+  // A call whose task the staff's record shows finished, answered or released leaves Needs you, and firstmate is told to close it.
   const overtaken = wantsInbox && process.env.FLYD_CLOSE_OVERTAKEN !== "0"
-    ? new OvertakenCalls({
-      repoPath: (repo) => readProjects().flatMap((project) => project.repos).find((path) => basename(path).toLowerCase() === repo.toLowerCase()),
-      send: (note, requestId) => inbox.sendOwn(note, requestId),
-    })
+    ? new OvertakenCalls({ send: (note, requestId) => inbox.sendOwn(note, requestId) })
     : undefined;
   const feed = new ArtefactFeed({ voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }), ...(overtaken ? { overtaken } : {}) });
   // Show mode names things by his own projects; the column shows what Flyd remembers for the one we are on.

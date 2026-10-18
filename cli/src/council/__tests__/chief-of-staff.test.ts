@@ -249,7 +249,9 @@ describe("notifications", () => {
 
 
   it("are one line, outcome first", () => {
-    expect(notificationLine("Sir, done. The redirects are live on capfive.com. I also checked every old address and cleared the cache.")).toBe("The redirects are live on capfive.com.");
+    expect(notificationLine("Sir, done. The redirects are live on capfive.com. I also checked every old address and cleared the cache.")).toBe("The redirects are live on capfive.com. I also checked every old address and cleared the cache.");
+    expect(notificationLine("Your 3pm with Sam moved. It is now 4:30 at the studio.")).toBe("Your 3pm with Sam moved. It is now 4:30 at the studio.");
+    expect(notificationLine("Sir, done. The redirects are live on capfive.com. I also checked every old address on the member area, the login page and the deals pages, and cleared the cache twice.")).toBe("The redirects are live on capfive.com.");
     const long = notificationLine(`The Good Neighbours deploy is blocked because ${"the hosting provider keeps rejecting the key ".repeat(5)}and nothing else.`);
     expect(long.length).toBeLessThanOrEqual(NOTIFICATION_CHARS);
     expect(long.endsWith("…")).toBe(true);

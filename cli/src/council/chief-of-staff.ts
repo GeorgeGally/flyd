@@ -314,8 +314,9 @@ const NOTICE_LEAD = /^(?:(?:sir|captain|george)\s*[,!:—-]\s*)?(?:(?:done|ok(?:
 
 /**
  * A notification as George reads it: one line, outcome first. Markdown,
- * lists and the opening address go; the first sentence that says something
- * stays, cut at a word when it runs long. Pure.
+ * lists, the opening address and sentences that say nothing go; the rest
+ * stays whole when it fits, else its first sentence that says something,
+ * cut at a word when it runs long. Pure.
  */
 export function notificationLine(text: string): string {
   const flat = text
@@ -328,7 +329,9 @@ export function notificationLine(text: string): string {
     .trim();
   const opened = flat.replace(NOTICE_LEAD, "") || flat;
   const said = opened.match(/.+?[.!?](?=\s|$)|.+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [opened];
-  const first = said.find((sentence) => !isPlaceholder(sentence) && !isAcknowledgement(sentence)) ?? said[0] ?? opened;
+  const kept = said.filter((sentence) => !isPlaceholder(sentence) && !isAcknowledgement(sentence));
+  const whole = kept.join(" ");
+  const first = whole && whole.length <= NOTIFICATION_CHARS ? whole : kept[0] ?? said[0] ?? opened;
   const line = first.length <= NOTIFICATION_CHARS ? first : `${first.slice(0, first.lastIndexOf(" ", NOTIFICATION_CHARS - 1) > 60 ? first.lastIndexOf(" ", NOTIFICATION_CHARS - 1) : NOTIFICATION_CHARS - 1).replace(/[\s,;:—-]+$/, "")}…`;
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
