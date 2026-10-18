@@ -311,6 +311,12 @@ describe("composeArtefact", () => {
     const unreachable = composeArtefact({ fleet: { ...empty, unavailable: "Command failed: /x/fm-bearings-snapshot.sh --json" }, memories: [], news: [], taste: [] });
     expect(unreachable).toEqual([]);
   });
+
+  it("never shows a lone memory line as the screen", () => {
+    expect(composeArtefact({ memories: ["Ship the artefact panel."], news: [], taste: [] })).toEqual([]);
+    const withFleet = composeArtefact({ fleet: { calls: [{ label: "A call" }], live: [], ready: [], landed: [], held: [], next: [] }, memories: ["A note"], news: [], taste: [] });
+    expect(withFleet.map((item) => item.why)).toContain("from your memory");
+  });
 });
 
 describe("the conversation's lists", () => {
@@ -539,4 +545,82 @@ describe("ArtefactFeed", () => {
       warn.mockRestore();
     }
   }, 30_000);
+
+  it("keeps the list on disk, so a restart shows the same screen even when the read fails", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-ledger-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "a", state: "working", repo: "flyd", name: "Keep me", doing: "harness busy" }] }));
+    const options = { home, artefactsFile: join(home, "artefacts.json"), memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") };
+    const feed = new ArtefactFeed(options);
+    await feed.refresh();
+    expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a"]);
+
+    // A fresh start reads the list from disk, not a live snapshot: the first screen is the one he last saw.
+    writeFileSync(script, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const rebooted = new ArtefactFeed(options);
+      await rebooted.refresh();
+      expect(rebooted.current().fleet!.live.map((row) => row.task)).toEqual(["a"]);
+      expect(rebooted.current().fleet!.unavailable).toBeUndefined();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("adds new artefacts, updates one in place and drops none on a failed read", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-list-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "a", state: "working", repo: "flyd", name: "First", doing: "harness busy" }] }));
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a"]);
+
+    // A second job is added after the first; the first is updated in place and keeps its place.
+    writeFileSync(snapshot, JSON.stringify({ in_flight: [
+      { id: "a", state: "working", repo: "flyd", name: "First, renamed", doing: "harness busy" },
+      { id: "b", state: "working", repo: "flyd", name: "Second", doing: "harness busy" },
+    ] }));
+    await feed.refresh();
+    expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a", "b"]);
+    expect(feed.current().fleet!.live[0]!.label).toBe("First, renamed");
+
+    // A failed read leaves the list exactly as it was, with nothing dropped.
+    writeFileSync(script, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await feed.refresh();
+      expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a", "b"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("shows recently finished work even when the fleet read fails", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-recent-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    mkdirSync(join(home, "data", "t1", "shots"), { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    writeFileSync(join(home, "data", "backlog.md"), "# Backlog\n");
+    writeFileSync(join(home, "data", "done-archive.md"), `- [x] t1 - Something shipped (merged ${today})\n`);
+    writeFileSync(join(home, "data", "t1", "shots", "final.png"), Buffer.alloc(20_000));
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await feed.refresh();
+      expect(feed.current().fleet!.landed.map((row) => row.task)).toEqual(["t1"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
