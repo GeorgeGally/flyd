@@ -1294,6 +1294,71 @@ describe("header and artefact view", () => {
     }
   });
 
+  it("keeps his message in the card's own thread the moment he sends it, then lands the reply under it", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+      const thread = ask.querySelector<HTMLElement>(".art-thread")!;
+      // No thread until he says something.
+      expect(thread.hidden).toBe(true);
+      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+      chat.value = "A mix of the two";
+      chat.dispatchEvent(new Event("input"));
+      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+      // His words stand in the thread at once, with nothing under them yet.
+      expect(thread.hidden).toBe(false);
+      expect([...thread.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["A mix of the two"]);
+      expect(thread.querySelector(".art-msg--them")).toBeNull();
+      // The reply about his note lands under it when it comes.
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "read", answer: { text: "A mix it is, sir.", timestamp: "2026-10-05T20:03:00.000Z" } } : {}));
+      vi.advanceTimersByTime(5000);
+      await settle();
+      expect([...thread.querySelectorAll(".art-msg--them")].map((node) => node.textContent)).toEqual(["A mix it is, sir."]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a card's message out of its thread and back in the box when it does not go", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+    const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+    chat.value = "Make the pins bigger";
+    chat.dispatchEvent(new Event("input"));
+    vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/send" ? json({ error: "firstmate did not take the message" }, 502) : json({})));
+    ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(ask.querySelector<HTMLElement>(".art-thread")!.hidden).toBe(true);
+    expect(chat.value).toBe("Make the pins bigger");
+    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("firstmate did not take the message");
+  });
+
+  it("shows a card's thread again after a reload, answers and all", async () => {
+    localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify({ receipt: "read", thread: [{ text: "A mix of the two", id: "note:1" }, { text: "Make the pins bigger", id: "note:2", answer: "Bigger pins it is, sir." }] }));
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const thread = document.querySelector<HTMLElement>(".scene-ask .art-thread")!;
+    expect(thread.hidden).toBe(false);
+    expect([...thread.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["A mix of the two", "Make the pins bigger"]);
+    expect([...thread.querySelectorAll(".art-msg--them")].map((node) => node.textContent)).toEqual(["Bigger pins it is, sir."]);
+  });
+
   it("gives every artefact a chat box that names it, and says a closed review page in words", async () => {
     load("");
     await settle();

@@ -636,6 +636,21 @@ describe("ConversationViewServer", () => {
     expect((await get(port, "/api/note?id=note%3A1")).status).toBe(403);
   });
 
+  it("returns the reply about a note he sent from an artefact, so it can land in the card's own thread", async () => {
+    const inbox = new MemoryInbox();
+    await inbox.send("Make the pins bigger");
+    const notes = inbox.notes.bind(inbox);
+    inbox.notes = () => notes().map((exchange) => exchange.question.id !== "note:1" ? exchange : {
+      ...exchange,
+      waiting: "",
+      answer: { id: "note-reply:1", role: "assistant" as const, text: "Bigger pins it is, sir.", timestamp: "2026-10-05T20:03:00.000Z", answers: "note:1" },
+    });
+    const port = await start(inbox);
+    const note = async (id: string) => JSON.parse((await get(port, `/api/note?id=${encodeURIComponent(id)}&token=${viewToken}`)).body);
+    expect(await note("note:1")).toEqual({ receipt: "read", answer: { text: "Bigger pins it is, sir.", timestamp: "2026-10-05T20:03:00.000Z" } });
+    expect(await note("note:9")).toEqual({ receipt: null });
+  });
+
   it("sends his reply to an answer back to firstmate, saying what it answers, and threads it under that answer", async () => {
     const inbox = new MemoryInbox();
     await inbox.send("There should also be other movements for bunny.");

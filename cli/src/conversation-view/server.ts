@@ -745,11 +745,16 @@ export class ConversationViewServer {
       return;
     }
     if (url.pathname === "/api/note") {
-      // Whether firstmate has read one note he sent from an artefact: "sent", then "read".
+      // Where one note he sent from an artefact stands: "sent", then "read"; and,
+      // once there is one, the reply about it, so it can land in the card's own thread.
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
       const id = url.searchParams.get("id") ?? "";
       const note = this.source.exchanges?.().find((exchange) => exchange.question.id === id);
-      sendJson(res, 200, { receipt: note ? (note.answer ? "read" : note.question.receipt ?? "sent") : null });
+      const answer = note?.answer;
+      sendJson(res, 200, {
+        receipt: note ? (answer ? "read" : note.question.receipt ?? "sent") : null,
+        ...(answer ? { answer: { text: answer.text, ...(answer.timestamp ? { timestamp: answer.timestamp } : {}) } } : {}),
+      });
       return;
     }
     if (url.pathname === "/api/plan") {
