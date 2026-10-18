@@ -1,3 +1,4 @@
+import type { SemanticObject } from "./conversation-view/semantic.js";
 import type { ConsequenceAssessment, HandoffReport } from "./verification-types.js";
 import type { Diagnosis, Intervention, ActionProposal, CurrentWork, EvidenceSummary } from "./work-intelligence/types.js";
 
@@ -33,6 +34,8 @@ export interface Resolution {
   augmentations?: AugmentOperation[];
   composeRationale?: string;
   composeUrl?: string;
+  /** Native semantic work object behind a composed surface, when one exists. */
+  semantic?: SemanticObject;
   delegationEnvelope?: Record<string, unknown>;
   consequence?: ConsequenceAssessment;
   requiresConfirmation?: boolean;
