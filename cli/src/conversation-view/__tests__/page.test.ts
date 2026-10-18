@@ -1396,6 +1396,46 @@ describe("header and artefact view", () => {
     expect(document.querySelector<HTMLElement>(".scene-shot .devices")!.classList.contains("one")).toBe(true);
   });
 
+  it("keeps a composite capture in its own shape, however wide it loads", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "map", kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [{ src: "/combo.png", label: "gnm-desktop-and-phone.png" }] }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    const img = document.querySelector<HTMLImageElement>(".scene-shot .device img")!;
+    expect(img.parentElement!.className).toBe("device art");
+    Object.defineProperty(img, "naturalWidth", { value: 1800, configurable: true });
+    Object.defineProperty(img, "naturalHeight", { value: 900, configurable: true });
+    img.dispatchEvent(new Event("load"));
+    // A name listing more than one screen is neither frame: no browser, no phone.
+    expect(document.querySelector(".scene-shot .device")!.className).toBe("device art");
+  });
+
+  it("wears a wide capture as a desktop, and a tall native-resolution phone shot as a phone", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const shapeAt = (width: number, height: number): string => {
+      const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: `shot-${width}x${height}`, kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [{ src: `/shot-${width}x${height}.png`, label: "after.png" }] }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      const img = document.querySelector<HTMLImageElement>(".scene-shot .device img")!;
+      Object.defineProperty(img, "naturalWidth", { value: width, configurable: true });
+      Object.defineProperty(img, "naturalHeight", { value: height, configurable: true });
+      img.dispatchEvent(new Event("load"));
+      return document.querySelector(".scene-shot .device")!.className;
+    };
+    // 1440 wide is a desktop capture even at a phone-ish height.
+    expect(shapeAt(1440, 2400)).toBe("device desk");
+    // An iPhone shot at 3x is over 1000px wide, but its portrait shape says phone.
+    expect(shapeAt(1179, 2556)).toBe("device phone");
+    // A full-page desktop capture is far taller than a phone, so it stays a desktop.
+    expect(shapeAt(1440, 4000)).toBe("device desk");
+    expect(shapeAt(1920, 6000)).toBe("device desk");
+    // A phone-wide picture that is not portrait is not a phone: a square icon, a landscape crop.
+    expect(shapeAt(512, 512)).toBe("device art");
+    expect(shapeAt(500, 300)).toBe("device art");
+  });
+
   it("shows the right column: each conversation with its answer below, and a live preview artefact", async () => {
     load("");
     await settle();
@@ -2142,6 +2182,26 @@ describe("header and artefact view", () => {
     localStorage.removeItem("flyd-dismissed");
   });
 
+  it("opens a finished job's screenshot full size when he clicks the card's thumbnail", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 25 * 60_000).toISOString();
+    const done = [{ id: "landed:1", kind: "landed", headline: "It landed.", why: "", at, project: "GNM", task: "1", shots: [{ src: "/api/artefact-shot?task=1&file=after.png", label: "after.png" }] }];
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    await settle();
+    const thumb = document.querySelector("#done .card-thumb") as HTMLButtonElement;
+    expect(thumb.querySelector("img")!.getAttribute("src")).toContain("/api/artefact-shot?task=1&file=after.png");
+    const lightbox = document.getElementById("lightbox") as HTMLElement;
+    expect(lightbox.hidden).toBe(true);
+    thumb.click();
+    expect(lightbox.hidden).toBe(false);
+    expect(document.getElementById("lightbox-img")!.getAttribute("src")).toContain("/api/artefact-shot?task=1&file=after.png");
+    // Clicking outside (or Escape) closes it again.
+    lightbox.click();
+    expect(lightbox.hidden).toBe(true);
+  });
+
   it("offers no way to put away a brief card that has no task of its own, since its place in the list is all that names it", async () => {
     load("");
     await settle();
@@ -2295,6 +2355,124 @@ describe("header and artefact view", () => {
     more.click();
     expect(shown()).toBe(8);
     expect(more.textContent).toBe("Show fewer");
+  });
+
+  it("opens a card's fuller detail in place when he clicks it, and closes it again", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 4 * 60_000).toISOString();
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [
+      { id: "job:1", kind: "done", title: "Finished a job for you", line: "Done.", detail: "Done. The file is at ~/Documents/Flyd/gnm.md, deduped and checked.", at },
+    ] } });
+    const card = (): HTMLElement => document.querySelector("#left-recent .left-card") as HTMLElement;
+    const detail = (): HTMLElement => card().querySelector(".card-detail") as HTMLElement;
+    expect(detail().hidden).toBe(true);
+    card().click();
+    // The one card stays put; its detail unfolds in place, with the exact time.
+    expect(document.querySelectorAll("#left-recent .left-card")).toHaveLength(1);
+    expect(card().dataset.key).toBe("job:1|done");
+    expect(card().classList.contains("is-open")).toBe(true);
+    expect(detail().hidden).toBe(false);
+    expect(card().querySelector(".card-detail-text")!.textContent).toBe("Done. The file is at ~/Documents/Flyd/gnm.md, deduped and checked.");
+    expect(card().querySelector(".card-detail-when")!.textContent).not.toBe("");
+    // Clicking the card again closes it.
+    card().click();
+    expect(detail().hidden).toBe(true);
+    // Escape closes an open card too, without taking the whole column away.
+    card().click();
+    expect(detail().hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(detail().hidden).toBe(true);
+    expect(document.getElementById("left")!.hidden).toBe(false);
+  });
+
+  it("makes every card in the column clickable, even one with no more to say than its time", async () => {
+    localStorage.setItem("flyd-left", "on");
+    const html = renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) });
+    document.head.innerHTML = /<style>[\s\S]*?<\/style>/.exec(html)![0]!;
+    load("", html);
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 3 * 3_600_000).toISOString();
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [
+      { id: "log:reviewed", kind: "reviewed", title: "Read back its own answers", line: "10 recent answers checked; all held up.", at },
+    ] } });
+    const card = (): HTMLElement => document.querySelector("#left-recent .left-card") as HTMLElement;
+    expect(card().classList.contains("is-expandable")).toBe(true);
+    expect(card().getAttribute("role")).toBe("button");
+    // The pointer says it can be opened, and a hover rule answers the mouse.
+    expect(getComputedStyle(card()).cursor).toBe("pointer");
+    const hover = Array.from(document.styleSheets).flatMap((sheet) => Array.from(sheet.cssRules))
+      .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText.endsWith(":hover"))
+      .find((rule) => card().matches(rule.selectorText.replace(/:hover$/, "")));
+    expect(hover).toBeDefined();
+    card().click();
+    // This card has no fuller outcome, so its detail is the exact time alone.
+    expect(card().querySelector(".card-detail")!.hasAttribute("hidden")).toBe(false);
+    expect(card().querySelector(".card-detail-text")).toBeNull();
+    expect(card().querySelector(".card-detail-when")!.textContent).not.toBe("");
+  });
+
+  it("opens the quiet Right now card on what Flyd last did, and exactly when", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 9 * 60_000).toISOString();
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "log:news", kind: "news", title: "Watched the news for you", at }] } });
+    const card = (): HTMLElement => document.querySelector("#left-now .left-card") as HTMLElement;
+    expect(card().classList.contains("is-expandable")).toBe(true);
+    expect(card().querySelector<HTMLElement>(".card-detail")!.hidden).toBe(true);
+    card().click();
+    expect(card().querySelector<HTMLElement>(".card-detail")!.hidden).toBe(false);
+    expect(card().querySelector(".card-detail-text")!.textContent).toBe("Watched the news for you");
+    expect(card().querySelector(".card-detail-when")!.textContent).not.toBe("");
+  });
+
+  it("leaves the quiet Right now card plain when Flyd has done nothing yet", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [] } });
+    const card = document.querySelector("#left-now .left-card") as HTMLElement;
+    expect(card.querySelector(".left-title")!.textContent).toBe("Nothing under way right now.");
+    expect(card.classList.contains("is-expandable")).toBe(false);
+    expect(card.querySelector(".card-detail")).toBeNull();
+  });
+
+  it("lets Enter on a card's ✕ hide it rather than open the card", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 4 * 60_000).toISOString();
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:1", kind: "done", title: "Finished a job for you", detail: "Done.", at }] } });
+    const card = document.querySelector("#left-recent .left-card") as HTMLElement;
+    const close = card.querySelector(".card-dismiss") as HTMLButtonElement;
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    close.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(false);
+    expect(card.classList.contains("is-open")).toBe(false);
+    card.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(card.classList.contains("is-open")).toBe(true);
+  });
+
+  it("lets Escape take the column away when no shown card is open", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 4 * 60_000).toISOString();
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:1", kind: "done", title: "Finished a job for you", detail: "Done.", at }] } });
+    (document.querySelector("#left-recent .left-card") as HTMLElement).click();
+    // The open card ages out of the panel; its key stays remembered but nothing open is shown.
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:2", kind: "done", title: "Another job", at }] } });
+    expect(document.querySelector("#left .card.is-open")).toBeNull();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.getElementById("left")!.hidden).toBe(true);
   });
 
   it("offers no left column when Core sends no activity", async () => {

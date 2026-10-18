@@ -216,6 +216,8 @@ describe("the backlog", () => {
     expect(deviceOf("space-820.png")).toBe("tablet");
     expect(deviceOf("shot-2026-10-10.png")).toBeUndefined();
     expect(deviceOf("after.png")).toBeUndefined();
+    // A composite names more than one screen: it is its own picture, never one of them.
+    expect(deviceOf("gnm-desktop-and-phone.png")).toBeUndefined();
   });
 
   it("finds the work that finished in the last few days, newest first, archive rows included", () => {

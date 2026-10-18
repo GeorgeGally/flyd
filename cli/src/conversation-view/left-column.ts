@@ -94,6 +94,8 @@ export const LEFT_SCRIPT = `
   var leftPref = store("flyd-left");
   var leftPanel = null;
   var leftAll = false;
+  // The cards he has opened to read their detail, kept across the column's own re-renders.
+  var leftOpen = {};
   var LEFT_FEW = 5;
   function leftIsOpen() { return leftPref === "on" || (leftPref !== "off" && !!leftWide && leftWide.matches); }
   function setLeft() {
@@ -127,27 +129,37 @@ export const LEFT_SCRIPT = `
   }
   function activityKey(item, live) { return item.id + "|" + (live ? "now" : "done"); }
   function activityCard(item, live) {
+    var key = activityKey(item, live);
     return visualCard(item, {
       className: "left-card" + (live ? " is-now" : ""),
-      key: activityKey(item, live),
+      key: key,
       when: (live ? "Started " : "") + ago(item.at),
       whenClass: "left-meta",
       titleClass: "left-title",
+      // Clicking a card opens what it did in full, and exactly when.
+      detail: item.detail || "",
+      detailWhen: item.at ? dayOf(item.at) + ", " + clock(item.at) : "",
+      open: !!leftOpen[key],
+      onToggle: function (open) { if (open) leftOpen[key] = 1; else delete leftOpen[key]; },
       dismiss: true,
       onHide: drawActivity,
     });
   }
   function quietCard(recent) {
-    var li = el("li", "card card-clear tone-quiet left-card is-quiet");
-    li.dataset.key = "quiet|" + (recent.length ? recent[0].at : "");
-    li.appendChild(cardIcon("clear"));
-    var text = el("div", "card-text");
-    var chip = el("span", "card-meta");
-    if (recent.length) chip.appendChild(el("span", "card-when left-meta", "Last active " + ago(recent[0].at)));
-    text.appendChild(chip);
-    text.appendChild(el("p", "card-line left-title", "Nothing under way right now."));
-    li.appendChild(text);
-    return li;
+    var last = recent[0];
+    var key = "quiet|" + (last ? last.at : "");
+    return visualCard({ kind: "clear", title: "Nothing under way right now." }, {
+      className: "left-card is-quiet",
+      key: key,
+      when: last ? "Last active " + ago(last.at) : "",
+      whenClass: "left-meta",
+      titleClass: "left-title",
+      // Its detail is the last thing Flyd did, and exactly when.
+      detail: last ? last.title || "" : undefined,
+      detailWhen: last && last.at ? dayOf(last.at) + ", " + clock(last.at) : "",
+      open: !!leftOpen[key],
+      onToggle: function (open) { if (open) leftOpen[key] = 1; else delete leftOpen[key]; },
+    });
   }
   function drawActivity() {
     if (!leftPanel) return;
@@ -174,7 +186,10 @@ export const LEFT_SCRIPT = `
   leftToggleEl.addEventListener("click", function () { chooseLeft(!leftIsOpen()); });
   document.getElementById("left-hide").addEventListener("click", function () { chooseLeft(false); });
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && !leftEl.hidden && !(leftWide && leftWide.matches) && prefs.hidden) chooseLeft(false);
+    if (event.key !== "Escape") return;
+    // An open card's detail closes first; only then does Escape take the column itself away.
+    if (leftEl.querySelector(".card.is-open")) { leftOpen = {}; drawActivity(); return; }
+    if (!leftEl.hidden && !(leftWide && leftWide.matches) && prefs.hidden) chooseLeft(false);
   });
   if (leftWide && leftWide.addEventListener) leftWide.addEventListener("change", setLeft);
   // Times in the cards move on while nothing else does.
