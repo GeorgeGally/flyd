@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Rams calm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* 03 · Rams calm. "Less, but better." Flyd as a Braun object: one warm grey surface, one orange control,
+     small indicator lamps instead of badges. Nothing decorates; every mark is a control or a reading. */
+  :root { --body:#e8e6e1; --face:#f3f2ee; --ink:#2a2a28; --mid:#86847e; --rule:#d6d3cc; --orange:#e2591d; --green:#5d8a4e; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; background:var(--body); color:var(--ink); font-family:Inter, sans-serif; -webkit-font-smoothing:antialiased; }
+  .chrome { height:38px; display:flex; align-items:center; gap:8px; padding:0 16px; }
+  .chrome i { width:12px; height:12px; border-radius:50%; background:#cfccc5; }
+  .device { position:absolute; left:96px; right:96px; top:86px; bottom:86px; background:var(--face); border-radius:18px;
+    box-shadow:0 1px 0 #fff inset, 0 30px 60px -40px rgba(60,55,45,.35); display:grid; grid-template-columns:1fr 360px; }
+  .main { padding:72px 80px; display:flex; flex-direction:column; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:600; font-size:15px; }
+  .lamp { width:8px; height:8px; border-radius:50%; background:var(--rule); box-shadow:0 0 0 2px #e9e7e1; }
+  .lamp.on { background:var(--orange); } .lamp.ok { background:var(--green); }
+  .main .label { margin-top:auto; color:var(--mid); font-size:14px; margin-bottom:18px; }
+  .main h1 { font-size:40px; line-height:1.2; font-weight:500; max-width:640px; letter-spacing:-.01em; }
+  .controls { margin-top:56px; display:flex; gap:14px; align-items:center; }
+  .key { font:inherit; font-size:15px; font-weight:500; height:52px; padding:0 28px; border-radius:26px; border:none; cursor:pointer;
+    background:#e4e2dc; color:var(--ink); box-shadow:inset 0 -2px 0 rgba(0,0,0,.06); transition:background-color .2s; }
+  .key.orange { background:var(--orange); color:#fff; }
+  .key:hover { background:#dad7d0; } .key.orange:hover { background:#cc4c14; }
+  .side { border-left:1px solid var(--rule); padding:72px 48px; display:flex; flex-direction:column; gap:32px; }
+  .row { display:grid; grid-template-columns:16px 1fr; gap:12px; align-items:start; }
+  .row .lamp { margin-top:6px; }
+  .row b { display:block; font-weight:500; font-size:15px; line-height:1.4; }
+  .row span { display:block; color:var(--mid); font-size:13px; margin-top:4px; }
+  .thumb { width:100%; border-radius:8px; display:block; margin-top:12px; }
+  .grille { margin-top:auto; display:grid; grid-template-columns:repeat(18, 6px); gap:9px; opacity:.5; }
+  .grille i { width:6px; height:6px; border-radius:50%; background:#d3d0c8; }
+  .dial { position:absolute; right:96px; bottom:36px; font-size:13px; color:var(--mid); }
+</style>
+</head>
+<body>
+  <div class="chrome"><i></i><i></i><i></i></div>
+  <section class="device">
+    <div class="main">
+      <div class="brand"><span class="lamp on"></span>Flyd</div>
+      <p class="label">Needs you · Good Neighbours Market</p>
+      <h1>A test entry is in the live vendor list. Shall I delete it?</h1>
+      <div class="controls"><button class="key orange">Delete</button><button class="key">Keep</button></div>
+    </div>
+    <aside class="side">
+      <div class="row"><span class="lamp ok"></span><div><b>GNM test applications passed</b><span>Done · 21:10</span></div></div>
+      <div class="row"><span class="lamp ok"></span><div><b>Vendor logo uploads fixed</b><span>Done · yesterday</span></div></div>
+      <div class="row"><span class="lamp on"></span><div><b>CapFive tiles show the closed year</b><span>Under way · since 07:00</span></div></div>
+      <div class="row"><span class="lamp"></span><div><b>8 Days of Christmas, ready to view</b>
+        <svg class="thumb" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Good Neighbours 8 Days of Christmas site">
+          <rect width="320" height="200" fill="#f3ede2"/><rect width="320" height="18" fill="#1e3a2c"/><circle cx="12" cy="9" r="3" fill="#e9dcc4"/><rect x="22" y="7" width="40" height="4" rx="2" fill="#e9dcc4"/><rect x="250" y="6" width="58" height="7" rx="3.5" fill="#c8402f"/>
+          <text x="20" y="58" font-family="Georgia,serif" font-size="22" fill="#1e3a2c">8 Days of</text><text x="20" y="84" font-family="Georgia,serif" font-size="22" font-style="italic" fill="#c8402f">Christmas</text>
+          <rect x="20" y="96" width="120" height="4" rx="2" fill="#1e3a2c" opacity=".35"/><rect x="20" y="106" width="90" height="4" rx="2" fill="#1e3a2c" opacity=".35"/><rect x="20" y="120" width="56" height="14" rx="7" fill="#1e3a2c"/>
+          <rect x="176" y="34" width="124" height="104" rx="4" fill="#1e3a2c"/><path d="M238 50 l26 40 h-52z" fill="#3f6b4f"/><path d="M238 66 l30 46 h-60z" fill="#4f8360"/><rect x="234" y="112" width="8" height="12" fill="#8a5a3b"/><circle cx="238" cy="48" r="4" fill="#e7b84a"/>
+          <g fill="#e3d6bf"><rect x="20" y="152" width="64" height="34" rx="3"/><rect x="92" y="152" width="64" height="34" rx="3"/><rect x="164" y="152" width="64" height="34" rx="3"/><rect x="236" y="152" width="64" height="34" rx="3"/></g>
+        </svg></div></div>
+      <div class="grille" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    </aside>
+  </section>
+  <div class="dial">Hold fn to talk</div>
+</body>
+</html>

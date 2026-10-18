@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd lab — Minimal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#f4f3ef; --ink:#1c1c1a; --mid:#86847e; --rule:#dcd9d2; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--ink); font-family:Inter, sans-serif; -webkit-font-smoothing:antialiased; padding:80px 64px 120px; }
+  header { max-width:1320px; margin:0 auto 64px; }
+  header h1 { font-size:40px; font-weight:500; letter-spacing:-.01em; }
+  header p { margin-top:14px; font-size:18px; line-height:1.5; color:var(--mid); max-width:720px; }
+  .grid { max-width:1320px; margin:0 auto; display:grid; grid-template-columns:repeat(2, 1fr); gap:56px 40px; }
+  a { color:inherit; text-decoration:none; }
+  .card img { width:100%; aspect-ratio:1440 / 900; display:block; border-radius:10px; border:1px solid var(--rule); transition:border-color .2s; }
+  .card:hover img { border-color:var(--ink); }
+  .card .t { display:flex; gap:14px; margin-top:18px; font-size:17px; font-weight:500; }
+  .card .t span { color:var(--mid); font-weight:400; }
+  .card p { margin-top:6px; font-size:16px; line-height:1.5; color:var(--mid); padding-left:34px; }
+  @media (max-width:900px) { body { padding:48px 16px 80px; } .grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Flyd, made minimal</h1>
+    <p>Ten directions for the desktop window. Each one shows the same morning: one decision for you, two things done, one under way and one new page to look at. Everything else waits until you ask.</p>
+  </header>
+  <main class="grid">
+    <a class="card" href="01-one-thing/index.html"><img src="shots/01.png" alt="One thing"><div class="t"><span>01</span>One thing</div><p>The window is today's single decision. Everything else is one quiet line at the foot.</p></a>
+    <a class="card" href="02-ambient-hud/index.html"><img src="shots/02.png" alt="Ambient HUD"><div class="t"><span>02</span>Ambient HUD</div><p>Empty air with status in the four corners, like a heads-up display; only the centre asks.</p></a>
+    <a class="card" href="03-rams-calm/index.html"><img src="shots/03.png" alt="Rams calm"><div class="t"><span>03</span>Rams calm</div><p>Flyd as a Braun object: warm grey, one orange control, indicator lamps instead of badges.</p></a>
+    <a class="card" href="04-swiss-grid/index.html"><img src="shots/04.png" alt="Swiss grid"><div class="t"><span>04</span>Swiss grid</div><p>A twelve-column poster: a count, the question, and a short index along the bottom rule.</p></a>
+    <a class="card" href="05-command-line/index.html"><img src="shots/05.png" alt="Command line"><div class="t"><span>05</span>Command line</div><p>One monospace column, keyboard first: y or n answers, every other line is a plain fact.</p></a>
+    <a class="card" href="06-glance-widgets/index.html"><img src="shots/06.png" alt="Glance"><div class="t"><span>06</span>Glance</div><p>Three tiles you read in a second — what needs you, what's moving, what's done.</p></a>
+    <a class="card" href="07-zen-focus/index.html"><img src="shots/07.png" alt="Zen focus"><div class="t"><span>07</span>Zen focus</div><p>One frosted card floats forward; everything else blurs into the space behind it.</p></a>
+    <a class="card" href="08-timeline-strip/index.html"><img src="shots/08.png" alt="Timeline strip"><div class="t"><span>08</span>Timeline strip</div><p>The day as one line: things sit where they happened, and "now" is the only point that asks.</p></a>
+    <a class="card" href="09-editorial/index.html"><img src="shots/09.png" alt="Editorial"><div class="t"><span>09</span>Editorial</div><p>A private morning paper for one reader: the question as the headline, the day in two sentences.</p></a>
+    <a class="card" href="10-scifi-console/index.html"><img src="shots/10.png" alt="Sci-fi console"><div class="t"><span>10</span>Sci-fi console</div><p>A bridge with the lights down: hairlines, one radar sweep, and one amber frame asking for a hand.</p></a>
+  </main>
+</body>
+</html>

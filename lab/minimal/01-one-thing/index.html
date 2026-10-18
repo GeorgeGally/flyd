@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — One thing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* 01 · One thing. Saul Bass: find the one essential shape. Today has one decision; the window is that decision. */
+  :root { --bg:#0e0e0d; --ink:#efebe3; --dim:#7d7a73; --faint:#3a3935; --accent:#e8b65a; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; background:var(--bg); color:var(--ink);
+    font-family:Inter, system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  .chrome { height:38px; display:flex; align-items:center; gap:8px; padding:0 16px; }
+  .chrome i { width:12px; height:12px; border-radius:50%; background:#2b2a27; }
+  .stage { position:absolute; inset:38px 0 0 0; padding:0 0 0 240px; display:flex; flex-direction:column; justify-content:center; }
+  .when { color:var(--dim); font-size:15px; margin-bottom:40px; }
+  .when b { color:var(--accent); font-weight:500; }
+  h1 { font-size:56px; line-height:1.12; font-weight:500; letter-spacing:-.01em; max-width:880px; }
+  h1 em { font-style:normal; color:var(--dim); }
+  .actions { margin-top:72px; display:flex; gap:16px; }
+  button { font:inherit; font-size:17px; padding:16px 30px; border-radius:999px; border:1px solid var(--faint);
+    background:transparent; color:var(--ink); cursor:pointer; transition:background-color .2s, color .2s; }
+  button.primary { background:var(--ink); color:var(--bg); border-color:var(--ink); }
+  button:hover { background:#24231f; }
+  button.primary:hover { background:var(--accent); border-color:var(--accent); }
+  .quiet { position:absolute; left:240px; bottom:56px; display:flex; align-items:center; gap:40px; font-size:15px; color:var(--dim); }
+  .quiet span::before { content:""; display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:10px; vertical-align:2px; background:var(--faint); }
+  .quiet .page { display:flex; align-items:center; }
+  .quiet .page::before { display:none; }
+  .quiet .mini { width:40px; border-radius:3px; margin-right:12px; display:block; }
+  .quiet .run::before { background:var(--accent); }
+  .ask { position:absolute; right:56px; bottom:48px; color:var(--dim); font-size:15px; border-bottom:1px solid var(--faint); padding:8px 0; width:280px; }
+</style>
+</head>
+<body>
+  <div class="chrome"><i></i><i></i><i></i></div>
+  <main class="stage">
+    <p class="when"><b>Needs you</b> &nbsp;·&nbsp; Good Neighbours Market</p>
+    <h1>A test entry is sitting in the live vendor list. <em>Shall I delete it?</em></h1>
+    <div class="actions">
+      <button class="primary">Delete it</button>
+      <button>Keep it</button>
+    </div>
+  </main>
+  <div class="quiet">
+    <span>2 things done</span>
+    <span class="run">CapFive tiles under way</span>
+    <span class="page"><svg class="mini" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Good Neighbours 8 Days of Christmas site">
+            <rect width="320" height="200" fill="#f3ede2"/><rect width="320" height="18" fill="#1e3a2c"/><circle cx="12" cy="9" r="3" fill="#e9dcc4"/><rect x="22" y="7" width="40" height="4" rx="2" fill="#e9dcc4"/><rect x="250" y="6" width="58" height="7" rx="3.5" fill="#c8402f"/>
+            <text x="20" y="58" font-family="Georgia,serif" font-size="22" fill="#1e3a2c">8 Days of</text><text x="20" y="84" font-family="Georgia,serif" font-size="22" font-style="italic" fill="#c8402f">Christmas</text>
+            <rect x="20" y="96" width="120" height="4" rx="2" fill="#1e3a2c" opacity=".35"/><rect x="20" y="106" width="90" height="4" rx="2" fill="#1e3a2c" opacity=".35"/><rect x="20" y="120" width="56" height="14" rx="7" fill="#1e3a2c"/>
+            <rect x="176" y="34" width="124" height="104" rx="4" fill="#1e3a2c"/><path d="M238 50 l26 40 h-52z" fill="#3f6b4f"/><path d="M238 66 l30 46 h-60z" fill="#4f8360"/><rect x="234" y="112" width="8" height="12" fill="#8a5a3b"/><circle cx="238" cy="48" r="4" fill="#e7b84a"/>
+            <g fill="#e3d6bf"><rect x="20" y="152" width="64" height="34" rx="3"/><rect x="92" y="152" width="64" height="34" rx="3"/><rect x="164" y="152" width="64" height="34" rx="3"/><rect x="236" y="152" width="64" height="34" rx="3"/></g>
+          </svg>8 Days of Christmas is ready to view</span>
+  </div>
+  <div class="ask">Ask Flyd…</div>
+</body>
+</html>
