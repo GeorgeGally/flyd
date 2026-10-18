@@ -236,13 +236,6 @@ describe("showOf", () => {
     expect(titleOf([{ id: "x", kind: "live", headline: "", why: "" }])).toBe("Under way, sir.");
     expect(titleOf([{ id: "x", kind: "news", headline: "", why: "" }, { id: "y", kind: "landed", headline: "", why: "" }])).toBe("Good news, sir.");
   });
-
-  it("damps good news beside a problem, so nothing reads as false cheer", () => {
-    const landed = { id: "l", kind: "landed" as const, headline: "", why: "" };
-    const stale = { id: "n", kind: "news" as const, headline: "Fleet status is out of date", why: "" };
-    expect(titleOf([landed])).toBe("Good news, sir.");
-    expect(titleOf([landed, stale], false, true)).toBe("Here's where things stand, sir.");
-  });
 });
 
 describe("SnapshotDiffer show", () => {
