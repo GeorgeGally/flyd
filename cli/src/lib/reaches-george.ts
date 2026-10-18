@@ -55,9 +55,6 @@ export const REACHES_HIM: ReadonlyArray<{ kind: GeorgeKind; says: string }> = [
 
 const WHITELIST = new Set(REACHES_HIM.map((item) => item.kind));
 
-/** Kinds whose words are read too: a blocker said only in error text is not yet one he can act on. His calls always reach him. */
-const READ_BY_WORDS = new Set<GeorgeKind>(["deliverable", "blocker", "status"]);
-
 /** Every kind, for callers that receive one from outside (Core's /notify). */
 export const GEORGE_KINDS: ReadonlySet<string> = new Set<GeorgeKind>([
   "decision", "deliverable", "blocker", "credential", "irreversible", "status", "fault", "stale", "silence", "routine",
@@ -68,7 +65,7 @@ const HANDLING: Record<GeorgeKind, Handling> = {
   status: "settle", fault: "repair", stale: "repair", silence: "chase", routine: "settle",
 };
 
-/** Machine error text: a failed command, an errno, an exit code, a stack frame, data that would not parse or read. */
+/** Machine error text in an aside: a failed command, an errno, an exit code, a stack frame, data that would not parse or read. */
 const FAULT = new RegExp([
   String.raw`\bcommand failed\b`,
   String.raw`\b(?:ENOENT|EACCES|EPERM|ETIMEDOUT|ECONNREFUSED|ECONNRESET|EPIPE|ENOTFOUND|EAI_AGAIN)\b`,
@@ -78,16 +75,6 @@ const FAULT = new RegExp([
   String.raw`\bnot valid JSON\b|\bunexpected (?:schema|token|end of JSON)\b`,
   String.raw`\bcouldn['’]?t read\b[^.]*\b(?:fleet|snapshot|state|records?)\b`,
   String.raw`\b(?:snapshot|state|records?) (?:is |was |are |were )?unreadable\b`,
-].join("|"), "i");
-
-/** Admin about the staff rather than news: nobody answered, notes unread, something queued for later. */
-const SILENCE = new RegExp([
-  String.raw`\bheard nothing (?:back )?(?:on|from|about)\b`,
-  String.raw`\bno word (?:back )?(?:on|from|about)\b`,
-  String.raw`\bnotes? (?:you sent )?(?:are |is )?still waiting\b`,
-  String.raw`\bhas been stuck waiting\b`,
-  String.raw`\bstill (?:no|without an?) (?:reply|answer|word)\b`,
-  String.raw`\bqueued for a next step\b`,
 ].join("|"), "i");
 
 /** A path on this machine ("/Users/…", "~/…", "…/bin/x.sh"), never part of a link. */
@@ -109,23 +96,15 @@ export function plainLine(text: string): string {
     .trim();
 }
 
-/** Whether the words themselves are a fault or staff silence, whatever the surface called them. */
-export function kindOfText(text: string): GeorgeKind | undefined {
-  if (FAULT.test(text)) return "fault";
-  if (SILENCE.test(text)) return "silence";
-  return undefined;
-}
-
 /**
- * The gate. The five kinds on the whitelist reach him anywhere; where work
+ * The gate, on the kind its producer gave: the words never change what a
+ * thing is. The five kinds on the whitelist reach him anywhere; where work
  * stands reaches him only on a screen he opened (the panel, the line under his
- * own message), never pushed. A deliverable, blocker or status line whose
- * words are a fault or staff silence is that, whatever it was called; a
- * decision, a login or an irreversible step always reaches him, in plain
- * words. Everything else is kept, with how Flyd handles it. Pure.
+ * own message), never pushed. Whatever reaches him is said in plain words.
+ * Everything else is kept, with how Flyd handles it. Pure.
  */
 export function reachesGeorge(item: ForGeorge, surface: GeorgeSurface): Gated {
-  const kind = READ_BY_WORDS.has(item.kind) ? kindOfText(item.text) ?? item.kind : item.kind;
+  const { kind } = item;
   const looking = surface === "panel" || surface === "status";
   if (!WHITELIST.has(kind) && !(kind === "status" && looking)) return { reach: false, kind, handle: HANDLING[kind] };
   const line = plainLine(item.text);

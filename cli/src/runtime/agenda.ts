@@ -266,7 +266,7 @@ export interface RunDueDependencies {
   paths?: AgendaPaths;
   /** Runs one agenda task as an agent turn and returns Flyd's answer. */
   runTask(task: string, item: AgendaItem): Promise<string>;
-  notify?: (title: string, message: string) => Promise<void>;
+  notify?: (title: string, message: string, kind?: GeorgeKind) => Promise<void>;
 }
 
 export interface RunDueResult {
@@ -304,7 +304,8 @@ export async function runDueAgenda(deps: RunDueDependencies): Promise<RunDueResu
       }
       writeAgenda(readAgenda(paths).map((existing) => existing.id === item.id ? { ...existing, lastStatus: status } : existing), paths);
       appendInbox({ id: randomUUID().slice(0, 8), itemId: item.id, task: item.task, at: now.toISOString(), status, result, read: false }, paths);
-      await (deps.notify ?? notifyMac)(`Flyd — ${item.task.slice(0, 60)}`, result).catch(() => undefined);
+      // A run that failed is Flyd's own to repair; it stays in the inbox and the next briefing.
+      await (deps.notify ?? notifyMac)(`Flyd — ${item.task.slice(0, 60)}`, result, status === "failed" ? "fault" : "deliverable").catch(() => undefined);
       ran.push({ id: item.id, task: item.task, status });
     }
   } finally {

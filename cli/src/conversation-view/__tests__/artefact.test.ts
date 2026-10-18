@@ -334,7 +334,7 @@ describe("composeArtefact", () => {
     expect(items.map((item) => item.headline)).toEqual(["George wants Bloom finished."]);
   });
 
-  it("passes every item through the gate: his calls and paused work stay, failed and silent work and fault words go", () => {
+  it("passes every item through the gate by its kind: his calls and paused work stay, failed and silent work go", () => {
     const fleet: FleetArtefact = {
       calls: [{ label: "Publish the GNM page?", task: "gnm", detail: "Read it first (Command failed: /tmp/x.sh)" }],
       live: [{ label: "Island filter", task: "island", detail: "No word from the worker" }],
@@ -347,9 +347,8 @@ describe("composeArtefact", () => {
     };
     const items = composeArtefact({ fleet, memories: [], news: [], taste: [] });
     expect(items.map((item) => [item.kind, item.headline])).toEqual([["call", "Publish the GNM page?"], ["live", "Island filter"], ["waiting", "Dark mode"]]);
-    // His call keeps its detail, said without the machinery; a status line about staff silence loses only that line.
+    // His call keeps its detail, said without the machinery.
     expect(items[0]!.detail).toBe("Read it first");
-    expect(items[1]!.detail).toBeUndefined();
   });
 });
 

@@ -1021,7 +1021,7 @@ describe("ConversationViewServer", () => {
     expect((await get(port, "/api/stream", `127.0.0.1:${port}`, false)).status).toBe(403);
   });
 
-  it("streams each note's receipt, and keeps notes firstmate left unread off his screen: they are Flyd's to chase", async () => {
+  it("streams each note's receipt, and never a warning about notes firstmate left unread: they are Flyd's to chase", async () => {
     const inbox = new MemoryInbox();
     const old = new Date(Date.now() - 12 * 60_000).toISOString();
     inbox.notes = () => [
@@ -1288,15 +1288,14 @@ describe("ConversationViewServer", () => {
     ]);
   });
 
-  it("says over the composer only the stuck coding work George has been told about and the gate lets reach him", async () => {
+  it("says over the composer only the stuck coding work George has been told about", async () => {
     const inbox = new MemoryInbox();
     const port = await start(inbox);
     const since = new Date().toISOString();
     server!.staffView = () => ({
       snapshot: { at: new Date().toISOString(), available: true, readiness: { lock: "free", liveHarness: false, heartbeat: "unknown", canReceive: false }, workers: [], waitingOnHim: [], queued: 0, handoffs: [] },
       concerns: [
-        // Told before the gate: staff silence is Flyd's to chase, whatever an older record says.
-        { kind: "handoff_stale", since, key: "a", text: "I've heard nothing back on \"the footer\" for 3 h.", toldAt: since },
+        { kind: "handoff_stale", since, key: "a", subject: "the footer", text: "\"the footer\" is blocked: it has been stuck for 2 days and the staff hasn't answered my check-ins. Tell me whether to restart it or drop it.", toldAt: since },
         { kind: "handoff_stale", since, key: "b", text: "Still being asked about.", nudgedAt: since },
         { kind: "unreachable", since, key: "c", text: "Nobody has been looking after your coding work for 45 min.", toldAt: since },
       ],
@@ -1313,7 +1312,9 @@ describe("ConversationViewServer", () => {
       req.on("error", reject);
       req.end();
     });
-    expect(JSON.parse(body.split("event: staff\ndata: ")[1]!.split("\n")[0]!)).toEqual({ text: "Nobody has been looking after your coding work for 45 min." });
+    expect(JSON.parse(body.split("event: staff\ndata: ")[1]!.split("\n")[0]!)).toEqual({
+      text: "\"the footer\" is blocked: it has been stuck for 2 days and the staff hasn't answered my check-ins. Tell me whether to restart it or drop it. Nobody has been looking after your coding work for 45 min.",
+    });
   });
 
   it("follows the session that holds firstmate's lock, not the one written last", async () => {

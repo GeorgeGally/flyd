@@ -485,14 +485,14 @@ describe("FirstMate domain transport", () => {
       transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
       now: () => now,
       judge: async (reply) => reply.startsWith("status=needs_decision") ? "needs_decision" : reply.startsWith("status=failed") ? "failed" : "completed",
-      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }, async () => ({ delivered: false })),
     });
     const byId = Object.fromEntries(changed.map((run) => [run.id, run]));
     expect(byId["domain-decided"]!.status).toBe("needs_decision");
     expect(byId["domain-broke"]!.status).toBe("failed");
     expect(byId["domain-done"]!.status).toBe("completed");
     expect(sent.some((message) => message.includes("the copy change is ready"))).toBe(true);
-    expect(sent.some((message) => message.includes("the deploy failed"))).toBe(true);
+    expect(sent.some((message) => message.includes("is blocked"))).toBe(true);
     expect(sent.some((message) => message.includes("footer link"))).toBe(false);
     expect(listDomainRuns().find((run) => run.id === "domain-done")?.notified).toBe(true);
   });

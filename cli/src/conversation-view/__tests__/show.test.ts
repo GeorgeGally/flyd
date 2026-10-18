@@ -186,11 +186,14 @@ describe("showOf", () => {
     expect(screen.items.map((item) => item.kind)).toEqual(["landed"]);
   });
 
-  it("drops a fleet message that is only a fault or a nag, whatever it was filed as", () => {
-    const fault: ConversationMessage = { id: "f", role: "assistant", text: "spawn /Users/george/Documents/firstmate/bin/fm-inbox.sh ENOENT", timestamp: new Date(NOW - 60_000).toISOString() };
-    const nag: ConversationMessage = { id: "n", role: "assistant", text: "I've heard nothing back on the footer fix for 3 h.", timestamp: new Date(NOW - 30_000).toISOString() };
-    const screen = showOf(snapshot([fault, nag]), { now: NOW });
-    expect(screen.items.map((item) => item.headline).join(" ")).not.toMatch(/ENOENT|heard nothing/);
+  it("never says nothing needs him when the fleet could not be read", () => {
+    const screen = showOf(snapshot([]), {
+      now: NOW,
+      artefact: { fleet: { unavailable: "timed out", calls: [], live: [], ready: [], landed: [], held: [], next: [] }, memories: [], news: [], taste: [] },
+    });
+    expect(screen.items).toEqual([]);
+    expect(screen.summary).toBe("");
+    expect(screen.title).not.toBe("All quiet, sir.");
   });
 
   it("says all clear beside queued work, so the screen always has something to show", () => {

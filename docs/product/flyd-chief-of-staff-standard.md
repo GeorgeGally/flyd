@@ -88,10 +88,11 @@ authoritative path. This change does not rewrite historical private entries.
     credential only he can give, and anything destructive or irreversible. Where work stands
     shows only on a screen he opened. Every surface that speaks without a model (the panel
     and its situation line, the notices over the message box, notifications, the staff
-    monitor, the line under his message) asks it first. Faults, stale readings and staff
-    silence are kept and recorded in `~/.flyd/self-review/kept.jsonl`; unread notes and
-    stuck staff work are chased with Flyd's own notes instead. Whatever reaches him is one
-    line, without paths, flags or error text.
+    monitor, the line under his message) asks it first, by the kind its producer gives,
+    never by the words. Faults, stale readings and staff silence are kept and recorded in
+    `~/.flyd/self-review/kept.jsonl`; unread notes and stuck staff work are chased with
+    Flyd's own notes instead. Whatever reaches him is one line, without paths, flags or
+    error text.
   - A notification reaches him as one line (`notificationLine`): an opening
     address, acknowledgement or placeholder is skipped, and the rest is kept
     whole when it fits in 140 characters; a longer one keeps only its first

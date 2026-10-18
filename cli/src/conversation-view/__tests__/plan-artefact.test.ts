@@ -69,7 +69,8 @@ describe("the plan artefact", () => {
   });
 
   it("never hides the nothing-needs-you card behind a plan", () => {
-    const screen = showOf({ messages: [] } as unknown as ConversationSnapshot, { artefact: inputs() });
+    const fleet = { calls: [], live: [], ready: [], landed: [], held: [], next: [] };
+    const screen = showOf({ messages: [] } as unknown as ConversationSnapshot, { artefact: inputs({ fleet }) });
     expect(screen.items.some((item) => item.kind === "clear")).toBe(true);
     expect(screen.items.some((item) => item.kind === "plan")).toBe(true);
   });

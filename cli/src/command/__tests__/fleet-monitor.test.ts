@@ -60,7 +60,7 @@ describe("Flyd's watch on its coding staff", () => {
     ...overrides,
   });
 
-  const monitor = (now: () => number, extra: { notify?: (title: string, message: string) => Promise<void>; sendRun?: typeof sendRunMessage } = {}) =>
+  const monitor = (now: () => number, extra: { notify?: (title: string, message: string, kind?: string) => Promise<void>; sendRun?: typeof sendRunMessage } = {}) =>
     new StaffMonitor({ home, script: "/fake/fm-inbox.sh", exec, sessionsDir: sessions, dir, now, ...extra });
 
   beforeEach(() => {
@@ -175,28 +175,32 @@ describe("Flyd's watch on its coding staff", () => {
     }
   });
 
-  it("tells George once, naming the work and what Flyd does next, only after two days with no reply", async () => {
+  it("chases every six hours, and after two days unanswered tells George once, plainly, then stops chasing it", async () => {
     saveDomainRun(run(), dir);
     let now = T0 + STALE_HANDOFF_MS + MIN;
-    const told: string[] = [];
+    const told: Array<{ message: string; kind?: string }> = [];
     let nudges = 0;
     const sendRun: typeof sendRunMessage = async () => { nudges += 1; return { delivered: true }; };
-    const watch = monitor(() => now, { notify: async (_title, message) => { told.push(message); }, sendRun });
+    const watch = monitor(() => now, { notify: async (_title, message, kind?: string) => { told.push({ message, kind }); }, sendRun });
 
-    for (; now < T0 + ESCALATE_MS; now += RENUDGE_MS) await watch.tick();
-    expect(told).toEqual([]);
-    expect(nudges).toBe(Math.ceil((ESCALATE_MS - STALE_HANDOFF_MS - MIN) / RENUDGE_MS));
+    await watch.tick();
+    now += RENUDGE_MS - MIN;
+    await watch.tick();
+    expect(nudges).toBe(1);
 
     now = T0 + ESCALATE_MS + MIN;
-    const escalated = await watch.tick();
-    expect(told).toHaveLength(1);
-    expect(told[0]).toContain("The footer link opens the partners page");
-    expect(told[0]).toMatch(/every few hours/);
-    expect(told[0]).not.toMatch(/firstmate|staff/i);
-    expect(escalated!.concerns[0]!.toldAt).toBeDefined();
+    const view = await watch.tick();
+    expect(told).toEqual([{
+      message: "\"The footer link opens the partners page\" is blocked: it has been stuck for 2 days and the staff hasn't answered my check-ins. Tell me whether to restart it or drop it.",
+      kind: "blocker",
+    }]);
+    expect(view!.concerns[0]!.toldAt).toBe(new Date(now).toISOString());
+    expect(view!.concerns[0]!.text).toBe(told[0]!.message);
+    const chased = nudges;
 
-    now += RENUDGE_MS;
+    now += 3 * RENUDGE_MS;
     await watch.tick();
+    expect(nudges).toBe(chased);
     expect(told).toHaveLength(1);
   });
 

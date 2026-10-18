@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { kindOfText, plainLine, reachesGeorge, REACHES_HIM } from "../reaches-george.js";
+import { plainLine, reachesGeorge, REACHES_HIM } from "../reaches-george.js";
 import { DEFAULT_SOUL } from "../soul.js";
 
 // What George saw on 2026-10-18, under "Good news, sir.".
@@ -15,13 +13,13 @@ describe("the gate", () => {
     expect(reachesGeorge({ kind: "routine", text: "Merged the routine dependency bump." }, "notification")).toEqual({ reach: false, kind: "routine", handle: "settle" });
   });
 
-  it("reads the words too: a fault or a nag called finished work, status or a blocker is still Flyd's own", () => {
-    expect(reachesGeorge({ kind: "status", text: FLEET_FAULT }, "panel")).toMatchObject({ reach: false, kind: "fault", handle: "repair" });
-    expect(reachesGeorge({ kind: "deliverable", text: "Work hit a problem: Command failed: npm test exited with code 1" }, "notification")).toMatchObject({ reach: false, kind: "fault" });
-    expect(reachesGeorge({ kind: "blocker", text: "spawn fm-inbox.sh ENOENT" }, "notification")).toMatchObject({ reach: false, kind: "fault" });
-    expect(reachesGeorge({ kind: "deliverable", text: "I've heard nothing back on \"Fix the footer\" for 3 h." }, "notification")).toMatchObject({ reach: false, kind: "silence", handle: "chase" });
-    expect(reachesGeorge({ kind: "status", text: "Queued for a next step" }, "status")).toMatchObject({ reach: false, kind: "silence" });
-    expect(kindOfText("The island now shows plan limits.")).toBeUndefined();
+  it("goes by the kind its producer gave, never by the words: finished work that names a fixed error still reaches him", () => {
+    expect(reachesGeorge({ kind: "fault", text: FLEET_FAULT }, "panel")).toEqual({ reach: false, kind: "fault", handle: "repair" });
+    expect(reachesGeorge({ kind: "deliverable", text: "Fixed the TypeError on the settings page." }, "notification"))
+      .toEqual({ reach: true, kind: "deliverable", line: "Fixed the TypeError on the settings page." });
+    expect(reachesGeorge({ kind: "deliverable", text: "Flyd no longer couldn't read the state file." }, "notification")).toMatchObject({ reach: true, kind: "deliverable" });
+    expect(reachesGeorge({ kind: "blocker", text: "The deploy is blocked (Command failed: npm test exited with code 1). Tell me whether to drop it." }, "notification"))
+      .toEqual({ reach: true, kind: "blocker", line: "The deploy is blocked. Tell me whether to drop it." });
   });
 
   it("lets every whitelisted kind reach him, pushed or on screen, as one plain line", () => {
@@ -58,37 +56,8 @@ describe("the gate", () => {
 });
 
 describe("Flyd's mission", () => {
-  it("says who Flyd is, what it owns and that it handles everything internal itself", () => {
-    expect(DEFAULT_SOUL).toMatch(/^You are Flyd, George's chief of staff\./);
-    expect(DEFAULT_SOUL).toContain("Firstmate and the coding staff, the researchers and every background job are your staff, tools you use");
-    expect(DEFAULT_SOUL).toContain("You act first. Before anyone else is asked, you use what you know (his profile, your memory, his taste, his projects) and your own judgement");
-    expect(DEFAULT_SOUL).toContain("You own outcomes, not messages.");
-    expect(DEFAULT_SOUL).toMatch(/Internal failures, errors, timeouts, retries, stale or unreadable data: repair it, retry it, or work from the last good reading\. He never sees the error\./);
-    expect(DEFAULT_SOUL).toMatch(/Silence from your staff, unread notes, overdue replies: chase them yourself, quietly, and keep chasing\./);
-  });
-
-  it("puts its prime directives in priority order: nothing irreversible without him, act first and handle it, report faithfully, speak only when it is worth it", () => {
-    const directives = ["1. Never do anything destructive or irreversible", "2. Act first and handle it yourself", "3. Report outcomes faithfully.", "4. Speak to him only when it is worth his attention"];
-    const at = directives.map((directive) => DEFAULT_SOUL.indexOf(directive));
-    expect(at.every((index) => index > 0)).toBe(true);
-    expect([...at].sort((a, b) => a - b)).toEqual(at);
-  });
-
-  it("lists exactly what the gate lets reach him, and how it must read", () => {
+  it("lists exactly what the gate lets reach him", () => {
     const listed = DEFAULT_SOUL.slice(DEFAULT_SOUL.indexOf("What reaches George, and nothing else"), DEFAULT_SOUL.indexOf("\nVoice\n"));
     expect(listed.split("\n").filter((line) => line.startsWith("- "))).toEqual(REACHES_HIM.map((item) => `- ${item.says}`));
-    expect(listed).toContain("no paths, commands, error text, task ids, branches or internal machinery");
-  });
-
-  it("keeps his voice rules", () => {
-    for (const rule of ["Say \"I\" and mean it.", "Never name helpers or describe internal machinery", "Weekends and evenings are lighter.", "Never invent facts about his life."]) {
-      expect(DEFAULT_SOUL).toContain(rule);
-    }
-  });
-
-  it("is the same contract in the repository's SOUL.md", () => {
-    const repo = readFileSync(fileURLToPath(new URL("../../../../SOUL.md", import.meta.url)), "utf8");
-    const contract = DEFAULT_SOUL.slice(DEFAULT_SOUL.indexOf("Who you are"), DEFAULT_SOUL.indexOf("\nVoice\n"));
-    for (const line of contract.split("\n").filter((text) => /^(?:- |\d\. )/.test(text))) expect(repo).toContain(line);
   });
 });

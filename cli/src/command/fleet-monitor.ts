@@ -15,9 +15,10 @@ import type { DomainRun } from "./types.js";
 // workers, decisions waiting on George, the queue), each worker's status log,
 // and Flyd's own handoffs. Stuck work is Flyd's to chase: a note to the staff,
 // and another every few hours while one goes unanswered, never a word to
-// George. He is told only when nobody is there to chase (lib/reaches-george.ts:
-// a blocker Flyd has run out of moves on). Nothing here writes into the
-// FirstMate home except notes through its inbox.
+// George. He is told only when nobody is there to chase, or when a chase has
+// gone unanswered for two days (lib/reaches-george.ts: a blocker Flyd has run
+// out of moves on), once, and that thing is chased no more. Nothing here
+// writes into the FirstMate home except notes through its inbox.
 
 /** A handoff with no word back this long gets a note asking where it stands. */
 export const STALE_HANDOFF_MS = 2 * 60 * 60_000;
@@ -25,7 +26,7 @@ export const STALE_HANDOFF_MS = 2 * 60 * 60_000;
 export const WORKER_WAIT_MS = 30 * 60_000;
 /** While a handoff stays quiet or a worker stays waiting, Flyd asks the staff again this often. */
 export const RENUDGE_MS = 6 * 60 * 60_000;
-/** Stuck this long with no reply, George hears it once, with what Flyd does next. */
+/** Stuck this long, chased and still unanswered, it is a blocker Flyd has run out of moves on: George hears it once. */
 export const ESCALATE_MS = 48 * 60 * 60_000;
 /** The staff unreachable this long, with work open, is told to George. */
 export const UNREACHABLE_MS = 30 * 60_000;
@@ -80,6 +81,8 @@ export interface StaffConcern {
   since: string;
   /** George's words: no machinery names. */
   text: string;
+  /** What is stuck, in a few words. */
+  subject?: string;
   runId?: string;
   workerId?: string;
   /** The staff's own word for where a stopped worker stands: failed, or unknown. */
@@ -208,6 +211,7 @@ export function assessStaff(snapshot: StaffSnapshot, unreachableSince: string | 
       kind: "handoff_stale",
       since: handoff.lastHeard,
       runId: handoff.id,
+      subject: clip(handoff.outcome),
       text: `I've heard nothing back on "${clip(handoff.outcome)}" for ${waited(quiet)}.`,
     });
   }
@@ -221,6 +225,7 @@ export function assessStaff(snapshot: StaffSnapshot, unreachableSince: string | 
         kind: "worker_waiting",
         since: worker.since,
         workerId: worker.id,
+        subject: clip(worker.name),
         text: `"${clip(worker.name)}" has been stuck waiting for ${waited(waiting)}.`,
       });
       continue;
@@ -231,6 +236,7 @@ export function assessStaff(snapshot: StaffSnapshot, unreachableSince: string | 
       since: worker.since,
       workerId: worker.id,
       workerState: worker.state,
+      subject: clip(worker.name),
       text: worker.state === "failed" ? `"${clip(worker.name)}" failed ${waited(waiting)} ago.` : `There has been no word on "${clip(worker.name)}" for ${waited(waiting)}.`,
     });
   }
@@ -246,9 +252,14 @@ export function assessStaff(snapshot: StaffSnapshot, unreachableSince: string | 
   return concerns;
 }
 
-/** What a stuck thing is to George: nobody there to chase is a blocker only he can clear; the rest is staff silence, Flyd's to chase. */
-export function concernKind(concern: Pick<StaffConcern, "kind">): GeorgeKind {
-  return concern.kind === "unreachable" ? "blocker" : "silence";
+/** What a stuck thing is to George: nobody there to chase, or a chase he was told Flyd ran out of moves on, is a blocker; the rest is staff silence, Flyd's to chase. */
+export function concernKind(concern: Pick<StaffConcern, "kind" | "toldAt">): GeorgeKind {
+  return concern.kind === "unreachable" || concern.toldAt ? "blocker" : "silence";
+}
+
+/** A chase gone unanswered too long, as George hears it: what is stuck, what Flyd tried, the one thing needed. */
+function outOfMovesLine(concern: StaffConcern, now: number): string {
+  return `"${concern.subject}" is blocked: it has been stuck for ${waited(now - Date.parse(concern.since))} and the staff hasn't answered my check-ins. Tell me whether to restart it or drop it.`;
 }
 
 /** One line per thing, for chat: what is under way, what is stuck, what waits on George. */
@@ -421,7 +432,7 @@ export class StaffMonitor {
         concerns: concerns.map((concern) => ({
           ...concern,
           ...(state.nudged[concern.key] ? { nudgedAt: state.nudged[concern.key] } : {}),
-          ...(state.told[concern.key] ? { toldAt: state.told[concern.key] } : {}),
+          ...(state.told[concern.key] ? { toldAt: state.told[concern.key], ...(concern.subject ? { text: outOfMovesLine(concern, now) } : {}) } : {}),
         })),
       };
       writeJsonAtomic(this.stateFile(), state);
@@ -434,7 +445,12 @@ export class StaffMonitor {
 
   private async act(concern: StaffConcern, state: MonitorState, nobodyThere: boolean, now: number): Promise<void> {
     if (state.told[concern.key]) return;
-    const gated = reachesGeorge({ kind: concernKind(concern), text: concern.text }, "notification");
+    const nudgedAt = state.nudged[concern.key];
+    // Chased and unanswered for two days: Flyd is out of moves, so he hears it once, and it is chased no more.
+    const outOfMoves = !nobodyThere && concern.subject && nudgedAt && now - Date.parse(concern.since) > ESCALATE_MS;
+    const gated = outOfMoves
+      ? reachesGeorge({ kind: "blocker", text: outOfMovesLine(concern, now) }, "notification")
+      : reachesGeorge({ kind: concernKind(concern), text: concern.text }, "notification");
     if (gated.reach) {
       const notify = this.options.notify ?? (await import("../runtime/agenda.js")).notifyMac;
       await notify("Flyd", gated.line, gated.kind).catch(() => undefined);
@@ -444,7 +460,6 @@ export class StaffMonitor {
     // Staff silence is chased, quietly: one note, and another every few hours while it goes unanswered.
     // With nobody there to take a note, the outage itself is what reaches him. A note the inbox
     // would not take is tried again on the next pass.
-    const nudgedAt = state.nudged[concern.key];
     if (nobodyThere || (nudgedAt && now - Date.parse(nudgedAt) < RENUDGE_MS)) return;
     if (await this.nudge(concern, nudgedAt)) state.nudged[concern.key] = new Date(now).toISOString();
   }

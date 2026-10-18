@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { UNREAD_AFTER_MS, UNREAD_CHASE_MS, UnreadNoteWatcher, unreadNotes, waited } from "../note-receipts.js";
 import { deliverNotification } from "../../runtime/agenda.js";
+import type { GeorgeKind } from "../../lib/reaches-george.js";
 import type { Exchange } from "../types.js";
 
 const NOW = Date.parse("2026-10-12T04:05:00Z");
@@ -100,8 +101,8 @@ describe("UnreadNoteWatcher", () => {
   });
 });
 
-describe("an unread-note nag", () => {
-  async function delivered(message: string): Promise<{ sent: boolean; bodies: unknown[] }> {
+describe("the notification boundary", () => {
+  async function delivered(message: string, kind?: GeorgeKind): Promise<{ sent: boolean; bodies: unknown[] }> {
     const home = mkdtempSync(join(tmpdir(), "flyd-note-home-"));
     mkdirSync(join(home, ".flyd", "overlay"), { recursive: true });
     writeFileSync(join(home, ".flyd", "overlay", "auth-token"), "token\n");
@@ -115,7 +116,7 @@ describe("an unread-note nag", () => {
       return { ok: true, json: async () => ({ delivered: 1 }) };
     }));
     try {
-      return { sent: await deliverNotification("Flyd", message), bodies };
+      return { sent: await deliverNotification("Flyd", message, kind), bodies };
     } finally {
       vi.unstubAllGlobals();
       Object.defineProperty(process, "platform", { value: previousPlatform, configurable: true });
@@ -125,7 +126,8 @@ describe("an unread-note nag", () => {
     }
   }
 
-  it("never reaches him through the notification boundary, whoever sends it: unread notes are Flyd's to chase", async () => {
+  it("keeps staff silence from him, whoever sends it and whatever it is called: unread notes are Flyd's to chase", async () => {
+    expect(await delivered("2 notes you sent are still waiting; the oldest has waited 57 min.", "silence")).toEqual({ sent: false, bodies: [] });
     expect(await delivered("2 notes you sent are still waiting; the oldest has waited 57 min.")).toEqual({ sent: false, bodies: [] });
     expect(await delivered("You have 1 note still waiting — sent 5 min ago.")).toEqual({ sent: false, bodies: [] });
   });

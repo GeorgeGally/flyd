@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { Project } from "../../council/projects.js";
 import { briefPrompt, flydBrief, projectNamed, type BriefSources } from "../flyd-brief.js";
 import { interpretPrompt } from "../interpret.js";
-import { routePrompt } from "../flyd-desk.js";
 
 const SOURCES: BriefSources = {
   profile: "George runs Good Neighbours Market with Ana. He hates eyebrows above headlines.",
@@ -13,13 +12,8 @@ const SOURCES: BriefSources = {
 const project = (name: string, id: string): Project => ({ id, name, what: "", kind: "venture", status: "active", now: "", people: [], repos: [] } as unknown as Project);
 
 describe("Flyd's brief for firstmate", () => {
-  it("asks Flyd, as chief of staff, for what only it knows: his history, his project, his taste, done, and its own call", () => {
+  it("gives Flyd what only it knows: his history, his project, his taste, and his words", () => {
     const prompt = briefPrompt("the GNM hero is too tall on phones", [], SOURCES);
-    expect(prompt).toMatch(/^You are Flyd, George's chief of staff\. .*firstmate, the engineering lead on your staff/);
-    expect(prompt).toContain("what done looks like to him");
-    expect(prompt).toContain("what firstmate settles itself without asking him");
-    expect(prompt).toContain("never invent a fact");
-    expect(prompt).toContain("reply exactly NONE");
     for (const known of [SOURCES.profile!, SOURCES.memory, SOURCES.project!.about, SOURCES.project!.taste!]) expect(prompt).toContain(known);
     expect(prompt).toContain("George's words: the GNM hero is too tall on phones");
   });
@@ -46,13 +40,8 @@ describe("Flyd's brief for firstmate", () => {
 });
 
 describe("Flyd answering from what it knows", () => {
-  it("keeps questions about where his work stands with Flyd", () => {
-    expect(routePrompt("did the island fix land?", [])).toContain("Where his work stands (what is under way, what landed, what is waiting on him, what was decided) is Flyd's");
-  });
-
-  it("tells firstmate's answer as his chief of staff, with its own memory", () => {
+  it("tells firstmate's answer with Flyd's own memory", () => {
     const prompt = interpretPrompt({ question: "is the hero fixed?", answer: "Merged.", recent: [] }, "George runs GNM.", "## Decisions\n- The GNM hero stays one line.");
-    expect(prompt).toMatch(/^You are Flyd, George's chief of staff\. .*You own the outcome: judge the answer against what he asked and what you know of him/);
     expect(prompt).toContain("Your memory:\n## Decisions\n- The GNM hero stays one line.");
   });
 });

@@ -10,7 +10,7 @@ import type { Exchange } from "./types.js";
 // news); it says what is being done: the session's current step when known, else what
 // his message asks for (with the project he named), else only that it is under way. His
 // own words are never quoted back unless they read as a task Flyd is doing. A line from
-// the staff's own step passes the gate first: one about staff silence or a fault is Flyd's, never his.
+// the staff's own step passes the gate first, as where work stands, in plain words.
 
 /** The quiet line from the moment he sends until something more is known: it is queued to happen. */
 export const WORKING = "Queued";
@@ -104,7 +104,7 @@ export function handoffLine(handoff: Handoff, details: { activity?: string; text
   return project && !new RegExp(project.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(subject) ? `${project}: ${subject}` : subject;
 }
 
-/** A staff step as the gate (lib/reaches-george.ts) lets it under his message: one about staff silence or a fault is Flyd's own, so none. */
+/** A staff step as the gate (lib/reaches-george.ts) lets it under his message: where work stands, in plain words. */
 function shown(line: string): string {
   if (!line) return "";
   const gated = reachesGeorge({ kind: "status", text: line }, "status");
