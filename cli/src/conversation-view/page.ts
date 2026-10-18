@@ -3993,12 +3993,13 @@ ${LEFT_SCRIPT}
     if (/desk|laptop|wide/.test(name) || width("1024|1080|1200|1280|1366|1440|1512|1536|1600|1680|1728|1920|2560")) said.push("desk");
     return said.length > 1 ? "art" : said[0] || "";
   }
-  // Otherwise its own pixels say it: a portrait capture more than 1.8 times as
-  // tall as it is wide is a phone, however wide (a phone shot at native
-  // resolution); else at least 1000px wide is a desktop capture, 380-560px wide
-  // a phone, and anything between keeps its own shape, never a phone frame it is not.
+  // Otherwise its own pixels say it: a phone-shaped portrait capture (under
+  // 1400px wide, 1.8-2.4 times as tall as wide) is a phone shot at native
+  // resolution; a taller one is a full-page capture, not a phone. Else at least
+  // 1000px wide is a desktop capture, 380-560px wide a phone, and anything
+  // between keeps its own shape, never a phone frame it is not.
   function shapeOf(w, h) {
-    if (w && h / w > 1.8) return "phone";
+    if (w && w < 1400 && h / w >= 1.8 && h / w <= 2.4) return "phone";
     if (w >= 1000) return "desk";
     if (w >= 380 && w <= 560) return "phone";
     return "";

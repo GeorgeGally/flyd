@@ -1432,6 +1432,9 @@ describe("header and artefact view", () => {
     expect(shapeAt(1440, 2400)).toBe("device desk");
     // An iPhone shot at 3x is over 1000px wide, but its portrait shape says phone.
     expect(shapeAt(1179, 2556)).toBe("device phone");
+    // A full-page desktop capture is far taller than a phone, so it stays a desktop.
+    expect(shapeAt(1440, 4000)).toBe("device desk");
+    expect(shapeAt(1920, 6000)).toBe("device desk");
   });
 
   it("shows the right column: each conversation with its answer below, and a live preview artefact", async () => {
@@ -2427,6 +2430,18 @@ describe("header and artefact view", () => {
     expect(card().querySelector<HTMLElement>(".card-detail")!.hidden).toBe(false);
     expect(card().querySelector(".card-detail-text")!.textContent).toBe("Watched the news for you");
     expect(card().querySelector(".card-detail-when")!.textContent).not.toBe("");
+  });
+
+  it("leaves the quiet Right now card plain when Flyd has done nothing yet", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [] } });
+    const card = document.querySelector("#left-now .left-card") as HTMLElement;
+    expect(card.querySelector(".left-title")!.textContent).toBe("Nothing under way right now.");
+    expect(card.classList.contains("is-expandable")).toBe(false);
+    expect(card.querySelector(".card-detail")).toBeNull();
   });
 
   it("lets Enter on a card's ✕ hide it rather than open the card", async () => {

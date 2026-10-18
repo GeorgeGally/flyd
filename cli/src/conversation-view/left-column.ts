@@ -155,7 +155,7 @@ export const LEFT_SCRIPT = `
       whenClass: "left-meta",
       titleClass: "left-title",
       // Its detail is the last thing Flyd did, and exactly when.
-      detail: last ? last.title || "" : "",
+      detail: last ? last.title || "" : undefined,
       detailWhen: last && last.at ? dayOf(last.at) + ", " + clock(last.at) : "",
       open: !!leftOpen[key],
       onToggle: function (open) { if (open) leftOpen[key] = 1; else delete leftOpen[key]; },
