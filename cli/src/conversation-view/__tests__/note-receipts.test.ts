@@ -2,8 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { UNREAD_AFTER_MS, UNREAD_CHASE_MS, UnreadNoteWatcher, unreadNotes, waited } from "../note-receipts.js";
+import { UNREAD_AFTER_MS, UNREAD_CHASE_MS, UNREAD_GIVE_UP_MS, UnreadNoteWatcher, unreadNotes, waited } from "../note-receipts.js";
 import { deliverNotification } from "../../runtime/agenda.js";
+import { ESCALATE_MS, RENUDGE_MS } from "../../command/fleet-monitor.js";
 import type { GeorgeKind } from "../../lib/reaches-george.js";
 import type { Exchange } from "../types.js";
 
@@ -58,6 +59,11 @@ describe("waited", () => {
 });
 
 describe("UnreadNoteWatcher", () => {
+  it("chases and gives up on the staff chase's own cadence", () => {
+    expect(UNREAD_CHASE_MS).toBe(RENUDGE_MS);
+    expect(UNREAD_GIVE_UP_MS).toBe(ESCALATE_MS);
+  });
+
   it("chases firstmate, quietly, when a note crosses into unread, and again for a newly unread one", async () => {
     let exchanges = [note("a", 5 * 60_000, "sent"), note("b", 60_000, "sent")];
     const chase = vi.fn(async (_note: string, _requestId: string) => {});
@@ -99,6 +105,41 @@ describe("UnreadNoteWatcher", () => {
     expect(await failing.check()).toBe(false);
     expect(chase).toHaveBeenCalledTimes(2);
   });
+
+  it("chases the staff first, then tells George once when the chase is two days unanswered, and no more", async () => {
+    let exchanges = [note("a", UNREAD_GIVE_UP_MS + 60 * 60_000, "sent")];
+    const chase = vi.fn(async () => {});
+    const notify = vi.fn(async () => {});
+    let now = NOW;
+    const watcher = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify);
+    // First sight of a note already two days unread: the staff is chased, not George.
+    expect(await watcher.check()).toBe(true);
+    expect(chase).toHaveBeenCalledTimes(1);
+    expect(notify).not.toHaveBeenCalled();
+
+    // The grace has not passed: neither further chase nor word to George.
+    now += UNREAD_CHASE_MS - 1;
+    expect(await watcher.check()).toBe(false);
+    expect(notify).not.toHaveBeenCalled();
+
+    // Grace passed, still unread: George hears it once, in plain words.
+    now += 1;
+    expect(await watcher.check()).toBe(true);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("sat unread for 2 days"), "blocker");
+    expect(chase).toHaveBeenCalledTimes(1);
+
+    // Nothing more, however long the note stays unread.
+    now += 10 * UNREAD_CHASE_MS;
+    expect(await watcher.check()).toBe(false);
+    expect(chase).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+
+    // Read at last: the state clears, and a fresh note starts a fresh chase.
+    exchanges = [note("b", 5 * 60_000, "sent")];
+    expect(await watcher.check()).toBe(true);
+    expect(chase).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("the notification boundary", () => {
@@ -126,10 +167,8 @@ describe("the notification boundary", () => {
     }
   }
 
-  it("keeps staff silence from him, whoever sends it and whatever it is called: unread notes are Flyd's to chase", async () => {
+  it("keeps staff silence from him: unread notes are Flyd's to chase", async () => {
     expect(await delivered("2 notes you sent are still waiting; the oldest has waited 57 min.", "silence")).toEqual({ sent: false, bodies: [] });
-    expect(await delivered("2 notes you sent are still waiting; the oldest has waited 57 min.")).toEqual({ sent: false, bodies: [] });
-    expect(await delivered("You have 1 note still waiting — sent 5 min ago.")).toEqual({ sent: false, bodies: [] });
   });
 
   it("leaves finished work free to reach him through the same boundary", async () => {

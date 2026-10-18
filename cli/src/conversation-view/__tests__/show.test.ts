@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ImportanceJudge } from "../importance-judge.js";
 import { SnapshotDiffer } from "../server.js";
 import { MAX_SHOW_ITEMS, showOf, situationOf, titleOf } from "../show.js";
 import type { ConversationMessage, ConversationSnapshot } from "../types.js";
@@ -287,5 +288,20 @@ describe("SnapshotDiffer show", () => {
       ["live", "Checking the live site", "firstmate is on it now"],
     ]);
     expect(update.show.title).toBe("Good news, sir.");
+  });
+
+  it("never calls the screen quiet when Flyd's judge clears it while the fleet is unreadable", () => {
+    const importance = { asked: () => true, pending: () => false, matters: () => false } as unknown as ImportanceJudge;
+    const unreadable = { fleet: { unavailable: "timed out", calls: [], live: [], ready: [], landed: [], held: [], next: [] }, memories: [], news: [], taste: [] };
+    const shipped: ConversationMessage = { id: "a1", role: "assistant", text: "Sir, the menu change shipped to production." };
+    const update = new SnapshotDiffer({ importance }, { artefact: () => unreadable }).next(snapshot([shipped]));
+    expect(update.show.items).toEqual([]);
+    expect(update.show.title).toBe("Here's where things stand, sir.");
+    expect(update.show.summary).not.toMatch(/nothing waits on you|couldn't read|timed out/i);
+
+    const read = { ...unreadable, fleet: { ...unreadable.fleet, unavailable: undefined } };
+    const quiet = new SnapshotDiffer({ importance }, { artefact: () => read }).next(snapshot([shipped]));
+    expect(quiet.show.items.map((item) => item.kind)).toEqual(["clear"]);
+    expect(quiet.show.title).toBe("All quiet, sir.");
   });
 });

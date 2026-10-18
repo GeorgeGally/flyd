@@ -552,10 +552,13 @@ export class SnapshotDiffer {
       }
     }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
+    const artefact = this.show?.artefact?.();
+    // Without a reading of the fleet, nothing on the screen may claim that all is quiet (show.ts).
+    const known = !artefact || Boolean(artefact.fleet && !artefact.fleet.unavailable);
     const show = showOf(snapshot, {
         ...(this.show?.assistant ? { assistant: this.show.assistant } : {}),
         projects: this.show?.projects?.() ?? [],
-        ...(this.show?.artefact ? { artefact: this.show.artefact() } : {}),
+        ...(artefact ? { artefact } : {}),
         reading: (message) => this.reading(message),
         muted: (message) => this.routine(message, handledOf(message)),
       });
@@ -571,7 +574,7 @@ export class SnapshotDiffer {
       const kept = show.items.filter((item) => importance.matters(item) !== false);
       let trimmed = kept.length !== show.items.length;
       if (trimmed) {
-        show.items = kept.length ? kept : [{ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" }];
+        show.items = kept.length || !known ? kept : [{ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" }];
       }
       // A call Flyd is sure is not his leaves the sheet too, and "N need you" counts only what the sheet can open.
       if (show.calls) {
@@ -584,10 +587,9 @@ export class SnapshotDiffer {
         }
       }
       // The opening line and the tally speak for what is left on the screen, not what the judge took off it.
-      // An unreadable fleet keeps its own line.
-      if (trimmed && !show.summary.startsWith("I couldn't read")) {
-        show.title = titleOf(show.items);
-        show.summary = situationOf(show.counts);
+      if (trimmed) {
+        show.title = titleOf(show.items, false, known);
+        show.summary = situationOf(show.counts, known);
       }
     }
     const semanticJudge = this.summaries?.semantic;

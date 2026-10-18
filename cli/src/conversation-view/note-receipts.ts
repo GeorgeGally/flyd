@@ -6,16 +6,23 @@ import type { Exchange } from "./types.js";
 // state/inbox/handled/, and that move is the one acknowledgement there is.
 // A note still in the inbox is only sent. On 2026-10-12 thirteen notes sat
 // unread for over an hour while nothing here said so. A note left unread past
-// UNREAD_AFTER_MS is now Flyd's to chase: its own note to firstmate, and
-// another while the notes stay unread. Unread notes are staff silence, which
+// UNREAD_AFTER_MS is now Flyd's to chase: its own note to firstmate, another
+// each grace, and one plain line to George only once the chase is two days
+// unanswered, then no more (the same policy as the staff chase,
+// command/fleet-monitor.ts). Unread notes are staff silence, which otherwise
 // never reaches George (lib/reaches-george.ts).
 
 /** How long a note may sit unread before Flyd chases it. */
 export const UNREAD_AFTER_MS = 3 * 60_000;
 /** How often the view checks the inbox records for notes left unread. */
 export const UNREAD_CHECK_MS = 30_000;
-/** While notes stay unread, how long between Flyd's chases. */
-export const UNREAD_CHASE_MS = 15 * 60_000;
+// The page imports this module, so the staff chase's own figures
+// (command/fleet-monitor.ts RENUDGE_MS and ESCALATE_MS) are kept here as
+// values rather than imported with the monitor's runtime.
+/** While notes stay unread, how long between Flyd's chases: the staff chase's own six hours. */
+export const UNREAD_CHASE_MS = 6 * 60 * 60_000;
+/** Notes unread this long, chased and still unread, are a blocker Flyd has run out of moves on: the staff chase's two days. */
+export const UNREAD_GIVE_UP_MS = 48 * 60 * 60_000;
 
 /** Notes firstmate has left unread past UNREAD_AFTER_MS: how many, and when the oldest was sent. */
 export interface UnreadNotes {
@@ -72,23 +79,33 @@ export function chaseNote(unread: UnreadNotes, now = Date.now()): string {
   ].join(" ");
 }
 
+/** The chase Flyd has run out of moves on, as George hears it: what is stuck, and the one thing he can do. */
+export function unreadBlocker(unread: UnreadNotes, now = Date.now()): string {
+  const notes = unread.count === 1 ? "A note you sent the staff" : `${unread.count} notes you sent the staff`;
+  return `${notes} ${unread.count === 1 ? "has" : "have"} sat unread for ${waited(unread.oldest, now)} and nothing has taken ${unread.count === 1 ? "it" : "them"} up. Tell me whether to send again or drop ${unread.count === 1 ? "it" : "them"}.`;
+}
+
 /**
  * Checks the inbox records on a timer and chases firstmate when a note
- * crosses into unread, and again every UNREAD_CHASE_MS while notes stay
- * unread. Each chase is Flyd's own note under its own request id, so a repeat
- * is a replay, never a second note; one that does not go through is tried on
- * the next check. A note read and later found unread cannot happen, since an
- * acknowledgement is never undone.
+ * crosses into unread, and again each grace while notes stay unread. Each
+ * chase is Flyd's own note under its own request id, so a repeat is a replay,
+ * never a second note; one that does not go through is tried on the next
+ * check. A note read and later found unread cannot happen, since an
+ * acknowledgement is never undone. A note chased and still unread after two
+ * days reaches George once, in plain words, and is chased no more.
  */
 export class UnreadNoteWatcher {
   /** Each unread note, by id: when Flyd last chased it. */
   private readonly chased = new Map<string, number>();
+  /** The unread note Flyd has run out of moves on and told George about. */
+  private readonly told = new Set<string>();
   private timer: NodeJS.Timeout | undefined;
 
   constructor(
     private readonly exchanges: () => Exchange[],
     private readonly chase: (note: string, requestId: string) => Promise<unknown>,
     private readonly now: () => number = Date.now,
+    private readonly notify?: (title: string, message: string, kind: "blocker") => Promise<unknown>,
   ) {}
 
   start(): void {
@@ -103,7 +120,7 @@ export class UnreadNoteWatcher {
     this.timer = undefined;
   }
 
-  /** Chases firstmate when a note is newly unread or its last chase has gone unanswered; returns whether it did. */
+  /** Chases firstmate when a note is newly unread or its last chase has gone unanswered, and tells George once when the chase runs out of moves; returns whether it did anything. */
   async check(): Promise<boolean> {
     let unread: UnreadNotes | null;
     try {
@@ -113,7 +130,20 @@ export class UnreadNoteWatcher {
     }
     const now = this.now();
     for (const id of this.chased.keys()) if (!unread?.ids.includes(id)) this.chased.delete(id);
-    if (!unread || unread.ids.every((id) => now - (this.chased.get(id) ?? Number.NEGATIVE_INFINITY) < UNREAD_CHASE_MS)) return false;
+    for (const id of this.told) if (!unread?.ids.includes(id)) this.told.delete(id);
+    if (!unread) return false;
+    const oldest = unread.ids[0]!;
+    if (this.told.has(oldest)) return false;
+    const nudgedAt = this.chased.get(oldest);
+    // Chased, unanswered for a whole grace, and unread two days: Flyd is out of moves,
+    // so George hears it once, and the notes are chased no more. With nowhere to tell
+    // him, the chase goes on rather than stopping in silence.
+    if (this.notify && nudgedAt !== undefined && now - Date.parse(unread.oldest) > UNREAD_GIVE_UP_MS && now - nudgedAt >= UNREAD_CHASE_MS) {
+      this.told.add(oldest);
+      await this.notify("Flyd", unreadBlocker(unread, now), "blocker").catch(() => undefined);
+      return true;
+    }
+    if (unread.ids.every((id) => now - (this.chased.get(id) ?? Number.NEGATIVE_INFINITY) < UNREAD_CHASE_MS)) return false;
     const round = Math.floor(now / UNREAD_CHASE_MS);
     const requestId = `flyd-unread-${createHash("sha256").update(`${unread.ids.join(",")}\0${round}`).digest("hex").slice(0, 16)}`;
     const sent = await this.chase(chaseNote(unread, now), requestId).then(() => true, () => false);

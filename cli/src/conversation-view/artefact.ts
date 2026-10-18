@@ -812,8 +812,8 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
     const gated = gatedItem(item, about);
     if (gated) items.push(gated);
   };
-  const add = (kind: ShowKind, id: string, headline: string, why: string, extra: Partial<ShowItem> = {}, about?: GeorgeKind): void => {
-    if (headline) shown({ id: `${kind}:${id}`, kind, headline, why, ...extra }, about);
+  const add = (kind: ShowKind, id: string, headline: string, why: string, extra: Partial<ShowItem> = {}): void => {
+    if (headline) shown({ id: `${kind}:${id}`, kind, headline, why, ...extra });
   };
   const fromRow = (kind: ShowKind, id: string, row: ArtefactRow, about: GeorgeKind): void => {
     const item = rowItem(kind, id, row, options);

@@ -168,9 +168,14 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       ? "Summaries: model summaries off (FLYD_VIEW_SUMMARIES=0); long replies lead with Flyd's whole briefing."
       : "Summaries: no CLAUDE_API_KEY, ANTHROPIC_API_KEY or XAI_API_KEY found; long replies lead with Flyd's whole briefing.");
   if (options.open !== false) openInBrowser(url);
-  // A note firstmate leaves unread past three minutes: Flyd chases firstmate itself; George never hears of it.
+  // A note firstmate leaves unread past three minutes: Flyd chases firstmate itself; only a chase two days unanswered reaches George, once.
   const unread = wantsInbox
-    ? new UnreadNoteWatcher(() => source.exchanges(), (note, requestId) => inbox.sendOwn(note, requestId))
+    ? new UnreadNoteWatcher(
+      () => source.exchanges(),
+      (note, requestId) => inbox.sendOwn(note, requestId),
+      Date.now,
+      async (title, message, kind) => (await import("../runtime/agenda.js")).notifyMac(title, message, kind),
+    )
     : undefined;
   unread?.start();
 
