@@ -71,6 +71,15 @@ export interface SemanticObject {
     /** Stable durable result identity once execution produces an Artifact. */
     artifactId?: string;
   };
+  /** Monitor is a durable watch. Individual checks may be Activities; the watch survives them. */
+  monitor?: {
+    phase: "quiet" | "changed" | "needs_you" | "failed" | "resolved";
+    condition: string;
+    lastCheckedAt?: string;
+    lastChangedAt?: string;
+    /** Stable Activity identity for a current check, when one is running. */
+    activityId?: string;
+  };
   /** Artifact is the durable result, independent of the job that produced it. */
   artifact?: {
     type: "plan" | "result" | "document" | "code" | "data" | "image" | "web";
@@ -212,10 +221,10 @@ export function semanticObjectsFromShow(items: readonly ShowItem[], override?: S
 function sameMeaning(a: SemanticObject, b: SemanticObject): boolean {
   return JSON.stringify({
     kind: a.kind, lifecycle: a.lifecycle, subject: a.subject, summary: a.summary, detail: a.detail,
-    project: a.project, status: a.status, evidence: a.evidence, actions: a.actions, activity: a.activity, decision: a.decision, investigation: a.investigation, action: a.action, artifact: a.artifact,
+    project: a.project, status: a.status, evidence: a.evidence, actions: a.actions, activity: a.activity, decision: a.decision, investigation: a.investigation, action: a.action, artifact: a.artifact, monitor: a.monitor,
   }) === JSON.stringify({
     kind: b.kind, lifecycle: b.lifecycle, subject: b.subject, summary: b.summary, detail: b.detail,
-    project: b.project, status: b.status, evidence: b.evidence, actions: b.actions, activity: b.activity, decision: b.decision, investigation: b.investigation, action: b.action, artifact: b.artifact,
+    project: b.project, status: b.status, evidence: b.evidence, actions: b.actions, activity: b.activity, decision: b.decision, investigation: b.investigation, action: b.action, artifact: b.artifact, monitor: b.monitor,
   });
 }
 
@@ -362,4 +371,56 @@ export function artifactObjectsFromShow(source: ArtifactSources): SemanticObject
     artifacts.push(object);
   }
   return artifacts;
+}
+
+
+export interface MonitorSource {
+  id: string;
+  title: string;
+  condition?: string;
+  detail?: string;
+  at: string;
+  state?: "quiet" | "changed" | "needs_you" | "failed" | "resolved";
+  evidence?: SemanticWorkObject[];
+}
+
+/**
+ * A durable watch is not the check currently executing. Its identity is the
+ * condition being watched; checks may come and go underneath it.
+ */
+export function monitorObjectFromSource(source: MonitorSource): SemanticObject {
+  const phase = source.state ?? "quiet";
+  const lifecycle: SemanticLifecycle =
+    phase === "needs_you" ? "interrupted"
+    : phase === "failed" ? "failed"
+    : phase === "resolved" ? "resolved"
+    : "active";
+  return {
+    id: `monitor:${source.id}`,
+    kind: "monitor",
+    lifecycle,
+    subject: source.title,
+    summary: source.condition ?? source.title,
+    ...(source.detail ? { detail: source.detail } : {}),
+    evidence: source.evidence ?? [],
+    actions: phase === "resolved" ? [] : [{ id: `resolve:monitor:${source.id}`, kind: "resolve", label: "Stop watching", value: source.id }],
+    source: { showItemId: `monitor:${source.id}` },
+    monitor: {
+      phase,
+      condition: source.condition ?? source.title,
+      lastCheckedAt: source.at,
+      ...(phase === "changed" || phase === "needs_you" ? { lastChangedAt: source.at } : {}),
+    },
+    createdAt: source.at,
+    updatedAt: source.at,
+  };
+}
+
+export function monitorObjectsFromSources(sources: readonly MonitorSource[]): SemanticObject[] {
+  const latest = new Map<string, MonitorSource>();
+  for (const source of sources) {
+    const before = latest.get(source.id);
+    if (!before || Date.parse(source.at) >= Date.parse(before.at)) latest.set(source.id, source);
+  }
+  return [...latest.values()].map(monitorObjectFromSource);
 }
