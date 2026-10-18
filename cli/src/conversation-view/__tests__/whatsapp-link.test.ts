@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { composeArtefact, WHATSAPP_LINK, type ArtefactInputs } from "../artefact.js";
 import { qrSvg } from "../../connectors/whatsapp-pairing.js";
@@ -5,18 +6,54 @@ import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import type { WhatsAppPairing } from "../../connectors/whatsapp-pairing.js";
 import type { ConversationSnapshot } from "../types.js";
 
+const require = createRequire(import.meta.url);
+interface VendorQr { addData(data: string): void; make(): void; getModuleCount(): number; isDark(row: number, col: number): boolean }
+const VendorQRCode = require("qrcode-terminal/vendor/QRCode") as new (type: number, level: number) => VendorQr;
+const ERROR_LEVEL_L = require("qrcode-terminal/vendor/QRCode/QRErrorCorrectLevel").L as number;
+
 const EMPTY: ArtefactInputs = { memories: [], news: [], taste: [] };
 const snapshot = (): ConversationSnapshot => ({ messages: [], working: false } as ConversationSnapshot);
 
+const MODULE = 8;
+const QUIET = 4;
+const FINDER = ["1111111", "1000001", "1011101", "1011101", "1011101", "1000001", "1111111"];
+
+function darkModules(svg: string): Set<string> {
+  const dark = new Set<string>();
+  const add = (x: number, y: number, unit: number): void => { dark.add(`${y / unit - QUIET},${x / unit - QUIET}`); };
+  for (const m of svg.matchAll(/M(\d+) (\d+)h(\d+)v(\d+)h-\d+z/g)) add(Number(m[1]), Number(m[2]), Number(m[3]));
+  for (const m of svg.matchAll(/<rect\b[^>]*>/g)) {
+    const tag = m[0]; const x = tag.match(/\bx="(\d+)"/); const y = tag.match(/\by="(\d+)"/); const w = tag.match(/\bwidth="(\d+)"/);
+    if (x && y && w && /fill="#000"/.test(tag)) add(Number(x[1]), Number(y[1]), Number(w[1]));
+  }
+  return dark;
+}
+
 describe("the pairing code as an image", () => {
-  it("draws a scannable QR with a quiet zone, as an SVG", () => {
-    const svg = qrSvg("2@abc,def,ghi");
+  it("encodes the payload as a scannable QR: square, quiet-zoned, finder-marked, matching the encoder", () => {
+    const payload = "2@abc,def,ghi";
+    const svg = qrSvg(payload, MODULE);
+    const dark = darkModules(svg);
     expect(svg.startsWith("<svg ")).toBe(true);
-    expect(svg).toContain('fill="#fff"');
-    const modules = svg.match(/M\d+ \d+h8v8h-8z/g) ?? [];
-    expect(modules.length).toBeGreaterThan(100);
-    // 21 modules of 8px plus a 4-module quiet zone on each side.
-    expect(svg).toContain('width="232" height="232"');
+    const ref = new VendorQRCode(-1, ERROR_LEVEL_L);
+    ref.addData(payload);
+    ref.make();
+    const count = ref.getModuleCount();
+    expect(svg).toContain(`width="${(count + QUIET * 2) * MODULE}"`);
+    for (const key of dark) {
+      const [row, col] = key.split(",").map(Number);
+      expect(row).toBeGreaterThanOrEqual(0); expect(row).toBeLessThan(count);
+      expect(col).toBeGreaterThanOrEqual(0); expect(col).toBeLessThan(count);
+    }
+    const corners: Array<[number, number]> = [[0, 0], [0, count - 7], [count - 7, 0]];
+    for (const [r0, c0] of corners) {
+      for (let r = 0; r < 7; r += 1) for (let c = 0; c < 7; c += 1) {
+        expect(dark.has(`${r0 + r},${c0 + c}`)).toBe(FINDER[r][c] === "1");
+      }
+    }
+    for (let r = 0; r < count; r += 1) for (let c = 0; c < count; c += 1) {
+      expect(dark.has(`${r},${c}`)).toBe(ref.isDark(r, c));
+    }
   });
 });
 

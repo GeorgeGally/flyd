@@ -43,7 +43,7 @@ export class WhatsAppPairing {
   private running: Promise<void> | undefined;
   private release?: NodeJS.Timeout;
   private readonly listeners = new Set<() => void>();
-  /** The client is built on first use: constructing the session alone touches nothing on disk. */
+  /** Built on first use; the view reads state() on every update, so its store is created the moment the conversation view opens. */
   private readonly whatsapp = (): WhatsAppClient => (this.client ??= whatsappClient());
 
   /** Whether WhatsApp is linked, and the code to scan while it is not. */
