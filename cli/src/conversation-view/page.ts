@@ -1762,7 +1762,7 @@ var __name = function (f) { return f; };
     }
     return li;
   }
-  function activityVisual(activity) {
+  function semanticActivityVisual(activity) {
     var phase = activity.activity && activity.activity.phase;
     return phase === "needs_you" ? "call"
       : phase === "paused" ? "waiting"
@@ -1771,15 +1771,15 @@ var __name = function (f) { return f; };
       : phase === "queued" ? "next"
       : "live";
   }
-  function activityMeta(activity) {
+  function semanticActivityMeta(activity) {
     var phase = activity.activity && activity.activity.phase;
     var when = phase === "working" && activity.activity.started ? "Started " + ago(activity.activity.started)
       : phase === "finished" && activity.updatedAt ? ago(activity.updatedAt)
       : "";
     return [shortName(activity.project), when].filter(Boolean).join(" · ");
   }
-  function activityCard(activity, existing) {
-    var visual = activityVisual(activity);
+  function semanticActivityCard(activity, existing) {
+    var visual = semanticActivityVisual(activity);
     var li = existing || el("li", "card brief-card activity-card");
     li.className = "card brief-card activity-card card-" + visual + " tone-" + kindOf(visual).tone;
     li.dataset.key = activity.id;
@@ -1791,7 +1791,7 @@ var __name = function (f) { return f; };
     var word = kindOf(visual).word;
     if (word) text.appendChild(el("span", "card-meta", word));
     text.appendChild(el("p", "card-line brief-line", activity.subject));
-    var meta = activityMeta(activity);
+    var meta = semanticActivityMeta(activity);
     if (meta) text.appendChild(el("span", "brief-meta", meta));
     var detail = activity.detail || activity.summary;
     if (detail && detail !== activity.subject) text.appendChild(el("p", "activity-detail", detail));
@@ -1859,7 +1859,7 @@ var __name = function (f) { return f; };
     var keep = {};
     activities.forEach(function (activity) {
       keep[activity.id] = true;
-      list.appendChild(activityCard(activity, existing[activity.id]));
+      list.appendChild(semanticActivityCard(activity, existing[activity.id]));
     });
     Object.keys(existing).forEach(function (id) { if (!keep[id]) existing[id].remove(); });
     list.querySelectorAll(".legacy-activity").forEach(function (node) { node.remove(); });
