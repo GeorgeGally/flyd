@@ -143,6 +143,12 @@ describe("E4 deep research", () => {
       },
     }));
 
+    // Claim the compatibility handoff so this test does not leak a ready
+    // dossier into the next concurrency test; historical semantic projection
+    // remains available by stable surface id.
+    const claim = await fetch("http://127.0.0.1:3000/surface", { redirect: "manual" });
+    expect(claim.status).toBe(302);
+
     const semantic = evidenceSurfaceSemanticObject(published.surfaceId!);
     expect(semantic).toMatchObject({
       id: `investigation:${published.surfaceId}`,
