@@ -94,6 +94,8 @@ export const LEFT_SCRIPT = `
   var leftPref = store("flyd-left");
   var leftPanel = null;
   var leftAll = false;
+  // The cards he has opened to read their detail, kept across the column's own re-renders.
+  var leftOpen = {};
   var LEFT_FEW = 5;
   function leftIsOpen() { return leftPref === "on" || (leftPref !== "off" && !!leftWide && leftWide.matches); }
   function setLeft() {
@@ -127,12 +129,18 @@ export const LEFT_SCRIPT = `
   }
   function activityKey(item, live) { return item.id + "|" + (live ? "now" : "done"); }
   function activityCard(item, live) {
+    var key = activityKey(item, live);
     return visualCard(item, {
       className: "left-card" + (live ? " is-now" : ""),
-      key: activityKey(item, live),
+      key: key,
       when: (live ? "Started " : "") + ago(item.at),
       whenClass: "left-meta",
       titleClass: "left-title",
+      // Clicking a card opens what it did in full, and exactly when.
+      detail: item.detail || "",
+      detailWhen: item.at ? dayOf(item.at) + ", " + clock(item.at) : "",
+      open: !!leftOpen[key],
+      onToggle: function (open) { if (open) leftOpen[key] = 1; else delete leftOpen[key]; },
       dismiss: true,
       onHide: drawActivity,
     });
@@ -174,7 +182,10 @@ export const LEFT_SCRIPT = `
   leftToggleEl.addEventListener("click", function () { chooseLeft(!leftIsOpen()); });
   document.getElementById("left-hide").addEventListener("click", function () { chooseLeft(false); });
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && !leftEl.hidden && !(leftWide && leftWide.matches) && prefs.hidden) chooseLeft(false);
+    if (event.key !== "Escape") return;
+    // An open card's detail closes first; only then does Escape take the column itself away.
+    if (Object.keys(leftOpen).length) { leftOpen = {}; drawActivity(); return; }
+    if (!leftEl.hidden && !(leftWide && leftWide.matches) && prefs.hidden) chooseLeft(false);
   });
   if (leftWide && leftWide.addEventListener) leftWide.addEventListener("change", setLeft);
   // Times in the cards move on while nothing else does.

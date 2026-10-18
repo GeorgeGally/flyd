@@ -1711,14 +1711,18 @@ var __name = function (f) { return f; };
     var said = [shortName(item.project), meta].filter(Boolean).join(" · ");
     if (said) text.appendChild(el("span", "brief-meta", said));
     li.appendChild(text);
-    // Its picture, when the work has one: the small thumbnail says what changed.
+    // Its picture, when the work has one: the small thumbnail says what changed, and opens full size on click.
     if (item.shots && item.shots.length) {
-      var thumb = el("div", "card-thumb");
+      var shotSrc = withToken(item.shots[0].src);
+      var thumb = el("button", "card-thumb");
+      thumb.type = "button";
+      thumb.setAttribute("aria-label", "Open image");
       var img = el("img", "");
-      img.src = withToken(item.shots[0].src);
+      img.src = shotSrc;
       img.alt = "";
       img.loading = "lazy";
       thumb.appendChild(img);
+      thumb.addEventListener("click", function () { openImage(shotSrc); });
       li.appendChild(thumb);
     }
     if (item.task) {
@@ -3879,9 +3883,9 @@ ${LEFT_SCRIPT}
       img.alt = "Screenshot: " + box.title;
       img.src = look.src;
       img.addEventListener("load", function () {
-        // A capture without a device in its name is placed by its shape once it loads.
+        // A capture without a device in its name is placed by its width once it loads.
         if (!look.device) {
-          var shape = shapeOf(img.naturalWidth, img.naturalHeight);
+          var shape = shapeOf(img.naturalWidth);
           if (shape) { look.device = shape; if (shape === "phone" && !slots.phone) slots.phone = look; if (shape === "desk" && !slots.desk) slots.desk = look; place(); return; }
         }
         if (look.device) { img.dataset.aim = "1"; aimAtContent(img); }
@@ -3976,22 +3980,26 @@ ${LEFT_SCRIPT}
   }
   window.addEventListener("resize", aimShown);
   // What a capture was taken on, from its name: "desktop-1440.png", "phone.png", "ipad.png".
+  // A name that names one screen settles it; a composite ("…-desktop-and-phone.png")
+  // names more than one and settles nothing, so its own pixels decide instead.
   function deviceOf(name) {
     name = String(name || "").toLowerCase();
     // A crop of the element a change touched keeps its own shape: it is a piece of the page, not a screen.
     if (/^element-/.test(name)) return "art";
     function width(list) { return new RegExp("(?:^|[^0-9])(?:" + list + ")(?:[^0-9]|$)").test(name); }
-    if (/phone|mobile|android/.test(name) || width("360|375|390|393|402|412|414|428|430")) return "phone";
-    if (/ipad|tablet/.test(name) || width("768|810|820|834")) return "tablet";
-    if (/desk|laptop|wide/.test(name) || width("1024|1080|1200|1280|1366|1440|1512|1536|1600|1680|1728|1920|2560")) return "desk";
-    return "";
+    var said = [];
+    if (/phone|mobile|android/.test(name) || width("360|375|390|393|402|412|414|428|430")) said.push("phone");
+    if (/ipad|tablet/.test(name) || width("768|810|820|834")) said.push("tablet");
+    if (/desk|laptop|wide/.test(name) || width("1024|1080|1200|1280|1366|1440|1512|1536|1600|1680|1728|1920|2560")) said.push("desk");
+    return said.length === 1 ? said[0] : "";
   }
-  // Otherwise its shape says it: a portrait 9:16-to-9:22 capture is a phone, a
-  // wide one a desktop; anything else (artwork, a square) keeps its own shape.
-  function shapeOf(w, h) {
-    var ratio = w / h;
-    if (ratio >= .4 && ratio <= .58) return "phone";
-    if (ratio >= 1.25) return "desk";
+  // Otherwise its own pixels say it: at least 1000px wide is a desktop capture,
+  // 380-560px wide a phone. Its height says nothing — a tall desktop capture is
+  // still a desktop — and anything between keeps its own shape, never a phone
+  // frame it is not.
+  function shapeOf(w) {
+    if (w >= 1000) return "desk";
+    if (w >= 380 && w <= 560) return "phone";
     return "";
   }
   var ambientSrc = "";

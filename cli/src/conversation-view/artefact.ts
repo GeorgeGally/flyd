@@ -465,10 +465,12 @@ export type Device = "phone" | "tablet" | "desktop";
 export function deviceOf(path: string): Device | undefined {
   const name = path.toLowerCase().split("/").pop() ?? "";
   const width = (widths: string) => new RegExp(`(?:^|[^0-9])(?:${widths})(?:[^0-9]|$)`).test(name);
-  if (/phone|mobile|android/.test(name) || width("360|375|390|393|402|412|414|428|430")) return "phone";
-  if (/ipad|tablet/.test(name) || width("768|810|820|834")) return "tablet";
-  if (/desk|laptop|wide/.test(name) || width("1024|1080|1200|1280|1366|1440|1512|1536|1600|1680|1728|1920|2560")) return "desktop";
-  return undefined;
+  const named: Device[] = [];
+  if (/phone|mobile|android/.test(name) || width("360|375|390|393|402|412|414|428|430")) named.push("phone");
+  if (/ipad|tablet/.test(name) || width("768|810|820|834")) named.push("tablet");
+  if (/desk|laptop|wide/.test(name) || width("1024|1080|1200|1280|1366|1440|1512|1536|1600|1680|1728|1920|2560")) named.push("desktop");
+  // A name that names more than one screen is a composite ("…-desktop-and-phone.png"): it is its own picture.
+  return named.length === 1 ? named[0] : undefined;
 }
 
 /**

@@ -60,6 +60,15 @@ describe("activity from jobs", () => {
     expect(activityFromJob({ ...job, status: "interrupted" }, NOW)!.item.title).toBe("Stopped a job before it finished");
   });
 
+  it("keeps the fuller outcome behind a card for when he opens it, without the machinery", () => {
+    const made = activityFromJob({ ...job, status: "ok", result: "Done. The file is at ~/Documents/Flyd/gnm.md, deduped and checked." }, NOW)!;
+    expect(made.item.line).toBe("Done.");
+    expect(made.item.detail).toBe("Done. The file is at ~/Documents/Flyd/gnm.md, deduped and checked.");
+    // A result that only repeats the line, or that names the machinery, opens nothing new.
+    expect(activityFromJob({ ...job, status: "ok", result: "Done." }, NOW)!.item.detail).toBeUndefined();
+    expect(activityFromJob({ ...job, status: "ok", result: "Done. Crewmates landed the branch." }, NOW)!.item.detail).toBeUndefined();
+  });
+
   it("chips a finished job as done and an unfinished one as held up, never under way", () => {
     expect(kindVisual(activityFromJob({ ...job, status: "running" }, NOW)!.item.kind).word).toBe("Under way");
     expect(kindVisual(activityFromJob({ ...job, status: "ok" }, NOW)!.item.kind).word).toBe("Done");
@@ -131,7 +140,7 @@ describe("composeActivity", () => {
 
   it("turns the council's advice into a calm card that does not say who had it", () => {
     const panel = composeActivity({ log: [], jobs: [], advice: [{ id: "9a8c7377", at: minutesAgo(30), text: "GNM's Christmas site kept absorbing days. Smallest step: name a sponsor." }], records: [] }, NOW);
-    expect(panel.recent).toEqual([{ id: "thought:9a8c7377", kind: "noted", title: "Noticed something about your projects", line: "GNM's Christmas site kept absorbing days.", at: minutesAgo(30) }]);
+    expect(panel.recent).toEqual([{ id: "thought:9a8c7377", kind: "noted", title: "Noticed something about your projects", line: "GNM's Christmas site kept absorbing days.", detail: "GNM's Christmas site kept absorbing days. Smallest step: name a sponsor.", at: minutesAgo(30) }]);
   });
 
   it("counts a bar a day for the week, oldest first, today last", () => {

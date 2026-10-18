@@ -105,8 +105,17 @@ export const CARD_STYLE = `
 .card-sub { margin: 6px 0 0; font: 400 15px/1.45 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
 .card-link { display: inline-block; margin-top: 10px; font: 500 15px/1.4 var(--sans); color: var(--link); text-decoration: none; transition: color 140ms ease; }
 .card-link:hover { color: var(--strong); }
-.card-thumb { flex: none; margin: 0; }
+.card-thumb { flex: none; margin: 0; padding: 0; border: 0; background: none; cursor: zoom-in; line-height: 0; border-radius: 8px; }
 .card-thumb img { display: block; width: 108px; height: 72px; object-fit: cover; border-radius: 8px; }
+.card-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* A card he can open: the pointer says so, and a quiet wash of its own colour answers the hover. */
+.card.is-expandable { cursor: pointer; transition: background 140ms ease; }
+.card.is-expandable:hover { background: color-mix(in srgb, var(--tint) 52%, var(--faint)); }
+.card.is-expandable:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.card-detail { margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--faint); }
+.card-detail[hidden] { display: none; }
+.card-detail-when { margin: 0; font: 500 12px/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.card-detail-text { margin: 6px 0 0; font: 400 14px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
 /* Putting a card away: a quiet cross that shows on hover, a colour tween, nothing moves. */
 .card-dismiss { position: absolute; top: 11px; right: 11px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; background: none; cursor: pointer; font: 400 16px/24px var(--sans); color: var(--muted); opacity: 0; transition: opacity 140ms ease, color 140ms ease; }
 .card .card-dismiss { right: 11px; }
@@ -145,12 +154,13 @@ export const CARD_SCRIPT = `
     keys.forEach(function (k) { kept[k] = gone[k]; });
     store("flyd-dismissed", JSON.stringify(kept));
   }
-  // A card: an icon tile, a status chip with the time on its right, one line, a line under it, a picture, a link.
+  // A card: an icon tile, a status chip with the time on its right, one line, a line under it, a picture, a link, and — where it has more to say — a detail that unfolds in place.
   function visualCard(item, opts) {
     opts = opts || {};
     var kind = item.kind || opts.kind || "clear";
     var v = kindOf(kind);
-    var card = el("li", "card card-" + kind + " tone-" + v.tone + (opts.className ? " " + opts.className : ""));
+    var unfold = opts.detail !== undefined || opts.detailWhen;
+    var card = el("li", "card card-" + kind + " tone-" + v.tone + (opts.className ? " " + opts.className : "") + (unfold ? " is-expandable" : "") + (unfold && opts.open ? " is-open" : ""));
     card.dataset.key = opts.key;
     card.appendChild(cardIcon(kind));
     var text = el("div", "card-text");
@@ -173,6 +183,37 @@ export const CARD_SCRIPT = `
       a.target = "_blank";
       a.rel = "noopener noreferrer";
       text.appendChild(a);
+    }
+    if (unfold) {
+      var detail = el("div", "card-detail");
+      if (opts.detailWhen) detail.appendChild(el("p", "card-detail-when", opts.detailWhen));
+      if (opts.detail) detail.appendChild(el("p", "card-detail-text", opts.detail));
+      detail.hidden = !opts.open;
+      text.appendChild(detail);
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+      card.setAttribute("aria-expanded", String(!!opts.open));
+      // It unfolds here and now, so the card never blinks; the caller only
+      // remembers which cards are open, so that survives the next re-render.
+      function setOpen(open) {
+        card.classList.toggle("is-open", open);
+        detail.hidden = !open;
+        card.setAttribute("aria-expanded", String(open));
+        if (opts.onToggle) opts.onToggle(open);
+      }
+      card.addEventListener("click", function (event) {
+        var hit = event.target;
+        if (hit && hit.closest && (hit.closest(".card-dismiss") || hit.closest("a"))) return;
+        // Reading the card's own words by dragging over them is not a click to open it.
+        var sel = window.getSelection && window.getSelection();
+        if (sel && !sel.isCollapsed && sel.anchorNode && card.contains(sel.anchorNode)) return;
+        setOpen(detail.hidden);
+      });
+      card.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        setOpen(detail.hidden);
+      });
     }
     card.appendChild(text);
     if (opts.dismiss) {

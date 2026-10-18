@@ -21,6 +21,8 @@ export interface ActivityItem {
   title: string;
   /** One line of detail, when there is one worth saying. */
   line?: string;
+  /** The fuller outcome behind the card, shown only when he opens it. */
+  detail?: string;
   at: string;
 }
 
@@ -54,6 +56,8 @@ export const NOW_MAX_AGE_MS = 30 * 60 * 1000;
 export const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 export const MAX_RECENT = 14;
 const LINE_LIMIT = 140;
+/** How much of the outcome behind a card is kept for when he opens it. */
+const DETAIL_LIMIT = 240;
 
 export function activityRecordPath(dir = FLYD_DIR): string {
   return join(dir, "activity", "records.jsonl");
@@ -72,12 +76,28 @@ export function recordActivity(record: ActivityRecord, dir = FLYD_DIR, now = new
 
 const KINDS = new Set<string>(["watching", "decided", "reviewed", "news", "memory", "routine", "work", "noted"]);
 
+/** Whether a line names the machinery behind the work: those words never reach a card. */
+function leaks(text: string): boolean {
+  return checkSaid({ surface: "status", interactionClass: "work_status", text }).some((item) => item.requirement === "backstage_hidden");
+}
+
 /** Free text from a record, a job or an agenda task is shown only when it names no machinery. */
 function plainLine(text: string | undefined): string | undefined {
   const lead = clip(sentences(inline(text ?? "").replace(/^\W+/, ""))[0] ?? "", LINE_LIMIT).trim();
   if (!lead) return undefined;
-  const leaked = checkSaid({ surface: "status", interactionClass: "work_status", text: lead }).some((item) => item.requirement === "backstage_hidden");
-  return leaked ? undefined : /[.!?…]$/.test(lead) ? lead : `${lead}.`;
+  return leaks(lead) ? undefined : /[.!?…]$/.test(lead) ? lead : `${lead}.`;
+}
+
+/**
+ * The fuller text behind a card, plain and bounded: the whole outcome, not only
+ * its first sentence. Sentences that name the machinery stay out, exactly as on
+ * the card's own line, and nothing is kept when it would only repeat that line.
+ */
+function detailBehind(text: string | undefined, line: string | undefined): string | undefined {
+  if (!line) return undefined;
+  const said = clip(sentences(inline(text ?? "")).filter((one) => !leaks(one)).join(" "), DETAIL_LIMIT).trim();
+  const bare = (one: string): string => one.replace(/[.!?…\s]+$/, "").toLowerCase();
+  return said && bare(said) !== bare(line) ? said : undefined;
 }
 
 /** What a scheduled task is called: its words up to the colon ("Morning brief: …"), else its first sentence. */
@@ -173,20 +193,23 @@ function stamp(value: unknown): string | undefined {
 export function activityFromJob(job: JobFile, now: number): { item: ActivityItem; live: boolean } | null {
   const id = text(job.id);
   const status = text(job.status);
-  const task = plainLine(text(job.contract?.task));
+  const asked = text(job.contract?.task);
+  const task = plainLine(asked);
   const updated = stamp(job.updatedAt) ?? stamp(job.startedAt);
   if (!id || !status || !updated) return null;
   const running = status === "running" || status === "verifying";
   if (running) {
     // A job left "running" by a crashed process is not under way.
     if (now - Date.parse(updated) > NOW_MAX_AGE_MS) return null;
-    return { live: true, item: { id: `job:${id}`, kind: "work", title: "Working on a job for you", ...(task ? { line: task } : {}), at: stamp(job.startedAt) ?? updated } };
+    const detail = detailBehind(asked, task);
+    return { live: true, item: { id: `job:${id}`, kind: "work", title: "Working on a job for you", ...(task ? { line: task } : {}), ...(detail ? { detail } : {}), at: stamp(job.startedAt) ?? updated } };
   }
   const outcome = plainLine(text(job.result));
   const title = status === "ok" ? "Finished a job for you" : status === "failed" || status === "blocked" ? "A job couldn't be finished" : status === "short" ? "Finished a job, with something left open" : "Stopped a job before it finished";
   const line = status === "ok" ? outcome ?? task : task ?? outcome;
+  const detail = detailBehind(text(job.result), line);
   const kind = status === "ok" || status === "short" ? "done" : "held";
-  return { live: false, item: { id: `job:${id}`, kind, title, ...(line ? { line } : {}), at: updated } };
+  return { live: false, item: { id: `job:${id}`, kind, title, ...(line ? { line } : {}), ...(detail ? { detail } : {}), at: updated } };
 }
 
 /** The council's thoughts about his projects, kept as one calm card without saying who had them. */
@@ -195,7 +218,8 @@ export function activityFromAdvice(entry: { id?: unknown; text?: unknown; at?: u
   const at = stamp(entry.at) ?? stamp(entry.createdAt);
   const line = plainLine(text(entry.text));
   if (!id || !at || !line) return null;
-  return { id: `thought:${id}`, kind: "noted", title: "Noticed something about your projects", line, at };
+  const detail = detailBehind(text(entry.text), line);
+  return { id: `thought:${id}`, kind: "noted", title: "Noticed something about your projects", line, ...(detail ? { detail } : {}), at };
 }
 
 /** Records, newest word per key: the one-offs as written, the keyed ones as they last stood. */
@@ -214,7 +238,8 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
   const done: ActivityItem[] = [];
   for (const [key, record] of latest) {
     const line = plainLine(record.line);
-    const item: ActivityItem = { id: `record:${key}`, kind: record.kind, title: record.title.trim(), ...(line ? { line } : {}), at: record.at };
+    const detail = detailBehind(record.line, line);
+    const item: ActivityItem = { id: `record:${key}`, kind: record.kind, title: record.title.trim(), ...(line ? { line } : {}), ...(detail ? { detail } : {}), at: record.at };
     if (record.state === "now") {
       if (now - Date.parse(record.at) <= NOW_MAX_AGE_MS) live.push(item);
     } else {
