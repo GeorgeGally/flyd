@@ -12,8 +12,10 @@ import type { ShowItem, ShowKind } from "./show.js";
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
 // fleet snapshot (the authoritative "everything going on"), Flyd's own memory,
 // the news, and Flyd's taste. Firstmate's snapshot is read from its bearings
-// script; when it cannot be read the panel says so plainly rather than
-// inventing a feed. Everything here is bounded, cached and fails soft.
+// script; a read that fails is Flyd's own hiccup, so it is logged and never
+// shown, and the list he last saw is kept. That list persists and accumulates:
+// a refresh adds or updates a row rather than resetting the screen. Everything
+// here is bounded, cached and fails soft.
 
 export interface ArtefactRow {
   choices?: string[];
