@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07 Threads · Flyd left cards</title>
+<link rel="stylesheet" href="../shared/frame.css">
+<style>
+  /* Every card is already a conversation. The column reads like a list of
+     message threads: Flyd's latest word on each thing, and a dot where it is
+     waiting for an answer. Opened, a card is that conversation, starting with
+     Flyd telling you what it did. */
+  :root { --acc: #e2b877; --strong: #f6f4ef; }
+  .column { padding: 26px 14px 44px; }
+  .head { padding: 0 10px; }
+  .head h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.015em; color: var(--strong); }
+  .head p { margin-top: 4px; font-size: 14.5px; color: var(--dim); }
+  .trend { margin: 14px 10px 6px; display: block; width: calc(100% - 20px); height: 40px; }
+  .row { display: grid; grid-template-columns: 42px 1fr; gap: 12px; padding: 12px 10px; border-radius: 14px; cursor: pointer; transition: background 160ms ease; }
+  .row:hover { background: #16171a; }
+  .row:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+  .row.open { background: #16171a; cursor: auto; }
+  .row.open .top { cursor: pointer; }
+  .av { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; }
+  .av svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .k-reviewed { color: #8fd0a6; background: rgba(143, 208, 166, 0.12); } .k-news { color: #e2b877; background: rgba(226, 184, 119, 0.12); }
+  .k-memory { color: #b8a6f5; background: rgba(184, 166, 245, 0.13); } .k-decided { color: #f39a85; background: rgba(243, 154, 133, 0.12); }
+  .k-routine { color: #8fbfeb; background: rgba(143, 191, 235, 0.12); } .k-done { color: #8fd0a6; background: rgba(143, 208, 166, 0.12); }
+  .k-noticed { color: #e8b25f; background: rgba(232, 178, 95, 0.12); } .k-quiet { color: #6b6e75; background: #1c1d21; }
+  .top { display: flex; align-items: baseline; gap: 8px; }
+  .title { flex: 1; min-width: 0; font-size: 15.5px; line-height: 1.3; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ago { font-size: 13px; color: var(--dim); }
+  .preview { margin-top: 3px; display: flex; gap: 8px; align-items: flex-start; }
+  .preview p { flex: 1; font-size: 14.5px; line-height: 1.4; color: var(--dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .waiting { width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; background: var(--acc); flex: none; }
+  .convo { grid-column: 1 / -1; margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .b { max-width: 88%; font-size: 15px; line-height: 1.45; padding: 9px 13px; border-radius: 18px; }
+  .b.flyd { align-self: flex-start; background: #232429; color: var(--ink); border-bottom-left-radius: 6px; }
+  .b.george { align-self: flex-end; background: var(--acc); color: #1d1608; border-bottom-right-radius: 6px; }
+  .b.typing { color: var(--dim); letter-spacing: 0.04em; }
+  .attach { align-self: flex-start; width: 88%; border: 1px solid #2c2e33; border-radius: 14px; padding: 10px 13px; }
+  .attach h3 { font-size: 13px; font-weight: 600; color: var(--dim); }
+  .attach li { list-style: none; font-size: 14px; line-height: 1.4; color: var(--ink); padding: 5px 0; border-bottom: 1px solid #222428; }
+  .attach li:last-child { border-bottom: 0; }
+  .attach li::before { content: "✓  "; color: #8fd0a6; font-size: 12px; }
+  .stamp { align-self: center; font-size: 12.5px; color: var(--dim); margin: 2px 0; }
+  .talk { margin-top: 14px; display: flex; align-items: center; gap: 6px; border: 1px solid #2c2e33; border-radius: 22px; padding: 4px 4px 4px 14px; transition: border-color 160ms ease; }
+  .talk:focus-within { border-color: var(--acc); }
+  .talk input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; font-size: 15px; padding: 6px 0; }
+  .talk input::placeholder { color: var(--dim); }
+  .talk button { width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--acc); color: #1d1608; font-size: 16px; font-weight: 700; cursor: pointer; transition: background 160ms ease; }
+  .talk button:hover { background: #f0cb92; }
+  .more { margin: 10px 10px 0; background: none; border: 0; font-size: 14px; color: var(--dim); cursor: pointer; transition: color 160ms ease; }
+  .more:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar"><i></i><i></i><i></i><span>Flyd</span><b>Sun 18 Oct 14:45</b></div>
+  <div class="body"><aside class="column" data-column></aside><div class="chat" data-chat></div></div>
+</div>
+<script src="../shared/data.js"></script>
+<script>
+var ICON = {
+  reviewed: '<circle cx="9" cy="9" r="7"/><path d="M6 9.2l2 2 4-4.2"/>',
+  news: '<rect x="2.5" y="3.5" width="13" height="11" rx="1.6"/><path d="M5.5 7h7M5.5 9.7h7M5.5 12.3h4"/>',
+  memory: '<circle cx="9" cy="9" r="7"/><circle cx="9" cy="9" r="2.5"/>',
+  decided: '<path d="M9 15.5V9M9 9L4.5 4M9 9l4.5-5"/>',
+  routine: '<circle cx="9" cy="9" r="7"/><path d="M9 5.2V9l2.6 1.7"/>',
+  done: '<path d="M3.5 9.5l3.5 3.5 7.5-8"/>',
+  noticed: '<path d="M1.8 9s2.7-5 7.2-5 7.2 5 7.2 5-2.7 5-7.2 5S1.8 9 1.8 9z"/><circle cx="9" cy="9" r="2.1"/>',
+  quiet: '<path d="M5 9h8"/>',
+};
+window.design = {
+  column: function (D, S, lab) {
+    var max = lab.weekMax();
+    var pts = D.week.map(function (d, i) { return [6 + i * (300 / 6), 34 - (d.count / max) * 28]; });
+    var path = pts.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join("");
+    var lastPt = pts[pts.length - 1];
+    function row(item) {
+      var open = lab.isOpen(item.id);
+      var thread = lab.thread(item.id);
+      var last = thread.length ? thread[thread.length - 1] : null;
+      var waiting = last && last.who === "flyd" && /\?$/.test(last.text);
+      var html = '<div class="row' + (open ? " open" : "") + '" data-open="' + item.id + '" role="button" tabindex="0" aria-expanded="' + open + '">' +
+        '<span class="av k-' + item.kind + '"><svg viewBox="0 0 18 18">' + ICON[item.kind] + "</svg></span>" +
+        '<div style="min-width:0"><div class="top"><p class="title">' + lab.esc(item.title) + '</p><span class="ago">' + item.ago.replace(" ago", "") + "</span></div>" +
+        (open ? "" : '<div class="preview"><p>' + lab.esc(last ? (last.who === "george" ? "You: " : "") + last.text : item.line) + "</p>" + (waiting ? '<span class="waiting" title="Waiting for you"></span>' : "") + "</div>") + "</div>";
+      if (open) {
+        html += '<div class="convo" data-stay><span class="stamp">' + item.label + ", " + item.at + '</span><p class="b flyd">' + lab.esc(item.summary) + "</p>" +
+          (item.facts.length ? '<div class="attach"><h3>' + item.facts.length + " " + (item.facts.length === 1 ? "detail" : "details") + "</h3><ul>" + item.facts.map(function (f) { return "<li>" + lab.esc(f) + "</li>"; }).join("") + "</ul></div>" : "") +
+          thread.map(function (m) { return '<p class="b ' + m.who + '">' + lab.esc(m.text) + "</p>"; }).join("") +
+          (lab.typing(item.id) ? '<p class="b flyd typing">•••</p>' : "") + lab.talk(item.id, { placeholder: "Message about this", button: "↑" }) + "</div>";
+      }
+      return html + "</div>";
+    }
+    return '<div class="head"><h1>Activity</h1><p>' + D.live + "</p></div>" +
+      '<svg class="trend" viewBox="0 0 312 40" preserveAspectRatio="none"><path d="' + path + '" fill="none" stroke="#4a4c52" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>' +
+      '<circle cx="' + lastPt[0] + '" cy="' + lastPt[1] + '" r="3" fill="#e2b877"/></svg>' +
+      row(D.now) + lab.earlier().map(row).join("") +
+      '<button class="more" data-more type="button">' + lab.moreLabel() + "</button>";
+  },
+};
+</script>
+<script src="../shared/lab.js"></script>
+</body>
+</html>

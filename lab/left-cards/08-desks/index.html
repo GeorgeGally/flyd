@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 Desks · Flyd left cards</title>
+<link rel="stylesheet" href="../shared/frame.css">
+<style>
+  /* Not a feed of everything but a few standing desks: news, its own answers,
+     memory, your projects. Each desk is one card with its latest word and how
+     often it has been busy; open it to read the latest and talk to it, with
+     the desk's other recent work one tap away. */
+  :root { --acc: #e2b877; --strong: #f6f4ef; }
+  .column { padding: 28px 18px 44px; }
+  .head { padding: 0 4px; }
+  .head h1 { font-size: 15px; font-weight: 600; color: var(--dim); }
+  .now { margin-top: 10px; display: grid; gap: 6px; cursor: pointer; padding: 4px 0; }
+  .now:hover b, .now.open b { color: var(--acc); }
+  .now b { font-size: 24px; font-weight: 500; letter-spacing: -0.01em; color: var(--strong); transition: color 160ms ease; }
+  .now span { font-size: 14px; color: var(--dim); white-space: nowrap; }
+  .now-detail { padding: 0 4px; }
+  .desks { margin-top: 22px; display: grid; gap: 10px; }
+  .desk { background: #16171a; border-radius: 16px; padding: 16px 18px 16px; cursor: pointer; transition: background 160ms ease; }
+  .desk:hover { background: #1b1c20; }
+  .desk:focus-visible, .now:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .desk.open { background: #191a1d; outline: 1px solid #2e2a22; }
+  .dh { display: flex; align-items: center; gap: 10px; }
+  .dh h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .k-reviewed { color: #8fd0a6; } .k-news { color: #e2b877; } .k-memory { color: #b8a6f5; }
+  .k-decided { color: #f39a85; } .k-routine { color: #8fbfeb; } .k-projects { color: #e8b25f; }
+  .ticks { margin-left: auto; display: flex; gap: 3px; }
+  .ticks i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .latest { margin-top: 8px; font-size: 15.5px; line-height: 1.4; color: var(--ink); }
+  .latest span { color: var(--dim); }
+  .detail { margin-top: 14px; padding-top: 14px; border-top: 1px solid #26282c; cursor: auto; }
+  .summary { font-size: 15.5px; line-height: 1.55; color: #d4d1ca; }
+  .facts { margin-top: 12px; list-style: none; display: grid; gap: 5px; }
+  .facts li { font-size: 14px; line-height: 1.4; color: var(--dim); }
+  .facts li::before { content: "✓  "; color: #8fd0a6; font-size: 12px; }
+  .thread { margin-top: 16px; display: grid; gap: 10px; }
+  .msg { font-size: 15px; line-height: 1.45; padding: 10px 12px; border-radius: 12px; }
+  .msg.george { background: #2a2419; color: #f3dfbd; margin-left: 28px; }
+  .msg.flyd { background: #202125; color: var(--ink); margin-right: 28px; }
+  .msg.typing { color: var(--dim); }
+  .talk { margin-top: 18px; display: flex; gap: 8px; }
+  .talk input { flex: 1; min-width: 0; background: #0f1012; border: 1px solid #2a2c31; border-radius: 10px; padding: 10px 12px; font-size: 14.5px; outline: 0; transition: border-color 160ms ease; }
+  .talk input:focus { border-color: var(--acc); }
+  .talk input::placeholder { color: var(--dim); }
+  .talk button { border: 0; border-radius: 10px; background: var(--acc); color: #1a1408; font-size: 13.5px; font-weight: 600; padding: 0 14px; cursor: pointer; transition: background 160ms ease; }
+  .talk button:hover { background: #f0cb92; }
+  .also { margin-top: 18px; }
+  .also h3 { font-size: 13px; font-weight: 600; color: var(--dim); }
+  .also button { display: flex; width: 100%; justify-content: space-between; gap: 10px; text-align: left; background: none; border: 0; border-bottom: 1px solid #222428; padding: 9px 0; font-size: 14.5px; color: var(--ink); cursor: pointer; transition: color 160ms ease; }
+  .also button:hover { color: var(--acc); }
+  .also button span { color: var(--dim); font-size: 13px; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar"><i></i><i></i><i></i><span>Flyd</span><b>Sun 18 Oct 14:45</b></div>
+  <div class="body"><aside class="column" data-column></aside><div class="chat" data-chat></div></div>
+</div>
+<script src="../shared/data.js"></script>
+<script>
+var DESKS = [
+  { name: "Its own answers", kinds: ["reviewed"], tone: "reviewed" },
+  { name: "News", kinds: ["news"], tone: "news" },
+  { name: "What it knows about you", kinds: ["memory"], tone: "memory" },
+  { name: "Fixing itself", kinds: ["decided"], tone: "decided" },
+  { name: "Routines", kinds: ["routine"], tone: "routine" },
+  { name: "Your projects", kinds: ["done", "noticed"], tone: "projects" },
+];
+window.design = {
+  column: function (D, S, lab) {
+    function detail(item) {
+      return '<div class="detail" data-stay><p class="summary">' + lab.esc(item.summary) + "</p>" +
+        (item.facts.length ? '<ul class="facts">' + item.facts.map(function (f) { return "<li>" + lab.esc(f) + "</li>"; }).join("") + "</ul>" : "") +
+        '<div class="thread">' + lab.thread(item.id).map(function (m) { return '<p class="msg ' + m.who + '">' + lab.esc(m.text) + "</p>"; }).join("") +
+        (lab.typing(item.id) ? '<p class="msg flyd typing">…</p>' : "") + "</div>" + lab.talk(item.id, { placeholder: "Talk to this desk" }) + "</div>";
+    }
+    var desks = DESKS.map(function (desk) {
+      var items = D.items.filter(function (i) { return desk.kinds.indexOf(i.kind) >= 0; });
+      var shown = items.filter(function (i) { return lab.isOpen(i.id); })[0];
+      return { desk: desk, items: items, shown: shown };
+    });
+    var nowOpen = lab.isOpen("now");
+    return '<div class="head"><h1>Activity</h1></div>' +
+      '<div class="now' + (nowOpen ? " open" : "") + '" data-open="now" role="button" tabindex="0" aria-expanded="' + nowOpen + '"><b>' + D.live + "</b><span>" + D.now.line + "</span></div>" +
+      (nowOpen ? '<div class="now-detail">' + detail(D.now) + "</div>" : "") +
+      '<div class="desks">' + desks.map(function (d) {
+        var latest = d.items[0];
+        var item = d.shown || latest;
+        var open = !!d.shown;
+        var others = d.items.filter(function (i) { return i !== item; });
+        return '<div class="desk' + (open ? " open" : "") + '" data-open="' + item.id + '" role="button" tabindex="0" aria-expanded="' + open + '">' +
+          '<div class="dh k-' + d.desk.tone + '"><h2>' + d.desk.name + '</h2><span class="ticks" title="' + d.items.length + ' this week">' + d.items.map(function () { return "<i></i>"; }).join("") + "</span></div>" +
+          '<p class="latest">' + lab.esc(item.line || item.title) + " <span>" + item.ago + "</span></p>" +
+          (open ? detail(item) + (others.length ? '<div class="also" data-stay><h3>Also from this desk</h3>' + others.map(function (o) {
+            return '<button type="button" data-open="' + o.id + '">' + lab.esc(o.line || o.title) + "<span>" + o.ago + "</span></button>";
+          }).join("") + "</div>" : "") + "</div>" : "</div>");
+      }).join("") + "</div>";
+  },
+};
+</script>
+<script src="../shared/lab.js"></script>
+</body>
+</html>

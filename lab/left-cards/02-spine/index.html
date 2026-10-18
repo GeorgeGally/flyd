@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 Spine · Flyd left cards</title>
+<link rel="stylesheet" href="../shared/frame.css">
+<style>
+  /* The day as one line. Every card is a stop on it, the time sits beside its
+     stop, and talking to a card adds new stops below it on the same line. */
+  :root { --acc: #e2b877; --strong: #f6f4ef; --spine: #2c2e33; }
+  .column { padding: 30px 26px 48px 22px; }
+  .head { padding-left: 6px; }
+  .head h1 { font-size: 15px; font-weight: 600; color: var(--dim); }
+  .head p { margin-top: 8px; font-size: 25px; font-weight: 500; letter-spacing: -0.01em; color: var(--strong); }
+  .days { margin-top: 22px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .days div { display: grid; justify-items: center; gap: 8px; }
+  .days i { display: block; border-radius: 50%; background: #3a3d43; }
+  .days .today i { background: var(--acc); }
+  .days span { font-size: 12px; color: var(--dim); }
+  .days .today span { color: var(--ink); }
+
+  .spine { margin-top: 30px; position: relative; }
+  .spine::before { content: ""; position: absolute; left: 61px; top: 10px; bottom: 30px; width: 1px; background: var(--spine); }
+  .stop { position: relative; display: grid; grid-template-columns: 48px 26px 1fr; padding: 13px 0; cursor: pointer; }
+  .stop:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 6px; }
+  .when { font-size: 13px; color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; padding-top: 3px; }
+  .node { justify-self: center; margin-top: 6px; width: 11px; height: 11px; border-radius: 50%; background: var(--win); border: 2px solid currentColor; position: relative; z-index: 1; }
+  .stop.open .node { background: currentColor; box-shadow: 0 0 0 4px var(--win), 0 0 0 5px currentColor; }
+  .k-reviewed { color: #8fd0a6; } .k-news { color: #e2b877; } .k-memory { color: #b8a6f5; }
+  .k-decided { color: #f39a85; } .k-routine { color: #8fbfeb; } .k-done { color: #8fd0a6; } .k-noticed { color: #e8b25f; } .k-quiet { color: #55585e; }
+  .what { min-width: 0; padding-left: 6px; }
+  .title { font-size: 16px; line-height: 1.35; font-weight: 500; color: var(--ink); transition: color 160ms ease; }
+  .stop:hover .title { color: var(--acc); }
+  .stop.open .title { color: var(--strong); font-size: 18px; }
+  .line { margin-top: 3px; font-size: 14px; line-height: 1.45; color: var(--dim); }
+  .sep { margin: 14px 0 4px 74px; font-size: 13px; font-weight: 600; color: var(--dim); }
+
+  .detail { grid-column: 3; padding-left: 6px; cursor: auto; }
+  .summary { margin-top: 12px; font-size: 15.5px; line-height: 1.55; color: #cfccc5; }
+  .facts { margin-top: 12px; display: grid; gap: 5px; }
+  .facts span { font-size: 14px; line-height: 1.4; color: var(--dim); }
+  .facts span::before { content: "✓ "; color: #8fd0a6; font-size: 12px; }
+  .say { position: relative; display: grid; grid-template-columns: 48px 26px 1fr; padding: 9px 0; }
+  .say .node { width: 7px; height: 7px; margin-top: 8px; border-width: 1.5px; }
+  .say.george .node { color: var(--acc); background: var(--acc); }
+  .say.flyd .node { color: #6d7077; }
+  .say p { padding-left: 6px; font-size: 15px; line-height: 1.5; }
+  .say.george p { color: var(--acc); }
+  .say.flyd p { color: var(--ink); }
+  .say.typing p { color: var(--dim); }
+  .say .when { font-size: 12px; }
+  .talk { grid-column: 3; min-width: 0; margin: 8px 0 6px 6px; display: flex; gap: 8px; align-items: center; background: #17181b; border-radius: 10px; padding: 6px 6px 6px 12px; outline: 1px solid var(--spine); transition: outline-color 160ms ease; }
+  .talk:focus-within { outline-color: var(--acc); }
+  .talk input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; font-size: 14.5px; }
+  .talk input::placeholder { color: var(--dim); }
+  .talk button { border: 0; border-radius: 7px; background: #2a2b30; color: var(--ink); font-size: 13px; font-weight: 600; padding: 7px 11px; cursor: pointer; transition: background 160ms ease, color 160ms ease; }
+  .talk button:hover { background: var(--acc); color: #1a1408; }
+  .more { margin: 14px 0 0 80px; background: none; border: 0; color: var(--dim); font-size: 14px; cursor: pointer; transition: color 160ms ease; }
+  .more:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar"><i></i><i></i><i></i><span>Flyd</span><b>Sun 18 Oct 14:45</b></div>
+  <div class="body"><aside class="column" data-column></aside><div class="chat" data-chat></div></div>
+</div>
+<script src="../shared/data.js"></script>
+<script>
+window.design = {
+  column: function (D, S, lab) {
+    var max = lab.weekMax();
+    function stop(item, when) {
+      var open = lab.isOpen(item.id);
+      var html = '<div class="stop' + (open ? " open" : "") + '" data-open="' + item.id + '" role="button" tabindex="0" aria-expanded="' + open + '">' +
+        '<span class="when">' + when + '</span><span class="node k-' + item.kind + '"></span>' +
+        '<div class="what"><p class="title">' + lab.esc(item.title) + '</p><p class="line">' + lab.esc(item.line || "") + "</p></div>";
+      if (open) {
+        html += '<div class="detail" data-stay><p class="summary">' + lab.esc(item.summary) + "</p>" +
+          (item.facts.length ? '<div class="facts">' + item.facts.map(function (f) { return "<span>" + lab.esc(f) + "</span>"; }).join("") + "</div>" : "") + "</div>";
+      }
+      html += "</div>";
+      if (open) {
+        html += lab.thread(item.id).map(function (m) {
+          return '<div class="say ' + m.who + '"><span class="when">' + (m.who === "george" ? "you" : "") + '</span><span class="node"></span><p>' + lab.esc(m.text) + "</p></div>";
+        }).join("") + (lab.typing(item.id) ? '<div class="say flyd typing"><span class="when"></span><span class="node"></span><p>Answering…</p></div>' : "") +
+          '<div class="say"><span></span><span></span>' + lab.talk(item.id, { placeholder: "Add to this", button: "Send" }) + "</div>";
+      }
+      return html;
+    }
+    return '<div class="head"><h1>Activity</h1><p>' + D.live + "</p>" +
+      '<div class="days">' + D.week.map(function (d) {
+        var size = Math.round(6 + (d.count / max) * 14);
+        return '<div class="' + (d.today ? "today" : "") + '" title="' + d.count + ' things"><i style="width:' + size + "px;height:" + size + 'px;margin-top:' + (20 - size) + 'px"></i><span>' + d.day.slice(0, 1) + "</span></div>";
+      }).join("") + "</div></div>" +
+      '<div class="spine">' + stop(D.now, "now") + '<p class="sep">Earlier</p>' +
+      lab.earlier().map(function (i) { return stop(i, i.at); }).join("") + "</div>" +
+      '<button class="more" data-more type="button">' + lab.moreLabel() + "</button>";
+  },
+};
+</script>
+<script src="../shared/lab.js"></script>
+</body>
+</html>

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 Journal · Flyd left cards</title>
+<link rel="stylesheet" href="../shared/frame.css">
+<style>
+  /* No cards and no labels: Flyd keeps a short diary of its day in its own
+     voice. Each sentence is one thing it did; touch a sentence and the
+     details and its conversation open in the margin beneath it. */
+  :root { --acc: #e2b877; --strong: #f6f4ef; }
+  .column { padding: 32px 30px 52px; }
+  .head h1 { font-size: 15px; font-weight: 600; color: var(--dim); }
+  .opening { margin-top: 14px; font-size: 21px; line-height: 1.45; color: var(--strong); letter-spacing: -0.005em; cursor: pointer; }
+  .opening:hover .s, .opening.open .s { color: var(--acc); }
+  .opening small { display: block; margin-top: 10px; font-size: 15px; color: var(--dim); letter-spacing: 0; }
+  .opening small i { display: inline-block; width: 3px; margin-right: 2px; border-radius: 1px; background: #4a4c52; vertical-align: baseline; }
+  .opening small i.today { background: var(--acc); }
+  .part { margin-top: 34px; font-size: 13px; font-weight: 600; color: var(--dim); }
+  .entry { margin-top: 14px; cursor: pointer; }
+  .entry:focus-visible, .opening:focus-visible { outline: 2px solid var(--acc); outline-offset: 4px; border-radius: 4px; }
+  .s { font-size: 18.5px; line-height: 1.5; color: var(--ink); transition: color 160ms ease; }
+  .s b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .s em { font-style: normal; color: var(--dim); }
+  .entry:hover .s { color: var(--strong); }
+  .entry:hover .s b { color: var(--acc); }
+  .entry.open .s { color: var(--strong); }
+  .entry.open .s b { color: var(--acc); }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin: 0 8px 2px 0; vertical-align: middle; }
+  .k-reviewed { background: #8fd0a6; } .k-news { background: #e2b877; } .k-memory { background: #b8a6f5; }
+  .k-decided { background: #f39a85; } .k-routine { background: #8fbfeb; } .k-done { background: #8fd0a6; } .k-noticed { background: #e8b25f; } .k-quiet { background: #55585e; }
+  .margin { margin: 14px 0 6px 15px; padding-left: 16px; border-left: 1px solid #34363b; cursor: auto; }
+  .margin p.more-of { font-size: 15.5px; line-height: 1.55; color: #c4c1ba; }
+  .margin ul { margin-top: 10px; list-style: none; display: grid; gap: 4px; }
+  .margin li { font-size: 14px; line-height: 1.4; color: var(--dim); }
+  .margin li::before { content: "– "; }
+  .said { margin-top: 16px; display: grid; gap: 10px; }
+  .said p { font-size: 15.5px; line-height: 1.5; }
+  .said .george { color: var(--acc); }
+  .said .george::before { content: "You wrote: "; color: var(--dim); }
+  .said .flyd { color: var(--ink); }
+  .said .typing { color: var(--dim); font-style: italic; }
+  .talk { margin-top: 18px; display: flex; gap: 10px; align-items: baseline; }
+  .talk input { flex: 1; min-width: 0; background: none; border: 0; border-bottom: 1px dotted #4a4c52; outline: 0; font-size: 15.5px; padding: 4px 0; transition: border-color 160ms ease; }
+  .talk input:focus { border-bottom: 1px solid var(--acc); }
+  .talk input::placeholder { color: var(--dim); font-style: italic; }
+  .talk button { background: none; border: 0; color: var(--acc); font-size: 14px; font-weight: 600; cursor: pointer; }
+  .more { margin-top: 26px; background: none; border: 0; font-size: 15px; color: var(--dim); cursor: pointer; transition: color 160ms ease; }
+  .more:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar"><i></i><i></i><i></i><span>Flyd</span><b>Sun 18 Oct 14:45</b></div>
+  <div class="body"><aside class="column" data-column></aside><div class="chat" data-chat></div></div>
+</div>
+<script src="../shared/data.js"></script>
+<script>
+// Each thing it did, as Flyd would put it in a sentence.
+var SAID = {
+  reviewed: "I read back <b>six</b> of my answers to you. All of them held up.",
+  edition: "I put together today's news. Only <b>two</b> stories were worth your morning.",
+  watch: "I watched the news for you. <em>Nothing urgent.</em>",
+  gaps: "I filled <b>two</b> gaps in what I know about you.",
+  improve: "I noticed my own cards wouldn't open, and started fixing that.",
+  memory: "I read <b>four</b> conversations and <b>twelve</b> notes to keep my memory of you current.",
+  briefing: "I sent your morning briefing.",
+  capfive: "I finished the CapFive tiles; closed projects show their year.",
+  gnm: "I noticed Good Neighbours is stuck until Gareth unblocks DreamHost.",
+  "watch-sat": "I watched the news for you. <em>Nothing urgent.</em>",
+  "reviewed-fri": "I read back <b>four</b> answers; one should have been better.",
+};
+function part(item) {
+  if (/^\d/.test(item.at)) return Number(item.at.slice(0, 2)) >= 12 ? "This afternoon" : "This morning";
+  return item.at === "Sat" ? "Yesterday" : "Friday";
+}
+window.design = {
+  column: function (D, S, lab) {
+    var max = lab.weekMax();
+    var total = D.week.reduce(function (n, d) { return n + d.count; }, 0);
+    function margin(item) {
+      var html = '<div class="margin" data-stay><p class="more-of">' + lab.esc(item.summary) + "</p>" +
+        (item.facts.length ? "<ul>" + item.facts.map(function (f) { return "<li>" + lab.esc(f) + "</li>"; }).join("") + "</ul>" : "");
+      var thread = lab.thread(item.id);
+      if (thread.length || lab.typing(item.id)) html += '<div class="said">' + thread.map(function (m) { return '<p class="' + m.who + '">' + lab.esc(m.text) + "</p>"; }).join("") + (lab.typing(item.id) ? '<p class="typing">Flyd is writing…</p>' : "") + "</div>";
+      return html + lab.talk(item.id, { placeholder: "Write in the margin" }) + "</div>";
+    }
+    var last = "";
+    var body = lab.earlier().map(function (item) {
+      var open = lab.isOpen(item.id), heading = part(item), html = "";
+      if (heading !== last) { html += '<p class="part">' + heading + "</p>"; last = heading; }
+      return html + '<div class="entry' + (open ? " open" : "") + '" data-open="' + item.id + '" role="button" tabindex="0" aria-expanded="' + open + '">' +
+        '<p class="s"><span class="dot k-' + item.kind + '"></span>' + SAID[item.id] + "</p>" + (open ? margin(item) : "") + "</div>";
+    }).join("");
+    var nowOpen = lab.isOpen("now");
+    return '<div class="head"><h1>Activity</h1></div>' +
+      '<div class="opening' + (nowOpen ? " open" : "") + '" data-open="now" role="button" tabindex="0" aria-expanded="' + nowOpen + '"><span class="s" style="font-size:inherit">It\'s ' + D.clock + ", and nothing is under way. I last did something 3 minutes ago.</span>" +
+      "<small>" + D.week.map(function (d) { return '<i class="' + (d.today ? "today" : "") + '" style="height:' + Math.round(3 + (d.count / max) * 11) + 'px"></i>'; }).join("") +
+      "&nbsp; " + total + " things this week, most on Thursday.</small>" + (nowOpen ? margin(D.now) : "") + "</div>" +
+      body + '<button class="more" data-more type="button">' + (S.more ? "Show less" : "Read further back") + "</button>";
+  },
+};
+</script>
+<script src="../shared/lab.js"></script>
+</body>
+</html>

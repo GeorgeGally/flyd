@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd left cards</title>
+<style>
+  :root { --bg: #0c0d0e; --ink: #f1eee8; --dim: #8f8b84; --line: #24252a; --acc: #e2b877; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; padding: 72px 56px 96px; }
+  .wrap { max-width: 1480px; margin: 0 auto; }
+  h1 { font-size: 56px; line-height: 1; font-weight: 700; letter-spacing: -0.035em; }
+  .lede { margin-top: 22px; max-width: 820px; font-size: 20px; line-height: 1.5; color: var(--dim); }
+  .lede b { color: var(--ink); font-weight: 500; }
+  .grid { margin-top: 64px; display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 56px 40px; }
+  .grid a { color: inherit; text-decoration: none; display: block; }
+  .shot { height: 560px; border-radius: 10px; overflow: hidden; outline: 1px solid var(--line); background: #08090a; }
+  .shot img { width: 361px; display: block; margin: 0 auto; }
+  .shot.wide img { width: 100%; }
+  .grid h2 { margin-top: 18px; font-size: 24px; font-weight: 650; letter-spacing: -0.02em; display: flex; gap: 12px; align-items: baseline; transition: color 160ms ease; }
+  .grid h2 small { font-size: 16px; font-weight: 500; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .grid a:hover h2 { color: var(--acc); }
+  .grid p { margin-top: 8px; font-size: 17px; line-height: 1.5; color: var(--dim); }
+  .same { margin-top: 96px; padding-top: 40px; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px 48px; }
+  .same h3 { grid-column: 1 / -1; font-size: 28px; font-weight: 650; letter-spacing: -0.02em; }
+  .same p { font-size: 16.5px; line-height: 1.55; color: var(--dim); }
+  .same p b { color: var(--ink); font-weight: 500; }
+  @media (max-width: 720px) { body { padding: 40px 16px; } h1 { font-size: 40px; } .grid { grid-template-columns: 1fr; } .shot { height: 420px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>The left column, ten ways</h1>
+  <p class="lede">Ten designs for the cards in Flyd's left column, each built on a different idea of what a card is. All ten hold the same Sunday afternoon, with <b>Read back its own answers</b> open and its short conversation showing. Click any card to open it, and type to it: the message stays and Flyd answers.</p>
+
+  <div class="grid">
+    <a href="01-hairline/index.html"><div class="shot"><img src="shots/01.png" alt="01 Hairline"></div><h2><small>01</small>Hairline</h2><p>No boxes at all. Rows on hairlines with the clock time down the left, and type alone says what kind of thing each one is. Opened, a row becomes a reading block with an underline reply.</p></a>
+    <a href="02-spine/index.html"><div class="shot"><img src="shots/02.png" alt="02 Spine"></div><h2><small>02</small>Spine</h2><p>The day as one line. Each card is a stop on it, coloured by kind, and talking to a card adds new stops under it on the same line.</p></a>
+    <a href="03-side-pane/index.html"><div class="shot wide"><img src="shots/03.png" alt="03 Side pane"></div><h2><small>03</small>Side pane</h2><p>Like Mail. The column stays a short scannable list with the open card lit; the card opens beside it as a full page with room to read and talk.</p></a>
+    <a href="04-morning-paper/index.html"><div class="shot"><img src="shots/04.png" alt="04 Morning paper"></div><h2><small>04</small>Morning paper</h2><p>A paper with one reader. Each thing Flyd did is a serif headline with a one-line standfirst, and writing back reads like a letter to the editor.</p></a>
+    <a href="05-contact-sheet/index.html"><div class="shot"><img src="shots/05.png" alt="05 Contact sheet"></div><h2><small>05</small>Contact sheet</h2><p>Every card is a picture first, two to a row. Real screenshots in an even white frame where the work has one, a thin line drawing of the result where it doesn't.</p></a>
+    <a href="06-journal/index.html"><div class="shot"><img src="shots/06.png" alt="06 Journal"></div><h2><small>06</small>Journal</h2><p>No cards and no labels. Flyd keeps a short diary of its day in its own voice; click a sentence and the details and the conversation open in the margin.</p></a>
+    <a href="07-threads/index.html"><div class="shot"><img src="shots/07.png" alt="07 Threads"></div><h2><small>07</small>Threads</h2><p>Every card is already a conversation. The column reads like a list of message threads with Flyd's latest word, and a dot where it is waiting for you.</p></a>
+    <a href="08-desks/index.html"><div class="shot"><img src="shots/08.png" alt="08 Desks"></div><h2><small>08</small>Desks</h2><p>Grouped by what Flyd looks after, not by time: news, its own answers, memory, your projects. Each desk is one card you open and talk to.</p></a>
+    <a href="09-lead-card/index.html"><div class="shot"><img src="shots/09.png" alt="09 Lead card"></div><h2><small>09</small>Lead card</h2><p>One card in hand. The newest thing is a large card that is already open with a place to answer; everything else is a thin strip under it.</p></a>
+    <a href="10-paper/index.html"><div class="shot"><img src="shots/10.png" alt="10 Paper"></div><h2><small>10</small>Paper</h2><p>The light room. White cards on warm paper, a hairline each and no shadow, thin line icons, and a card that opens into a note you write back on.</p></a>
+  </div>
+
+  <section class="same">
+    <h3>What all ten keep</h3>
+    <p><b>Every card opens.</b> Right now, each earlier card and every hidden one open to a summary of what was done in one or two sentences, then the details.</p>
+    <p><b>Every card talks.</b> What you type stays in that card's history and Flyd answers under it.</p>
+    <p><b>Nothing floats.</b> No shadows on the column or the cards, no lift on hover. Hover changes colour only.</p>
+    <p><b>Type stays calm.</b> Sentence case throughout, letter-spacing never wide, body text at 15px or larger.</p>
+    <p><b>Same content.</b> The live column's real cards, its week and its Show more. 05 shows nine cards so the ones with pictures are in view; 08 groups all of them.</p>
+    <p><b>One behaviour.</b> Opening, Show more and talking live in <code>shared/lab.js</code>; each design only draws.</p>
+  </section>
+</div>
+</body>
+</html>
