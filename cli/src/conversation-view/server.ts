@@ -758,7 +758,7 @@ export class ConversationViewServer {
       sendJson(res, 200, {
         receipt: note ? (answer || note.answered ? "read" : note.question.receipt ?? "sent") : null,
         ...(answer ? { answer: { text: answer.text, ...(answer.timestamp ? { timestamp: answer.timestamp } : {}) } } : {}),
-        ...(note?.answered && !answer ? { done: true } : {}),
+        ...(snapshot && note?.answered && !answer ? { done: true } : {}),
       });
       return;
     }

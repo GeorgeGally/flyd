@@ -659,6 +659,9 @@ describe("ConversationViewServer", () => {
     const port = await start(inbox);
     const note = JSON.parse((await get(port, `/api/note?id=${encodeURIComponent("note:1")}&token=${viewToken}`)).body);
     expect(note).toEqual({ receipt: "read", done: true });
+    // With no session to read, Flyd cannot tell whether firstmate is still on it, so the card keeps waiting.
+    rmSync(join(dir!, "s1.jsonl"));
+    expect(JSON.parse((await get(port, `/api/note?id=${encodeURIComponent("note:1")}&token=${viewToken}`)).body)).toEqual({ receipt: "read" });
   });
 
   it("sends his reply to an answer back to firstmate, saying what it answers, and threads it under that answer", async () => {

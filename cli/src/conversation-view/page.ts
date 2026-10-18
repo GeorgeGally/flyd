@@ -2873,10 +2873,14 @@ ${LEFT_SCRIPT}
           var changed = false;
           results.forEach(function (data, index) {
             if (!data) return;
-            // Gone from the inbox, or taken and finished with no reply naming it: nothing more will come.
-            if (data.receipt === null || data.done) { waiting[index].done = true; changed = true; }
-            if (data.answer && data.answer.text && !waiting[index].answer) {
-              waiting[index].answer = data.answer.text;
+            // Taken and finished with no reply naming it, or gone from the inbox poll after poll
+            // (one miss is only firstmate moving it to handled/): nothing more will come.
+            var entry = waiting[index];
+            var missed = data.receipt === null ? (entry.missed || 0) + 1 : 0;
+            if (missed !== (entry.missed || 0)) { entry.missed = missed; changed = true; }
+            if (data.done || missed >= 3) { entry.done = true; changed = true; }
+            if (data.answer && data.answer.text && !entry.answer) {
+              entry.answer = data.answer.text;
               if (state.receipt === "sent") state.receipt = "read";
               changed = true;
             }
