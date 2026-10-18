@@ -2790,6 +2790,64 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(document.querySelector(".outcomes-lead")!.textContent).toBe("Here's where the three Flyd fixes stand:");
   });
 
+  it("keeps one semantic Activity-column object alive as a task moves from working to needs-you to finished", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const base = {
+      id: "task:t1", kind: "activity", subject: "Reworking Flyd activity", summary: "Firstmate is on it",
+      project: "Flyd", evidence: [], actions: [], source: { showItemId: "live:t1", task: "t1" },
+    };
+    stream.emit("update", {
+      order: [], messages: [], working: false,
+      leftColumn: {
+        now: [], recent: [], week: [],
+        semantic: [{ ...base, lifecycle: "active", activity: { phase: "working", started: "2026-10-18T09:00:00Z" } }],
+      },
+    });
+    await settle();
+    const first = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
+    expect(first).not.toBeNull();
+    expect(first.dataset.semanticId).toBe("task:t1");
+    expect(first.dataset.phase).toBe("working");
+    expect(document.querySelectorAll("#left-semantic .semantic-activity")).toHaveLength(1);
+
+    stream.emit("update", {
+      order: [], messages: [], working: false,
+      leftColumn: {
+        now: [], recent: [], week: [],
+        semantic: [{
+          ...base, lifecycle: "interrupted", activity: { phase: "needs_you" },
+          source: { showItemId: "call:t1", task: "t1" },
+          decision: { question: "Ship it?", alternatives: ["Ship", "Hold"] },
+          actions: [{ id: "choose:Ship", kind: "choose", label: "Ship", value: "Ship" }],
+        }],
+      },
+    });
+    await settle();
+    const second = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
+    expect(second.dataset.semanticId).toBe(first.dataset.semanticId);
+    expect(second.dataset.phase).toBe("needs_you");
+    expect(document.querySelectorAll("#left-semantic .semantic-activity")).toHaveLength(1);
+
+    stream.emit("update", {
+      order: [], messages: [], working: false,
+      leftColumn: {
+        now: [], recent: [], week: [],
+        semantic: [{
+          ...base, lifecycle: "resolved", activity: { phase: "finished" },
+          source: { showItemId: "landed:t1", task: "t1" }, updatedAt: "2026-10-18T10:00:00Z",
+        }],
+      },
+    });
+    await settle();
+    const third = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
+    expect(third.dataset.semanticId).toBe(first.dataset.semanticId);
+    expect(third.dataset.phase).toBe("finished");
+    expect(third.querySelector(".card-meta")!.textContent).toContain("Done");
+  });
+
   it("puts a column card away when he hides it, and keeps it away after a reload", async () => {
     load("");
     await settle();

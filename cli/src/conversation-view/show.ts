@@ -74,6 +74,8 @@ export interface ShowScreen {
   items: ShowItem[];
   /** Canonical semantic objects for the same visible items; rendering still uses ShowItem during migration. */
   semantic?: SemanticObject[];
+  /** Native task manifestations: one stable Activity per Firstmate job across every phase. */
+  activities?: SemanticObject[];
   /** Snapshot-to-snapshot semantic lifecycle deltas; populated by SnapshotDiffer, not by pure showOf. */
   events?: SemanticEvent[];
   /** How many of each kind exist, including those past the screen's limits. */

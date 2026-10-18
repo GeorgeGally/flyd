@@ -45,10 +45,16 @@ export interface SemanticObject {
     task?: string;
     ref?: string;
   };
+  /** Activity is one continuing job; phase changes without changing its identity. */
+  activity?: {
+    phase: "queued" | "working" | "needs_you" | "paused" | "ready" | "finished";
+    started?: string;
+  };
   decision?: {
     question: string;
     alternatives: string[];
     recommended?: string;
+    replyTo?: string;
   };
   createdAt?: string;
   updatedAt?: string;
@@ -67,6 +73,9 @@ export type SemanticKindOverride = (item: ShowItem) => SemanticKind | undefined;
 const FAILED = /\b(?:failed|error|errored|broken|stuck)\b/i;
 
 export function semanticKindFor(item: ShowItem): SemanticKind {
+  // A Firstmate task is one Activity for its whole life. A decision or result
+  // can happen *inside* that activity without turning the job into a new object.
+  if (item.task && item.kind !== "plan") return "activity";
   switch (item.kind) {
     case "call": return "decision";
     case "live": return "activity";
@@ -78,6 +87,18 @@ export function semanticKindFor(item: ShowItem): SemanticKind {
     case "news": return "conversation";
     case "clear": return "conversation";
   }
+}
+
+function activityPhaseFor(item: ShowItem): SemanticObject["activity"] | undefined {
+  if (semanticKindFor(item) !== "activity") return undefined;
+  const phase =
+    item.kind === "call" ? "needs_you"
+    : item.kind === "waiting" ? "paused"
+    : item.kind === "ready" ? "ready"
+    : item.kind === "landed" ? "finished"
+    : item.kind === "next" ? "queued"
+    : "working";
+  return { phase, ...(item.started ? { started: item.started } : {}) };
 }
 
 export function semanticIdentityFor(item: ShowItem): string {
@@ -114,7 +135,7 @@ function actionsFor(item: ShowItem): SemanticAction[] {
 }
 
 export function semanticObjectFromShow(item: ShowItem, override?: SemanticKind): SemanticObject {
-  const kind = override ?? semanticKindFor(item);
+  const kind = item.task && item.kind !== "plan" ? "activity" : override ?? semanticKindFor(item);
   return {
     id: semanticIdentityFor(item),
     kind,
@@ -131,11 +152,13 @@ export function semanticObjectFromShow(item: ShowItem, override?: SemanticKind):
       ...(item.task ? { task: item.task } : {}),
       ...(item.ref ? { ref: item.ref } : {}),
     },
+    ...(activityPhaseFor(item) ? { activity: activityPhaseFor(item) } : {}),
     ...(item.decision ? {
       decision: {
         question: item.decision.question,
         alternatives: item.decision.choices,
         ...(item.decision.recommended ? { recommended: item.decision.recommended } : {}),
+        ...(item.decision.replyTo ? { replyTo: item.decision.replyTo } : {}),
       },
     } : {}),
     ...(item.at ? { createdAt: item.at, updatedAt: item.at } : {}),
@@ -149,10 +172,10 @@ export function semanticObjectsFromShow(items: readonly ShowItem[], override?: S
 function sameMeaning(a: SemanticObject, b: SemanticObject): boolean {
   return JSON.stringify({
     kind: a.kind, lifecycle: a.lifecycle, subject: a.subject, summary: a.summary, detail: a.detail,
-    project: a.project, status: a.status, evidence: a.evidence, actions: a.actions, decision: a.decision,
+    project: a.project, status: a.status, evidence: a.evidence, actions: a.actions, activity: a.activity, decision: a.decision,
   }) === JSON.stringify({
     kind: b.kind, lifecycle: b.lifecycle, subject: b.subject, summary: b.summary, detail: b.detail,
-    project: b.project, status: b.status, evidence: b.evidence, actions: b.actions, decision: b.decision,
+    project: b.project, status: b.status, evidence: b.evidence, actions: b.actions, activity: b.activity, decision: b.decision,
   });
 }
 
@@ -175,4 +198,41 @@ export function semanticEvents(previous: readonly SemanticObject[], current: rea
     events.push({ objectId: object.id, kind, object, previous: old, ...(object.updatedAt ? { at: object.updatedAt } : {}) });
   }
   return events;
+}
+
+
+export interface ActivitySources {
+  calls?: readonly ShowItem[];
+  underway?: readonly ShowItem[];
+  held?: readonly ShowItem[];
+  ready?: readonly ShowItem[];
+  next?: readonly ShowItem[];
+  done?: readonly ShowItem[];
+}
+
+/**
+ * The native Activity projection. A task appears exactly once even when legacy
+ * presentation lists describe it in several places. Precedence represents the
+ * state that most needs George's attention, while semanticIdentityFor keeps the
+ * object stable across snapshots.
+ */
+export function activityObjectsFromShow(source: ActivitySources): SemanticObject[] {
+  const ordered = [
+    ...(source.calls ?? []),
+    ...(source.held ?? []),
+    ...(source.underway ?? []),
+    ...(source.ready ?? []),
+    ...(source.next ?? []),
+    ...(source.done ?? []),
+  ];
+  const seen = new Set<string>();
+  const activities: SemanticObject[] = [];
+  for (const item of ordered) {
+    if (!item.task) continue;
+    const object = semanticObjectFromShow(item);
+    if (object.kind !== "activity" || seen.has(object.id)) continue;
+    seen.add(object.id);
+    activities.push(object);
+  }
+  return activities;
 }

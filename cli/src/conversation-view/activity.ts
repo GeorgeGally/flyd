@@ -4,6 +4,7 @@ import { checkSaid } from "../council/chief-of-staff.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { clip, inline, sentences } from "./summaries.js";
 import type { DayCount } from "./artefact.js";
+import type { SemanticObject } from "./semantic.js";
 
 // Flyd's left column: what Flyd itself is doing, as cards. Its own background
 // work (watching the news, reading back its answers, keeping memory, running
@@ -43,6 +44,8 @@ export interface ActivityPanel {
   recent: ActivityItem[];
   /** How much it did on each of the last seven days, oldest first: the column's little chart. */
   week: DayCount[];
+  /** Firstmate jobs as canonical semantic Activities. These stay one object across phases. */
+  semantic?: SemanticObject[];
 }
 
 /**
