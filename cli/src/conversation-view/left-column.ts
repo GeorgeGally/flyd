@@ -146,16 +146,20 @@ export const LEFT_SCRIPT = `
     });
   }
   function quietCard(recent) {
-    var li = el("li", "card card-clear tone-quiet left-card is-quiet");
-    li.dataset.key = "quiet|" + (recent.length ? recent[0].at : "");
-    li.appendChild(cardIcon("clear"));
-    var text = el("div", "card-text");
-    var chip = el("span", "card-meta");
-    if (recent.length) chip.appendChild(el("span", "card-when left-meta", "Last active " + ago(recent[0].at)));
-    text.appendChild(chip);
-    text.appendChild(el("p", "card-line left-title", "Nothing under way right now."));
-    li.appendChild(text);
-    return li;
+    var last = recent[0];
+    var key = "quiet|" + (last ? last.at : "");
+    return visualCard({ kind: "clear", title: "Nothing under way right now." }, {
+      className: "left-card is-quiet",
+      key: key,
+      when: last ? "Last active " + ago(last.at) : "",
+      whenClass: "left-meta",
+      titleClass: "left-title",
+      // Its detail is the last thing Flyd did, and exactly when.
+      detail: last ? last.title || "" : "",
+      detailWhen: last && last.at ? dayOf(last.at) + ", " + clock(last.at) : "",
+      open: !!leftOpen[key],
+      onToggle: function (open) { if (open) leftOpen[key] = 1; else delete leftOpen[key]; },
+    });
   }
   function drawActivity() {
     if (!leftPanel) return;
@@ -184,7 +188,7 @@ export const LEFT_SCRIPT = `
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
     // An open card's detail closes first; only then does Escape take the column itself away.
-    if (Object.keys(leftOpen).length) { leftOpen = {}; drawActivity(); return; }
+    if (leftEl.querySelector(".card.is-open")) { leftOpen = {}; drawActivity(); return; }
     if (!leftEl.hidden && !(leftWide && leftWide.matches) && prefs.hidden) chooseLeft(false);
   });
   if (leftWide && leftWide.addEventListener) leftWide.addEventListener("change", setLeft);

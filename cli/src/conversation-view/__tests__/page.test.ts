@@ -1400,20 +1400,38 @@ describe("header and artefact view", () => {
     expect(document.querySelector<HTMLElement>(".scene-shot .devices")!.classList.contains("one")).toBe(true);
   });
 
-  it("never wears a wide capture as a phone, however its name or its height reads", async () => {
+  it("keeps a composite capture in its own shape, however wide it loads", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
     const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: "map", kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [{ src: "/combo.png", label: "gnm-desktop-and-phone.png" }] }] };
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
     const img = document.querySelector<HTMLImageElement>(".scene-shot .device img")!;
-    // A composite name says nothing about the screen, so the picture keeps its own shape until it loads.
     expect(img.parentElement!.className).toBe("device art");
-    Object.defineProperty(img, "naturalWidth", { value: 1440, configurable: true });
-    Object.defineProperty(img, "naturalHeight", { value: 2400, configurable: true });
+    Object.defineProperty(img, "naturalWidth", { value: 1800, configurable: true });
+    Object.defineProperty(img, "naturalHeight", { value: 900, configurable: true });
     img.dispatchEvent(new Event("load"));
-    // 1440 wide is a desktop capture even at a phone-ish height: the browser frame, never the phone.
-    expect(document.querySelector(".scene-shot .device")!.className).toBe("device desk");
+    // A name listing more than one screen is neither frame: no browser, no phone.
+    expect(document.querySelector(".scene-shot .device")!.className).toBe("device art");
+  });
+
+  it("wears a wide capture as a desktop, and a tall native-resolution phone shot as a phone", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const shapeAt = (width: number, height: number): string => {
+      const show: ShowScreen = { title: "Map", summary: "", live: false, counts: {}, items: [{ id: `shot-${width}x${height}`, kind: "landed", headline: "Christmas Nuanu map", why: "", shots: [{ src: `/shot-${width}x${height}.png`, label: "after.png" }] }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      const img = document.querySelector<HTMLImageElement>(".scene-shot .device img")!;
+      Object.defineProperty(img, "naturalWidth", { value: width, configurable: true });
+      Object.defineProperty(img, "naturalHeight", { value: height, configurable: true });
+      img.dispatchEvent(new Event("load"));
+      return document.querySelector(".scene-shot .device")!.className;
+    };
+    // 1440 wide is a desktop capture even at a phone-ish height.
+    expect(shapeAt(1440, 2400)).toBe("device desk");
+    // An iPhone shot at 3x is over 1000px wide, but its portrait shape says phone.
+    expect(shapeAt(1179, 2556)).toBe("device phone");
   });
 
   it("shows the right column: each conversation with its answer below, and a live preview artefact", async () => {
@@ -2384,12 +2402,63 @@ describe("header and artefact view", () => {
     expect(card().getAttribute("role")).toBe("button");
     // The pointer says it can be opened, and a hover rule answers the mouse.
     expect(getComputedStyle(card()).cursor).toBe("pointer");
-    expect(html).toContain(".card.is-expandable:hover");
+    const hover = Array.from(document.styleSheets).flatMap((sheet) => Array.from(sheet.cssRules))
+      .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText.endsWith(":hover"))
+      .find((rule) => card().matches(rule.selectorText.replace(/:hover$/, "")));
+    expect(hover).toBeDefined();
     card().click();
     // This card has no fuller outcome, so its detail is the exact time alone.
     expect(card().querySelector(".card-detail")!.hasAttribute("hidden")).toBe(false);
     expect(card().querySelector(".card-detail-text")).toBeNull();
     expect(card().querySelector(".card-detail-when")!.textContent).not.toBe("");
+  });
+
+  it("opens the quiet Right now card on what Flyd last did, and exactly when", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 9 * 60_000).toISOString();
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "log:news", kind: "news", title: "Watched the news for you", at }] } });
+    const card = (): HTMLElement => document.querySelector("#left-now .left-card") as HTMLElement;
+    expect(card().classList.contains("is-expandable")).toBe(true);
+    expect(card().querySelector<HTMLElement>(".card-detail")!.hidden).toBe(true);
+    card().click();
+    expect(card().querySelector<HTMLElement>(".card-detail")!.hidden).toBe(false);
+    expect(card().querySelector(".card-detail-text")!.textContent).toBe("Watched the news for you");
+    expect(card().querySelector(".card-detail-when")!.textContent).not.toBe("");
+  });
+
+  it("lets Enter on a card's ✕ hide it rather than open the card", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 4 * 60_000).toISOString();
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:1", kind: "done", title: "Finished a job for you", detail: "Done.", at }] } });
+    const card = document.querySelector("#left-recent .left-card") as HTMLElement;
+    const close = card.querySelector(".card-dismiss") as HTMLButtonElement;
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    close.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(false);
+    expect(card.classList.contains("is-open")).toBe(false);
+    card.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(card.classList.contains("is-open")).toBe(true);
+  });
+
+  it("lets Escape take the column away when no shown card is open", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 4 * 60_000).toISOString();
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:1", kind: "done", title: "Finished a job for you", detail: "Done.", at }] } });
+    (document.querySelector("#left-recent .left-card") as HTMLElement).click();
+    // The open card ages out of the panel; its key stays remembered but nothing open is shown.
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:2", kind: "done", title: "Another job", at }] } });
+    expect(document.querySelector("#left .card.is-open")).toBeNull();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.getElementById("left")!.hidden).toBe(true);
   });
 
   it("offers no left column when Core sends no activity", async () => {

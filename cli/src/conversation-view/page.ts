@@ -3885,7 +3885,7 @@ ${LEFT_SCRIPT}
       img.addEventListener("load", function () {
         // A capture without a device in its name is placed by its width once it loads.
         if (!look.device) {
-          var shape = shapeOf(img.naturalWidth);
+          var shape = shapeOf(img.naturalWidth, img.naturalHeight);
           if (shape) { look.device = shape; if (shape === "phone" && !slots.phone) slots.phone = look; if (shape === "desk" && !slots.desk) slots.desk = look; place(); return; }
         }
         if (look.device) { img.dataset.aim = "1"; aimAtContent(img); }
@@ -3981,7 +3981,7 @@ ${LEFT_SCRIPT}
   window.addEventListener("resize", aimShown);
   // What a capture was taken on, from its name: "desktop-1440.png", "phone.png", "ipad.png".
   // A name that names one screen settles it; a composite ("…-desktop-and-phone.png")
-  // names more than one and settles nothing, so its own pixels decide instead.
+  // names more than one and keeps its own shape.
   function deviceOf(name) {
     name = String(name || "").toLowerCase();
     // A crop of the element a change touched keeps its own shape: it is a piece of the page, not a screen.
@@ -3991,13 +3991,14 @@ ${LEFT_SCRIPT}
     if (/phone|mobile|android/.test(name) || width("360|375|390|393|402|412|414|428|430")) said.push("phone");
     if (/ipad|tablet/.test(name) || width("768|810|820|834")) said.push("tablet");
     if (/desk|laptop|wide/.test(name) || width("1024|1080|1200|1280|1366|1440|1512|1536|1600|1680|1728|1920|2560")) said.push("desk");
-    return said.length === 1 ? said[0] : "";
+    return said.length > 1 ? "art" : said[0] || "";
   }
-  // Otherwise its own pixels say it: at least 1000px wide is a desktop capture,
-  // 380-560px wide a phone. Its height says nothing — a tall desktop capture is
-  // still a desktop — and anything between keeps its own shape, never a phone
-  // frame it is not.
-  function shapeOf(w) {
+  // Otherwise its own pixels say it: a portrait capture more than 1.8 times as
+  // tall as it is wide is a phone, however wide (a phone shot at native
+  // resolution); else at least 1000px wide is a desktop capture, 380-560px wide
+  // a phone, and anything between keeps its own shape, never a phone frame it is not.
+  function shapeOf(w, h) {
+    if (w && h / w > 1.8) return "phone";
     if (w >= 1000) return "desk";
     if (w >= 380 && w <= 560) return "phone";
     return "";

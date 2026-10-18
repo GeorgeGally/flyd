@@ -210,6 +210,7 @@ export const CARD_SCRIPT = `
         setOpen(detail.hidden);
       });
       card.addEventListener("keydown", function (event) {
+        if (event.target !== card) return;
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         setOpen(detail.hidden);
