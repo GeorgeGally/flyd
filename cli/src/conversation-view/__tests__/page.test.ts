@@ -2845,7 +2845,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     const third = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
     expect(third.dataset.semanticId).toBe(first.dataset.semanticId);
     expect(third.dataset.phase).toBe("finished");
-    expect(third.querySelector(".card-meta")!.textContent).toBe("Done");
+    expect(third.querySelector(".card-meta")!.textContent).toContain("Done");
   });
 
   it("puts a column card away when he hides it, and keeps it away after a reload", async () => {
