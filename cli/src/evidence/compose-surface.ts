@@ -200,7 +200,7 @@ export function evidenceSurfaceSemanticObject(surfaceId: string): SemanticObject
   if (!entry) return undefined;
   const surface = entry.surface;
   const synthesis = surface.synthesis;
-  const evidence = surface.evidence.slice(0, 24).flatMap((item) => {
+  const evidence: SemanticObject["evidence"] = surface.evidence.slice(0, 24).flatMap((item) => {
     const ref = safeLink(item.locator);
     return ref ? [{ kind: "web" as const, ref, label: item.title || item.author || item.capability }] : [];
   });
