@@ -82,6 +82,16 @@ authoritative path. This change does not rewrite historical private entries.
   are never sent. The checks run locally
   either way.
 - **Caught before display where that is possible.**
+  - What may reach George at all is one list in code, `cli/src/lib/reaches-george.ts`, the
+    same list the mission (`cli/src/lib/soul.ts`) gives Flyd: a decision only he can make,
+    finished work worth his eyes, a real blocker Flyd has run out of moves on, a login or
+    credential only he can give, and anything destructive or irreversible. Where work stands
+    shows only on a screen he opened. Every surface that speaks without a model (the panel
+    and its situation line, the notices over the message box, notifications, the staff
+    monitor, the line under his message) asks it first. Faults, stale readings and staff
+    silence are kept and recorded in `~/.flyd/self-review/kept.jsonl`; unread notes and
+    stuck staff work are chased with Flyd's own notes instead. Whatever reaches him is one
+    line, without paths, flags or error text.
   - A notification reaches him as one line (`notificationLine`): an opening
     address, acknowledgement or placeholder is skipped, and the rest is kept
     whole when it fits in 140 characters; a longer one keeps only its first

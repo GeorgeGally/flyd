@@ -11,6 +11,7 @@ import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } 
 import { CrewProgress } from "../conversation-view/crew-progress.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
 import { FlydDesk, type Answerer, type Complete, type Seer } from "../conversation-view/flyd-desk.js";
+import { flydBrief } from "../conversation-view/flyd-brief.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { memoryLookup } from "../conversation-view/living.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
@@ -123,6 +124,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       desk: {
         desk: new FlydDesk({ answer: answerAsFlyd, see: screenshotsSeen }),
         complete,
+        brief: (text, recent) => flydBrief(text, recent, complete),
       },
     } : {}),
   });

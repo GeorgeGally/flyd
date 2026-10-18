@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
+import type { FlydDesk } from "../flyd-desk.js";
+import { unreadNotes } from "../note-receipts.js";
 import type { ConversationSnapshot } from "../types.js";
 import { assistantText, captain } from "./transcript-fixture.js";
 
@@ -138,6 +140,14 @@ describe("FirstmateInbox", () => {
     const raw = readFileSync(join(home, "state", "inbox", readdirSync(join(home, "state", "inbox")).find((f) => f.endsWith(".note"))!), "utf8");
     expect(raw).toContain("/design-review the cards look flat\n\n[Captain ran /design-review from Flyd: run it exactly as if he had typed it in Claude Code.]");
     expect(questions(inbox)[0]!.text).toBe("/design-review the cards look flat");
+  });
+
+  it("hands firstmate his words whole with Flyd's own brief under them, and shows him only his words", async () => {
+    const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
+    await inbox.send("the GNM hero is too tall on phones", [], undefined, [], "He decided the hero stays one line on phones. Settle the CSS yourself.");
+    const raw = readFileSync(join(home, "state", "inbox", readdirSync(join(home, "state", "inbox")).find((f) => f.endsWith(".note"))!), "utf8");
+    expect(raw).toContain("the GNM hero is too tall on phones\n\n--- Flyd's brief (Flyd's own judgement, not George's words) ---\nHe decided the hero stays one line on phones. Settle the CSS yourself.\n--- end of Flyd's brief ---");
+    expect(questions(inbox)[0]!.text).toBe("the GNM hero is too tall on phones");
   });
 
   it("reports the script's own refusal", async () => {
@@ -360,6 +370,30 @@ describe("ClaudeCodeTranscriptSource with an inbox", () => {
     await source.send("s1", "/not-real please");
     await source.send("s1", "plain words");
     expect(sent).toEqual(["design-review", undefined, undefined]);
+  });
+
+  it("adds Flyd's brief when it hands his words to firstmate, never to a slash command or what Flyd answers itself", async () => {
+    const project = join(dir, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, "s1.jsonl"), captain("hello") + "\n");
+    const claude = join(dir, "claude");
+    mkdirSync(join(claude, "skills", "design-review"), { recursive: true });
+    writeFileSync(join(claude, "skills", "design-review", "SKILL.md"), "---\nname: design-review\ndescription: QA\n---\n");
+    const sent: Array<[string, string | undefined]> = [];
+    const inbox = { send: async (text: string, _i?: unknown, _c?: string, _f?: unknown, brief?: string) => (sent.push([text, brief]), { id: "note:1", timestamp: "x" }), notes: () => [], image: () => null };
+    const asked: string[] = [];
+    const desk = { ask: async (text: string) => (asked.push(text), { id: "ask:1", timestamp: "x" }), exchanges: () => [], image: () => null } as unknown as FlydDesk;
+    const briefed: string[] = [];
+    const source = new ClaudeCodeTranscriptSource({
+      projectDir: project, inbox, commandRoots: { claudeHome: claude },
+      desk: { desk, complete: async (prompt) => (/where to eat/.test(prompt) ? "FLYD" : "FIRSTMATE"), brief: async (text) => (briefed.push(text), `Flyd on: ${text}`) },
+    });
+    await source.send("s1", "fix the footer link");
+    await source.send("s1", "/design-review make it nicer");
+    await source.send("s1", "where to eat tonight?");
+    expect(sent).toEqual([["fix the footer link", "Flyd on: fix the footer link"], ["/design-review make it nicer", undefined]]);
+    expect(briefed).toEqual(["fix the footer link"]);
+    expect(asked).toEqual(["where to eat tonight?"]);
   });
 
   it("still sends when a commands folder holds a dangling symlink", async () => {

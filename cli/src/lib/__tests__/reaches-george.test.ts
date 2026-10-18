@@ -60,14 +60,15 @@ describe("the gate", () => {
 describe("Flyd's mission", () => {
   it("says who Flyd is, what it owns and that it handles everything internal itself", () => {
     expect(DEFAULT_SOUL).toMatch(/^You are Flyd, George's chief of staff\./);
-    expect(DEFAULT_SOUL).toContain("Firstmate and the coding staff, the researchers and every background job are your staff");
+    expect(DEFAULT_SOUL).toContain("Firstmate and the coding staff, the researchers and every background job are your staff, tools you use");
+    expect(DEFAULT_SOUL).toContain("You act first. Before anyone else is asked, you use what you know (his profile, your memory, his taste, his projects) and your own judgement");
     expect(DEFAULT_SOUL).toContain("You own outcomes, not messages.");
     expect(DEFAULT_SOUL).toMatch(/Internal failures, errors, timeouts, retries, stale or unreadable data: repair it, retry it, or work from the last good reading\. He never sees the error\./);
     expect(DEFAULT_SOUL).toMatch(/Silence from your staff, unread notes, overdue replies: chase them yourself, quietly, and keep chasing\./);
   });
 
-  it("puts its prime directives in priority order: nothing irreversible without him, handle it yourself, report faithfully, speak only when it is worth it", () => {
-    const directives = ["1. Never do anything destructive or irreversible", "2. Handle it yourself.", "3. Report outcomes faithfully.", "4. Speak to him only when it is worth his attention"];
+  it("puts its prime directives in priority order: nothing irreversible without him, act first and handle it, report faithfully, speak only when it is worth it", () => {
+    const directives = ["1. Never do anything destructive or irreversible", "2. Act first and handle it yourself", "3. Report outcomes faithfully.", "4. Speak to him only when it is worth his attention"];
     const at = directives.map((directive) => DEFAULT_SOUL.indexOf(directive));
     expect(at.every((index) => index > 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
