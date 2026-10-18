@@ -15,7 +15,7 @@ export const LEFT_STYLE = `
 .left {
   position: fixed; top: 52px; left: 0; bottom: 0; width: var(--left-w); z-index: 6;
   display: flex; flex-direction: column; background: var(--bg);
-  box-shadow: 18px 0 44px rgba(0, 0, 0, 0.22);
+  border-right: 1px solid var(--faint);
 }
 .left[hidden] { display: none; }
 .left-hide {
