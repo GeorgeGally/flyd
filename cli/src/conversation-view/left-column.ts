@@ -180,6 +180,8 @@ export const LEFT_SCRIPT = `
       when: (live ? "Started " : "") + ago(item.at),
       whenClass: "left-meta",
       titleClass: "left-title",
+      // The card is its title; everything else shows over the message box when he clicks it.
+      line: "",
       // Clicking a card opens what it did in full, and exactly when.
       detail: item.detail || "",
       detailWhen: item.at ? dayOf(item.at) + ", " + clock(item.at) : "",
@@ -216,6 +218,8 @@ export const LEFT_SCRIPT = `
       when: when,
       whenClass: "left-meta",
       titleClass: "left-title",
+      // The card is its title; everything else shows over the message box when he clicks it.
+      line: "",
       detail: activity.detail || activity.summary || "",
       detailWhen: at ? dayOf(at) + ", " + clock(at) : "",
       dismiss: phase === "finished",
@@ -242,6 +246,8 @@ export const LEFT_SCRIPT = `
       when: when,
       whenClass: "left-meta",
       titleClass: "left-title",
+      // The card is its title; everything else shows over the message box when he clicks it.
+      line: "",
       // Its detail is the last thing Flyd did, and exactly when.
       detail: last ? last.title || "" : undefined,
       detailWhen: last && last.at ? dayOf(last.at) + ", " + clock(last.at) : "",
