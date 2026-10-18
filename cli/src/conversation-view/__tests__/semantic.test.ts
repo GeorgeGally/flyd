@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SEMANTIC_KINDS,
+  activityObjectsFromShow,
   semanticEvents,
   semanticIdentityFor,
   semanticObjectFromShow,
@@ -27,11 +28,39 @@ describe("canonical semantic artefacts", () => {
 
   it("maps the legacy presentation kinds into semantic meaning", () => {
     expect(semanticObjectFromShow(item()).kind).toBe("activity");
-    expect(semanticObjectFromShow(item({ kind: "call", decision: { task: "t1", question: "A or B?", choices: ["A", "B"] } })).kind).toBe("decision");
-    expect(semanticObjectFromShow(item({ kind: "ready" })).kind).toBe("action");
-    expect(semanticObjectFromShow(item({ kind: "landed" })).kind).toBe("artifact");
+    expect(semanticObjectFromShow(item({ kind: "call", decision: { task: "t1", question: "A or B?", choices: ["A", "B"] } })).kind).toBe("activity");
+    expect(semanticObjectFromShow(item({ kind: "ready" })).kind).toBe("activity");
+    expect(semanticObjectFromShow(item({ kind: "landed" })).kind).toBe("activity");
     expect(semanticObjectFromShow(item({ kind: "plan" })).kind).toBe("artifact");
     expect(semanticObjectFromShow(item({ kind: "news" })).kind).toBe("conversation");
+  });
+
+  it("keeps one task an Activity while its phase moves through work, George, and finished", () => {
+    const working = semanticObjectFromShow(item({ kind: "live", started: "2026-10-18T09:00:00Z" }));
+    const needsYou = semanticObjectFromShow(item({
+      kind: "call",
+      decision: { task: "t1", question: "Ship it?", choices: ["Ship", "Hold"], replyTo: "reply:1" },
+    }));
+    const finished = semanticObjectFromShow(item({ kind: "landed", at: "2026-10-18T10:00:00Z" }));
+    expect([working.kind, needsYou.kind, finished.kind]).toEqual(["activity", "activity", "activity"]);
+    expect([working.activity?.phase, needsYou.activity?.phase, finished.activity?.phase]).toEqual(["working", "needs_you", "finished"]);
+    expect(needsYou.decision?.replyTo).toBe("reply:1");
+  });
+
+  it("projects a task exactly once when legacy lists describe several phases", () => {
+    const activities = activityObjectsFromShow({
+      calls: [item({ id: "call:t1", kind: "call", decision: { task: "t1", question: "A or B?", choices: ["A", "B"] } })],
+      underway: [item({ id: "live:t1", kind: "live" })],
+      done: [item({ id: "landed:t1", kind: "landed" })],
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ id: "task:t1", kind: "activity", activity: { phase: "needs_you" } });
+  });
+
+  it("does not let a Jev override split a known task out of Activity", () => {
+    expect(semanticObjectFromShow(item({ kind: "news" }), "investigation").kind).toBe("activity");
+    const standalone: ShowItem = { id: "news:1", kind: "news", headline: "Why applications dropped", why: "Worth understanding" };
+    expect(semanticObjectFromShow(standalone, "investigation").kind).toBe("investigation");
   });
 
   it("keeps identity stable when the same task moves through presentation states", () => {
