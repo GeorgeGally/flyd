@@ -25,6 +25,7 @@ import { ActivityReader } from "../conversation-view/activity.js";
 import { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { MemoryReader } from "../conversation-view/memory.js";
 import { OvertakenCalls } from "../conversation-view/overtaken.js";
+import { UnreadNoteWatcher } from "../conversation-view/note-receipts.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 import { LiveStaffSession } from "../command/fleet-monitor.js";
 
@@ -165,6 +166,11 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       ? "Summaries: model summaries off (FLYD_VIEW_SUMMARIES=0); long replies lead with Flyd's whole briefing."
       : "Summaries: no CLAUDE_API_KEY, ANTHROPIC_API_KEY or XAI_API_KEY found; long replies lead with Flyd's whole briefing.");
   if (options.open !== false) openInBrowser(url);
+  // A note firstmate leaves unread past three minutes: Flyd chases firstmate itself; George never hears of it.
+  const unread = wantsInbox
+    ? new UnreadNoteWatcher(() => source.exchanges(), (note, requestId) => inbox.sendOwn(note, requestId))
+    : undefined;
+  unread?.start();
 
   await new Promise<void>((resolve) => {
     let watchdog: NodeJS.Timeout | undefined;
@@ -172,6 +178,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       process.off("SIGINT", stop);
       process.off("SIGTERM", stop);
       if (watchdog) clearInterval(watchdog);
+      unread?.stop();
       void server.close().then(resolve);
     };
     process.on("SIGINT", stop);

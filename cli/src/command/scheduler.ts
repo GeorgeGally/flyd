@@ -3,14 +3,15 @@ import { syncLibrarianDomainRuns } from "./librarian.js";
 import { handsHimInternalDecision } from "../council/chief-of-staff.js";
 import { recordHeld } from "../council/reply-review.js";
 import { sendRunMessage } from "./messages.js";
-import { captainNotice, plainBrief } from "./notice.js";
+import { captainNotice, noticeKind, plainBrief } from "./notice.js";
+import type { GeorgeKind } from "../lib/reaches-george.js";
 import { saveDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
-type Notify = (title: string, message: string) => Promise<void>;
+type Notify = (title: string, message: string, kind?: GeorgeKind) => Promise<void>;
 
 /** What Flyd tells a domain boss that asked George for an implementation call. */
 export const HANDLE_IT_YOURSELF = [
@@ -46,7 +47,7 @@ export async function notifyRun(run: DomainRun, notify?: Notify, send: typeof se
   try {
     if (await returnedToBoss(run, send)) return;
     const notice = captainNotice(run);
-    if (notice) await (notify ?? (await import("../runtime/agenda.js")).notifyMac)("Flyd", notice);
+    if (notice) await (notify ?? (await import("../runtime/agenda.js")).notifyMac)("Flyd", notice, noticeKind(run));
     saveDomainRun({ ...run, notified: true });
   } catch {
     // The durable result remains in the command store; notification is best effort.

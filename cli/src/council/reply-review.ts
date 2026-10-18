@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
+import type { GeorgeKind, Handling } from "../lib/reaches-george.js";
 import type { Evidence } from "../crew/self-improve.js";
 import { journalDir, readJournalSince } from "./journal.js";
 import { requirement, reviewSaid, voiceRules, type RequirementId, type Said, type Shortfall, type Surface, type VoiceRules } from "./chief-of-staff.js";
@@ -110,6 +111,24 @@ export function recordHeld(said: Said & { source: string }, shortfalls: Shortfal
       text: said.text.slice(0, TEXT_CHARS), ...(said.asked ? { asked: said.asked.slice(0, 200) } : {}), shortfalls, held: true, ...reviewContext(said),
     } satisfies Verdict]);
   } catch { /* review is best effort */ }
+}
+
+const kept = new Set<string>();
+
+/**
+ * Something the gate kept from George (lib/reaches-george.ts), with how Flyd
+ * handles it: the record that it happened, since he never saw it. The same
+ * thing kept again by the same source is recorded once per process.
+ */
+export function recordKept(source: string, gated: { kind: GeorgeKind; handle: Handling }, text: string, dir = selfReviewDir(), now = new Date()): void {
+  if (process.env.FLYD_SELF_REVIEW === "0") return;
+  const key = `${source}\0${gated.kind}\0${text.replace(/\s+/g, " ").trim()}`;
+  if (kept.has(key)) return;
+  if (kept.size > 2_000) kept.clear();
+  kept.add(key);
+  try {
+    append(join(dir, "kept.jsonl"), [{ at: now.toISOString(), source, kind: gated.kind, handle: gated.handle, text: text.slice(0, TEXT_CHARS) }]);
+  } catch { /* the record is best effort */ }
 }
 
 /** A window reply's header ("[Captain is replying from Flyd …]") is plumbing, not his words. */

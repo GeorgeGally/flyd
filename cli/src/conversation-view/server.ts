@@ -47,7 +47,8 @@ import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
-import { readStaffView, type StaffView } from "../command/fleet-monitor.js";
+import { concernKind, readStaffView, type StaffView } from "../command/fleet-monitor.js";
+import { reachesGeorge } from "../lib/reaches-george.js";
 import { noteSaid, recordHeld } from "../council/reply-review.js";
 import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
 import { expandScrawl, fileScrawl } from "./scrawl-capture.js";
@@ -1706,8 +1707,11 @@ export class ConversationViewServer {
       if (closed || !this.source.canSend) return;
       let text = "";
       try {
-        // Only what he has been told: while the staff has a nudge to answer, that stays Flyd's business.
-        text = (this.staffView()?.concerns ?? []).filter((concern) => concern.toldAt).map((concern) => concern.text).join(" ");
+        // Only what he has been told, and only what the gate lets reach him: staff silence stays Flyd's to chase.
+        text = (this.staffView()?.concerns ?? []).filter((concern) => concern.toldAt).flatMap((concern) => {
+          const gated = reachesGeorge({ kind: concernKind(concern), text: concern.text }, "notice");
+          return gated.reach ? [gated.line] : [];
+        }).join(" ");
       } catch {
         text = "";
       }

@@ -167,9 +167,30 @@ describe("showOf", () => {
     expect(screen.read).toBe("2026-10-09T11:58:00Z");
   });
 
-  it("keeps a fleet read failure off the line: no reason, no path, just the figures", () => {
+  it("never shows him why the fleet could not be read, and claims nothing it does not know", () => {
+    expect(situationOf({}, false)).toBe("");
+    expect(situationOf({ call: 1, live: 2 }, false)).toBe("1 call waits on you, 2 under way.");
     expect(situationOf({})).toBe("Nothing waits on you.");
     expect(situationOf({ call: 2, waiting: 1 })).toBe("2 calls wait on you, 1 held up.");
+  });
+
+  it("keeps an unreadable fleet off his screen: no fault under good news, the conversation's own picture instead", () => {
+    const landed: ConversationMessage = { id: "l", role: "assistant", text: "Dark mode is merged: https://github.com/GeorgeGally/flyd/pull/90", timestamp: new Date(NOW - 60_000).toISOString() };
+    const screen = showOf(snapshot([landed]), {
+      now: NOW,
+      artefact: { fleet: { unavailable: "Command failed: /Users/george/Documents/firstmate/bin/fm-bearings-snapshot.sh --json", calls: [], live: [], ready: [], landed: [], held: [], next: [] }, memories: [], news: [], taste: [] },
+    });
+    expect(screen.title).toBe("Good news, sir.");
+    expect(screen.summary).toBe("");
+    expect(JSON.stringify(screen)).not.toMatch(/couldn't read|unreadable|Command failed|fm-bearings|--json/);
+    expect(screen.items.map((item) => item.kind)).toEqual(["landed"]);
+  });
+
+  it("drops a fleet message that is only a fault or a nag, whatever it was filed as", () => {
+    const fault: ConversationMessage = { id: "f", role: "assistant", text: "spawn /Users/george/Documents/firstmate/bin/fm-inbox.sh ENOENT", timestamp: new Date(NOW - 60_000).toISOString() };
+    const nag: ConversationMessage = { id: "n", role: "assistant", text: "I've heard nothing back on the footer fix for 3 h.", timestamp: new Date(NOW - 30_000).toISOString() };
+    const screen = showOf(snapshot([fault, nag]), { now: NOW });
+    expect(screen.items.map((item) => item.headline).join(" ")).not.toMatch(/ENOENT|heard nothing/);
   });
 
   it("says all clear beside queued work, so the screen always has something to show", () => {

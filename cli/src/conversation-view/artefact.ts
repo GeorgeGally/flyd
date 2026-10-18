@@ -7,6 +7,8 @@ import { FLYD_DIR, PLANS_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { syncFleetFollowups } from "../runtime/fleet-followups.js";
 import { readPlans, type Plan } from "../lib/plans.js";
+import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
+import { recordKept } from "../council/reply-review.js";
 import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
 import type { ShowItem, ShowKind } from "./show.js";
 
@@ -618,7 +620,36 @@ function shownCalls(list: ArtefactRow[] | undefined): ArtefactRow[] {
   return [...(list ?? [])].sort(newestFirst).filter((row) => row.ledgerOnly || open.has(row));
 }
 
-/** How many of each kind the fleet holds, before the artefact's limits. Pure. */
+/** What a panel item is to George, by its kind: his calls, finished work, and otherwise where work stands. Pure. */
+export function aboutItem(item: ShowItem): GeorgeKind {
+  if (item.decision || item.kind === "call") return "decision";
+  return item.kind === "landed" ? "deliverable" : "status";
+}
+
+/** A fleet row as George would take it: work that stopped by failing is the staff's to repair, work gone quiet theirs to chase. Pure. */
+function aboutRow(kind: keyof typeof ARTEFACT_LIMITS, row: ArtefactRow): GeorgeKind {
+  if (kind === "call") return "decision";
+  if (kind === "landed") return "deliverable";
+  if (row.status === "failed") return "fault";
+  return row.status === "no word" ? "silence" : "status";
+}
+
+/**
+ * A panel item as the gate (lib/reaches-george.ts) lets it through, in its
+ * plain words: none when its headline is Flyd's own to handle, and its detail
+ * only when that may reach him too. Pure.
+ */
+export function gatedItem(item: ShowItem | undefined, about?: GeorgeKind): ShowItem | undefined {
+  if (!item) return undefined;
+  const kind = about ?? aboutItem(item);
+  const headline = reachesGeorge({ kind, text: item.headline }, "panel");
+  if (!headline.reach) return undefined;
+  const { detail, ...shown } = item;
+  const said = detail ? reachesGeorge({ kind, text: detail }, "panel") : undefined;
+  return { ...shown, headline: headline.line, ...(said?.reach ? { detail: said.line } : {}) };
+}
+
+/** How many of each kind the fleet holds, before the artefact's limits: held work only as far as the gate shows it. Pure. */
 export function fleetCounts(fleet: FleetArtefact | undefined): Partial<Record<ShowKind, number>> {
   if (!fleet || fleet.unavailable) return {};
   return {
@@ -626,7 +657,7 @@ export function fleetCounts(fleet: FleetArtefact | undefined): Partial<Record<Sh
     live: fleet.live.length,
     ready: fleet.ready.filter((row) => row.status !== "report available").length,
     landed: fleet.landed.length,
-    waiting: fleet.held.length,
+    waiting: fleet.held.filter((row) => reachesGeorge({ kind: aboutRow("waiting", row), text: row.label }, "panel").reach).length,
     next: fleet.next.length,
   };
 }
@@ -689,14 +720,14 @@ function withLink(url: string | undefined): Partial<ShowItem> {
 /** Every call the fleet holds for him, past the panel's limit, each with its question. Pure. */
 export function callItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
   if (!fleet || fleet.unavailable) return [];
-  return fleet.calls.filter((row) => !row.ledgerOnly).flatMap((row, index) => rowItem("call", `call-${row.task ?? index}`, row, options) ?? []);
+  return fleet.calls.filter((row) => !row.ledgerOnly).flatMap((row, index) => gatedItem(rowItem("call", `call-${row.task ?? index}`, row, options)) ?? []);
 }
 
 /** Every job a worker is on right now, the longest running first. Pure. */
 export function underwayItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
   if (!fleet || fleet.unavailable) return [];
   const since = (row: ArtefactRow) => (row.started ? Date.parse(row.started) : Number.POSITIVE_INFINITY);
-  return [...fleet.live].sort((a, b) => since(a) - since(b)).flatMap((row, index) => rowItem("live", `live-${row.task ?? index}`, row, options) ?? []);
+  return [...fleet.live].sort((a, b) => since(a) - since(b)).flatMap((row, index) => gatedItem(rowItem("live", `live-${row.task ?? index}`, row, options)) ?? []);
 }
 
 /** How many finished jobs the conversation's Done list names. */
@@ -707,7 +738,7 @@ export function doneItems(fleet: FleetArtefact | undefined, options: ComposeOpti
   if (!fleet || fleet.unavailable) return [];
   const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
   return [...fleet.landed].sort((a, b) => when(b) - when(a)).slice(0, limit)
-    .flatMap((row, index) => rowItem("landed", `landed-${row.task ?? index}`, row, options) ?? []);
+    .flatMap((row, index) => gatedItem(rowItem("landed", `landed-${row.task ?? index}`, row, options)) ?? []);
 }
 
 /** Finished work that waits to land, newest first, one line each. Pure. */
@@ -774,30 +805,35 @@ export function planArtefacts(plans: Plan[], now: number): PlanArtefact[] {
 /** A call the fleet no longer reports: its card stays where it was, with nothing left to do. */
 const SETTLED_CALL = "Settled, nothing needed.";
 
-/** Compose the panel's items from the inputs, in priority order. Pure. */
+/** Compose the panel's items from the inputs, in priority order, each one through the gate. Pure. */
 export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions = {}): ShowItem[] {
   const items: ShowItem[] = [];
-  const add = (kind: ShowKind, id: string, headline: string, why: string, extra: Partial<ShowItem> = {}): void => {
-    if (!headline) return;
-    items.push({ id: `${kind}:${id}`, kind, headline, why, ...extra });
+  const shown = (item: ShowItem | undefined, about?: GeorgeKind): void => {
+    const gated = gatedItem(item, about);
+    if (gated) items.push(gated);
   };
-  const fromRow = (kind: ShowKind, id: string, row: ArtefactRow): void => {
+  const add = (kind: ShowKind, id: string, headline: string, why: string, extra: Partial<ShowItem> = {}, about?: GeorgeKind): void => {
+    if (headline) shown({ id: `${kind}:${id}`, kind, headline, why, ...extra }, about);
+  };
+  const fromRow = (kind: ShowKind, id: string, row: ArtefactRow, about: GeorgeKind): void => {
     const item = rowItem(kind, id, row, options);
-    if (!item) return;
-    if (kind !== "call" || !row.ledgerOnly) {
-      items.push(item);
+    if (!item || kind !== "call" || !row.ledgerOnly) {
+      shown(item, about);
       return;
     }
     const { decision: _decision, status: _status, ...settled } = item;
-    items.push({ ...settled, kind: "clear", detail: SETTLED_CALL });
+    shown({ ...settled, kind: "clear", detail: SETTLED_CALL }, about);
   };
   const rowsOf = (kind: keyof typeof ARTEFACT_LIMITS, list: ArtefactRow[] | undefined): void => {
-    (kind === "call" ? shownCalls(list) : shownRows(list, ARTEFACT_LIMITS[kind])).forEach((row, index) => fromRow(row.status === "report available" ? "news" : kind, `${kind}-${row.task ?? index}`, row));
+    (kind === "call" ? shownCalls(list) : shownRows(list, ARTEFACT_LIMITS[kind])).forEach((row, index) =>
+      fromRow(row.status === "report available" ? "news" : kind, `${kind}-${row.task ?? index}`, row, aboutRow(kind, row)));
   };
 
   const fleet = inputs.fleet;
   // Unlinked WhatsApp leads: it is one step only he can take, and it goes the moment it is done.
   if (inputs.whatsappLink) add("news", WHATSAPP_LINK.id, WHATSAPP_LINK.title, "only you can link it", { detail: WHATSAPP_LINK.line, links: [{ label: "Open the code", url: WHATSAPP_LINK.url }] });
+  // An unreadable snapshot is Flyd's to repair: the gate keeps it off his screen.
+  if (fleet?.unavailable) add("news", "fleet-unavailable", `Firstmate's fleet snapshot is unreadable: ${fleet.unavailable}.`, "fleet status unknown", {}, "fault");
   rowsOf("call", fleet?.calls);
   rowsOf("live", fleet?.live);
   rowsOf("ready", fleet?.ready);
@@ -1159,6 +1195,8 @@ export class ArtefactFeed {
         ArtefactFeed.text(news),
         ArtefactFeed.text(taste),
       ]);
+      // Flyd's to repair, never his to read: recorded, and read again on the next tick.
+      if (bearings.unavailable) recordKept("fleet read", { kind: "fault", handle: "repair" }, bearings.unavailable);
       let newsRaw: unknown;
       try {
         newsRaw = JSON.parse(newsText);

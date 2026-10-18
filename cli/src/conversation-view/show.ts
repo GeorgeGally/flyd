@@ -4,7 +4,7 @@ import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
 import { withoutStubs } from "./executive.js";
 import { choiceOf, choiceTarget, openChoice, type ChoiceStep } from "./choices.js";
-import { callItems, composeArtefact, doneItems, fleetCounts, heldItems, nextItems, readyItems, underwayItems, weekLandedItems, type ArtefactInputs, type DayCount } from "./artefact.js";
+import { callItems, composeArtefact, doneItems, fleetCounts, gatedItem, heldItems, nextItems, readyItems, underwayItems, weekLandedItems, type ArtefactInputs, type DayCount } from "./artefact.js";
 import { railImageSrc } from "./rail.js";
 import { semanticObjectsFromShow, type SemanticEvent, type SemanticObject } from "./semantic.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
@@ -13,8 +13,10 @@ import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 // window's visual screen. Not a dashboard: at most three things, picked in a
 // fixed order of what deserves his eyes most (a call only he can make, what
 // just landed, what is moving right now, a question of his still waiting, the
-// latest word from the fleet), each one headline in Flyd's words. Pure: the
-// same snapshot, clock, readings and projects always pick the same things.
+// latest word from the fleet), each one headline in Flyd's words, and each
+// through the gate (lib/reaches-george.ts): a fault, a stale reading or staff
+// silence is Flyd's to handle, never his to read. Pure: the same snapshot,
+// clock, readings and projects always pick the same things.
 
 /** call: needs him; live: under way; ready: finished, not landed; waiting: held up; next: queued; plan: a plan he made. */
 export type ShowKind = "call" | "landed" | "live" | "ready" | "waiting" | "next" | "plan" | "news" | "clear";
@@ -296,11 +298,12 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const routine = (message: ConversationMessage): boolean => isRoutine(message.text) || inputs.muted?.(message) === true;
   const used = new Set<string>();
   const items: ShowItem[] = [];
-  const add = (kind: ShowKind, message: ConversationMessage | null, item: Omit<ShowItem, "id" | "kind">) => {
+  /** His own words quoted back (ungated) carry nothing of the staff's: the line under them was gated where it was made. */
+  const add = (kind: ShowKind, message: ConversationMessage | null, item: Omit<ShowItem, "id" | "kind">, his = false) => {
     if (message) used.add(message.id);
     const links = message ? linksIn(message.text) : [];
     const project = message ? projectOf(message.text, projects) : undefined;
-    items.push({
+    const shown: ShowItem = {
       id: `${kind}:${message?.id ?? kind}`,
       kind,
       ...item,
@@ -308,7 +311,9 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
       ...(links.length ? { links } : {}),
       ...(project ? { project } : {}),
       ...(message ? { ref: message.id } : {}),
-    });
+    };
+    const gated = his ? shown : gatedItem(shown);
+    if (gated) items.push(gated);
   };
 
   // Changes made to a website: each its own story, the element it changed as
@@ -340,7 +345,8 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
         ...(project ? { project } : {}),
         ref: message.answers?.startsWith("note:") ? message.answers : message.id,
       };
-    });
+    })
+    .flatMap((item) => gatedItem(item) ?? []);
 
   // A call only he can make: a question still waiting on his answer (a note about
   // something else does not answer it), else the newest ask since he last spoke.
@@ -382,19 +388,18 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const status = statusOf(snapshot, now);
   // What is moving, in words: the step being taken, else the job a worker is on, else only that work is under way.
   const doing = status.working ? tidy(status.activity ?? underwayItems(inputs.artefact?.fleet)[0]?.headline ?? "Work is under way") : "";
-  if (status.working) {
-    items.push({
-      id: "live",
-      kind: "live",
-      headline: doing,
-      why: `${assistant} is on it now`,
-      ...(snapshot.lastActivity ? { at: snapshot.lastActivity } : {}),
-    });
-  }
+  const moving = status.working ? gatedItem({
+    id: "live",
+    kind: "live",
+    headline: doing,
+    why: `${assistant} is on it now`,
+    ...(snapshot.lastActivity ? { at: snapshot.lastActivity } : {}),
+  }) : undefined;
+  if (moving) items.push(moving);
 
   // A question of his that has no answer yet.
   const waiting = [...messages].reverse().find((message) => message.role === "user" && message.waiting);
-  if (waiting) add("waiting", waiting, { headline: `“${clip(inline(waiting.text), 80)}”`, why: waiting.waiting! });
+  if (waiting) add("waiting", waiting, { headline: `“${clip(inline(waiting.text), 80)}”`, why: waiting.waiting! }, true);
 
   // The latest word from the fleet, when nothing above said it.
   const news = [...messages].reverse().find((message) => fresh(message, NEWS_WITHIN_MS));
@@ -452,7 +457,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const landedWeek = weekLandedItems(inputs.artefact, { project: projectOfRepo });
   return {
     title: titleOf(chosen, recap && artefact.length === 0),
-    summary: situationOf(counts),
+    summary: situationOf(counts, Boolean(fleet && !fleet.unavailable) || !inputs.artefact),
     items: chosen,
     semantic: semanticObjectsFromShow(chosen),
     counts,
@@ -470,15 +475,20 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   };
 }
 
-/** One line on the whole situation, every figure in it named. Pure. */
-export function situationOf(counts: Partial<Record<ShowKind, number>>): string {
+/**
+ * One line on the whole situation, every figure in it named. Without a reading
+ * of the fleet (known false) it names only what it does know: never that
+ * nothing waits on him, and never why the reading failed, which is Flyd's to
+ * repair. Pure.
+ */
+export function situationOf(counts: Partial<Record<ShowKind, number>>, known = true): string {
   const count = (kind: ShowKind) => counts[kind] ?? 0;
   const calls = count("call");
-  const parts = [calls ? `${calls} ${calls === 1 ? "call waits" : "calls wait"} on you` : "nothing waits on you"];
+  const parts = calls ? [`${calls} ${calls === 1 ? "call waits" : "calls wait"} on you`] : known ? ["nothing waits on you"] : [];
   if (count("live")) parts.push(`${count("live")} under way`);
   if (count("ready")) parts.push(`${count("ready")} waiting to land`);
   if (count("waiting")) parts.push(`${count("waiting")} held up`);
-  return `${capitalise(parts.join(", "))}.`;
+  return parts.length ? `${capitalise(parts.join(", "))}.` : "";
 }
 
 /** Flyd's opening line: led by the most important thing on screen. */

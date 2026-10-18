@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { scrubBackstage } from "../lib/backstage.js";
+import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
 
 // Flyd's own agenda: things George (or Flyd, on his behalf) asked to happen
 // later — follow-ups, recurring briefings, checks on something pending. A
@@ -215,20 +216,27 @@ function acquireLock(path: string): boolean {
   }
 }
 
-export async function notifyMac(title: string, message: string): Promise<void> {
-  await deliverNotification(title, message);
+/** A notification to George, as the kind of thing it is (lib/reaches-george.ts); finished work unless the caller knows better. */
+export async function notifyMac(title: string, message: string, kind: GeorgeKind = "deliverable"): Promise<void> {
+  await deliverNotification(title, message, kind);
 }
 
-export async function deliverNotification(title: string, message: string): Promise<boolean> {
+export async function deliverNotification(title: string, message: string, kind: GeorgeKind = "deliverable"): Promise<boolean> {
   // One line, outcome first: the rest of what was said is Flyd's to keep or show elsewhere.
   const { isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/chief-of-staff.js");
   // A coding session idle at its prompt is never George's to hear about.
   if (isIdleNotice(title, message)) return false;
+  const { noteSaid, recordHeld, recordKept } = await import("../council/reply-review.js");
+  // Only what may reach him: a fault, a stale reading or staff silence is Flyd's own, recorded and kept.
+  const gated = reachesGeorge({ kind, text: message }, "notification");
+  if (!gated.reach) {
+    recordKept("notification", gated, message);
+    return false;
+  }
   title = scrubBackstage(title);
-  message = notificationLine(scrubBackstage(message));
+  message = notificationLine(scrubBackstage(gated.line));
   // A notification that only says work is happening carries nothing: kept
   // from George and recorded against the chief-of-staff standard instead.
-  const { noteSaid, recordHeld } = await import("../council/reply-review.js");
   const screened = screenBeforeDisplay({ surface: "notification", text: message });
   const placeholder = screened.shortfalls.filter((item) => item.requirement === "real_status");
   if (placeholder.length) {
@@ -242,7 +250,7 @@ export async function deliverNotification(title: string, message: string): Promi
     const response = await fetch("http://127.0.0.1:4815/notify", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ title, message: message.replace(/\s+/g, " ").slice(0, 220) }),
+      body: JSON.stringify({ title, message: message.replace(/\s+/g, " ").slice(0, 220), kind: gated.kind }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return false;

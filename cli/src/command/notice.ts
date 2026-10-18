@@ -1,4 +1,5 @@
 import { recordHeld } from "../council/reply-review.js";
+import type { GeorgeKind } from "../lib/reaches-george.js";
 import { relayShortfalls, stripCommitIds, stripRetiredPhrases } from "../runtime/honesty-check.js";
 import type { DomainRun } from "./types.js";
 
@@ -39,7 +40,13 @@ export function isRoutineChatter(text: string): boolean {
   return MACHINERY.test(brief) && !reportsOutcome(brief);
 }
 
-/** The notification text for a run, or null when nothing George cares about happened, or when what it says may not reach him as written and the work cannot be named instead. */
+/** What a settled run's notice is to George (lib/reaches-george.ts): his call, a blocker the boss could not clear, or finished work. */
+export function noticeKind(run: DomainRun): GeorgeKind {
+  if (run.status === "needs_decision") return "decision";
+  return run.status === "failed" ? "blocker" : "deliverable";
+}
+
+/** The notification text for a run, or null when nothing George cares about happened, or when what it says may not reach him as written. */
 export function captainNotice(run: DomainRun): string | null {
   if (!run.result) return null;
   const brief = stripCommitIds(plainBrief(run.result.brief));

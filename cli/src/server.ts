@@ -88,6 +88,8 @@ import { materializePresentFromWork } from "./cognition/present-materializer.js"
 import { rebuildKnowledgeProjections } from "./cognition/projections/store.js";
 import { runCuratorSweep } from "./cognition/curator/reconcile.js";
 import { isIdleNotice, notificationLine } from "./council/chief-of-staff.js";
+import { GEORGE_KINDS, reachesGeorge, type GeorgeKind } from "./lib/reaches-george.js";
+import { recordKept } from "./council/reply-review.js";
 
 const PORT = 4815;
 const HOST = "127.0.0.1";
@@ -1291,14 +1293,22 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
         if (!checkAuth(req)) { sendUnauthorized(res); break; }
         if (req.method !== "POST") { sendJson(res, 405, { error: "Method not allowed" }); break; }
         void parseBody(req).then(raw => {
-          const body = JSON.parse(raw) as { title?: unknown; message?: unknown };
+          const body = JSON.parse(raw) as { title?: unknown; message?: unknown; kind?: unknown };
           if (typeof body.title !== "string" || typeof body.message !== "string" || !body.title.trim() || !body.message.trim()) {
             sendJson(res, 400, { error: "Missing title or message" });
             return;
           }
           // A coding session idle at its prompt ("Claude: waiting on your input") is never George's; one line, outcome first, for the rest.
           if (isIdleNotice(body.title, body.message)) { sendJson(res, 202, { delivered: 0, held: "idle session" }); return; }
-          const data = JSON.stringify({ title: body.title.slice(0, 120), message: notificationLine(body.message) });
+          // Only what may reach him (lib/reaches-george.ts): a fault or staff silence is Flyd's own, whoever sent it.
+          const kind = typeof body.kind === "string" && GEORGE_KINDS.has(body.kind) ? body.kind as GeorgeKind : "deliverable";
+          const gated = reachesGeorge({ kind, text: body.message }, "notification");
+          if (!gated.reach) {
+            recordKept("notify", gated, body.message);
+            sendJson(res, 202, { delivered: 0, held: gated.kind });
+            return;
+          }
+          const data = JSON.stringify({ title: body.title.slice(0, 120), message: notificationLine(gated.line) });
           for (const subscriber of notificationSubscribers) subscriber.write(`event: notification\ndata: ${data}\n\n`);
           sendJson(res, 202, { delivered: notificationSubscribers.size });
         }).catch(() => sendJson(res, 400, { error: "Invalid JSON" }));
