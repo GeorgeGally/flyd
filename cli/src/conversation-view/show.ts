@@ -450,11 +450,8 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const next = nextItems(fleet, { project: projectOfRepo });
   // The week's landed figure opens its own week's work, not the column's eight.
   const landedWeek = weekLandedItems(inputs.artefact, { project: projectOfRepo });
-  // A fleet that could not be read is Flyd's own hiccup, never George's to fix, so the screen stays quiet
-  // about it: no reason, no path. Only a long outage is worth one plain line, and it damps any "good news".
-  const problem = Boolean(fleet?.outOfDate);
   return {
-    title: titleOf(chosen, recap && artefact.length === 0, problem),
+    title: titleOf(chosen, recap && artefact.length === 0),
     summary: situationOf(counts),
     items: chosen,
     semantic: semanticObjectsFromShow(chosen),
@@ -485,12 +482,11 @@ export function situationOf(counts: Partial<Record<ShowKind, number>>): string {
 }
 
 /** Flyd's opening line: led by the most important thing on screen. */
-export function titleOf(items: ShowItem[], quiet = false, problem = false): string {
+export function titleOf(items: ShowItem[], quiet = false): string {
   const kinds = new Set(items.map((item) => item.kind));
   if (kinds.has("call")) return "Your move, sir.";
   if (quiet) return "Here's where things stand, sir.";
-  // "Good news" claims work landed; beside a problem (an out-of-date fleet) that reads as false cheer.
-  if (kinds.has("landed") && !problem) return "Good news, sir.";
+  if (kinds.has("landed")) return "Good news, sir.";
   if (kinds.has("live")) return "Under way, sir.";
   if (kinds.has("waiting") || kinds.has("news")) return "Here's where things stand, sir.";
   return "All quiet, sir.";

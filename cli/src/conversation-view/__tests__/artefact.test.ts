@@ -306,15 +306,10 @@ describe("composeArtefact", () => {
     });
   });
 
-  it("omits a fleet it could not read, and says one plain line only when the read has long been stale", () => {
+  it("omits a fleet it could not read, never saying the reason or the command", () => {
     const empty = { calls: [], live: [], ready: [], landed: [], held: [], next: [] };
-    // A failed read is Flyd's own hiccup: nothing on screen, and never the reason or the command.
     const unreachable = composeArtefact({ fleet: { ...empty, unavailable: "Command failed: /x/fm-bearings-snapshot.sh --json" }, memories: [], news: [], taste: [] });
     expect(unreachable).toEqual([]);
-    // A long outage earns one plain line, with no path and no command in it.
-    const stale = composeArtefact({ fleet: { ...empty, unavailable: "read failed", outOfDate: true }, memories: [], news: [], taste: [] });
-    expect(stale).toMatchObject([{ kind: "news", id: "news:fleet-out-of-date", headline: "Fleet status is out of date" }]);
-    expect(JSON.stringify(stale)).not.toContain("fm-bearings");
   });
 });
 
@@ -484,7 +479,6 @@ describe("ArtefactFeed", () => {
       await feed.refresh();
       expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a"]);
       expect(feed.current().fleet!.unavailable).toBeUndefined();
-      expect(feed.current().fleet!.outOfDate).toBeUndefined();
       // The reason goes to Flyd's own log only.
       expect(warn.mock.calls.flat().join(" ")).toContain("fm-bearings");
     } finally {
@@ -506,7 +500,7 @@ describe("ArtefactFeed", () => {
     }
   });
 
-  it("says one plain out-of-date line only after reads have failed a long time", async () => {
+  it("keeps an unread fleet marked unread however long reads fail", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       const home = mkdtempSync(join(tmpdir(), "artefact-stale-"));
@@ -517,13 +511,11 @@ describe("ArtefactFeed", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {
         await feed.refresh();
-        expect(feed.current().fleet!.outOfDate).toBeUndefined();
+        expect(feed.current().fleet!.unavailable).toBe("unreadable");
         vi.setSystemTime(Date.now() + 31 * 60 * 1000);
         await feed.refresh();
-        expect(feed.current().fleet!.outOfDate).toBe(true);
-        const items = composeArtefact(feed.current());
-        expect(items).toMatchObject([{ id: "news:fleet-out-of-date", headline: "Fleet status is out of date" }]);
-        expect(JSON.stringify(items)).not.toContain("fm-bearings");
+        expect(feed.current().fleet!.unavailable).toBe("unreadable");
+        expect(composeArtefact(feed.current())).toEqual([]);
       } finally {
         warn.mockRestore();
       }
@@ -531,21 +523,6 @@ describe("ArtefactFeed", () => {
       vi.useRealTimers();
     }
   });
-
-  it("never runs two snapshot reads at once", async () => {
-    const home = mkdtempSync(join(tmpdir(), "artefact-single-"));
-    mkdirSync(join(home, "bin"));
-    mkdirSync(join(home, "state"));
-    const runs = join(home, "runs");
-    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\necho x >> '${runs}'\nsleep 0.3\necho '{"in_flight":[]}'\n`, { mode: 0o755 });
-    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
-    try {
-      await Promise.all([feed.refresh(), feed.refresh()]);
-      expect(readFileSync(runs, "utf8").trim().split("\n")).toHaveLength(1);
-    } finally {
-      feed.stop();
-    }
-  }, 30_000);
 
   it("gives up on a read that overruns its timeout and keeps it off the screen", async () => {
     const home = mkdtempSync(join(tmpdir(), "artefact-timeout-"));
