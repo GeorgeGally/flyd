@@ -542,7 +542,7 @@ export class SnapshotDiffer {
       show: show.calls ? { ...show, calls: show.calls.map((call) => (call.links ? { ...call, links: closedLinks(call.links, live) } : call)) } : show,
       boxes: withClosedLinks(boxesOf(show, this.show?.readings?.() ?? {}), live),
       ...(this.show?.rail ? { rail: this.show.rail(snapshot) } : {}),
-      ...(this.show?.leftColumn ? { leftColumn: this.show.leftColumn() } : {}),
+      ...(this.show?.leftColumn ? { leftColumn: { ...this.show.leftColumn(), semantic: show.activities } } : {}),
       ...(page ? { page } : {}),
     };
   }
