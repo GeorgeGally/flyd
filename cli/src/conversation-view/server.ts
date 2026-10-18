@@ -25,7 +25,7 @@ import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exc
 import type { AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
 import type { SemanticJudge } from "./semantic-judge.js";
-import { activityObjectsFromShow, semanticEvents, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
+import { activityObjectsFromShow, decisionObjectsFromShow, semanticEvents, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
@@ -517,17 +517,21 @@ export class SnapshotDiffer {
       });
     const semanticJudge = this.summaries?.semantic;
     if (semanticJudge) {
-      for (const item of show.items) if (!item.task && !semanticJudge.cached(item) && !semanticJudge.pending(item)) this.judgeSemantic(semanticJudge, item);
+      for (const item of show.items) if (!item.task && item.kind !== "call" && !item.decision && !semanticJudge.cached(item) && !semanticJudge.pending(item)) this.judgeSemantic(semanticJudge, item);
       show.semantic = semanticObjectsFromShow(show.items, (item) => semanticJudge.cached(item)?.kind);
     }
+    const live = this.show?.live ?? (() => "up");
+    // Semantic evidence carries whether a local/live link has already closed,
+    // so the native manifestation never resurrects a dead decision link.
+    if (show.calls) show.calls = show.calls.map((call) => (call.links ? { ...call, links: closedLinks(call.links, live) } : call));
     const visibleSemantic = show.semantic ?? semanticObjectsFromShow(show.items);
     show.activities = activityObjectsFromShow(show);
-    const activityIds = new Set(show.activities.map((activity) => activity.id));
-    const semantic = [...show.activities, ...visibleSemantic.filter((object) => !activityIds.has(object.id))];
+    show.decisions = decisionObjectsFromShow(show);
+    const nativeIds = new Set([...show.activities, ...show.decisions].map((object) => object.id));
+    const semantic = [...show.activities, ...show.decisions, ...visibleSemantic.filter((object) => !nativeIds.has(object.id))];
     show.events = semanticEvents(this.semantic, semantic);
     show.semantic = semantic;
     this.semantic = semantic;
-    const live = this.show?.live ?? (() => "up");
     const found = currentPage(snapshot.messages);
     // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
     const page = found?.local && live(found.url) === "down" ? undefined : found;
@@ -539,7 +543,7 @@ export class SnapshotDiffer {
       ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
       ...(snapshot.context ? { context: snapshot.context } : {}),
       // The calls sheet says a closed review page in words too.
-      show: show.calls ? { ...show, calls: show.calls.map((call) => (call.links ? { ...call, links: closedLinks(call.links, live) } : call)) } : show,
+      show,
       boxes: withClosedLinks(boxesOf(show, this.show?.readings?.() ?? {}), live),
       ...(this.show?.rail ? { rail: this.show.rail(snapshot) } : {}),
       ...(this.show?.leftColumn ? { leftColumn: { ...this.show.leftColumn(), semantic: show.activities } } : {}),

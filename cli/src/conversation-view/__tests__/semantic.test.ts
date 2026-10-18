@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   SEMANTIC_KINDS,
   activityObjectsFromShow,
+  decisionObjectsFromShow,
   semanticEvents,
   semanticIdentityFor,
   semanticObjectFromShow,
@@ -44,6 +45,7 @@ describe("canonical semantic artefacts", () => {
     const finished = semanticObjectFromShow(item({ kind: "landed", at: "2026-10-18T10:00:00Z" }));
     expect([working.kind, needsYou.kind, finished.kind]).toEqual(["activity", "activity", "activity"]);
     expect([working.activity?.phase, needsYou.activity?.phase, finished.activity?.phase]).toEqual(["working", "needs_you", "finished"]);
+    expect(needsYou.decision?.target).toBe("t1");
     expect(needsYou.decision?.replyTo).toBe("reply:1");
   });
 
@@ -55,6 +57,36 @@ describe("canonical semantic artefacts", () => {
     });
     expect(activities).toHaveLength(1);
     expect(activities[0]).toMatchObject({ id: "task:t1", kind: "activity", activity: { phase: "needs_you" } });
+  });
+
+  it("projects conversational calls as Decisions but leaves task calls inside Activity", () => {
+    const replyCall: ShowItem = {
+      id: "call:reply:a#2", kind: "call", headline: "Want all three?", why: "waiting on you", ref: "reply:a#2",
+      decision: { task: "reply:a#2", replyTo: "reply:a#2", question: "Want all three?", choices: ["Yes", "No"], recommended: "Yes" },
+      shots: [{ src: "/shot/options.png", label: "Three options" }],
+      links: [{ label: "Preview", url: "http://127.0.0.1:4000", closed: true }],
+    };
+    const decisions = decisionObjectsFromShow({ calls: [replyCall, item({ id: "call:t1", kind: "call", decision: { task: "t1", question: "Ship?", choices: ["Yes", "No"] } })] });
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      id: "message:reply:a#2",
+      kind: "decision",
+      lifecycle: "interrupted",
+      decision: { target: "reply:a#2", question: "Want all three?", alternatives: ["Yes", "No"], recommended: "Yes", replyTo: "reply:a#2" },
+      evidence: [
+        { kind: "image", ref: "/shot/options.png", label: "Three options" },
+        { kind: "web", ref: "http://127.0.0.1:4000", label: "Preview", closed: true },
+      ],
+    });
+  });
+
+  it("keeps an explicit standalone Decision authoritative instead of asking Jev to redefine it", () => {
+    const call: ShowItem = {
+      id: "call:reply:a#2", kind: "call", headline: "A or B?", why: "waiting on you", ref: "reply:a#2",
+      decision: { task: "reply:a#2", question: "A or B?", choices: ["A", "B"] },
+    };
+    expect(semanticObjectFromShow(call, "investigation").kind).toBe("investigation");
+    expect(decisionObjectsFromShow({ calls: [call] })[0]!.kind).toBe("decision");
   });
 
   it("does not let a Jev override split a known task out of Activity", () => {
@@ -80,7 +112,7 @@ describe("canonical semantic artefacts", () => {
       decision: { task: "t1", question: "Which direction?", choices: ["A", "B"], recommended: "B" },
     }));
     expect(semantic.evidence.map((object) => object.kind)).toEqual(["image", "image"]);
-    expect(semantic.decision).toEqual({ question: "Which direction?", alternatives: ["A", "B"], recommended: "B" });
+    expect(semantic.decision).toEqual({ target: "t1", question: "Which direction?", alternatives: ["A", "B"], recommended: "B" });
     expect(semantic.actions.map((action) => action.kind)).toEqual(["choose", "choose"]);
     expect(JSON.stringify(semantic)).not.toMatch(/grid|card|column|renderer|css/i);
   });
