@@ -146,6 +146,10 @@ describe("edition brief", () => {
     expect(record.detail).toContain("1. ❗ A new ordinal generative technique — Direct precedent for your work (r/ordinals)");
     expect(record.detail).toContain("https://x.test/ordinal");
     expect(record.detail).toContain("2. 🐇 Game of Life on a torus");
+    expect(record.stories).toEqual([
+      { title: "A new ordinal generative technique", url: "https://x.test/ordinal", gist: "Direct precedent for your work", source: "r/ordinals" },
+      { title: "Game of Life on a torus", url: "https://x.test/torus", gist: "Creative coding you love", source: "r/creativecoding" },
+    ]);
     expect(editionBrief(edition).indexOf("Bitcoin & Crypto Art")).toBeLessThan(editionBrief(edition).indexOf("Creative Coding"));
   });
 

@@ -109,6 +109,15 @@ describe("activity records", () => {
     ], NOW);
     expect(out.done.map((item) => item.title)).toEqual(["Chose the faster option for your staff", "Told your staff to carry on"]);
   });
+
+  it("shows the stories a record carries, each with its own working link", () => {
+    const stories = [
+      { title: "A real find", url: "https://x.test/a", gist: "why it matters", source: "r/ordinals" },
+      { title: "Not a story", url: "javascript:alert(1)" },
+    ];
+    const out = activityFromRecords([{ key: "scout-edition", kind: "news", title: "Put together today's news", stories, state: "done", at: minutesAgo(2) }], NOW);
+    expect(out.done[0]!.stories).toEqual([{ title: "A real find", url: "https://x.test/a", gist: "why it matters", source: "r/ordinals" }]);
+  });
 });
 
 describe("composeActivity", () => {
@@ -136,6 +145,32 @@ describe("composeActivity", () => {
     const panel = composeActivity({ log: ["2026-10-17T11:58:00.000Z scout: edition: 12 items"], jobs: [], advice: [], records }, NOW);
     expect(panel.recent.filter((item) => item.title === "Put together today's news")).toHaveLength(1);
     expect(panel.recent[0]!.detail).toContain("https://x.test/a");
+  });
+
+  it("keeps a whole day's brief, not a clipped one, so its last stories and links still open", () => {
+    const brief = Array.from({ length: 14 }, (_, index) => `Bitcoin & Crypto Art\n${index + 1}. ❗ A new ordinal generative technique worth your sight — direct precedent for the on-chain art you are building (r/ordinals)\n   https://x.test/story-${index}`).join("\n");
+    expect(brief.length).toBeGreaterThan(2000);
+    const records = [{ key: "scout-edition", kind: "news", title: "Put together today's news", detail: brief, state: "done", at: minutesAgo(2) }];
+    const kept = activityFromRecords(records, NOW).done[0]!.detail!;
+    expect(kept).toContain("https://x.test/story-0");
+    expect(kept).toContain("https://x.test/story-13");
+  });
+
+  it("keeps the brief when one story names the machinery, dropping only that story's line", () => {
+    const detail = [
+      "Bitcoin & Crypto Art",
+      "1. ❗ A real on-chain find — precedent for you (r/ordinals)",
+      "   https://x.test/good",
+      "2. Scout shipped the crewmates today — ignore (r/ai)",
+      "3. Another good one — worth a look (r/creativecoding)",
+      "   https://x.test/good2",
+    ].join("\n");
+    const records = [{ key: "scout-edition", kind: "news", title: "Put together today's news", detail, state: "done", at: minutesAgo(2) }];
+    const kept = activityFromRecords(records, NOW).done[0]!.detail!;
+    expect(kept).toContain("https://x.test/good");
+    expect(kept).toContain("https://x.test/good2");
+    expect(kept).not.toContain("Scout");
+    expect(kept).not.toContain("crewmates");
   });
 
   it("drops what is older than a week and caps the list", () => {

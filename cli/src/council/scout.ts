@@ -490,6 +490,7 @@ export function editionActivityRecord(edition: Edition): ActivityRecord {
     title: "Put together today's news",
     line: `${edition.items.length} ${edition.items.length === 1 ? "story" : "stories"} from your sources.`,
     detail: editionBrief(edition),
+    stories: edition.items.map(({ title, url, why, source }) => ({ title, url, ...(why ? { gist: why } : {}), ...(source ? { source } : {}) })),
     state: "done",
     at: edition.generatedAt,
   };
