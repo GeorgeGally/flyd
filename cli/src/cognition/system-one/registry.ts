@@ -431,6 +431,24 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     consumer: "conversation-view/artefact-judge.ts ArtefactJudge: asked only for a reply with numbered items the deterministic rule (summaries.ts replyArtefact) leaves unclear; steps or options at ≥ threshold confidence show it as an artefact labelled by that kind, else (or Jev off/failing) as text",
   },
 
+  {
+    id: "semantic_object_kind", family: "presentation", type: "choice",
+    instructions: "Which canonical Flyd semantic object best describes this grounded item? Choose what the thing IS, not how it should be laid out.",
+    criteria: {
+      conversation: "Plain dialogue, explanation, update or answer where talking is the best interface.",
+      activity: "Work or a process that is currently happening, queued, paused or otherwise evolving over time.",
+      decision: "A choice only George can make between alternatives, including taste, priorities or explicit yes/no choices.",
+      investigation: "An unresolved question where uncertainty should be reduced with evidence or analysis.",
+      action: "A concrete proposed outward or durable operation that needs review, approval, revision or execution.",
+      artifact: "A durable result or piece of work that exists beyond the conversation: document, plan, image, code, report or completed output.",
+      monitor: "A condition that matters over time and should be watched until a threshold or meaningful change occurs.",
+    },
+    threshold: 0.72, use: "choice", failureMode: "fallback_heuristic",
+    projection: ["legacy_kind", "headline", "why", "detail", "status", "has_decision", "has_media", "has_openable_work"],
+    evaluatorVersion: "semantic_object_kind.v1", status: "production",
+    consumer: "conversation-view/semantic-judge.ts SemanticJudge: shadow classification of grounded ShowItems; deterministic semantic mapping remains the fallback and visual rendering is unchanged",
+  },
+
   // ── proposed: model routing (replay only) ─────────────────────────────
   {
     id: "needs_reasoning_model", family: "model_routing", type: "noul",
