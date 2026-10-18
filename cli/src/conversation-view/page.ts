@@ -520,10 +520,6 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .brief-list ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 /* Each job and each piece of finished work is one of the shared cards: an icon for its kind, a chip, a line. */
 .brief-list li { position: relative; display: block; min-width: 0; }
-/* A semantic Activity is one living job. Its DOM node stays keyed by semantic id while its phase changes. */
-.activity-card[data-phase="needs_you"] { background: color-mix(in srgb, var(--tint) 86%, var(--k-call) 14%); }
-.activity-card .activity-detail { margin: 7px 0 0; font: 400 14px/1.45 var(--sans); color: var(--muted); text-wrap: pretty; }
-.activity-card .scene-ask { flex-basis: 100%; width: 100%; margin-top: 12px; }
 .brief-line { display: block; min-width: 0; font: 500 16px/1.4 var(--sans); color: var(--strong); white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
 .brief-line a { color: inherit; text-decoration: none; }
 .brief-line a:hover { color: var(--link); }
@@ -1762,113 +1758,6 @@ var __name = function (f) { return f; };
     }
     return li;
   }
-  function semanticActivityVisual(activity) {
-    var phase = activity.activity && activity.activity.phase;
-    return phase === "needs_you" ? "call"
-      : phase === "paused" ? "waiting"
-      : phase === "ready" ? "ready"
-      : phase === "finished" ? "landed"
-      : phase === "queued" ? "next"
-      : "live";
-  }
-  function semanticActivityMeta(activity) {
-    var phase = activity.activity && activity.activity.phase;
-    var when = phase === "working" && activity.activity.started ? "Started " + ago(activity.activity.started)
-      : phase === "finished" && activity.updatedAt ? ago(activity.updatedAt)
-      : "";
-    return [shortName(activity.project), when].filter(Boolean).join(" · ");
-  }
-  function semanticActivityCard(activity, existing) {
-    var visual = semanticActivityVisual(activity);
-    var li = existing || el("li", "card brief-card activity-card");
-    li.className = "card brief-card activity-card card-" + visual + " tone-" + kindOf(visual).tone;
-    li.dataset.key = activity.id;
-    li.dataset.semanticId = activity.id;
-    li.dataset.phase = (activity.activity && activity.activity.phase) || "working";
-    li.textContent = "";
-    li.appendChild(cardIcon(visual));
-    var text = el("div", "card-text");
-    var word = kindOf(visual).word;
-    if (word) text.appendChild(el("span", "card-meta", word));
-    text.appendChild(el("p", "card-line brief-line", activity.subject));
-    var meta = semanticActivityMeta(activity);
-    if (meta) text.appendChild(el("span", "brief-meta", meta));
-    var detail = activity.detail || activity.summary;
-    if (detail && detail !== activity.subject) text.appendChild(el("p", "activity-detail", detail));
-    li.appendChild(text);
-
-    var image = (activity.evidence || []).find(function (one) { return one.kind === "image"; });
-    if (image) {
-      var shotSrc = withToken(image.ref);
-      var thumb = el("button", "card-thumb");
-      thumb.type = "button";
-      thumb.setAttribute("aria-label", "Open image");
-      var img = el("img", "");
-      img.src = shotSrc;
-      img.alt = "";
-      img.loading = "lazy";
-      thumb.appendChild(img);
-      thumb.addEventListener("click", function () { openImage(shotSrc); });
-      li.appendChild(thumb);
-    }
-
-    if (activity.decision && activity.activity && activity.activity.phase === "needs_you" && VIEW_TOKEN) {
-      li.appendChild(sceneAsk({
-        title: activity.subject,
-        decision: {
-          task: activity.source.task || activity.id,
-          question: activity.decision.question,
-          choices: activity.decision.alternatives || [],
-          recommended: activity.decision.recommended,
-          replyTo: activity.decision.replyTo,
-        },
-      }, "flyd-activity:" + activity.id + ":" + activity.decision.question));
-    }
-
-    if (activity.activity && activity.activity.phase === "finished") {
-      var close = el("button", "card-dismiss", "✕");
-      close.type = "button";
-      close.setAttribute("aria-label", "Hide this");
-      close.addEventListener("click", function () {
-        cardDismiss(activity.id);
-        li.classList.add("leaving");
-        setTimeout(function () { renderBrief(lastBrief); }, 220);
-      });
-      li.appendChild(close);
-    }
-    return li;
-  }
-  function drawActivities(section, activities, legacy) {
-    activities = (activities || []).filter(function (activity) {
-      return !(activity.activity && activity.activity.phase === "finished" && cardGone(activity.id));
-    });
-    legacy = legacy || [];
-    if (!activities.length && !legacy.length) { section.hidden = true; section.textContent = ""; return; }
-    section.hidden = false;
-
-    var top = section.querySelector(".brief-top");
-    if (!top) { section.textContent = ""; top = briefTop("Activity"); section.appendChild(top); }
-    else {
-      var heading = top.querySelector(".brief-label");
-      if (heading) heading.textContent = "Activity";
-    }
-    var list = section.querySelector("ul");
-    if (!list) { list = el("ul"); section.appendChild(list); }
-    var existing = {};
-    list.querySelectorAll(".activity-card[data-semantic-id]").forEach(function (node) { existing[node.dataset.semanticId] = node; });
-    var keep = {};
-    activities.forEach(function (activity) {
-      keep[activity.id] = true;
-      list.appendChild(semanticActivityCard(activity, existing[activity.id]));
-    });
-    Object.keys(existing).forEach(function (id) { if (!keep[id]) existing[id].remove(); });
-    list.querySelectorAll(".legacy-activity").forEach(function (node) { node.remove(); });
-    legacy.forEach(function (item) {
-      var node = briefItem(item, item.started ? "Started " + ago(item.started) : "");
-      node.classList.add("legacy-activity");
-      list.appendChild(node);
-    });
-  }
   function drawNeeds(calls) {
     if (!calls.length) { needsEl.hidden = true; needsEl.textContent = ""; needsDrawn = ""; needsShown = ""; return; }
     // The same call stays while it is there; once answered, the next one takes its place.
@@ -1947,23 +1836,10 @@ var __name = function (f) { return f; };
     var calls = (show && show.calls) || [];
     var underway = (show && show.underway) || [];
     var done = (show && show.done) || [];
-    var activities = show && show.activities;
-    if (activities) {
-      var activityTasks = {};
-      activities.forEach(function (activity) { if (activity.source && activity.source.task) activityTasks[activity.source.task] = true; });
-      var standaloneCalls = calls.filter(function (item) { return !item.task || !activityTasks[item.task]; });
-      var standaloneUnderway = underway.filter(function (item) { return !item.task || !activityTasks[item.task]; });
-      var standaloneDone = done.filter(function (item) { return !item.task || !activityTasks[item.task]; });
-      drawNeeds(standaloneCalls);
-      drawActivities(underwayEl, activities, standaloneUnderway);
-      drawList(doneEl, "Done", standaloneDone, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
-      briefFilled = standaloneCalls.length + activities.length + standaloneUnderway.length + standaloneDone.length > 0;
-    } else {
-      drawNeeds(calls);
-      drawList(underwayEl, "Under way", underway, function (item) { return item.started ? "Started " + ago(item.started) : ""; });
-      drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
-      briefFilled = calls.length + underway.length + done.length > 0;
-    }
+    drawNeeds(calls);
+    drawList(underwayEl, "Under way", underway, function (item) { return item.started ? "Started " + ago(item.started) : ""; });
+    drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
+    briefFilled = calls.length + underway.length + done.length > 0;
     briefEl.hidden = !briefFilled;
     showRail();
   }
