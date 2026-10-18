@@ -520,8 +520,10 @@ export class SnapshotDiffer {
       for (const item of show.items) if (!semanticJudge.cached(item) && !semanticJudge.pending(item)) this.judgeSemantic(semanticJudge, item);
       show.semantic = semanticObjectsFromShow(show.items, (item) => semanticJudge.cached(item)?.kind);
     }
-    show.events = semanticEvents(this.semantic, show.semantic);
-    this.semantic = show.semantic;
+    const semantic = show.semantic ?? semanticObjectsFromShow(show.items);
+    show.events = semanticEvents(this.semantic, semantic);
+    show.semantic = semantic;
+    this.semantic = semantic;
     const live = this.show?.live ?? (() => "up");
     const found = currentPage(snapshot.messages);
     // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
