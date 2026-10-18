@@ -181,7 +181,9 @@ export const LEFT_SCRIPT = `
     var phase = activity.activity && activity.activity.phase || "working";
     var visual = leftSemanticVisual(activity);
     var at = activity.activity && activity.activity.started || activity.updatedAt || activity.createdAt || "";
-    var key = activity.id + "|semantic";
+    // The semantic id is stable; the patch key includes phase so the card's
+    // contents refresh in place when its state changes without duplicating it.
+    var key = activity.id + "|semantic|" + phase;
     var card = visualCard({
       kind: visual,
       title: activity.subject,
@@ -218,7 +220,7 @@ export const LEFT_SCRIPT = `
   }
   function drawSemanticActivities(activities) {
     activities = (activities || []).filter(function (activity) {
-      return !cardGone(activity.id + "|semantic");
+      return !cardGone(activity.id + "|semantic|" + (activity.activity && activity.activity.phase || "working"));
     });
     leftSemanticSection.hidden = !activities.length;
     patch(leftSemanticEl, activities.map(leftSemanticActivityCard));
@@ -242,8 +244,10 @@ export const LEFT_SCRIPT = `
   function drawActivity() {
     if (!leftPanel) return;
     var semantic = leftPanel.semantic || [];
-    var now = (leftPanel.now || []).filter(function (item) { return !cardGone(activityKey(item, true)); });
-    var recent = (leftPanel.recent || []).filter(function (item) { return !cardGone(activityKey(item, false)); });
+    var semanticTasks = {};
+    semantic.forEach(function (activity) { if (activity.source && activity.source.task) semanticTasks["job:" + activity.source.task] = true; });
+    var now = (leftPanel.now || []).filter(function (item) { return !semanticTasks[item.id] && !cardGone(activityKey(item, true)); });
+    var recent = (leftPanel.recent || []).filter(function (item) { return !semanticTasks[item.id] && !cardGone(activityKey(item, false)); });
     var moving = semantic.filter(function (activity) { return activity.activity && activity.activity.phase !== "finished"; }).length + now.length;
     leftLiveEl.textContent = moving ? "Working on " + moving + (moving === 1 ? " thing." : " things.") : "Nothing under way.";
     drawSemanticActivities(semantic);
