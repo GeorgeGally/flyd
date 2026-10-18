@@ -82,9 +82,10 @@ authoritative path. This change does not rewrite historical private entries.
   are never sent. The checks run locally
   either way.
 - **Caught before display where that is possible.**
-  - A notification reaches him as one line (`notificationLine`): its first
-    sentence that says something, skipping an opening address, acknowledgement
-    or placeholder, cut at 140 characters. One that only says work is
+  - A notification reaches him as one line (`notificationLine`): an opening
+    address, acknowledgement or placeholder is skipped, and the rest is kept
+    whole when it fits in 140 characters; a longer one keeps only its first
+    sentence that says something, cut at 140 characters. One that only says work is
     happening is not shown. A coding session's own idle prompt ("Claude is
     waiting for your input") is dropped unrecorded (`isIdleNotice`).
   - A domain run that asks George for an implementation call goes back to its
