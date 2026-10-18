@@ -1912,6 +1912,42 @@ var __name = function (f) { return f; };
     });
     if (call.decision && VIEW_TOKEN) needsEl.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + call.decision.task + ":" + call.decision.question));
   }
+  function drawSemanticArtifacts(artifacts) {
+    var seen = artifacts.length ? seenDone(artifacts.map(function (artifact) {
+      return { id: artifact.id, at: artifact.updatedAt || artifact.createdAt || "" };
+    })) : null;
+    var items = artifacts.filter(function (artifact) { return stillShown({ id: artifact.id }, seen); });
+    doneEl.textContent = "";
+    doneEl.hidden = !items.length;
+    if (!items.length) return;
+    doneEl.appendChild(briefTop("Artefacts"));
+    var list = el("ul");
+    var shown = !doneAll ? items.slice(0, DONE_FEW) : items;
+    shown.forEach(function (artifact) {
+      var evidence = artifact.evidence || [];
+      var open = evidence.find(function (object) { return object.kind === "web" && !object.closed; });
+      var image = evidence.find(function (object) { return object.kind === "image"; });
+      var visual = {
+        id: artifact.id,
+        kind: "landed",
+        headline: artifact.subject,
+        why: artifact.summary,
+        at: artifact.updatedAt || artifact.createdAt || "",
+        status: artifact.status || "ready",
+        shots: image ? [{ src: image.ref, label: image.label || artifact.subject }] : [],
+        open: open ? { url: open.ref, label: open.label || "Open" } : undefined,
+        project: artifact.project,
+      };
+      list.appendChild(briefItem(visual, visual.at ? ago(visual.at) : ""));
+    });
+    doneEl.appendChild(list);
+    if (items.length > DONE_FEW) {
+      var more = el("button", "brief-more", doneAll ? "Show fewer" : "Show all " + items.length);
+      more.type = "button";
+      more.addEventListener("click", function () { doneAll = !doneAll; renderBrief(lastBrief); });
+      doneEl.appendChild(more);
+    }
+  }
   function drawList(section, label, items, meta, few) {
     var seen = label === "Done" && items.length ? seenDone(items) : null;
     items = items.filter(function (item) { return stillShown(item, seen); });
@@ -1936,13 +1972,16 @@ var __name = function (f) { return f; };
     var decisions = show && show.decisions;
     var underway = (show && show.underway) || [];
     var done = (show && show.done) || [];
+    var artifacts = show && show.artifacts;
     if (decisions) drawSemanticDecisions(decisions);
     else drawNeeds(calls);
     // Task-bound calls are manifested inside Activity, never duplicated here.
     var needsCount = decisions ? decisions.length : calls.length;
     drawList(underwayEl, "Under way", underway, function (item) { return item.started ? "Started " + ago(item.started) : ""; });
-    drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
-    briefFilled = needsCount + underway.length + done.length > 0;
+    if (artifacts) drawSemanticArtifacts(artifacts);
+    else drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
+    var artifactCount = artifacts ? artifacts.length : done.length;
+    briefFilled = needsCount + underway.length + artifactCount > 0;
     briefEl.hidden = !briefFilled;
     showRail();
   }

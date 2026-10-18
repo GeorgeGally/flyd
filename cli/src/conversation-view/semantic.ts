@@ -71,6 +71,17 @@ export interface SemanticObject {
     /** Stable durable result identity once execution produces an Artifact. */
     artifactId?: string;
   };
+  /** Artifact is the durable result, independent of the job that produced it. */
+  artifact?: {
+    type: "plan" | "result" | "document" | "code" | "data" | "image" | "web";
+    phase: "draft" | "ready" | "superseded";
+    /** The Activity that produced this result, when known. */
+    activityId?: string;
+    /** The Action whose execution produced this result, when known. */
+    actionId?: string;
+    /** A later Artifact can supersede this one without erasing it. */
+    supersedes?: string;
+  };
   /** Investigation is an evidence-backed question, not a layout. */
   investigation?: {
     question: string;
@@ -201,10 +212,10 @@ export function semanticObjectsFromShow(items: readonly ShowItem[], override?: S
 function sameMeaning(a: SemanticObject, b: SemanticObject): boolean {
   return JSON.stringify({
     kind: a.kind, lifecycle: a.lifecycle, subject: a.subject, summary: a.summary, detail: a.detail,
-    project: a.project, status: a.status, evidence: a.evidence, actions: a.actions, activity: a.activity, decision: a.decision, investigation: a.investigation, action: a.action,
+    project: a.project, status: a.status, evidence: a.evidence, actions: a.actions, activity: a.activity, decision: a.decision, investigation: a.investigation, action: a.action, artifact: a.artifact,
   }) === JSON.stringify({
     kind: b.kind, lifecycle: b.lifecycle, subject: b.subject, summary: b.summary, detail: b.detail,
-    project: b.project, status: b.status, evidence: b.evidence, actions: b.actions, activity: b.activity, decision: b.decision, investigation: b.investigation, action: b.action,
+    project: b.project, status: b.status, evidence: b.evidence, actions: b.actions, activity: b.activity, decision: b.decision, investigation: b.investigation, action: b.action, artifact: b.artifact,
   });
 }
 
@@ -288,4 +299,67 @@ export function decisionObjectsFromShow(source: DecisionSources): SemanticObject
     decisions.push(object);
   }
   return decisions;
+}
+
+
+export interface ArtifactSources {
+  done?: readonly ShowItem[];
+  /** Plans are durable work products even before execution begins. */
+  items?: readonly ShowItem[];
+}
+
+function artifactTypeFor(item: ShowItem): NonNullable<SemanticObject["artifact"]>["type"] {
+  if (item.kind === "plan") return "plan";
+  if ((item.shots ?? []).length) return "image";
+  if (item.open || (item.links ?? []).length) return "web";
+  return "result";
+}
+
+function artifactIdentityFor(item: ShowItem): string {
+  // A task's Activity keeps task:<id>; its durable result must be a distinct
+  // object or the two meanings collapse into one identity.
+  if (item.task) return `artifact:task:${item.task}`;
+  if (item.ref) return `artifact:message:${item.ref}`;
+  return `artifact:${item.id.replace(/^(?:landed|plan):/, "")}`;
+}
+
+export function artifactObjectFromShow(item: ShowItem): SemanticObject {
+  const activityId = item.task ? `task:${item.task}` : undefined;
+  return {
+    ...semanticObjectFromShow(item),
+    id: artifactIdentityFor(item),
+    kind: "artifact",
+    lifecycle: "resolved",
+    actions: [
+      ...actionsFor(item),
+      { id: `inspect:${artifactIdentityFor(item)}`, kind: "inspect", label: "Inspect", value: artifactIdentityFor(item) },
+    ],
+    artifact: {
+      type: artifactTypeFor(item),
+      phase: "ready",
+      ...(activityId ? { activityId } : {}),
+    },
+  };
+}
+
+/**
+ * Native durable results. Finished task Activities and their Artifacts are
+ * intentionally separate objects linked by activityId; plans are Artifacts
+ * directly. Deduplication is by Artifact identity, never presentation bucket.
+ */
+export function artifactObjectsFromShow(source: ArtifactSources): SemanticObject[] {
+  const ordered = [
+    ...(source.items ?? []).filter((item) => item.kind === "plan"),
+    ...(source.done ?? []),
+  ];
+  const seen = new Set<string>();
+  const artifacts: SemanticObject[] = [];
+  for (const item of ordered) {
+    if (item.kind !== "landed" && item.kind !== "plan") continue;
+    const object = artifactObjectFromShow(item);
+    if (seen.has(object.id)) continue;
+    seen.add(object.id);
+    artifacts.push(object);
+  }
+  return artifacts;
 }

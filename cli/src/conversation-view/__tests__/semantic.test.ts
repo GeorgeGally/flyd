@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   SEMANTIC_KINDS,
   activityObjectsFromShow,
+  artifactObjectFromShow,
+  artifactObjectsFromShow,
   decisionObjectsFromShow,
   semanticEvents,
   semanticIdentityFor,
@@ -155,5 +157,52 @@ describe("canonical semantic artefacts", () => {
     expect(semanticEvents([], [active])).toMatchObject([{ objectId: "task:t1", kind: "created" }]);
     expect(semanticEvents([active], [interrupted])).toMatchObject([{ objectId: "task:t1", kind: "interrupted" }]);
     expect(semanticEvents([interrupted], [resolved])).toMatchObject([{ objectId: "task:t1", kind: "resolved" }]);
+  });
+});
+
+
+describe("native semantic Artifact", () => {
+  it("keeps the finished Activity and its durable Artifact as separate linked objects", () => {
+    const landed = item({
+      id: "landed:t1", kind: "landed", headline: "Mobile Flyd shipped", why: "The new interface is live",
+      at: "2026-10-18T12:00:00Z", shots: [{ src: "/shot/mobile.png", label: "Mobile Flyd" }],
+    });
+    const activity = semanticObjectFromShow(landed);
+    const artifact = artifactObjectFromShow(landed);
+    expect(activity).toMatchObject({ id: "task:t1", kind: "activity", activity: { phase: "finished" } });
+    expect(artifact).toMatchObject({
+      id: "artifact:task:t1", kind: "artifact", lifecycle: "resolved",
+      artifact: { type: "image", phase: "ready", activityId: "task:t1" },
+      evidence: [{ kind: "image", ref: "/shot/mobile.png", label: "Mobile Flyd" }],
+    });
+    expect(artifact.id).not.toBe(activity.id);
+  });
+
+  it("projects plans directly as durable Artifacts", () => {
+    const plan: ShowItem = {
+      id: "plan:christmas", kind: "plan", headline: "Christmas market plan", why: "The agreed operating plan",
+      ref: "reply:plan-1", detail: "Eight trading days at Block42.",
+    };
+    expect(artifactObjectsFromShow({ items: [plan] })).toMatchObject([{
+      id: "artifact:message:reply:plan-1", kind: "artifact", lifecycle: "resolved",
+      artifact: { type: "plan", phase: "ready" },
+    }]);
+  });
+
+  it("deduplicates one durable result even when legacy state repeats it", () => {
+    const landed = item({ id: "landed:t1", kind: "landed" });
+    expect(artifactObjectsFromShow({ done: [landed, { ...landed, id: "landed:t1:again" }] })).toHaveLength(1);
+  });
+
+  it("emits Artifact creation independently of the Activity resolving", () => {
+    const working = semanticObjectFromShow(item({ kind: "live" }));
+    const landed = item({ id: "landed:t1", kind: "landed", at: "2026-10-18T12:00:00Z" });
+    const finished = semanticObjectFromShow(landed);
+    const artifact = artifactObjectFromShow(landed);
+    const events = semanticEvents([working], [finished, artifact]);
+    expect(events).toMatchObject([
+      { objectId: "task:t1", kind: "resolved" },
+      { objectId: "artifact:task:t1", kind: "created" },
+    ]);
   });
 });
