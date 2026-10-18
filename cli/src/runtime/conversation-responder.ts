@@ -36,7 +36,7 @@ import { loadSkills, seedSkills, skillPromptBlock, type Skill } from "./skills.j
 import { CODE_TOOLS, offCode, offRoute, planBrief, planBudget, planTurn, routeWithJev, visibleTools, type RouteReading, type TurnPlan } from "./turn-plan.js";
 import { contractError } from "./tool-contracts.js";
 import { flydSetupReport, isFlydSetupQuestion } from "./flyd-setup.js";
-import { allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, type ToolPolicyState } from "./tool-policy.js";
+import { advanceSemanticAction, allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, semanticActionForToolCall, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
 import type { MemoryEvidence } from "./types.js";
@@ -76,6 +76,8 @@ interface ConversationInput {
   onActivity?: (activity: string) => void;
   /** Called with each tool that ran, so the journal knows the turn found something out. */
   onTool?: (name: string) => void;
+  /** Native state-change lifecycle, separate from prose/tool activity. */
+  onAction?: (action: import("../conversation-view/semantic.js").SemanticObject) => void;
   /** Cancels provider requests and stops further tool calls. */
   signal?: AbortSignal;
   /** The model handed a coding job to the supervised runtime (start_coding_task). */
@@ -534,6 +536,7 @@ function createToolHandler(
   /** A background job's builder turn: its shell commands are registered to the job. */
   jobId?: string,
   signal?: AbortSignal,
+  onAction?: (action: import("../conversation-view/semantic.js").SemanticObject) => void,
 ): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
     try { return realpathSync(resolve(value)); } catch { return null; }
@@ -759,6 +762,8 @@ function createToolHandler(
   return async (name: string, input: Record<string, unknown>): Promise<string> => {
     signal?.throwIfAborted();
     const decision = decideToolCall(name, input, policy);
+    let semanticAction = semanticActionForToolCall(name, input, policy);
+    if (semanticAction) onAction?.(semanticAction);
     if (decision.kind === "deny") {
       return `Not approved: ${decision.reason}. Do not try another way; tell him what you would do and let him run it or approve it.`;
     }
@@ -768,7 +773,12 @@ function createToolHandler(
       if (!approved) {
         // Only George's own no holds for the turn; an unattended run has no one to ask.
         if (askUser) (policy.declined ??= new Set()).add(decision.category);
+        if (semanticAction) onAction?.(advanceSemanticAction(semanticAction, "declined"));
         return `Not approved: ${decision.reason}. George did not approve this action — do not retry it; tell him what you would do and let him run it or approve it.`;
+      }
+      if (semanticAction) {
+        semanticAction = advanceSemanticAction(semanticAction, "approved");
+        onAction?.(semanticAction);
       }
     }
     signal?.throwIfAborted();
@@ -781,7 +791,12 @@ function createToolHandler(
     if (readOnly && (name === "bash" ? !isReadOnlyCommand(String(input.command ?? "")) : isMutatingToolCall(name, input))) {
       return "Skipped (evaluation run): state-changing commands are recorded, not executed. Carry on with the task as George asked; any command that needs his approval will still ask.";
     }
+    if (semanticAction) {
+      semanticAction = advanceSemanticAction(semanticAction, "executing");
+      onAction?.(semanticAction);
+    }
     const result = await execute(name, input);
+    if (semanticAction) onAction?.(advanceSemanticAction(semanticAction, TOOL_FAILURE.test(result) ? "failed" : "completed"));
     if (marksTurnUntrusted(name)) policy.tainted = true;
     return result;
   };
@@ -1188,7 +1203,7 @@ export async function respondToConversation(
     situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
     userMessage: input.message,
     onCodingHandoff: input.onCodingHandoff,
-  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal);
+  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction);
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
   const repeats = createRepeatGuard();
