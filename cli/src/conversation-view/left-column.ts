@@ -208,7 +208,7 @@ export const LEFT_SCRIPT = `
       card.appendChild(sceneAsk({
         title: activity.subject,
         decision: {
-          task: activity.source.task || activity.id,
+          task: activity.decision.target || activity.source.task || activity.id,
           question: activity.decision.question,
           choices: activity.decision.alternatives || [],
           recommended: activity.decision.recommended,
