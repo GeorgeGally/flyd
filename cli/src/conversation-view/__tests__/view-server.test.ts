@@ -196,6 +196,16 @@ describe("SnapshotDiffer relays", () => {
     expect(shown!.summary).toBeDefined();
   });
 
+  it("keeps the rules he has to paste open under the card that leads a relayed answer", () => {
+    const [, shown] = new SnapshotDiffer().next({ messages: [
+      { id: "note:1", role: "user", text: "what are the kinsta rules again" },
+      { id: "t1", role: "assistant", text: KINSTA_RULES, answers: "note:1" },
+    ], working: false }).messages;
+    expect(shown!.card).toBeDefined();
+    expect(shown!.expanded).toBe(true);
+    expect(shown!.html).toContain("https://capfive.com/$1");
+  });
+
   it("still answers him when he typed into the session himself", () => {
     const update = new SnapshotDiffer().next({ messages: [{ id: "u1", role: "user", text: "how is the island work going?" }, { id: "t1", role: "assistant", text: STAFF_PROGRESS, aside: true }], working: false });
     expect(update.order).toEqual(["u1", "t1"]);
