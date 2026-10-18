@@ -42,12 +42,13 @@ describe("tiered memory store", () => {
     expect(readFileSync(paths.archive, "utf8")).toContain("unconfirmed for 14+ days");
   });
 
-  it("renders prompt text without markers and searches daily notes on demand", () => {
+  it("keeps prompt provenance and searches daily notes on demand", () => {
     applyMemoryOps([
       { op: "add", section: "People", text: "Maya is George's partner" },
       { op: "daily_note", text: "Discussed moving the studio launch to October", sources: ["j3"] },
     ], { now: day("2026-09-27"), paths });
-    expect(memoryPromptText(paths)).toBe("## People\n- Maya is George's partner");
+    expect(memoryPromptText(paths, day("2026-09-27"))).toBe(`## People
+- [curated_memory; 2026-09-27; aging; MEMORY.md:${entryId("Maya is George's partner")}] Maya is George's partner`);
     expect(searchDailyNotes("studio launch", paths)).toEqual(["2026-09-27: Discussed moving the studio launch to October (j3)"]);
   });
 

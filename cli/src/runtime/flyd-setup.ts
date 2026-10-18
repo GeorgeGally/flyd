@@ -89,7 +89,6 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     { conversationLearnModel },
     { realtimeModel, REALTIME_TRANSCRIPTION_MODEL },
     { ttsModel },
-    { profileLearnModel },
     { profileBootstrapModel },
     { evalJudgeModel },
   ] = await Promise.all([
@@ -106,7 +105,6 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     import("../cognition/curator/content-learning.js"),
     import("../realtime-session.js"),
     import("../tts.js"),
-    import("./profile-learning.js"),
     import("../commands/profile.js"),
     import("../evals/chat/scoring.js"),
   ]);
@@ -236,12 +234,6 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     settings: ["FLYD_REALTIME_MODEL"],
   });
   add({ job: "Speaking replies aloud", model: ttsModel(), settings: ["FLYD_TTS_MODEL"] });
-  add({
-    job: "Learning facts George states about himself into USER.md",
-    model: process.env.FLYD_PROFILE_AUTOLEARN === "0" ? "off (FLYD_PROFILE_AUTOLEARN=0)" : profileLearnModel(chain) ?? "not configured",
-    settings: ["FLYD_PROFILE_LEARN_MODEL"],
-    setBy: setting("FLYD_PROFILE_LEARN_MODEL") ? "FLYD_PROFILE_LEARN_MODEL" : "the last model of the chat chain (FLYD_PROFILE_LEARN_MODEL is not set)",
-  });
   add({ job: "Drafting USER.md from George's captures (flyd profile bootstrap)", model: profileBootstrapModel(), settings: ["FLYD_PROFILE_MODEL"] });
   add({ job: "Grading chat evals", model: evalJudgeModel(), settings: ["FLYD_EVAL_JUDGE_MODEL"], dev: true });
   add({

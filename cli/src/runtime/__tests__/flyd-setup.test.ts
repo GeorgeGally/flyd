@@ -42,7 +42,8 @@ describe("Flyd's own setup", () => {
   it("names the model doing every job, from the live configuration, with what set it", async () => {
     configure({ ...CONFIGURED, ...SECRETS });
     const report = await flydSetupReport();
-    for (const model of new Set(Object.values(CONFIGURED).filter((value) => !value.startsWith("deepseek/")))) expect(report).toContain(model);
+    expect(report).not.toContain("Learning facts George states about himself into USER.md");
+    for (const model of new Set(Object.entries(CONFIGURED).filter(([key]) => key !== "FLYD_PROFILE_LEARN_MODEL").map(([, value]) => value).filter((value) => !value.startsWith("deepseek/")))) expect(report).toContain(model);
     expect(report).toMatch(/Chat: [^\n]*opencode-go\/deepseek-v4\.1-flash \[FLYD_CHAT_MODEL\]; if it fails: openai:gpt-5\.6-luna, then commandcode:deepseek\/deepseek-v4\.1-flash/);
     expect(report).toMatch(/Reading the room[^\n]*openai:gpt-5\.6-mini \[FLYD_ROUTING_FALLBACK_MODEL\]/);
     expect(report).toMatch(/Deciding who answers[^\n]*opencode-go\/deepseek-v4\.1-flash \[FLYD_MODEL\]/);

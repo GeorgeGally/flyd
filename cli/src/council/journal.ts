@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
+import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
 
 // One continuous record of what George and Flyd said, across launches. Chat
 // sessions are disposable; the journal is what the Archivist curates from and
@@ -14,6 +15,7 @@ export interface JournalTurn {
   /** Short "name: outcome" lines for tools the turn used. */
   tools?: string[];
   surface?: string;
+  understanding?: TurnUnderstanding;
 }
 
 export function journalDir(): string {
@@ -37,6 +39,7 @@ export function appendJournalTurn(
     assistant: turn.assistant,
     ...(turn.tools?.length ? { tools: turn.tools } : {}),
     ...(turn.surface ? { surface: turn.surface } : {}),
+    ...(turn.understanding ? { understanding: turn.understanding } : {}),
   };
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   appendFileSync(dayFile(at, dir), `${JSON.stringify(entry)}\n`, { encoding: "utf8", mode: 0o600 });

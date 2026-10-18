@@ -4,10 +4,19 @@ export type PreparationReading =
   | { kind: 'grant'; goal: string; sourceSpan: string }
   | { kind: 'prepare' | 'cancel' | 'pause'; remitId: string; sourceSpan: string };
 
+/** Structural attribution check, not a second intent classifier. Quoted material
+ * can inform an answer but cannot supply standing authority or trigger work. */
+function sourceProse(text: string): string {
+  return text.replace(/```[\s\S]*?(?:```|$)/g, '\n')
+    .replace(/~~~[\s\S]*?(?:~~~|$)/g, '\n')
+    .replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|(?<![\p{L}\p{N}])'[^'\n]+'(?![\p{L}\p{N}])/gu, '\n')
+    .split('\n').filter(line => !/^(?:\s*>| {4}|\t)/.test(line)).join('\n');
+}
+
 export function parsePreparationReading(value: unknown, text: string, remits: RemitSummary[]): PreparationReading | null {
   if (!value || typeof value !== 'object' || !('kind' in value) || !('sourceSpan' in value)) return null;
   const span = value.sourceSpan;
-  if (typeof span !== 'string' || !span.trim() || !text.includes(span) || span.length > 1500) return null;
+  if (typeof span !== 'string' || !span.trim() || !sourceProse(text).includes(span) || span.length > 1500) return null;
   if (value.kind === 'grant' && 'goal' in value && typeof value.goal === 'string' && value.goal.trim() && value.goal.length <= 300) {
     return { kind: 'grant', goal: value.goal.trim(), sourceSpan: span };
   }

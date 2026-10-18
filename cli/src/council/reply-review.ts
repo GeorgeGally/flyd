@@ -5,6 +5,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import type { Evidence } from "../crew/self-improve.js";
 import { journalDir, readJournalSince } from "./journal.js";
 import { requirement, reviewSaid, voiceRules, type RequirementId, type Said, type Shortfall, type Surface, type VoiceRules } from "./chief-of-staff.js";
+import { isInteractionClass } from "../runtime/conversation-presence.js";
 
 // Flyd reading its own words back against the chief-of-staff standard
 // (council/chief-of-staff.ts). Everything George was shown — chat answers,
@@ -129,16 +130,16 @@ export function collectSaid(sources: ReviewSources): Captured[] {
   const out: Captured[] = [];
 
   for (const turn of readJournalSince(since, sources.flydDir ? join(flydDir, "journal") : journalDir())) {
-    if (turn.assistant.trim()) out.push({ at: turn.at, surface: "chat", source: `journal:${turn.id}`, text: turn.assistant, asked: turn.user, ...(turn.tools?.length ? { tools: turn.tools } : {}) });
+    if (turn.assistant.trim()) out.push({ at: turn.at, surface: "chat", source: `journal:${turn.id}`, text: turn.assistant, asked: turn.user, ...(turn.tools?.length ? { tools: turn.tools } : {}), ...(isInteractionClass(turn.understanding?.interactionClass) ? { interactionClass: turn.understanding.interactionClass } : {}) });
   }
 
   const asks = join(flydDir, "view", "asks");
   if (existsSync(asks)) {
     for (const name of readdirSync(asks).filter((file) => file.endsWith(".json"))) {
-      const ask = readJson<{ id?: string; at?: string; text?: string; answer?: string; answeredAt?: string; interactionClass?: Said["interactionClass"] }>(join(asks, name));
+      const ask = readJson<{ id?: string; at?: string; text?: string; answer?: string; answeredAt?: string; interactionClass?: Said["interactionClass"]; understanding?: { interactionClass?: unknown } }>(join(asks, name));
       const at = ask?.answeredAt ?? ask?.at;
       if (!ask?.answer?.trim() || !at || at <= since) continue;
-      out.push({ at, surface: "chat", source: `ask:${ask.id ?? name}`, text: ask.answer, asked: hisWords(ask.text ?? ""), ...(ask.interactionClass ? { interactionClass: ask.interactionClass } : {}), toolsUnknown: true });
+      out.push({ at, surface: "chat", source: `ask:${ask.id ?? name}`, text: ask.answer, asked: hisWords(ask.text ?? ""), ...(isInteractionClass(ask.understanding?.interactionClass ?? ask.interactionClass) ? { interactionClass: (ask.understanding?.interactionClass ?? ask.interactionClass) as Said["interactionClass"] } : {}), toolsUnknown: true });
     }
   }
 

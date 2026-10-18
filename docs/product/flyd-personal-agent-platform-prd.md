@@ -5,7 +5,7 @@
 
 ## Status
 
-Authoritative product PRD as of 21 July 2026.
+Historical product PRD from 21 July 2026; the coding-harness-first release scope below does not constrain current full-life personal intelligence.
 
 This document supersedes `docs/product/flyd-v1-prd.md` as the product definition. The earlier PRD remains the specification for directed Rails surfaces where it does not conflict with this document.
 

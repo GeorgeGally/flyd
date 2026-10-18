@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { FLYD_DIR, RAW_DIR } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
-import { addUserProfileFact, PROFILE_SECTIONS, readUserProfile } from "../lib/user-profile.js";
+import { readUserProfile } from "../lib/user-profile.js";
 import { readJournalSince, type JournalTurn } from "./journal.js";
 import { applyTasteOps, normalizeTasteOps, readTaste, tasteChanged, tastePath, tasteRuleLines, TASTE_CURATION_RULES, TASTE_OPS_FORMAT, writeTaste, type TasteApplyReceipt, type TasteOp } from "./taste.js";
 import { applyProjectOps, describeProject, PROJECT_KINDS, PROJECT_STATUSES, readProjects, type Project, type ProjectApplyReceipt, type ProjectOp } from "./projects.js";
@@ -189,7 +189,7 @@ export function librarianPrompt(input: LibrarianInput): string {
     "2. Commitments and decisions — promises, deadlines, choices he made and why.",
     "3. Facts about his world — projects, people, places, standing arrangements.",
     "4. Contradictions — new evidence that conflicts with memory: update the old entry, never keep both.",
-    "5. How to be with him — how George reacted to Flyd: what landed, what grated, how he wants to be spoken to or supported. Profile section 'How to be with me'.",
+    "5. How to be with him — keep source-backed observations about what landed or grated in memory; inferred reactions are not confirmed preferences.",
     "6. How he's been lately — mood, energy, what's weighing on him or lifting him this week. Memory section 'Lately', tier perishable, gently worded.",
     "7. What got done — fixes and shipped work worth recalling this week. Memory section 'Shipped', tier perishable, as 'D Mon: what was fixed or shipped'. It is a record of work, not a lesson: never put it in 'Lately' (how he is) and never word it as a rule or preference. A 'Lately' entry that is really a note of work done: archive it and add it under 'Shipped'.",
     "",
@@ -198,7 +198,7 @@ export function librarianPrompt(input: LibrarianInput): string {
     "- One short sentence per entry (under ~25 words), in plain language a friend would use. No class, service, or file names — code details belong in the project's own docs, not George's memory.",
     "- Never record claims that a tool or feature 'does not work' — those harden into false refusals.",
     "- Convert relative dates to absolute ones.",
-    "- Who George is (identity, preferences, people, routines, goals, constraints) goes to his profile via profile ops; everything else to memory.",
+    "- USER.md belongs to George's explicit edits and confirmation. Never promote an extracted or inferred fact into his profile. Source-backed personal observations belong in memory; moods remain perishable.",
     "- Commitments with a date are perishable; standing facts and decisions are aging.",
     "- Cite sources with the [j:…] / [cap:…] ids you were shown. Do not invent ids.",
     "- For each STALE entry: reinforce it if today's evidence confirms it, archive it if superseded or done, otherwise leave it.",
@@ -208,11 +208,10 @@ export function librarianPrompt(input: LibrarianInput): string {
     "- For every Commitments entry, stale or not: if the finished work below shows that exact thing done, archive it with reason \"done: [done:…]\" citing the id. A related piece of work is not proof; leave the entry when unsure.",
     "- Fewer, better entries. When nothing qualifies, return empty lists.",
     "",
-    `Memory sections: ${MEMORY_SECTIONS.join(", ")}. Profile sections: ${PROFILE_SECTIONS.join(", ")}.`,
+    `Memory sections: ${MEMORY_SECTIONS.join(", ")}.`,
     "",
     "Reply with JSON only:",
     '{"memory_ops": [ {"op":"add","section":"...","text":"...","tier":"aging|perishable","sources":["j:..."]} | {"op":"update","id":"...","text":"...","sources":[...]} | {"op":"reinforce","id":"...","sources":[...]} | {"op":"archive","id":"...","reason":"..."} | {"op":"daily_note","text":"...","sources":[...]} ],',
-    ' "profile_ops": [ {"section":"...","fact":"..."} ],',
     ` "project_ops": [ {"op":"upsert","id":"existing id, or omit for a new one","name":"...","what":"one line","kind":"${PROJECT_KINDS.join("|")}","status":"${PROJECT_STATUSES.join("|")}","now":"where it stands","next":"next step","due":"YYYY-MM-DD","people":["..."],"repos":["root path from the list"],"facts":["..."]} | {"op":"archive","id":"...","reason":"..."} ],`,
     ...(input.taste ? [` "taste_ops": [ ${TASTE_OPS_FORMAT} ],`] : []),
     ' "observations": ["<up to 5 short notes for George\'s advisors about what stands out: risks, patterns, momentum, loose ends>"] }',
@@ -311,12 +310,9 @@ function applyProposal(
   const tasteProfile = readTaste(options.deps.tastePath);
   const taste = applyTasteOps(tasteProfile, proposal.tasteOps);
   if (tasteChanged(taste)) writeTaste(tasteProfile, options.deps.tastePath);
-  const addProfile = options.deps.addProfileFact
-    ?? ((fact: string, section: string) => addUserProfileFact(fact, {
-      section: PROFILE_SECTIONS.find((name) => name.toLowerCase() === section.toLowerCase()) ?? "Learned in conversation",
-    }));
-  const profileAdded = proposal.profileOps.filter(({ fact, section }) => addProfile(fact, section)).length;
-  return { memory, projects, taste, profileAdded };
+  // Older models/cached proposals may still return profile_ops. Ignore them
+  // at the write boundary too; extraction never confers user confirmation.
+  return { memory, projects, taste, profileAdded: 0 };
 }
 
 /** One curation pass over everything new since the last one. */

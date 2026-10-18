@@ -17,6 +17,15 @@ function grant() {
   return store.listRemits('market')[0];
 }
 describe('conversation to checked draft', () => {
+  it('starts no work from a quoted concern or permission, including a directly injected reading', () => {
+    const run = vi.fn(), span = 'Keep preparing sponsor drafts';
+    coordinatePreparation({ source: source('quoted-grant', `He wrote: "${span}"`), route: 'act', reading: { kind: 'grant', goal: 'Sponsors', sourceSpan: span } }, { store, run });
+    expect(store.listRemits('market')).toEqual([]);
+    const remit = grant(), concern = 'The sponsor still has not replied.';
+    coordinatePreparation({ source: source('quoted-concern', `> ${concern}`), route: 'answer', reading: { kind: 'prepare', remitId: remit.id, sourceSpan: concern } }, { store, run });
+    expect(run).not.toHaveBeenCalled();
+    expect(store.list('market')).toEqual([]);
+  });
   it('keeps an ungrounded concern conversational and never creates its own authority', () => {
     const text = 'The sponsor still has not replied.';
     const run = vi.fn();

@@ -215,12 +215,12 @@ export async function runAgent(): Promise<void> {
           child.stdin.end(text);
         }, reject);
       }),
-      afterTurn: async ({ user, assistant, tools }) => {
+      afterTurn: async ({ user, assistant, tools, understanding }) => {
         const [{ appendJournalTurn }, { runCouncilInBackground }] = await Promise.all([
           import("../council/journal.js"),
           import("../council/council.js"),
         ]);
-        appendJournalTurn({ user, assistant, surface: "cli_chat", ...(tools?.length ? { tools } : {}) });
+        appendJournalTurn({ user, assistant, surface: "cli_chat", ...(tools?.length ? { tools } : {}), ...(understanding ? { understanding } : {}) });
         runCouncilInBackground();
         // One voice: backstage findings reach George through Flyd's own answer
         // (read-the-room private notes), never as a second message after it.

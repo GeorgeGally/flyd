@@ -96,7 +96,7 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   try { ownProfile = readUserProfile(); } catch { omissions.push("user_profile_unreadable"); }
   if (ownProfile) sources.push("USER.md");
   const ownProfileBlock = ownProfile
-    ? `## George's own profile (USER.md — written or confirmed by George; outranks everything below)\n${ownProfile}`
+    ? `## George's profile (USER.md; explicit current instructions outrank stored preferences. Older versions may contain automatically learned entries; those are observations, not proof of confirmation.)\n${ownProfile}`
     : "";
   let curated: string | null = null;
   try { curated = memoryPromptText(); } catch { omissions.push("curated_memory_unreadable"); }

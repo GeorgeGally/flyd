@@ -30,7 +30,21 @@ export interface RoomRead {
   cover: string[];
 }
 
-export interface RoomItem { id: string; text: string }
+export interface RoomItem {
+  id: string;
+  text: string;
+  authority?: string;
+  sourceRef?: string;
+  observedAt?: string;
+  stale?: boolean;
+  outcome?: string;
+}
+
+export function roomItemText(item: RoomItem, maxTextChars?: number): string {
+  const provenance = [item.authority, item.outcome, item.observedAt, item.stale ? "possibly stale" : "", item.sourceRef].filter(Boolean);
+  const text = maxTextChars ? clip(item.text, maxTextChars) : item.text;
+  return provenance.length ? `${text} [${provenance.join("; ")}]` : text;
+}
 
 export interface RoomInput {
   preparationRemits?: RemitSummary[];
@@ -58,7 +72,7 @@ export function roomPrompt(input: RoomInput): string {
     `George just said: """${clip(input.message, 1_500)}"""`,
     "",
     "Things Flyd knows (ids in brackets):",
-    ...input.knowledge.map((item) => `[${item.id}] ${clip(item.text, 200)}`),
+    ...input.knowledge.map((item) => `[${item.id}] ${roomItemText(item, 240)}`),
     "",
     "Private notes from Flyd's background work (never quote these as coming from anyone; Flyd may bring one up in its own words only if it truly helps now):",
     ...(input.notes.length ? input.notes.map((item) => `[${item.id}] ${clip(item.text, 220)}`) : ["(none)"]),
@@ -139,7 +153,7 @@ export function roomBrief(room: RoomRead, knowledge: RoomItem[], notes: RoomItem
     room.avoid ? `Avoid: ${room.avoid}` : "",
     `Length: ${length}.`,
     decisionBrief(room.need),
-    used.length ? `What you know that matters here (use it; don't announce that you know it):\n${used.map((item) => `- ${item.text}`).join("\n")}` : "",
+    used.length ? `What you know that matters here (use it; don't announce that you know it):\n${used.map((item) => `- ${roomItemText(item)}`).join("\n")}` : "",
     room.act && (room.route === "act" || room.route === "delegate") ? `The work to start: ${room.act}` : "",
     raised ? `Something from your own background thinking you may weave in, in your own words, if it fits naturally: ${raised.text}` : "",
   ].filter(Boolean).join("\n");

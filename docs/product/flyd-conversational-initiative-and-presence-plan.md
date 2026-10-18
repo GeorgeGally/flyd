@@ -1,7 +1,7 @@
 # Flyd: conversational initiative and personal presence
 
 Date: 15 October 2026  
-Status: implementation plan; runtime changes and deployment are not part of this commit.  
+Status: plan committed 15 October; implementation in progress. Current shipped scope and remaining LIVE requirements are tracked in [Conversational preparation](flyd-conversational-preparation.md). Deployment is not implied.
 Owner: George Galanakis  
 Reviewed source: `GeorgeGally/flyd`, main at `38ef5b99932ca933a8eda30744fe62eb440a861f`.  
 Scope: recommendations 1 and 2 from the personal-agent discussion: conversation that leads to useful work, and a warmer, perceptive full-life relationship with Flyd.
@@ -488,7 +488,7 @@ This plan deliberately provides a concrete first delivery while keeping the long
 
 ## 19. Plan review and verification record
 
-This is a plan-only delivery. Source inspection was pinned to the main revision identified above; private SOUL/USER files and the installed app were unavailable. Source references, named test paths and Markdown structure were checked. No runtime test pass, live-model improvement, deployed server or installed-Mac behavior is claimed by this commit.
+The original plan delivery was plan-only. Source inspection was pinned to the main revision identified above; private SOUL/USER files and the installed app were unavailable. Source references, named test paths and Markdown structure were checked. No runtime test pass, live-model improvement, deployed server or installed-Mac behavior was claimed by that commit.
 
 An independent read-only architecture review challenged the plan and a focused second pass confirmed the amendments resolved its blocking findings:
 

@@ -1,4 +1,5 @@
-import type { RoomItem } from "./read-the-room.js";
+import { roomItemText, type RoomItem } from "./read-the-room.js";
+import { memoryEntryIsStale } from "../council/memory-store.js";
 
 // What Flyd could draw on for this turn, split three ways: a small core it
 // always carries (who George is and how to be with him), an indexed pool of
@@ -22,8 +23,9 @@ export function profileSections(profile: string): Map<string, string[]> {
 
 export interface RoomSources {
   profile: string | null;
-  memory: Array<{ id: string; section: string; text: string }>;
-  retrieved: Array<{ excerpt: string }>;
+  memory: Array<{ id: string; section: string; text: string; date?: string; tier?: "aging" | "perishable" }>;
+  retrieved: Array<{ excerpt: string; authority?: string; outcome?: string; path?: string; stale?: boolean; updatedAt?: string }>;
+  now?: Date;
 }
 
 export function buildRoomContext(sources: RoomSources): { core: string; knowledge: RoomItem[] } {
@@ -33,24 +35,31 @@ export function buildRoomContext(sources: RoomSources): { core: string; knowledg
   let n = 0;
   for (const [section, items] of sections) {
     if (CORE_SECTIONS.has(section)) coreLines.push(`${section}: ${items.join("; ")}`);
-    else for (const item of items) knowledge.push({ id: `u${++n}`, text: item });
+    else for (const item of items) knowledge.push({ id: `u${++n}`, text: item, authority: "user_profile", sourceRef: `USER.md:${section}` });
   }
+  const now = sources.now ?? new Date();
+  const curated = sources.memory.map((entry) => {
+    const stale = memoryEntryIsStale(entry, now);
+    return { ...entry, authority: "curated_memory", sourceRef: `MEMORY.md:${entry.id}`, observedAt: entry.date, stale };
+  });
   // Who he is, his people, and how he's been lately are what a friend always carries.
-  const whoHeIs = sources.memory.filter((entry) => entry.section === "Who he is").map((entry) => entry.text);
+  const whoHeIs = curated.filter((entry) => entry.section === "Who he is" && !entry.stale).map(entry => roomItemText(entry));
   if (whoHeIs.length) coreLines.push(`Also known: ${whoHeIs.join("; ")}`);
-  const people = sources.memory.filter((entry) => entry.section === "People").map((entry) => entry.text);
+  const people = curated.filter((entry) => entry.section === "People" && !entry.stale).map(entry => roomItemText(entry));
   if (people.length) coreLines.push(`People (noticed): ${people.join("; ")}`);
-  const lately = sources.memory.filter((entry) => entry.section === "Lately").map((entry) => entry.text);
+  const lately = curated.filter((entry) => entry.section === "Lately" && entry.observedAt && !entry.stale).map(entry => roomItemText(entry));
   if (lately.length) coreLines.push(`Lately: ${lately.join("; ")}`);
-  for (const entry of sources.memory.filter((item) => !["Lately", "People", "Who he is"].includes(item.section))) {
-    knowledge.push({ id: `m${++n}`, text: `${entry.text} (${entry.section.toLowerCase()})` });
+  for (const entry of curated.filter((item) => !["People", "Who he is"].includes(item.section) || item.stale)) {
+    if (entry.section === "Lately" && entry.observedAt && !entry.stale) continue;
+    knowledge.push({ id: `m${++n}`, text: `${entry.text} (${entry.section.toLowerCase()})`, authority: entry.authority, sourceRef: entry.sourceRef, observedAt: entry.observedAt, stale: entry.stale ?? entry.section === "Lately" });
   }
   const seen = new Set(knowledge.map((item) => item.text.toLowerCase()));
   for (const match of sources.retrieved.slice(0, 8)) {
+    if (match.authority === "assistant_output" || match.outcome === "rejected") continue;
     const text = match.excerpt.replace(/\s+/g, " ").trim().slice(0, 240);
     if (!text || seen.has(text.toLowerCase())) continue;
     seen.add(text.toLowerCase());
-    knowledge.push({ id: `r${++n}`, text });
+    knowledge.push({ id: `r${++n}`, text, authority: match.authority ?? "user_observation", sourceRef: match.path, stale: match.stale, observedAt: match.updatedAt, outcome: match.outcome });
   }
   const core = coreLines.join("\n");
   return { core: core.length > CORE_MAX_CHARS ? `${core.slice(0, CORE_MAX_CHARS - 1)}…` : core, knowledge };

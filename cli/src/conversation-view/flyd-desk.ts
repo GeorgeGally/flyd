@@ -13,6 +13,7 @@ import { isPlaceholderStatus, relayStatus, type InFlightTool } from "./status-te
 import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage } from "./types.js";
 import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
 import type { RouteReading } from "../runtime/turn-plan.js";
+import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
 
 // Flyd is the voice of the conversation window. A question that is not
 // software or fleet work (what to do in Bangkok tonight) is Flyd's to answer,
@@ -163,12 +164,13 @@ interface AskRecord {
   answer?: string;
   answeredAt?: string;
   error?: string;
+  understanding?: TurnUnderstanding;
   /** Status lines that only said something was happening, and the concrete status George was shown instead. */
   statusSubstitutions?: Array<{ raw: string; shown: string }>;
 }
 
 /** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void }) => Promise<string>;
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void }) => Promise<string>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
 export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string, tool?: InFlightTool) => void) => Promise<string>;
@@ -280,6 +282,7 @@ export class FlydDesk {
           .slice(-4).map(earlier => ({ ref: `ask:${earlier.id}`, text: earlier.text.slice(0, 350) })),
         revision: 1, consentRef: `conversation:view:${sessionId}`, final: true as const, retention: "local_default" as const },
       onInteraction: (interactionClass: "conversation" | "work_status" | "decision" | "deliverable") => { record = { ...record, interactionClass }; this.write(record); },
+      onUnderstanding: (understanding: TurnUnderstanding) => { record = { ...record, understanding }; this.write(record); },
       onPreparation: (preparationId: string) => { record = { ...record, preparationId }; this.write(record); },
     };
     const answering = images.length && this.see

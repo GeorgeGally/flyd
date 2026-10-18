@@ -4,6 +4,8 @@ import { retiredPhrasesIn } from "../runtime/honesty-check.js";
 import { readFileSync } from "node:fs";
 import { readSoul } from "../lib/soul.js";
 import { userProfilePath } from "../lib/user-profile.js";
+import type { InteractionClass } from "../runtime/conversation-presence.js";
+export type { InteractionClass } from "../runtime/conversation-presence.js";
 import { isAcknowledgement } from "../conversation-view/summaries.js";
 
 // The standard Flyd holds its own words to: what a chief of staff puts in
@@ -55,7 +57,6 @@ export function requirement(id: RequirementId): typeof REQUIREMENTS[number] {
   return REQUIREMENTS.find((item) => item.id === id)!;
 }
 
-export type InteractionClass = "conversation" | "work_status" | "decision" | "deliverable";
 
 export interface Said {
   interactionClass?: InteractionClass;
@@ -192,7 +193,7 @@ export function checkSaid(said: Said, rules: VoiceRules = { banned: [] }): Short
   const shortfalls: Shortfall[] = [];
   const add = (id: RequirementId, reason: string, quote = text) => shortfalls.push({ requirement: id, reason, quote: clip(quote), by: "check" });
 
-  if (said.interactionClass !== "conversation" && isPlaceholder(text)) {
+  if (isPlaceholder(text)) {
     add("real_status", "says only that something is happening, not what");
   } else if (said.interactionClass !== "conversation" && said.surface !== "status" && PREAMBLE.test(text)) {
     add("outcome_first", "opens with preamble instead of the outcome", text.split(/(?<=[.!?])\s/)[0] ?? text);

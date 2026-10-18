@@ -68,7 +68,7 @@ const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
   onStep?.("Remembering what I know about this", memoryLookup(question));
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
-  return respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
+  return respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
 };
 
 /** What the screenshots he attached to a question show, read by a vision model. */

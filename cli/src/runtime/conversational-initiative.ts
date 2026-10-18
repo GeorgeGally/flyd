@@ -2,7 +2,7 @@ import { chatModelChain, resolveModelConnection } from '../lib/config.js';
 import { runLocalPreparation } from '../command/librarian.js';
 import { PreparationStore } from './preparation-store.js';
 import type { ConversationTurnSource } from './conversation-turn.js';
-import type { PreparationReading } from './preparation-reading.js';
+import { parsePreparationReading, type PreparationReading } from './preparation-reading.js';
 
 export interface InitiativeDependencies {
   store: PreparationStore;
@@ -20,6 +20,7 @@ export function coordinatePreparation(input: {
   const { source, reading } = input;
   if (!reading || source.final !== true || source.retention !== 'local_default' || !source.text.includes(reading.sourceSpan)) return '';
   const { store } = deps;
+  if (!parsePreparationReading(reading, source.text, store.listRemits(source.sessionId))) return '';
   if (reading.kind === 'pause') { store.pause(source.sessionId, reading.remitId); return 'He is just venting. Respond naturally; new preparation for this goal is paused. Existing independently accepted work continues. Do not offer another task.'; }
   if (reading.kind === 'cancel') {
     store.cancel(source.sessionId, reading.remitId);

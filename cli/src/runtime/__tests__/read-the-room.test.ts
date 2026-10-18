@@ -14,7 +14,8 @@ describe("room context", () => {
   it("carries who George is always, and his CV only as selectable knowledge", () => {
     const { core, knowledge } = buildRoomContext({
       profile,
-      memory: [{ id: "x", section: "Lately", text: "Tired after a rough launch week." }, { id: "y", section: "Projects", text: "DIR is an AI radio station." }],
+      now: new Date("2026-10-16T08:00:00Z"),
+      memory: [{ id: "x", section: "Lately", text: "Tired after a rough launch week.", date: "2026-10-15", tier: "perishable" }, { id: "y", section: "Projects", text: "DIR is an AI radio station." }],
       retrieved: [{ excerpt: "DIR sets live in mixes/." }],
     });
     expect(core).toContain("Talk like a friend");

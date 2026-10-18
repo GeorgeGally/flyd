@@ -1,4 +1,4 @@
-import type { PreparationReading, RemitSummary } from "./preparation-reading.js";
+import { parsePreparationReading, type PreparationReading, type RemitSummary } from "./preparation-reading.js";
 import { evaluatePredicates, JEV_PINNED_MODEL, projectJevState } from "../cognition/system-one/jev.js";
 import { familyEgress, predicateThreshold, questionFor, questionFingerprint } from "../cognition/system-one/registry.js";
 import type { RoutingTrace } from "./routing-learning.js";
@@ -246,12 +246,12 @@ export async function routeWithJev(
     return (kind === "prepare" || kind === "cancel" || kind === "pause") && (resultAnswer?.confidence ?? 0) >= predicateThreshold("chat_preparation_action")
       ? [{ kind, remitId: remits[index].id, sourceSpan: message } satisfies PreparationReading] : [];
   });
-  const preparation = prepActions.length === 1 ? prepActions[0] : null;
+  const preparation = prepActions.length === 1 ? parsePreparationReading(prepActions[0], message, remits) : null;
   const uncertainAction = prepQuestions.some(question => {
     const value = result.answers[question.id];
     return value?.choice && value.choice !== "none" && (value.confidence ?? 0) < predicateThreshold("chat_preparation_action");
   });
-  const preparationUncertain = remits.length > prepQuestions.length || grantLikely || prepActions.length > 1 || uncertainAction;
+  const preparationUncertain = remits.length > prepQuestions.length || grantLikely || prepActions.length > 1 || uncertainAction || (prepActions.length === 1 && !preparation);
   return { route, confidence: answer.confidence, source: "jev", preparation, preparationUncertain,
     // A confident route cannot establish an uncertain delegation owner.
     decided: !preparationUncertain && answer.confidence >= predicateThreshold("chat_turn_route") && (route !== "delegate" || (domain !== null && domain !== "general")),

@@ -65,6 +65,24 @@ describe("the chief-of-staff checks", () => {
     expect(screenBeforeDisplay({ surface: "notification", text: "On it, sir." }).hold).toBe(true);
   });
 
+  it("reviews known personal conversation without demanding a work outcome", async () => {
+    const sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = [];
+    const said = { surface: "chat" as const, interactionClass: "conversation" as const, text: "The uncertainty seems to be bothering you more than the wait itself.", asked: "I just wanted to talk about today." };
+    expect(await reviewSaid(said, { apiKey: "test", fetchFn: jev({ cos_outcome_first: 0.01, cos_internal_decision: 0.99 }, sink) })).toEqual([]);
+    expect(Object.keys(sink[0].questions).sort()).toEqual(["cos_off_voice"]);
+    expect(checkSaid({ ...said, text: PLACEHOLDER }).map(s => s.requirement)).toContain("real_status");
+    expect(checkSaid({ ...said, text: "Captain, that sounds frustrating." }).map(s => s.requirement)).toContain("his_voice");
+    await judgeSaid({ ...said, toolsUnknown: true }, { apiKey: "test", fetchFn: jev({}, sink) });
+    await judgeSaid({ ...said, tools: ["email_read: ok"] }, { apiKey: "test", fetchFn: jev({}, sink) });
+    expect(sink).toHaveLength(1);
+  });
+
+  it("retains work review when a fast answer has no established interaction class", async () => {
+    const sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = [];
+    await judgeSaid({ surface: "chat", asked: "Recommend a launch date.", text: "Launch on Thursday; it leaves a full day for testing." }, { apiKey: "test", fetchFn: jev({}, sink) });
+    expect(Object.keys(sink[0].questions)).toEqual(expect.arrayContaining(["cos_outcome_first", "cos_internal_decision"]));
+  });
+
   it("fails a relayed internal decision and the helper it names", () => {
     const shortfalls = checkSaid({ surface: "relay", text: INTERNAL_DECISION });
     expect(shortfalls.map((item) => item.requirement).sort()).toEqual(["backstage_hidden", "decisions_handled"]);

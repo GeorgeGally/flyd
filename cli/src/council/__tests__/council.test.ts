@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -54,12 +54,12 @@ describe("librarian", () => {
       });
     });
     const result = await runLibrarian({ complete, rawDir: raw, now: () => at("2026-09-27T10:00:00Z") });
-    expect(result).toMatchObject({ turns: 1, captures: 1, profileAdded: 1, observations: ["Launch date slipped once already"] });
+    expect(result).toMatchObject({ turns: 1, captures: 1, profileAdded: 0, observations: ["Launch date slipped once already"] });
     expect(prompts[0]).toContain("George: I moved the CleanX launch to 3 October");
     expect(prompts[0]).toContain("[cap:2026-09-27-note] Maya's birthday");
     expect(prompts[0]).not.toContain("worker finished");
     expect(readMemoryEntries().map((entry) => entry.text)).toEqual(["CleanX launch moved to 3 October 2026", "Maya's birthday is 12 March; she loves orchids"]);
-    expect(readFileSync(process.env.FLYD_USER_PROFILE!, "utf8")).toContain("Partner: Maya");
+    expect(existsSync(process.env.FLYD_USER_PROFILE!)).toBe(false);
     // Nothing new → no second model call.
     expect(await runLibrarian({ complete, rawDir: raw, now: () => at("2026-09-27T11:00:00Z") })).toMatchObject({ skipped: "nothing_new" });
     expect(complete).toHaveBeenCalledTimes(1);

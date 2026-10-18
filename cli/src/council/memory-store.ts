@@ -122,8 +122,12 @@ function daysBetween(fromDay: string, toDay: string): number {
 }
 
 export function staleEntries(entries: MemoryEntry[], now: Date): MemoryEntry[] {
-  const today = localDay(now);
-  return entries.filter((entry) => daysBetween(entry.date, today) >= (entry.tier === "perishable" ? PERISHABLE_DAYS : AGING_DAYS));
+  return entries.filter((entry) => memoryEntryIsStale(entry, now));
+}
+
+export function memoryEntryIsStale(entry: { date?: string; tier?: Tier }, now: Date): boolean {
+  return !entry.date || !Number.isFinite(Date.parse(entry.date))
+    || daysBetween(entry.date, localDay(now)) >= (entry.tier === "perishable" ? PERISHABLE_DAYS : AGING_DAYS);
 }
 
 export type MemoryOp =
@@ -252,14 +256,14 @@ export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: M
   return receipt;
 }
 
-/** MEMORY.md for prompts: entries only, markers stripped. */
-export function memoryPromptText(paths = memoryPaths()): string | null {
+/** Keep authority, date and source identity in every surface's compiled context. */
+export function memoryPromptText(paths = memoryPaths(), now = new Date()): string | null {
   const entries = readMemoryEntries(paths);
   if (entries.length === 0) return null;
   return MEMORY_SECTIONS
     .map((section) => {
       const inSection = entries.filter((entry) => entry.section === section);
-      return inSection.length ? `## ${section}\n${inSection.map((entry) => `- ${entry.text}`).join("\n")}` : "";
+      return inSection.length ? `## ${section}\n${inSection.map((entry) => `- [curated_memory; ${entry.date}; ${entry.tier}${memoryEntryIsStale(entry, now) ? "; possibly stale" : ""}; MEMORY.md:${entry.id}] ${entry.text}`).join("\n")}` : "";
     })
     .filter(Boolean)
     .join("\n\n");

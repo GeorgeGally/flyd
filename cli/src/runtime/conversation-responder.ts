@@ -13,6 +13,7 @@ import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, agentLoopWithFailover, PROMPT_CACHE_BREAK, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import { readSoul } from "../lib/soul.js";
+import { presenceBrief, presenceEnabled, presenceInstructions, understandTurn, type TurnUnderstanding } from "./conversation-presence.js";
 import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-policy.js";
 import { readTheRoom, roomBrief, roomPrompt, ROOM_RUBRIC_VERSION, type RoomInput, type RoomRead } from "./read-the-room.js";
 import { safeRoutingValue, type RoutingTrace } from "./routing-learning.js";
@@ -79,6 +80,8 @@ interface ConversationInput {
   signal?: AbortSignal;
   /** The model handed a coding job to the supervised runtime (start_coding_task). */
   onCodingHandoff?: (outcome: string) => void;
+  /** Local descriptive metadata, never action authority. */
+  onUnderstanding?: (turn: TurnUnderstanding) => void;
 }
 
 interface ConversationResponderDependencies {
@@ -227,7 +230,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
 
   const voice = [
     readSoul(),
-    [
+    presenceEnabled() ? presenceInstructions() : [
       "## How you talk (this outranks every operating rule below)",
       "- Conversation first. When George shares a feeling, a doubt, an idea, or something he made, respond like a person who cares about him and his work — curiosity, taste, encouragement, an honest opinion — before any logistics. Don't turn feelings into to-do lists, check-ins, or schedules. Do help, though: a friend who can fix something doesn't just sympathise.",
       "- When he tells you how he feels, show you get it in a sentence, from what you already know (no digging through repos first). Let him think or vent without forcing a task or an offer. A preparation already accepted under an agreed scope can run beside this conversation; otherwise the turn plan determines action. A mood isn't an instruction: don't cancel or change what he set up himself (his reminders, scheduled nudges, commitments) because he sounds tired of it; offer to instead.",
@@ -262,7 +265,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         ...voice,
         // Everything above is the same on every turn; Anthropic caches it.
         PROMPT_CACHE_BREAK,
-        [
+        presenceEnabled() ? "Use the actual evidence in this turn for any personal detail. Style examples are not personal facts." : [
           "## His register (examples of tone only, not content)",
           "George: the gallery still hasn't replied",
           "Bad: The silence is the hardest part. Waiting like this can feel like a verdict on the work.",
@@ -530,6 +533,7 @@ function createToolHandler(
   assistantContext: AssistantToolContext = {},
   /** A background job's builder turn: its shell commands are registered to the job. */
   jobId?: string,
+  signal?: AbortSignal,
 ): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
     try { return realpathSync(resolve(value)); } catch { return null; }
@@ -753,6 +757,7 @@ function createToolHandler(
   };
 
   return async (name: string, input: Record<string, unknown>): Promise<string> => {
+    signal?.throwIfAborted();
     const decision = decideToolCall(name, input, policy);
     if (decision.kind === "deny") {
       return `Not approved: ${decision.reason}. Do not try another way; tell him what you would do and let him run it or approve it.`;
@@ -766,6 +771,7 @@ function createToolHandler(
         return `Not approved: ${decision.reason}. George did not approve this action — do not retry it; tell him what you would do and let him run it or approve it.`;
       }
     }
+    signal?.throwIfAborted();
     // Evaluation runs pass the approval policy first, then record rather than act.
     // Bookkeeping tools answer as if they succeeded so the model behaves as it
     // would for real (a "skipped" handoff made it redo the whole job itself).
@@ -925,12 +931,14 @@ export async function respondToConversation(
   input: ConversationInput & { onToken(token: string): void },
   dependencies: ConversationResponderDependencies = {},
 ): Promise<string> {
+  input.signal?.throwIfAborted();
   if (input.surface === "mobile" && !input.mobileAccounts && isAccountIntent(input.message)) {
     const answer = "Your account integrations are not enabled on this Flyd host yet. No account was read or changed.";
     input.onToken(answer); return answer;
   }
   if (!dependencies.readOnly && (input.surface === "mobile" || /\bwhatsapp\b/i.test(input.message)) && isAccountIntent(input.message)) {
     const answer = await answerAccountIntent(input.message, input.history.map(t => `${t.role}: ${t.content}`).join("\n"));
+    input.signal?.throwIfAborted();
     input.onToken(answer); return answer;
   }
   const txSession = input.sessionId ?? randomUUID();
@@ -941,6 +949,7 @@ export async function respondToConversation(
   };
   const persist = dependencies.persistReceipt ?? persistTurnReceipt;
   let turnPlan: TurnPlan | null = null;
+  let understanding: TurnUnderstanding | undefined;
   let turnSkill: string | null = null;
   let routingTrace: RoutingTrace | undefined;
   const record = async (
@@ -993,11 +1002,13 @@ export async function respondToConversation(
       status,
       ...(decisionPolicyVersion() ? { decisionPolicy: decisionPolicyVersion() } : {}),
       ...(routingTrace ? { routing: routingTrace } : {}),
+      ...(understanding ? { understanding } : {}),
       ...(error ? { error } : {}),
       plan: { ...(turnPlan ? { route: turnPlan.route, source: turnPlan.source, cover: turnPlan.cover } : { route: "unplanned", cover: [] }), ...(turnSkill ? { skill: turnSkill } : {}) },
     });
   };
   const emit = (text: string): string => {
+    input.signal?.throwIfAborted();
     input.onToken(formatChatReply(text));
     return text;
   };
@@ -1016,13 +1027,16 @@ export async function respondToConversation(
     conversation: input.history.map((turn) => ({ role: turn.role, content: turn.content })),
     capabilities: mobile ? ["conversation", "memory", "web", "connected_accounts"] : ["conversation", "memory", "git", "files", "shell", "web"],
   });
+  input.signal?.throwIfAborted();
   // Read the room first: what George needs, and the little Flyd knows that
   // matters here. Without a reading, fall back to the keyword heuristic.
   const roomNow = input.now?.() ?? new Date();
   const notes = await privateNotes(roomNow).catch(() => []);
+  input.signal?.throwIfAborted();
   const { readUserProfile } = await import("../lib/user-profile.js");
   const { readMemoryEntries } = await import("../council/memory-store.js");
   const roomContext = buildRoomContext({
+    now: roomNow,
     profile: (() => { try { return readUserProfile(); } catch { return null; } })(),
     memory: (() => { try { return readMemoryEntries(); } catch { return []; } })(),
     retrieved: input.memory.matches.filter((item) => item.authority !== "assistant_output" && item.outcome !== "rejected"),
@@ -1037,6 +1051,7 @@ export async function respondToConversation(
     ? dependencies.initiative ?? { store: new PreparationStore() } : undefined;
   const remits = initiative && source ? initiative.store.listRemits(source.sessionId) : [];
   const fast = unattended ? null : await (dependencies.routeTurn ?? defaultRouteTurn)(input.message, input.history, notes, remits).catch(() => null);
+  input.signal?.throwIfAborted();
 
   // A confident correction/decision for exactly one active domain run takes a
   // lossless fast path to the manager before Flyd composes its reply. This is
@@ -1047,6 +1062,7 @@ export async function respondToConversation(
     && fast.commandKind && ["correction", "decision", "priority_change", "cancel"].includes(fast.commandKind)) {
     try {
       const { sendDomainMessage } = await import("../command/messages.js");
+      input.signal?.throwIfAborted();
       const outcome = await sendDomainMessage({
         domain: fast.domain,
         kind: fast.commandKind as "correction" | "decision" | "priority_change" | "cancel",
@@ -1064,6 +1080,7 @@ export async function respondToConversation(
     }
   }
 
+  input.signal?.throwIfAborted();
   const roomInput: RoomInput = {
     preparationRemits: remits, message: source?.text ?? input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
   };
@@ -1074,6 +1091,7 @@ export async function respondToConversation(
   const readsRoom = !(unattended || fast?.decided || roomOff);
   if (readsRoom) input.onActivity?.("Working out what you need");
   const room = readsRoom ? await (dependencies.readRoom ?? defaultReadRoom)(roomInput).catch(() => null) : null;
+  input.signal?.throwIfAborted();
   // An uncertain Jev prediction does not gain authority when the fallback
   // fails, but Flyd can still answer: read-only, never a forced question.
   const reading = room ? { route: room.route, source: "llm" as const }
@@ -1100,11 +1118,11 @@ export async function respondToConversation(
   let preparationNote = "";
   const preparation = room?.preparation ?? (fast?.decided ? fast.preparation : null) ?? null;
   if (initiative && source && preparation && reading) {
+    input.signal?.throwIfAborted();
     try { preparationNote = coordinatePreparation({ source, reading: preparation, route: reading.route, onAccepted: input.onPreparation }, initiative); }
     catch { /* Missing or revoked scope never prevents an ordinary answer. */ }
   }
   const answerReading = preparationNote && reading ? { ...reading, route: "answer" as const } : reading;
-  input.onInteraction?.(room?.need === "decide" ? "decision" : room?.need === "do" || reading?.route === "act" || reading?.route === "delegate" ? "deliverable" : isCurrentWorkQuestion(input.message) ? "work_status" : "conversation");
   const availableReading = mobile && answerReading?.route === "delegate" ? { ...answerReading, route: "answer" as const } : answerReading;
   const plan = planTurn(availableReading, room?.cover ?? [], { unattended });
   turnPlan = plan;
@@ -1117,13 +1135,25 @@ export async function respondToConversation(
   // when sure, then the keyword heuristic.
   const projectTurn = mobile ? false : room ? room.mode === "operator"
     : fast?.needsCode ?? (isCurrentWorkQuestion(input.message) || needsProjectContext(input.message, input.history));
+  if (presenceEnabled() && !unattended) {
+    understanding = understandTurn({
+      route: plan?.route,
+      ...(room ? { need: room.need } : {}),
+      source: room ? "room" : fast?.decided ? "fast" : "fallback",
+      needsCode: projectTurn,
+    });
+    input.onUnderstanding?.(understanding);
+    if (understanding.interactionClass) input.onInteraction?.(understanding.interactionClass);
+  }
   // A question about Flyd itself (its models, configuration, features) is
   // answered from its own live setup, looked up now: nothing in memory or the
   // prompt names its models, so without this it guessed and offered to look.
   const selfQuestion = !mobile && isFlydSetupQuestion(input.message);
   if (selfQuestion) input.onActivity?.("Checking my own setup");
   const selfSetup = selfQuestion ? await (dependencies.flydSetup ?? flydSetupReport)().catch(() => "") : "";
+  input.signal?.throwIfAborted();
   const planBlock = [
+    understanding ? presenceBrief(understanding) : "",
     plan ? planBrief(plan) : "",
     skill ? skillPromptBlock(skill) : "",
     fastNote ? `Something from your own background thinking that bears on this; weave it in, in your own words, if it fits: ${fastNote.text}` : "",
@@ -1158,11 +1188,12 @@ export async function respondToConversation(
     situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
     userMessage: input.message,
     onCodingHandoff: input.onCodingHandoff,
-  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1]);
+  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal);
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
   const repeats = createRepeatGuard();
   const observedHandler: ToolHandler = async (name, toolInput) => {
+    input.signal?.throwIfAborted();
     // The harness's gate, before anything runs: the turn's route, the tool's
     // contract, then the retry limit.
     const skip = (mobile && (!MOBILE_TOOLS.has(name) || (!input.mobileAccounts && CONNECTOR_TOOL_NAMES.has(name))) ? "Error: this capability requires a connected Mac; no desktop work was dispatched." : null) ?? offRoute(plan, name, toolInput) ?? offCode(codeTurn, name, toolInput, repoRoots)

@@ -4,6 +4,7 @@ import { dirname, join } from "path";
 import { FLYD_DIR } from "../lib/config.js";
 import type { MemoryEvidence } from "./types.js";
 import { collectRoutingCase, type RoutingTrace } from "./routing-learning.js";
+import type { TurnUnderstanding } from "./conversation-presence.js";
 
 export interface TurnToolCall {
   name: string;
@@ -32,6 +33,8 @@ export interface TurnReceipt {
   routing?: RoutingTrace;
   /** Judgment policy supplied, not a claim that the model followed it. */
   decisionPolicy?: string;
+  /** Descriptive understanding, not a grant or a success claim. */
+  understanding?: TurnUnderstanding;
 }
 
 type TurnReceiptInput = Omit<TurnReceipt, "version" | "id" | "recordedAt">;
