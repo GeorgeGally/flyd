@@ -5,6 +5,8 @@ import {
   artifactObjectFromShow,
   artifactObjectsFromShow,
   decisionObjectsFromShow,
+  monitorObjectFromSource,
+  monitorObjectsFromSources,
   semanticEvents,
   semanticIdentityFor,
   semanticObjectFromShow,
@@ -204,5 +206,37 @@ describe("native semantic Artifact", () => {
       { objectId: "task:t1", kind: "resolved" },
       { objectId: "artifact:task:t1", kind: "created" },
     ]);
+  });
+});
+
+
+describe("native semantic Monitor", () => {
+  it("keeps one durable identity across quiet checks and meaningful change", () => {
+    const quiet = monitorObjectFromSource({ id: "flight:ga881", title: "Watch GA881", condition: "Tell me if the flight changes", at: "2026-10-19T00:00:00Z" });
+    const changed = monitorObjectFromSource({ id: "flight:ga881", title: "Watch GA881", condition: "Tell me if the flight changes", detail: "Departure moved by 45 minutes.", at: "2026-10-19T01:00:00Z", state: "changed" });
+    expect(quiet).toMatchObject({ id: "monitor:flight:ga881", kind: "monitor", lifecycle: "active", monitor: { phase: "quiet" } });
+    expect(changed).toMatchObject({ id: "monitor:flight:ga881", kind: "monitor", lifecycle: "active", monitor: { phase: "changed", lastChangedAt: "2026-10-19T01:00:00Z" } });
+    expect(semanticEvents([quiet], [changed])).toMatchObject([{ objectId: "monitor:flight:ga881", kind: "updated" }]);
+  });
+
+  it("does not expire a quiet Monitor merely because its last check is old", () => {
+    const monitor = monitorObjectFromSource({ id: "price:x", title: "Watch price", at: "2026-01-01T00:00:00Z" });
+    expect(monitor.lifecycle).toBe("active");
+    expect(monitor.monitor?.phase).toBe("quiet");
+  });
+
+  it("deduplicates checks into the latest state of the same watch", () => {
+    const monitors = monitorObjectsFromSources([
+      { id: "news:flyd", title: "Watch Flyd news", at: "2026-10-19T00:00:00Z" },
+      { id: "news:flyd", title: "Watch Flyd news", at: "2026-10-19T02:00:00Z", state: "changed", detail: "A relevant paper landed." },
+    ]);
+    expect(monitors).toHaveLength(1);
+    expect(monitors[0]).toMatchObject({ id: "monitor:news:flyd", monitor: { phase: "changed", lastCheckedAt: "2026-10-19T02:00:00Z" } });
+  });
+
+  it("interrupts only when a change needs George", () => {
+    const monitor = monitorObjectFromSource({ id: "visa", title: "Watch visa status", at: "2026-10-19T02:00:00Z", state: "needs_you", detail: "A document is required." });
+    expect(monitor.lifecycle).toBe("interrupted");
+    expect(monitor.actions).toContainEqual({ id: "resolve:monitor:visa", kind: "resolve", label: "Stop watching", value: "visa" });
   });
 });
