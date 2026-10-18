@@ -1346,7 +1346,7 @@ describe("header and artefact view", () => {
   });
 
   it("shows a card's thread again after a reload, answers and all", async () => {
-    localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify({ receipt: "read", thread: [{ text: "A mix of the two", id: "note:1" }, { text: "Make the pins bigger", id: "note:2", answer: "Bigger pins it is, sir." }] }));
+    localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Make the pins bigger", id: "note:2", answer: "Bigger pins it is, sir." }]));
     load("");
     await settle();
     const stream = open("latest", []);
@@ -1357,6 +1357,32 @@ describe("header and artefact view", () => {
     expect(thread.hidden).toBe(false);
     expect([...thread.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["A mix of the two", "Make the pins bigger"]);
     expect([...thread.querySelectorAll(".art-msg--them")].map((node) => node.textContent)).toEqual(["Bigger pins it is, sir."]);
+  });
+
+  it("stops asking about a card's note once Flyd says no reply will come, and keeps only the thread past the session", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Gone", id: "note:2" }]));
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?id=note%3A1") ? { receipt: "read", done: true } : String(url).startsWith("/api/note?") ? { receipt: null } : {}));
+      vi.advanceTimersByTime(5000);
+      await settle();
+      const asked = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/note?")).length;
+      expect(asked()).toBe(2);
+      vi.advanceTimersByTime(15000);
+      await settle();
+      expect(asked()).toBe(2);
+      const kept = JSON.parse(localStorage.getItem("flyd-decision:visuals:Choose from the lab")!);
+      expect(kept.map((entry: { text: string }) => entry.text)).toEqual(["A mix of the two", "Gone"]);
+      expect(JSON.parse(sessionStorage.getItem("flyd-decision:visuals:Choose from the lab")!).thread).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("gives every artefact a chat box that names it, and says a closed review page in words", async () => {

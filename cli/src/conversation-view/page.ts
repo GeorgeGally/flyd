@@ -2758,8 +2758,9 @@ ${LEFT_SCRIPT}
   // the artefact itself ({ about: { title, task, url } }).
   function artefactChat(key, target, label) {
     var state = {};
-    try { state = JSON.parse(store(key) || "{}") || {}; } catch (_) {}
+    try { state = JSON.parse(sessionStorage.getItem(key) || "{}") || {}; } catch (_) {}
     if (state.receipt === "sending") state.receipt = "";
+    try { state.thread = JSON.parse(store(key) || "[]"); } catch (_) {}
     if (!Array.isArray(state.thread)) state.thread = [];
     var form = el("form", "art-chat");
     form.setAttribute("aria-label", label);
@@ -2786,7 +2787,11 @@ ${LEFT_SCRIPT}
     // His messages about this card and the replies that came back, oldest first,
     // kept with the card so they survive a reload and the box is never blank again.
     var thread = el("div", "art-thread");
-    function save() { try { store(key, JSON.stringify(state)); } catch (_) {} }
+    // Only the thread outlives the session; a choice he picked, the steps and his draft stay with this session.
+    function save() {
+      try { sessionStorage.setItem(key, JSON.stringify(Object.assign({}, state, { thread: undefined }))); } catch (_) {}
+      store(key, JSON.stringify(state.thread || []));
+    }
     function paintThread() {
       thread.textContent = "";
       (state.thread || []).forEach(function (entry) {
@@ -2846,24 +2851,30 @@ ${LEFT_SCRIPT}
     // Every note in the card without an answer is watched, so a reply lands here
     // rather than only in the conversation; the newest also says whether it was read.
     function unanswered() {
-      return (state.thread || []).filter(function (entry) { return entry.id && !entry.answer; });
+      return (state.thread || []).filter(function (entry) { return entry.id && !entry.answer && !entry.done; });
     }
     function watch() {
       if (watching) return;
       if (!unanswered().length) return;
+      var asking = false;
       watching = setInterval(function () {
         if (!form.isConnected) { clearInterval(watching); watching = null; return; }
+        if (asking) return;
         var waiting = unanswered();
         // Nothing left to hear back about: the card stops asking.
         if (!waiting.length) { clearInterval(watching); watching = null; return; }
+        asking = true;
         Promise.all(waiting.map(function (entry) {
           return fetch("/api/note?id=" + encodeURIComponent(entry.id) + "&token=" + encodeURIComponent(VIEW_TOKEN))
             .then(function (response) { return response.ok ? response.json() : null; })
             .catch(function () { return null; });
         })).then(function (results) {
+          asking = false;
           var changed = false;
           results.forEach(function (data, index) {
             if (!data) return;
+            // Gone from the inbox, or taken and finished with no reply naming it: nothing more will come.
+            if (data.receipt === null || data.done) { waiting[index].done = true; changed = true; }
             if (data.answer && data.answer.text && !waiting[index].answer) {
               waiting[index].answer = data.answer.text;
               if (state.receipt === "sent") state.receipt = "read";

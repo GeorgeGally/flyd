@@ -651,6 +651,16 @@ describe("ConversationViewServer", () => {
     expect(await note("note:9")).toEqual({ receipt: null });
   });
 
+  it("says a note firstmate took and finished without naming a reply is done, so the card stops waiting", async () => {
+    const inbox = new MemoryInbox();
+    await inbox.send("Make the pins bigger");
+    const notes = inbox.notes.bind(inbox);
+    inbox.notes = () => notes().map((exchange) => ({ ...exchange, handoff: "taken" as const, takenAt: "2026-10-05T20:03:00.000Z" }));
+    const port = await start(inbox);
+    const note = JSON.parse((await get(port, `/api/note?id=${encodeURIComponent("note:1")}&token=${viewToken}`)).body);
+    expect(note).toEqual({ receipt: "read", done: true });
+  });
+
   it("sends his reply to an answer back to firstmate, saying what it answers, and threads it under that answer", async () => {
     const inbox = new MemoryInbox();
     await inbox.send("There should also be other movements for bunny.");

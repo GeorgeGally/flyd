@@ -749,11 +749,16 @@ export class ConversationViewServer {
       // once there is one, the reply about it, so it can land in the card's own thread.
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
       const id = url.searchParams.get("id") ?? "";
-      const note = this.source.exchanges?.().find((exchange) => exchange.question.id === id);
+      // Firstmate may answer in its own chat, or take the note and finish without naming a reply: both count.
+      const [newest] = await this.source.listSessions();
+      const snapshot = newest ? await this.source.read(newest.id).catch(() => undefined) : undefined;
+      const note = withFollowUps(this.source.exchanges?.() ?? [], snapshot?.followUps ?? {}, snapshot?.working)
+        .find((exchange) => exchange.question.id === id);
       const answer = note?.answer;
       sendJson(res, 200, {
-        receipt: note ? (answer ? "read" : note.question.receipt ?? "sent") : null,
+        receipt: note ? (answer || note.answered ? "read" : note.question.receipt ?? "sent") : null,
         ...(answer ? { answer: { text: answer.text, ...(answer.timestamp ? { timestamp: answer.timestamp } : {}) } } : {}),
+        ...(note?.answered && !answer ? { done: true } : {}),
       });
       return;
     }
