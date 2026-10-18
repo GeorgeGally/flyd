@@ -102,7 +102,8 @@ authoritative path. This change does not rewrite historical private entries.
     phrase or a placeholder holds it. A held relay or completion notice is
     not shown at all; a decision or failure still reaches him, with the
     ruled-out phrase stripped or, failing that, a line naming the work.
-    Commit ids are dropped from what he sees rather than holding it.
+    A bare commit id is dropped from what he sees rather than holding it;
+    a commit link passes as written.
   - All of these are recorded as held verdicts.
 - **What is read.** Chat turns (the journal), the conversation window's
   answers and relayed updates, the work cards' headlines, agenda results,
