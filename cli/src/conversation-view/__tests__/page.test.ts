@@ -1359,7 +1359,7 @@ describe("header and artefact view", () => {
     expect([...thread.querySelectorAll(".art-msg--them")].map((node) => node.textContent)).toEqual(["Bigger pins it is, sir."]);
   });
 
-  it("stops asking about a card's note once Flyd says no reply will come, and keeps only the thread past the session", async () => {
+  it("keeps asking about a taken card note until it goes from the inbox, and keeps only the thread past the session", async () => {
     vi.useFakeTimers({ toFake: ["setInterval"] });
     try {
       localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Gone", id: "note:2" }, { text: "Draining", id: "note:3" }]));
@@ -1370,18 +1370,19 @@ describe("header and artefact view", () => {
       stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
       document.getElementById("flip")!.click();
       const asked = (id = "") => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/note?id=" + id)).length;
-      // One miss is firstmate moving the note to handled/; the reply that follows still lands.
       vi.mocked(fetch).mockImplementation(async (url) => {
         const at = String(url);
-        if (at.startsWith("/api/note?id=note%3A1")) return json({ receipt: "read", done: true });
+        // Taken but unanswered: the card never treats that as finished with, so it keeps asking.
+        if (at.startsWith("/api/note?id=note%3A1")) return json({ receipt: "read" });
         if (at.startsWith("/api/note?id=note%3A3") && asked("note%3A3") > 1) return json({ receipt: "read", answer: { text: "Done, sir." } });
+        // One miss is firstmate moving the note to handled/; the reply that follows still lands.
         return json(at.startsWith("/api/note?") ? { receipt: null } : {});
       });
       for (let tick = 0; tick < 5; tick++) {
         vi.advanceTimersByTime(5000);
         await settle();
       }
-      expect([asked("note%3A1"), asked("note%3A2"), asked("note%3A3")]).toEqual([1, 3, 2]);
+      expect([asked("note%3A1"), asked("note%3A2"), asked("note%3A3")]).toEqual([5, 3, 2]);
       expect([...document.querySelectorAll(".scene-ask .art-msg--them")].map((node) => node.textContent)).toEqual(["Done, sir."]);
       const kept = JSON.parse(localStorage.getItem("flyd-decision:visuals:Choose from the lab")!);
       expect(kept.map((entry: { text: string }) => entry.text)).toEqual(["A mix of the two", "Gone", "Draining"]);

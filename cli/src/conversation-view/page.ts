@@ -2892,12 +2892,14 @@ ${LEFT_SCRIPT}
           var changed = false;
           results.forEach(function (data, index) {
             if (!data) return;
-            // Taken and finished with no reply naming it, or gone from the inbox poll after poll
-            // (one miss is only firstmate moving it to handled/): nothing more will come.
             var entry = waiting[index];
+            // Gone from firstmate's inbox poll after poll (one miss is only firstmate moving
+            // it to handled/): nothing more will come for it. A note firstmate has taken but
+            // not answered is not finished with — it can still gain a reply — so the card
+            // keeps asking, as the window keeps showing it.
             var missed = data.receipt === null ? (entry.missed || 0) + 1 : 0;
             if (missed !== (entry.missed || 0)) { entry.missed = missed; changed = true; }
-            if (data.done || missed >= 3) { entry.done = true; changed = true; }
+            if (missed >= 3) { entry.done = true; changed = true; }
             if (data.answer && data.answer.text && !entry.answer) {
               entry.answer = data.answer.text;
               if (state.receipt === "sent") state.receipt = "read";

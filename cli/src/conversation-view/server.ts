@@ -745,20 +745,19 @@ export class ConversationViewServer {
       return;
     }
     if (url.pathname === "/api/note") {
-      // Where one note he sent from an artefact stands: "sent", then "read"; and,
-      // once there is one, the reply about it, so it can land in the card's own thread.
+      // Where one note he sent from an artefact stands: "sent", then "read"; and
+      // the reply about it, formal or said in firstmate's own chat, so it can land
+      // in the card's own thread. A note firstmate has taken but not answered is
+      // never reported finished with: it can still gain a reply, so the card keeps
+      // asking until one arrives or the note goes from the inbox for good.
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
       const id = url.searchParams.get("id") ?? "";
-      // Firstmate may answer in its own chat, or take the note and finish without naming a reply: both count.
-      const [newest] = await this.source.listSessions();
-      const snapshot = newest ? await this.source.read(newest.id).catch(() => undefined) : undefined;
-      const note = withFollowUps(this.source.exchanges?.() ?? [], snapshot?.followUps ?? {}, snapshot?.working)
-        .find((exchange) => exchange.question.id === id);
-      const answer = note?.answer;
+      const note = (this.source.exchanges?.() ?? []).find((exchange) => exchange.question.id === id);
+      const chat = note && !note.answer && this.source.noteAnswer ? await this.source.noteAnswer(id).catch(() => undefined) : undefined;
+      const answer = note?.answer ?? chat;
       sendJson(res, 200, {
-        receipt: note ? (answer || note.answered ? "read" : note.question.receipt ?? "sent") : null,
+        receipt: note ? (answer || note.handoff === "taken" || note.question.receipt === "read" ? "read" : "sent") : null,
         ...(answer ? { answer: { text: answer.text, ...(answer.timestamp ? { timestamp: answer.timestamp } : {}) } } : {}),
-        ...(snapshot && note?.answered && !answer ? { done: true } : {}),
       });
       return;
     }

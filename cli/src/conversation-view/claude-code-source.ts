@@ -223,6 +223,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly latest = new Map<string, ConversationMessage[]>();
   private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
   private readonly heads = new Map<string, { start?: string; entrypoint?: string; settled: boolean }>();
+  private readonly noteAnswers = new Map<string, { key: string; answer?: ConversationMessage }>();
 
   private readonly commandRoots: { claudeHome?: string; projectDir?: string };
   /** Where the screenshot behind each note's answer is kept. */
@@ -397,13 +398,12 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   }
 
   /**
-   * This session's window: its start until another session replaced it. A
-   * later-start session only ends the window if it started after this one's
-   * last write; sessions overlap (a mirror starts while the live one still
-   * runs), so a session that outlived the others stays open to now.
+   * Every session that carries a conversation, oldest start first, with its
+   * start and its last write. A session the Agent SDK drove (firstmate's
+   * supervision) is machinery, not a conversation with him.
    */
-  private noteWindow(sessionId: string): { from?: string; until?: string } {
-    const sessions = readdirSync(this.projectDir)
+  private sessionStarts(): Array<{ id: string; start: string; mtimeMs: number }> {
+    return readdirSync(this.projectDir)
       .filter((name) => name.endsWith(".jsonl"))
       .map((name) => {
         const path = join(this.projectDir, name);
@@ -413,11 +413,56 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       })
       .filter((session): session is { id: string; start: string; mtimeMs: number } => session !== null)
       .sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+  }
+
+  /**
+   * This session's window: its start until another session replaced it. A
+   * later-start session only ends the window if it started after this one's
+   * last write; sessions overlap (a mirror starts while the live one still
+   * runs), so a session that outlived the others stays open to now.
+   */
+  private noteWindow(sessionId: string): { from?: string; until?: string } {
+    const sessions = this.sessionStarts();
     const index = sessions.findIndex((session) => session.id === sessionId);
     if (index === -1) return {};
     const here = sessions[index]!;
     const replaced = sessions.slice(index + 1).find((session) => Date.parse(session.start) > here.mtimeMs);
     return { from: here.start, ...(replaced ? { until: replaced.start } : {}) };
+  }
+
+  /**
+   * Firstmate's own-chat answer to one note. It often says its answer in its
+   * own chat rather than with a formal reply, and it may do so in the session
+   * that was live when the note was sent or in a later one, so the note's own
+   * session and the newest are both read rather than the newest alone.
+   */
+  async noteAnswer(noteId: string): Promise<ConversationMessage | undefined> {
+    const note = this.exchanges().find((exchange) => exchange.question.id === noteId);
+    if (!note) return undefined;
+    if (note.answer) return note.answer;
+    const at = Date.parse(note.question.timestamp ?? "");
+    const sessions = this.sessionStarts();
+    const newest = (await this.listSessions())[0]?.id;
+    const own = Number.isNaN(at) ? undefined : sessions.find((session) => {
+      const window = this.noteWindow(session.id);
+      const from = window.from === undefined ? Number.NEGATIVE_INFINITY : Date.parse(window.from);
+      const until = window.until === undefined ? Number.POSITIVE_INFINITY : Date.parse(window.until);
+      return at >= from && at < until;
+    })?.id;
+    const ids = [...new Set([own, newest].filter((id): id is string => id !== undefined))];
+    // ponytail: one read per session per transcript change; a shared incremental read if this ever costs too much
+    const key = ids.map((id) => `${id}:${sessions.find((session) => session.id === id)?.mtimeMs ?? 0}`).join(",");
+    const cached = this.noteAnswers.get(noteId);
+    if (cached?.key === key) return cached.answer;
+    let found: ConversationMessage | undefined;
+    for (const id of ids) {
+      const snapshot = await this.read(id).catch(() => undefined);
+      const answer = snapshot?.followUps?.[noteId];
+      if (answer && (!found || Date.parse(answer.timestamp ?? "") > Date.parse(found.timestamp ?? ""))) found = answer;
+    }
+    if (this.noteAnswers.size > 200) this.noteAnswers.delete(this.noteAnswers.keys().next().value!);
+    this.noteAnswers.set(noteId, { key, answer: found });
+    return found;
   }
 
   /** Every question asked from the window, to firstmate or to Flyd, oldest first. */
