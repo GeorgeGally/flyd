@@ -439,6 +439,8 @@ export class SnapshotDiffer {
       const card: RenderedMessage["card"] = relay && relay.kind !== "absorbed"
         ? { kind: relay.kind, line: inFlydsVoice(relay.line).replace(/[:;,]$/, ""), ...(relay.kind === "landed" && relay.url ? { url: relay.url } : {}) }
         : message.role === "assistant" && !routine && !message.answers?.startsWith("ask:") && (message.aside || message.answers) ? this.answerCard(message) : undefined;
+      // The card is his glance: the reply as written waits behind it, never shown twice.
+      if (card && !parts.summary) parts.summary = briefOf(message.text);
       // Several pieces of work read as a card each, not as paragraphs; Flyd's own answers stay as written.
       const outcomes = message.role === "assistant" && !routine && !message.answers?.startsWith("ask:") ? outcomesOf(message.text, handled) ?? undefined : undefined;
       const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, card, outcomes, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);

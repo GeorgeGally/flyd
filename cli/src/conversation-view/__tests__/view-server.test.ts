@@ -181,6 +181,19 @@ describe("SnapshotDiffer relays", () => {
       sub: "In its place is one slim line above the board: a small Data button, then the counts.",
     });
     expect(shown!.html).toContain("as before");
+    expect(shown!.summary).toBeDefined();
+  });
+
+  it("never calls a reply that puts nothing to him his call, nor says a short one twice", () => {
+    const status = "The fleet is moving: three jobs are open and none is waiting on you right now.";
+    const [, shown] = new SnapshotDiffer().next({ messages: [
+      { id: "u1", role: "user", text: "how is it going?" },
+      { id: "t1", role: "assistant", text: status, aside: true },
+    ], working: false }).messages;
+    expect(shown!.card?.kind).not.toBe("decision");
+    // The card is the glance; the reply as written waits behind it, not under it as well.
+    expect(shown!.card!.line).toContain("none is waiting on you");
+    expect(shown!.summary).toBeDefined();
   });
 
   it("still answers him when he typed into the session himself", () => {

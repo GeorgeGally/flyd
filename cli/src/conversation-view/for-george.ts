@@ -277,7 +277,8 @@ const TITLE_CHARS = 70;
 
 /** Where one piece of work stands, from its own words. */
 export function stateOfItem(words: string): OutcomeState {
-  const said = words.replace(QUOTED, " ");
+  // "None is waiting on you" puts nothing to him.
+  const said = words.replace(QUOTED, " ").replace(new RegExp(PUT_TO_HIM.source, "gi"), (ask, at: number, all: string) => NEGATED.test(all.slice(0, at)) ? " " : ask);
   if (/\?["”')\]]*$/.test(said.trim()) || PUT_TO_HIM.test(said)) return "needs";
   // On a card a piece of work that is stuck says so, whatever it is stuck on.
   const stuck = /\b(?:stuck|blocked|failed|failing)\b/i.exec(said);
