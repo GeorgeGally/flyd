@@ -636,4 +636,36 @@ describe("ArtefactFeed", () => {
       warn.mockRestore();
     }
   });
+
+  it("never pushes a newly queued item off screen behind older ones", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-gates-"));
+    mkdirSync(join(home, "bin"));
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const gates = (ids: string[]) => JSON.stringify({ gates: ids.map((id) => ({ id, title: `Gate ${id}`, blocked_by: "-" })) });
+    writeFileSync(snapshot, gates(["g4", "g3", "g2", "g1"]));
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    writeFileSync(snapshot, gates(["g5", "g4", "g3", "g2", "g1"]));
+    await feed.refresh();
+    const next = composeArtefact(feed.current()).filter((item) => item.kind === "next").map((item) => item.headline);
+    expect(next).toEqual(["Gate g5", "Gate g4", "Gate g3"]);
+  });
+
+  it("keeps an open decision in Needs you when the work it is about has also finished", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-collision-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({
+      decisions_open: [{ id: "x", summary: "Do the thing" }],
+      in_flight: [{ id: "x", state: "done", name: "Do the thing", doing: "run passed" }],
+    }));
+    writeFileSync(join(home, "data", "backlog.md"), "- [ ] x - Do the thing (hold: Pick one: 1 Evergreen, 2 Fairy-light)\n");
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(feed.current().fleet!.calls.map((row) => row.task)).toEqual(["x"]);
+    expect(feed.current().fleet!.ready.some((row) => row.task === "x")).toBe(false);
+  });
 });

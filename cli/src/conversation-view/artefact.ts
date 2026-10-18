@@ -40,6 +40,8 @@ export interface ArtefactRow {
   shotDir?: string;
   /** Flyd's own words for it, once its model has said them. */
   said?: Said;
+  /** The list still holds it but the latest read no longer reports it: internal only, never shown. */
+  ledgerOnly?: boolean;
 }
 
 export interface FleetArtefact {
@@ -570,9 +572,13 @@ function rowMovedAt(row: ArtefactRow): number {
   return Number.isNaN(moved) ? 0 : moved;
 }
 
-/** The rows of one kind the artefact shows, most recent first, a screenshot breaking a tie. Pure. */
+/** The rows of one kind the artefact shows, this read's rows first and newest of them leading. Pure. */
 export function shownRows(list: ArtefactRow[] | undefined, limit: number): ArtefactRow[] {
-  return [...(list ?? [])].sort((a, b) => rowMovedAt(b) - rowMovedAt(a) || (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0)).slice(0, limit);
+  return [...(list ?? [])].sort((a, b) =>
+    (a.ledgerOnly ? 1 : 0) - (b.ledgerOnly ? 1 : 0)
+    || rowMovedAt(b) - rowMovedAt(a)
+    || (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0),
+  ).slice(0, limit);
 }
 
 /** How many of each kind the fleet holds, before the artefact's limits. Pure. */
@@ -1000,20 +1006,27 @@ export class ArtefactFeed {
 
   /** Folds a fresh read into the list: rows are added or updated in place, and only age out once reported no more. */
   private mergeLedger(incoming: FleetArtefact, now: number, prune: boolean): FleetArtefact {
+    // One row per thing: a thing the read lists in two sections keeps the earliest, a call leading,
+    // so a collision never drops a call; and this read's rows keep its own order, ahead of rows only
+    // the list still holds, so a newly queued item is never pushed off by older entries.
+    const merged = new Map<string, LedgerEntry>();
     for (const field of FLEET_FIELDS) {
       for (const row of incoming[field]) {
         const key = artefactKey(row);
-        if (key) this.ledger.set(key, { field, row, seenAt: now });
+        if (key && !merged.has(key)) merged.set(key, { field, row, seenAt: now });
       }
     }
-    if (prune) for (const [key, entry] of this.ledger) if (now - entry.seenAt > LEDGER_KEEP_MS) this.ledger.delete(key);
-    return this.ledgerFleet(incoming.generated);
+    for (const [key, entry] of this.ledger) if (!merged.has(key)) merged.set(key, entry);
+    if (prune) for (const [key, entry] of merged) if (now - entry.seenAt > LEDGER_KEEP_MS) merged.delete(key);
+    this.ledger.clear();
+    for (const [key, entry] of merged) this.ledger.set(key, entry);
+    return this.ledgerFleet(incoming.generated, now);
   }
 
-  /** The accumulated list as the fleet the screen reads, in the order each row first arrived. */
-  private ledgerFleet(generated?: string): FleetArtefact {
+  /** The accumulated list as the fleet the screen reads, this read's rows first, ledger-only rows after. */
+  private ledgerFleet(generated: string | undefined, now: number): FleetArtefact {
     const fleet: FleetArtefact = { ...emptyFleet(), ...(generated ? { generated } : {}) };
-    for (const entry of this.ledger.values()) fleet[entry.field].push(entry.row);
+    for (const entry of this.ledger.values()) fleet[entry.field].push(entry.seenAt < now ? { ...entry.row, ledgerOnly: true } : entry.row);
     return fleet;
   }
 
