@@ -45,6 +45,23 @@ export const LEFT_STYLE = `
 .left-more { margin: 18px 0 0; padding: 4px 0; border: 0; background: none; cursor: pointer; font: 500 14px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .left-more:hover { color: var(--fg); }
 .left-more[hidden] { display: none; }
+.left-card.is-open { background: color-mix(in srgb, var(--tint) 52%, var(--faint)); }
+
+/* A card opened from the column: a page beside it with room to read, the column keeping its place with that card lit. */
+:root { --sheet-w: min(430px, 30vw); }
+.left-sheet { position: fixed; top: 52px; bottom: 0; left: var(--left-w); width: var(--sheet-w); z-index: 6; overflow-y: auto; padding: 30px 32px 48px; background: var(--bg); animation: card-in 200ms ease both; }
+.left-sheet[hidden] { display: none; }
+.left-sheet-top { display: flex; align-items: center; gap: 12px; padding-right: 44px; }
+.left-sheet .card-icon, .left-sheet .card-meta { color: var(--tone, var(--muted)); }
+.left-sheet .card-meta { flex: 1; }
+.left-sheet-x { position: absolute; top: 28px; right: 24px; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: none; cursor: pointer; font: 400 16px/32px var(--sans); color: var(--muted); transition: color 140ms ease, background 140ms ease; }
+.left-sheet-x:hover { color: var(--strong); background: var(--tint); }
+.left-sheet-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.left-sheet-title { margin: 22px 0 0; font: 600 27px/1.2 var(--sans); letter-spacing: -0.02em; color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
+.left-sheet-text { margin: 16px 0 0; font: 400 17px/1.55 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; white-space: pre-line; }
+.left-sheet-text[hidden], .left-sheet-when[hidden] { display: none; }
+.left-sheet-when { margin: 24px 0 0; font: 500 13px/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.left-sheet .card-stories { margin-top: 24px; }
 
 /* Open, the column takes its width off the chat, which narrows to fit and otherwise stays centred between the two columns; it never sits under it. */
 @media (min-width: 721px) {
@@ -52,11 +69,15 @@ export const LEFT_STYLE = `
   :root[data-left="open"] .composer .row { margin-left: max(calc(var(--left-w) + 1.875em), calc(50% + var(--left-w) / 2 - 23.4em)); margin-right: 0; }
   :root[data-left="open"][data-rail="on"] main { margin-left: max(calc(var(--left-w) + 1.5em), calc(50% + (var(--left-w) - min(430px, 34vw)) / 2 - 18.75em)); }
   :root[data-left="open"][data-rail="on"] .composer .row { margin-left: max(calc(var(--left-w) + 1.875em), calc(50% + (var(--left-w) - min(430px, 34vw)) / 2 - 23.4em)); margin-right: calc(min(430px, 34vw) + 1.875em); }
+  /* With a card open beside the column, the chat moves over for it too. */
+  :root[data-left="open"][data-left-sheet="open"] main { margin-left: calc(var(--left-w) + var(--sheet-w) + 1.5em); }
+  :root[data-left="open"][data-left-sheet="open"] .composer .row { margin-left: calc(var(--left-w) + var(--sheet-w) + 1.875em); }
 }
 /* On a phone it is the screen. */
 @media (max-width: 720px) {
   .left { width: 100vw; z-index: 7; }
   .left-tab { padding-right: 56px; }
+  .left-sheet { left: 0; width: 100vw; z-index: 8; padding: 26px 20px 40px; }
 }
 ` + CARD_STYLE;
 
@@ -79,7 +100,16 @@ export const LEFT_HTML = `<aside class="left" id="left" hidden aria-label="What 
     <section aria-label="Right now"><h3 class="left-label">Right now</h3><ul class="left-list" id="left-now"></ul></section>
     <section aria-label="Earlier"><h3 class="left-label">Earlier</h3><ul class="left-list left-timeline" id="left-recent"></ul><button class="left-more" id="left-more" type="button" hidden></button></section>
   </div>
-</aside>`;
+</aside>
+<section class="left-sheet" id="left-sheet" hidden aria-label="Activity detail">
+  <button class="left-sheet-x" id="left-sheet-close" type="button" aria-label="Close">✕</button>
+  <div class="left-sheet-top" id="left-sheet-top"></div>
+  <h2 class="left-sheet-title" id="left-sheet-title"></h2>
+  <p class="left-sheet-text" id="left-sheet-line" hidden></p>
+  <p class="left-sheet-text" id="left-sheet-detail" hidden></p>
+  <div id="left-sheet-extra"></div>
+  <p class="left-sheet-when" id="left-sheet-when" hidden></p>
+</section>`;
 
 export const LEFT_SCRIPT = `
   // The left column: Flyd's own activity. Open by default only where it fits beside the chat.
@@ -98,8 +128,10 @@ export const LEFT_SCRIPT = `
   var leftPref = store("flyd-left");
   var leftPanel = null;
   var leftAll = false;
-  // The cards he has opened to read their detail, kept across the column's own re-renders.
-  var leftOpen = {};
+  // The card he has opened beside the column, kept across the column's own re-renders.
+  var leftSheet = null;
+  var leftSheetEl = document.getElementById("left-sheet");
+  var TONE_COLOUR = { call: "var(--k-call)", live: "var(--k-live)", done: "var(--k-landed)", held: "var(--k-waiting)", ready: "var(--k-ready)", memory: "var(--accent)", quiet: "var(--muted)" };
   var LEFT_FEW = 5;
   function leftIsOpen() { return leftPref === "on" || (leftPref !== "off" && !!leftWide && leftWide.matches); }
   function setLeft() {
@@ -109,6 +141,48 @@ export const LEFT_SCRIPT = `
     leftOpenEl.hidden = !leftPanel;
     leftOpenEl.setAttribute("aria-pressed", String(on));
     leftToggleEl.setAttribute("aria-checked", String(leftIsOpen()));
+    if (!on && leftSheet) closeSheet();
+  }
+  // The open card's page: what kind of thing it is and when, its title, everything it has to say.
+  function drawSheet() {
+    var s = leftSheet;
+    leftSheetEl.hidden = !s;
+    document.documentElement.setAttribute("data-left-sheet", s ? "open" : "off");
+    if (!s) return;
+    var v = kindOf(s.kind);
+    leftSheetEl.style.setProperty("--tone", TONE_COLOUR[v.tone] || "var(--muted)");
+    var top = document.getElementById("left-sheet-top");
+    top.textContent = "";
+    top.appendChild(cardIcon(s.kind));
+    var chip = el("span", "card-meta", v.word || "");
+    if (s.when) chip.appendChild(el("span", "card-when", s.when));
+    top.appendChild(chip);
+    document.getElementById("left-sheet-title").textContent = s.title || "";
+    var line = document.getElementById("left-sheet-line");
+    line.textContent = s.line || "";
+    line.hidden = !s.line;
+    var detail = document.getElementById("left-sheet-detail");
+    detail.textContent = s.detail && s.detail !== s.line && s.detail !== s.title ? s.detail : "";
+    detail.hidden = !detail.textContent;
+    var extra = document.getElementById("left-sheet-extra");
+    extra.textContent = "";
+    var stories = storiesNode(s.stories);
+    if (stories) extra.appendChild(stories);
+    var whenEl = document.getElementById("left-sheet-when");
+    whenEl.textContent = s.detailWhen || "";
+    whenEl.hidden = !s.detailWhen;
+  }
+  function openSheet(info) {
+    // Clicking the open card again puts it away.
+    leftSheet = leftSheet && leftSheet.key === info.key ? null : info;
+    drawSheet();
+    drawActivity();
+    if (leftSheet) leftSheetEl.scrollTop = 0;
+  }
+  function closeSheet() { leftSheet = null; drawSheet(); drawActivity(); }
+  // What a card hands its page when he opens it.
+  function sheetOpts(info) {
+    return { open: !!leftSheet && leftSheet.key === info.key, onOpen: function () { openSheet(info); } };
   }
   function chooseLeft(open) {
     leftPref = open ? "on" : "off";
@@ -151,7 +225,7 @@ export const LEFT_SCRIPT = `
   }
   function activityCard(item, live) {
     var key = activityKey(item, live);
-    return visualCard(item, {
+    return visualCard(item, Object.assign({
       className: "left-card" + (live ? " is-now" : ""),
       key: key,
       when: (live ? "Started " : "") + ago(item.at),
@@ -161,11 +235,9 @@ export const LEFT_SCRIPT = `
       detail: item.detail || "",
       detailWhen: item.at ? dayOf(item.at) + ", " + clock(item.at) : "",
       extra: storiesNode(item.stories),
-      open: !!leftOpen[key],
-      onToggle: function (open) { if (open) leftOpen[key] = 1; else delete leftOpen[key]; },
       dismiss: true,
       onHide: drawActivity,
-    });
+    }, sheetOpts({ key: key, kind: item.kind, title: item.title, line: item.line, detail: item.detail, stories: item.stories, when: (live ? "Started " : "") + ago(item.at), detailWhen: item.at ? dayOf(item.at) + ", " + clock(item.at) : "" })));
   }
   function leftSemanticVisual(activity) {
     var phase = activity.activity && activity.activity.phase;
@@ -183,28 +255,28 @@ export const LEFT_SCRIPT = `
     // The semantic id is stable; the patch key includes phase so the card's
     // contents refresh in place when its state changes without duplicating it.
     var key = activity.id + "|semantic|" + phase;
+    var when = phase === "working" && at ? "Started " + ago(at) : phase === "finished" && at ? ago(at) : "";
     var card = visualCard({
       kind: visual,
       title: activity.subject,
       line: activity.detail || activity.summary || "",
       at: at,
-    }, {
+    }, Object.assign({
       className: "left-card semantic-activity",
       key: key,
-      when: phase === "working" && at ? "Started " + ago(at) : phase === "finished" && at ? ago(at) : "",
+      when: when,
       whenClass: "left-meta",
       titleClass: "left-title",
       detail: activity.detail || activity.summary || "",
       detailWhen: at ? dayOf(at) + ", " + clock(at) : "",
-      open: !!leftOpen[key],
-      onToggle: function (open) { if (open) leftOpen[key] = 1; else delete leftOpen[key]; },
       dismiss: phase === "finished",
       onHide: drawActivity,
-    });
+    }, sheetOpts({ key: key, kind: visual, title: activity.subject, line: activity.summary || "", detail: activity.detail || "", when: when, detailWhen: at ? dayOf(at) + ", " + clock(at) : "" })));
     card.dataset.semanticId = activity.id;
     card.dataset.phase = phase;
     if (activity.decision && phase === "needs_you" && VIEW_TOKEN) {
-      card.appendChild(sceneAsk({
+      // The question sits under the card's words, never beside them in the card's row.
+      (card.querySelector(".card-text") || card).appendChild(sceneAsk({
         title: activity.subject,
         decision: {
           task: activity.decision.target || activity.source.task || activity.id,
@@ -227,18 +299,17 @@ export const LEFT_SCRIPT = `
   function quietCard(recent) {
     var last = recent[0];
     var key = "quiet|" + (last ? last.at : "");
-    return visualCard({ kind: "clear", title: "Nothing under way right now." }, {
+    var when = last ? "Last active " + ago(last.at) : "";
+    return visualCard({ kind: "clear", title: "Nothing under way right now." }, Object.assign({
       className: "left-card is-quiet",
       key: key,
-      when: last ? "Last active " + ago(last.at) : "",
+      when: when,
       whenClass: "left-meta",
       titleClass: "left-title",
       // Its detail is the last thing Flyd did, and exactly when.
       detail: last ? last.title || "" : undefined,
       detailWhen: last && last.at ? dayOf(last.at) + ", " + clock(last.at) : "",
-      open: !!leftOpen[key],
-      onToggle: function (open) { if (open) leftOpen[key] = 1; else delete leftOpen[key]; },
-    });
+    }, sheetOpts({ key: key, kind: "clear", title: "Nothing under way right now.", detail: last ? "Last thing done: " + (last.title || "") : "", when: when, detailWhen: last && last.at ? dayOf(last.at) + ", " + clock(last.at) : "" })));
   }
   function drawActivity() {
     if (!leftPanel) return;
@@ -259,6 +330,8 @@ export const LEFT_SCRIPT = `
     leftRecentEl.parentElement.hidden = !recent.length;
     leftMoreEl.hidden = recent.length <= LEFT_FEW;
     leftMoreEl.textContent = leftAll ? "Show fewer" : "Show " + (recent.length - LEFT_FEW) + " more";
+    // The open card has left the column: its page goes with it.
+    if (leftSheet && !Array.prototype.some.call(leftEl.querySelectorAll(".left-card"), function (c) { return c.dataset.key === leftSheet.key; })) { leftSheet = null; drawSheet(); }
   }
   function renderActivity(panel) {
     if (panel) leftPanel = panel;
@@ -269,10 +342,11 @@ export const LEFT_SCRIPT = `
   leftOpenEl.addEventListener("click", function () { chooseLeft(!leftIsOpen()); });
   leftToggleEl.addEventListener("click", function () { chooseLeft(!leftIsOpen()); });
   document.getElementById("left-hide").addEventListener("click", function () { chooseLeft(false); });
+  document.getElementById("left-sheet-close").addEventListener("click", closeSheet);
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
     // An open card's detail closes first; only then does Escape take the column itself away.
-    if (leftEl.querySelector(".card.is-open")) { leftOpen = {}; drawActivity(); return; }
+    if (leftSheet) { closeSheet(); return; }
     if (!leftEl.hidden && !(leftWide && leftWide.matches) && prefs.hidden) chooseLeft(false);
   });
   if (leftWide && leftWide.addEventListener) leftWide.addEventListener("change", setLeft);

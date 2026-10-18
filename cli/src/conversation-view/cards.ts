@@ -196,7 +196,8 @@ export const CARD_SCRIPT = `
       if (opts.detailWhen) detail.appendChild(el("p", "card-detail-when", opts.detailWhen));
       if (opts.detail) detail.appendChild(el("p", "card-detail-text", opts.detail));
       if (opts.extra) detail.appendChild(opts.extra);
-      detail.hidden = !opts.open;
+      // A card that opens somewhere else (the activity pane) never unfolds in place.
+      detail.hidden = opts.onOpen ? true : !opts.open;
       text.appendChild(detail);
       card.tabIndex = 0;
       card.setAttribute("role", "button");
@@ -211,17 +212,17 @@ export const CARD_SCRIPT = `
       }
       card.addEventListener("click", function (event) {
         var hit = event.target;
-        if (hit && hit.closest && (hit.closest(".card-dismiss") || hit.closest("a"))) return;
+        if (hit && hit.closest && (hit.closest(".card-dismiss") || hit.closest("a") || hit.closest("button, input, textarea, select, form"))) return;
         // Reading the card's own words by dragging over them is not a click to open it.
         var sel = window.getSelection && window.getSelection();
         if (sel && !sel.isCollapsed && sel.anchorNode && card.contains(sel.anchorNode)) return;
-        setOpen(detail.hidden);
+        if (opts.onOpen) opts.onOpen(); else setOpen(detail.hidden);
       });
       card.addEventListener("keydown", function (event) {
         if (event.target !== card) return;
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        setOpen(detail.hidden);
+        if (opts.onOpen) opts.onOpen(); else setOpen(detail.hidden);
       });
     }
     card.appendChild(text);
