@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 Morning paper · Flyd left cards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/frame.css">
+<style>
+  /* Flyd's column as a one-reader paper. Each thing it did is a headline with a
+     one-line standfirst; the newest leads. Opened, a story reads as a short
+     article, and talking to it is writing a letter to the editor. */
+  :root { --acc: #e2b877; --strong: #f4f1ea; --serif: "Newsreader", "Iowan Old Style", Georgia, serif; }
+  .column { padding: 28px 28px 48px; }
+  .mast { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--dim); padding-bottom: 10px; border-bottom: 3px double #34363b; }
+  .mast b { font-weight: 600; color: var(--ink); }
+  .lead { padding: 20px 0 22px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .lead h1 { font-family: var(--serif); font-size: 34px; line-height: 1.05; font-weight: 500; letter-spacing: -0.015em; color: var(--strong); transition: color 160ms ease; }
+  .lead:hover h1 { color: var(--acc); }
+  .lead p { margin-top: 10px; font-size: 14.5px; line-height: 1.5; color: var(--dim); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .spark { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+  .spark i { width: 3px; background: #4a4c52; border-radius: 1px; }
+  .spark i.today { background: var(--acc); }
+  .story { padding: 18px 0 19px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .story:focus-visible, .lead:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .kicker { font-size: 13px; font-weight: 600; }
+  .kicker span { color: var(--dim); font-weight: 400; }
+  .k-reviewed { color: #8fd0a6; } .k-news { color: #e2b877; } .k-memory { color: #b8a6f5; }
+  .k-decided { color: #f39a85; } .k-routine { color: #8fbfeb; } .k-done { color: #8fd0a6; } .k-noticed { color: #e8b25f; } .k-quiet { color: var(--dim); }
+  .story h2 { margin-top: 6px; font-family: var(--serif); font-size: 21px; line-height: 1.2; font-weight: 500; color: var(--ink); transition: color 160ms ease; }
+  .story:first-of-type h2 { font-size: 25px; }
+  .story:hover h2, .story.open h2 { color: var(--acc); }
+  .dek { margin-top: 6px; font-size: 14.5px; line-height: 1.45; color: var(--dim); }
+  .article { margin-top: 16px; cursor: auto; }
+  .article .body-copy { font-family: var(--serif); font-size: 18px; line-height: 1.55; color: #d9d6cf; }
+  .inthis { margin-top: 16px; padding: 12px 0 2px; border-top: 1px solid var(--line); }
+  .inthis h3 { font-size: 13px; font-weight: 600; color: var(--dim); }
+  .inthis ol { margin-top: 8px; padding-left: 20px; display: grid; gap: 5px; }
+  .inthis li { font-size: 14.5px; line-height: 1.4; color: var(--ink); }
+  .inthis li::marker { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .letters { margin-top: 20px; display: grid; gap: 14px; }
+  .letter { font-family: var(--serif); font-size: 17px; line-height: 1.45; }
+  .letter.george { font-style: italic; color: var(--strong); }
+  .letter.george::after { content: " — you"; font-style: normal; font-family: var(--font); font-size: 13px; color: var(--dim); }
+  .letter.flyd { color: #c4c1ba; padding-left: 14px; border-left: 1px solid #3a3c41; }
+  .letter.typing { color: var(--dim); }
+  .talk { margin-top: 26px; display: flex; gap: 10px; align-items: center; }
+  .talk input { flex: 1; min-width: 0; background: none; border: 0; border-bottom: 1px solid #3a3c41; outline: 0; font-family: var(--serif); font-size: 17px; padding: 6px 0; transition: border-color 160ms ease; }
+  .talk input:focus { border-color: var(--acc); }
+  .talk input::placeholder { color: var(--dim); font-style: italic; }
+  .talk button { border: 1px solid #3a3c41; background: none; border-radius: 6px; font-size: 13px; font-weight: 600; padding: 7px 12px; cursor: pointer; transition: border-color 160ms ease, color 160ms ease; }
+  .talk button:hover { border-color: var(--acc); color: var(--acc); }
+  .more { margin-top: 18px; background: none; border: 0; font-size: 14px; color: var(--dim); cursor: pointer; transition: color 160ms ease; }
+  .more:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar"><i></i><i></i><i></i><span>Flyd</span><b>Sun 18 Oct 14:45</b></div>
+  <div class="body"><aside class="column" data-column></aside><div class="chat" data-chat></div></div>
+</div>
+<script src="../shared/data.js"></script>
+<script>
+window.design = {
+  column: function (D, S, lab) {
+    var max = lab.weekMax();
+    var total = D.week.reduce(function (n, d) { return n + d.count; }, 0);
+    function article(item) {
+      var html = '<div class="article" data-stay><p class="body-copy">' + lab.esc(item.summary) + "</p>";
+      if (item.facts.length) html += '<div class="inthis"><h3>In this</h3><ol>' + item.facts.map(function (f) { return "<li>" + lab.esc(f) + "</li>"; }).join("") + "</ol></div>";
+      var thread = lab.thread(item.id);
+      if (thread.length || lab.typing(item.id)) html += '<div class="letters">' + thread.map(function (m) { return '<p class="letter ' + m.who + '">' + lab.esc(m.text) + "</p>"; }).join("") + (lab.typing(item.id) ? '<p class="letter flyd typing">Writing back…</p>' : "") + "</div>";
+      return html + lab.talk(item.id, { placeholder: "Write back about this" }) + "</div>";
+    }
+    function story(item) {
+      var open = lab.isOpen(item.id);
+      return '<article class="story' + (open ? " open" : "") + '" data-open="' + item.id + '" role="button" tabindex="0" aria-expanded="' + open + '">' +
+        '<p class="kicker k-' + item.kind + '">' + item.label + " <span>· " + item.at + "</span></p><h2>" + lab.esc(item.title) + '</h2><p class="dek">' + lab.esc(item.line) + "</p>" +
+        (open ? article(item) : "") + "</article>";
+    }
+    var nowOpen = lab.isOpen("now");
+    return '<div class="mast"><b>Activity</b><span>' + D.day + "</span></div>" +
+      '<div class="lead" data-open="now" role="button" tabindex="0" aria-expanded="' + nowOpen + '"><h1>' + D.live + "</h1><p>" + D.now.line + " · " +
+      '<span class="spark">' + D.week.map(function (d) { return '<i class="' + (d.today ? "today" : "") + '" style="height:' + Math.round(3 + (d.count / max) * 11) + 'px"></i>'; }).join("") + "</span> " + total + " this week</p>" +
+      (nowOpen ? article(D.now) : "") + "</div>" +
+      lab.earlier().map(story).join("") +
+      '<button class="more" data-more type="button">' + lab.moreLabel() + "</button>";
+  },
+};
+</script>
+<script src="../shared/lab.js"></script>
+</body>
+</html>

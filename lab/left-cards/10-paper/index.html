@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10 Paper · Flyd left cards</title>
+<link rel="stylesheet" href="../shared/frame.css">
+<style>
+  /* The light room. White cards on warm paper with one hairline each and no
+     shadow, thin line drawings for the kind of work, and colour kept for the
+     one thing that matters on a card. Opened, a card turns into a small note
+     you can write back on. */
+  :root {
+    --page: #e9e6df; --win: #f4f2ed; --line: #e1ddd4; --ink: #26262a; --dim: #8a867d;
+    --acc: #a4641c; --strong: #111113; --card: #ffffff;
+  }
+  .titlebar i { background: #d9d5cc; }
+  .chat .me { background: #e6d6bd; color: #3a2a12; }
+  .column { padding: 30px 20px 48px; background: var(--win); }
+  .head { padding: 0 4px; }
+  .head h1 { font-size: 15px; font-weight: 600; color: var(--dim); }
+  .head p { margin-top: 8px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; color: var(--strong); }
+  .week { margin-top: 18px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: end; height: 46px; }
+  .week div { display: grid; justify-items: center; gap: 6px; align-content: end; height: 100%; }
+  .week i { width: 100%; border-radius: 4px; background: #dcd7cc; }
+  .week .today i { background: var(--acc); }
+  .week span { font-size: 11.5px; color: var(--dim); line-height: 1; }
+  .label { margin: 28px 4px 10px; font-size: 13px; font-weight: 600; color: var(--dim); }
+  .list { display: grid; gap: 8px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: grid; grid-template-columns: 34px 1fr; gap: 12px; cursor: pointer; transition: border-color 160ms ease; }
+  .card:hover { border-color: #cfc9bd; }
+  .card:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .card.open { border-color: #d8c3a4; cursor: auto; }
+  .ic { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); display: grid; place-items: center; }
+  .ic svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  .k-reviewed { color: #2f8a57; } .k-news { color: #a4641c; } .k-memory { color: #6a50c9; }
+  .k-decided { color: #c4492f; } .k-routine { color: #2d6fae; } .k-done { color: #2f8a57; } .k-noticed { color: #b06f0f; } .k-quiet { color: #9a968d; }
+  .meta { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--dim); }
+  .meta b { font-weight: 600; }
+  .title { margin-top: 3px; font-size: 16px; line-height: 1.3; font-weight: 600; color: var(--ink); letter-spacing: -0.005em; }
+  .line { margin-top: 3px; font-size: 14.5px; line-height: 1.45; color: #5d5a54; }
+  .card.quiet .title { font-weight: 500; color: #5d5a54; }
+  .note { grid-column: 1 / -1; margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--line); cursor: auto; }
+  .note .summary { font-size: 15.5px; line-height: 1.6; color: var(--ink); }
+  .facts { margin-top: 12px; list-style: none; display: grid; gap: 6px; }
+  .facts li { font-size: 14px; line-height: 1.4; color: #5d5a54; display: flex; gap: 8px; }
+  .facts li::before { content: "✓"; flex: none; color: #2f8a57; font-size: 12.5px; padding-top: 1px; }
+  .thread { margin-top: 18px; display: grid; gap: 10px; }
+  .msg { font-size: 15px; line-height: 1.5; padding: 10px 13px; border-radius: 12px; }
+  .msg.george { background: #f6eee1; color: #3a2a12; margin-left: 24px; }
+  .msg.flyd { background: #f3f1ec; color: var(--ink); margin-right: 24px; }
+  .msg.typing { color: var(--dim); }
+  .talk { margin-top: 20px; display: flex; gap: 8px; }
+  .talk input { flex: 1; min-width: 0; background: #fbfaf7; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 14.5px; outline: 0; transition: border-color 160ms ease; }
+  .talk input:focus { border-color: var(--acc); }
+  .talk input::placeholder { color: var(--dim); }
+  .talk button { border: 0; border-radius: 10px; background: var(--strong); color: #fff; font-size: 13.5px; font-weight: 600; padding: 0 15px; cursor: pointer; transition: background 160ms ease; }
+  .talk button:hover { background: var(--acc); }
+  .more { margin: 14px 4px 0; background: none; border: 0; font-size: 14px; color: var(--dim); cursor: pointer; transition: color 160ms ease; }
+  .more:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar"><i></i><i></i><i></i><span>Flyd</span><b>Sun 18 Oct 14:45</b></div>
+  <div class="body"><aside class="column" data-column></aside><div class="chat" data-chat></div></div>
+</div>
+<script src="../shared/data.js"></script>
+<script>
+var ICON = {
+  reviewed: '<path d="M4 3.5h7l3 3v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/><path d="M6 10.2l1.6 1.6 3.2-3.4"/>',
+  news: '<rect x="2.5" y="3.5" width="12" height="10" rx="1.3"/><path d="M5 6.5h4M5 9h7M5 11.3h7"/><rect x="10.3" y="5.6" width="2" height="1.8" rx=".3"/>',
+  memory: '<path d="M8.5 2.5a4.5 4.5 0 0 0-2.6 8.2V13h5.2v-2.3a4.5 4.5 0 0 0-2.6-8.2z"/><path d="M6.5 15h4"/>',
+  decided: '<path d="M8.5 15V9.2M8.5 9.2L4.2 4.6M8.5 9.2l4.3-4.6"/><path d="M3 6.6V3.6h3M14 6.6V3.6h-3"/>',
+  routine: '<circle cx="8.5" cy="8.5" r="6"/><path d="M8.5 5.3v3.2l2.2 1.4"/>',
+  done: '<circle cx="8.5" cy="8.5" r="6"/><path d="M5.8 8.7l1.9 1.9 3.6-3.8"/>',
+  noticed: '<path d="M1.8 8.5s2.6-4.8 6.7-4.8 6.7 4.8 6.7 4.8-2.6 4.8-6.7 4.8-6.7-4.8-6.7-4.8z"/><circle cx="8.5" cy="8.5" r="2"/>',
+  quiet: '<path d="M11.5 3.4a5.6 5.6 0 1 0 2.1 8.3A4.6 4.6 0 0 1 11.5 3.4z"/>',
+};
+window.design = {
+  column: function (D, S, lab) {
+    var max = lab.weekMax();
+    function card(item, quiet) {
+      var open = lab.isOpen(item.id);
+      var html = '<div class="card' + (open ? " open" : "") + (quiet ? " quiet" : "") + '" data-open="' + item.id + '" role="button" tabindex="0" aria-expanded="' + open + '">' +
+        '<span class="ic k-' + item.kind + '"><svg viewBox="0 0 17 17">' + ICON[item.kind] + "</svg></span>" +
+        '<div><p class="meta"><b class="k-' + item.kind + '">' + item.label + "</b><span>" + item.ago + '</span></p><p class="title">' + lab.esc(item.title) + "</p>" +
+        (quiet ? "" : '<p class="line">' + lab.esc(item.line) + "</p>") + "</div>";
+      if (open) {
+        html += '<div class="note" data-stay><p class="summary">' + lab.esc(item.summary) + "</p>" +
+          (item.facts.length ? '<ul class="facts">' + item.facts.map(function (f) { return "<li>" + lab.esc(f) + "</li>"; }).join("") + "</ul>" : "") +
+          '<div class="thread">' + lab.thread(item.id).map(function (m) { return '<p class="msg ' + m.who + '">' + lab.esc(m.text) + "</p>"; }).join("") +
+          (lab.typing(item.id) ? '<p class="msg flyd typing">…</p>' : "") + "</div>" + lab.talk(item.id, { placeholder: "Write back to Flyd" }) + "</div>";
+      }
+      return html + "</div>";
+    }
+    return '<div class="head"><h1>Activity</h1><p>' + D.live + "</p></div>" +
+      '<div class="week">' + D.week.map(function (d) {
+        return '<div class="' + (d.today ? "today" : "") + '" title="' + d.count + ' things"><i style="height:' + Math.round(4 + (d.count / max) * 26) + 'px"></i><span>' + d.day.slice(0, 1) + "</span></div>";
+      }).join("") + "</div>" +
+      '<div class="list" style="margin-top:24px">' + card(D.now, true) + "</div>" +
+      '<p class="label">Earlier</p><div class="list">' + lab.earlier().map(function (i) { return card(i); }).join("") + "</div>" +
+      '<button class="more" data-more type="button">' + lab.moreLabel() + "</button>";
+  },
+};
+</script>
+<script src="../shared/lab.js"></script>
+</body>
+</html>

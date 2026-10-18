@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05 Contact sheet · Flyd left cards</title>
+<link rel="stylesheet" href="../shared/frame.css">
+<style>
+  /* Every card is a picture first. Two to a row like a contact sheet: real
+     images where the work has one, a small drawing of the result where it
+     doesn't. Opened, a card takes the full width and the picture grows. */
+  :root { --acc: #e2b877; --strong: #f6f4ef; --tile: #17181b; }
+  .column { padding: 28px 20px 44px; }
+  .head h1 { font-size: 15px; font-weight: 600; color: var(--dim); }
+  .head p { margin-top: 8px; font-size: 24px; font-weight: 500; letter-spacing: -0.01em; color: var(--strong); }
+  .heat { margin-top: 18px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .heat div { display: grid; gap: 6px; justify-items: center; }
+  .heat i { width: 100%; height: 26px; border-radius: 6px; background: var(--acc); }
+  .heat span { font-size: 12px; color: var(--dim); }
+  .sheet { margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .tile { background: var(--tile); border-radius: 14px; overflow: hidden; cursor: pointer; transition: background 160ms ease; display: flex; flex-direction: column; }
+  .tile:hover { background: #1d1e22; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile.wide { grid-column: 1 / -1; flex-direction: row; align-items: center; }
+  .tile.open { grid-column: 1 / -1; background: #1a1b1e; outline: 1px solid #3a3326; cursor: auto; }
+  .pic { height: 104px; display: grid; place-items: center; padding: 10px; }
+  .tile.open .pic { height: 190px; padding: 14px; }
+  .tile.wide .pic { width: 64px; height: 64px; padding: 0; flex: none; }
+  .pic svg { width: 100%; height: 100%; }
+  .frame { width: 100%; height: 100%; border: 5px solid #f2f0eb; border-radius: 6px; background: #f2f0eb; overflow: hidden; }
+  .frame img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; border-radius: 2px; }
+  .cap { padding: 4px 13px 14px; }
+  .tile.wide .cap { padding: 14px 16px 14px 0; }
+  .kind { font-size: 12.5px; font-weight: 600; }
+  .kind span { font-weight: 400; color: var(--dim); }
+  .k-reviewed { color: #8fd0a6; } .k-news { color: #e2b877; } .k-memory { color: #b8a6f5; }
+  .k-decided { color: #f39a85; } .k-routine { color: #8fbfeb; } .k-done { color: #8fd0a6; } .k-noticed { color: #e8b25f; } .k-quiet { color: var(--dim); }
+  .title { margin-top: 4px; font-size: 14.5px; line-height: 1.3; font-weight: 500; color: var(--ink); transition: color 160ms ease; }
+  .tile:hover .title { color: var(--strong); }
+  .tile.open .title { font-size: 19px; color: var(--strong); letter-spacing: -0.01em; }
+  .tile.open .cap { padding: 4px 18px 20px; }
+  .summary { margin-top: 10px; font-size: 15.5px; line-height: 1.55; color: #cfccc5; }
+  .facts { margin-top: 12px; display: grid; gap: 6px; list-style: none; }
+  .facts li { font-size: 13.5px; line-height: 1.35; color: var(--dim); }
+  .facts li::before { content: "✓ "; color: #8fd0a6; }
+  .thread { margin-top: 18px; display: grid; gap: 10px; }
+  .msg { font-size: 15px; line-height: 1.45; }
+  .msg.george { color: var(--acc); }
+  .msg.george::before { content: "You  "; color: var(--dim); font-size: 13px; }
+  .msg.flyd { color: var(--ink); }
+  .msg.flyd::before { content: "Flyd  "; color: var(--dim); font-size: 13px; }
+  .msg.typing { color: var(--dim); }
+  .talk { margin-top: 22px; display: flex; gap: 8px; }
+  .talk input { flex: 1; min-width: 0; background: #111214; border: 1px solid #2a2c31; border-radius: 10px; padding: 10px 12px; font-size: 14.5px; outline: 0; transition: border-color 160ms ease; }
+  .talk input:focus { border-color: var(--acc); }
+  .talk input::placeholder { color: var(--dim); }
+  .talk button { border: 0; border-radius: 10px; background: #2a2b30; font-size: 13.5px; font-weight: 600; padding: 0 14px; cursor: pointer; transition: background 160ms ease, color 160ms ease; }
+  .talk button:hover { background: var(--acc); color: #1a1408; }
+  .more { margin-top: 16px; width: 100%; padding: 12px; border-radius: 12px; border: 1px dashed #2c2e33; background: none; color: var(--dim); font-size: 14px; cursor: pointer; transition: color 160ms ease, border-color 160ms ease; }
+  .more:hover { color: var(--ink); border-color: #45474d; }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar"><i></i><i></i><i></i><span>Flyd</span><b>Sun 18 Oct 14:45</b></div>
+  <div class="body"><aside class="column" data-column></aside><div class="chat" data-chat></div></div>
+</div>
+<script src="../shared/data.js"></script>
+<script>
+// A small drawing of what each kind of work produced, in thin lines.
+var C = { reviewed: "#8fd0a6", news: "#e2b877", memory: "#b8a6f5", decided: "#f39a85", routine: "#8fbfeb", done: "#8fd0a6", noticed: "#e8b25f", quiet: "#6b6e75" };
+function drawing(item) {
+  if (item.image) return '<div class="frame"><img src="' + item.image + '" alt=""></div>';
+  var c = C[item.kind], s = '<svg viewBox="0 0 140 84" fill="none" stroke-linecap="round" stroke-linejoin="round">';
+  if (item.kind === "reviewed") {
+    var n = item.facts.length || 4;
+    for (var i = 0; i < 6; i++) {
+      var x = 26 + (i % 3) * 44, y = 24 + Math.floor(i / 3) * 36, on = i < n;
+      s += '<circle cx="' + x + '" cy="' + y + '" r="13" stroke="' + (on ? c : "#34363b") + '" stroke-width="1.4"/>' + (on ? '<path d="M' + (x - 5) + " " + y + "l3.5 3.5 7-7" + '" stroke="' + c + '" stroke-width="1.6"/>' : "");
+    }
+  } else if (item.kind === "news" && item.id === "edition") {
+    s += '<rect x="20" y="8" width="100" height="68" rx="4" stroke="#3a3c41" stroke-width="1.2"/><rect x="30" y="18" width="36" height="24" rx="2" fill="' + c + '" opacity=".85"/><rect x="74" y="18" width="36" height="24" rx="2" fill="' + c + '" opacity=".5"/>' +
+      '<path d="M30 52h80M30 60h80M30 68h52" stroke="#4a4c52" stroke-width="1.4"/>';
+  } else if (item.kind === "news") {
+    s += '<circle cx="70" cy="42" r="32" stroke="#34363b" stroke-width="1.2"/><circle cx="70" cy="42" r="20" stroke="#34363b" stroke-width="1.2"/><circle cx="70" cy="42" r="8" stroke="#34363b" stroke-width="1.2"/>' +
+      '<path d="M70 42L95 22" stroke="' + c + '" stroke-width="1.6"/><circle cx="70" cy="42" r="2.5" fill="' + c + '"/>';
+  } else if (item.kind === "memory") {
+    var pts = [[24, 30], [46, 18], [58, 44], [82, 26], [96, 54], [118, 34], [36, 62], [74, 66]];
+    s += '<path d="M24 30L46 18L58 44L82 26L96 54L118 34M58 44L36 62M58 44L74 66" stroke="#3a3c41" stroke-width="1.2"/>';
+    pts.forEach(function (p, i) { s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (i > 5 ? 5 : 3) + '" fill="' + (i > 5 ? c : "#55585e") + '"/>'; });
+  } else if (item.kind === "decided") {
+    s += '<rect x="38" y="8" width="64" height="68" rx="6" stroke="#3a3c41" stroke-width="1.2"/><path d="M48 22h44M48 34h44M48 46h30" stroke="#4a4c52" stroke-width="1.4"/>' +
+      '<path d="M84 52l14 14M84 52v13l4-4 4 8" stroke="' + c + '" stroke-width="1.6"/>';
+  } else if (item.kind === "routine") {
+    s += '<circle cx="70" cy="42" r="30" stroke="#3a3c41" stroke-width="1.2"/><path d="M70 42V20M70 42l-15 10" stroke="' + c + '" stroke-width="1.8"/><circle cx="70" cy="42" r="2.5" fill="' + c + '"/>';
+  } else {
+    s += '<path d="M40 42h60" stroke="' + c + '" stroke-width="1.6"/>';
+  }
+  return s + "</svg>";
+}
+window.design = {
+  // Shown far enough down that the cards with real pictures are in view.
+  few: 9,
+  column: function (D, S, lab) {
+    var max = lab.weekMax();
+    function tile(item, wide) {
+      var open = lab.isOpen(item.id);
+      var html = '<div class="tile' + (open ? " open" : wide ? " wide" : "") + '" data-open="' + item.id + '" role="button" tabindex="0" aria-expanded="' + open + '">' +
+        '<div class="pic">' + drawing(item) + '</div><div class="cap"><p class="kind k-' + item.kind + '">' + item.label + " <span>· " + item.ago + '</span></p><p class="title">' + lab.esc(wide && !open ? item.title : item.title) + "</p>";
+      if (open) {
+        html += '<div data-stay><p class="summary">' + lab.esc(item.summary) + "</p>" +
+          (item.facts.length ? '<ul class="facts">' + item.facts.map(function (f) { return "<li>" + lab.esc(f) + "</li>"; }).join("") + "</ul>" : "") +
+          '<div class="thread">' + lab.thread(item.id).map(function (m) { return '<p class="msg ' + m.who + '">' + lab.esc(m.text) + "</p>"; }).join("") + (lab.typing(item.id) ? '<p class="msg flyd typing">…</p>' : "") + "</div>" +
+          lab.talk(item.id, { placeholder: "Ask about this" }) + "</div>";
+      }
+      return html + "</div></div>";
+    }
+    return '<div class="head"><h1>Activity</h1><p>' + D.live + "</p></div>" +
+      '<div class="heat">' + D.week.map(function (d) {
+        return '<div title="' + d.count + ' things"><i style="opacity:' + (0.1 + Math.pow(d.count / max, 2) * 0.9).toFixed(2) + '"></i><span>' + d.day.slice(0, 1) + "</span></div>";
+      }).join("") + "</div>" +
+      '<div class="sheet">' + tile(D.now, true) + lab.earlier().map(function (i) { return tile(i); }).join("") + "</div>" +
+      '<button class="more" data-more type="button">' + lab.moreLabel() + "</button>";
+  },
+};
+</script>
+<script src="../shared/lab.js"></script>
+</body>
+</html>

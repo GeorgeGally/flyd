@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 Hairline · Flyd left cards</title>
+<link rel="stylesheet" href="../shared/frame.css">
+<style>
+  /* No boxes at all. Rows on hairlines, a clock time down the left, and type
+     alone saying what kind of thing each one is and whether it is open. */
+  :root { --acc: #e2b877; --strong: #f6f4ef; }
+  .column { padding: 30px 28px 48px; }
+  .head h1 { font-size: 15px; font-weight: 600; color: var(--dim); }
+  .head p { margin-top: 10px; font-size: 27px; line-height: 1.2; font-weight: 500; letter-spacing: -0.015em; color: var(--strong); }
+  .week { margin-top: 26px; display: flex; align-items: flex-end; gap: 14px; }
+  .bars { display: flex; align-items: flex-end; gap: 5px; height: 30px; }
+  .bars i { width: 5px; border-radius: 2px; background: #3a3c41; }
+  .bars i.today { background: var(--acc); }
+  .week span { font-size: 14px; color: var(--dim); line-height: 1; }
+  .week b { color: var(--ink); font-weight: 500; }
+
+  .group { margin-top: 38px; font-size: 14px; font-weight: 600; color: var(--dim); padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .row { display: grid; grid-template-columns: 52px 1fr; padding: 16px 0 17px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .row:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .time { font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; padding-top: 3px; }
+  .title { font-size: 17px; line-height: 1.35; font-weight: 500; color: var(--ink); transition: color 160ms ease; }
+  .row:hover .title, .row.open .title { color: var(--acc); }
+  .line { margin-top: 4px; font-size: 15px; line-height: 1.45; color: var(--dim); }
+  .kind { font-weight: 500; }
+  .k-reviewed { color: #8fd0a6; } .k-news { color: #e2b877; } .k-memory { color: #b8a6f5; }
+  .k-decided { color: #f39a85; } .k-routine { color: #8fbfeb; } .k-done { color: #8fd0a6; }
+  .k-noticed { color: #e8b25f; } .k-quiet { color: var(--dim); }
+  .row.quiet .title { color: var(--dim); font-weight: 400; }
+
+  .detail { grid-column: 2; margin-top: 18px; cursor: auto; }
+  .summary { font-size: 16px; line-height: 1.55; color: var(--strong); }
+  .facts { margin-top: 16px; list-style: none; display: grid; gap: 7px; }
+  .facts li { font-size: 14px; line-height: 1.4; color: var(--dim); padding-left: 18px; position: relative; }
+  .facts li::before { content: "✓"; position: absolute; left: 0; color: #8fd0a6; font-size: 12px; top: 1px; }
+  .thread { margin-top: 22px; display: grid; gap: 12px; }
+  .msg { font-size: 15px; line-height: 1.5; }
+  .msg.george { color: var(--strong); padding-left: 12px; border-left: 2px solid var(--acc); }
+  .msg.flyd { color: #b9b7b1; }
+  .msg.typing { color: var(--dim); }
+  .talk { margin-top: 26px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #3a3c41; padding-bottom: 8px; transition: border-color 160ms ease; }
+  .talk:focus-within { border-color: var(--acc); }
+  .talk input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; font-size: 15px; padding: 4px 0; }
+  .talk input::placeholder { color: var(--dim); }
+  .talk button { background: none; border: 0; color: var(--acc); font-size: 14px; font-weight: 600; cursor: pointer; }
+  .more { margin-top: 18px; background: none; border: 0; color: var(--dim); font-size: 14px; cursor: pointer; transition: color 160ms ease; }
+  .more:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar"><i></i><i></i><i></i><span>Flyd</span><b>Sun 18 Oct 14:45</b></div>
+  <div class="body"><aside class="column" data-column></aside><div class="chat" data-chat></div></div>
+</div>
+<script src="../shared/data.js"></script>
+<script>
+window.design = {
+  column: function (D, S, lab) {
+    var max = lab.weekMax();
+    var total = D.week.reduce(function (n, d) { return n + d.count; }, 0);
+    function row(item, time, quiet) {
+      var open = lab.isOpen(item.id);
+      var html = '<div class="row' + (open ? " open" : "") + (quiet ? " quiet" : "") + '" data-open="' + item.id + '" role="button" tabindex="0" aria-expanded="' + open + '">' +
+        '<span class="time">' + time + '</span><div><p class="title">' + lab.esc(item.title) + '</p>' +
+        '<p class="line">' + (quiet ? lab.esc(item.line) : '<span class="kind k-' + item.kind + '">' + item.label + "</span> · " + lab.esc(item.line)) + "</p></div>";
+      if (open) {
+        html += '<div class="detail" data-stay><p class="summary">' + lab.esc(item.summary) + "</p>";
+        if (item.facts.length) html += '<ul class="facts">' + item.facts.map(function (f) { return "<li>" + lab.esc(f) + "</li>"; }).join("") + "</ul>";
+        var thread = lab.thread(item.id);
+        if (thread.length || lab.typing(item.id)) {
+          html += '<div class="thread">' + thread.map(function (m) { return '<p class="msg ' + m.who + '">' + lab.esc(m.text) + "</p>"; }).join("") +
+            (lab.typing(item.id) ? '<p class="msg typing">Flyd is answering…</p>' : "") + "</div>";
+        }
+        html += lab.talk(item.id, { placeholder: "Reply to Flyd about this" }) + "</div>";
+      }
+      return html + "</div>";
+    }
+    return '<div class="head"><h1>Activity</h1><p>' + D.live + "</p></div>" +
+      '<div class="week"><div class="bars">' + D.week.map(function (d) {
+        return '<i class="' + (d.today ? "today" : "") + '" style="height:' + Math.round(6 + (d.count / max) * 24) + 'px" title="' + d.day + ": " + d.count + '"></i>';
+      }).join("") + "</div><span><b>" + total + "</b> things this week</span></div>" +
+      '<h2 class="group">Right now</h2>' + row(D.now, "now", true) +
+      '<h2 class="group">Earlier</h2>' + lab.earlier().map(function (i) { return row(i, i.at); }).join("") +
+      '<button class="more" data-more type="button">' + lab.moreLabel() + "</button>";
+  },
+};
+</script>
+<script src="../shared/lab.js"></script>
+</body>
+</html>
