@@ -196,6 +196,21 @@ describe("showOf", () => {
     expect(screen.title).not.toBe("All quiet, sir.");
   });
 
+  it("never claims quiet when the fleet could not be read and only a plan is on screen", () => {
+    const screen = showOf(snapshot([]), {
+      now: NOW,
+      artefact: {
+        fleet: { unavailable: "timed out", calls: [], live: [], ready: [], landed: [], held: [], next: [] },
+        memories: [],
+        news: [],
+        taste: [],
+        plans: [{ id: "p1", headline: "Ship the notch island" }],
+      },
+    });
+    expect(screen.items.map((item) => item.kind)).toEqual(["plan"]);
+    expect(screen.title).not.toBe("All quiet, sir.");
+  });
+
   it("says all clear beside queued work, so the screen always has something to show", () => {
     const screen = showOf(snapshot([]), {
       now: NOW,

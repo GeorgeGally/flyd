@@ -458,7 +458,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   // The week's landed figure opens its own week's work, not the column's eight.
   const landedWeek = weekLandedItems(inputs.artefact, { project: projectOfRepo });
   return {
-    title: titleOf(chosen, (recap && artefact.length === 0) || (!known && chosen.length === 0)),
+    title: titleOf(chosen, recap && artefact.length === 0, known),
     summary: situationOf(counts, known),
     items: chosen,
     semantic: semanticObjectsFromShow(chosen),
@@ -494,12 +494,12 @@ export function situationOf(counts: Partial<Record<ShowKind, number>>, known = t
 }
 
 /** Flyd's opening line: led by the most important thing on screen. */
-export function titleOf(items: ShowItem[], quiet = false): string {
+export function titleOf(items: ShowItem[], quiet = false, known = true): string {
   const kinds = new Set(items.map((item) => item.kind));
   if (kinds.has("call")) return "Your move, sir.";
   if (quiet) return "Here's where things stand, sir.";
   if (kinds.has("landed")) return "Good news, sir.";
   if (kinds.has("live")) return "Under way, sir.";
   if (kinds.has("waiting") || kinds.has("news")) return "Here's where things stand, sir.";
-  return "All quiet, sir.";
+  return known ? "All quiet, sir." : "Here's where things stand, sir.";
 }
