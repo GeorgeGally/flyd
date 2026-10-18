@@ -296,6 +296,16 @@ describe("composeArtefact", () => {
     expect(items[7]).toMatchObject({ why: "from your memory" });
   });
 
+  it("shows the newest of an accumulated group, so older rows never push newer ones off", () => {
+    const at = (seconds: number) => new Date(Date.UTC(2026, 9, 1, 0, 0, seconds)).toISOString();
+    const fleet = {
+      calls: [], live: [], ready: [], held: [], next: [],
+      landed: Array.from({ length: 9 }, (_, index) => ({ label: `L${index + 1}`, task: `t${index + 1}`, status: "landed", at: at(index) })),
+    };
+    const items = composeArtefact({ fleet, memories: [], news: [], taste: [] });
+    expect(items.map((item) => item.headline)).toEqual(["L9", "L8", "L7", "L6", "L5", "L4", "L3", "L2"]);
+  });
+
   it("names work by his own project and links its screenshots", () => {
     const fleet = parseBearings(BEARINGS);
     fleet.live[0] = { ...fleet.live[0]!, shots: ["shots/after home.png"] };
@@ -485,8 +495,11 @@ describe("ArtefactFeed", () => {
       await feed.refresh();
       expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a"]);
       expect(feed.current().fleet!.unavailable).toBeUndefined();
-      // The reason goes to Flyd's own log only.
-      expect(warn.mock.calls.flat().join(" ")).toContain("fm-bearings");
+      // The reason goes to Flyd's own log only, carrying no command and no path.
+      const log = warn.mock.calls.flat().join(" ");
+      expect(log).toContain("fleet snapshot unreadable");
+      expect(log).not.toContain("fm-bearings");
+      expect(log).not.toContain(home);
     } finally {
       warn.mockRestore();
     }

@@ -563,9 +563,16 @@ export function tasteHighlights(markdown: string): string[] {
     .slice(0, 3);
 }
 
-/** The rows of one kind the artefact shows: work with screenshots first, then the fleet's order. Pure. */
+/** When the work a row names last moved, for ordering newest first; 0 when it says nothing. Pure. */
+function rowMovedAt(row: ArtefactRow): number {
+  const at = row.at ?? row.started ?? row.raised;
+  const moved = at ? Date.parse(at) : Number.NaN;
+  return Number.isNaN(moved) ? 0 : moved;
+}
+
+/** The rows of one kind the artefact shows, most recent first, a screenshot breaking a tie. Pure. */
 export function shownRows(list: ArtefactRow[] | undefined, limit: number): ArtefactRow[] {
-  return [...(list ?? [])].sort((a, b) => (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0)).slice(0, limit);
+  return [...(list ?? [])].sort((a, b) => rowMovedAt(b) - rowMovedAt(a) || (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0)).slice(0, limit);
 }
 
 /** How many of each kind the fleet holds, before the artefact's limits. Pure. */
@@ -826,7 +833,9 @@ export function landedRows(recent: Array<{ task: string; entry: BacklogEntry }>,
 }
 
 function reason(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = (error instanceof Error ? error.message : String(error))
+    .replace(/Command failed:[^\n]*/gi, " ")
+    .replace(/(?:^|[\s("'=])(?:~|\/)[^\s;,)'"]*/g, " ");
   return message.replace(/\s+/g, " ").trim().slice(0, 120) || "no reason given";
 }
 
