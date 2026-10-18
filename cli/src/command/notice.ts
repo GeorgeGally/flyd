@@ -1,4 +1,5 @@
-import { scrubBackstage } from "../lib/backstage.js";
+import { recordHeld } from "../council/reply-review.js";
+import { relayShortfalls, stripCommitIds, stripRetiredPhrases } from "../runtime/honesty-check.js";
 import type { DomainRun } from "./types.js";
 
 // What of a finished domain run is worth a notification. A domain boss's
@@ -38,13 +39,41 @@ export function isRoutineChatter(text: string): boolean {
   return MACHINERY.test(brief) && !reportsOutcome(brief);
 }
 
-/** The notification text for a run, or null when nothing George cares about happened. */
+/** The notification text for a run, or null when nothing George cares about happened, or when what it says may not reach him as written. */
 export function captainNotice(run: DomainRun): string | null {
   if (!run.result) return null;
-  const brief = plainBrief(run.result.brief);
+  const brief = stripCommitIds(plainBrief(run.result.brief));
   if (!brief) return null;
-  if (run.status === "needs_decision") return `I need your decision: ${scrubBackstage(brief)}`;
-  if (run.status === "failed") return `Work hit a problem: ${scrubBackstage(brief)}`;
+  if (run.status === "needs_decision" || run.status === "failed") return decisionNotice(run, brief);
   if (run.status !== "completed" || isRoutineChatter(brief)) return null;
-  return scrubBackstage(brief);
+  // The same outgoing-answer checks a chat reply passes: a completion that names
+  // backstage machinery or is a placeholder reaches George as nothing, and what
+  // was held is recorded so a reviewer can see it.
+  const held = relayShortfalls(brief);
+  if (!held.length) return brief;
+  recordHeld({ surface: "notification", source: `domain:${run.id}`, text: brief }, held);
+  return null;
+}
+
+/**
+ * A decision or a failure is his and always reaches him: a phrase he ruled out
+ * is stripped, and a brief that names machinery or is a placeholder gives way
+ * to a line naming the work. What the checks caught is recorded so a reviewer
+ * can see it.
+ */
+function decisionNotice(run: DomainRun, brief: string): string {
+  const lead = run.status === "needs_decision" ? "I need your decision: " : "Work hit a problem: ";
+  const held = relayShortfalls(brief);
+  if (!held.length) return lead + brief;
+  recordHeld({ surface: "notification", source: `domain:${run.id}`, text: lead + brief }, held);
+  const kept = stripRetiredPhrases(brief);
+  if (kept && !relayShortfalls(kept).length) return lead + kept;
+  const outcome = clip(stripCommitIds(plainBrief(run.request.intendedOutcome)));
+  const named = outcome && !relayShortfalls(outcome).length ? `"${outcome}"` : "";
+  if (run.status === "needs_decision") return `I need your decision on ${named || "some of your work"}.`;
+  return named ? `Work on ${named} hit a problem.` : "Some of your work hit a problem.";
+}
+
+function clip(text: string, max = 90): string {
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }

@@ -96,7 +96,15 @@ authoritative path. This change does not rewrite historical private entries.
     name or an outward step (paying, charging, refunds, subscriptions,
     renewals, cancelling, invoices, contracts, signing, publishing, sending,
     merging) always reaches him, even when it also mentions how the work runs.
-  - Both are recorded as held verdicts.
+  - A relayed update in the window and a domain-run notification pass the
+    same checks a chat answer does (`relayShortfalls` in
+    `cli/src/runtime/honesty-check.ts`): backstage machinery, a ruled-out
+    phrase or a placeholder holds it. A held relay or completion notice is
+    not shown at all; a decision or failure still reaches him, with the
+    ruled-out phrase stripped or, failing that, a line naming the work.
+    A bare commit id is dropped from what he sees rather than holding it;
+    a commit link passes as written.
+  - All of these are recorded as held verdicts.
 - **What is read.** Chat turns (the journal), the conversation window's
   answers and relayed updates, the work cards' headlines, agenda results,
   status lines and notifications. Each text is reviewed once.

@@ -17,7 +17,6 @@ import { ComposerDrafts } from "../drafts.js";
 import { ReplySummarizer } from "../summaries.js";
 import { ArtefactJudge } from "../artefact-judge.js";
 import { MAX_CHARS } from "../for-george.js";
-import { unreadNotes } from "../note-receipts.js";
 import { readTaste, writeTaste } from "../../council/taste.js";
 import { KINSTA_RULES, KINSTA_TABLE, STAFF_DECISION, STAFF_LANDED, STAFF_PROGRESS } from "./fixtures/replies.js";
 import { assistantText, captain, captainBlocks, toolUse } from "./transcript-fixture.js";
@@ -928,7 +927,7 @@ describe("ConversationViewServer", () => {
     expect((await get(port, "/api/stream", `127.0.0.1:${port}`, false)).status).toBe(403);
   });
 
-  it("streams each note's receipt and a warning when firstmate has left notes unread past three minutes", async () => {
+  it("streams each note's receipt, saying nothing over the composer about notes left waiting", async () => {
     const inbox = new MemoryInbox();
     const old = new Date(Date.now() - 12 * 60_000).toISOString();
     inbox.notes = () => [
@@ -942,7 +941,7 @@ describe("ConversationViewServer", () => {
         res.setEncoding("utf8");
         res.on("data", (chunk: string) => {
           text += chunk;
-          if (text.includes("event: update") && text.includes("event: unread")) { req.destroy(); resolve(text); }
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
         });
       });
       req.on("error", reject);
@@ -951,8 +950,8 @@ describe("ConversationViewServer", () => {
     const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
     const receipts = Object.fromEntries(update.messages.filter((m: { receipt?: string }) => m.receipt).map((m: { id: string; receipt: string }) => [m.id, m.receipt]));
     expect(receipts).toEqual({ "note:1": "sent", "note:2": "read" });
-    const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
-    expect(unread).toEqual({ count: 1, oldest: old, text: "You have 1 note still waiting — sent 12 min ago." });
+    // Notes left waiting are Flyd's to chase: no unread warning over the composer.
+    expect(body).not.toContain("event: unread");
   });
 
   it("lists a reply's steps in the column's Artefacts once, as the window points to them", async () => {
@@ -1156,7 +1155,7 @@ describe("ConversationViewServer", () => {
         res.setEncoding("utf8");
         res.on("data", (chunk: string) => {
           text += chunk;
-          if (text.includes("event: update") && text.includes("event: unread")) { req.destroy(); resolve(text); }
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
         });
       });
       req.on("error", reject);
@@ -1170,8 +1169,6 @@ describe("ConversationViewServer", () => {
       "note:1791720003-cccccc": "read",
       "note:1791720004-dddddd": "sent",
     });
-    const unread = JSON.parse(body.split("event: unread\ndata: ")[1]!.split("\n")[0]!);
-    expect(unread).toMatchObject({ count: 1, oldest: old });
     // The column shows each note's own recorded answer, never a chat paragraph that seemed to be about it.
     const rows = Object.fromEntries(update.rail.conversations.map((talk: { id: string; answer?: string; state?: string }) => [talk.id, [talk.answer, talk.state]]));
     expect(rows["note:1791720001-aaaaaa"]).toEqual([undefined, "done"]);
@@ -1193,17 +1190,16 @@ describe("ConversationViewServer", () => {
       ["note:1", "read", "Running the footer tests"],
       ["note:2", "sent", "Working on it"],
     ]);
-    expect(unreadNotes(source.exchanges())?.ids).toEqual(["note:2"]);
   });
 
   it("says over the composer only the stuck coding work George has been told about", async () => {
     const inbox = new MemoryInbox();
     const port = await start(inbox);
-    const concern = { kind: "handoff_stale" as const, since: new Date().toISOString() };
+    const concern = { kind: "unreachable" as const, since: new Date().toISOString() };
     server!.staffView = () => ({
       snapshot: { at: new Date().toISOString(), available: true, readiness: { lock: "held", liveHarness: true, heartbeat: "healthy", canReceive: true }, workers: [], waitingOnHim: [], queued: 0, handoffs: [] },
       concerns: [
-        { ...concern, key: "a", text: "I've heard nothing back on \"the footer\" for 3 h.", toldAt: new Date().toISOString() },
+        { ...concern, key: "a", text: "Nobody has been looking after your coding work for 3 h.", toldAt: new Date().toISOString() },
         { ...concern, key: "b", text: "Still being asked about.", nudgedAt: new Date().toISOString() },
       ],
     });
@@ -1219,7 +1215,7 @@ describe("ConversationViewServer", () => {
       req.on("error", reject);
       req.end();
     });
-    expect(JSON.parse(body.split("event: staff\ndata: ")[1]!.split("\n")[0]!)).toEqual({ text: "I've heard nothing back on \"the footer\" for 3 h." });
+    expect(JSON.parse(body.split("event: staff\ndata: ")[1]!.split("\n")[0]!)).toEqual({ text: "Nobody has been looking after your coding work for 3 h." });
   });
 
   it("follows the session that holds firstmate's lock, not the one written last", async () => {

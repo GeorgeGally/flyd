@@ -514,6 +514,22 @@ export async function syncFirstmateDomainRuns(options: {
       const stale = nowMs - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
       next = { ...next, status, ...(stale && status === "completed" ? { notified: true } : {}), ...(status === "failed" ? { failure: run.result.brief } : {}) };
       statusUnclear = outcome === "unclear";
+    } else if (run.status === "working" && run.result?.format === "raw") {
+      // A reply taken before its "status: …" lines could be read: read it again.
+      const parsed = parseDomainResult(run.result.raw.at(-1) ?? run.result.detailedReport);
+      if (parsed.status && parsed.status !== "working") {
+        const handoff = validateDomainHandoff(parsed.result);
+        const { incompleteReason: _previous, statusAskedAt: _asked, ...rest } = next;
+        const stale = nowMs - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
+        next = {
+          ...rest,
+          status: parsed.status,
+          result: parsed.result,
+          ...(stale && parsed.status === "completed" ? { notified: true } : {}),
+          ...(parsed.status === "failed" ? { failure: parsed.result.brief } : {}),
+          ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
+        };
+      }
     }
     if (JSON.stringify(next) === JSON.stringify(run)) continue;
     saveDomainRun(next);

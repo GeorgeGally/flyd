@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
 import { notifyRun } from "../scheduler.js";
@@ -90,88 +91,78 @@ describe("captain notices", () => {
 });
 
 describe("notices keep the one voice", () => {
-  const BACKSTAGE = /firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline|fm\//i;
+  const verdicts = () => readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
+    .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
 
-  it("never lets a backstage term reach George, keeping the counts", () => {
-    const cases: Array<[string, string | null]> = [
-      ["Firstmate has not read 3 notes you sent.", "3 notes"],
-      ["Firstmate has not read 2 notes you sent; the oldest has waited 57 min.", "57 min"],
-      ["Firstmate has not read 13 notes you sent; the oldest has waited 1 h 4 min.", "1 h 4 min"],
-      ["Firstmate has not read 1 note you sent 4 min ago.", "1 note"],
-      ["The crewmate finished 2 jobs.", "2 jobs"],
-      ["Jev reviewed 4 requests.", "4 requests"],
-      ["The Council reviewed 6 items.", "6 items"],
-      ["Council reviewed 6 items.", "6 items"],
-      ["The Librarian curated 12 memories.", "12 memories"],
-      ["The Librarians curated 12 memories.", "12 memories"],
-      ["The Critic advised on 2 plans.", "2 plans"],
-      ["The Strategist dismissed 3 ideas.", "3 ideas"],
-      ["The Muse offered 5 notes.", "5 notes"],
-      ["The Muses offered 5 notes.", "5 notes"],
-      ["The Scout surfaced 4 stories.", "4 stories"],
-      ["Merged the fix on fm/island-filter; the island is quiet.", null],
-      ["Task id task-9 is stuck.", null],
-      ["Run id run-9 is stuck.", null],
-      ["Merged the fix on the branch fm/x; 3 tests added.", "3 tests"],
-      ["Fixed it in the worktree; 2 files changed.", "2 files"],
-      ["The pipeline ran 5 checks.", "5 checks"],
-    ];
-    for (const [reply, kept] of cases) {
-      const notice = captainNotice(run(reply));
-      expect(notice, reply).toBeTruthy();
-      expect(notice!.trim(), reply).not.toBe("");
-      expect(notice!, reply).not.toMatch(BACKSTAGE);
-      if (kept) expect(notice!, reply).toContain(kept);
+  it("keeps a completion that names backstage off his screen entirely, never as a content-free line, and records it", () => {
+    for (const reply of [
+      "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.",
+      "Firstmate has not read 3 notes you sent.",
+      "The crewmate finished 2 jobs.",
+      "Jev reviewed 4 requests.",
+      "The Council reviewed 6 items.",
+      "The Librarian curated 12 memories.",
+      "The Scout surfaced 4 stories.",
+      "Merged the fix on fm/island-filter; the island is quiet.",
+      "Task id task-9 is stuck.",
+      "Fixed it in the worktree; 2 files changed.",
+      "The pipeline ran 5 checks.",
+    ]) {
+      expect(captainNotice(run(reply)), reply).toBeNull();
     }
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.", surface: "notification", held: true }));
   });
 
-  it("fails a notice that names machinery closed to a neutral outcome line", () => {
-    expect(captainNotice(run("Checked by 2 Firstmates."))).toBe("There is an update on your work.");
+  it("keeps a completion that only carries a commit id or the plain word branch, the id dropped", () => {
+    expect(captainNotice(run("The sidebar fix is merged at a1b2c3d."))).toBe("The sidebar fix is merged.");
+    expect(captainNotice(run("Merged the branch and deployed."))).toBe("Merged the branch and deployed.");
+    expect(captainNotice(run("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683"))).toBe("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683");
   });
 
-  it("scrubs decisions and failures too, keeping them readable as a decision or a problem", () => {
-    const decision = captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate asks: merge the branch fm/x or hold?" })));
-    expect(decision).toBe("I need your decision: There is an update on your work.");
+  it("brings a decision or failure that names backstage as a line naming the work, and records it", () => {
+    const decision = captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate needs your call on a composer idle-row guard." })));
+    expect(decision).toBe('I need your decision on "Fix the island".');
     const failure = captainNotice(run(JSON.stringify({ status: "failed", brief: "the branch fm/x is broken" })));
-    expect(failure).toBe("Work hit a problem: There is an update on your work.");
+    expect(failure).toBe('Work on "Fix the island" hit a problem.');
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: "I need your decision: Firstmate needs your call on a composer idle-row guard.", surface: "notification", held: true }));
   });
 
-  it("never renders a fragment or an empty notice", () => {
-    expect(captainNotice(run("The fix is on fm/island-filter."))).toBe("There is an update on your work.");
-    expect(captainNotice(run("fm/x"))).toBe("There is an update on your work.");
-    expect(captainNotice(run("the worktree is dirty; 2 files changed"))).toBe("Update — 2 files.");
-    expect(captainNotice(run("Firstmate has not read 3 notes you sent."))).toBe("Update — 3 notes.");
-    expect(captainNotice(run("Merged the branch and deployed."))).toBe("There is an update on your work.");
-    expect(captainNotice(run("Dispatched a crewmate to fix the layout and pushed."))).toBe("There is an update on your work.");
-    expect(captainNotice(run("Firstmate merged the island filter."))).toBe("There is an update on your work.");
-    expect(captainNotice(run("Ready for review on the branch feature/dark-mode — 7 files changed."))).toBe("Update — 7 files.");
+  it("names the work in a few words, and never falls to a content-free line when the work itself names backstage", () => {
+    const withOutcome = (intendedOutcome: string, brief: string, status: DomainRunStatus) => {
+      const base = run(JSON.stringify({ status, brief }));
+      return captainNotice({ ...base, request: { ...base.request, intendedOutcome } });
+    };
+    const machinery = "Guard relayed updates from firstmate, crewmates and the Council";
+    expect(withOutcome(machinery, "Working on it", "needs_decision")).toBe("I need your decision on some of your work.");
+    expect(withOutcome(machinery, "Working on it", "failed")).toBe("Some of your work hit a problem.");
+    const long = withOutcome(`The sidebar opens on Artefacts by default. ${"More detail follows here. ".repeat(10)}`, "Looking into it", "needs_decision")!;
+    expect(long.length).toBeLessThan(130);
+    expect(long).toMatch(/^I need your decision on "The sidebar opens on Artefacts by default\. .*…"\.$/);
+    expect(long).not.toMatch(/There is an update/);
   });
+});
 
-  it("keeps counts whole and never mines a number out of a hash, id, clock or date", () => {
-    const cases: Array<[string, string]> = [
-      ["Fixed it in commit 0a1b2c3d.", "There is an update on your work."],
-      ["Merged the branch at 14:00.", "There is an update on your work."],
-      ["The worktree holds 2026-10-12 notes.", "There is an update on your work."],
-      ["Task id task-9 is stuck.", "There is an update on your work."],
-      ["Firstmate checked 4 tests 2 failed.", "Update — 4 tests."],
-      ["Firstmate: 4 jobs 2 failed.", "Update — 4 jobs."],
-      ["Firstmate sent 3 notes 2026 pending.", "Update — 3 notes."],
-    ];
-    for (const [reply, expected] of cases) {
-      expect(captainNotice(run(reply)), reply).toBe(expected);
-    }
-    expect(captainNotice(run("The worktree holds 2 files."))).toBe("Update — 2 files.");
-    expect(captainNotice(run("Firstmate has not read 2 notes you sent; the oldest has waited 57 min.")))
-      .toBe("Update — 2 notes, 57 min.");
-    const counted: Array<[string, string]> = [
-      ["Firstmate finished 2/3 jobs.", "Update — 2/3 jobs."],
-      ["The crewmate worked 2-3 hours on the island fix.", "Update — 2-3 hours."],
-      ["Firstmate: 3/4 tests pass.", "Update — 3/4 tests."],
-      ["Firstmate waited 1.5 h.", "Update — 1.5 h."],
-    ];
-    for (const [reply, expected] of counted) {
-      expect(captainNotice(run(reply)), reply).toBe(expected);
-    }
+describe("a notice the outgoing-answer checks hold back", () => {
+  it("never shows a placeholder or a phrase he ruled out, and records what it kept from him", () => {
+    expect(captainNotice(run("Looking into it"))).toBeNull();
+    expect(captainNotice(run("One moment please sir, pulling that up now."))).toBeNull();
+    const verdicts = readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
+    expect(verdicts).toContainEqual(expect.objectContaining({ text: "Looking into it", surface: "notification", held: true }));
+  });
+});
+
+describe("a decision or failure the checks catch", () => {
+  it("still reaches George: a phrase he ruled out is stripped, a placeholder gives way to the work it is about", () => {
+    const decision = captainNotice(run("One moment please sir, the sidebar can open on Artefacts or Changes: which?", "needs_decision"));
+    expect(decision).toMatch(/^I need your decision: /);
+    expect(decision).toContain("the sidebar can open on Artefacts or Changes");
+    expect(decision).not.toMatch(/one moment/i);
+    expect(captainNotice(run("Working on it", "needs_decision"))).toBe('I need your decision on "Fix the island".');
+    expect(captainNotice(run("Looking into it", "failed"))).toBe('Work on "Fix the island" hit a problem.');
+    const verdicts = readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
+    expect(verdicts).toContainEqual(expect.objectContaining({ text: "I need your decision: Working on it", surface: "notification", held: true }));
   });
 });
 
@@ -203,5 +194,15 @@ describe("notifyRun", () => {
     await notifyRun(outcome, notify);
     await notifyRun({ ...outcome, notified: true }, notify);
     expect(sent).toEqual(["Dark mode is merged."]);
+  });
+
+  it("reaches George once with a decision, and says nothing for a quiet run", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+
+    const decision = run(JSON.stringify({ status: "needs_decision", brief: "Merge the sidebar change or hold it?" }));
+    await notifyRun(decision, notify);
+    await notifyRun({ ...decision, notified: true }, notify);
+    expect(sent).toEqual(["I need your decision: Merge the sidebar change or hold it?"]);
   });
 });

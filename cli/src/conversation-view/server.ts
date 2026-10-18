@@ -43,10 +43,9 @@ import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
-import { unreadNotes, unreadWarning } from "./note-receipts.js";
-import { scrubBackstage } from "../lib/backstage.js";
 import { readStaffView, type StaffView } from "../command/fleet-monitor.js";
-import { noteSaid } from "../council/reply-review.js";
+import { noteSaid, recordHeld } from "../council/reply-review.js";
+import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -253,6 +252,9 @@ function handledIn(messages: ConversationMessage[]): (message: ConversationMessa
 }
 
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
+/** Held relays already recorded in this process, so a reload or a reconnect does not record one twice. */
+const heldRelays = new Set<string>();
+
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
 
@@ -263,6 +265,22 @@ export class SnapshotDiffer {
     if (message.answers?.startsWith("note:")) return this.summaries?.interpreter?.cached(message.text);
     const model = this.summaries?.summarizer?.cached(message.text);
     return model && !isRoutineAnswer(model) ? inFlydsVoice(model) : undefined;
+  }
+
+  /**
+   * Whether a relay from the staff fails the outgoing-answer checks a chat reply
+   * passes (backstage machinery, a phrase he ruled out, a placeholder), so it may
+   * not reach him as written. Each one held is recorded once for a reviewer.
+   */
+  private heldRelay(text: string): boolean {
+    const said = inFlydsVoice(text);
+    const held = relayShortfalls(said);
+    if (!held.length) return false;
+    if (!heldRelays.has(said)) {
+      heldRelays.add(said);
+      recordHeld({ surface: "relay", source: "relay:staff", text: said }, held);
+    }
+    return true;
   }
 
   /** Asks Flyd's judge about a reply in the background; the stream re-renders when it answers. */
@@ -297,13 +315,16 @@ export class SnapshotDiffer {
    * leads, firstmate's own words wait behind "more". Until it lands the lead
    * is the answer's local digest; with none coming, Flyd's whole briefing of it.
    */
-  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
+  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): (Pick<RenderedMessage, "summary"> & { body: string }) | null {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
+    const shown = stripCommitIds(message.text);
     if (cached) return { body: message.text, summary: glance(inFlydsVoice(cached), "flyd") };
     this.readAnswer(message, snapshot, newest);
+    // With no reading of Flyd's to lead, staff words that fail the checks are not shown at all: Flyd handles them.
+    if (this.heldRelay(message.text)) return null;
     const pending = interpreter?.pending(message.text) ?? false;
-    return { body: message.text, summary: pending ? glance(message.text, "digest", true) : briefOf(message.text) };
+    return { body: message.text, summary: pending ? glance(shown, "digest", true) : briefOf(shown) };
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
@@ -415,18 +436,19 @@ export class SnapshotDiffer {
       const relay = message.role === "assistant" && message.aside ? staffLine(message.text, handled) : undefined;
       // An answer to his own question is never muted as routine: firstmate's is told by Flyd, Flyd's own
       // shows whole when it fits a glance and else leads with its first few lines.
-      const parts: Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } = message.role !== "assistant" ? { body: message.text }
+      const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.role !== "assistant" ? { body: message.text }
         : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
           : relay && relay.kind !== "absorbed" ? { body: message.text, summary: { html: renderMarkdown(georgeMarkdown(relay)), source: "flyd" } }
             : !message.answers ? this.summarize(message, fresh)
               : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh)
                 : fitsAtAGlance(message.text) ? { body: message.text }
                   : { body: message.text, summary: glance(message.text, "flyd"), ...(isActionable(message.text) ? { expanded: true } : {}) };
+      if (!parts) continue;
       // A question the staff put to him mid-reply is answerable where it stands too, until he has spoken since.
       const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) }
         : relay?.kind === "decision" && !open && index > lastSaid ? { question: inFlydsVoice(relay.line), options: relay.options, replyTo: choiceTarget(message) } : undefined;
       // The card under the reply asks its question; Flyd's briefing does not say it again.
-      if (choice && parts.summary?.source === "brief") parts.summary = briefOf(withoutClosingAsk(message.text), false);
+      if (choice && parts.summary?.source === "brief") parts.summary = briefOf(stripCommitIds(withoutClosingAsk(message.text)), false);
       if (parts.summary?.source === "brief" && parts.summary.html === renderMarkdown(parts.body)) delete parts.summary;
       const routine = parts.routine === true;
       // Relayed updates are only worth his attention when they carry an outcome, decision or ask.
@@ -1477,17 +1499,7 @@ export class ConversationViewServer {
 
     let latest: ConversationSnapshot | null = null;
     let closed = false;
-    // Notes firstmate has left unread too long: a warning over the composer, checked on every update and heartbeat.
-    let unreadSent = "";
-    const emitUnread = () => {
-      if (closed) return;
-      const unread = unreadNotes(this.source.exchanges?.() ?? []);
-      const data = unread ? { count: unread.count, oldest: unread.oldest, text: scrubBackstage(unreadWarning(unread)) } : { count: 0 };
-      if (JSON.stringify(data) === unreadSent) return;
-      unreadSent = JSON.stringify(data);
-      sseEvent(res, "unread", data);
-    };
-    // Coding work Core found stuck: said over the composer like unread notes, only in Flyd's own window.
+    // Coding work Core found stuck after chasing it: said over the composer, only in Flyd's own window.
     let staffSent = "";
     const emitStaff = () => {
       if (closed || !this.source.canSend) return;
@@ -1527,7 +1539,6 @@ export class ConversationViewServer {
         this.autoAnswer(session.id, snapshot);
         this.chaseArtefact(session.id, snapshot);
         sseEvent(res, "update", differ.next(snapshot));
-        emitUnread();
       },
       (error) => sseEvent(res, "problem", { error: error.message }),
     );
@@ -1549,7 +1560,6 @@ export class ConversationViewServer {
     emitStaff();
     const heartbeat = setInterval(() => {
       res.write(": keep-alive\n\n");
-      emitUnread();
       emitStaff();
     }, HEARTBEAT_MS);
     heartbeat.unref?.();

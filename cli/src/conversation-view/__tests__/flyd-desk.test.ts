@@ -572,6 +572,68 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(lead).not.toContain("you're right");
   });
 
+  it("never puts a relay naming machinery or a placeholder in front of him, and passes a clean line through as written", async () => {
+    const helperReport = "Firstmate needs your call on a composer idle-row guard. Upstream reviewers call this new default behaviour, not a fix.";
+    const placeholder = "Working on it";
+    const cleanLine = "Reading cli/src/runtime/acceptance.ts to check the done_when gate";
+    const relay = async (reply: string, file: string, retelling = reply) => {
+      const interpreter = new AnswerInterpreter({ cacheFile: join(dir, file), profile: () => null, complete: async () => retelling });
+      const messages = noteWithReply(reply);
+      const answer = messages.find((message) => message.answers === `note:${NOTE}`)!.text;
+      const shownOf = () => new SnapshotDiffer({ interpreter }).next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`);
+      const first = shownOf();
+      const told = await interpreter.request({ question: "q", answer, recent: [] });
+      return { told, shown: [first, shownOf()], cached: interpreter.cached(answer) };
+    };
+
+    for (const [reply, file] of [[helperReport, "helper.json"], [placeholder, "placeholder.json"]] as const) {
+      // The model retells the reply word for word, as a leaky retelling would.
+      const { told, shown } = await relay(reply, file);
+      expect(told).toBeUndefined();
+      // Nothing of it is rendered: no summary, no body behind "more".
+      expect(shown).toEqual([undefined, undefined]);
+    }
+    const verdicts = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "verdicts.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
+    expect(verdicts).toContainEqual(expect.objectContaining({ text: helperReport, surface: "relay", held: true }));
+
+    const clean = await relay(cleanLine, "clean.json");
+    expect(clean.told).toBe(cleanLine);
+    expect(clean.cached).toBe(cleanLine);
+    expect(plain(clean.shown[1]!.summary!.html)).toContain("acceptance.ts");
+  });
+
+  it("drops a commit id from the staff's own words when they lead, leaving their full reply and its code as written", () => {
+    const reply = "Merged at a1b2c3d; the sidebar opens on Artefacts.\n\n```ts\nfetch(url)\n  .then((r) => r.json())\n```";
+    const shown = new SnapshotDiffer().next({ messages: noteWithReply(reply), working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+    const lead = plain(shown.summary!.html);
+    expect(lead).toContain("the sidebar opens on Artefacts");
+    expect(lead).not.toContain("a1b2c3d");
+    expect(plain(shown.html)).toContain("fetch(url)\n  .then(");
+  });
+
+  it("records a held relay once, however often the window reconnects", () => {
+    const reply = "Firstmate is still on the idle-row guard, nothing to report.";
+    const messages = noteWithReply(reply);
+    for (let reconnect = 0; reconnect < 3; reconnect += 1) {
+      expect(new SnapshotDiffer().next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)).toBeUndefined();
+    }
+    const held = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "verdicts.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; source?: string })
+      .filter((verdict) => verdict.source === "relay:staff" && verdict.text.includes("idle-row guard, nothing to report"));
+    expect(held).toHaveLength(1);
+  });
+
+  it("keeps a retelling that carries a commit id, the id dropped", async () => {
+    const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "sha.json"), profile: () => null, complete: async () => "The sidebar fix is merged at a1b2c3d." });
+    const messages = noteWithReply("Captain, merged the sidebar fix.");
+    const answer = messages.find((message) => message.answers === `note:${NOTE}`)!.text;
+    expect(await interpreter.request({ question: "q", answer, recent: [] })).toBe("The sidebar fix is merged.");
+    const shown = new SnapshotDiffer({ interpreter }).next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+    expect(plain(shown.summary!.html)).toContain("The sidebar fix is merged.");
+    expect(plain(shown.summary!.html)).not.toContain("a1b2c3d");
+  });
+
   it("falls back to the digest when the model only acknowledges or fails", async () => {
     const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "interpretations.json"), profile: () => null, complete: async () => "You're right." });
     const answer = noteWithReply(decision).find((message) => message.answers)!.text;
