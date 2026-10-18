@@ -147,6 +147,12 @@ export function seedSources(now = new Date()): ScoutSource[] {
   ];
 }
 
+/** Union today's defaults into George's managed population, additively, without reordering his own. */
+function withSeedDefaults(sources: ScoutSource[], now: Date): ScoutSource[] {
+  const have = new Set(sources.map((source) => source.id));
+  return [...sources, ...seedSources(now).filter((source) => !have.has(source.id))];
+}
+
 export function readSources(dir = scoutDir(), now = new Date()): ScoutSource[] {
   const path = join(dir, "sources.json");
   if (!existsSync(path)) {
@@ -154,7 +160,11 @@ export function readSources(dir = scoutDir(), now = new Date()): ScoutSource[] {
     atomicWrite(path, `${JSON.stringify(seeded, null, 2)}\n`);
     return seeded;
   }
-  return readJson<ScoutSource[]>(path, []);
+  const stored = readJson<ScoutSource[]>(path, []);
+  if (dir !== scoutDir()) return stored;
+  const merged = withSeedDefaults(stored, now);
+  if (merged.length !== stored.length) atomicWrite(path, `${JSON.stringify(merged, null, 2)}\n`);
+  return merged;
 }
 
 export function writeSources(sources: ScoutSource[], dir = scoutDir()): void {

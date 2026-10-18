@@ -37,6 +37,23 @@ describe("scout sources", () => {
     expect(SEED_TASTE).toContain("Avoid: generic world news, politics, crypto price speculation");
   });
 
+  it("unions defaults added later into the managed population without disturbing it", () => {
+    writeSources([
+      { id: "rss:waxy.org/feed", kind: "rss", name: "Waxy.org", target: "https://waxy.org/feed/", status: "active", shown: 9, likes: 4, dislikes: 0, failures: 0, addedBy: "george", addedAt: "2026-09-01T00:00:00Z" },
+    ], dir);
+    const previous = process.env.FLYD_SCOUT_DIR;
+    process.env.FLYD_SCOUT_DIR = dir;
+    try {
+      const sources = readSources(undefined, at("2026-10-18T08:00:00Z"));
+      expect(sources[0]).toMatchObject({ name: "Waxy.org", shown: 9, likes: 4, addedBy: "george" });
+      expect(sources.some((source) => source.name === "r/Bitcoin" && source.status === "active")).toBe(true);
+      expect(sources.some((source) => source.name === "FlowingData" && source.status === "reserve")).toBe(true);
+      expect(readSources().filter((source) => source.name === "r/Bitcoin")).toHaveLength(1);
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_SCOUT_DIR; else process.env.FLYD_SCOUT_DIR = previous;
+    }
+  });
+
   it("scores fitness as a posterior that fades with unrewarded exposure", () => {
     expect(fitness({ likes: 0, dislikes: 0, shown: 0 })).toBe(0.5);
     expect(fitness({ likes: 3, dislikes: 0, shown: 3 })).toBeGreaterThan(0.75);
