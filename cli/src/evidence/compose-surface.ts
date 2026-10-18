@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
+import type { SemanticObject } from "../conversation-view/semantic.js";
 import type {
   EvidenceBundle,
   EvidenceComposeSurface,
@@ -187,6 +188,52 @@ function cleanup(): void {
   for (let index = readySurfaceIds.length - 1; index >= 0; index -= 1) {
     if (!surfaces.has(readySurfaceIds[index])) readySurfaceIds.splice(index, 1);
   }
+}
+
+export function evidenceSurfaceUrl(surfaceId: string): string {
+  return `http://${SURFACE_HOST}:${SURFACE_PORT}/surface/${encodeURIComponent(surfaceId)}`;
+}
+
+export function evidenceSurfaceSemanticObject(surfaceId: string): SemanticObject | undefined {
+  cleanup();
+  const entry = surfaces.get(surfaceId);
+  if (!entry) return undefined;
+  const surface = entry.surface;
+  const synthesis = surface.synthesis;
+  const evidence = surface.evidence.slice(0, 24).flatMap((item) => {
+    const ref = safeLink(item.locator);
+    return ref ? [{ kind: "web" as const, ref, label: item.title || item.author || item.capability }] : [];
+  });
+  evidence.unshift({ kind: "document", ref: evidenceSurfaceUrl(surfaceId), label: "Research dossier" });
+  return {
+    id: `investigation:${surfaceId}`,
+    kind: "investigation",
+    lifecycle: synthesis ? "resolved" : "active",
+    subject: synthesis?.title || surface.query,
+    summary: synthesis?.executiveSummary || "Gathering and organising evidence.",
+    ...(synthesis?.recommendation ? { detail: synthesis.recommendation } : {}),
+    evidence,
+    actions: [{ id: "inspect:dossier", kind: "inspect", label: "Open research", value: evidenceSurfaceUrl(surfaceId) }],
+    source: { showItemId: `evidence:${surfaceId}`, ref: surfaceId },
+    investigation: {
+      question: surface.query,
+      findings: (synthesis?.findings ?? []).map((finding) => ({
+        heading: finding.heading,
+        summary: finding.summary,
+        confidence: finding.confidence,
+        evidenceIds: finding.evidenceIds,
+      })),
+      uncertainties: synthesis?.uncertainties ?? surface.gaps.map((gap) => gap.message).slice(0, 8),
+      conflicts: surface.conflicts.slice(0, 8).map((conflict) => ({
+        topic: conflict.topic,
+        reason: conflict.reason,
+        confidence: conflict.confidence,
+      })),
+      sourceCount: surface.evidence.length,
+    },
+    createdAt: surface.generatedAt,
+    updatedAt: surface.generatedAt,
+  };
 }
 
 export function evidenceSurfaceIdForResolution(resolutionId: string): string | undefined {
