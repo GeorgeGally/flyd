@@ -24,6 +24,8 @@ import { authorSummary, digestReply, isActionable, isRoutine, isRoutineAnswer, a
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
+import type { SemanticJudge } from "./semantic-judge.js";
+import { semanticObjectsFromShow } from "./semantic.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
@@ -139,6 +141,8 @@ export interface SummaryOptions {
   interpreter?: AnswerInterpreter;
   /** Flyd's call on replies whose steps the rules leave unclear: artefact or text. */
   artefacts?: ArtefactJudge;
+  /** Jev's bounded semantic decision layer; shadow-only while ShowItem still renders the UI. */
+  semantic?: SemanticJudge;
   /** Also summarise replies that carry their own "» " summary, to compare. */
   always?: boolean;
   /** Called when a requested summary arrives (or fails), so the stream can push it. */
@@ -286,6 +290,11 @@ export class SnapshotDiffer {
   /** Asks Flyd's judge about a reply in the background; the stream re-renders when it answers. */
   private judge(judge: ArtefactJudge, text: string): void {
     void judge.request(text).then(() => this.summaries?.onSummary?.());
+  }
+
+  /** Asks Jev for the canonical semantic kind in the background; visual rendering does not wait on it. */
+  private judgeSemantic(judge: SemanticJudge, item: import("./show.js").ShowItem): void {
+    void judge.request(item).then(() => this.summaries?.onSummary?.());
   }
 
   /** Starts a model summary in the background; the stream re-renders when it lands. */
@@ -505,6 +514,11 @@ export class SnapshotDiffer {
         reading: (message) => this.reading(message),
         muted: (message) => this.routine(message, handledOf(message)),
       });
+    const semanticJudge = this.summaries?.semantic;
+    if (semanticJudge) {
+      for (const item of show.items) if (!semanticJudge.cached(item) && !semanticJudge.pending(item)) this.judgeSemantic(semanticJudge, item);
+      show.semantic = semanticObjectsFromShow(show.items, (item) => semanticJudge.cached(item)?.kind);
+    }
     const live = this.show?.live ?? (() => "up");
     const found = currentPage(snapshot.messages);
     // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
@@ -585,7 +599,7 @@ export class ConversationViewServer {
 
   constructor(
     private readonly source: ConversationSource,
-    private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; artefacts?: ArtefactJudge; always?: boolean },
+    private readonly summaries?: { summarizer?: ReplySummarizer; interpreter?: AnswerInterpreter; artefacts?: ArtefactJudge; semantic?: SemanticJudge; always?: boolean },
     private readonly plan?: PlanUsageReader,
     private readonly show?: Pick<ShowOptions, "projects">,
     private readonly feed: ArtefactFeed = new ArtefactFeed(),
