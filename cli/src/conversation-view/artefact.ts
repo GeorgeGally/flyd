@@ -622,6 +622,28 @@ export function doneItems(fleet: FleetArtefact | undefined, options: ComposeOpti
     .flatMap((row, index) => rowItem("landed", `landed-${row.task ?? index}`, row, options) ?? []);
 }
 
+/** Finished work that waits to land, newest first, one line each. Pure. */
+export function readyItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
+  if (!fleet || fleet.unavailable) return [];
+  const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
+  return [...fleet.ready].filter((row) => row.status !== "report available").sort((a, b) => when(b) - when(a))
+    .flatMap((row, index) => rowItem("ready", `ready-${row.task ?? index}`, row, options) ?? []);
+}
+
+/** Work that stopped — paused, failed, gone quiet — newest first, one line each. Pure. */
+export function heldItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
+  if (!fleet || fleet.unavailable) return [];
+  const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
+  return [...fleet.held].sort((a, b) => when(b) - when(a))
+    .flatMap((row, index) => rowItem("waiting", `held-${row.task ?? index}`, row, options) ?? []);
+}
+
+/** Work queued next, in the fleet's own order, one line each. Pure. */
+export function nextItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
+  if (!fleet || fleet.unavailable) return [];
+  return fleet.next.flatMap((row, index) => rowItem("next", `next-${row.task ?? index}`, row, options) ?? []);
+}
+
 /** When a task's worker was started: firstmate stamps its spawn as `spawn_gen=s<epoch>.…` in the task's meta. Pure. */
 export function workerStarted(meta: string): string | undefined {
   const epoch = /^spawn_gen=s(\d{9,11})\b/m.exec(meta)?.[1];

@@ -128,6 +128,23 @@ export const LEFT_SCRIPT = `
     }));
   }
   function activityKey(item, live) { return item.id + "|" + (live ? "now" : "done"); }
+  // The stories behind a news card: the headline as a link, a line of gist, and where it came from.
+  function storiesNode(stories) {
+    if (!stories || !stories.length) return undefined;
+    var list = el("ul", "card-stories");
+    stories.forEach(function (story) {
+      var li = el("li", "");
+      var a = el("a", "card-story-head", story.title);
+      a.href = story.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      li.appendChild(a);
+      if (story.gist) li.appendChild(el("p", "card-story-line", story.gist));
+      if (story.source) li.appendChild(el("p", "card-story-src", story.source));
+      list.appendChild(li);
+    });
+    return list;
+  }
   function activityCard(item, live) {
     var key = activityKey(item, live);
     return visualCard(item, {
@@ -139,6 +156,7 @@ export const LEFT_SCRIPT = `
       // Clicking a card opens what it did in full, and exactly when.
       detail: item.detail || "",
       detailWhen: item.at ? dayOf(item.at) + ", " + clock(item.at) : "",
+      extra: storiesNode(item.stories),
       open: !!leftOpen[key],
       onToggle: function (open) { if (open) leftOpen[key] = 1; else delete leftOpen[key]; },
       dismiss: true,

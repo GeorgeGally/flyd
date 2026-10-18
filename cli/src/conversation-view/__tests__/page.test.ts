@@ -1498,8 +1498,8 @@ describe("header and artefact view", () => {
     await settle();
     const figure = document.querySelector<HTMLButtonElement>("#readouts .ro-open")!;
     expect(figure.textContent).toBe("2 need you");
-    // Only the figure that has a list behind it opens one.
-    expect(document.querySelectorAll("#readouts button")).toHaveLength(1);
+    // Every figure opens what it counts; the one that needs him opens its calls.
+    expect(document.querySelectorAll("#readouts button")).toHaveLength(2);
     figure.click();
     const sheet = document.getElementById("calls")!;
     expect(sheet.hidden).toBe(false);
@@ -1520,6 +1520,43 @@ describe("header and artefact view", () => {
     expect(sent).toEqual([{ decision: "b", text: "Merge it" }]);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(sheet.hidden).toBe(true);
+  });
+
+  it("opens any figure onto its own group, one line each newest first, each opening its card detail", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const underway = [
+      { id: "live:a", kind: "live", headline: "CapFive tiles show the closed year", why: "", status: "half done", at: "2026-10-18T08:00:00Z" },
+      { id: "live:b", kind: "live", headline: "Fix the island filter", why: "", at: "2026-10-18T09:00:00Z" },
+    ];
+    const held = [{ id: "held:a", kind: "waiting", headline: "Stopped a job before it finished", why: "", status: "paused", at: "2026-10-18T07:00:00Z" }];
+    const show = { title: "", summary: "", live: false, counts: { live: 2, waiting: 1 }, items: [], underway, held };
+    const bars = [{ label: "under way", value: 2, tone: "live" }, { label: "held up", value: 1, tone: "waiting" }];
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars }] });
+    await settle();
+    const figures = document.querySelectorAll<HTMLButtonElement>("#readouts .ro-open");
+    expect(figures[0]!.textContent).toBe("2 under way");
+    figures[0]!.click();
+    const drill = document.getElementById("drill")!;
+    expect(drill.hidden).toBe(false);
+    expect(document.getElementById("drill-title")!.textContent).toBe("Under way");
+    const items = [...drill.querySelectorAll<HTMLElement>("#drill-list > .card")];
+    // Newest first, one plain line each.
+    expect(items.map((node) => node.querySelector(".card-line")!.textContent)).toEqual(["Fix the island filter", "CapFive tiles show the closed year"]);
+    // An item opens its card detail where it stands.
+    expect(items[0]!.classList.contains("is-open")).toBe(false);
+    items[0]!.click();
+    expect(items[0]!.querySelector<HTMLElement>(".card-detail")!.hidden).toBe(false);
+    // Clicking the same figure again closes it.
+    figures[0]!.click();
+    expect(drill.hidden).toBe(true);
+    // Another figure opens its own group.
+    figures[1]!.click();
+    expect(document.getElementById("drill-title")!.textContent).toBe("Held up");
+    expect(drill.querySelectorAll("#drill-list > .card")).toHaveLength(1);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(drill.hidden).toBe(true);
   });
 
   it("offers a comment on words he selects in a message, and sends it quoting them", async () => {
