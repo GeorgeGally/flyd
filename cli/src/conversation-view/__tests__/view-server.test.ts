@@ -636,6 +636,50 @@ describe("ConversationViewServer", () => {
     expect((await get(port, "/api/note?id=note%3A1")).status).toBe(403);
   });
 
+  it("returns the reply about a note he sent from an artefact, so it can land in the card's own thread", async () => {
+    const inbox = new MemoryInbox();
+    await inbox.send("Make the pins bigger");
+    const notes = inbox.notes.bind(inbox);
+    inbox.notes = () => notes().map((exchange) => exchange.question.id !== "note:1" ? exchange : {
+      ...exchange,
+      waiting: "",
+      answer: { id: "note-reply:1", role: "assistant" as const, text: "Bigger pins it is, sir.", timestamp: "2026-10-05T20:03:00.000Z", answers: "note:1" },
+    });
+    const port = await start(inbox);
+    const note = async (id: string) => JSON.parse((await get(port, `/api/note?id=${encodeURIComponent(id)}&token=${viewToken}`)).body);
+    expect(await note("note:1")).toEqual({ receipt: "read", answer: { text: "Bigger pins it is, sir.", timestamp: "2026-10-05T20:03:00.000Z" } });
+    expect(await note("note:9")).toEqual({ receipt: null });
+  });
+
+  it("keeps a note firstmate took but has not answered open, so a later reply still lands", async () => {
+    const inbox = new MemoryInbox();
+    await inbox.send("Make the pins bigger");
+    const notes = inbox.notes.bind(inbox);
+    inbox.notes = () => notes().map((exchange) => ({ ...exchange, handoff: "taken" as const, takenAt: "2026-10-05T20:03:00.000Z" }));
+    const port = await start(inbox);
+    const note = JSON.parse((await get(port, `/api/note?id=${encodeURIComponent("note:1")}&token=${viewToken}`)).body);
+    // Taken, so the line under the box says Flyd has it — but never that the card should stop
+    // asking: a taken note can still be answered in firstmate's own chat, so no `done` is sent.
+    expect(note).toEqual({ receipt: "read" });
+  });
+
+  it("finds a note's chat reply in the session that was live when he sent it, not only the newest", async () => {
+    const inbox = new MemoryInbox();
+    await inbox.send("Make the pins bigger");
+    const notes = inbox.notes.bind(inbox);
+    // Sent while the first session was live.
+    inbox.notes = () => notes().map((exchange) => ({ ...exchange, question: { ...exchange.question, timestamp: "2026-10-05T17:00:03.000Z" } }));
+    const port = await start(inbox, [
+      captain("hello", { timestamp: "2026-10-05T17:00:00.000Z" }),
+      assistantText("The pins on the map are bigger now, sir, and the labels are ready.", "end_turn", { timestamp: "2026-10-05T17:00:04.000Z" }),
+    ]);
+    // A newer session has started since, and firstmate said nothing in it about this note.
+    writeFileSync(join(dir!, "s2.jsonl"), [captain("later", { timestamp: "2026-10-05T17:10:00.000Z" }), assistantText("Sure, on it.", "end_turn", { timestamp: "2026-10-05T17:10:01.000Z" })].join("\n") + "\n");
+    const note = JSON.parse((await get(port, `/api/note?id=${encodeURIComponent("note:1")}&token=${viewToken}`)).body);
+    expect(note.answer?.timestamp).toBe("2026-10-05T17:00:04.000Z");
+    expect(note.answer?.text).toContain("pins on the map are bigger");
+  });
+
   it("sends his reply to an answer back to firstmate, saying what it answers, and threads it under that answer", async () => {
     const inbox = new MemoryInbox();
     await inbox.send("There should also be other movements for bunny.");

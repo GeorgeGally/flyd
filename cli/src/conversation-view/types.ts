@@ -167,4 +167,11 @@ export interface ConversationSource {
   image(sessionId: string, imageId: string): Promise<ImageData | null>;
   /** Every question asked from the window, to firstmate or to Flyd, for the right column. */
   exchanges?(): Exchange[];
+  /**
+   * Firstmate's own-chat answer to one note, when it answered in its own chat
+   * rather than with a formal reply: read from the session that was live when
+   * the note was sent as well as the newest, so a reply is still found after a
+   * newer session has started.
+   */
+  noteAnswer?(noteId: string): Promise<ConversationMessage | undefined>;
 }

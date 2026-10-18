@@ -745,11 +745,20 @@ export class ConversationViewServer {
       return;
     }
     if (url.pathname === "/api/note") {
-      // Whether firstmate has read one note he sent from an artefact: "sent", then "read".
+      // Where one note he sent from an artefact stands: "sent", then "read"; and
+      // the reply about it, formal or said in firstmate's own chat, so it can land
+      // in the card's own thread. A note firstmate has taken but not answered is
+      // never reported finished with: it can still gain a reply, so the card keeps
+      // asking until one arrives or the note goes from the inbox for good.
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
       const id = url.searchParams.get("id") ?? "";
-      const note = this.source.exchanges?.().find((exchange) => exchange.question.id === id);
-      sendJson(res, 200, { receipt: note ? (note.answer ? "read" : note.question.receipt ?? "sent") : null });
+      const note = (this.source.exchanges?.() ?? []).find((exchange) => exchange.question.id === id);
+      const chat = note && !note.answer && this.source.noteAnswer ? await this.source.noteAnswer(id).catch(() => undefined) : undefined;
+      const answer = note?.answer ?? chat;
+      sendJson(res, 200, {
+        receipt: note ? (answer || note.handoff === "taken" || note.question.receipt === "read" ? "read" : "sent") : null,
+        ...(answer ? { answer: { text: answer.text, ...(answer.timestamp ? { timestamp: answer.timestamp } : {}) } } : {}),
+      });
       return;
     }
     if (url.pathname === "/api/plan") {

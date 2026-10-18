@@ -273,6 +273,14 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .art-chat-receipt:empty { display: none; }
 .art-chat-receipt.problem { color: var(--k-waiting); }
 .art-chat--receipt .art-chat-field { display: none; }
+/* His messages to one card and what came back, in order: the card's own thread.
+   Quiet type, no bubbles, and the newest thing he sent stays under his words. */
+.art-thread { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.art-thread[hidden] { display: none; }
+.art-msg { margin: 0; font: 400 15px/1.5 var(--sans); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.art-msg--you { color: var(--fg); }
+/* Flyd's reply: a step smaller and held back, the way its voice sits under his elsewhere. */
+.art-msg--them { font-size: 14px; margin-bottom: 4px; }
 .scene-ask .step-q { font-size: clamp(20px, 1.6vw, 26px); line-height: 1.25; }
 .scene-ask .step-review { font-size: clamp(16px, 1.2vw, 19px); }
 .scene-meta .closed { color: var(--muted); font-style: italic; }
@@ -2767,8 +2775,10 @@ ${LEFT_SCRIPT}
   // the artefact itself ({ about: { title, task, url } }).
   function artefactChat(key, target, label) {
     var state = {};
-    try { state = JSON.parse(sessionStorage.getItem(key) || "{}"); } catch (_) {}
+    try { state = JSON.parse(sessionStorage.getItem(key) || "{}") || {}; } catch (_) {}
     if (state.receipt === "sending") state.receipt = "";
+    try { state.thread = JSON.parse(store(key) || "[]"); } catch (_) {}
+    if (!Array.isArray(state.thread)) state.thread = [];
     var form = el("form", "art-chat");
     form.setAttribute("aria-label", label);
     var input = el("textarea", "art-chat-input");
@@ -2791,7 +2801,41 @@ ${LEFT_SCRIPT}
     receipt.setAttribute("role", "status");
     receipt.setAttribute("aria-live", "polite");
     var watching = null;
-    function save() { try { sessionStorage.setItem(key, JSON.stringify(state)); } catch (_) {} }
+    // His messages about this card and the replies that came back, oldest first,
+    // kept with the card so they survive a reload and the box is never blank again.
+    var thread = el("div", "art-thread");
+    // Only the thread outlives the session; a choice he picked, the steps and his draft stay with this session.
+    // The same card can be open in more than one place at once, so what another copy stored is
+    // folded in by note id, never written over: no message, note id or answer is lost, and
+    // nothing one copy has finished with comes back. Only notes that went are kept.
+    function save() {
+      try { sessionStorage.setItem(key, JSON.stringify(Object.assign({}, state, { thread: undefined }))); } catch (_) {}
+      var stored = [];
+      try { stored = JSON.parse(store(key) || "[]"); } catch (_) {}
+      var mine = state.thread || [];
+      var after = -1;
+      (Array.isArray(stored) ? stored : []).forEach(function (other) {
+        if (!other || !other.id) return;
+        var at = -1;
+        mine.forEach(function (entry, index) { if (entry.id === other.id) at = index; });
+        if (at === -1) { mine.splice(after + 1, 0, Object.assign({}, other)); after += 1; return; }
+        var entry = mine[at];
+        if (!entry.answer && other.answer) entry.answer = other.answer;
+        if (other.done) entry.done = true;
+        after = Math.max(after, at);
+      });
+      state.thread = mine.slice(-50);
+      store(key, JSON.stringify(state.thread.filter(function (entry) { return entry.id; })));
+      paintThread();
+    }
+    function paintThread() {
+      thread.textContent = "";
+      (state.thread || []).forEach(function (entry) {
+        thread.appendChild(el("p", "art-msg art-msg--you", entry.text));
+        if (entry.answer) thread.appendChild(el("p", "art-msg art-msg--them", entry.answer));
+      });
+      thread.hidden = !(state.thread || []).length;
+    }
     function paint() {
       receipt.textContent = state.error || (state.receipt === "read" ? "Flyd has it" : state.receipt === "sent" ? "Sent to Flyd" : state.receipt === "sending" ? "Sending…" : "");
       receipt.classList.toggle("problem", !!state.error);
@@ -2840,20 +2884,58 @@ ${LEFT_SCRIPT}
         reader.readAsDataURL(file);
       });
     });
-    // Firstmate reads a note by acknowledging it; until then the line says only that it was sent.
+    // Every note in the card without an answer is watched, so a reply lands here
+    // rather than only in the conversation; the newest also says whether it was read.
+    function unanswered() {
+      return (state.thread || []).filter(function (entry) { return entry.id && !entry.answer && !entry.done; });
+    }
     function watch() {
-      if (watching || !state.note || state.receipt !== "sent") return;
+      if (watching) return;
+      if (!unanswered().length) return;
+      var asking = false;
       watching = setInterval(function () {
-        if (!form.isConnected || state.receipt !== "sent") { clearInterval(watching); watching = null; return; }
-        fetch("/api/note?id=" + encodeURIComponent(state.note) + "&token=" + encodeURIComponent(VIEW_TOKEN))
-          .then(function (response) { return response.ok ? response.json() : null; })
-          .then(function (data) { if (data && data.receipt === "read") { state.receipt = "read"; save(); paint(); } })
-          .catch(function () {});
+        if (!form.isConnected) { clearInterval(watching); watching = null; return; }
+        if (asking) return;
+        var waiting = unanswered();
+        // Nothing left to hear back about: the card stops asking.
+        if (!waiting.length) { clearInterval(watching); watching = null; return; }
+        asking = true;
+        Promise.all(waiting.map(function (entry) {
+          return fetch("/api/note?id=" + encodeURIComponent(entry.id) + "&token=" + encodeURIComponent(VIEW_TOKEN))
+            .then(function (response) { return response.ok ? response.json() : null; })
+            .catch(function () { return null; });
+        })).then(function (results) {
+          asking = false;
+          var changed = false;
+          results.forEach(function (data, index) {
+            if (!data) return;
+            var entry = waiting[index];
+            // Gone from firstmate's inbox poll after poll (one miss is only firstmate moving
+            // it to handled/): nothing more will come for it. A note firstmate has taken but
+            // not answered is not finished with — it can still gain a reply — so the card
+            // keeps asking, as the window keeps showing it.
+            var missed = data.receipt === null ? (entry.missed || 0) + 1 : 0;
+            if (missed !== (entry.missed || 0)) { entry.missed = missed; changed = true; }
+            if (missed >= 3) { entry.done = true; changed = true; }
+            if (data.answer && data.answer.text && !entry.answer) {
+              entry.answer = data.answer.text;
+              if (state.receipt === "sent") state.receipt = "read";
+              changed = true;
+            }
+            if (data.receipt === "read" && state.receipt === "sent") { state.receipt = "read"; changed = true; }
+          });
+          if (changed) { save(); paint(); }
+        });
       }, 5000);
     }
     function deliver(text, done) {
       state.receipt = "sending";
       state.error = "";
+      // His words stand in the card's own thread the moment he sends them, not when a reply comes.
+      // Only the newest few dozen are kept: old ones have long scrolled off the card anyway.
+      var entry = { text: text };
+      state.thread = (state.thread || []).concat([entry]).slice(-50);
+      paintThread();
       paint();
       var sending = takesImages ? images.slice() : [];
       var body = Object.assign({ text: text }, target);
@@ -2863,7 +2945,7 @@ ${LEFT_SCRIPT}
         .then(function (result) {
           if (!result.ok) throw new Error(result.data.error || "Not delivered; try again.");
           state.receipt = "sent";
-          state.note = result.data.id;
+          entry.id = result.data.id;
           // Only what went is cleared: one pasted while it was on its way stays for the next.
           images = images.filter(function (image) { return sending.indexOf(image) === -1; });
           paintImages();
@@ -2872,7 +2954,14 @@ ${LEFT_SCRIPT}
           paint();
           watch();
         })
-        .catch(function (error) { state.receipt = ""; state.error = error.message || "Not delivered; try again."; paint(); });
+        .catch(function (error) {
+          state.receipt = "";
+          state.error = error.message || "Not delivered; try again.";
+          // Nothing went, so it is not in the thread: his words stay in the box to try again.
+          state.thread = (state.thread || []).filter(function (one) { return one !== entry; });
+          paintThread();
+          paint();
+        });
     }
     input.addEventListener("input", function () { state.text = input.value; state.error = ""; save(); paint(); });
     input.addEventListener("keydown", function (event) {
@@ -2891,9 +2980,11 @@ ${LEFT_SCRIPT}
     row.appendChild(send);
     field.appendChild(thumbs);
     field.appendChild(row);
+    form.appendChild(thread);
     form.appendChild(field);
     form.appendChild(receipt);
     var chat = { form: form, state: state, deliver: deliver, save: save, onPaint: null };
+    paintThread();
     paint();
     watch();
     return chat;
