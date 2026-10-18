@@ -3996,12 +3996,13 @@ ${LEFT_SCRIPT}
   // Otherwise its own pixels say it: a phone-shaped portrait capture (under
   // 1400px wide, 1.8-2.4 times as tall as wide) is a phone shot at native
   // resolution; a taller one is a full-page capture, not a phone. Else at least
-  // 1000px wide is a desktop capture, 380-560px wide a phone, and anything
-  // between keeps its own shape, never a phone frame it is not.
+  // 1000px wide is a desktop capture, a portrait 380-560px wide (at least 1.6
+  // times as tall as wide) a phone, and anything else keeps its own shape,
+  // never a phone frame it is not.
   function shapeOf(w, h) {
     if (w && w < 1400 && h / w >= 1.8 && h / w <= 2.4) return "phone";
     if (w >= 1000) return "desk";
-    if (w >= 380 && w <= 560) return "phone";
+    if (w >= 380 && w <= 560 && h / w >= 1.6) return "phone";
     return "";
   }
   var ambientSrc = "";

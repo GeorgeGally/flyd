@@ -1435,6 +1435,9 @@ describe("header and artefact view", () => {
     // A full-page desktop capture is far taller than a phone, so it stays a desktop.
     expect(shapeAt(1440, 4000)).toBe("device desk");
     expect(shapeAt(1920, 6000)).toBe("device desk");
+    // A phone-wide picture that is not portrait is not a phone: a square icon, a landscape crop.
+    expect(shapeAt(512, 512)).toBe("device art");
+    expect(shapeAt(500, 300)).toBe("device art");
   });
 
   it("shows the right column: each conversation with its answer below, and a live preview artefact", async () => {
