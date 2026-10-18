@@ -2807,8 +2807,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
       },
     });
     await settle();
+    expect(document.getElementById("underway")!.innerHTML).toContain("activity-card");
     const first = document.querySelector("#underway .activity-card") as HTMLElement;
-    expect(first).not.toBeNull();
     expect(first.dataset.semanticId).toBe("task:t1");
     expect(first.dataset.phase).toBe("working");
     expect(document.querySelectorAll("#underway .activity-card")).toHaveLength(1);
