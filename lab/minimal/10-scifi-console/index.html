@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Sci-fi console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  /* 10 · Sci-fi console. A ship's bridge with the lights down: hairlines, one radar sweep, one live channel.
+     Readouts are telemetry, never prose. The single amber frame is the only thing asking for a hand. */
+  :root { --bg:#04070a; --ink:#d4ecf2; --dim:#4c6670; --hair:#10232a; --cyan:#5fe1f2; --amber:#ffb454; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; color:var(--ink); font-family:"Space Grotesk", sans-serif; -webkit-font-smoothing:antialiased;
+    background:linear-gradient(rgba(95,225,242,.025) 1px, transparent 1px) 0 0 / 100% 4px, var(--bg); }
+  .chrome { height:38px; display:flex; align-items:center; gap:8px; padding:0 16px; }
+  .chrome i { width:12px; height:12px; border-radius:50%; background:#0f1a1f; }
+  .mono { font-family:"JetBrains Mono", monospace; font-size:11px; color:var(--dim); }
+  .top { position:absolute; left:64px; right:64px; top:60px; display:flex; justify-content:space-between; border-bottom:1px solid var(--hair); padding-bottom:12px; }
+  .top .live { color:var(--cyan); }
+  .radar { position:absolute; right:64px; top:110px; width:300px; height:300px; }
+  .frame { position:absolute; left:160px; top:250px; width:600px; padding:40px 44px; }
+  .frame::before, .frame::after { content:""; position:absolute; width:22px; height:22px; border:1px solid var(--amber); }
+  .frame::before { left:0; top:0; border-width:1px 0 0 1px; } .frame::after { right:0; bottom:0; border-width:0 1px 1px 0; }
+  .frame .k { font-family:"JetBrains Mono", monospace; font-size:12px; color:var(--amber); margin-bottom:20px; }
+  .frame h1 { font-size:34px; line-height:1.22; font-weight:300; }
+  .frame .actions { margin-top:52px; display:flex; gap:14px; }
+  button { font-family:"JetBrains Mono", monospace; font-size:13px; height:42px; padding:0 22px; border:1px solid #1d3540; background:transparent; color:var(--ink); cursor:pointer; transition:background-color .2s, border-color .2s; }
+  button.go { border-color:var(--amber); color:var(--amber); }
+  button:hover { background:#0b161b; } button.go:hover { background:rgba(255,180,84,.1); }
+  .tele { position:absolute; left:64px; right:64px; bottom:64px; display:grid; grid-template-columns:1fr 1fr 1fr 220px; column-gap:40px; border-top:1px solid var(--hair); padding-top:18px; }
+  .tele .k { display:block; margin-bottom:8px; }
+  .tele p { font-size:15px; line-height:1.4; }
+  .ok { color:var(--cyan); }
+  .bar { margin-top:10px; height:2px; background:var(--hair); } .bar b { display:block; height:2px; width:62%; background:var(--cyan); }
+  .feed { position:relative; }
+  .feed svg { width:100%; display:block; opacity:.75; filter:saturate(.6); }
+  .feed::after { content:""; position:absolute; inset:-4px; border:1px solid var(--hair); }
+</style>
+</head>
+<body>
+  <div class="chrome"><i></i><i></i><i></i></div>
+  <div class="top mono"><span>FLYD · BRIDGE</span><span>SUN 18 OCT · 09:12:44</span><span class="live">● CHANNEL OPEN · HOLD FN</span></div>
+
+  <svg class="radar" viewBox="0 0 300 300" aria-hidden="true">
+    <defs><linearGradient id="sw" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5fe1f2" stop-opacity="0"/><stop offset="1" stop-color="#5fe1f2" stop-opacity=".28"/></linearGradient></defs>
+    <g fill="none" stroke="#10232a"><circle cx="150" cy="150" r="140"/><circle cx="150" cy="150" r="95"/><circle cx="150" cy="150" r="50"/><path d="M150 10v280M10 150h280"/></g>
+    <path d="M150 150 L290 150 A140 140 0 0 0 249 51 Z" fill="url(#sw)"/>
+    <circle cx="214" cy="96" r="4" fill="#ffb454"/><circle cx="104" cy="196" r="3" fill="#5fe1f2" opacity=".7"/><circle cx="190" cy="214" r="3" fill="#5fe1f2" opacity=".7"/><circle cx="96" cy="112" r="3" fill="#5fe1f2" opacity=".4"/>
+  </svg>
+
+  <section class="frame">
+    <p class="k">▲ NEEDS YOU · GNM</p>
+    <h1>A test entry is in the live vendor list. Shall I delete it?</h1>
+    <div class="actions"><button class="go">DELETE IT</button><button>KEEP IT</button></div>
+  </section>
+
+  <div class="tele">
+    <div><span class="k mono ok">DONE</span><p>GNM test applications passed</p></div>
+    <div><span class="k mono ok">DONE</span><p>Vendor logo uploads fixed</p></div>
+    <div><span class="k mono">UNDER WAY · 62%</span><p>CapFive tiles show the closed year</p><div class="bar"><b></b></div></div>
+    <div class="feed"><span class="k mono">FEED · 8 DAYS OF CHRISTMAS</span>
+      <svg viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Good Neighbours 8 Days of Christmas site">
+        <rect width="320" height="200" fill="#f3ede2"/><rect width="320" height="18" fill="#1e3a2c"/><circle cx="12" cy="9" r="3" fill="#e9dcc4"/><rect x="22" y="7" width="40" height="4" rx="2" fill="#e9dcc4"/><rect x="250" y="6" width="58" height="7" rx="3.5" fill="#c8402f"/>
+        <text x="20" y="58" font-family="Georgia,serif" font-size="22" fill="#1e3a2c">8 Days of</text><text x="20" y="84" font-family="Georgia,serif" font-size="22" font-style="italic" fill="#c8402f">Christmas</text>
+        <rect x="20" y="96" width="120" height="4" rx="2" fill="#1e3a2c" opacity=".35"/><rect x="20" y="106" width="90" height="4" rx="2" fill="#1e3a2c" opacity=".35"/><rect x="20" y="120" width="56" height="14" rx="7" fill="#1e3a2c"/>
+        <rect x="176" y="34" width="124" height="104" rx="4" fill="#1e3a2c"/><path d="M238 50 l26 40 h-52z" fill="#3f6b4f"/><path d="M238 66 l30 46 h-60z" fill="#4f8360"/><rect x="234" y="112" width="8" height="12" fill="#8a5a3b"/><circle cx="238" cy="48" r="4" fill="#e7b84a"/>
+        <g fill="#e3d6bf"><rect x="20" y="152" width="64" height="34" rx="3"/><rect x="92" y="152" width="64" height="34" rx="3"/><rect x="164" y="152" width="64" height="34" rx="3"/><rect x="236" y="152" width="64" height="34" rx="3"/></g>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Timeline strip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  /* 08 · Timeline strip. The day is one horizontal line, last evening to tonight. Things sit where they happened;
+     "now" is the only point with words that ask anything. Work in progress is a stroke still being drawn. */
+  :root { --paper:#f4f3ef; --ink:#1d1d1b; --mid:#8f8d87; --line:#d7d5cf; --blue:#2f6bdc; --amber:#e08a1e; --ok:#3e8f5c; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; background:var(--paper); color:var(--ink); font-family:Inter, sans-serif; -webkit-font-smoothing:antialiased; }
+  .chrome { height:38px; display:flex; align-items:center; gap:8px; padding:0 16px; }
+  .chrome i { width:12px; height:12px; border-radius:50%; background:#dcdad4; }
+  .top { position:absolute; left:96px; top:72px; font-size:15px; color:var(--mid); }
+  .top b { color:var(--ink); font-weight:500; }
+  .axis { position:absolute; left:96px; right:96px; top:580px; height:1px; background:var(--line); }
+  .ticks { position:absolute; left:96px; right:96px; top:596px; display:flex; justify-content:space-between; font-family:"JetBrains Mono", monospace; font-size:11px; color:var(--mid); }
+  .dot { position:absolute; top:575px; width:11px; height:11px; border-radius:50%; background:var(--ok); }
+  .lbl { position:absolute; font-size:14px; line-height:1.4; width:200px; }
+  .lbl .k { display:block; font-size:12px; color:var(--mid); margin-bottom:2px; }
+  .stem { position:absolute; width:1px; background:var(--line); }
+  .run { position:absolute; top:578px; height:5px; border-radius:3px; background:var(--blue); }
+  .run.future { background:repeating-linear-gradient(90deg, var(--blue) 0 6px, transparent 6px 12px); opacity:.5; }
+  .now { position:absolute; top:150px; width:1px; height:440px; background:var(--amber); }
+  .now::after { content:""; position:absolute; left:-6px; bottom:-6px; width:13px; height:13px; border-radius:50%; background:var(--amber); }
+  .card { position:absolute; top:190px; width:420px; }
+  .card .k { font-size:13px; color:var(--amber); font-weight:500; margin-bottom:16px; }
+  .card h1 { font-size:36px; line-height:1.2; font-weight:500; letter-spacing:-.01em; }
+  .card .actions { margin-top:48px; display:flex; gap:12px; }
+  button { font:inherit; font-size:15px; height:46px; padding:0 24px; border-radius:23px; border:1px solid var(--line); background:transparent; color:var(--ink); cursor:pointer; transition:background-color .2s; }
+  button.go { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  button:hover { background:#e8e6e0; } button.go:hover { background:var(--amber); border-color:var(--amber); }
+  .art { position:absolute; top:640px; width:184px; }
+  .art svg { width:184px; display:block; border-radius:8px; box-shadow:0 12px 30px -18px rgba(0,0,0,.35); }
+  .art span { display:block; font-size:14px; margin-top:10px; }
+  .talk { position:absolute; right:96px; top:72px; font-size:14px; color:var(--mid); }
+</style>
+</head>
+<body>
+  <div class="chrome"><i></i><i></i><i></i></div>
+  <div class="top"><b>Flyd</b> &nbsp; Saturday evening → Sunday evening</div>
+  <div class="talk">Hold fn to talk</div>
+
+  <div class="axis"></div>
+  <div class="ticks"><span>18:00</span><span>21:00</span><span>00:00</span><span>03:00</span><span>06:00</span><span>09:00</span><span>12:00</span><span>15:00</span><span>18:00</span></div>
+
+  <!-- 1248px span over 24h = 52px/hour; x = 96 + 52 * hours since 18:00 -->
+  <span class="dot" style="left:248px"></span>
+  <span class="stem" style="left:253px; top:500px; height:76px"></span>
+  <div class="lbl" style="left:248px; top:448px"><span class="k">Done · 21:10</span>GNM test applications passed</div>
+
+  <span class="dot" style="left:538px"></span>
+  <span class="stem" style="left:543px; top:500px; height:76px"></span>
+  <div class="lbl" style="left:538px; top:448px"><span class="k">Done · 02:30</span>Vendor logo uploads fixed</div>
+
+  <div class="art" style="left:358px">
+    <svg viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Good Neighbours 8 Days of Christmas site">
+      <rect width="320" height="200" fill="#f3ede2"/><rect width="320" height="18" fill="#1e3a2c"/><circle cx="12" cy="9" r="3" fill="#e9dcc4"/><rect x="22" y="7" width="40" height="4" rx="2" fill="#e9dcc4"/><rect x="250" y="6" width="58" height="7" rx="3.5" fill="#c8402f"/>
+      <text x="20" y="58" font-family="Georgia,serif" font-size="22" fill="#1e3a2c">8 Days of</text><text x="20" y="84" font-family="Georgia,serif" font-size="22" font-style="italic" fill="#c8402f">Christmas</text>
+      <rect x="20" y="96" width="120" height="4" rx="2" fill="#1e3a2c" opacity=".35"/><rect x="20" y="106" width="90" height="4" rx="2" fill="#1e3a2c" opacity=".35"/><rect x="20" y="120" width="56" height="14" rx="7" fill="#1e3a2c"/>
+      <rect x="176" y="34" width="124" height="104" rx="4" fill="#1e3a2c"/><path d="M238 50 l26 40 h-52z" fill="#3f6b4f"/><path d="M238 66 l30 46 h-60z" fill="#4f8360"/><rect x="234" y="112" width="8" height="12" fill="#8a5a3b"/><circle cx="238" cy="48" r="4" fill="#e7b84a"/>
+      <g fill="#e3d6bf"><rect x="20" y="152" width="64" height="34" rx="3"/><rect x="92" y="152" width="64" height="34" rx="3"/><rect x="164" y="152" width="64" height="34" rx="3"/><rect x="236" y="152" width="64" height="34" rx="3"/></g>
+    </svg>
+    <span>8 Days of Christmas, ready to view</span>
+  </div>
+
+  <span class="run" style="left:772px; width:114px"></span>
+  <span class="run future" style="left:886px; width:78px"></span>
+  <div class="lbl" style="left:772px; top:640px; width:240px"><span class="k">Under way · since 07:00</span>CapFive tiles show the closed year</div>
+
+  <span class="now" style="left:885px"></span>
+  <section class="card" style="left:917px">
+    <p class="k">Now · needs you</p>
+    <h1>A test entry is in the live GNM vendor list. Shall I delete it?</h1>
+    <div class="actions"><button class="go">Delete it</button><button>Keep it</button></div>
+  </section>
+</body>
+</html>

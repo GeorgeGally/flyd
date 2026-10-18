@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300;1,6..72,400&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* 09 · Editorial. Type only, like a private morning paper written for one reader. No cards, no icons, no badges:
+     a headline that is the question, a short paragraph that is the day, and one plate for the thing worth seeing. */
+  :root { --paper:#fbf9f4; --ink:#1b1a17; --mid:#8a857b; --rule:#e3ded3; --red:#b5361f; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; background:var(--paper); color:var(--ink); font-family:Newsreader, Georgia, serif; -webkit-font-smoothing:antialiased; }
+  .chrome { height:38px; display:flex; align-items:center; gap:8px; padding:0 16px; }
+  .chrome i { width:12px; height:12px; border-radius:50%; background:#e4e0d6; }
+  .page { position:absolute; left:200px; top:96px; width:1040px; }
+  .dateline { font-family:Inter, sans-serif; font-size:13px; color:var(--mid); display:flex; justify-content:space-between; padding-bottom:14px; border-bottom:1px solid var(--ink); }
+  .dateline b { color:var(--ink); font-weight:500; }
+  .lead { display:grid; grid-template-columns:640px 1fr; column-gap:72px; margin-top:64px; }
+  h1 { font-size:64px; line-height:1.04; font-weight:400; letter-spacing:-.015em; }
+  h1 i { color:var(--red); font-weight:300; }
+  .actions { margin-top:56px; display:flex; gap:28px; font-family:Inter, sans-serif; font-size:15px; }
+  .actions a { color:var(--ink); text-decoration:none; padding-bottom:4px; border-bottom:1.5px solid var(--ink); transition:color .2s, border-color .2s; }
+  .actions a.alt { color:var(--mid); border-color:var(--rule); }
+  .actions a:hover { color:var(--red); border-color:var(--red); }
+  .day { font-size:21px; line-height:1.55; font-weight:300; padding-top:12px; }
+  .day p + p { margin-top:18px; }
+  figure { margin-top:36px; }
+  figure svg { width:100%; display:block; }
+  figcaption { font-size:15px; font-style:italic; color:var(--mid); margin-top:10px; }
+  .foot { position:absolute; left:200px; bottom:56px; font-family:Inter, sans-serif; font-size:13px; color:var(--mid); }
+</style>
+</head>
+<body>
+  <div class="chrome"><i></i><i></i><i></i></div>
+  <article class="page">
+    <div class="dateline"><b>Flyd</b><span>Sunday 18 October · for George</span></div>
+    <div class="lead">
+      <div>
+        <h1>A test entry is sitting in the live vendor list. <i>Shall I delete it?</i></h1>
+        <div class="actions"><a href="#">Yes, delete it</a><a href="#" class="alt">No, keep it</a></div>
+      </div>
+      <div class="day">
+        <p>Both Good Neighbours test applications went through last night, and vendors can upload their logos again.</p>
+        <p>The CapFive tiles are being changed to show the closed year; that should be ready before lunch.</p>
+        <figure>
+          <svg viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Good Neighbours 8 Days of Christmas site">
+            <rect width="320" height="200" fill="#f3ede2"/><rect width="320" height="18" fill="#1e3a2c"/><circle cx="12" cy="9" r="3" fill="#e9dcc4"/><rect x="22" y="7" width="40" height="4" rx="2" fill="#e9dcc4"/><rect x="250" y="6" width="58" height="7" rx="3.5" fill="#c8402f"/>
+            <text x="20" y="58" font-family="Georgia,serif" font-size="22" fill="#1e3a2c">8 Days of</text><text x="20" y="84" font-family="Georgia,serif" font-size="22" font-style="italic" fill="#c8402f">Christmas</text>
+            <rect x="20" y="96" width="120" height="4" rx="2" fill="#1e3a2c" opacity=".35"/><rect x="20" y="106" width="90" height="4" rx="2" fill="#1e3a2c" opacity=".35"/><rect x="20" y="120" width="56" height="14" rx="7" fill="#1e3a2c"/>
+            <rect x="176" y="34" width="124" height="104" rx="4" fill="#1e3a2c"/><path d="M238 50 l26 40 h-52z" fill="#3f6b4f"/><path d="M238 66 l30 46 h-60z" fill="#4f8360"/><rect x="234" y="112" width="8" height="12" fill="#8a5a3b"/><circle cx="238" cy="48" r="4" fill="#e7b84a"/>
+            <g fill="#e3d6bf"><rect x="20" y="152" width="64" height="34" rx="3"/><rect x="92" y="152" width="64" height="34" rx="3"/><rect x="164" y="152" width="64" height="34" rx="3"/><rect x="236" y="152" width="64" height="34" rx="3"/></g>
+          </svg>
+          <figcaption>The 8 Days of Christmas page, ready to look over.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </article>
+  <div class="foot">Reply in your own words · hold fn to talk</div>
+</body>
+</html>
