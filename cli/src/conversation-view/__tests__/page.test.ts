@@ -2790,6 +2790,49 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(document.querySelector(".outcomes-lead")!.textContent).toBe("Here's where the three Flyd fixes stand:");
   });
 
+  it("renders one native standalone Decision and leaves task-bound choices inside Activity", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = {
+      title: "", summary: "", live: false, counts: { call: 2 }, items: [],
+      calls: [
+        { id: "call:task", kind: "call", task: "task", headline: "Ship the task?", why: "waiting on you", decision: { task: "task", question: "Ship?", choices: ["Ship", "Hold"] } },
+        { id: "call:reply:a#2", kind: "call", headline: "Which direction?", why: "waiting on you", ref: "reply:a#2", decision: { task: "reply:a#2", replyTo: "reply:a#2", question: "Which direction?", choices: ["A", "B"], recommended: "B" } },
+      ],
+      decisions: [{
+        id: "message:reply:a#2", kind: "decision", lifecycle: "interrupted", subject: "Which direction?", summary: "waiting on you",
+        evidence: [
+          { kind: "image", ref: "/api/rail-image?path=choice.png", label: "Choice" },
+          { kind: "web", ref: "https://example.com/live", label: "Open preview" },
+          { kind: "web", ref: "http://127.0.0.1:4000/dead", label: "Closed preview", closed: true },
+        ],
+        actions: [
+          { id: "choose:A", kind: "choose", label: "A", value: "A" },
+          { id: "choose:B", kind: "choose", label: "B", value: "B" },
+        ],
+        source: { showItemId: "call:reply:a#2", ref: "reply:a#2" },
+        decision: { target: "reply:a#2", replyTo: "reply:a#2", question: "Which direction?", alternatives: ["A", "B"], recommended: "B" },
+      }],
+    };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [] });
+    await settle();
+
+    const needs = document.getElementById("needs")!;
+    expect(needs.dataset.semanticId).toBe("message:reply:a#2");
+    expect(needs.querySelector(".needs-head")!.textContent).toBe("Which direction?");
+    expect(needs.textContent).not.toContain("Ship the task?");
+    expect(needs.querySelector(".needs-rec")!.textContent).toContain("I'd pick B.");
+    expect(needs.querySelectorAll(".decision-evidence .shot")).toHaveLength(1);
+    expect([...needs.querySelectorAll(".call-link")].map((link) => link.textContent)).toEqual(["Open preview ↗"]);
+    expect([...needs.querySelectorAll<HTMLButtonElement>(".choice-pick")].map((button) => button.textContent)).toEqual(["A", "Brecommended"]);
+
+    needs.querySelectorAll<HTMLButtonElement>(".choice-pick")[1]!.click();
+    await settle();
+    const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
+    expect(sends.at(-1)).toEqual({ session: "latest", replyTo: "reply:a#2", text: "B" });
+  });
+
   it("keeps one semantic Activity-column object alive as a task moves from working to needs-you to finished", async () => {
     localStorage.setItem("flyd-left", "on");
     load("");
