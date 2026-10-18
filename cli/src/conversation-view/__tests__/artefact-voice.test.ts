@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { composeArtefact, parseBearings, withVoice } from "../artefact.js";
-import { ArtefactVoice, parseVoice, voiceKey, voicePrompt, type VoiceItem } from "../artefact-voice.js";
+import { ArtefactVoice, parseVoice, voiceKey, voicePrompt, withoutCrew, type VoiceItem } from "../artefact-voice.js";
 
 const JEV: VoiceItem = {
   kind: "needs you",
@@ -31,11 +31,20 @@ describe("voicePrompt", () => {
     expect(prompt).toContain("JSON array");
   });
 
-  it("says the crew does the work, never George", () => {
-    // "It is under way, and you are working on it now." put a worker's job on him.
+  it("speaks as Flyd doing the work, never George and never a crew behind it", () => {
+    // "It is under way, and you are working on it now." put a worker's job on him; "The crew landed…" showed him the staff.
     const prompt = voicePrompt([{ id: "k1", kind: "under way", title: "Flyd: TV artefact" }], null);
-    expect(prompt).toContain("The work is done by the crew, never by George");
+    expect(prompt).toContain("You did the work, never George: say \"I\"");
+    expect(prompt).toContain("Never mention a crew");
     expect(prompt).toContain("Never say he is doing, building or working on something");
+    expect(prompt).toContain("Never put file names");
+  });
+
+  it("takes the crew out of a headline the model wrote anyway", () => {
+    expect(withoutCrew("The crew landed round two of ten Flyd redesigns.")).toBe("I landed round two of ten Flyd redesigns.");
+    expect(withoutCrew("The crew has ten designs ready.")).toBe("I have ten designs ready.");
+    expect(withoutCrew("A worker is on it.")).toBe("I am on it.");
+    expect(withoutCrew("The crew's fix is live.")).toBe("My fix is live.");
   });
 });
 

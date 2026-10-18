@@ -1,4 +1,5 @@
 import { inFlydsVoice } from "./flyd-voice.js";
+import { isPlumbing } from "./for-george.js";
 import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
 import { withoutStubs } from "./executive.js";
@@ -343,7 +344,8 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   });
   const since = messages.slice(lastCaptain + 1).filter((message) => fromFleet(message) && !routine(message));
   const open = openChoice(messages.filter((message) => message.role === "user" || fromFleet(message)), routine);
-  const call = open?.message ?? [...since].reverse().find((message) => asksForDecision(message.text) || FOR_HIM.test(message.text));
+  // Flyd's own plumbing (its session, scripts, permissions) is Flyd's to sort out, never a call of his.
+  const call = open?.message ?? [...since].reverse().find((message) => (asksForDecision(message.text) || FOR_HIM.test(message.text)) && !isPlumbing(askLine(message.text) ?? headline(readingOf(message))));
   if (call) {
     // A question with options is answerable on screen: the question leads, what it is about under it.
     const choice = open?.choice ?? choiceOf(call.text);

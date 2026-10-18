@@ -306,9 +306,6 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 @keyframes scene-fade { from { opacity: 0; } to { opacity: 1; } }
 
 /* The work's own colours, far behind everything and out of focus: the room the screen is in. */
-.ambient { position: absolute; inset: -10%; z-index: -1; max-width: none; margin: 0; width: auto; background: center / cover no-repeat; filter: blur(90px) saturate(1.3); opacity: 0; transition: opacity 900ms ease; pointer-events: none; }
-.ambient.on { opacity: .2; }
-:root[data-theme="light"] .ambient.on { opacity: .14; }
 
 /* Which scene is up, and how long until the next: one short line each. */
 .ticks { display: flex; flex-wrap: wrap; gap: 10px; min-height: 14px; margin-bottom: clamp(28px, 5vh, 48px); }
@@ -421,7 +418,6 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 @media (prefers-reduced-motion: reduce) {
   .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-ask, .scene.in .scene-shot, .scene.in .scene-open,
   .scene.out > *, .ro.fade, .doing.on::before, .msg.spot { animation: none; }
-  .ambient { transition: none; }
   .ticks button.on::after { transition: none; }
 }
 `;
@@ -3989,7 +3985,6 @@ ${LEFT_SCRIPT}
   var ticksEl = document.getElementById("ticks");
   var readoutsEl = document.getElementById("readouts");
   var showDoing = document.getElementById("show-doing");
-  var ambient = document.getElementById("ambient");
   var air = document.getElementById("air");
   var flip = document.getElementById("flip");
   var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -4105,7 +4100,6 @@ ${LEFT_SCRIPT}
     }
     var old = sceneEl.querySelector(".scene-shot");
     if (old) old.remove();
-    setAmbient(shots.length ? withToken(shots[0].src) : "");
     if (!shots.length) return;
     var figure = el("figure", "scene-shot");
     var stage = el("div", "devices");
@@ -4245,18 +4239,6 @@ ${LEFT_SCRIPT}
     if (w >= 1000) return "desk";
     if (w >= 380 && w <= 560 && h / w >= 1.6) return "phone";
     return "";
-  }
-  var ambientSrc = "";
-  function setAmbient(src) {
-    if (src === ambientSrc) return;
-    ambientSrc = src;
-    ambient.classList.remove("on");
-    if (!src) return;
-    setTimeout(function () {
-      if (ambientSrc !== src) return;
-      ambient.style.backgroundImage = "url(" + JSON.stringify(src) + ")";
-      ambient.classList.add("on");
-    }, reduced ? 0 : 300);
   }
   function markTicks() {
     Array.prototype.forEach.call(ticksEl.children, function (tick, index) {
@@ -4700,7 +4682,6 @@ ${LEFT_HTML}
 <div class="problem" id="problem"></div>
 <a id="routine-suggestion" href="/routines" hidden style="position:fixed;bottom:150px;right:24px;font-size:14px;color:var(--accent);padding:12px;background:var(--tint);border-radius:12px">Keep this repeated request as a routine →</a>
 <section class="show" id="show" hidden aria-label="Flyd's artefact: what it thinks you need to see">
-  <div class="ambient" id="ambient" aria-hidden="true"></div>
   <div class="tv">
     <div class="scene" id="scene" aria-live="polite">
       <div class="scene-text">

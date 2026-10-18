@@ -566,6 +566,8 @@ export function fleetCounts(fleet: FleetArtefact | undefined): Partial<Record<Sh
 export interface ComposeOptions {
   /** His own name for a repository's project, when Flyd knows it. */
   project?: (repo: string) => string | undefined;
+  /** The time it is, for leaving out work too old to show him. */
+  now?: number;
 }
 
 /** Where the page loads a task's screenshot from; the server serves only listed ones. */
@@ -646,7 +648,9 @@ export function doneItems(fleet: FleetArtefact | undefined, options: ComposeOpti
 export function readyItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
   if (!fleet || fleet.unavailable) return [];
   const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
-  return [...fleet.ready].filter((row) => row.status !== "report available").sort((a, b) => when(b) - when(a))
+  // Work that has sat ready for days is not news: it stays in the backlog, off his screen.
+  const oldest = (options.now ?? Date.now()) - RECENT_DAYS * 86_400_000;
+  return [...fleet.ready].filter((row) => row.status !== "report available" && (!row.at || when(row) >= oldest)).sort((a, b) => when(b) - when(a))
     .flatMap((row, index) => rowItem("ready", `ready-${row.task ?? index}`, row, options) ?? []);
 }
 

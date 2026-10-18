@@ -140,6 +140,16 @@ function linkFor(sentence: string, text: string): string | undefined {
 }
 
 /**
+ * Flyd's own plumbing: its sessions, scripts, locks, permission prompts and
+ * sandbox. A stop or a question about these is Flyd's to sort out behind the
+ * scenes, never an artefact for him. Pure.
+ */
+const PLUMBING = /\b(?:this|the|my|another|a|live|second) session\b|\bsessions?\b.*\b(?:lock|read[- ]only|refused|approv)|\b(?:scripts?|commands?|tool calls?|hooks?)\b.*\b(?:refused|blocked|denied|approv\w*|permission)|\bread[- ]only\b|\bsession lock\b|\bpermission (?:prompt|mode|dialog)s?\b|\bsandbox\b|\bfirstmate\b/i;
+export function isPlumbing(line: string): boolean {
+  return PLUMBING.test(line);
+}
+
+/**
  * What a staff reply comes to for George: absorbed, or the one line he needs.
  * A question to him wins, unless Flyd already answered it for him (`handled`);
  * then a real stop; then something that landed. Everything else (progress,
@@ -157,6 +167,7 @@ export function staffLine(text: string, handled?: (text: string) => boolean): Ge
   const said = proseSentences(text.replace(URL, (url) => ` ${url} `));
   // A question put to him mid-reply ("still waiting on you: may I delete…? A backup is taken first.") is his too.
   const asked = said.find((sentence) => /\?["”')\]]*$/.test(sentence) && PUT_TO_HIM.test(sentence.replace(QUOTED, " ")) && !handled?.(sentence.replace(WAITING_ON_YOU, "")));
+  if (asked && isPlumbing(asked)) return { kind: "absorbed" };
   if (asked) return { kind: "decision", line: asLine(asked.replace(WAITING_ON_YOU, "")), options: OPEN_ASK.test(asked.replace(/^.*?:\s*/, "")) ? [] : ["Yes", "No"] };
   // 'Still waiting on your "merge them" for: …' names his word in quotes.
   const awaited = said.map((sentence) => /\bwaiting (?:on|for) your\s+["“]([^"”]+)["”]/i.exec(sentence)).find(Boolean);
@@ -169,6 +180,8 @@ export function staffLine(text: string, handled?: (text: string) => boolean): Ge
   if (say) return { kind: "decision", line: asLine(`${(say[1] ?? say[2])!.trim().replace(/[.!?,;:]+$/, "")}?`), options: [capitalise((say[1] ?? say[2])!.trim().replace(/[.!?,;:]+$/, "")), "Not yet"] };
   const words = said.map((sentence) => sentence.replace(QUOTED, " "));
   const stop = words.findIndex(stops);
+  // "I'm stuck. This session can only read files…": the reason is often the sentence after the stop.
+  if (stop >= 0 && isPlumbing(said.slice(stop, stop + 2).join(" "))) return { kind: "absorbed" };
   if (stop >= 0) {
     const next = said.slice(stop + 1).find((sentence) => NEXT_STEP.test(sentence));
     return { kind: "blocker", line: `${asLine(said[stop]!)}${next ? ` ${asLine(next)}` : ""}` };
