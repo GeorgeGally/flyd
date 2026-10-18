@@ -37,7 +37,7 @@ export const PAIRING_PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" 
 /**
  * A live pairing session: the code to scan while WhatsApp is unlinked, and
  * whether it has linked. One per process; it holds the same socket the
- * `flyd whatsapp connect` terminal command used to.
+ * `flyd whatsapp connect` terminal command uses.
  */
 export class WhatsAppPairing {
   private client?: WhatsAppClient;
