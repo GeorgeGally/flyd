@@ -267,7 +267,7 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
     const record = raw as Partial<ActivityRecord> | null;
     const title = text(record?.title);
     const at = stamp(record?.at);
-    if (!record || !title || !at || typeof record.kind !== "string" || !KINDS.has(record.kind) || record.kind === "watching") return;
+    if (!record || !title || !at || typeof record.kind !== "string" || !KINDS.has(record.kind)) return;
     const key = text(record.key) ?? `once:${index}`;
     const before = latest.get(key);
     if (!before || Date.parse(at) >= Date.parse(before.at)) latest.set(key, { ...record, title, at, kind: record.kind });
