@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Instrument</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;500;600;700&family=Chivo+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* 04 · Instrument. Rams and the cockpit: every mark on the face is a reading, nothing is decoration.
+     A gauge for the running job, a 24-hour dial for the night, an LED meter for the week, a slot holding
+     the finished artefact, and two hardware keys for the one call only George can make. */
+  :root { --panel:#e8e6e1; --ink:#131313; --dim:#7f7c76; --line:#cfcbc3; --orange:#ff4f12; --green:#16b45a; --well:#dcd9d2; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; background:var(--panel); color:var(--ink);
+    font-family:Chivo, system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  body { background:radial-gradient(1400px 900px at 30% 0%, #f1efeb, var(--panel) 60%, #dedbd5); }
+  .mono { font-family:"Chivo Mono", monospace; }
+  .lights { position:absolute; left:22px; top:22px; display:flex; gap:8px; }
+  .lights i { width:12px; height:12px; border-radius:50%; background:#cdc9c1; }
+
+  header { position:absolute; left:120px; right:120px; top:44px; display:flex; align-items:baseline; gap:22px; font-size:17px; }
+  header .mark { font-weight:700; font-size:21px; }
+  header .date { color:var(--dim); }
+  header .clock { margin-left:auto; font-size:26px; font-variant-numeric:tabular-nums; }
+  header .clock i { font-style:normal; animation:blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+  .rule { position:absolute; left:120px; right:120px; top:96px; height:1px; background:var(--line); }
+
+  .label { font-size:15px; color:var(--dim); display:flex; align-items:center; gap:10px; }
+  .led { width:10px; height:10px; border-radius:50%; background:var(--orange); box-shadow:0 0 10px var(--orange), inset 0 -1px 2px rgba(0,0,0,.25); animation:glow 2.4s ease-in-out infinite; }
+  .led.ok { background:var(--green); box-shadow:0 0 8px var(--green); animation:none; }
+  @keyframes glow { 50% { box-shadow:0 0 2px var(--orange), inset 0 -1px 2px rgba(0,0,0,.25); opacity:.75; } }
+
+  /* the call */
+  .ask { position:absolute; left:120px; top:150px; width:560px; }
+  .ask h1 { margin-top:26px; font-size:52px; line-height:1.06; font-weight:600; letter-spacing:-.025em; }
+  .ask h1 span { color:var(--dim); font-weight:500; }
+  .keys { margin-top:60px; display:flex; gap:16px; }
+  .key { width:168px; height:100px; border-radius:14px; border:0; cursor:pointer; text-align:left; padding:16px 18px; font:inherit;
+    display:flex; flex-direction:column; justify-content:space-between; font-size:18px; font-weight:600;
+    background:#f6f5f2; color:var(--ink); box-shadow:inset 0 -4px 0 rgba(0,0,0,.08), 0 1px 0 rgba(255,255,255,.9), 0 6px 16px rgba(0,0,0,.08), 0 0 0 1px #d4d0c8;
+    transition:background-color .25s, color .25s; }
+  .key small { font-size:14px; font-weight:400; opacity:.65; }
+  .key.go { background:var(--orange); color:#fff; box-shadow:inset 0 -4px 0 rgba(0,0,0,.14), 0 6px 18px rgba(255,79,18,.3); }
+  .key.go:hover { background:#e2400a; }
+  .key:not(.go):hover { background:#fff; }
+
+  /* gauges */
+  .g { position:absolute; top:132px; width:280px; text-align:left; }
+  .g1 { left:760px; } .g2 { left:1040px; }
+  .g svg { width:280px; height:280px; display:block; }
+  .g .label { margin-top:4px; }
+  .g h2 { font-size:20px; line-height:1.3; font-weight:600; margin-top:8px; }
+  .g p { font-size:16px; color:var(--dim); margin-top:4px; }
+  .tick { stroke:#a9a59d; stroke-width:1.5; } .tick.m { stroke:var(--ink); stroke-width:2.5; }
+  .num { font:500 13px "Chivo Mono", monospace; fill:var(--dim); }
+  .needle { transform-origin:140px 140px; transform:rotate(-135deg); animation:swing 2.4s .3s cubic-bezier(.2,.9,.25,1.05) forwards; }
+  @keyframes swing { to { transform:rotate(32.4deg); } }
+  .g:hover .hint { opacity:1; }
+  .hint { opacity:0; transition:opacity .3s; }
+
+  /* week meter: no panel, straight on the face */
+  .week { position:absolute; left:120px; top:604px; }
+  .week h3 { font-size:20px; font-weight:600; margin-top:8px; }
+  .cols { display:flex; gap:14px; margin-top:26px; align-items:flex-end; }
+  .col { display:flex; flex-direction:column-reverse; gap:4px; align-items:center; cursor:default; }
+  .col b { width:44px; height:12px; border-radius:2px; background:#d3cfc7; }
+  .col b.on { background:var(--green); box-shadow:0 0 6px rgba(22,180,90,.35); }
+  .col b.now { background:var(--orange); animation:glow 2.4s infinite; }
+  .col span { font:500 14px "Chivo Mono", monospace; color:var(--dim); margin-top:8px; order:-1; transition:color .2s; }
+  .col:hover span { color:var(--ink); }
+
+  /* the slot */
+  .slot { position:absolute; left:760px; top:594px; width:560px; color:inherit; text-decoration:none; }
+  .slot .well { margin-top:18px; height:196px; border-radius:16px; padding:10px; background:var(--well); box-shadow:inset 0 2px 6px rgba(0,0,0,.14), 0 1px 0 #fff; display:flex; gap:20px; align-items:center; }
+  .slot img { height:176px; aspect-ratio:16/10; object-fit:cover; border-radius:8px; display:block; transition:filter .3s; }
+  .slot:hover img { filter:brightness(1.08) saturate(1.1); }
+  .slot h3 { font-size:22px; line-height:1.2; font-weight:600; }
+  .slot p { font-size:16px; color:var(--dim); margin-top:8px; line-height:1.4; }
+  .slot .open { display:inline-block; margin-top:16px; font-size:16px; font-weight:600; color:var(--ink); border-bottom:2px solid var(--orange); padding-bottom:2px; transition:color .25s; }
+  .slot:hover .open { color:var(--orange); }
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; } .needle { transform:rotate(32.4deg); } }
+</style>
+</head>
+<body>
+  <div class="lights"><i></i><i></i><i></i></div>
+  <header><span class="mark">Flyd</span><span class="date">Sunday 18 October · hold fn to talk</span><span class="clock mono">09<i>:</i>12</span></header>
+  <div class="rule"></div>
+
+  <section class="ask">
+    <p class="label"><span class="led"></span>Needs you · Good Neighbours</p>
+    <h1>A test entry is still in the live vendor list. <span>Shall I delete it?</span></h1>
+    <div class="keys">
+      <button class="key go">Delete it<small>Removes one row</small></button>
+      <button class="key">Keep it<small>Leave it as is</small></button>
+    </div>
+  </section>
+
+  <section class="g g1">
+    <svg viewBox="0 0 280 280" id="gauge" aria-label="CapFive tiles, 62 percent done">
+      <g id="ticks"></g>
+      <path id="track" fill="none" stroke="#d6d2ca" stroke-width="10" stroke-linecap="round"/>
+      <path id="fill" fill="none" stroke="var(--orange)" stroke-width="10" stroke-linecap="round"/>
+      <g class="needle"><line x1="140" y1="140" x2="140" y2="46" stroke="#131313" stroke-width="3" stroke-linecap="round"/></g>
+      <circle cx="140" cy="140" r="9" fill="#131313"/><circle cx="140" cy="140" r="3" fill="var(--orange)"/>
+      <text x="140" y="210" text-anchor="middle" style="font:500 54px 'Chivo Mono',monospace;fill:#131313">62</text>
+      <text x="140" y="234" text-anchor="middle" class="num">percent</text>
+      <text class="hint num" x="140" y="262" text-anchor="middle">Started 07:00 · done about 10:10</text>
+    </svg>
+    <p class="label"><span class="led"></span>Under way · CapFive</p>
+    <h2>The deal tiles now show the year each deal closed</h2>
+    <p>About an hour left</p>
+  </section>
+
+  <section class="g g2">
+    <svg viewBox="0 0 280 280" id="day" aria-label="The last 24 hours">
+      <g id="hours"></g>
+      <circle cx="140" cy="140" r="104" fill="none" stroke="#d6d2ca" stroke-width="2"/>
+      <path id="run" fill="none" stroke="#f6b49a" stroke-width="8" stroke-linecap="round"/>
+      <path id="runFill" fill="none" stroke="var(--orange)" stroke-width="8" stroke-linecap="round"/>
+      <g id="dots"></g>
+      <line id="hand" x1="140" y1="140" x2="140" y2="52" stroke="#131313" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="140" cy="140" r="6" fill="#131313"/>
+      <text x="140" y="118" text-anchor="middle" style="font:500 40px 'Chivo Mono',monospace;fill:#131313">3</text>
+    </svg>
+    <p class="label"><span class="led ok"></span>Last 24 hours</p>
+    <h2>Three things finished overnight</h2>
+    <p id="dayline">Hover the dial for each one</p>
+  </section>
+
+  <section class="week">
+    <p class="label"><span class="led ok"></span>This week</p>
+    <h3>20 things landed</h3>
+    <div class="cols" id="cols"></div>
+  </section>
+
+  <a class="slot" href="#">
+    <p class="label"><span class="led ok"></span>Ready to view · Good Neighbours</p>
+    <div class="well">
+      <img src="../assets/xmas-site.jpg" alt="The Good Neighbours 8 Days of Christmas website">
+      <div><h3>The 8 Days of Christmas site</h3><p>11–20 December at Block42, Nuanu.</p><span class="open">Open the site ↗</span></div>
+    </div>
+  </a>
+
+<script>
+  const NS = 'http://www.w3.org/2000/svg', C = 140;
+  const pt = (deg, r) => { const a = (deg - 90) * Math.PI / 180; return [C + r * Math.cos(a), C + r * Math.sin(a)]; };
+  const arc = (a0, a1, r) => { const [x0, y0] = pt(a0, r), [x1, y1] = pt(a1, r); return `M${x0} ${y0} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1}`; };
+  const el = (tag, attrs, parent) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); parent.appendChild(n); return n; };
+
+  // gauge: 270° sweep from -135°
+  const ticks = document.getElementById('ticks');
+  for (let i = 0; i <= 50; i++) {
+    const a = -135 + i * 5.4, major = i % 10 === 0, [x0, y0] = pt(a, major ? 128 : 131), [x1, y1] = pt(a, 138);
+    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, class: 'tick' + (major ? ' m' : '') }, ticks);
+    if (major) { const [tx, ty] = pt(a, 114); el('text', { x: tx, y: ty + 4, 'text-anchor': 'middle', class: 'num' }, ticks).textContent = i * 2; }
+  }
+  document.getElementById('track').setAttribute('d', arc(-135, 135, 98));
+  document.getElementById('fill').setAttribute('d', arc(-135, -135 + .62 * 270, 98));
+
+  // 24-hour dial: midnight at the top
+  const deg = (h, m) => (h + m / 60) / 24 * 360;
+  const hours = document.getElementById('hours');
+  for (let h = 0; h < 24; h++) {
+    const [x0, y0] = pt(h * 15, h % 6 ? 126 : 120), [x1, y1] = pt(h * 15, 132);
+    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, class: 'tick' + (h % 6 ? '' : ' m') }, hours);
+  }
+  [['0', 0], ['6', 90], ['12', 180], ['18', 270]].forEach(([t, a]) => { const [x, y] = pt(a, 84); el('text', { x, y: y + 4, 'text-anchor': 'middle', class: 'num' }, hours).textContent = t; });
+  document.getElementById('run').setAttribute('d', arc(deg(7, 0), deg(10, 10), 104));
+  document.getElementById('runFill').setAttribute('d', arc(deg(7, 0), deg(9, 12), 104));
+  const [hx, hy] = pt(deg(9, 12), 92); const hand = document.getElementById('hand'); hand.setAttribute('x2', hx); hand.setAttribute('y2', hy);
+  const line = document.getElementById('dayline');
+  [[21, 10, 'Both test applications passed'], [2, 30, 'Vendors can upload logos again'], [7, 40, 'The past-markets question is live']].forEach(([h, m, t]) => {
+    const [x, y] = pt(deg(h, m), 104);
+    const d = el('circle', { cx: x, cy: y, r: 9, fill: '#16b45a', stroke: '#e8e6e1', 'stroke-width': 3, style: 'cursor:default' }, document.getElementById('dots'));
+    d.addEventListener('pointerenter', () => line.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} · ${t}`);
+    d.addEventListener('pointerleave', () => line.textContent = 'Hover the dial for each one');
+  });
+
+  // week meter
+  const cols = document.getElementById('cols');
+  [['Mon', 2], ['Tue', 4], ['Wed', 1], ['Thu', 3], ['Fri', 5], ['Sat', 2], ['Sun', 3]].forEach(([d, n], i) => {
+    const c = document.createElement('div'); c.className = 'col'; c.title = `${n} landed on ${d}`;
+    for (let s = 0; s < 6; s++) { const b = document.createElement('b'); if (s < n) b.className = 'on'; if (i === 6 && s === n) b.className = 'now'; c.appendChild(b); }
+    const l = document.createElement('span'); l.textContent = d; c.appendChild(l); cols.appendChild(c);
+  });
+</script>
+</body>
+</html>

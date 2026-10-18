@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Map of work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* 08 · Map of work. Vignelli's 1972 subway map: clarity over geography. Each project is a line, each piece
+     of work a station. Track already travelled is full colour, track ahead is pale. The big interchange
+     ring is where George is needed; the train is the job running now. */
+  :root { --paper:#f6f5f0; --ink:#111; --dim:#6e6c66; --gnm:#00933c; --gnm-pale:#bfe3cc; --cap:#0039a6; --cap-pale:#c3cfe8; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; background:var(--paper); color:var(--ink); font-family:"Instrument Sans", system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  .lights { position:absolute; left:22px; top:22px; display:flex; gap:8px; }
+  .lights i { width:12px; height:12px; border-radius:50%; background:#dcdad3; }
+  header { position:absolute; left:120px; top:48px; display:flex; gap:22px; align-items:baseline; font-size:18px; }
+  header b { font-size:24px; font-weight:700; letter-spacing:-.02em; }
+  header span { color:var(--dim); }
+  .talk { position:absolute; right:120px; top:52px; font-size:17px; color:var(--dim); }
+
+  svg.map { position:absolute; inset:0; width:1440px; height:900px; }
+  .ln { fill:none; stroke-width:16; stroke-linecap:round; stroke-linejoin:round; }
+  .st { fill:#fff; stroke:var(--ink); stroke-width:4; }
+  .hub { fill:#fff; stroke:var(--ink); stroke-width:6; }
+  .pulse { fill:none; stroke:var(--ink); stroke-width:2; transform-origin:680px 360px; animation:ring 2.8s ease-out infinite; }
+  @keyframes ring { from { transform:scale(1); opacity:.6; } to { transform:scale(2.4); opacity:0; } }
+
+  .lab { position:absolute; font-size:18px; font-weight:600; line-height:1.2; white-space:nowrap; cursor:default; }
+  .lab small { display:block; font-size:15px; font-weight:500; color:var(--dim); margin-top:2px; transition:color .25s; }
+  .lab:hover small { color:var(--ink); }
+  .line-name { position:absolute; display:flex; align-items:center; gap:10px; font-size:15px; font-weight:700; color:#fff; padding:6px 12px; border-radius:6px; }
+
+  .call { position:absolute; left:120px; top:452px; width:600px; animation:fade 1s ease both; }
+  @keyframes fade { from { opacity:0; } }
+  .call .k { font-size:17px; font-weight:600; display:flex; align-items:center; gap:10px; }
+  .call .k::before { content:""; width:14px; height:14px; border-radius:50%; border:4px solid var(--ink); background:#fff; }
+  .call h1 { max-width:540px; margin-top:16px; font-size:46px; line-height:1.06; font-weight:700; letter-spacing:-.03em; }
+  .call h1 span { color:var(--dim); font-weight:600; }
+  .actions { margin-top:44px; display:flex; gap:12px; }
+  button { font:inherit; font-size:18px; font-weight:600; height:56px; padding:0 30px; border-radius:999px; cursor:pointer;
+    border:2px solid var(--ink); background:transparent; color:var(--ink); transition:background-color .25s, color .25s, border-color .25s; }
+  button.go { background:var(--ink); color:#fff; }
+  button.go:hover { background:var(--gnm); border-color:var(--gnm); }
+  button:not(.go):hover { background:#e9e7e0; }
+
+  .art { position:absolute; left:1056px; top:280px; width:264px; color:inherit; text-decoration:none; }
+  .art img { width:100%; aspect-ratio:16/10; object-fit:cover; display:block; border-radius:8px; outline:1px solid rgba(0,0,0,.08); transition:filter .3s; }
+  .art:hover img { filter:brightness(1.06) saturate(1.1); }
+  .art p { margin-top:12px; font-size:18px; font-weight:600; }
+  .art p small { display:block; font-size:15px; color:var(--dim); font-weight:500; margin-top:2px; }
+
+  .train { position:absolute; left:660px; top:794px; height:32px; padding:0 14px; border-radius:16px; background:var(--cap); color:#fff; font-size:15px; font-weight:700;
+    display:flex; align-items:center; gap:8px; box-shadow:0 0 0 4px var(--paper), 0 0 0 0 rgba(0,57,166,.35); animation:beat 2.4s ease-out infinite; }
+  @keyframes beat { 70% { box-shadow:0 0 0 4px var(--paper), 0 0 0 16px rgba(0,57,166,0); } }
+  .legend { position:absolute; right:120px; top:54px; display:flex; gap:28px; font-size:15px; color:var(--dim); align-items:center; }
+  .legend i { display:inline-block; width:28px; height:8px; border-radius:4px; margin-right:8px; vertical-align:1px; }
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; } }
+</style>
+</head>
+<body>
+  <div class="lights"><i></i><i></i><i></i></div>
+  <header><b>Flyd</b><span>Sunday 18 October · hold fn to talk</span></header>
+
+  <svg class="map" viewBox="0 0 1440 900" aria-hidden="true">
+    <!-- Good Neighbours: travelled, then ahead into the finished site -->
+    <path class="ln" style="stroke:var(--gnm)" d="M120 230 H400 L530 360 H680"/>
+    <path class="ln" style="stroke:var(--gnm-pale)" d="M680 360 H1040"/>
+    <!-- CapFive: travelled to the train, then ahead -->
+    <path class="ln" style="stroke:var(--cap)" d="M120 810 H690"/>
+    <path class="ln" style="stroke:var(--cap-pale)" d="M690 810 H1000 L1100 710 H1240"/>
+    <circle class="st" cx="200" cy="230" r="11"/>
+    <circle class="st" cx="330" cy="230" r="11"/>
+    <circle class="st" cx="465" cy="295" r="11"/>
+    <circle class="pulse" cx="680" cy="360" r="22"/>
+    <circle class="hub" cx="680" cy="360" r="22"/>
+    <circle class="st" cx="1040" cy="360" r="15" style="stroke-width:5"/>
+    <circle class="st" cx="300" cy="810" r="11"/>
+    <circle class="st" cx="1000" cy="810" r="11" style="stroke:#8a96b8"/>
+    <circle class="st" cx="1240" cy="710" r="15" style="stroke:#8a96b8;stroke-width:5"/>
+  </svg>
+
+  <span class="line-name" style="left:120px;top:166px;background:var(--gnm)">Good Neighbours</span>
+  <span class="line-name" style="left:120px;top:842px;background:var(--cap)">CapFive</span>
+
+  <p class="lab" style="left:176px;top:256px">Test applications passed<small>Done 21:10</small></p>
+  <p class="lab" style="left:306px;top:150px">Logo uploads fixed<small>Done 02:30</small></p>
+  <p class="lab" style="left:492px;top:250px">Past markets live<small>Done 07:40</small></p>
+  <p class="lab" style="left:716px;top:304px">You are here</p>
+
+  <p class="lab" style="left:276px;top:836px">Admin date filters<small>Done</small></p>
+  <p class="lab" style="left:976px;top:836px;color:#4b5a80">Tiles show the closed year<small>About an hour away</small></p>
+  <p class="lab" style="left:1130px;top:648px;color:#4b5a80">Ready for review</p>
+
+  <a class="art" href="#">
+    <img src="../assets/xmas-site.jpg" alt="The Good Neighbours 8 Days of Christmas website">
+    <p>The 8 Days of Christmas site<small>End of the line · ready to view ↗</small></p>
+  </a>
+
+  <span class="train" title="Started 07:00 · done about 10:10">62%</span>
+
+  <section class="call">
+    <p class="k">You are needed at this station</p>
+    <h1>A test entry is still in the live vendor list.<br><span>Shall I delete it?</span></h1>
+    <div class="actions"><button class="go">Delete it</button><button>Keep it</button></div>
+  </section>
+
+  <div class="legend"><span><i style="background:var(--ink)"></i>travelled</span><span><i style="background:#d6d4cc"></i>ahead</span></div>
+</body>
+</html>

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Cinema</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* 01 · Cinema. The window is a film frame: letterbox bars hold the chrome, the picture holds the one
+     thing that matters, and the bottom bar is a video scrubber of the night — what finished, what is
+     still playing, where "now" is. Saul Bass: one image, one line, everything else is timing. */
+  :root { --ink:#f5efe4; --dim:#a39d92; --mute:#5d5953; --amber:#f2c46d; --bar:#050505; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; background:var(--bar); color:var(--ink);
+    font-family:Inter, system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  .lights { position:absolute; left:22px; top:22px; display:flex; gap:8px; z-index:5; }
+  .lights i { width:12px; height:12px; border-radius:50%; background:#262421; }
+
+  /* letterbox top */
+  .top { position:absolute; left:0; right:0; top:0; height:150px; display:flex; align-items:center; padding:0 120px; gap:28px; }
+  .mark { font-family:"Instrument Serif", serif; font-size:34px; line-height:1; }
+  .date { font-size:16px; color:var(--dim); }
+  .talk { margin-left:auto; display:flex; align-items:center; gap:12px; font-size:16px; color:var(--dim); }
+  .talk b { width:8px; height:8px; border-radius:50%; background:var(--amber); box-shadow:0 0 0 0 rgba(242,196,109,.5); animation:breathe 3.2s ease-in-out infinite; }
+  @keyframes breathe { 50% { box-shadow:0 0 0 7px rgba(242,196,109,0); } }
+
+  /* the picture */
+  .frame { position:absolute; left:0; right:0; top:150px; height:600px; overflow:hidden; }
+  .frame .photo { position:absolute; inset:-2%; background:url(../assets/block42-roof.jpg) center 60% / cover;
+    animation:drift 60s ease-in-out infinite alternate; transform-origin:70% 40%; }
+  @keyframes drift { from { transform:scale(1); } to { transform:scale(1.08); } }
+  .frame::after { content:""; position:absolute; inset:0;
+    background:linear-gradient(90deg, rgba(4,6,8,.86) 0%, rgba(4,6,8,.62) 42%, rgba(4,6,8,.12) 78%),
+               linear-gradient(0deg, rgba(4,6,8,.55), transparent 40%); }
+  .scene { position:absolute; left:120px; top:84px; z-index:2; animation:fade 1.4s ease both; }
+  @keyframes fade { from { opacity:0; } }
+  .eyebrow { font-size:16px; color:var(--amber); margin-bottom:26px; }
+  h1 { font-family:"Instrument Serif", serif; font-weight:400; font-size:94px; line-height:.98; letter-spacing:-.01em; }
+  h1 em { color:var(--amber); }
+  .actions { margin-top:64px; display:flex; align-items:center; gap:14px; }
+  button { font:inherit; font-size:17px; font-weight:500; height:56px; padding:0 34px; border-radius:3px; cursor:pointer;
+    border:1px solid rgba(245,239,228,.32); background:transparent; color:var(--ink); transition:background-color .25s, color .25s, border-color .25s; }
+  button.go { background:var(--ink); color:#0b0b0b; border-color:var(--ink); }
+  button.go:hover { background:var(--amber); border-color:var(--amber); }
+  button:not(.go):hover { background:rgba(245,239,228,.12); }
+  .why { margin-left:18px; font-size:16px; color:var(--dim); background:none; border:0; height:auto; padding:0; }
+  .why:hover { color:var(--ink); background:none; }
+  .detail { margin-top:22px; font-size:18px; line-height:1.5; color:var(--dim); max-width:560px; opacity:0; transition:opacity .4s; }
+  .detail.on { opacity:1; }
+
+  /* up next */
+  .next { position:absolute; right:120px; bottom:74px; width:360px; z-index:2; color:var(--ink); text-decoration:none; animation:fade 1.4s .5s ease both; }
+  .next .k { font-size:15px; color:var(--dim); margin-bottom:14px; display:flex; justify-content:space-between; }
+  .next .shot { position:relative; aspect-ratio:16/10; border-radius:6px; overflow:hidden; outline:1px solid rgba(255,255,255,.14); outline-offset:-1px; }
+  .next img { width:100%; height:100%; object-fit:cover; display:block; transition:filter .35s; filter:brightness(.92); }
+  .next .open { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:500;
+    background:rgba(0,0,0,.45); opacity:0; transition:opacity .3s; }
+  .next:hover .open { opacity:1; }
+  .next h2 { font-family:"Instrument Serif", serif; font-weight:400; font-size:30px; line-height:1.1; margin-top:16px; }
+
+  /* the scrubber */
+  .scrub { position:absolute; left:120px; right:120px; bottom:0; height:150px; }
+  .track { position:absolute; left:0; width:1060px; top:84px; height:2px; background:#232120; }
+  .played { position:absolute; left:0; top:0; height:2px; width:895px; background:linear-gradient(90deg, #4a4640, #8c867c); }
+  .seg { position:absolute; left:765px; width:187px; top:-3px; height:8px; border-radius:4px; background:rgba(122,170,255,.18); }
+  .seg b { display:block; height:100%; width:62%; border-radius:4px; background:#7aaaff;
+    background-image:linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent); background-size:60px 100%; background-repeat:no-repeat;
+    animation:sheen 2.6s linear infinite; }
+  @keyframes sheen { from { background-position:-60px 0; } to { background-position:180px 0; } }
+  .head { position:absolute; left:895px; top:-6px; width:14px; height:14px; margin-left:-7px; border-radius:50%; background:var(--ink);
+    box-shadow:0 0 0 6px rgba(245,239,228,.08), 0 0 22px rgba(245,239,228,.35); }
+  .mk { position:absolute; bottom:22px; transform:translateX(-1px); padding-left:12px; border-left:1px solid #3b3833; cursor:default; }
+  .mk span { display:block; font-size:14px; color:var(--mute); transition:color .25s; }
+  .mk p { font-size:16px; color:var(--dim); transition:color .25s; white-space:nowrap; }
+  .mk:hover p { color:var(--ink); } .mk:hover span { color:var(--amber); }
+  .run { position:absolute; left:765px; top:24px; font-size:16px; color:#a9c4ff; white-space:nowrap; }
+  .run span { color:var(--mute); }
+  .from { position:absolute; left:0; top:108px; font-size:14px; color:var(--mute); }
+  .clock { position:absolute; right:0; top:74px; font-size:16px; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .clock b { color:var(--ink); font-weight:500; }
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; } }
+</style>
+</head>
+<body>
+  <div class="lights"><i></i><i></i><i></i></div>
+  <header class="top">
+    <span class="mark">Flyd</span>
+    <span class="date">Sunday 18 October</span>
+    <span class="talk"><b></b>Hold fn to talk</span>
+  </header>
+
+  <section class="frame">
+    <div class="photo" role="img" aria-label="The roof of Block42 in Nuanu, where the Christmas market will be held"></div>
+    <div class="scene">
+      <p class="eyebrow">Good Neighbours Market needs you</p>
+      <h1>A test entry is still in<br>your live vendor list.<br><em>Shall I delete it?</em></h1>
+      <div class="actions">
+        <button class="go">Delete it</button>
+        <button>Keep it</button>
+        <button class="why" onclick="document.querySelector('.detail').classList.toggle('on')">What is it?</button>
+      </div>
+      <p class="detail">It is called “TEST firstmate – please delete” and was added during Friday’s application test. Nothing links to it.</p>
+    </div>
+    <a class="next" href="#">
+      <p class="k"><span>Up next · ready to view</span></p>
+      <div class="shot"><img src="../assets/xmas-site.jpg" alt="The Good Neighbours 8 Days of Christmas website"><span class="open">Open the site ↗</span></div>
+      <h2>The 8 Days of Christmas site</h2>
+    </a>
+  </section>
+
+  <footer class="scrub" aria-label="Last night, as a timeline">
+    <div class="track">
+      <div class="played"></div>
+      <div class="seg"><b></b></div>
+      <div class="head"></div>
+      <div class="mk" style="left:187px"><span>21:10</span><p>Both test applications passed</p></div>
+      <div class="mk" style="left:500px"><span>02:30</span><p>Logo uploads work again</p></div>
+      <div class="mk" style="left:805px"><span>07:40</span><p>Past markets are live</p></div>
+      <p class="run">CapFive tiles, 62% <span>· about an hour left</span></p>
+    </div>
+    <p class="from">Saturday 18:00</p>
+    <p class="clock"><b>09:12</b> &nbsp;/ 12:00</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd — Minimal, round 2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0e0e0f; --ink:#f3f0ea; --dim:#9a958d; --line:#26252a; --hot:#ff5b3a; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--ink); font-family:"Inter Tight", system-ui, sans-serif; -webkit-font-smoothing:antialiased; padding:72px 64px 96px; }
+  .wrap { max-width:1520px; margin:0 auto; }
+  h1 { font-size:76px; font-weight:800; line-height:.95; letter-spacing:-.04em; max-width:1000px; }
+  h1 span { color:var(--hot); }
+  .lede { font-size:22px; line-height:1.45; color:var(--dim); max-width:820px; margin-top:28px; }
+  .lede a { color:var(--ink); }
+  .grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:56px 40px; margin-top:72px; }
+  .grid a { color:inherit; text-decoration:none; display:block; }
+  .grid img { width:100%; aspect-ratio:16/10; object-fit:cover; display:block; border-radius:10px; outline:1px solid var(--line); transition:filter .3s; }
+  .grid a:hover img { filter:brightness(1.08); }
+  .grid h2 { font-size:28px; font-weight:700; letter-spacing:-.02em; margin-top:20px; display:flex; gap:14px; align-items:baseline; }
+  .grid h2 small { font-size:18px; font-weight:500; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .grid p { font-size:19px; line-height:1.45; color:var(--dim); margin-top:8px; max-width:640px; transition:color .25s; }
+  .grid a:hover p { color:var(--ink); }
+  .why { margin-top:110px; border-top:1px solid var(--line); padding-top:48px; }
+  .why h3 { font-size:36px; font-weight:700; letter-spacing:-.03em; }
+  .why ul { margin-top:28px; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:18px 48px; list-style:none; }
+  .why li { font-size:18px; line-height:1.5; color:var(--dim); }
+  .why li b { color:var(--ink); font-weight:600; }
+  @media (max-width:900px) { body { padding:40px 16px; } h1 { font-size:48px; } .grid, .why ul { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Flyd, minimal. <span>Round two.</span></h1>
+  <p class="lede">Ten directions for the Flyd desktop window, each built on one strong idea with big type, real imagery and data drawn as graphics. Every design shows the same Sunday morning: one decision for George, three things done overnight, the CapFive tiles at 62%, and a Good Neighbours artefact with its real image. Open any one at 1440 × 900 and hover around; each has small states of its own. <a href="../minimal/index.html">Round one is here.</a></p>
+
+  <div class="grid">
+    <a href="01-cinema/index.html"><img src="shots/01.png" alt="01 Cinema"><h2><small>01</small>Cinema</h2><p>The window is a film frame. Letterbox bars hold the chrome, the picture holds the decision, and last night plays back as a video scrubber with the running job still loading.</p></a>
+    <a href="02-kinetic-type/index.html"><img src="shots/02.png" alt="02 Kinetic type"><h2><small>02</small>Kinetic type</h2><p>Type is the data. Size is priority, the job’s progress is poured into its own letters, and the artefact’s title is cut out of the artefact itself.</p></a>
+    <a href="03-spatial-depth/index.html"><img src="shots/03.png" alt="03 Spatial depth"><h2><small>03</small>Spatial depth</h2><p>Distance is time. What needs George stands nearest, the finished site floats behind it, and last night recedes into the haze. The room tilts with the pointer.</p></a>
+    <a href="04-instrument/index.html"><img src="shots/04.png" alt="04 Instrument"><h2><small>04</small>Instrument</h2><p>Every mark is a reading. A gauge for the running job, a 24-hour dial for the night, an LED meter for the week and two hardware keys for the call.</p></a>
+    <a href="05-cover/index.html"><img src="shots/05.png" alt="05 Cover"><h2><small>05</small>Cover</h2><p>One magazine cover a morning, for one reader. Nuanu is the cover photo, the decision is the main cover line and the running job is the corner flash.</p></a>
+    <a href="06-ambient-light/index.html"><img src="shots/06.png" alt="06 Ambient light"><h2><small>06</small>Ambient light</h2><p>A Turrell room where everything is a light: a warm pool for the decision, a skylight that is the Block42 venue page, a horizon for progress and three small lamps.</p></a>
+    <a href="07-card-deck/index.html"><img src="shots/07.png" alt="07 Card deck"><h2><small>07</small>Card deck</h2><p>A chief of staff hands George cards. The one to play lies face up; the rest form a wallet stack, each readable from its top edge and pulled up on hover.</p></a>
+    <a href="08-map-of-work/index.html"><img src="shots/08.png" alt="08 Map of work"><h2><small>08</small>Map of work</h2><p>A Vignelli subway map. Projects are lines, finished work is stations, track ahead is pale, George is the interchange and the running job is a train.</p></a>
+    <a href="09-voice-orb/index.html"><img src="shots/09.png" alt="09 Voice orb"><h2><small>09</small>Voice orb</h2><p>Flyd as a presence that speaks. The orb’s halo is the state of the work, and the words light up TV-style as Flyd says them.</p></a>
+    <a href="10-calm-paper/index.html"><img src="shots/10.png" alt="10 Calm paper"><h2><small>10</small>Calm paper</h2><p>A note on the desk: the question in red pencil, last night ticked by hand, the job hatched in graphite and two prints taped to the corner.</p></a>
+  </div>
+
+  <section class="why">
+    <h3>Why round one fell short</h3>
+    <ul>
+      <li><b>All ten were one layout.</b> A grey sentence and two small buttons on an empty field with a footer strip, restyled ten times.</li>
+      <li><b>The type was small.</b> Headlines stopped at 34 to 56px and everything else sat at 11 to 15px, the size George said hurts his eyes.</li>
+      <li><b>No real imagery.</b> The artefact was a hand-drawn SVG thumbnail, never the real site or a real photo.</li>
+      <li><b>No data as graphics.</b> Progress was a 2px bar or a ring; done work was a line of grey text.</li>
+      <li><b>No motion or states.</b> Nothing faded, filled, breathed or opened on hover.</li>
+      <li><b>Emptiness stood in for minimalism.</b> Fewer elements were also weaker elements.</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

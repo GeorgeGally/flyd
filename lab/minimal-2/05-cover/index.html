@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Cover</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,700;6..96,800&family=Inter+Tight:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* 05 · Cover. Every morning Flyd prints one magazine cover, for one reader. The cover photo is where the
+     work lives (Nuanu, home of the Christmas market). The main cover line is the one decision; the cover
+     lines are what got done; the corner flash is the job still running, its ring filling as it goes. */
+  :root { --ink:#0f1a12; --paper:#fffdf6; --flash:#ffd60a; --hot:#ff4b2b; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; color:var(--paper); font-family:"Inter Tight", system-ui, sans-serif; -webkit-font-smoothing:antialiased; background:#28452b; }
+  .cover { position:absolute; inset:0; background:url(../assets/nuanu.jpg) center top / 1440px auto no-repeat; animation:breathe 30s ease-in-out infinite alternate; }
+  @keyframes breathe { to { background-size:1500px auto; } }
+  .scrim { position:absolute; inset:0;
+    background:linear-gradient(0deg, rgba(6,18,9,.92) 0%, rgba(6,18,9,.6) 34%, rgba(6,18,9,0) 62%),
+               linear-gradient(90deg, rgba(6,18,9,.7) 0%, rgba(6,18,9,.25) 40%, rgba(6,18,9,0) 60%); }
+  .lights { position:absolute; left:22px; top:22px; display:flex; gap:8px; z-index:3; }
+  .lights i { width:12px; height:12px; border-radius:50%; background:rgba(15,26,18,.28); }
+
+  .mast { position:absolute; left:108px; top:-6px; font-family:"Bodoni Moda", serif; font-weight:800; font-size:290px; line-height:1; letter-spacing:-.035em; color:var(--ink); animation:fade 1.4s ease both; }
+  @keyframes fade { from { opacity:0; } }
+  .issue { position:absolute; left:780px; top:82px; color:var(--ink); font-size:17px; line-height:1.45; font-weight:500; }
+  .issue b { display:block; font-size:22px; font-weight:700; }
+
+  .flash { position:absolute; left:1150px; top:58px; width:170px; height:170px; border-radius:50%; background:var(--flash); color:var(--ink);
+    display:flex; flex-direction:column; justify-content:center; padding-left:34px; box-shadow:0 10px 30px rgba(0,0,0,.18); cursor:default; }
+  .flash svg { position:absolute; inset:-10px; width:190px; height:190px; transform:rotate(-90deg); }
+  .flash circle { fill:none; stroke-width:4; }
+  .flash .arc { stroke:var(--ink); stroke-dasharray:0 578; animation:fill 2.4s .4s cubic-bezier(.2,.7,.2,1) forwards; }
+  @keyframes fill { to { stroke-dasharray:358 578; } }
+  .flash b { font-size:52px; font-weight:800; line-height:.9; letter-spacing:-.04em; }
+  .flash span { font-size:16px; font-weight:600; line-height:1.2; margin-top:6px; }
+  .flash small { position:absolute; left:34px; top:118px; font-size:14px; font-weight:500; opacity:0; transition:opacity .3s; }
+  .flash:hover small { opacity:1; } .flash:hover span { opacity:0; }
+
+  .lines { position:absolute; left:120px; top:318px; animation:fade 1.4s .3s ease both; }
+  .kick { font-size:17px; font-weight:700; color:var(--flash); margin-bottom:14px; }
+  .lines li { list-style:none; font-size:28px; font-weight:700; line-height:1.18; letter-spacing:-.02em; padding:6px 0; text-shadow:0 1px 18px rgba(0,0,0,.35); }
+  .lines li small { font-size:17px; font-weight:500; opacity:.75; margin-left:8px; letter-spacing:0; }
+
+  .main { position:absolute; left:120px; bottom:64px; width:900px; animation:fade 1.4s .5s ease both; }
+  .main h1 { font-size:86px; white-space:nowrap; font-weight:800; line-height:.92; letter-spacing:-.045em; }
+  .main p { font-size:24px; margin-top:18px; opacity:.9; }
+  .actions { margin-top:48px; display:flex; gap:14px; }
+  button { font:inherit; font-size:18px; font-weight:700; height:58px; padding:0 32px; border-radius:999px; cursor:pointer;
+    border:2px solid rgba(255,253,246,.7); background:transparent; color:var(--paper); transition:background-color .25s, color .25s, border-color .25s; }
+  button.go { background:var(--paper); color:var(--ink); border-color:var(--paper); }
+  button.go:hover { background:var(--flash); border-color:var(--flash); }
+  button:not(.go):hover { background:rgba(255,253,246,.14); }
+
+  .inside { position:absolute; right:120px; bottom:64px; width:270px; color:var(--paper); text-decoration:none; animation:fade 1.4s .7s ease both; }
+  .inside .k { font-size:17px; font-weight:700; color:var(--flash); margin-bottom:12px; }
+  .inside img { width:100%; aspect-ratio:16/10; object-fit:cover; display:block; border:5px solid var(--paper); box-shadow:0 18px 40px rgba(0,0,0,.4); transition:filter .3s; }
+  .inside:hover img { filter:brightness(1.1); }
+  .inside p { font-size:20px; font-weight:700; line-height:1.2; margin-top:14px; letter-spacing:-.01em; }
+  .inside p span { font-weight:500; opacity:.7; }
+  .credit { position:absolute; left:780px; top:186px; font-size:15px; color:rgba(15,26,18,.7); font-weight:500; }
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; } .flash .arc { stroke-dasharray:358 578; } }
+</style>
+</head>
+<body>
+  <div class="cover" role="img" aria-label="Aerial view of Nuanu Creative City, Bali"></div>
+  <div class="scrim"></div>
+  <div class="lights"><i></i><i></i><i></i></div>
+
+  <div class="mast">Flyd</div>
+  <p class="issue"><b>Sunday 18 October</b>George’s morning edition<br>Hold fn to talk to the editor</p>
+  <p class="credit">Cover: Nuanu, home of the Christmas market</p>
+
+  <div class="flash" title="CapFive deal tiles: started 07:00, done about 10:10">
+    <svg viewBox="0 0 190 190"><circle cx="95" cy="95" r="92" stroke="rgba(15,26,18,.15)"/><circle class="arc" cx="95" cy="95" r="92"/></svg>
+    <b>62%</b><span>CapFive tiles,<br>an hour to go</span><small>Done about 10:10</small>
+  </div>
+
+  <section class="lines">
+    <p class="kick">Done while you slept</p>
+    <ul>
+      <li>Both test applications passed <small>21:10</small></li>
+      <li>Logo uploads work again <small>02:30</small></li>
+      <li>Past markets are live on the site <small>07:40</small></li>
+    </ul>
+  </section>
+
+  <section class="main">
+    <p class="kick">Good Neighbours needs you</p>
+    <h1>Delete the test entry?</h1>
+    <p>It is still sitting in the live vendor list.</p>
+    <div class="actions"><button class="go">Delete it</button><button>Keep it</button></div>
+  </section>
+
+  <a class="inside" href="#">
+    <p class="k">Inside, page 8</p>
+    <img src="../assets/xmas-site.jpg" alt="The Good Neighbours 8 Days of Christmas website">
+    <p>The 8 Days of Christmas site is ready <span>↗</span></p>
+  </a>
+</body>
+</html>

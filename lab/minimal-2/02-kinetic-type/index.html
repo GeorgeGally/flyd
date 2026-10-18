@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Flyd — Kinetic type</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<style>
+  /* 02 · Kinetic type. Paula Scher: words are pictures. There is no chart and no card — the type carries
+     the data. Size is priority. The running job's progress is poured into its own letters. The artefact's
+     title is cut out of the artefact itself. Nothing moves; only light and colour inside the letters do. */
+  @property --p { syntax:"<percentage>"; inherits:false; initial-value:0%; }
+  :root { --bg:#0c0c0d; --ink:#f4f1ea; --dim:#8f8a82; --mute:#46433f; --hot:#ff5b3a; --lime:#c8f560; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:900px; overflow:hidden; background:var(--bg); color:var(--ink);
+    font-family:"Inter Tight", system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  .lights { position:absolute; left:22px; top:22px; display:flex; gap:8px; }
+  .lights i { width:12px; height:12px; border-radius:50%; background:#232220; }
+
+  header { position:absolute; left:120px; right:120px; top:46px; display:flex; align-items:baseline; gap:22px; font-size:18px; }
+  header .mark { font-weight:800; font-size:22px; letter-spacing:-.02em; }
+  header .date { color:var(--dim); }
+  .done { margin-left:auto; position:relative; color:var(--dim); cursor:default; padding-bottom:12px; }
+  .done i { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--lime); margin-right:5px; vertical-align:1px; }
+  .done span { margin-left:10px; transition:color .25s; }
+  .done:hover span { color:var(--ink); }
+  .done ul { position:absolute; right:0; top:100%; width:440px; list-style:none; padding:20px 24px; border-radius:10px;
+    background:#161615; border:1px solid #262523; opacity:0; pointer-events:none; transition:opacity .3s; z-index:3; }
+  .done:hover ul { opacity:1; pointer-events:auto; }
+  .done li { font-size:18px; line-height:1.4; color:var(--ink); padding:8px 0; display:flex; justify-content:space-between; gap:20px; }
+  .done li small { color:var(--mute); font-size:15px; font-variant-numeric:tabular-nums; }
+
+  .ask { position:absolute; left:120px; top:126px; animation:fade 1.1s ease both; }
+  @keyframes fade { from { opacity:0; } }
+  .ask p { font-size:24px; color:var(--dim); margin-bottom:10px; }
+  h1 { font-size:136px; font-weight:800; line-height:.9; letter-spacing:-.045em; }
+  h1 em { font-style:normal; color:var(--hot); }
+  .actions { margin-top:52px; display:flex; gap:14px; }
+  button { font:inherit; font-size:19px; font-weight:600; height:60px; padding:0 34px; border-radius:999px; cursor:pointer;
+    border:1.5px solid #3a3835; background:transparent; color:var(--ink); transition:background-color .25s, border-color .25s, color .25s; }
+  button.go { background:var(--hot); border-color:var(--hot); color:#140804; }
+  button.go:hover { background:var(--ink); border-color:var(--ink); }
+  button:not(.go):hover { border-color:var(--ink); }
+
+  .run { position:absolute; left:120px; top:604px; display:flex; align-items:baseline; gap:28px; animation:fade 1.1s .25s ease both; }
+  .run h2 { font-size:60px; font-weight:800; letter-spacing:-.035em; line-height:1;
+    background:linear-gradient(90deg, var(--lime) var(--p), #2f2e2b var(--p)); -webkit-background-clip:text; background-clip:text; color:transparent;
+    animation:pour 2.4s .4s cubic-bezier(.2,.7,.2,1) forwards; }
+  @keyframes pour { to { --p:62%; } }
+  .run p { font-size:20px; color:var(--dim); }
+  .run p b { color:var(--lime); font-weight:600; }
+
+  .art { position:absolute; left:120px; right:0; top:708px; color:inherit; text-decoration:none; animation:fade 1.1s .5s ease both; }
+  .art .k { font-size:18px; color:var(--dim); margin-bottom:4px; transition:color .25s; }
+  .art .k b { color:var(--ink); font-weight:500; }
+  .art h3 { font-size:132px; font-weight:900; line-height:.86; letter-spacing:-.05em; white-space:nowrap;
+    background:url(../assets/xmas-site.jpg) 0 0 / 1800px auto; -webkit-background-clip:text; background-clip:text; color:transparent;
+    filter:saturate(1.15) brightness(1.22); animation:pan 48s ease-in-out infinite alternate; transition:filter .4s; }
+  @keyframes pan { from { background-position:-20px -62px; } to { background-position:-380px -62px; } }
+  .art:hover h3 { filter:saturate(1.3) brightness(1.3); }
+  .art:hover .k { color:var(--ink); }
+
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; } .run h2 { --p:62%; } }
+</style>
+</head>
+<body>
+  <div class="lights"><i></i><i></i><i></i></div>
+  <header>
+    <span class="mark">Flyd</span>
+    <span class="date">Sunday morning, 09:12</span>
+    <div class="done"><i></i><i></i><i></i><span>Three things done overnight</span>
+      <ul>
+        <li>Both GNM test applications passed <small>21:10</small></li>
+        <li>Vendors can upload their logos again <small>02:30</small></li>
+        <li>The past-markets question is live <small>07:40</small></li>
+      </ul>
+    </div>
+  </header>
+
+  <section class="ask">
+    <p>A test entry is still in the live Good Neighbours vendor list.</p>
+    <h1><em>Delete</em> the<br>test entry?</h1>
+    <div class="actions"><button class="go">Delete it</button><button>Keep it</button></div>
+  </section>
+
+  <section class="run">
+    <h2>CapFive tiles, 62% there.</h2>
+    <p><b>About an hour left.</b> Started at 07:00.</p>
+  </section>
+
+  <a class="art" href="#">
+    <p class="k"><b>Ready to view ↗</b> &nbsp;The Good Neighbours Christmas site, 11–20 December</p>
+    <h3>8 Days of Christmas</h3>
+  </a>
+</body>
+</html>
