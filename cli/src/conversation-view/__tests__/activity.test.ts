@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kindVisual } from "../cards.js";
-import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, MAX_RECENT, recordActivity } from "../activity.js";
+import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, MAX_RECENT, monitorsFromActivityRecords, recordActivity } from "../activity.js";
 
 const NOW = Date.parse("2026-10-17T12:00:00.000Z");
 const minutesAgo = (minutes: number): string => new Date(NOW - minutes * 60_000).toISOString();
