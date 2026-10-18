@@ -76,6 +76,8 @@ export interface ShowScreen {
   semantic?: SemanticObject[];
   /** Native task manifestations: one stable Activity per Firstmate job across every phase. */
   activities?: SemanticObject[];
+  /** Standalone choices that belong to George rather than to an Activity. */
+  decisions?: SemanticObject[];
   /** Snapshot-to-snapshot semantic lifecycle deltas; populated by SnapshotDiffer, not by pure showOf. */
   events?: SemanticEvent[];
   /** How many of each kind exist, including those past the screen's limits. */
