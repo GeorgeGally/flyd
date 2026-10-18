@@ -32,7 +32,7 @@ describe("canonical semantic artefacts", () => {
     expect(semanticObjectFromShow(item({ kind: "ready" })).kind).toBe("activity");
     expect(semanticObjectFromShow(item({ kind: "landed" })).kind).toBe("activity");
     expect(semanticObjectFromShow(item({ kind: "plan" })).kind).toBe("artifact");
-    expect(semanticObjectFromShow(item({ kind: "news" })).kind).toBe("conversation");
+    expect(semanticObjectFromShow({ id: "news:1", kind: "news", headline: "A useful update", why: "Worth seeing" }).kind).toBe("conversation");
   });
 
   it("keeps one task an Activity while its phase moves through work, George, and finished", () => {
@@ -86,7 +86,7 @@ describe("canonical semantic artefacts", () => {
   });
 
   it("lets Jev override semantic type without changing the underlying ShowItem", () => {
-    const legacy = item({ kind: "news", headline: "Why applications dropped" });
+    const legacy: ShowItem = { id: "news:1", kind: "news", headline: "Why applications dropped", why: "Worth understanding" };
     const [semantic] = semanticObjectsFromShow([legacy], () => "investigation");
     expect(legacy.kind).toBe("news");
     expect(semantic.kind).toBe("investigation");
