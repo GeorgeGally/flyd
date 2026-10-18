@@ -98,7 +98,7 @@ describe("the pairing endpoints", () => {
       expect(qr.headers.get("content-type")).toContain("image/svg+xml");
       expect(await qr.text()).not.toContain("2@secretcode");
       const pair = await fetch(base + "/api/whatsapp-pair", { method: "POST", headers: { "x-flyd-view-token": token }, body: JSON.stringify({ action: "start" }) });
-      expect(await pair.json()).toMatchObject({ result: { paired: false, linking: true } });
+      expect(await pair.json()).toMatchObject({ result: { paired: false } });
       expect((await fetch(base + "/api/whatsapp-pair", { method: "POST", body: "{}" })).status).toBe(403);
       // The artefacts column carries the same offer, opening the code.
       const rail = (server as unknown as { rail: (snapshot: ConversationSnapshot) => { artefacts: Array<{ id: string; title: string; url?: string }> } }).rail(snapshot());

@@ -38,7 +38,7 @@ describe("People artefact", () => {
   it("offers the live pairing code in the page while WhatsApp is unlinked", async () => {
     vi.stubGlobal("setInterval", vi.fn());
     vi.stubGlobal("fetch", vi.fn(async (url, options) => {
-      if (url === "/api/whatsapp-pair") return new Response(JSON.stringify({ result: { paired: false, linking: true } }), { status: 200 });
+      if (url === "/api/whatsapp-pair") return new Response(JSON.stringify({ result: { paired: false } }), { status: 200 });
       const { name } = JSON.parse(options.body); let result: unknown;
       if (name === "whatsapp_status") result = { paired: false, state: "disconnected" };
       return new Response(JSON.stringify({ result }), { status: 200 });

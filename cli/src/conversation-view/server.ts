@@ -759,10 +759,10 @@ export class ConversationViewServer {
     if (req.method === "POST" && url.pathname === "/api/whatsapp-pair") {
       const origin = req.headers.origin;
       if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) { sendJson(res, 403, { error: "forbidden" }); return; }
-      if (!this.whatsapp) { sendJson(res, 200, { result: { paired: false, linking: false } }); return; }
+      if (!this.whatsapp) { sendJson(res, 200, { result: { paired: false } }); return; }
       this.whatsapp.start();
-      const { paired, code } = this.whatsapp.state();
-      sendJson(res, 200, { result: { paired, linking: Boolean(code) } });
+      const { paired } = this.whatsapp.state();
+      sendJson(res, 200, { result: { paired } });
       return;
     }
     if (url.pathname === "/api/whatsapp-qr") {
