@@ -60,6 +60,19 @@ export interface SemanticObject {
     recommended?: string;
     replyTo?: string;
   };
+  /** Investigation is an evidence-backed question, not a layout. */
+  investigation?: {
+    question: string;
+    findings: Array<{
+      heading: string;
+      summary: string;
+      confidence: "high" | "medium" | "low";
+      evidenceIds: string[];
+    }>;
+    uncertainties: string[];
+    conflicts: Array<{ topic: string; reason: string; confidence: number }>;
+    sourceCount: number;
+  };
   createdAt?: string;
   updatedAt?: string;
 }
@@ -177,10 +190,10 @@ export function semanticObjectsFromShow(items: readonly ShowItem[], override?: S
 function sameMeaning(a: SemanticObject, b: SemanticObject): boolean {
   return JSON.stringify({
     kind: a.kind, lifecycle: a.lifecycle, subject: a.subject, summary: a.summary, detail: a.detail,
-    project: a.project, status: a.status, evidence: a.evidence, actions: a.actions, activity: a.activity, decision: a.decision,
+    project: a.project, status: a.status, evidence: a.evidence, actions: a.actions, activity: a.activity, decision: a.decision, investigation: a.investigation,
   }) === JSON.stringify({
     kind: b.kind, lifecycle: b.lifecycle, subject: b.subject, summary: b.summary, detail: b.detail,
-    project: b.project, status: b.status, evidence: b.evidence, actions: b.actions, activity: b.activity, decision: b.decision,
+    project: b.project, status: b.status, evidence: b.evidence, actions: b.actions, activity: b.activity, decision: b.decision, investigation: b.investigation,
   });
 }
 
