@@ -2788,9 +2788,28 @@ ${LEFT_SCRIPT}
     // kept with the card so they survive a reload and the box is never blank again.
     var thread = el("div", "art-thread");
     // Only the thread outlives the session; a choice he picked, the steps and his draft stay with this session.
+    // The same card can be open in more than one place at once, so what another copy stored is
+    // folded in by note id, never written over: no message, note id or answer is lost, and
+    // nothing one copy has finished with comes back. Only notes that went are kept.
     function save() {
       try { sessionStorage.setItem(key, JSON.stringify(Object.assign({}, state, { thread: undefined }))); } catch (_) {}
-      store(key, JSON.stringify(state.thread || []));
+      var stored = [];
+      try { stored = JSON.parse(store(key) || "[]"); } catch (_) {}
+      var mine = state.thread || [];
+      var after = -1;
+      (Array.isArray(stored) ? stored : []).forEach(function (other) {
+        if (!other || !other.id) return;
+        var at = -1;
+        mine.forEach(function (entry, index) { if (entry.id === other.id) at = index; });
+        if (at === -1) { mine.splice(after + 1, 0, Object.assign({}, other)); after += 1; return; }
+        var entry = mine[at];
+        if (!entry.answer && other.answer) entry.answer = other.answer;
+        if (other.done) entry.done = true;
+        after = Math.max(after, at);
+      });
+      state.thread = mine.slice(-50);
+      store(key, JSON.stringify(state.thread.filter(function (entry) { return entry.id; })));
+      paintThread();
     }
     function paintThread() {
       thread.textContent = "";
@@ -2886,7 +2905,7 @@ ${LEFT_SCRIPT}
             }
             if (data.receipt === "read" && state.receipt === "sent") { state.receipt = "read"; changed = true; }
           });
-          if (changed) { save(); paintThread(); paint(); }
+          if (changed) { save(); paint(); }
         });
       }, 5000);
     }

@@ -1391,6 +1391,35 @@ describe("header and artefact view", () => {
     }
   });
 
+  it("folds in what another copy of the same card stored instead of writing over it", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      const key = "flyd-decision:visuals:Choose from the lab";
+      localStorage.setItem(key, JSON.stringify([{ text: "A mix of the two", id: "note:1" }]));
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      // Another copy of this card sent a second message, and already heard that a third is finished with.
+      localStorage.setItem(key, JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Make the pins bigger", id: "note:2" }, { text: "Old", id: "note:0", done: true }]));
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?id=note%3A1") ? { receipt: "read", answer: { text: "A mix it is, sir." } } : String(url).startsWith("/api/note?") ? { receipt: "sent" } : {}));
+      vi.advanceTimersByTime(5000);
+      await settle();
+      const kept = JSON.parse(localStorage.getItem(key)!);
+      expect(kept).toEqual([
+        { text: "A mix of the two", id: "note:1", answer: "A mix it is, sir." },
+        { text: "Make the pins bigger", id: "note:2" },
+        { text: "Old", id: "note:0", done: true },
+      ]);
+      const thread = document.querySelector<HTMLElement>(".scene-ask .art-thread")!;
+      expect([...thread.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["A mix of the two", "Make the pins bigger", "Old"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("gives every artefact a chat box that names it, and says a closed review page in words", async () => {
     load("");
     await settle();
