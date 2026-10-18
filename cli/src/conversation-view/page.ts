@@ -990,6 +990,12 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 }
 .composer .unread::before { content: ""; flex: none; width: 0.42em; height: 0.42em; margin-top: 0.52em; border-radius: 50%; background: currentColor; }
 .composer .unread[hidden] { display: none; }
+/* The card his next message is about, picked from the activity column. */
+.composer .about { display: flex; align-items: center; gap: 0.6em; margin: 0 0 0.6em; font: 500 0.82em/1.4 var(--sans); color: var(--muted); }
+.composer .about[hidden] { display: none; }
+.composer .about-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--strong); }
+.composer .about button { flex: none; width: 1.6em; height: 1.6em; padding: 0; border: 0; border-radius: 0.3em; background: none; cursor: pointer; font: inherit; color: var(--muted); transition: color 140ms ease, background 140ms ease; }
+.composer .about button:hover { color: var(--strong); background: var(--tint); }
 .composer .row {
   position: relative; max-width: calc(36em * 1.25); margin: 0 auto; padding: 0 1.875em;
 }
@@ -3822,11 +3828,29 @@ ${LEFT_SCRIPT}
     },
   };
 
+  // A card from the activity column he is talking about: named over the message box and in front of what he sends.
+  var aboutInfo = null;
+  var aboutCleared = null;
+  function chatAbout(info, onClear) {
+    var was = aboutCleared;
+    aboutInfo = info || null;
+    aboutCleared = info ? onClear || null : null;
+    document.getElementById("about-title").textContent = info ? info.title || "" : "";
+    document.getElementById("about").hidden = !info;
+    if (info) input.focus();
+    else if (was) was();
+  }
+  document.getElementById("about-clear").addEventListener("click", function () { chatAbout(null); input.focus(); });
+
   composer.addEventListener("submit", function (event) {
     event.preventDefault();
     var text = input.value.trim();
     var sending = attachments.slice();
     if ((!text && !sending.length) || !current) return;
+    if (aboutInfo && text) {
+      text = "About “" + aboutInfo.title + "”" + (aboutInfo.detail && aboutInfo.detail !== aboutInfo.title ? " (" + aboutInfo.detail + ")" : "") + ":\\n\\n" + text;
+      chatAbout(null);
+    }
     recall.index = -1;
     sentSinceLoad.push(text);
     // Created inside the key press, as browsers require for audio.
@@ -4671,6 +4695,7 @@ ${LEFT_HTML}
   <div class="row">
     <p class="unread" id="staff" role="status" hidden></p>
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
+    <p class="about" id="about" hidden><span>About</span><span class="about-title" id="about-title"></span><button type="button" id="about-clear" aria-label="Not about this">✕</button></p>
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">
       <div class="typing">

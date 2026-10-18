@@ -2544,7 +2544,7 @@ describe("header and artefact view", () => {
     expect(more.textContent).toBe("Show fewer");
   });
 
-  it("opens a card's fuller detail in a page beside the column when he clicks it, and closes it again", async () => {
+  it("takes a card to the main chat when he clicks it, and lets it go again", async () => {
     localStorage.setItem("flyd-left", "on");
     load("");
     await settle();
@@ -2554,32 +2554,32 @@ describe("header and artefact view", () => {
       { id: "job:1", kind: "done", title: "Finished a job for you", line: "Done.", detail: "Done. The file is at ~/Documents/Flyd/gnm.md, deduped and checked.", at },
     ] } });
     const card = (): HTMLElement => document.querySelector("#left-recent .left-card") as HTMLElement;
-    const sheet = (): HTMLElement => document.getElementById("left-sheet") as HTMLElement;
-    expect(sheet().hidden).toBe(true);
+    const about = (): HTMLElement => document.getElementById("about") as HTMLElement;
+    expect(about().hidden).toBe(true);
     card().click();
-    // The one card stays put and lit; its page opens beside the column, with the exact time.
+    // The card stays put and lit; the message box says what his next message is about, ready to type.
     expect(document.querySelectorAll("#left-recent .left-card")).toHaveLength(1);
     expect(card().dataset.key).toBe("job:1|done");
     expect(card().classList.contains("is-open")).toBe(true);
     expect((card().querySelector(".card-detail") as HTMLElement).hidden).toBe(true);
-    expect(sheet().hidden).toBe(false);
-    expect(document.documentElement.getAttribute("data-left-sheet")).toBe("open");
-    expect(document.getElementById("left-sheet-title")!.textContent).toBe("Finished a job for you");
-    expect(document.getElementById("left-sheet-detail")!.textContent).toBe("Done. The file is at ~/Documents/Flyd/gnm.md, deduped and checked.");
-    expect(document.getElementById("left-sheet-when")!.textContent).not.toBe("");
-    // Clicking the card again closes it.
+    expect(card().querySelector("textarea, input")).toBeNull();
+    expect(about().hidden).toBe(false);
+    expect(document.getElementById("about-title")!.textContent).toBe("Finished a job for you");
+    expect(document.activeElement).toBe(document.getElementById("input"));
+    // Clicking the card again lets it go.
     card().click();
-    expect(sheet().hidden).toBe(true);
+    expect(about().hidden).toBe(true);
     expect(card().classList.contains("is-open")).toBe(false);
-    // Its ✕ closes it.
+    // So does the ✕ on the message box.
     card().click();
-    (document.getElementById("left-sheet-close") as HTMLButtonElement).click();
-    expect(sheet().hidden).toBe(true);
-    // Escape closes an open card too, without taking the whole column away.
+    (document.getElementById("about-clear") as HTMLButtonElement).click();
+    expect(about().hidden).toBe(true);
+    expect(card().classList.contains("is-open")).toBe(false);
+    // Escape lets it go too, without taking the whole column away.
     card().click();
-    expect(sheet().hidden).toBe(false);
+    expect(about().hidden).toBe(false);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(sheet().hidden).toBe(true);
+    expect(about().hidden).toBe(true);
     expect(document.getElementById("left")!.hidden).toBe(false);
   });
 
@@ -2604,11 +2604,8 @@ describe("header and artefact view", () => {
       .find((rule) => card().matches(rule.selectorText.replace(/:hover$/, "")));
     expect(hover).toBeDefined();
     card().click();
-    // This card has no fuller outcome, so its page carries its title, its line and the exact time.
-    expect(document.getElementById("left-sheet")!.hidden).toBe(false);
-    expect(document.getElementById("left-sheet-line")!.textContent).toBe("10 recent answers checked; all held up.");
-    expect(document.getElementById("left-sheet-detail")!.hidden).toBe(true);
-    expect(document.getElementById("left-sheet-when")!.textContent).not.toBe("");
+    expect(document.getElementById("about")!.hidden).toBe(false);
+    expect(document.getElementById("about-title")!.textContent).toBe("Read back its own answers");
   });
 
   it("opens the quiet Right now card on what Flyd last did, and exactly when", async () => {
@@ -2620,11 +2617,10 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "log:news", kind: "news", title: "Watched the news for you", at }] } });
     const card = (): HTMLElement => document.querySelector("#left-now .left-card") as HTMLElement;
     expect(card().classList.contains("is-expandable")).toBe(true);
-    expect(document.getElementById("left-sheet")!.hidden).toBe(true);
+    expect(document.getElementById("about")!.hidden).toBe(true);
     card().click();
-    expect(document.getElementById("left-sheet")!.hidden).toBe(false);
-    expect(document.getElementById("left-sheet-detail")!.textContent).toBe("Last thing done: Watched the news for you");
-    expect(document.getElementById("left-sheet-when")!.textContent).not.toBe("");
+    expect(document.getElementById("about")!.hidden).toBe(false);
+    expect(document.getElementById("about-title")!.textContent).toBe("Nothing under way right now.");
   });
 
   it("leaves the quiet Right now card plain when Flyd has done nothing yet", async () => {
@@ -2651,12 +2647,12 @@ describe("header and artefact view", () => {
     const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
     close.dispatchEvent(enter);
     expect(enter.defaultPrevented).toBe(false);
-    expect(document.getElementById("left-sheet")!.hidden).toBe(true);
+    expect(document.getElementById("about")!.hidden).toBe(true);
     card.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    expect(document.getElementById("left-sheet")!.hidden).toBe(false);
+    expect(document.getElementById("about")!.hidden).toBe(false);
   });
 
-  it("lets Escape take the column away when no shown card is open", async () => {
+  it("lets Escape take the column away once no card is in the chat", async () => {
     localStorage.setItem("flyd-left", "on");
     load("");
     await settle();
@@ -2664,9 +2660,10 @@ describe("header and artefact view", () => {
     const at = new Date(Date.now() - 4 * 60_000).toISOString();
     stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:1", kind: "done", title: "Finished a job for you", detail: "Done.", at }] } });
     (document.querySelector("#left-recent .left-card") as HTMLElement).click();
-    // The open card ages out of the panel, and its page goes with it.
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:2", kind: "done", title: "Another job", at }] } });
+    // Escape first lets the card go from the message box, then takes the column away.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(document.querySelector("#left .card.is-open")).toBeNull();
+    expect(document.getElementById("left")!.hidden).toBe(false);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(document.getElementById("left")!.hidden).toBe(true);
   });
