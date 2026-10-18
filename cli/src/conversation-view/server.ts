@@ -517,7 +517,7 @@ export class SnapshotDiffer {
       });
     const semanticJudge = this.summaries?.semantic;
     if (semanticJudge) {
-      for (const item of show.items) if (!item.task && !item.decision && !semanticJudge.cached(item) && !semanticJudge.pending(item)) this.judgeSemantic(semanticJudge, item);
+      for (const item of show.items) if (!item.task && item.kind !== "call" && !item.decision && !semanticJudge.cached(item) && !semanticJudge.pending(item)) this.judgeSemantic(semanticJudge, item);
       show.semantic = semanticObjectsFromShow(show.items, (item) => semanticJudge.cached(item)?.kind);
     }
     const live = this.show?.live ?? (() => "up");
