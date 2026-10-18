@@ -115,9 +115,19 @@ export const LEFT_SCRIPT = `
   // Clicking a card takes it to the main chat: the message box says what it is about, and he talks there.
   function aboutCard(info) {
     if (leftAbout === info.key) { chatAbout(null); return; }
-    chatAbout(info, function () { leftAbout = null; drawActivity(); });
+    chatAbout(Object.assign({ body: aboutBody(info) }, info), function () { leftAbout = null; drawActivity(); });
     leftAbout = info.key;
     drawActivity();
+  }
+  // Everything a card has to say, shown over the message box: its line, its full detail, its stories, exactly when.
+  function aboutBody(info) {
+    var box = el("div", "");
+    if (info.line) box.appendChild(el("p", "about-text", info.line));
+    if (info.detail && info.detail !== info.line && info.detail !== info.title) box.appendChild(el("p", "about-text", info.detail));
+    var stories = storiesNode(info.stories);
+    if (stories) box.appendChild(stories);
+    if (info.detailWhen) box.appendChild(el("p", "about-at", info.detailWhen));
+    return box;
   }
   // What a card hands the chat when he clicks it.
   function chatOpts(info) {
@@ -176,7 +186,7 @@ export const LEFT_SCRIPT = `
       extra: storiesNode(item.stories),
       dismiss: true,
       onHide: drawActivity,
-    }, chatOpts({ key: key, title: item.title, detail: item.detail || item.line || "" })));
+    }, chatOpts({ key: key, kind: item.kind, title: item.title, when: (live ? "Started " : "") + ago(item.at), line: item.line || "", detail: item.detail || "", stories: item.stories, detailWhen: item.at ? dayOf(item.at) + ", " + clock(item.at) : "" })));
   }
   function leftSemanticVisual(activity) {
     var phase = activity.activity && activity.activity.phase;
@@ -210,7 +220,7 @@ export const LEFT_SCRIPT = `
       detailWhen: at ? dayOf(at) + ", " + clock(at) : "",
       dismiss: phase === "finished",
       onHide: drawActivity,
-    }, chatOpts({ key: key, title: activity.subject, detail: activity.decision && phase === "needs_you" ? activity.decision.question : activity.detail || activity.summary || "" })));
+    }, chatOpts({ key: key, kind: visual, title: activity.subject, when: when, line: activity.summary || "", detail: activity.decision && phase === "needs_you" ? activity.decision.question : activity.detail || "", detailWhen: at ? dayOf(at) + ", " + clock(at) : "" })));
     card.dataset.semanticId = activity.id;
     card.dataset.phase = phase;
     return card;
@@ -235,7 +245,7 @@ export const LEFT_SCRIPT = `
       // Its detail is the last thing Flyd did, and exactly when.
       detail: last ? last.title || "" : undefined,
       detailWhen: last && last.at ? dayOf(last.at) + ", " + clock(last.at) : "",
-    }, chatOpts({ key: key, title: "Nothing under way right now.", detail: last ? "Last thing done: " + (last.title || "") : "" })));
+    }, chatOpts({ key: key, kind: "clear", title: "Nothing under way right now.", when: when, detail: last ? "Last thing done: " + (last.title || "") : "", detailWhen: last && last.at ? dayOf(last.at) + ", " + clock(last.at) : "" })));
   }
   function drawActivity() {
     if (!leftPanel) return;

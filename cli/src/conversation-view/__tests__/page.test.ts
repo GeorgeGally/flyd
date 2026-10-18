@@ -2565,6 +2565,11 @@ describe("header and artefact view", () => {
     expect(card().querySelector("textarea, input")).toBeNull();
     expect(about().hidden).toBe(false);
     expect(document.getElementById("about-title")!.textContent).toBe("Finished a job for you");
+    // Over the message box, everything the card has to say: what it is, its line, its full detail and exactly when.
+    expect(document.querySelector("#about-head .about-chip")!.textContent).toBe("Done");
+    const said = Array.from(document.querySelectorAll("#about-body .about-text")).map((p) => p.textContent);
+    expect(said).toEqual(["Done.", "Done. The file is at ~/Documents/Flyd/gnm.md, deduped and checked."]);
+    expect(document.querySelector("#about-body .about-at")!.textContent).not.toBe("");
     expect(document.activeElement).toBe(document.getElementById("input"));
     // Clicking the card again lets it go.
     card().click();

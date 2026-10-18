@@ -990,12 +990,26 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 }
 .composer .unread::before { content: ""; flex: none; width: 0.42em; height: 0.42em; margin-top: 0.52em; border-radius: 50%; background: currentColor; }
 .composer .unread[hidden] { display: none; }
-/* The card his next message is about, picked from the activity column. */
-.composer .about { display: flex; align-items: center; gap: 0.6em; margin: 0 0 0.6em; font: 500 0.82em/1.4 var(--sans); color: var(--muted); }
+/* The card his next message is about, picked from the activity column: everything it has to say, over the message box. */
+.composer .about { position: relative; max-height: 42vh; overflow-y: auto; margin: 0 0 0.75em -0.75em; padding: 1em 1.1em 1.1em; border-radius: 0.4em; background: var(--tint); animation: card-in 200ms ease both; }
 .composer .about[hidden] { display: none; }
-.composer .about-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--strong); }
-.composer .about button { flex: none; width: 1.6em; height: 1.6em; padding: 0; border: 0; border-radius: 0.3em; background: none; cursor: pointer; font: inherit; color: var(--muted); transition: color 140ms ease, background 140ms ease; }
-.composer .about button:hover { color: var(--strong); background: var(--tint); }
+.composer .about-head { display: flex; align-items: center; gap: 0.6em; padding-right: 2em; }
+.composer .about .card-icon { width: 1.9em; height: 1.9em; }
+.composer .about .card-icon svg { width: 1.1em; height: 1.1em; }
+.composer .about-chip { font: 500 0.72em/1.4 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.composer .about-when { font: 500 0.72em/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.composer .about.tone-call .card-icon, .composer .about.tone-call .about-chip { color: var(--k-call); }
+.composer .about.tone-live .card-icon, .composer .about.tone-live .about-chip { color: var(--k-live); }
+.composer .about.tone-done .card-icon, .composer .about.tone-done .about-chip { color: var(--k-landed); }
+.composer .about.tone-held .card-icon, .composer .about.tone-held .about-chip { color: var(--k-waiting); }
+.composer .about.tone-ready .card-icon, .composer .about.tone-ready .about-chip { color: var(--k-ready); }
+.composer .about.tone-memory .card-icon, .composer .about.tone-memory .about-chip { color: var(--accent); }
+.composer .about-title { margin: 0.7em 0 0; font: 600 1.1em/1.3 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
+.composer .about-text { margin: 0.5em 0 0; font: 400 0.95em/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; white-space: pre-line; }
+.composer .about-at { margin: 0.8em 0 0; font: 500 0.75em/1.4 var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
+.composer .about .card-stories { margin-top: 0.8em; }
+.composer .about-clear { position: absolute; top: 0.8em; right: 0.8em; width: 1.7em; height: 1.7em; padding: 0; border: 0; border-radius: 0.3em; background: none; cursor: pointer; font: 400 0.95em/1 var(--sans); color: var(--muted); transition: color 140ms ease, background 140ms ease; }
+.composer .about-clear:hover { color: var(--strong); background: var(--faint); }
 .composer .row {
   position: relative; max-width: calc(36em * 1.25); margin: 0 auto; padding: 0 1.875em;
 }
@@ -3835,8 +3849,22 @@ ${LEFT_SCRIPT}
     var was = aboutCleared;
     aboutInfo = info || null;
     aboutCleared = info ? onClear || null : null;
+    var box = document.getElementById("about");
+    var head = document.getElementById("about-head");
+    var body = document.getElementById("about-body");
+    head.textContent = "";
+    body.textContent = "";
     document.getElementById("about-title").textContent = info ? info.title || "" : "";
-    document.getElementById("about").hidden = !info;
+    box.hidden = !info;
+    if (info) {
+      var v = kindOf(info.kind);
+      box.className = "about tone-" + v.tone;
+      head.appendChild(cardIcon(info.kind));
+      if (v.word) head.appendChild(el("span", "about-chip", v.word));
+      if (info.when) head.appendChild(el("span", "about-when", info.when));
+      if (info.body) body.appendChild(info.body);
+      box.scrollTop = 0;
+    }
     if (info) input.focus();
     else if (was) was();
   }
@@ -4695,7 +4723,7 @@ ${LEFT_HTML}
   <div class="row">
     <p class="unread" id="staff" role="status" hidden></p>
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
-    <p class="about" id="about" hidden><span>About</span><span class="about-title" id="about-title"></span><button type="button" id="about-clear" aria-label="Not about this">✕</button></p>
+    <section class="about" id="about" aria-label="What this message is about" hidden><button class="about-clear" type="button" id="about-clear" aria-label="Not about this">✕</button><div class="about-head" id="about-head"></div><p class="about-title" id="about-title"></p><div id="about-body"></div></section>
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">
       <div class="typing">
