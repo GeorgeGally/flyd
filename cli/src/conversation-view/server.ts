@@ -25,7 +25,7 @@ import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exc
 import type { AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
 import type { SemanticJudge } from "./semantic-judge.js";
-import { semanticEvents, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
+import { activityObjectsFromShow, semanticEvents, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
@@ -523,6 +523,7 @@ export class SnapshotDiffer {
     const semantic = show.semantic ?? semanticObjectsFromShow(show.items);
     show.events = semanticEvents(this.semantic, semantic);
     show.semantic = semantic;
+    show.activities = activityObjectsFromShow(show);
     this.semantic = semantic;
     const live = this.show?.live ?? (() => "up");
     const found = currentPage(snapshot.messages);
