@@ -954,7 +954,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   font-size: 0.8em;
 }
 .composer[hidden] { display: none; }
-/* Notes firstmate has left unread too long: said plainly over the message box. */
+/* Coding work Flyd found stuck after chasing it: said plainly over the message box. */
 .composer .unread {
   display: flex; align-items: flex-start; gap: 0.55em; margin: 0 0 0.6em -0.75em; padding: 0.5em 0.75em;
   border-radius: 0.4em; font: 500 0.82em/1.45 var(--sans); color: var(--k-waiting);
@@ -1305,12 +1305,7 @@ var __name = function (f) { return f; };
   setInterval(function () {
     main.querySelectorAll(".msg > .receipt").forEach(function (line) { receiptLine(line.parentNode, line); });
   }, 15000);
-  var unreadEl = document.getElementById("unread");
-  function showUnread(unread) {
-    unreadEl.hidden = !unread.count;
-    unreadEl.textContent = unread.count ? unread.text : "";
-  }
-  // Coding work Flyd found stuck after nudging it, said the same way.
+  // Coding work Flyd found stuck after nudging it, said over the composer.
   var staffEl = document.getElementById("staff");
   function showStaff(staff) {
     staffEl.hidden = !staff.text;
@@ -3045,7 +3040,6 @@ ${LEFT_SCRIPT}
     });
     source.addEventListener("update", function (event) { problem.textContent = ""; apply(JSON.parse(event.data)); });
     source.addEventListener("problem", function (event) { problem.textContent = JSON.parse(event.data).error; });
-    source.addEventListener("unread", function (event) { showUnread(JSON.parse(event.data)); });
     source.addEventListener("staff", function (event) { showStaff(JSON.parse(event.data)); });
     source.onerror = function () {
       problem.textContent = "reconnecting…";
@@ -4377,7 +4371,6 @@ ${LEFT_HTML}
 </section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
-    <p class="unread" id="unread" role="alert" hidden></p>
     <p class="unread" id="staff" role="status" hidden></p>
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
     <div class="attachments" id="attachments" hidden></div>

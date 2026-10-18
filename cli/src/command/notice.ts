@@ -1,4 +1,6 @@
+import { recordHeld } from "../council/reply-review.js";
 import { scrubBackstage } from "../lib/backstage.js";
+import { relayShortfalls } from "../runtime/honesty-check.js";
 import type { DomainRun } from "./types.js";
 
 // What of a finished domain run is worth a notification. A domain boss's
@@ -38,13 +40,21 @@ export function isRoutineChatter(text: string): boolean {
   return MACHINERY.test(brief) && !reportsOutcome(brief);
 }
 
-/** The notification text for a run, or null when nothing George cares about happened. */
+/** The notification text for a run, or null when nothing George cares about happened, or when what it says may not reach him as written. */
 export function captainNotice(run: DomainRun): string | null {
   if (!run.result) return null;
   const brief = plainBrief(run.result.brief);
   if (!brief) return null;
-  if (run.status === "needs_decision") return `I need your decision: ${scrubBackstage(brief)}`;
-  if (run.status === "failed") return `Work hit a problem: ${scrubBackstage(brief)}`;
-  if (run.status !== "completed" || isRoutineChatter(brief)) return null;
-  return scrubBackstage(brief);
+  const notice = run.status === "needs_decision" ? `I need your decision: ${scrubBackstage(brief)}`
+    : run.status === "failed" ? `Work hit a problem: ${scrubBackstage(brief)}`
+      : run.status === "completed" && !isRoutineChatter(brief) ? scrubBackstage(brief)
+        : null;
+  if (!notice) return null;
+  // The same outgoing-answer checks a chat reply passes: a notice that names
+  // backstage machinery or is a placeholder reaches George as nothing, and what
+  // was held is recorded so a reviewer can see it.
+  const held = relayShortfalls(notice);
+  if (!held.length) return notice;
+  recordHeld({ surface: "notification", source: `domain:${run.id}`, text: notice }, held);
+  return null;
 }

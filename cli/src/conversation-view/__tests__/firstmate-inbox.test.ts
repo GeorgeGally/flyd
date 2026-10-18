@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
-import { unreadNotes } from "../note-receipts.js";
 import type { ConversationSnapshot } from "../types.js";
 import { assistantText, captain } from "./transcript-fixture.js";
 
@@ -220,7 +219,7 @@ describe("FirstmateInbox", () => {
     const exchanges = inbox.notes();
     expect(exchanges.map((exchange) => exchange.question.id)).toEqual(["note:100-a"]);
     expect(exchanges.some((exchange) => exchange.answer)).toBe(false);
-    expect(unreadNotes(exchanges, Date.parse("2026-10-05T23:00:00Z"))?.ids).toEqual(["note:100-a"]);
+    expect(exchanges.map((exchange) => exchange.question.receipt)).toEqual(["sent"]);
   });
 });
 

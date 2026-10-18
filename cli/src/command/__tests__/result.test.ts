@@ -33,6 +33,30 @@ describe("validateDomainHandoff", () => {
   });
 });
 
+describe("key/value replies", () => {
+  it("reads 'status:' with 'brief:' as a structured handoff, so a clear answer closes the run", () => {
+    const { status, result } = parseDomainResult("status: completed\nbrief: Done and live: the sidebar opens on Artefacts, with a tab to switch it to Changes.");
+    expect(status).toBe("completed");
+    expect(result.format).toBe("structured");
+    expect(result.brief).toBe("Done and live: the sidebar opens on Artefacts, with a tab to switch it to Changes.");
+    expect(result.detailedReport).toContain("sidebar opens on Artefacts");
+  });
+
+  it("takes a named PR, commit or URL as the evidence layer", () => {
+    const pr = parseDomainResult("status: completed\nbrief: Sidebar done.\ndetailed_report: See https://github.com/GeorgeGally/flyd/pull/167");
+    expect(validateDomainHandoff(pr.result)).toEqual({ ok: true });
+    const sha = parseDomainResult("status: completed\nbrief: Fixed.\ndetailed_report: commit a5bf7ab, all green.");
+    expect(validateDomainHandoff(sha.result)).toEqual({ ok: true });
+  });
+
+  it("keeps the evidence gap when no pointer is named, and the reply still counts", () => {
+    const { status, result } = parseDomainResult("status: completed\nbrief: Done and live.");
+    expect(status).toBe("completed");
+    expect(result.format).toBe("structured");
+    expect(validateDomainHandoff(result)).toEqual({ ok: false, missing: ["evidence"], reason: "domain handoff contract unmet: missing evidence" });
+  });
+});
+
 describe("prose replies", () => {
   it("never classifies a reply by its words: the plain-words fallback only says it could not tell", () => {
     for (const reply of [

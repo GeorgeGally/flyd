@@ -225,7 +225,7 @@ describe("conversation page", () => {
     expect(line.classList.contains("still")).toBe(false);
   });
 
-  it("says under each note whether firstmate has read it, and warns over the box when notes sit unread", async () => {
+  it("says under each note whether firstmate has read it, and says nothing over the box when notes sit unread", async () => {
     load("");
     await settle();
     const fresh = new Date(Date.now() - 60_000).toISOString();
@@ -247,18 +247,14 @@ describe("conversation page", () => {
     stream.emit("update", { order: ["note:1", "note:2", "note:3", "ask:4"], messages: [{ id: "note:1", role: "user", html: "<p>fix the footer</p>", timestamp: old, receipt: "read", shots: ["/tmp/footer.png"] }], working: false });
     expect(receipt("note:1")!.previousElementSibling!.className).toBe("body");
 
-    const banner = document.getElementById("unread")!;
-    expect(banner.hidden).toBe(true);
-    stream.emit("unread", { count: 1, oldest: old, text: "Firstmate has not read 1 note you sent 10 min ago." });
-    expect(banner.hidden).toBe(false);
-    expect(banner.textContent).toBe("Firstmate has not read 1 note you sent 10 min ago.");
+    const banner = document.getElementById("unread");
+    // No banner for notes left waiting: that is Flyd's to chase, not his to hear.
+    expect(banner).toBeNull();
 
-    // Acknowledged: the note reads as read, and the warning goes.
+    // Acknowledged: the note reads as read.
     stream.emit("update", { order: ["note:1", "note:2", "note:3", "ask:4"], messages: [{ id: "note:3", role: "user", html: "<p>and the logo</p>", timestamp: old, receipt: "read" }], working: false });
-    stream.emit("unread", { count: 0 });
     expect(receipt("note:3")!.textContent).toBe("read by firstmate");
     expect(receipt("note:3")!.classList.contains("late")).toBe(false);
-    expect(banner.hidden).toBe(true);
   });
 
   it("says stuck coding work over the composer, and clears it when it moves", async () => {
@@ -267,9 +263,9 @@ describe("conversation page", () => {
     const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
     const banner = document.getElementById("staff")!;
     expect(banner.hidden).toBe(true);
-    stream.emit("staff", { text: "I've heard nothing back on \"the footer\" for 3 h." });
+    stream.emit("staff", { text: "Nobody has been looking after your coding work for 3 h." });
     expect(banner.hidden).toBe(false);
-    expect(banner.textContent).toBe("I've heard nothing back on \"the footer\" for 3 h.");
+    expect(banner.textContent).toBe("Nobody has been looking after your coding work for 3 h.");
     stream.emit("staff", { text: "" });
     expect(banner.hidden).toBe(true);
   });

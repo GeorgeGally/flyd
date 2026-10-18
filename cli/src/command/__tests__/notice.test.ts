@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
 import { notifyRun } from "../scheduler.js";
@@ -175,6 +176,16 @@ describe("notices keep the one voice", () => {
   });
 });
 
+describe("a notice the outgoing-answer checks hold back", () => {
+  it("never shows a placeholder or a phrase he ruled out, and records what it kept from him", () => {
+    expect(captainNotice(run("Looking into it"))).toBeNull();
+    expect(captainNotice(run("One moment please sir, pulling that up now."))).toBeNull();
+    const verdicts = readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
+    expect(verdicts).toContainEqual(expect.objectContaining({ text: "Looking into it", surface: "notification", held: true }));
+  });
+});
+
 describe("notifyRun", () => {
   let dir: string;
   let oldDir: string | undefined;
@@ -203,5 +214,15 @@ describe("notifyRun", () => {
     await notifyRun(outcome, notify);
     await notifyRun({ ...outcome, notified: true }, notify);
     expect(sent).toEqual(["Dark mode is merged."]);
+  });
+
+  it("reaches George once with a decision, and says nothing for a quiet run", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+
+    const decision = run(JSON.stringify({ status: "needs_decision", brief: "Merge the sidebar change or hold it?" }));
+    await notifyRun(decision, notify);
+    await notifyRun({ ...decision, notified: true }, notify);
+    expect(sent).toEqual(["I need your decision: Merge the sidebar change or hold it?"]);
   });
 });

@@ -161,3 +161,27 @@ describe("retired phrases", () => {
     expect(retiredPhraseProblems(stripRetiredPhrases("Captain, the build is green."))).toEqual([]);
   });
 });
+
+describe("relay checks: what reaches George outside a chat answer", () => {
+  it("holds back a relay naming machinery or a placeholder, and passes a clean line through byte-for-byte", async () => {
+    const { relayShortfalls, relayText } = await import("../honesty-check.js");
+    // A helper's report handed to Flyd: it names the staff, so it never reaches George as written.
+    const helperReport = "Firstmate needs your call on a composer idle-row guard. Upstream reviewers call this new default behaviour, not a fix.";
+    expect(relayShortfalls(helperReport)[0]!.requirement).toBe("backstage_hidden");
+    expect(relayText(helperReport)).toBe("");
+    // A placeholder status says nothing George can tie to work.
+    expect(relayShortfalls("Working on it")[0]!.requirement).toBe("real_status");
+    expect(relayText("Working on it")).toBe("");
+    // A concrete line passes through unchanged.
+    const cleanLine = "Reading cli/src/runtime/acceptance.ts to check the done_when gate";
+    expect(relayShortfalls(cleanLine)).toEqual([]);
+    expect(relayText(cleanLine)).toBe(cleanLine);
+  });
+
+  it("flags a phrase he has ruled out, and calls a whistle a whistle with no problem", async () => {
+    const { relayShortfalls } = await import("../honesty-check.js");
+    expect(relayShortfalls("One moment please sir, pulling that up now.")[0]!.requirement).toBe("his_voice");
+    // A clean status with a link is not machinery or a placeholder: "cli/src/..." is a path, not a URL.
+    expect(relayShortfalls("The sidebar opens on Artefacts; here is the change: https://github.com/GeorgeGally/flyd/pull/167")).toEqual([]);
+  });
+});

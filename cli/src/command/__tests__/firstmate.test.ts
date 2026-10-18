@@ -261,6 +261,31 @@ describe("FirstMate domain transport", () => {
     expect(sent).toEqual([prose]);
   });
 
+  it("closes a run from FirstMate's own status/brief reply, without a model, never leaving it working", async () => {
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
+      createdAt: request().createdAt, updatedAt: request().createdAt,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
+    });
+    // The reply the staff actually sent to a handoff: a status line and a brief.
+    const reply = "status: completed\nbrief: Done and live: the sidebar opens on Artefacts, with a tab to switch it to Changes.";
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
+      pending: [],
+      handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T01:00:00.000Z", body: reply, cursor: "000000000001" } }],
+    }), stderr: "" });
+    const sent: string[] = [];
+    const onChanged = (run: DomainRun) => notifyRun(run, async (_title, message) => { sent.push(message); });
+    let judged = 0;
+    const judge = async () => { judged += 1; return null; };
+
+    const [settled] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }), onChanged, judge });
+    // A clear line is read on its own: no model call, and the run is never left "working".
+    expect(judged).toBe(0);
+    expect(settled!.status).toBe("completed");
+    expect(settled!.result?.brief).toContain("sidebar opens on Artefacts");
+    expect(sent).toEqual([expect.stringContaining("sidebar opens on Artefacts")]);
+  });
+
   it("leaves a prose reply no model could judge open, and asks the staff how it ended", async () => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",

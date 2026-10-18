@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { recordHeld } from "../council/reply-review.js";
+import { relayShortfalls } from "../runtime/honesty-check.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import type { Complete } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -131,6 +133,14 @@ export class AnswerInterpreter {
       ]);
       const text = inFlydsVoice(raw.trim());
       if (!text || isRoutine(text) || isAcknowledgement(text)) throw new Error("no interpretation");
+      // The relayed update reaches George under the same outgoing-answer checks
+      // a chat reply passes: one that names backstage machinery or is a
+      // placeholder is not shown, and what was held is recorded.
+      const held = relayShortfalls(text);
+      if (held.length) {
+        recordHeld({ surface: "relay", source: "relay:interpretation", text }, held);
+        throw new Error("relay held back");
+      }
       return text;
     } finally {
       if (timer) clearTimeout(timer);

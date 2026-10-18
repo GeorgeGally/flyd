@@ -43,8 +43,6 @@ import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
-import { unreadNotes, unreadWarning } from "./note-receipts.js";
-import { scrubBackstage } from "../lib/backstage.js";
 import { readStaffView, type StaffView } from "../command/fleet-monitor.js";
 import { noteSaid } from "../council/reply-review.js";
 
@@ -1477,17 +1475,7 @@ export class ConversationViewServer {
 
     let latest: ConversationSnapshot | null = null;
     let closed = false;
-    // Notes firstmate has left unread too long: a warning over the composer, checked on every update and heartbeat.
-    let unreadSent = "";
-    const emitUnread = () => {
-      if (closed) return;
-      const unread = unreadNotes(this.source.exchanges?.() ?? []);
-      const data = unread ? { count: unread.count, oldest: unread.oldest, text: scrubBackstage(unreadWarning(unread)) } : { count: 0 };
-      if (JSON.stringify(data) === unreadSent) return;
-      unreadSent = JSON.stringify(data);
-      sseEvent(res, "unread", data);
-    };
-    // Coding work Core found stuck: said over the composer like unread notes, only in Flyd's own window.
+    // Coding work Core found stuck after chasing it: said over the composer, only in Flyd's own window.
     let staffSent = "";
     const emitStaff = () => {
       if (closed || !this.source.canSend) return;
@@ -1527,7 +1515,6 @@ export class ConversationViewServer {
         this.autoAnswer(session.id, snapshot);
         this.chaseArtefact(session.id, snapshot);
         sseEvent(res, "update", differ.next(snapshot));
-        emitUnread();
       },
       (error) => sseEvent(res, "problem", { error: error.message }),
     );
@@ -1549,7 +1536,6 @@ export class ConversationViewServer {
     emitStaff();
     const heartbeat = setInterval(() => {
       res.write(": keep-alive\n\n");
-      emitUnread();
       emitStaff();
     }, HEARTBEAT_MS);
     heartbeat.unref?.();

@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import type { Shortfall } from "../council/chief-of-staff.js";
 import { firstBackstage } from "../lib/backstage.js";
+import { isPlaceholderStatus } from "../conversation-view/status-text.js";
 
 // A last look before an answer reaches George: does it claim work that no
 // tool did this turn, or point at files that are not there? Models complete
@@ -169,4 +171,28 @@ export function stripInternalNarration(answer: string): { cleaned: string; remov
   const cleaned = cleanedParts.join("").replace(/\n{3,}/g, "\n\n").trim();
   if (!/[\p{L}\p{N}]{2,}/u.test(cleaned)) return { cleaned: answer, removed: [] };
   return { cleaned, removed };
+}
+
+// Everything else Flyd puts in front of George — a relayed update in the
+// window, a notice for a finished run — crosses the same bar a chat answer
+// does. The chat path already holds these out (conversation-responder.ts);
+// the relay and notice paths did not, so machinery and placeholders leaked
+// there. Same checks, one place.
+
+/** Why text Flyd is about to relay to George may not be shown as written: backstage machinery, a ruled-out phrase, or a placeholder status. As chief-of-staff shortfalls, so a held text records against the standard. Pure. */
+export function relayShortfalls(text: string): Shortfall[] {
+  const said = text.replace(/\s+/g, " ").trim();
+  if (!said) return [{ requirement: "real_status", reason: "It says nothing.", quote: "", by: "check" }];
+  const shortfalls: Shortfall[] = [];
+  const backstage = firstBackstage(said);
+  if (backstage) shortfalls.push({ requirement: "backstage_hidden", reason: `It names your own backstage ("${backstage}").`, quote: said.slice(0, 240), by: "check" });
+  const retired = retiredPhrasesIn(said)[0];
+  if (retired) shortfalls.push({ requirement: "his_voice", reason: `It uses a phrase George has ruled out ("${retired}").`, quote: said.slice(0, 240), by: "check" });
+  if (isPlaceholderStatus(said)) shortfalls.push({ requirement: "real_status", reason: "It only says work is happening, naming nothing concrete.", quote: said.slice(0, 240), by: "check" });
+  return shortfalls;
+}
+
+/** Text as it may reach George, or "" when the checks hold it back. Pure. */
+export function relayText(text: string): string {
+  return relayShortfalls(text).length ? "" : text;
 }

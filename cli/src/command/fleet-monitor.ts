@@ -12,16 +12,14 @@ import type { DomainRun } from "./types.js";
 // Flyd watches its coding staff (FirstMate) from Core, read-only: the staff's
 // own readiness (`fm-inbox.sh ready`), its home summary (state/home-summary.json:
 // workers, decisions waiting on George, the queue), each worker's status log,
-// and Flyd's own handoffs. Stuck work gets a note to the staff first; George is
-// told only when the nudge did not help, or when nobody is there to nudge.
+// and Flyd's own handoffs. Stuck work is Flyd's to chase with a note to the
+// staff; George is told only when nobody is there to look after his work.
 // Nothing here writes into the FirstMate home except notes through its inbox.
 
 /** A handoff with no word back this long gets a note asking where it stands. */
 export const STALE_HANDOFF_MS = 2 * 60 * 60_000;
 /** A worker waiting on a decision this long gets a note to the staff. */
 export const WORKER_WAIT_MS = 30 * 60_000;
-/** After a nudge, how long the staff has to answer before George is told. */
-export const NUDGE_GRACE_MS = 60 * 60_000;
 /** The staff unreachable this long, with work open, is told to George. */
 export const UNREACHABLE_MS = 30 * 60_000;
 /** How often Core reads the staff's state. */
@@ -405,15 +403,17 @@ export class StaffMonitor {
   private async act(concern: StaffConcern, state: MonitorState, nobodyThere: boolean, now: number): Promise<void> {
     if (state.told[concern.key]) return;
     // Nobody to nudge: George hears it straight away. Otherwise the staff gets one note first.
-    // A note the inbox would not take is no nudge: George hears it then too.
+    // A note the inbox would not take is no nudge: the staff is chased again next tick.
     if (concern.kind !== "unreachable" && !nobodyThere && !state.nudged[concern.key]) {
       if (await this.nudge(concern)) {
         state.nudged[concern.key] = new Date(now).toISOString();
         return;
       }
     }
-    const nudgedAt = state.nudged[concern.key];
-    if (nudgedAt && now - Date.parse(nudgedAt) < NUDGE_GRACE_MS) return;
+    // A quiet handoff or a worker left waiting is Flyd's to chase, never George's
+    // to hear: only a real blocker, nobody looking after his work, is one line for
+    // him. A wait George is not told about is not "told" — the chase goes on.
+    if (concern.kind !== "unreachable") return;
     const notify = this.options.notify ?? (await import("../runtime/agenda.js")).notifyMac;
     await notify("Flyd", concern.text).catch(() => undefined);
     state.told[concern.key] = new Date(now).toISOString();
