@@ -515,6 +515,9 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .needs-rec { margin: 14px 0 0; font: 400 15px/1.5 var(--sans); color: var(--strong); text-wrap: pretty; }
 .needs-rec b { display: block; margin-bottom: 2px; font: 600 13px/1.3 var(--sans); color: var(--accent); }
 .needs .call-link { display: inline-block; margin: 18px 16px 0 0; font: 500 14px/1.4 var(--sans); color: var(--link); text-decoration: none; }
+.needs .decision-evidence { margin: 16px 0 2px; gap: 8px; }
+.needs .decision-evidence .shot { flex: 1 1 140px; border-radius: 10px; }
+.needs .decision-evidence .shot img { width: 100%; max-width: none; max-height: 220px; object-fit: cover; }
 .needs .scene-ask { margin-top: 20px; max-width: none; gap: 10px; }
 .needs .scene-ask .choices { grid-template-columns: 1fr; gap: 6px; }
 .brief-list ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
@@ -1758,6 +1761,79 @@ var __name = function (f) { return f; };
     }
     return li;
   }
+  function drawSemanticDecisions(decisions) {
+    if (!decisions.length) { needsEl.hidden = true; needsEl.textContent = ""; needsDrawn = ""; needsShown = ""; return; }
+    // A Decision is the object. Navigation changes which Decision is in focus;
+    // legacy call position is no longer its identity.
+    var index = decisions.findIndex(function (decision) { return decision.id === needsShown; });
+    if (index < 0) index = Math.min(needsAt, decisions.length - 1);
+    needsAt = index;
+    needsShown = decisions[index].id;
+    store("flyd-needs-at", String(index));
+    var decision = decisions[index];
+    var key = JSON.stringify([decision, index, decisions.length]);
+    needsEl.hidden = false;
+    if (key === needsDrawn) return;
+    needsDrawn = key;
+    needsEl.textContent = "";
+    var nav = null;
+    if (decisions.length > 1) {
+      nav = el("span", "needs-nav");
+      var back = el("button", "", "‹");
+      back.type = "button";
+      back.setAttribute("aria-label", "The one before");
+      back.disabled = index === 0;
+      var forward = el("button", "", "›");
+      forward.type = "button";
+      forward.setAttribute("aria-label", "The next one");
+      forward.disabled = index === decisions.length - 1;
+      back.addEventListener("click", function () { needsShown = decisions[Math.max(0, index - 1)].id; drawSemanticDecisions(decisions); });
+      forward.addEventListener("click", function () { needsShown = decisions[Math.min(decisions.length - 1, index + 1)].id; drawSemanticDecisions(decisions); });
+      nav.appendChild(back);
+      nav.appendChild(el("span", "", (index + 1) + " of " + decisions.length));
+      nav.appendChild(forward);
+    }
+    needsEl.appendChild(briefTop("Needs you", nav));
+    needsEl.dataset.semanticId = decision.id;
+    var meta = [shortName(decision.project), decision.createdAt ? ago(decision.createdAt) : ""].filter(Boolean).join(" · ");
+    if (meta) needsEl.appendChild(el("p", "needs-meta", meta));
+    needsEl.appendChild(el("h3", "needs-head", decision.subject));
+    var question = decision.decision && decision.decision.question;
+    var detail = decision.detail && decision.detail !== decision.subject ? decision.detail
+      : question && question !== decision.subject ? question
+      : decision.summary && decision.summary !== "waiting on you" ? decision.summary : "";
+    if (detail) needsEl.appendChild(el("p", "needs-detail", sentence(capital(detail))));
+
+    var images = (decision.evidence || []).filter(function (object) { return object.kind === "image"; });
+    if (images.length) needsEl.appendChild(shots(images.map(function (object) { return withToken(object.ref); }), "decision-evidence"));
+
+    var advice = decision.decision && decision.decision.recommended ? "I'd pick " + decision.decision.recommended + "." : "";
+    if (advice) {
+      var rec = el("p", "needs-rec");
+      rec.appendChild(el("b", "", "Recommended"));
+      rec.appendChild(document.createTextNode(advice));
+      needsEl.appendChild(rec);
+    }
+    (decision.evidence || []).filter(function (object) { return object.kind === "web" && !object.closed; }).forEach(function (object) {
+      var a = el("a", "call-link", (object.label || "Open") + " ↗");
+      a.href = object.ref;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      needsEl.appendChild(a);
+    });
+    if (decision.decision && VIEW_TOKEN) {
+      needsEl.appendChild(sceneAsk({
+        title: decision.subject,
+        decision: {
+          task: decision.decision.target,
+          question: decision.decision.question,
+          choices: decision.decision.alternatives || [],
+          recommended: decision.decision.recommended,
+          replyTo: decision.decision.replyTo,
+        },
+      }, "flyd-decision:" + decision.id + ":" + decision.decision.question));
+    }
+  }
   function drawNeeds(calls) {
     if (!calls.length) { needsEl.hidden = true; needsEl.textContent = ""; needsDrawn = ""; needsShown = ""; return; }
     // The same call stays while it is there; once answered, the next one takes its place.
@@ -1834,12 +1910,16 @@ var __name = function (f) { return f; };
   function renderBrief(show) {
     lastBrief = show || null;
     var calls = (show && show.calls) || [];
+    var decisions = show && show.decisions;
     var underway = (show && show.underway) || [];
     var done = (show && show.done) || [];
-    drawNeeds(calls);
+    if (decisions) drawSemanticDecisions(decisions);
+    else drawNeeds(calls);
+    // Task-bound calls are manifested inside Activity, never duplicated here.
+    var needsCount = decisions ? decisions.length : calls.length;
     drawList(underwayEl, "Under way", underway, function (item) { return item.started ? "Started " + ago(item.started) : ""; });
     drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
-    briefFilled = calls.length + underway.length + done.length > 0;
+    briefFilled = needsCount + underway.length + done.length > 0;
     briefEl.hidden = !briefFilled;
     showRail();
   }
