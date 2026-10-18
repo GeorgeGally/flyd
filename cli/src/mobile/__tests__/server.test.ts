@@ -44,7 +44,7 @@ afterEach(async () => { await server?.close(); server = undefined; db.close(); r
 describe("remote boundary", () => {
   it("requires authentication on all personal surfaces and APIs; returns only a public login shell", async () => {
     await start();
-    for (const path of ["/api/state", "/whatsapp", "/api/token", "/api/image", "/surface", "/api/rail/file"]) {
+    for (const path of ["/api/state", "/mail", "/api/mail", "/whatsapp", "/api/token", "/api/image", "/surface", "/api/rail/file"]) {
       expect((await request(path, undefined, { Cookie: "" })).status).toBe(401);
     }
     const page = await request("/", undefined, { Cookie: "" }); expect(await page.text()).toContain('id="login"');
@@ -184,4 +184,18 @@ describe("owner and credential recovery", () => {
     expect(isolated.session(`${COOKIE}=${login.token}`)).not.toBeNull(); now += 31 * 86400_000;
     expect(isolated.session(`${COOKIE}=${login.token}`)).toBeNull();
   });
+});
+
+
+describe("mobile mail boundary",()=>{
+  it("serves authenticated Mail and permits only the narrow mail operations",async()=>{
+    const mail=vi.fn(async()=>({items:[]}));await start({mail});
+    expect((await request('/mail')).status).toBe(200);
+    expect((await request('/api/mail',{action:'inbox',input:{account:'personal'}},{Origin:'https://evil.test'})).status).toBe(403);
+    expect((await request('/api/mail',{action:'send',input:{}})).status).toBe(400);
+    expect(mail).not.toHaveBeenCalled();
+    expect((await request('/api/mail',{action:'inbox',input:{account:'personal'}})).status).toBe(200);
+    expect(mail).toHaveBeenCalledWith('inbox',{account:'personal'});
+  });
+  it("explains unavailable account integration",async()=>{await start();expect((await request('/api/mail',{action:'accounts',input:{}})).status).toBe(503)});
 });

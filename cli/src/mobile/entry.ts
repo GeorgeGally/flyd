@@ -37,8 +37,10 @@ export async function runMobile(args: string[] = []): Promise<void> {
     const { chatModelChain, resolveModelConnection } = await import("../lib/config.js");
     resolveModelConnection(chatModelChain()[0]);
     const db = new IntelligenceEventStore(), requests = new MobileRequests(db);
+    const mail = accounts ? new (await import("./mail.js")).MobileMail(db) : undefined;
     const server = new MobileServer({
       origin, auth, requests,
+      ...(mail ? { mail: (action: string, input: Record<string, unknown>) => mail.run(action, input) } : {}),
       answer: (message, history, id) => respondToConversation({
         surface: "mobile", mobileAccounts: accounts,
         sessionId: "mobile", turnNumber: requests.list().findIndex(row => row.id === id) + 1,

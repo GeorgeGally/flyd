@@ -14,10 +14,10 @@ export const REQUEST_ID = /^[a-zA-Z0-9_-]{16,80}$/;
 
 /** A projection of canonical events. Never replays an interrupted effect. */
 export class MobileRequests {
-  constructor(private readonly db: IntelligenceEventStore) {}
+  constructor(private readonly db: IntelligenceEventStore, private readonly source = SOURCE) {}
   list(): MobileRequest[] {
     const state = new Map<string, MobileRequest>();
-    for (const event of this.db.readSource(SOURCE)) {
+    for (const event of this.db.readSource(this.source)) {
       if (event.payload && !event.erased) {
         const row = event.payload.request as unknown as MobileRequest;
         if (row) state.set(row.id, row);
@@ -30,8 +30,8 @@ export class MobileRequests {
     const envelope = {
       pathKind: "interface" as const,
       kind: row.status === "accepted" ? "user_confirmed_intention" as const : "egress_receipt" as const,
-      sourceId: SOURCE,
-      consent: { grantedAt: row.at, scopes: [SOURCE] },
+      sourceId: this.source,
+      consent: { grantedAt: row.at, scopes: [this.source] },
       retentionClass: "local_default" as const, payloadClassification: "personal" as const,
       provenance: "Explicit authenticated mobile request and runtime receipt; receipt is not proof of external delivery",
       correlationId: row.id, idempotencyKey: `${row.id}:${row.status}`,
@@ -46,8 +46,8 @@ export class MobileRequests {
   accept(id: string, text: string): MobileRequest {
     if (!REQUEST_ID.test(id) || !text.trim() || text.length > 12_000) throw new Error("Invalid request");
     return this.db.transaction(() => {
-      if (this.db.isRevoked(SOURCE)) throw new Error("Mobile source is revoked");
-      const original = this.db.findByIdempotencyKey(SOURCE, `${id}:accepted`);
+      if (this.db.isRevoked(this.source)) throw new Error("Mobile source is revoked");
+      const original = this.db.findByIdempotencyKey(this.source, `${id}:accepted`);
       if (original?.erased || (original && !original.payload)) throw new Error("Erased request ids cannot be replayed");
       const previous = this.get(id);
       if (previous) {

@@ -67,3 +67,16 @@ describe("phone reconnect and microphone lifecycle", () => {
     expect(calls.some(call => call.url === "/api/transcribe")).toBe(false);
   });
 });
+
+it("shows newest results first, collapses older answers and prepares follow-up without sending", async () => {
+  state.requests = [1,2,3].map(n=>({id:String(n),text:'Question '+n,status:'succeeded',html:'<p>Answer '+n+'</p>'}));
+  new Function(MOBILE_SCRIPT)(); await flush();
+  expect([...document.getElementById('results')!.children].map(n=>n.id)).toEqual(['request-3','request-2','request-1']);
+  const oldest=document.getElementById('request-1')!;
+  expect((oldest.querySelector('.answer') as HTMLElement).hidden).toBe(true);
+  (oldest.querySelector('.result-actions button') as HTMLButtonElement).click();
+  expect((oldest.querySelector('.answer') as HTMLElement).hidden).toBe(false);
+  (oldest.querySelector('.result-actions button:last-child') as HTMLButtonElement).click();
+  expect((document.getElementById('message') as HTMLTextAreaElement).value).toContain('Question 1');
+  expect(calls.some(call=>call.url==='/api/send')).toBe(false);
+});

@@ -4,6 +4,7 @@ import { COOKIE, MobileAuth, type Session } from "./auth.js";
 import { MobileRequests } from "./requests.js";
 import { renderMarkdown } from "../conversation-view/markdown.js";
 import { renderWhatsAppPage } from "../conversation-view/whatsapp-page.js";
+import { MAIL_PAGE, MAIL_SCRIPT } from "./mail-surface.js";
 import { MOBILE_PAGE, LOGIN_PAGE, MOBILE_STYLE, MOBILE_SCRIPT, MOBILE_ICON } from "./surface.js";
 
 export interface MobileServerOptions {
@@ -12,6 +13,7 @@ export interface MobileServerOptions {
   requests: MobileRequests;
   answer(text: string, history: Array<{ role: "user" | "assistant"; content: string }>, requestId: string): Promise<string>;
   transcribe?(pcm: Buffer): Promise<string>;
+  mail?(action: string, input: Record<string, unknown>): Promise<unknown>;
   whatsapp?(name: string, input: Record<string, unknown>): Promise<unknown>;
 }
 export class HttpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
@@ -46,6 +48,7 @@ export class MobileServer {
   private queued = new Set<string>();
   private recording = false;
   private peopleBusy = false;
+  private mailBusy = false;
   private loginWindow = { start: Date.now(), count: 0 };
   constructor(private readonly options: MobileServerOptions) {
     this.origin = new URL(options.origin);
@@ -93,6 +96,7 @@ export class MobileServer {
     if (req.method === "GET") {
       if (path === "/healthz") { json(res, 200, { ok: true }); return; }
       if (path === "/mobile.css") { asset("text/css", MOBILE_STYLE); return; }
+      if (path === "/mail.js") { asset("text/javascript", MAIL_SCRIPT); return; }
       if (path === "/mobile.js") { asset("text/javascript", MOBILE_SCRIPT); return; }
       if (path === "/icon.svg") { asset("image/svg+xml", MOBILE_ICON); return; }
       if (path === "/manifest.webmanifest") { json(res, 200, { name: "Flyd", short_name: "Flyd", start_url: "/", display: "standalone", background_color: "#f5f4ef", theme_color: "#f5f4ef", icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }] }); return; }
@@ -114,6 +118,7 @@ export class MobileServer {
     }
     if (req.method === "POST") this.csrf(req, session);
     if (req.method === "GET" && path === "/") { asset("text/html; charset=utf-8", MOBILE_PAGE); return; }
+    if (req.method === "GET" && path === "/mail") { asset("text/html; charset=utf-8", MAIL_PAGE); return; }
     if (req.method === "GET" && path === "/whatsapp") {
       // Existing renderer: use this session's CSRF token, with a nonce for its static script.
       // Provider content is rendered via textContent by this page.
@@ -164,6 +169,17 @@ export class MobileServer {
         if (pcm.length < 1600 || pcm.length % 2) throw new HttpError(400, "No speech captured");
         json(res, 200, { text: await this.options.transcribe(pcm) });
       } finally { this.recording = false; }
+      return;
+    }
+    if (req.method === "POST" && path === "/api/mail") {
+      if (!this.options.mail) throw new HttpError(503, "Mail is not connected on this Flyd host yet");
+      if (this.mailBusy) throw new HttpError(429, "A mail request is still running. Wait for its result.");
+      this.mailBusy = true;
+      try {
+        const value = await parse(req);
+        if (typeof value.action !== "string" || !["accounts", "inbox", "search", "read", "save", "drafts"].includes(value.action) || !value.input || typeof value.input !== "object" || Array.isArray(value.input)) throw new HttpError(400, "Invalid mail action");
+        json(res, 200, { result: await this.options.mail(value.action, value.input as Record<string, unknown>) });
+      } finally { this.mailBusy = false; }
       return;
     }
     if (req.method === "POST" && path === "/api/whatsapp") {

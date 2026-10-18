@@ -53,3 +53,22 @@ Before daily use: real iPhone Safari/Home Screen, microphone permission/lock/bac
 Operationally: rotate systemd journal logs, monitor disk/memory/provider spend, take encrypted off-host coherent backups and rehearse restoration. SQLite auth contains hashes but still belongs in protected credential backups. A previous code release may require compatible schema; never restore an old state backup over newer mobile activity without reconciling requests and effects. Stop server effects/writers before returning authority to Mac. Do not enable a second scheduler during rollback.
 
 No Hetzner deployment, real account transfer, live provider test or iPhone hardware verification was performed in the coding environment.
+
+### Phone interface
+
+The home screen puts the newest results first. Older answers can be expanded,
+copied, or used to start a follow-up. The composer grows with your text and
+adjusts when the phone keyboard opens. Voice has a separate Cancel control;
+transcription stays editable before sending.
+
+Mail opens a dedicated account inbox, search and plain-text reader. New drafts
+and replies have an explicit review step showing the account, recipient, subject
+and exact body. Save writes to the connected account’s Drafts folder; it never
+sends email. Recent draft receipts survive restarts. An uncertain save must be
+checked in the mail account before creating another copy. Retrying the same
+reviewed save reuses its durable identifier. DreamHost replies save as new drafts
+without reply threading. Attachments and full HTML are opened in your mail app.
+
+Mail uses the existing `FLYD_MOBILE_ACCOUNTS=1` opt-in and existing account
+credentials. It does not introduce a second OAuth or account store. Use search
+for messages outside the latest 12 inbox items.
