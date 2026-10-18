@@ -52,4 +52,25 @@ describe("People artefact", () => {
     expect(document.getElementById("messages")!.textContent).toContain("Link a device");
     expect(document.body.textContent).not.toContain("flyd whatsapp connect");
   });
+  it("keeps an open conversation when a later poll finds WhatsApp linked", async () => {
+    const at = 1_700_000_000_000;
+    let poll: (() => unknown) | undefined;
+    vi.stubGlobal("setInterval", vi.fn((fn: () => unknown) => { poll = fn; }));
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, options: { body: string }) => {
+      const { name } = JSON.parse(options.body); let result: unknown;
+      if (name === "whatsapp_status") result = { paired: true, state: "connected" };
+      if (name === "whatsapp_search") result = { chats: [{ id: "123@s.whatsapp.net", name: "Erica", latest: at }] };
+      if (name === "whatsapp_read") result = { messages: [{ sender: "123@s.whatsapp.net", text: "See you soon", timestamp: at }] };
+      return new Response(JSON.stringify({ result }), { status: 200 });
+    }));
+    const html = renderWhatsAppPage("test-token");
+    document.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(html)![1].replace(/<script>[\s\S]*<\/script>/, "");
+    new Function(/<script>([\s\S]*)<\/script>/.exec(html)![1])();
+    await settle();
+    (document.querySelector(".chat") as HTMLButtonElement).click(); await settle();
+    expect(document.getElementById("messages")!.textContent).toContain("See you soon");
+    await poll!(); await settle();
+    expect(document.getElementById("messages")!.textContent).toContain("See you soon");
+    expect(document.getElementById("messages")!.textContent).not.toContain("More conversation");
+  });
 });

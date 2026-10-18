@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { composeArtefact, WHATSAPP_LINK, type ArtefactInputs } from "../artefact.js";
 import { qrSvg } from "../../connectors/whatsapp-pairing.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
-import { renderWhatsAppPage } from "../whatsapp-page.js";
 import type { WhatsAppPairing } from "../../connectors/whatsapp-pairing.js";
 import type { ConversationSnapshot } from "../types.js";
 
@@ -40,16 +39,6 @@ describe("the offer card", () => {
 
     const linked = new SnapshotDiffer(undefined, { whatsappUnlinked: () => false }).next(snapshot());
     expect(linked.order).not.toContain("whatsapp-link");
-  });
-});
-
-describe("the People page", () => {
-  it("links in the page, and never sends him to a terminal", () => {
-    const html = renderWhatsAppPage("token");
-    expect(html).toContain("/api/whatsapp-qr");
-    expect(html).toContain("/api/whatsapp-pair");
-    expect(html).toContain("Link a device");
-    expect(html).not.toContain("flyd whatsapp connect");
   });
 });
 

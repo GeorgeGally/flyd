@@ -760,9 +760,7 @@ export class ConversationViewServer {
       const origin = req.headers.origin;
       if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) { sendJson(res, 403, { error: "forbidden" }); return; }
       if (!this.whatsapp) { sendJson(res, 200, { result: { paired: false, linking: false } }); return; }
-      let action = "start";
-      try { const body = JSON.parse(await readBody(req, 8 * 1024)) as { action?: unknown }; if (body.action === "stop") action = "stop"; } catch { /* a body that does not parse starts the session */ }
-      if (action === "stop") this.whatsapp.stop(); else this.whatsapp.start();
+      this.whatsapp.start();
       const { paired, code } = this.whatsapp.state();
       sendJson(res, 200, { result: { paired, linking: Boolean(code) } });
       return;
