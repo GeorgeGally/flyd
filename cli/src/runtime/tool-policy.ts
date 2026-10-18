@@ -9,6 +9,8 @@
 //   FLYD_AUTONOMY=trusted  (default) ask only for irreversible/outward actions
 //   FLYD_AUTONOMY=ask      ask before any state change
 
+import { createHash } from "crypto";
+import type { SemanticObject } from "../conversation-view/semantic.js";
 import { workModelAction } from "./work-model-tool.js";
 
 export type ActionCategory = "read" | "local" | "outward" | "destructive";
@@ -242,6 +244,77 @@ function describe(name: string, input: Record<string, unknown>): string {
       return input.action === "ask" ? `ask a domain boss: "${clip(String(input.question ?? ""), 80)}"` : `inspect domain work ${clip(String(input.id ?? ""), 40)}`;
     default: return `use ${name}`;
   }
+}
+
+function actionIdentity(name: string, input: Record<string, unknown>): string {
+  const canonical = JSON.stringify([name, Object.fromEntries(Object.entries(input).sort(([a], [b]) => a.localeCompare(b)))]);
+  return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
+}
+
+/**
+ * The permission policy is the authority boundary; Action merely manifests it.
+ * Read calls are not Actions. Local reversible work is still an Action when
+ * explicitly surfaced, but trusted mode executes it without inventing a gate.
+ */
+export function semanticActionForToolCall(
+  name: string,
+  input: Record<string, unknown>,
+  state: ToolPolicyState,
+  level: AutonomyLevel = autonomyLevel(),
+): SemanticObject | undefined {
+  const category = classifyToolCall(name, input);
+  if (category === "read") return undefined;
+  const decision = decideToolCall(name, input, state, level);
+  const operation = describe(name, input);
+  const id = `action:${actionIdentity(name, input)}`;
+  const requiresApproval = decision.kind === "confirm" || decision.kind === "deny";
+  return {
+    id,
+    kind: "action",
+    lifecycle: requiresApproval ? "interrupted" : "active",
+    subject: operation.charAt(0).toUpperCase() + operation.slice(1),
+    summary: decision.kind === "confirm" ? "Waiting for your approval."
+      : decision.kind === "deny" ? "This action is not approved."
+      : "Ready to execute.",
+    ...(decision.kind !== "allow" ? { detail: decision.reason } : {}),
+    evidence: [],
+    actions: decision.kind === "confirm"
+      ? [
+          { id: "approve", kind: "approve", label: "Approve", value: id },
+          { id: "revise", kind: "revise", label: "Revise", value: id },
+        ]
+      : [],
+    source: { showItemId: id },
+    action: {
+      phase: decision.kind === "allow" ? "approved" : decision.kind === "deny" ? "declined" : "proposed",
+      operation,
+      category: category === "local" ? "local" : category,
+      requiresApproval,
+    },
+  };
+}
+
+export function advanceSemanticAction(
+  action: SemanticObject,
+  phase: NonNullable<SemanticObject["action"]>["phase"],
+  links: { activityId?: string; artifactId?: string } = {},
+): SemanticObject {
+  if (!action.action) throw new Error("Cannot advance a semantic object without Action state");
+  const lifecycle = phase === "completed" ? "resolved"
+    : phase === "declined" ? "interrupted"
+    : phase === "failed" ? "failed"
+    : "active";
+  return {
+    ...action,
+    lifecycle,
+    summary: phase === "executing" ? "Executing."
+      : phase === "completed" ? "Completed."
+      : phase === "failed" ? "Execution failed."
+      : phase === "declined" ? "Not approved."
+      : phase === "approved" ? "Approved."
+      : action.summary,
+    action: { ...action.action, phase, ...links },
+  };
 }
 
 export function decideToolCall(
