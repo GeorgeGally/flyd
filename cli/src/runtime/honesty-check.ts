@@ -181,7 +181,7 @@ export function stripInternalNarration(answer: string): { cleaned: string; remov
 
 /** A commit id is plumbing, not news: dropped with the word that points at it ("merged at a1b2c3d." → "merged."). An id joined to a name ("domain-cf340333") or a path is not a commit id and stays. Pure. */
 export function stripCommitIds(text: string): string {
-  return text.replace(/\s*\(?\b(?:(?:at|in|as|via|commit)\s+){0,2}(?<![\w/-])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b\)?/gi, "").replace(/\s+([.,;:!?])/g, "$1");
+  return text.replace(/\s*\(?\b(?:(?:at|in|as|via|commit)\s+){0,2}(?<![\w/-])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b\)?/gi, "");
 }
 
 /** Why text Flyd is about to relay to George may not be shown as written: backstage machinery (a commit id or the plain word "branch" is not), a ruled-out phrase, or a placeholder status. As chief-of-staff shortfalls, so a held text records against the standard. Pure. */

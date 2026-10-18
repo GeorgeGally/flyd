@@ -603,11 +603,13 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(plain(clean.shown[1]!.summary!.html)).toContain("acceptance.ts");
   });
 
-  it("drops a commit id from the staff's own words when they lead", () => {
-    const shown = new SnapshotDiffer().next({ messages: noteWithReply("Merged at a1b2c3d; the sidebar opens on Artefacts."), working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
-    const said = plain(`${shown.summary?.html ?? ""}${shown.html}`);
-    expect(said).toContain("the sidebar opens on Artefacts");
-    expect(said).not.toContain("a1b2c3d");
+  it("drops a commit id from the staff's own words when they lead, leaving their full reply and its code as written", () => {
+    const reply = "Merged at a1b2c3d; the sidebar opens on Artefacts.\n\n```ts\nfetch(url)\n  .then((r) => r.json())\n```";
+    const shown = new SnapshotDiffer().next({ messages: noteWithReply(reply), working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+    const lead = plain(shown.summary!.html);
+    expect(lead).toContain("the sidebar opens on Artefacts");
+    expect(lead).not.toContain("a1b2c3d");
+    expect(plain(shown.html)).toContain("fetch(url)\n  .then(");
   });
 
   it("keeps a retelling that carries a commit id, the id dropped", async () => {

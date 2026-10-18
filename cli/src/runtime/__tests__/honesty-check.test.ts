@@ -179,6 +179,8 @@ describe("relay checks: what reaches George outside a chat answer", () => {
     expect(stripCommitIds("Fixed it in commit 0a1b2c3d, all green.")).toBe("Fixed it, all green.");
     // A run id is backstage, not a commit: it is neither stripped nor let through.
     expect(stripCommitIds("Run domain-cf340333 is done.")).toBe("Run domain-cf340333 is done.");
+    // Text with no commit id is left byte-for-byte, line breaks and all.
+    expect(stripCommitIds("fetch(url)\n .then(next)")).toBe("fetch(url)\n .then(next)");
     expect(relayShortfalls("domain-cf340333 is done.")[0]!.requirement).toBe("backstage_hidden");
   });
 
