@@ -44,7 +44,8 @@ const STRUCTURED_KEYS = new Set([
  * A reply written as "key: value" lines ("status: completed", "brief: done and
  * live…"), the staff's shorthand for the JSON contract. Read it as the same
  * structured reply, so a clear answer closes the run instead of falling to raw
- * prose with the shape unmet.
+ * prose with the shape unmet. Only a status Flyd knows makes it structured: any
+ * other ("Status: Blocked") stays prose for the judge to read.
  */
 function keyValueFields(raw: string): Record<string, unknown> | undefined {
   const fields: Record<string, string> = {};
@@ -56,17 +57,24 @@ function keyValueFields(raw: string): Record<string, unknown> | undefined {
     fields[key] = match[2]!;
   }
   const first = (...keys: string[]): string => keys.map((key) => fields[key]).find((value) => value?.trim())?.trim() ?? "";
-  const status = first("status");
+  const status = knownStatus(first("status"));
+  if (!status) return undefined;
   const brief = first("brief", "summary");
   const report = first("detailedreport", "report", "detail");
-  if (!status && !brief && !report) return undefined;
   const evidence = first("evidence");
   return {
-    ...(status ? { status } : {}),
+    status,
     ...(brief ? { brief } : {}),
     ...(report ? { detailed_report: report } : {}),
     ...(evidence ? { evidence: [evidence] } : {}),
   };
+}
+
+/** A reply's own status in any spelling ("Completed", "needs decision", "done"), or undefined when it names none Flyd knows. */
+function knownStatus(value: unknown): "completed" | "needs_decision" | "failed" | "working" | undefined {
+  const status = String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (status === "done" || status === "finished") return "completed";
+  return status === "needs_decision" || status === "failed" || status === "completed" || status === "working" ? status : undefined;
 }
 
 /** A structured reply from its fields, or undefined when it names no brief and no report. */
@@ -76,10 +84,7 @@ function structuredResult(raw: string, parsed: Record<string, unknown>): { statu
   if (!brief && !detailedReport) return undefined;
   const riskRaw = String(parsed.information_loss_risk ?? parsed.informationLossRisk ?? "low");
   const risk: InformationLossRisk = riskRaw === "high" || riskRaw === "medium" ? riskRaw : "low";
-  const statusRaw = String(parsed.status ?? "").trim();
-  const status = statusRaw === "needs_decision" || statusRaw === "failed" || statusRaw === "completed" || statusRaw === "working"
-    ? statusRaw
-    : undefined;
+  const status = knownStatus(parsed.status);
   return {
     ...(status ? { status } : {}),
     result: {

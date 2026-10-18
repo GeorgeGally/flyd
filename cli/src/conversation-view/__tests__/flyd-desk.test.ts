@@ -572,6 +572,39 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(lead).not.toContain("you're right");
   });
 
+  it("never puts a relay naming machinery or a placeholder in front of him, and passes a clean line through as written", async () => {
+    const helperReport = "Firstmate needs your call on a composer idle-row guard. Upstream reviewers call this new default behaviour, not a fix.";
+    const placeholder = "Working on it";
+    const cleanLine = "Reading cli/src/runtime/acceptance.ts to check the done_when gate";
+    const relay = async (reply: string, file: string) => {
+      // The model retells the reply word for word, as a leaky retelling would.
+      const interpreter = new AnswerInterpreter({ cacheFile: join(dir, file), profile: () => null, complete: async () => reply });
+      const messages = noteWithReply(reply);
+      const answer = messages.find((message) => message.answers === `note:${NOTE}`)!.text;
+      const first = new SnapshotDiffer({ interpreter }).next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+      const told = await interpreter.request({ question: "q", answer, recent: [] });
+      const shown = new SnapshotDiffer({ interpreter }).next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+      return { told, leads: [first.summary, shown.summary].map((summary) => plain(summary?.html ?? "")), cached: interpreter.cached(answer) };
+    };
+
+    for (const [reply, file] of [[helperReport, "helper.json"], [placeholder, "placeholder.json"]] as const) {
+      const { told, leads } = await relay(reply, file);
+      expect(told).toBeUndefined();
+      for (const lead of leads) {
+        expect(lead).not.toContain(reply);
+        expect(lead).not.toMatch(/firstmate|working on it/i);
+      }
+    }
+    const verdicts = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "verdicts.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
+    expect(verdicts).toContainEqual(expect.objectContaining({ text: helperReport, surface: "relay", held: true }));
+
+    const clean = await relay(cleanLine, "clean.json");
+    expect(clean.told).toBe(cleanLine);
+    expect(clean.cached).toBe(cleanLine);
+    expect(clean.leads[1]).toContain("acceptance.ts");
+  });
+
   it("falls back to the digest when the model only acknowledges or fails", async () => {
     const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "interpretations.json"), profile: () => null, complete: async () => "You're right." });
     const answer = noteWithReply(decision).find((message) => message.answers)!.text;

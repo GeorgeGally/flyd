@@ -286,6 +286,31 @@ describe("FirstMate domain transport", () => {
     expect(sent).toEqual([expect.stringContaining("sidebar opens on Artefacts")]);
   });
 
+  it("reads again a status/brief reply taken while it could not be read, and closes the run it left working", async () => {
+    const reply = "status: completed\nbrief: Done and live: the sidebar opens on Artefacts, with a tab to switch it to Changes.";
+    // Taken before "status: …" lines counted: kept raw, the run left working.
+    const raw = { ...parseDomainResult("Done and live.").result, raw: [reply], detailedReport: reply };
+    const at = new Date().toISOString();
+    saveDomainRun({
+      id: "domain-test-1", request: request(), owner: "FirstMate", status: "working",
+      createdAt: request().createdAt, updatedAt: at, result: raw,
+      incompleteReason: "domain handoff contract unmet: missing brief, report, evidence",
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1", replyCursor: "000000000001" },
+    });
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
+      pending: [],
+      handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at, body: reply, cursor: "000000000001" } }],
+    }), stderr: "" });
+    let judged = 0;
+    const judge = async () => { judged += 1; return null; };
+
+    const [settled] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }), judge });
+    expect(judged).toBe(0);
+    expect(settled!.status).toBe("completed");
+    expect(settled!.result?.format).toBe("structured");
+    expect(settled!.incompleteReason).toBe("domain handoff contract unmet: missing evidence");
+  });
+
   it("leaves a prose reply no model could judge open, and asks the staff how it ended", async () => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",

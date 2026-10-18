@@ -191,8 +191,3 @@ export function relayShortfalls(text: string): Shortfall[] {
   if (isPlaceholderStatus(said)) shortfalls.push({ requirement: "real_status", reason: "It only says work is happening, naming nothing concrete.", quote: said.slice(0, 240), by: "check" });
   return shortfalls;
 }
-
-/** Text as it may reach George, or "" when the checks hold it back. Pure. */
-export function relayText(text: string): string {
-  return relayShortfalls(text).length ? "" : text;
-}

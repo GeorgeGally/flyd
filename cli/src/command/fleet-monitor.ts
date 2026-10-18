@@ -13,13 +13,18 @@ import type { DomainRun } from "./types.js";
 // own readiness (`fm-inbox.sh ready`), its home summary (state/home-summary.json:
 // workers, decisions waiting on George, the queue), each worker's status log,
 // and Flyd's own handoffs. Stuck work is Flyd's to chase with a note to the
-// staff; George is told only when nobody is there to look after his work.
+// staff, again every few hours; George is told only when nobody is there to
+// look after his work, or once when the chase has gone unanswered for two days.
 // Nothing here writes into the FirstMate home except notes through its inbox.
 
 /** A handoff with no word back this long gets a note asking where it stands. */
 export const STALE_HANDOFF_MS = 2 * 60 * 60_000;
 /** A worker waiting on a decision this long gets a note to the staff. */
 export const WORKER_WAIT_MS = 30 * 60_000;
+/** While a handoff stays quiet or a worker stays waiting, Flyd asks the staff again this often. */
+export const RENUDGE_MS = 6 * 60 * 60_000;
+/** Stuck this long with no reply, George hears it once, with what Flyd does next. */
+export const ESCALATE_MS = 48 * 60 * 60_000;
 /** The staff unreachable this long, with work open, is told to George. */
 export const UNREACHABLE_MS = 30 * 60_000;
 /** How often Core reads the staff's state. */
@@ -224,6 +229,13 @@ export function assessStaff(snapshot: StaffSnapshot, unreachableSince: string | 
   return concerns;
 }
 
+/** The one line George hears about a stuck thing: what is stuck and what Flyd does next. */
+function escalation(concern: StaffConcern): string {
+  if (concern.kind === "handoff_stale") return `${concern.text} I'm still asking for an answer every few hours; tell me if you'd rather I drop it.`;
+  if (concern.kind === "worker_waiting") return `${concern.text} I keep asking for it to be settled or brought to you; tell me if it's yours to call.`;
+  return concern.text;
+}
+
 /** One line per thing, for chat: what is under way, what is stuck, what waits on George. */
 export function describeStaff(view: StaffView, now = Date.now()): string {
   const { snapshot, concerns } = view;
@@ -383,7 +395,12 @@ export class StaffMonitor {
       // Forget what is no longer stuck, so the records stay small.
       const live = new Set(concerns.map((concern) => concern.key));
       state.nudged = Object.fromEntries(Object.entries(state.nudged).filter(([key]) => live.has(key)));
-      state.told = Object.fromEntries(Object.entries(state.told).filter(([key]) => live.has(key)));
+      // Only an outage or a two-day stall is ever told; a wait told under an older rule is not.
+      const byKey = new Map(concerns.map((concern) => [concern.key, concern]));
+      state.told = Object.fromEntries(Object.entries(state.told).filter(([key, at]) => {
+        const concern = byKey.get(key);
+        return concern !== undefined && (concern.kind === "unreachable" || Date.parse(at) - Date.parse(concern.since) >= ESCALATE_MS);
+      }));
       const view: StaffView = {
         snapshot,
         concerns: concerns.map((concern) => ({
@@ -401,26 +418,26 @@ export class StaffMonitor {
   }
 
   private async act(concern: StaffConcern, state: MonitorState, nobodyThere: boolean, now: number): Promise<void> {
-    if (state.told[concern.key]) return;
-    // Nobody to nudge: George hears it straight away. Otherwise the staff gets one note first.
-    // A note the inbox would not take is no nudge: the staff is chased again next tick.
-    if (concern.kind !== "unreachable" && !nobodyThere && !state.nudged[concern.key]) {
-      if (await this.nudge(concern)) {
+    // A quiet handoff or a worker left waiting is Flyd's to chase: the staff is
+    // asked again every few hours. A note the inbox would not take is no nudge,
+    // so it is tried again next tick.
+    if (concern.kind !== "unreachable" && !nobodyThere) {
+      const nudgedAt = state.nudged[concern.key];
+      if ((!nudgedAt || now - Date.parse(nudgedAt) >= RENUDGE_MS) && await this.nudge(concern, now)) {
         state.nudged[concern.key] = new Date(now).toISOString();
-        return;
       }
     }
-    // A quiet handoff or a worker left waiting is Flyd's to chase, never George's
-    // to hear: only a real blocker, nobody looking after his work, is one line for
-    // him. A wait George is not told about is not "told" — the chase goes on.
-    if (concern.kind !== "unreachable") return;
+    if (state.told[concern.key]) return;
+    // George hears one line: at once when nobody is looking after his work,
+    // otherwise only once the chase has gone unanswered for two days.
+    if (concern.kind !== "unreachable" && now - Date.parse(concern.since) < ESCALATE_MS) return;
     const notify = this.options.notify ?? (await import("../runtime/agenda.js")).notifyMac;
-    await notify("Flyd", concern.text).catch(() => undefined);
+    await notify("Flyd", escalation(concern)).catch(() => undefined);
     state.told[concern.key] = new Date(now).toISOString();
   }
 
   /** A note to the staff about one stuck thing; true once the inbox has it. */
-  private async nudge(concern: StaffConcern): Promise<boolean> {
+  private async nudge(concern: StaffConcern, now: number): Promise<boolean> {
     if (concern.runId) {
       const run = listDomainRuns(this.dir()).find((item) => item.id === concern.runId);
       if (!run) return false;
@@ -432,7 +449,7 @@ export class StaffMonitor {
       return outcome.delivered;
     }
     if (concern.workerId) {
-      const id = `flyd-staff-check-${createHash("sha256").update(concern.key).digest("hex").slice(0, 16)}`;
+      const id = `flyd-staff-check-${createHash("sha256").update(`${concern.key}:${Math.floor(now / RENUDGE_MS)}`).digest("hex").slice(0, 16)}`;
       const body = [
         `FLYD CHECK-IN: worker ${concern.workerId} has been waiting on a decision since ${concern.since}.`,
         "Settle it within the authority you already have, or bring it to George through Flyd with your recommendation if it is truly his. Reply to this note (fm-inbox.sh reply) with what you did; plain prose is fine.",

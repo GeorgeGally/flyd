@@ -186,6 +186,20 @@ describe("a notice the outgoing-answer checks hold back", () => {
   });
 });
 
+describe("a decision or failure the checks catch", () => {
+  it("still reaches George: a phrase he ruled out is stripped, a placeholder gives way to the work it is about", () => {
+    const decision = captainNotice(run("One moment please sir, the sidebar can open on Artefacts or Changes: which?", "needs_decision"));
+    expect(decision).toMatch(/^I need your decision: /);
+    expect(decision).toContain("the sidebar can open on Artefacts or Changes");
+    expect(decision).not.toMatch(/one moment/i);
+    expect(captainNotice(run("Working on it", "needs_decision"))).toBe('I need your decision on "Fix the island".');
+    expect(captainNotice(run("Looking into it", "failed"))).toBe('Work on "Fix the island" hit a problem.');
+    const verdicts = readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
+    expect(verdicts).toContainEqual(expect.objectContaining({ text: "I need your decision: Working on it", surface: "notification", held: true }));
+  });
+});
+
 describe("notifyRun", () => {
   let dir: string;
   let oldDir: string | undefined;

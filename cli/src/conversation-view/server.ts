@@ -44,7 +44,9 @@ import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
 import { readStaffView, type StaffView } from "../command/fleet-monitor.js";
-import { noteSaid } from "../council/reply-review.js";
+import { noteSaid, recordHeld } from "../council/reply-review.js";
+import { neutralOutcome } from "../lib/backstage.js";
+import { relayShortfalls } from "../runtime/honesty-check.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -253,6 +255,7 @@ function handledIn(messages: ConversationMessage[]): (message: ConversationMessa
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
+  private readonly held = new Set<string>();
 
   constructor(private readonly summaries?: SummaryOptions, private readonly show?: ShowOptions) {}
 
@@ -261,6 +264,22 @@ export class SnapshotDiffer {
     if (message.answers?.startsWith("note:")) return this.summaries?.interpreter?.cached(message.text);
     const model = this.summaries?.summarizer?.cached(message.text);
     return model && !isRoutineAnswer(model) ? inFlydsVoice(model) : undefined;
+  }
+
+  /**
+   * Whether a relay from the staff fails the outgoing-answer checks a chat reply
+   * passes (backstage machinery, a phrase he ruled out, a placeholder), so it may
+   * not reach him as written. Each one held is recorded once for a reviewer.
+   */
+  private heldRelay(text: string): boolean {
+    const said = inFlydsVoice(text);
+    const held = relayShortfalls(said);
+    if (!held.length) return false;
+    if (!this.held.has(said)) {
+      this.held.add(said);
+      recordHeld({ surface: "relay", source: "relay:staff", text: said }, held);
+    }
+    return true;
   }
 
   /** Asks Flyd's judge about a reply in the background; the stream re-renders when it answers. */
@@ -300,6 +319,8 @@ export class SnapshotDiffer {
     const cached = interpreter?.cached(message.text);
     if (cached) return { body: message.text, summary: glance(inFlydsVoice(cached), "flyd") };
     this.readAnswer(message, snapshot, newest);
+    // With no reading of Flyd's to lead, the staff's own words never lead in its place when they fail the checks.
+    if (this.heldRelay(message.text)) return { body: message.text, summary: { html: renderMarkdown(neutralOutcome(inFlydsVoice(message.text))), source: "flyd" } };
     const pending = interpreter?.pending(message.text) ?? false;
     return { body: message.text, summary: pending ? glance(message.text, "digest", true) : briefOf(message.text) };
   }

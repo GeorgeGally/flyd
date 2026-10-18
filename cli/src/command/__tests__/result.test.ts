@@ -42,6 +42,17 @@ describe("key/value replies", () => {
     expect(result.detailedReport).toContain("sidebar opens on Artefacts");
   });
 
+  it("reads the status in any spelling Flyd knows, and leaves any other status prose for the judge", () => {
+    expect(parseDomainResult("Status: Completed\nSummary: The sidebar opens on Artefacts.").status).toBe("completed");
+    expect(parseDomainResult("status: needs decision\nbrief: Keep the old sidebar or drop it?").status).toBe("needs_decision");
+    expect(parseDomainResult("Status: done\nBrief: Shipped.").status).toBe("completed");
+    for (const reply of ["Status: Blocked\nSummary: need your call on whether to keep the old sidebar", "Summary: the sidebar is half done"]) {
+      const parsed = parseDomainResult(reply);
+      expect(parsed.status).toBeUndefined();
+      expect(parsed.result.format).toBe("raw");
+    }
+  });
+
   it("takes a named PR, commit or URL as the evidence layer", () => {
     const pr = parseDomainResult("status: completed\nbrief: Sidebar done.\ndetailed_report: See https://github.com/GeorgeGally/flyd/pull/167");
     expect(validateDomainHandoff(pr.result)).toEqual({ ok: true });

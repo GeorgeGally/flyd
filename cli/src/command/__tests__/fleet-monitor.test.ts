@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  ESCALATE_MS,
   LiveStaffSession,
+  RENUDGE_MS,
   STALE_HANDOFF_MS,
   StaffMonitor,
   UNREACHABLE_MS,
@@ -134,6 +136,50 @@ describe("Flyd's watch on its coding staff", () => {
     expect(told).toEqual([]);
     expect(later!.concerns[0]!.toldAt).toBeUndefined();
     expect(readStaffView({ file: staffFile(dir), now })?.concerns[0]?.toldAt).toBeUndefined();
+
+    // Still quiet six hours after the last note: Flyd asks again, still without telling George.
+    now += RENUDGE_MS - 4 * 60 * 60_000;
+    await watch.tick();
+    expect(nudged).toHaveLength(2);
+    expect(told).toEqual([]);
+  });
+
+  it("tells George once, naming the work and what Flyd does next, only after two days with no reply", async () => {
+    saveDomainRun(run(), dir);
+    let now = T0 + STALE_HANDOFF_MS + MIN;
+    const told: string[] = [];
+    let nudges = 0;
+    const sendRun: typeof sendRunMessage = async () => { nudges += 1; return { delivered: true }; };
+    const watch = monitor(() => now, { notify: async (_title, message) => { told.push(message); }, sendRun });
+
+    for (; now < T0 + ESCALATE_MS; now += RENUDGE_MS) await watch.tick();
+    expect(told).toEqual([]);
+    expect(nudges).toBe(Math.ceil((ESCALATE_MS - STALE_HANDOFF_MS - MIN) / RENUDGE_MS));
+
+    now = T0 + ESCALATE_MS + MIN;
+    const escalated = await watch.tick();
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain("The footer link opens the partners page");
+    expect(told[0]).toMatch(/every few hours/);
+    expect(told[0]).not.toMatch(/firstmate|staff/i);
+    expect(escalated!.concerns[0]!.toldAt).toBeDefined();
+
+    now += RENUDGE_MS;
+    await watch.tick();
+    expect(told).toHaveLength(1);
+  });
+
+  it("drops a wait George was told about under the old rule, so its notice leaves the window", async () => {
+    saveDomainRun(run(), dir);
+    const now = T0 + 4 * 60 * 60_000;
+    const key = `handoff:domain-quiet:${new Date(T0).toISOString()}`;
+    writeFileSync(join(dir, "staff-monitor.json"), JSON.stringify({ heard: {}, nudged: { [key]: new Date(T0 + 2 * 60 * 60_000).toISOString() }, told: { [key]: new Date(T0 + 3 * 60 * 60_000).toISOString() } }));
+    const told: string[] = [];
+    const view = await monitor(() => now, { notify: async (_title, message) => { told.push(message); }, sendRun: async () => ({ delivered: true }) }).tick();
+    expect(view!.concerns[0]!.key).toBe(key);
+    expect(view!.concerns[0]!.toldAt).toBeUndefined();
+    expect(readStaffView({ file: staffFile(dir), now })?.concerns[0]?.toldAt).toBeUndefined();
+    expect(told).toEqual([]);
   });
 
   it("forgets a stall once the staff answers", async () => {
