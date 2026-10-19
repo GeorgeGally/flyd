@@ -1201,6 +1201,63 @@ describe("conversation page", () => {
   });
 });
 
+describe("semantic main stage", () => {
+  it("renders semantic focus instead of a higher-ranked legacy box", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = {
+      title: "Legacy situation",
+      summary: "Old presentation state",
+      live: false,
+      counts: { landed: 1, call: 1 },
+      items: [],
+      focus: {
+        id: "decision:launch",
+        kind: "decision",
+        lifecycle: "interrupted",
+        subject: "Choose the launch date",
+        summary: "The evidence points to Friday.",
+        evidence: [],
+        actions: [],
+        source: { showItemId: "decision:launch" },
+        decision: { target: "launch-date", question: "Launch Friday?", alternatives: ["Friday", "Saturday"], recommended: "Friday" },
+      },
+    };
+    const legacy = [{ id: "legacy", kind: "story", size: "wide", title: "Legacy landed card", line: "This used to win by rank.", why: "landed", tone: "landed" }];
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: legacy });
+    expect(document.getElementById("scene-head")!.textContent).toBe("Choose the launch date");
+    expect(document.getElementById("scene-line")!.textContent).toContain("The evidence points to Friday");
+    expect(document.querySelectorAll(".scene-ask .choice-pick")).toHaveLength(2);
+  });
+
+  it("manifests focused Artifact evidence as the work itself", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = {
+      title: "Done",
+      summary: "",
+      live: false,
+      counts: { landed: 1 },
+      items: [],
+      focus: {
+        id: "artifact:map",
+        kind: "artifact",
+        lifecycle: "resolved",
+        subject: "Christmas market map",
+        summary: "The final map is ready.",
+        evidence: [{ id: "map-image", kind: "image", ref: "/shots/map.png", label: "Christmas market map" }],
+        actions: [],
+        source: { showItemId: "artifact:map" },
+      },
+    };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [] });
+    expect(document.getElementById("scene-head")!.textContent).toBe("Christmas market map");
+    expect(document.querySelector(".scene-shot img")?.getAttribute("src")).toContain("/shots/map.png");
+  });
+});
+
 describe("header and artefact view", () => {
   it("sends a question a reply put to him back with one tap on the artefact", async () => {
     load("");
