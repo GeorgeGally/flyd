@@ -71,6 +71,11 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
         // Read back what George was shown against the chief-of-staff standard; shortfalls feed the improver.
         const { runReplyReview } = await import("../council/reply-review.js");
         await runReplyReview().catch(() => undefined);
+        // Once a day, consolidate canonical experience traces into evidence-backed
+        // candidate insights. Dreaming is analysis only: it cannot mutate policy,
+        // USER.md, memory, or code.
+        const { runDreamCycle } = await import("../intelligence/dream/cycle.js");
+        await runDreamCycle().catch(() => undefined);
         const { runSelfImprovement } = await import("../crew/self-improve.js");
         await runSelfImprovement({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac }).catch(() => undefined);
         const { scoutTick } = await import("../council/scout.js");
