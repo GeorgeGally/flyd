@@ -26,7 +26,7 @@ import type { AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
 import type { SemanticJudge } from "./semantic-judge.js";
 import type { ImportanceJudge } from "./importance-judge.js";
-import { activityObjectsFromShow, artifactObjectsFromShow, decisionObjectsFromShow, semanticEvents, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
+import { activityObjectsFromShow, artifactObjectsFromShow, decisionObjectsFromShow, composeSemanticSnapshot, semanticEvents, semanticFocus, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
@@ -561,10 +561,18 @@ export class SnapshotDiffer {
     show.activities = activityObjectsFromShow(show);
     show.decisions = decisionObjectsFromShow(show);
     show.artifacts = artifactObjectsFromShow(show);
-    const nativeIds = new Set([...show.activities, ...show.decisions, ...show.artifacts].map((object) => object.id));
-    const semantic = [...show.activities, ...show.decisions, ...show.artifacts, ...visibleSemantic.filter((object) => !nativeIds.has(object.id))];
+    const left = this.show?.leftColumn?.();
+    show.monitors = left?.monitors ?? [];
+    const semantic = composeSemanticSnapshot({
+      visible: visibleSemantic,
+      activities: show.activities,
+      decisions: show.decisions,
+      artifacts: show.artifacts,
+      monitors: show.monitors,
+    });
     show.events = semanticEvents(this.semantic, semantic);
     show.semantic = semantic;
+    show.focus = semanticFocus(semantic);
     this.semantic = semantic;
     const found = currentPage(snapshot.messages);
     // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
@@ -580,13 +588,7 @@ export class SnapshotDiffer {
       show,
       boxes: withClosedLinks(boxesOf(show, this.show?.readings?.() ?? {}), live),
       ...(this.show?.rail ? { rail: this.show.rail(snapshot) } : {}),
-      ...(this.show?.leftColumn ? (() => {
-        const left = this.show!.leftColumn!();
-        show.monitors = left.monitors ?? [];
-        const nativeIds = new Set([...(show.activities ?? []), ...(show.decisions ?? []), ...(show.artifacts ?? []), ...show.monitors].map((object) => object.id));
-        show.semantic = [...(show.activities ?? []), ...(show.decisions ?? []), ...(show.artifacts ?? []), ...show.monitors, ...(show.semantic ?? []).filter((object) => !nativeIds.has(object.id))];
-        return { leftColumn: { ...left, semantic: show.activities } };
-      })() : {}),
+      ...(left ? { leftColumn: { ...left, semantic: show.activities } } : {}),
       ...(page ? { page } : {}),
     };
   }
