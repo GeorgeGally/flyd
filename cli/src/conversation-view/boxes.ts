@@ -247,8 +247,6 @@ export function boxesOf(screen: ShowScreen, readings: BoxReadings = {}): Box[] {
       // The group already says it waits on him.
       children: calls.map((item) => ({ ...fromItem(item, "call", "lead"), why: "" })),
     });
-  } else {
-    boxes.push({ id: "situation", kind: "note", size: "wide", title: screen.title, line: screen.summary, why: "where things stand" });
   }
   const told = screen.items.filter((item) => STORY_KINDS.includes(item.kind));
   // Finished work is the showcase; what is still moving follows it.
@@ -266,6 +264,10 @@ export function boxesOf(screen: ShowScreen, readings: BoxReadings = {}): Box[] {
       why: "the work, the fleet and the news",
       children: stories.map((item) => fromItem(item, "story", item.shots?.length ? "wide" : "small")),
     });
+  }
+  // A bare "where things stand" line only when there is nothing real to open on; it is filler beside the work.
+  if (!calls.length && !stories.length) {
+    boxes.unshift({ id: "situation", kind: "note", size: "wide", title: screen.title, line: screen.summary, why: "where things stand" });
   }
   // The side column: what Flyd sees coming first, then the numbers.
   const side = [...alertsOf(readings), ...instrumentsOf(screen, readings)];

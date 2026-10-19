@@ -30,9 +30,15 @@ describe("boxesOf", () => {
     expect(boxes[0]!.children?.[0]).toMatchObject({ kind: "call", title: call.headline, ref: "m1" });
   });
 
-  it("opens with the situation when nothing waits on him", () => {
+  it("opens on the work itself when nothing waits on him, with no filler line", () => {
     const boxes = boxesOf(screen([landed]), { now: NOW });
-    expect(boxes[0]).toMatchObject({ kind: "note", title: "Your move, sir.", line: "One needs you." });
+    expect(boxes[0]).toMatchObject({ id: "stories" });
+    expect(boxes.some((box) => box.id === "situation")).toBe(false);
+  });
+
+  it("says where things stand only when there is nothing else to show", () => {
+    const boxes = boxesOf(screen([]), { now: NOW });
+    expect(boxes[0]).toMatchObject({ id: "situation", kind: "note" });
   });
 
   it("puts stories in one group, each holding at most four of its screenshots", () => {

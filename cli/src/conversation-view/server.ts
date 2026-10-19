@@ -30,7 +30,7 @@ import { activityObjectsFromShow, artifactObjectsFromShow, decisionObjectsFromSh
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
-import { showOf, type ShowProject, type ShowScreen } from "./show.js";
+import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail, RailState } from "./rail.js";
@@ -527,17 +527,25 @@ export class SnapshotDiffer {
         void importance.request(item, his).then((changed) => { if (changed) this.summaries?.onSummary?.(); });
       }
       const kept = show.items.filter((item) => importance.matters(item) !== false);
-      if (kept.length !== show.items.length) {
+      let trimmed = kept.length !== show.items.length;
+      if (trimmed) {
         show.items = kept.length ? kept : [{ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" }];
       }
       // A call Flyd is sure is not his leaves the sheet too, and "N need you" counts only what the sheet can open.
       if (show.calls) {
         const calls = show.calls.filter((call) => importance.matters(call) !== false);
         if (calls.length !== show.calls.length) {
+          trimmed = true;
           show.counts = { ...show.counts, call: calls.length };
           if (calls.length) show.calls = calls;
           else delete show.calls;
         }
+      }
+      // The opening line and the tally speak for what is left on the screen, not what the judge took off it.
+      // An unreadable fleet keeps its own line.
+      if (trimmed && !show.summary.startsWith("I couldn't read")) {
+        show.title = titleOf(show.items);
+        show.summary = situationOf(show.counts);
       }
     }
     const semanticJudge = this.summaries?.semantic;
