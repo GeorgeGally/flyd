@@ -4,6 +4,7 @@ import { dirname, join } from "path";
 import { FLYD_DIR } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
 import { loadLatestTurnReceipt, type TurnReceipt } from "./turn-receipt.js";
+import { recordExperienceFeedback } from "./experience-trace.js";
 
 export type TurnFailureClass =
   | "model_configuration"
@@ -146,5 +147,20 @@ export async function repairLatestTurn(
     atomicWrite(join(flydDir, "wiki", "corrections", `flyd-fix-${id}.md`), `${correction}\n`),
     atomicWrite(join(flydDir, "evals", "incidents", `${id}.json`), `${JSON.stringify(regression, null, 2)}\n`),
   ]);
+  // Explicit negative feedback is a learning signal, not proof of the right
+  // repair. Link it to the originating trace without changing live behavior.
+  try {
+    recordExperienceFeedback({
+      version: 1,
+      receiptId: receipt.id,
+      repairId: id,
+      recordedAt,
+      source: repair.source,
+      signal: "correction",
+      feedback: normalizedFeedback,
+      failureClasses,
+      repairTargets: repair.repairTargets,
+    }, { flydDir });
+  } catch { /* correction artifacts above remain authoritative */ }
   return repair;
 }
