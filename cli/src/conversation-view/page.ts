@@ -4423,11 +4423,63 @@ ${LEFT_SCRIPT}
     showDoing.classList.toggle("on", !!lastScreen.live);
     showDoing.textContent = lastScreen.live ? lastScreen.doing || "" : "Standby" + (lastScreen.read ? ". Fleet read " + ago(lastScreen.read) : "");
   }
+  function semanticBox(object) {
+    if (!object) return null;
+    var tone = { conversation: "news", activity: "live", decision: "call", investigation: "news", action: "ready", artifact: "landed", monitor: object.monitor && object.monitor.phase === "changed" ? "call" : "waiting" }[object.kind] || "news";
+    var children = (object.evidence || []).filter(function (work) { return work.kind === "image"; }).map(function (work) {
+      return { kind: "shot", shot: { src: work.ref, label: work.label || object.subject } };
+    });
+    var web = (object.evidence || []).find(function (work) { return work.kind === "web" && !work.closed; });
+    var decision = object.decision ? {
+      task: object.decision.target,
+      question: object.decision.question,
+      choices: object.decision.alternatives || [],
+      recommended: object.decision.recommended,
+      replyTo: object.decision.replyTo,
+    } : undefined;
+    var actionNeedsApproval = object.kind === "action" && object.action && object.action.requiresApproval && object.lifecycle === "interrupted";
+    if (actionNeedsApproval && !decision) {
+      decision = {
+        task: object.action.target || object.id,
+        question: object.detail || object.summary || ("Approve " + object.subject + "?"),
+        choices: ["Approve", "Revise"],
+      };
+    }
+    var kindLine = object.kind === "monitor" && object.monitor
+      ? object.monitor.phase === "changed" ? object.monitor.change || object.detail || object.summary : object.monitor.condition || object.summary
+      : object.detail || object.summary;
+    return {
+      id: object.id,
+      kind: object.kind === "decision" ? "call" : object.kind === "action" ? "story" : object.kind === "artifact" ? "story" : "note",
+      tone: tone,
+      title: object.subject,
+      line: kindLine,
+      why: object.kind,
+      status: object.status || (object.activity && object.activity.phase) || (object.action && object.action.phase) || (object.monitor && object.monitor.phase) || object.lifecycle,
+      project: object.project,
+      at: object.updatedAt || object.createdAt,
+      ref: object.source && object.source.ref,
+      task: object.source && object.source.task,
+      decision: decision,
+      open: web ? { label: web.label || "Open", url: web.ref } : undefined,
+      links: (object.evidence || []).filter(function (work) { return work.kind === "web"; }).map(function (work) { return { label: work.label || "Open", url: work.ref, closed: work.closed }; }),
+      children: children,
+      semantic: true,
+    };
+  }
+
   function renderShow(next, boxes) {
     lastScreen = next;
     air.classList.toggle("on", !!next.live);
     air.textContent = next.live ? "on air" : "standby";
-    var parts = split(boxes && boxes.length ? boxes : [{ id: "situation", kind: "note", size: "wide", title: next.title, line: next.summary, why: "where things stand" }]);
+    // Semantic focus owns the main stage. Legacy boxes remain the compatibility
+    // source for readouts/drilldowns, but they no longer get to out-rank meaning.
+    var focusBox = semanticBox(next.focus);
+    var sourceBoxes = boxes && boxes.length ? boxes : [{ id: "situation", kind: "note", size: "wide", title: next.title, line: next.summary, why: "where things stand" }];
+    var parts = split(sourceBoxes);
+    if (focusBox) {
+      parts.stage = [focusBox];
+    }
     var current = scenes[at] ? scenes[at].id : null;
     var sameSet = parts.stage.length === scenes.length && parts.stage.every(function (box, index) { return box.id === scenes[index].id; });
     scenes = parts.stage;
