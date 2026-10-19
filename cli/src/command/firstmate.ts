@@ -208,7 +208,9 @@ function sessionExecutable(runtime: SessionRuntime): string {
 }
 
 function sessionArgs(runtime: SessionRuntime): string[] {
-  if (runtime === "claude") return ["-p", SESSION_PROMPT];
+  // Nobody is there to approve a prompt: without a mode, every firstmate script is refused and his notes go unanswered.
+  // "auto" runs routine commands and still blocks risky ones, as codex's --full-auto does. George chose this on 2026-10-18.
+  if (runtime === "claude") return ["-p", "--permission-mode", "auto", SESSION_PROMPT];
   if (runtime === "codex") return ["exec", "--full-auto", SESSION_PROMPT];
   return ["run", SESSION_PROMPT];
 }
