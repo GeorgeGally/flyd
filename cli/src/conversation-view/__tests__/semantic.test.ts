@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   SEMANTIC_KINDS,
   activityObjectsFromShow,
+  composeSemanticSnapshot,
   artifactObjectFromShow,
   artifactObjectsFromShow,
   decisionObjectsFromShow,
   monitorObjectFromSource,
   monitorObjectsFromSources,
   semanticEvents,
+  semanticFocus,
   semanticIdentityFor,
   semanticObjectFromShow,
   semanticObjectsFromShow,
@@ -238,5 +240,54 @@ describe("native semantic Monitor", () => {
     const monitor = monitorObjectFromSource({ id: "visa", title: "Watch visa status", at: "2026-10-19T02:00:00Z", state: "needs_you", detail: "A document is required." });
     expect(monitor.lifecycle).toBe("interrupted");
     expect(monitor.actions).toContainEqual({ id: "resolve:monitor:visa", kind: "resolve", label: "Stop watching", value: "visa" });
+  });
+});
+
+
+describe("semantic runtime unification", () => {
+  it("composes one canonical snapshot with native structural truth winning over legacy projection", () => {
+    const legacy = semanticObjectFromShow(item({ kind: "landed", headline: "Shipped" }));
+    const activity = semanticObjectFromShow(item({ kind: "landed", headline: "Shipped" }));
+    const artifact = artifactObjectFromShow(item({ kind: "landed", headline: "Shipped" }));
+    const monitor = monitorObjectFromSource({ id: "deploy", title: "Watch production", at: "2026-10-19T02:00:00Z" });
+    const snapshot = composeSemanticSnapshot({ visible: [legacy], activities: [activity], artifacts: [artifact], monitors: [monitor] });
+    expect(snapshot.map((object) => [object.id, object.kind])).toEqual([
+      ["task:t1", "activity"],
+      ["artifact:task:t1", "artifact"],
+      ["monitor:deploy", "monitor"],
+    ]);
+  });
+
+  it("puts meaning before card order when choosing foreground focus", () => {
+    const quiet = monitorObjectFromSource({ id: "news", title: "Watch news", at: "2026-10-19T03:00:00Z" });
+    const decision = semanticObjectFromShow({ id: "call:reply:1", kind: "call", headline: "Choose launch date", why: "Needs your call", decision: { task: "reply:1", question: "Which date?", choices: ["Friday", "Saturday"] } });
+    expect(semanticFocus([quiet, decision])?.kind).toBe("decision");
+  });
+
+  it("foregrounds a changed Monitor over ambient conversation but keeps quiet watches quiet", () => {
+    const conversation = semanticObjectFromShow({ id: "news:1", kind: "news", headline: "Morning", why: "Ambient" });
+    const quiet = monitorObjectFromSource({ id: "flight", title: "Watch flight", at: "2026-10-19T03:00:00Z" });
+    const changed = monitorObjectFromSource({ id: "flight", title: "Watch flight", at: "2026-10-19T04:00:00Z", state: "changed", detail: "Departure moved." });
+    expect(semanticFocus([conversation, quiet])?.kind).toBe("conversation");
+    expect(semanticFocus([conversation, changed])?.id).toBe("monitor:flight");
+  });
+
+  it("supports the full semantic work loop without changing identities between snapshots", () => {
+    const investigation: SemanticObject = { id: "investigation:launch", kind: "investigation", lifecycle: "active", subject: "Best launch date", summary: "Researching demand.", evidence: [], actions: [], source: { showItemId: "investigation:launch" } };
+    const decision = semanticObjectFromShow({ id: "call:launch", kind: "call", headline: "Choose launch date", why: "Evidence is ready", decision: { task: "launch", question: "Launch Friday?", choices: ["Yes", "Revise"] } });
+    const action: SemanticObject = { id: "action:launch", kind: "action", lifecycle: "interrupted", subject: "Publish launch", summary: "Waiting for approval.", evidence: [], actions: [{ id: "approve", kind: "approve", label: "Approve" }], source: { showItemId: "action:launch" }, action: { phase: "proposed", operation: "publish launch", category: "outward", requiresApproval: true } };
+    const activity = semanticObjectFromShow(item({ kind: "live", headline: "Publishing launch" }));
+    const artifact = artifactObjectFromShow(item({ kind: "landed", headline: "Launch published" }));
+    const monitor = monitorObjectFromSource({ id: "launch", title: "Watch launch", condition: "Surface meaningful response changes", at: "2026-10-19T05:00:00Z" });
+    const snapshots = [
+      composeSemanticSnapshot({ visible: [investigation] }),
+      composeSemanticSnapshot({ decisions: [decision] }),
+      composeSemanticSnapshot({ visible: [action] }),
+      composeSemanticSnapshot({ activities: [activity] }),
+      composeSemanticSnapshot({ artifacts: [artifact] }),
+      composeSemanticSnapshot({ monitors: [monitor] }),
+    ];
+    expect(snapshots.flatMap((snapshot) => snapshot.map((object) => object.kind))).toEqual(["investigation", "decision", "action", "activity", "artifact", "monitor"]);
+    expect(snapshots.map((snapshot) => semanticFocus(snapshot)?.kind)).toEqual(["investigation", "decision", "action", "activity", "artifact", "monitor"]);
   });
 });
