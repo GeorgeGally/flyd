@@ -144,7 +144,7 @@ export function consolidateExperience(events: StoredEvent[], now = new Date()): 
       route: associated?.trace.route ?? "unknown",
     };
     const id = JSON.stringify(key);
-    const group = correctionGroups.get(id) ?? { key, records: [] };
+    const group = correctionGroups.get(id) ?? { key, records: [] as FeedbackRecord[] };
     group.records.push(record);
     correctionGroups.set(id, group);
   }
@@ -193,7 +193,7 @@ export function consolidateExperience(events: StoredEvent[], now = new Date()): 
       retried: Number(execution.retryCount ?? 0) > 0,
     };
     const id = JSON.stringify(key);
-    const group = failureGroups.get(id) ?? { key, records: [] };
+    const group = failureGroups.get(id) ?? { key, records: [] as TraceRecord[] };
     group.records.push(record);
     failureGroups.set(id, group);
   }
