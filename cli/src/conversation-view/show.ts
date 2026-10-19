@@ -85,6 +85,8 @@ export interface ShowScreen {
   monitors?: SemanticObject[];
   /** Snapshot-to-snapshot semantic lifecycle deltas; populated by SnapshotDiffer, not by pure showOf. */
   events?: SemanticEvent[];
+  /** Meaning-driven foreground object; physical layout remains renderer-owned. */
+  focus?: SemanticObject;
   /** How many of each kind exist, including those past the screen's limits. */
   counts: Partial<Record<ShowKind, number>>;
   /** Every call that needs him, as many as counts.call says, each with its question to answer. */

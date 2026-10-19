@@ -424,3 +424,63 @@ export function monitorObjectsFromSources(sources: readonly MonitorSource[]): Se
   }
   return [...latest.values()].map(monitorObjectFromSource);
 }
+
+
+export interface SemanticSnapshotSources {
+  visible?: readonly SemanticObject[];
+  activities?: readonly SemanticObject[];
+  decisions?: readonly SemanticObject[];
+  artifacts?: readonly SemanticObject[];
+  monitors?: readonly SemanticObject[];
+}
+
+/**
+ * One canonical semantic runtime snapshot.
+ *
+ * Native structural objects win over legacy/ambiguous projections with the
+ * same identity. This is the migration seam: ShowItem may still feed old
+ * renderers, but downstream lifecycle/focus code consumes this snapshot.
+ */
+export function composeSemanticSnapshot(sources: SemanticSnapshotSources): SemanticObject[] {
+  const native = [
+    ...(sources.activities ?? []),
+    ...(sources.decisions ?? []),
+    ...(sources.artifacts ?? []),
+    ...(sources.monitors ?? []),
+  ];
+  const nativeIds = new Set(native.map((object) => object.id));
+  const result: SemanticObject[] = [];
+  const seen = new Set<string>();
+  for (const object of [...native, ...(sources.visible ?? []).filter((object) => !nativeIds.has(object.id))]) {
+    if (seen.has(object.id)) continue;
+    seen.add(object.id);
+    result.push(object);
+  }
+  return result;
+}
+
+const FOCUS_PRIORITY: Record<SemanticKind, number> = {
+  decision: 70,
+  action: 65,
+  investigation: 50,
+  activity: 40,
+  artifact: 30,
+  monitor: 20,
+  conversation: 10,
+};
+
+/**
+ * Semantic focus is meaning-driven, not card-order-driven. Interrupted work
+ * wins; quiet Monitors deliberately sink until they change or need George.
+ */
+export function semanticFocus(objects: readonly SemanticObject[]): SemanticObject | undefined {
+  return [...objects].sort((a, b) => {
+    const interrupted = Number(b.lifecycle === "interrupted") - Number(a.lifecycle === "interrupted");
+    if (interrupted) return interrupted;
+    const monitorA = a.monitor?.phase === "quiet" ? -25 : 0;
+    const monitorB = b.monitor?.phase === "quiet" ? -25 : 0;
+    const score = (FOCUS_PRIORITY[b.kind] + monitorB) - (FOCUS_PRIORITY[a.kind] + monitorA);
+    if (score) return score;
+    return (Date.parse(b.updatedAt ?? b.createdAt ?? "") || 0) - (Date.parse(a.updatedAt ?? a.createdAt ?? "") || 0);
+  })[0];
+}
