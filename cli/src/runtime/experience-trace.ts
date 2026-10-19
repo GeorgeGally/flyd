@@ -45,6 +45,7 @@ export interface ExperienceTrace {
     }>;
     toolCallCount: number;
     failedToolCallCount: number;
+    retryCount: number;
   };
   outcome: {
     status: TurnReceipt["status"];
@@ -119,6 +120,12 @@ export function experienceTraceFromReceipt(receipt: TurnReceipt): ExperienceTrac
     ...(call.error ? { error: call.error.slice(0, 500) } : {}),
   }));
   const route = receipt.plan?.route ?? receipt.routing?.observed.route ?? receipt.route;
+  const previouslyFailed = new Set<string>();
+  let retryCount = 0;
+  for (const call of receipt.toolCalls) {
+    if (previouslyFailed.has(call.name)) retryCount += 1;
+    if (!call.succeeded) previouslyFailed.add(call.name);
+  }
   return {
     version: 1,
     receiptId: receipt.id,
@@ -140,6 +147,7 @@ export function experienceTraceFromReceipt(receipt: TurnReceipt): ExperienceTrac
       tools,
       toolCallCount: tools.length,
       failedToolCallCount: tools.filter((tool) => !tool.succeeded).length,
+      retryCount,
     },
     outcome: {
       status: receipt.status,
@@ -196,7 +204,6 @@ export function recordExperienceFeedback(
     provenance: "runtime:experience-feedback",
     idempotencyKey: `feedback:${input.repairId}`,
     correlationId: input.receiptId,
-    evidenceRefs: [input.receiptId],
     payload: safeRoutingValue({ type: "experience_feedback", feedback: input }) as Record<string, unknown>,
   };
   return appendExperience(options.flydDir, envelope);
