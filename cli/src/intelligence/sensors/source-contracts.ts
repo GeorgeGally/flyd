@@ -116,6 +116,18 @@ export const TRANSITION_JUDGE_CONTRACT: SourceContract = {
   enabledByDefault: true,
 };
 
+export const EXPERIENCE_RUNTIME_CONTRACT: SourceContract = {
+  sourceId: "experience.runtime",
+  displayName: "Runtime experience traces",
+  sensitivity: "low",
+  scopes: ["experience.runtime"],
+  retentionClass: "local_default",
+  retentionDays: 90,
+  egressDestinations: [],
+  purpose: "Record compact execution traces and explicit corrections for governed self-improvement.",
+  enabledByDefault: true,
+};
+
 export const TRANSITION_SOURCE_CONTRACTS: readonly SourceContract[] = [
   TRANSITION_OVERLAY_CONTRACT,
   TRANSITION_CLI_CHAT_CONTRACT,
