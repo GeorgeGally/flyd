@@ -5,6 +5,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import type { MemoryEvidence } from "./types.js";
 import { collectRoutingCase, type RoutingTrace } from "./routing-learning.js";
 import type { TurnUnderstanding } from "./conversation-presence.js";
+import { recordExperienceTrace } from "./experience-trace.js";
 
 export interface TurnToolCall {
   name: string;
@@ -80,6 +81,9 @@ export async function persistTurnReceipt(
   if (receipt.routing && process.env.FLYD_ROUTING_LEARNING !== "0") {
     try { collectRoutingCase(flydDir, receipt.id, receipt.routing); } catch { /* best effort; importer can retry */ }
   }
+  // Canonical observability is also best-effort: instrumentation must never
+  // turn a successful user turn into a failure.
+  try { recordExperienceTrace(receipt, { flydDir }); } catch { /* a later importer can reconstruct from the receipt */ }
   return receipt;
 }
 
