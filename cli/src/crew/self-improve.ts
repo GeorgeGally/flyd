@@ -10,6 +10,8 @@ import { listDomainRuns } from "../command/store.js";
 import type { DomainRun } from "../command/types.js";
 import { routingFailureEvidence } from "../runtime/routing-learning.js";
 import { reviewEvidence, selfReviewDir } from "../council/reply-review.js";
+import { IntelligenceEventStore } from "../intelligence/event-store.js";
+import { EXPERIENCE_RUNTIME_CONTRACT } from "../intelligence/sensors/source-contracts.js";
 
 // Flyd improving Flyd, with George holding the gate. Once a day it gathers
 // evidence of where it fell short — /flyd-fix corrections, failed chat
@@ -22,7 +24,7 @@ import { reviewEvidence, selfReviewDir } from "../council/reply-review.js";
 
 export interface Evidence {
   id: string;
-  kind: "fix" | "eval" | "dismissed" | "pushback" | "crew" | "job" | "loop" | "domain" | "review";
+  kind: "fix" | "eval" | "dismissed" | "pushback" | "crew" | "job" | "loop" | "domain" | "review" | "dream";
   at: string;
   text: string;
 }
@@ -104,6 +106,35 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
   const now = sources.now ?? new Date();
   const since = sources.since ?? new Date(now.getTime() - 14 * 86_400_000).toISOString();
   const evidence: Evidence[] = [];
+
+  // Dream insights are compact, evidence-linked operational patterns derived
+  // from canonical experience traces. Only failure/correction insights feed
+  // self-improvement; the Dream Cycle never changes code or policy itself.
+  try {
+    const store = new IntelligenceEventStore({ path: join(flydDir, "intelligence.sqlite") });
+    try {
+      for (const event of store.readSource(EXPERIENCE_RUNTIME_CONTRACT.sourceId)) {
+        if (event.erased || !event.payload || event.capturedAt < since) continue;
+        const payload = event.payload as { type?: unknown; insight?: Record<string, unknown> };
+        if (payload.type !== "dream_insight" || !payload.insight) continue;
+        if (payload.insight.consumer !== "self_improve") continue;
+        const summary = typeof payload.insight.summary === "string" ? payload.insight.summary.trim() : "";
+        if (!summary) continue;
+        evidence.push({
+          id: `dream:${event.id}`,
+          kind: "dream",
+          at: event.capturedAt,
+          text: `Dream Cycle found a repeated operational pattern: ${summary}`,
+        });
+      }
+    } finally {
+      store.close();
+    }
+  } catch {
+    // Dream evidence is optional; a missing/corrupt intelligence store must not
+    // block the existing governed self-improvement loop.
+  }
+
   // Provisional judge disagreements never become facts. Reviewed routing
   // errors and current-policy revalidation failures share this evidence loop.
   evidence.push(...routingFailureEvidence(flydDir).filter((item) => item.at >= since));
