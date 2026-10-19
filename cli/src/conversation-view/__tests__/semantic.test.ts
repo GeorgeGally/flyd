@@ -14,6 +14,7 @@ import {
   semanticObjectFromShow,
   semanticObjectsFromShow,
 } from "../semantic.js";
+import type { SemanticObject } from "../semantic.js";
 import type { ShowItem } from "../show.js";
 import { SemanticJudge } from "../semantic-judge.js";
 
