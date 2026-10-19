@@ -1247,7 +1247,7 @@ describe("semantic main stage", () => {
         lifecycle: "resolved",
         subject: "Christmas market map",
         summary: "The final map is ready.",
-        evidence: [{ id: "map-image", kind: "image", ref: "/shots/map.png", label: "Christmas market map" }],
+        evidence: [{ kind: "image", ref: "/shots/map.png", label: "Christmas market map" }],
         actions: [],
         source: { showItemId: "artifact:map" },
       },
