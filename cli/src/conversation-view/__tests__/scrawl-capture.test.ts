@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +12,11 @@ const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwA
 vi.mock("../../lib/config.js", async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return { ...actual, RAW_DIR: rawDir, FLYD_DIR: flydDir };
+});
+
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return { ...actual, homedir: () => root };
 });
 
 let bundleDir: string;
@@ -40,6 +45,8 @@ describe("Scrawl capture", () => {
     expect(findScrawl("scrawl latest")).toEqual({ path: "latest" });
     expect(findScrawl("README.md" )).toBeNull();
     expect(findScrawl("ordinary words")).toBeNull();
+    expect(findScrawl(`compare https://x.com/y and/or see ${bundleDir} please`)).toEqual({ path: resolve(bundleDir) });
+    expect(findScrawl(`'${bundleDir}'`)).toEqual({ path: resolve(bundleDir) });
   });
 
   it("resolves newest latest bundle and rejects incomplete bundles", async () => {
@@ -82,28 +89,43 @@ describe("Scrawl capture", () => {
     expect(readFileSync(join(rawDir, files[0]!), "utf8")).toContain("first frame");
   });
 
-  it("routes an expanded Scrawl to Firstmate with the sheet and pointer", async () => {
-    const { ClaudeCodeTranscriptSource } = await import("../claude-code-source.js");
-    const project = join(root, "project");
-    mkdirSync(project);
-    writeFileSync(join(project, "s1.jsonl"), "{}\n");
-    let note = "";
-    let sentImages: Array<{ mediaType: string; data: string }> = [];
-    const source = new ClaudeCodeTranscriptSource({
-      projectDir: project,
-      inbox: {
-        send: async (text, images) => {
-          sentImages = images ?? [];
-          note = `${text}\n${sentImages.map((image) => `[image: contact-sheet ${image.data.slice(0, 24)}]`).join("\n")}`;
-          return { id: "note:1", timestamp: new Date().toISOString() };
-        },
-        notes: () => [],
-        image: () => null,
+  it("leaves a message unchanged when latest scrawl finds no captures", async () => {
+    const { expandScrawl } = await import("../scrawl-capture.js");
+    expect(await expandScrawl({ text: "is the latest scrawl thing done?" })).toEqual({ text: "is the latest scrawl thing done?" });
+  });
+
+  it("sends the sheet and pointer from the message box and files only after delivery", async () => {
+    const { ConversationViewServer } = await import("../server.js");
+    const sent: Array<{ text: string; images?: Array<{ mediaType: string; data: string }> }> = [];
+    let fail = true;
+    const source = {
+      assistantLabel: "Flyd", canSend: true,
+      listSessions: async () => [{ id: "s1", title: "S1", updatedAt: "" }],
+      send: async (_session: string, text: string, images?: Array<{ mediaType: string; data: string }>) => {
+        if (fail) throw new Error("Flyd couldn't pass this on just now; send it again");
+        sent.push({ text, ...(images ? { images } : {}) });
+        return { id: `note:${sent.length}`, timestamp: new Date().toISOString() };
       },
-    });
-    await source.send("s1", `fix the thing shown in ${bundleDir}`);
-    expect(note).toContain(`[scrawl: ${resolve(bundleDir)}]`);
-    expect(note).toContain("[image: contact-sheet");
-    expect(sentImages[0]).toEqual({ mediaType: "image/png", data: PNG });
+    };
+    const feed = { start() {}, stop() {}, current: () => ({ memories: [], news: [], taste: [] }), onRefresh: () => () => {} };
+    const server = new ConversationViewServer(source as never, undefined, undefined, undefined, feed as never);
+    try {
+      const base = `http://127.0.0.1:${await server.listen(0)}`;
+      const token = (await (await fetch(`${base}/api/token`)).json()).token;
+      const post = (text: string) => fetch(`${base}/api/send`, {
+        method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": token }, body: JSON.stringify({ session: "s1", text }),
+      });
+      const captured = () => existsSync(rawDir) ? readdirSync(rawDir).filter((name) => name.endsWith(".md")) : [];
+      expect((await post(`fix the thing shown in ${bundleDir}`)).status).toBe(502);
+      expect(captured()).toHaveLength(0);
+      fail = false;
+      expect((await post(`fix the thing shown in ${bundleDir}`)).status).toBe(200);
+      expect(sent[0]!.text).toContain(`[scrawl: ${resolve(bundleDir)}]`);
+      expect(sent[0]!.text).toContain("first frame");
+      expect(sent[0]!.images).toEqual([{ mediaType: "image/png", data: PNG }]);
+      expect(captured()).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
   });
 });

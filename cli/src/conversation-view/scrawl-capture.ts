@@ -18,10 +18,8 @@ export interface ScrawlBundle {
 }
 
 export function findScrawl(text: string): { path: string } | null {
-  const paths = [...text.matchAll(/\/.*?\.scrawl/gs)].map(([path]) => path);
-  const summaryPath = /^\[scrawl[^\n]*·[^\n]*·\s*(.+?\.scrawl)\s*\]$/m.exec(text)?.[1];
-  const typedPath = /^\s*['"]?(.+?\.scrawl)['"]?\s*$/is.exec(text)?.[1];
-  for (const candidate of [summaryPath, typedPath, ...paths].filter((path): path is string => path !== undefined)) {
+  const paths = [...text.matchAll(/(?<=^|[\s'"(])(?=(\/[^\n]*?\.scrawl)(?=[\s'"\])]|$))/g)].map((match) => match[1]!);
+  for (const candidate of paths) {
     if (existsSync(candidate) && statSync(candidate).isDirectory()) return { path: resolve(candidate) };
   }
   if (/\b(?:latest\s+scrawl|scrawl\s+latest)\b/i.test(text)) return { path: "latest" };
@@ -71,11 +69,17 @@ export async function fileScrawl(bundle: ScrawlBundle): Promise<void> {
   }
 }
 
-export async function expandScrawl({ text, images }: { text: string; images?: ImageUpload[] }): Promise<{ text: string; images?: ImageUpload[] }> {
+export async function expandScrawl({ text, images }: { text: string; images?: ImageUpload[] }): Promise<{ text: string; images?: ImageUpload[]; bundle?: ScrawlBundle }> {
+  const unchanged = { text, ...(images ? { images } : {}) };
   const found = findScrawl(text);
-  if (!found) return { text, ...(images ? { images } : {}) };
-  const bundle = resolveBundle(found.path);
-  await fileScrawl(bundle);
+  if (!found) return unchanged;
+  let bundle: ScrawlBundle;
+  try {
+    bundle = resolveBundle(found.path);
+  } catch (error) {
+    if (found.path === "latest") return unchanged;
+    throw error;
+  }
   const pointer = `[scrawl: ${bundle.dir}]`;
   const expandedText = `${text}${text.includes(pointer) ? "" : `\n\n${pointer}`}`;
   const encoded = readFileSync(bundle.sheet).toString("base64");
@@ -85,5 +89,6 @@ export async function expandScrawl({ text, images }: { text: string; images?: Im
   return {
     text: expandedText.includes(bundle.summary) ? expandedText : `${expandedText}\n\n${bundle.summary}`,
     images: alreadyAttached ? attached : [...attached, sheetImage],
+    bundle,
   };
 }
