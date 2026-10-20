@@ -10,9 +10,8 @@ transitions and responsive layout, not WhatsApp branding or navigation.
 
 1. Update/build Flyd (`cd cli && npm ci && npm run build`).
 2. Link it from inside Flyd: open the conversation window and select **people** in
-   its header (`/whatsapp`), or open the “Link WhatsApp” card in the timeline or the
-   artefacts column. The page draws the pairing QR live; in WhatsApp Settings →
-   Linked Devices, scan it. The code refreshes by itself until it is scanned.
+   its header (`/whatsapp`), or open the “Link WhatsApp” card in the timeline. The
+   page draws the pairing QR live; in WhatsApp Settings → Linked Devices, scan it. The code refreshes by itself until it is scanned.
 3. Core maintains the linked-device socket and reconnects with bounded retries. The
    offer card and the page's QR disappear once it is linked, and the page lists
    synced conversations.
