@@ -971,7 +971,8 @@ export class ConversationViewServer {
       .map((item) => ({
         id: item.id,
         title: item.headline,
-        ...(item.detail ? { line: item.detail } : {}),
+        // A hold's raw detail (run ids, internal checks) stays folded behind its details toggle.
+        ...(item.detail ? (item.kind === "waiting" ? { detail: item.detail } : { line: item.detail }) : {}),
         ...(item.links?.[0]?.url ? { url: item.links[0].url } : {}),
       }))];
     const interpreter = this.summaries?.interpreter;

@@ -2289,6 +2289,30 @@ describe("header and artefact view", () => {
     expect([...listed.querySelectorAll(".rail-card-options li")].map((item) => item.textContent)).toEqual(["Use a wildcard rule", "Keep separate rules"]);
   });
 
+  it("folds a hold's raw detail in Artefacts behind a details toggle that survives a redraw", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const raw = "Selected run code identity unverified; run ids: 01M56VVYX723WMFPQNNCPXZHVQ";
+    const emit = (title: string) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations: [], artefacts: [
+      { id: "waiting:gate", title, detail: raw },
+    ] } });
+    emit("“Gate” has gone quiet.");
+    await settle();
+    const card = document.querySelector<HTMLElement>(".rail-card")!;
+    const toggle = card.querySelector<HTMLButtonElement>(".rail-card-detail-toggle")!;
+    const detail = card.querySelector<HTMLElement>(".rail-card-detail p")!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(detail.hidden).toBe(true);
+    expect(detail.textContent).toBe(raw);
+    toggle.click();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(detail.hidden).toBe(false);
+    emit("“Gate” has gone quiet again.");
+    await settle();
+    expect(document.querySelector<HTMLElement>(".rail-card-detail p")!.hidden).toBe(false);
+  });
+
   it("keeps the options he picked when the column redraws", async () => {
     load("");
     await settle();

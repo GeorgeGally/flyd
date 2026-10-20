@@ -656,11 +656,28 @@ describe("ConversationViewServer", () => {
     expect(`${gateItem.headline} ${gateItem.why}`).not.toMatch(/01M56|run ids|no word/);
     expect(gateItem.detail).toContain("01M56VVYX723WMFPQNNCPXZHVQ");
 
+    writeFileSync(join(dir, "s1.jsonl"), captain("hello") + "\n");
     server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, inbox: new FirstmateInbox({ home: dir }) }), undefined, undefined, undefined, feed);
     const port = await server.listen(0);
     viewToken = JSON.parse((await get(port, "/api/token")).body).token;
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
     const choose = (id: string, action: string, sent: Record<string, string> = headers) => post(port, JSON.stringify({ id, action }), sent, "/api/held");
+    // The column's Artefacts card names the hold plainly; its run ids ride folded in detail, never the visible line.
+    const streamed = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(viewToken!)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const railGate = JSON.parse(streamed.split("event: update\ndata: ")[1]!.split("\n")[0]!).rail.artefacts.find((card: { title: string }) => card.title === gateItem.headline);
+    expect(railGate.line).toBeUndefined();
+    expect(railGate.detail).toContain("01M56VVYX723WMFPQNNCPXZHVQ");
     expect((await choose(gateItem.id, "act", { "content-type": "application/json" })).status).toBe(403);
     expect((await choose("waiting:held-nothing", "dismiss")).status).toBe(409);
     expect((await choose(gateItem.id, "shout")).status).toBe(409);

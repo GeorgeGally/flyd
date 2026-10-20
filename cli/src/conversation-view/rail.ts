@@ -65,6 +65,8 @@ export interface RailArtefact {
   id: string;
   title: string;
   line?: string;
+  /** Raw internal text (run ids, checks), folded behind a details toggle. */
+  detail?: string;
   steps?: string[];
   /** Options a reply put to him: while it waits on him (`replyTo`), one tap answers the reply with that option; else only listed. */
   choice?: ReplyChoice & { replyTo?: string };

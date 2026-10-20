@@ -567,6 +567,9 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-a-md p:last-child { margin-bottom: 0; }
 .rail-a-md a { color: var(--link); }
 .rail-card-note { font-style: italic; }
+.rail-card-detail-toggle { margin: 0 16px 10px; padding: 0; border: 0; background: none; font: 400 13px/1.4 var(--sans); color: var(--muted); cursor: pointer; }
+.rail-card-detail-toggle:hover { color: var(--strong); }
+.rail-card-detail p[hidden] { display: none; }
 .rail-card .art-chat { padding: 14px 16px 16px; }
 .rail-card .art-chat-receipt { padding: 0; font-size: 13px; }
 .rail-card--down .rail-card-head span { color: var(--muted); }
@@ -2131,6 +2134,24 @@ var __name = function (f) { return f; };
     box.appendChild(hint);
     box.appendChild(say);
   }
+  // Raw internal text folds behind a toggle, as in the Held up cards; which are open survives a redraw.
+  var railDetailOpen = {};
+  function railDetail(card) {
+    var wrap = el("div", "rail-card-detail");
+    var toggle = el("button", "rail-card-detail-toggle", "Details");
+    toggle.type = "button";
+    var text = el("p", "card-detail-text", card.detail);
+    function setOpen(open) {
+      text.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      if (open) railDetailOpen[card.id] = 1; else delete railDetailOpen[card.id];
+    }
+    toggle.addEventListener("click", function () { setOpen(text.hidden); });
+    setOpen(!!railDetailOpen[card.id]);
+    wrap.appendChild(toggle);
+    wrap.appendChild(text);
+    return wrap;
+  }
   function railCard(card) {
     var kind = card.down ? "blocked" : card.image ? "image" : card.preview ? "preview" : "file";
     var box = keyed(el("div", "rail-card tone-" + kindOf(kind).tone + (card.down ? " rail-card--down" : "")), "card:" + card.id);
@@ -2160,6 +2181,7 @@ var __name = function (f) { return f; };
       box.appendChild(el("p", "rail-card-change", server.changed.title + (when ? " at " + when : "") + (server.changed.detail ? " — " + server.changed.detail : "")));
     }
     if (card.line) box.appendChild(el("p", "", card.line));
+    if (card.detail) box.appendChild(railDetail(card));
     if (card.choice) {
       var options = el("ul", "rail-card-options");
       card.choice.options.forEach(function (option) { options.appendChild(el("li", "", option)); });
