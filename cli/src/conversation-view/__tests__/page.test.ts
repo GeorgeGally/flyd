@@ -2019,7 +2019,7 @@ describe("header and artefact view", () => {
     expect(site.hidden).toBe(false);
   });
 
-  it.skip("leads the column with one decision that needs him and its recommended choice, then every job under way and what got done", async () => {
+  it("puts one decision that needs him in the left column with its recommended choice, and what got done on the right", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
@@ -2029,15 +2029,15 @@ describe("header and artefact view", () => {
       { id: "call:b", kind: "call", headline: "Keep the Jev rule?", why: "", decision: { task: "b", question: "Keep or remove", choices: ["Keep", "Remove"], recommended: "Keep" } },
     ];
     const underway = [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started }];
-    const outcome = "The Block42 logo is now on the Good Neighbours Market homepage, with the full outcome readable";
     const done = [
-      { id: "landed:1", kind: "landed", headline: outcome, why: "", at: started, project: "GNM (Good Neighbours Market)", open: { url: "https://example.com/pr/1" } },
+      { id: "landed:1", kind: "landed", headline: "The Block42 logo is on the homepage.", why: "", detail: "Visitors see it above the fold.", at: started, project: "GNM (Good Neighbours Market)", open: { label: "Open", url: "https://example.com/pr/1" } },
       ...[2, 3, 4].map((n) => ({ id: `landed:${n}`, kind: "landed", headline: `Landed ${n}.`, why: "", at: started })),
     ];
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], calls, underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    const update = (show: Record<string, unknown>) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], ...show }, boxes: [] });
+    update({ calls, underway, done });
     await settle();
-    expect(document.getElementById("rail")!.hidden).toBe(false);
-    const needs = document.getElementById("needs")!;
+    const needs = document.querySelector("#left #needs")!;
+    expect(document.getElementById("left")!.hidden).toBe(false);
     // One at a time: the first, with a way to answer, and how many wait; no recommendation it never recorded.
     expect(needs.querySelector(".needs-head")!.textContent).toBe("Pick the vendor step layout.");
     expect(needs.querySelector(".needs-meta")!.textContent).toBe("GNM");
@@ -2048,55 +2048,26 @@ describe("header and artefact view", () => {
     expect(needs.querySelector(".needs-head")!.textContent).toBe("Keep the Jev rule?");
     expect(needs.querySelector(".needs-rec")!.textContent).toBe("RecommendedI'd pick Keep.");
     // The shown call stays shown across updates; answered and gone, the next takes its place.
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], calls: [calls[1]], underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    update({ calls: [calls[1]], underway, done });
     expect(needs.querySelector(".needs-head")!.textContent).toBe("Keep the Jev rule?");
     expect(needs.querySelector(".needs-nav")).toBeNull();
-    // Under way: one line per job, its project and how long it has run.
-    const job = document.querySelector("#underway li")!;
-    expect(job.querySelector(".brief-eyebrow")).toBeNull();
-    expect(job.querySelector(".brief-line")!.textContent).toBe("A worker is shrinking the island.");
-    expect(job.querySelector(".brief-meta")!.textContent).toBe("Flyd · Started 25m ago");
-    // Done: one line each, the newest few until he asks for all.
+    // The right column holds only done work: never a job under way, never the decision.
+    const rail = document.getElementById("rail")!;
+    expect(rail.hidden).toBe(false);
+    expect(rail.textContent).not.toMatch(/shrinking the island|Jev rule|vendor step/);
     expect(document.querySelectorAll("#done li")).toHaveLength(3);
     const doneRow = document.querySelector("#done li")!;
-    expect(doneRow.querySelector(".brief-eyebrow")).toBeNull();
-    expect(doneRow.querySelector(".brief-line")!.textContent).toBe(outcome);
-    expect(doneRow.querySelector(".brief-line a")!.getAttribute("href")).toBe("https://example.com/pr/1");
-    expect(doneRow.querySelector(".brief-meta")!.textContent).toBe("GNM · 25m ago");
+    expect(doneRow.querySelector(".brief-line")!.textContent).toBe("The Block42 logo is on the homepage.");
+    expect(doneRow.querySelector(".brief-outcome")!.textContent).toBe("Visitors see it above the fold.");
+    expect(doneRow.querySelector(".brief-meta a")!.getAttribute("href")).toBe("https://example.com/pr/1");
+    expect(doneRow.querySelector(".brief-meta")!.textContent).toBe("open25m ago");
     document.querySelector<HTMLButtonElement>("#done .brief-more")!.click();
     expect(document.querySelectorAll("#done li")).toHaveLength(4);
-    // Nothing waiting, running or done: the top of the column goes.
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations: [], artefacts: [] } });
+    // Nothing waiting or done: both columns go.
+    update({});
     expect(document.getElementById("brief")!.hidden).toBe(true);
-    expect(document.getElementById("rail")!.hidden).toBe(true);
-  });
-
-  it.skip("draws each job and each piece of finished work as a typed card he can put away", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const started = new Date(Date.now() - 25 * 60_000).toISOString();
-    const underway = [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started, task: "x" }];
-    const done = [{ id: "landed:1", kind: "landed", headline: "It landed.", why: "", at: started, project: "GNM", task: "1" }];
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
-    await settle();
-    // A card: an icon for what kind of thing it is, a chip that says so, then the line.
-    const job = document.querySelector("#underway li")!;
-    expect(job.classList.contains("card")).toBe(true);
-    expect(job.querySelector(".card-icon svg")).not.toBeNull();
-    expect(job.querySelector(".card-meta")!.textContent).toBe("Under way");
-    const doneRow = document.querySelector("#done li")!;
-    expect(doneRow.classList.contains("card")).toBe(true);
-    expect(doneRow.querySelector(".card-icon svg")).not.toBeNull();
-    expect(doneRow.querySelector(".card-meta")!.textContent).toBe("Done");
-    // Putting one away: a click fades it out, and it stays away through the next reading of the fleet.
-    const gone = document.querySelector("#done li .card-dismiss") as HTMLButtonElement;
-    gone.click();
-    await new Promise((resolve) => setTimeout(resolve, 260));
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], underway, done }, boxes: [], rail: { conversations: [], artefacts: [] } });
-    await settle();
-    expect(document.querySelectorAll("#done li")).toHaveLength(0);
-    localStorage.removeItem("flyd-dismissed");
+    expect(rail.hidden).toBe(true);
+    expect(document.getElementById("left")!.hidden).toBe(true);
   });
 
   it("opens a finished job's screenshot full size when he clicks the card's thumbnail", async () => {
@@ -2133,20 +2104,6 @@ describe("header and artefact view", () => {
     await settle();
     expect(document.querySelectorAll("#done li")).toHaveLength(1);
     expect(document.querySelector("#done li .card-dismiss")).toBeNull();
-  });
-
-  it.skip("putting away a running job keeps that job's finished card", async () => {
-    localStorage.setItem("flyd-left", "on");
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const at = new Date(Date.now() - 4 * 60_000).toISOString();
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [{ id: "job:1", kind: "work", title: "Working on a job for you", at }], recent: [] } });
-    (document.querySelector("#left-now .card-dismiss") as HTMLButtonElement).click();
-    await new Promise((resolve) => setTimeout(resolve, 260));
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:1", kind: "work", title: "Finished a job for you", at }] } });
-    expect(document.querySelector("#left-recent .left-title")!.textContent).toBe("Finished a job for you");
-    localStorage.removeItem("flyd-dismissed");
   });
 
   it("plays Flyd's boxes as scenes, one at a time, the pictured work first, with the numbers on one line under them", async () => {
@@ -2222,60 +2179,46 @@ describe("header and artefact view", () => {
     expect(document.getElementById("show-doing")!.textContent).toBe("Standby");
   });
 
-  it.skip("shows Flyd's own activity in a left column that stays shut on a narrow window until asked", async () => {
+  it("keeps an empty left column shut on a narrow window until asked, and lets Escape take it away", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
-    const leftColumn = {
-      now: [{ id: "job:1", kind: "work", title: "Working on a job for you", line: "Tidy the notes.", at: new Date(Date.now() - 4 * 60_000).toISOString() }],
-      recent: [{ id: "log:memory", kind: "memory", title: "Kept its memory of you up to date", line: "Read 3 conversations.", at: new Date(Date.now() - 2 * 3_600_000).toISOString() }],
-    };
     expect(document.getElementById("left-open")!.hidden).toBe(true);
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn });
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [] } });
     expect(document.getElementById("left-open")!.hidden).toBe(false);
     const left = document.getElementById("left")!;
-    // Narrow window: nothing opens by itself, but the header offers it.
     expect(left.hidden).toBe(true);
     expect(document.documentElement.getAttribute("data-left")).toBe("off");
     document.getElementById("left-open")!.click();
     expect(left.hidden).toBe(false);
     expect(document.documentElement.getAttribute("data-left")).toBe("open");
     expect(localStorage.getItem("flyd-left")).toBe("on");
-    const cards = (id: string) => Array.from(document.querySelectorAll(`#${id} .left-card`));
-    expect(cards("left-now")).toHaveLength(1);
-    expect(cards("left-now")[0]!.querySelector(".left-title")!.textContent).toBe("Working on a job for you");
-    expect(cards("left-now")[0]!.querySelector(".left-meta")!.textContent).toBe("Started 4m ago");
-    expect(cards("left-recent")[0]!.querySelector(".left-meta")!.textContent).toBe("2h ago");
+    expect(document.getElementById("left-hide")!.hidden).toBe(false);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(left.hidden).toBe(true);
     expect(localStorage.getItem("flyd-left")).toBe("off");
   });
 
-  it.skip("takes a card to the main chat when he clicks it, and lets it go again", async () => {
-    localStorage.setItem("flyd-left", "on");
+  it("takes a held card to the main chat when he clicks it, and lets it go again", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
     const at = new Date(Date.now() - 4 * 60_000).toISOString();
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [
-      { id: "job:1", kind: "done", title: "Finished a job for you", line: "Done.", detail: "Done. The file is at ~/Documents/Flyd/gnm.md, deduped and checked.", at },
-    ] } });
-    const card = (): HTMLElement => document.querySelector("#left-recent .left-card") as HTMLElement;
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [{ id: "task:held", kind: "activity", lifecycle: "interrupted", subject: "The island rework is paused.", summary: "Paused for review.", detail: "Paused before merging; the diff is ready to read.", evidence: [], actions: [], source: { showItemId: "held:1", task: "held" }, activity: { phase: "paused", started: at } }] } });
+    const card = (): HTMLElement => document.querySelector("#left-semantic .left-card") as HTMLElement;
     const about = (): HTMLElement => document.getElementById("about") as HTMLElement;
     expect(about().hidden).toBe(true);
     card().click();
     // The card stays put and lit; the message box says what his next message is about, ready to type.
-    expect(document.querySelectorAll("#left-recent .left-card")).toHaveLength(1);
-    expect(card().dataset.key).toBe("job:1|done");
+    expect(document.querySelectorAll("#left-semantic .left-card")).toHaveLength(1);
+    expect(card().dataset.key).toBe("task:held|semantic|paused");
     expect(card().classList.contains("is-open")).toBe(true);
     expect((card().querySelector(".card-detail") as HTMLElement).hidden).toBe(true);
     expect(card().querySelector<HTMLFormElement>(".art-chat")!.hidden).toBe(true);
     expect(about().hidden).toBe(false);
-    expect(document.getElementById("about-title")!.textContent).toBe("Finished a job for you");
-    // Over the message box, everything the card has to say: what it is, its line, its full detail and exactly when.
-    expect(document.querySelector("#about-head .about-chip")!.textContent).toBe("Done");
+    expect(document.getElementById("about-title")!.textContent).toBe("The island rework is paused.");
     const said = Array.from(document.querySelectorAll("#about-body .about-text")).map((p) => p.textContent);
-    expect(said).toEqual(["Done.", "Done. The file is at ~/Documents/Flyd/gnm.md, deduped and checked."]);
+    expect(said).toEqual(["Paused for review.", "Paused before merging; the diff is ready to read."]);
     expect(document.querySelector("#about-body .about-at")!.textContent).not.toBe("");
     expect(document.activeElement).toBe(document.getElementById("input"));
     // Clicking the card again lets it go.
@@ -2286,27 +2229,23 @@ describe("header and artefact view", () => {
     card().click();
     (document.getElementById("about-clear") as HTMLButtonElement).click();
     expect(about().hidden).toBe(true);
-    expect(card().classList.contains("is-open")).toBe(false);
-    // Escape lets it go too, without taking the whole column away.
+    // Escape lets it go too, and the column stays while the held work needs him.
     card().click();
-    expect(about().hidden).toBe(false);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(about().hidden).toBe(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(document.getElementById("left")!.hidden).toBe(false);
   });
 
-  it.skip("makes every card in the column clickable, even one with no more to say than its time", async () => {
-    localStorage.setItem("flyd-left", "on");
+  it("makes every card in the left column clickable", async () => {
     const html = renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) });
     document.head.innerHTML = /<style>[\s\S]*?<\/style>/.exec(html)![0]!;
     load("", html);
     await settle();
     const stream = open("latest", []);
     const at = new Date(Date.now() - 3 * 3_600_000).toISOString();
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [
-      { id: "log:reviewed", kind: "reviewed", title: "Read back its own answers", line: "10 recent answers checked; all held up.", at },
-    ] } });
-    const card = (): HTMLElement => document.querySelector("#left-recent .left-card") as HTMLElement;
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [{ id: "task:held", kind: "activity", lifecycle: "interrupted", subject: "The island rework is paused.", summary: "Paused for review.", detail: "Paused before merging; the diff is ready to read.", evidence: [], actions: [], source: { showItemId: "held:1", task: "held" }, activity: { phase: "paused", started: at } }] } });
+    const card = (): HTMLElement => document.querySelector("#left-semantic .left-card") as HTMLElement;
     expect(card().classList.contains("is-expandable")).toBe(true);
     expect(card().getAttribute("role")).toBe("button");
     // The pointer says it can be opened, and a hover rule answers the mouse.
@@ -2315,42 +2254,9 @@ describe("header and artefact view", () => {
       .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText.endsWith(":hover"))
       .find((rule) => card().matches(rule.selectorText.replace(/:hover$/, "")));
     expect(hover).toBeDefined();
-    card().click();
+    card().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     expect(document.getElementById("about")!.hidden).toBe(false);
-    expect(document.getElementById("about-title")!.textContent).toBe("Read back its own answers");
-  });
-
-  it.skip("lets Enter on a card's ✕ hide it rather than open the card", async () => {
-    localStorage.setItem("flyd-left", "on");
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const at = new Date(Date.now() - 4 * 60_000).toISOString();
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:1", kind: "done", title: "Finished a job for you", detail: "Done.", at }] } });
-    const card = document.querySelector("#left-recent .left-card") as HTMLElement;
-    const close = card.querySelector(".card-dismiss") as HTMLButtonElement;
-    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
-    close.dispatchEvent(enter);
-    expect(enter.defaultPrevented).toBe(false);
-    expect(document.getElementById("about")!.hidden).toBe(true);
-    card.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    expect(document.getElementById("about")!.hidden).toBe(false);
-  });
-
-  it.skip("lets Escape take the column away once no card is in the chat", async () => {
-    localStorage.setItem("flyd-left", "on");
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const at = new Date(Date.now() - 4 * 60_000).toISOString();
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "job:1", kind: "done", title: "Finished a job for you", detail: "Done.", at }] } });
-    (document.querySelector("#left-recent .left-card") as HTMLElement).click();
-    // Escape first lets the card go from the message box, then takes the column away.
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(document.querySelector("#left .card.is-open")).toBeNull();
-    expect(document.getElementById("left")!.hidden).toBe(false);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(document.getElementById("left")!.hidden).toBe(true);
+    expect(document.getElementById("about-title")!.textContent).toBe("The island rework is paused.");
   });
 
   it("offers no left column when Core sends no activity", async () => {
@@ -2404,7 +2310,7 @@ describe("the side column's type", () => {
 
   it("sets every label in the column in one sans family, in sentence case at 13px or more", async () => {
     await drawColumn();
-    for (const selector of [".brief-label", ".brief-meta", ".left-tab"]) {
+    for (const selector of [".brief-label", ".needs-meta", ".needs-head", ".brief-meta", ".left-tab"]) {
       const cs = style(selector);
       expect(cs.fontFamily, selector).toMatch(SANS);
       expect(cs.fontFamily, selector).not.toMatch(MONO);
@@ -2551,7 +2457,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(Array.from(document.querySelectorAll("#about-body .about-text")).map((p) => p.textContent)).toEqual(["Ten designs are ready.", "Which design (1-10) should Flyd use?"]);
   });
 
-  it.skip("keeps one semantic Activity-column object alive as a task moves from working to needs-you to finished", async () => {
+  it("keeps one semantic object in the left column while it needs him, and lets it go once it is finished", async () => {
     localStorage.setItem("flyd-left", "on");
     load("");
     await settle();
@@ -2560,53 +2466,26 @@ describe("what Flyd shows of its staff, at a glance", () => {
       id: "task:t1", kind: "activity", subject: "Reworking Flyd activity", summary: "Firstmate is on it",
       project: "Flyd", evidence: [], actions: [], source: { showItemId: "live:t1", task: "t1" },
     };
-    stream.emit("update", {
-      order: [], messages: [], working: false,
-      leftColumn: {
-        now: [], recent: [], week: [],
-        semantic: [{ ...base, lifecycle: "active", activity: { phase: "working", started: "2026-10-18T09:00:00Z" } }],
-      },
+    const update = (semantic: unknown) => stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [semantic] } });
+    const cards = () => [...document.querySelectorAll<HTMLElement>("#left-semantic .semantic-activity")];
+    // Work under way is not something that needs him.
+    update({ ...base, lifecycle: "active", activity: { phase: "working", started: "2026-10-18T09:00:00Z" } });
+    await settle();
+    expect(cards()).toHaveLength(0);
+    update({
+      ...base, lifecycle: "interrupted", activity: { phase: "needs_you" },
+      source: { showItemId: "call:t1", task: "t1" },
+      decision: { question: "Ship it?", alternatives: ["Ship", "Hold"] },
+      actions: [{ id: "choose:Ship", kind: "choose", label: "Ship", value: "Ship" }],
     });
     await settle();
-    const first = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
-    expect(first).not.toBeNull();
-    expect(first.dataset.semanticId).toBe("task:t1");
-    expect(first.dataset.phase).toBe("working");
-    expect(document.querySelectorAll("#left-semantic .semantic-activity")).toHaveLength(1);
-
-    stream.emit("update", {
-      order: [], messages: [], working: false,
-      leftColumn: {
-        now: [], recent: [], week: [],
-        semantic: [{
-          ...base, lifecycle: "interrupted", activity: { phase: "needs_you" },
-          source: { showItemId: "call:t1", task: "t1" },
-          decision: { question: "Ship it?", alternatives: ["Ship", "Hold"] },
-          actions: [{ id: "choose:Ship", kind: "choose", label: "Ship", value: "Ship" }],
-        }],
-      },
-    });
+    expect(cards().map((card) => [card.dataset.semanticId, card.dataset.phase])).toEqual([["task:t1", "needs_you"]]);
+    update({ ...base, lifecycle: "interrupted", activity: { phase: "paused" } });
     await settle();
-    const second = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
-    expect(second.dataset.semanticId).toBe(first.dataset.semanticId);
-    expect(second.dataset.phase).toBe("needs_you");
-    expect(document.querySelectorAll("#left-semantic .semantic-activity")).toHaveLength(1);
-
-    stream.emit("update", {
-      order: [], messages: [], working: false,
-      leftColumn: {
-        now: [], recent: [], week: [],
-        semantic: [{
-          ...base, lifecycle: "resolved", activity: { phase: "finished" },
-          source: { showItemId: "landed:t1", task: "t1" }, updatedAt: "2026-10-18T10:00:00Z",
-        }],
-      },
-    });
+    expect(cards().map((card) => [card.dataset.semanticId, card.dataset.phase])).toEqual([["task:t1", "paused"]]);
+    update({ ...base, lifecycle: "resolved", activity: { phase: "finished" }, source: { showItemId: "landed:t1", task: "t1" }, updatedAt: "2026-10-18T10:00:00Z" });
     await settle();
-    const third = document.querySelector("#left-semantic .semantic-activity") as HTMLElement;
-    expect(third.dataset.semanticId).toBe(first.dataset.semanticId);
-    expect(third.dataset.phase).toBe("finished");
-    expect(third.querySelector(".card-meta")!.textContent).toContain("Done");
+    expect(cards()).toHaveLength(0);
   });
 
   it("keeps attention items on the left and only finished outcomes in Done", async () => {
@@ -2674,6 +2553,22 @@ describe("what Flyd shows of its staff, at a glance", () => {
     await settle();
     expect(document.getElementById("left")!.hidden).toBe(true);
     expect(document.documentElement.getAttribute("data-left")).toBe("off");
+  });
+
+  it("never lists an unrun plan under Done", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const at = new Date(Date.now() - 10 * 60_000).toISOString();
+    const artifact = (id: string, type: string, subject: string) => ({ id, kind: "artifact", lifecycle: "resolved", subject, summary: "", evidence: [], actions: [], createdAt: at, artifact: { type, phase: "ready" } });
+    const update = (artifacts: unknown[]) => stream.emit("update", { order: [], messages: [], working: false, boxes: [], show: { title: "", summary: "", live: false, counts: {}, items: [], artifacts } });
+    update([artifact("artifact:plan", "plan", "Plan the gallery rework."), artifact("artifact:task:1", "result", "The gallery is live.")]);
+    await settle();
+    expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["The gallery is live."]);
+    update([artifact("artifact:plan", "plan", "Plan the gallery rework.")]);
+    await settle();
+    expect(document.getElementById("done")!.hidden).toBe(true);
+    expect(document.getElementById("rail")!.hidden).toBe(true);
   });
 
   it("puts a column card away when he hides it, and keeps it away after a reload", async () => {

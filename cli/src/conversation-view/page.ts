@@ -1872,7 +1872,7 @@ var __name = function (f) { return f; };
     var calls = (show && show.calls) || [];
     var decisions = show && show.decisions;
     var done = (show && show.done) || [];
-    var artifacts = show && show.artifacts;
+    var artifacts = show && show.artifacts && show.artifacts.filter(function (artifact) { return !(artifact.artifact && artifact.artifact.type === "plan"); });
     if (decisions) drawSemanticDecisions(decisions);
     else drawNeeds(calls);
     setLeft();
