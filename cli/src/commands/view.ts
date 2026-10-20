@@ -62,7 +62,7 @@ async function listenNear(server: ConversationViewServer, port: number, explicit
  * Flyd's own assistant turn, as agenda items and background jobs run one: nobody is there to approve actions.
  * Each step it takes is said under his question as it happens.
  */
-const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
+export const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
   const [{ respondToConversation }, { retrieveAgentMemory, loadAgentSituation }, { refreshRepoRegistry }] = await Promise.all([
     import("../runtime/conversation-responder.js"), import("./code.js"), import("../runtime/repo-registry.js"),
   ]);
@@ -70,7 +70,7 @@ const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
   onStep?.("Remembering what I know about this", memoryLookup(question));
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
-  return respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
+  return respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: history.length / 2 + 1, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
 };
 
 /** What the screenshots he attached to a question show, read by a vision model. */
