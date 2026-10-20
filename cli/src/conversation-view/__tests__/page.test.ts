@@ -493,7 +493,7 @@ describe("conversation page", () => {
     expect(shot.getAttribute("src")).toBe("/api/image?session=latest&id=t10.0");
     (document.querySelector(".msg.user .shot") as HTMLElement).click();
     expect((document.getElementById("lightbox") as HTMLElement).hidden).toBe(false);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect((document.getElementById("lightbox") as HTMLElement).hidden).toBe(true);
 
     const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
@@ -1656,7 +1656,7 @@ describe("header and artefact view", () => {
     await settle();
     const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
     expect(sent).toEqual([{ decision: "b", text: "Merge it" }]);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(sheet.hidden).toBe(true);
   });
 
@@ -1693,7 +1693,7 @@ describe("header and artefact view", () => {
     figures[1]!.click();
     expect(document.getElementById("drill-title")!.textContent).toBe("Held up");
     expect(drill.querySelectorAll("#drill-list > .card")).toHaveLength(1);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(drill.hidden).toBe(true);
   });
 
@@ -1716,7 +1716,7 @@ describe("header and artefact view", () => {
     expect(items.map((node) => node.querySelector(".card-line")!.textContent)).toEqual(["Ticket modal", "Slide-in"]);
     // "merged" only repeats the chip: the project reads where it stands instead.
     expect(items[0]!.querySelector(".card-sub")!.textContent).toBe("GNM");
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(document.getElementById("drill")!.hidden).toBe(true);
   });
 
@@ -1992,7 +1992,7 @@ describe("header and artefact view", () => {
     // A switch inside keeps it open; Escape or a click elsewhere closes it.
     document.getElementById("theme")!.click();
     expect(prefs.hidden).toBe(false);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(prefs.hidden).toBe(true);
     opener.click();
     document.getElementById("stream")!.click();
@@ -2183,24 +2183,68 @@ describe("header and artefact view", () => {
     expect(document.getElementById("show-doing")!.textContent).toBe("Standby");
   });
 
-  it("keeps an empty left column shut on a narrow window until asked, and lets Escape take it away", async () => {
+  it("offers no left column and no header button while nothing needs him, even with the column switched on", async () => {
+    localStorage.setItem("flyd-left", "on");
     load("");
     await settle();
     const stream = open("latest", []);
-    expect(document.getElementById("left-open")!.hidden).toBe(true);
     stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [] } });
-    expect(document.getElementById("left-open")!.hidden).toBe(false);
-    const left = document.getElementById("left")!;
-    expect(left.hidden).toBe(true);
+    expect(document.getElementById("left-open")!.hidden).toBe(true);
+    expect(document.getElementById("left")!.hidden).toBe(true);
     expect(document.documentElement.getAttribute("data-left")).toBe("off");
-    document.getElementById("left-open")!.click();
+  });
+
+  it("shows only what he can act on now, with its action, and never Flyd's own routing trouble or a stale stall", async () => {
+    localStorage.setItem("flyd-left", "on");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const recent = new Date(Date.now() - 60 * 60_000).toISOString();
+    const old = new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString();
+    const activity = (id: string, phase: string, lifecycle: string, extra: Record<string, unknown> = {}) => ({
+      id, kind: "activity", lifecycle, subject: `${id} subject`, summary: "", evidence: [], actions: [], source: { showItemId: id, task: id }, activity: { phase }, ...extra,
+    });
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [
+      activity("task:review", "ready", "active", { evidence: [{ kind: "web", ref: "https://github.com/example/repo/pull/7", label: "PR" }] }),
+      activity("task:paused", "paused", "interrupted", { updatedAt: recent }),
+      activity("task:stale", "paused", "interrupted", { updatedAt: old }),
+      activity("task:stale-failed", "working", "failed", { updatedAt: old }),
+      activity("task:stale-decision", "needs_you", "interrupted", { updatedAt: old, decision: { target: "x", question: "Ship it?", alternatives: ["Yes", "No"] } }),
+      activity("task:routing", "paused", "failed", { updatedAt: recent, detail: "Flyd couldn't route this to the crew." }),
+      activity("task:working", "working", "active", { updatedAt: recent }),
+    ] } });
+    await settle();
+    const cards = [...document.querySelectorAll<HTMLElement>("#left-semantic .semantic-activity")];
+    expect(cards.map((card) => card.dataset.semanticId)).toEqual(["task:review", "task:paused", "task:stale-decision"]);
+    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 3");
+    // A review says so and opens the work; no status chip, icon or dot on any card.
+    expect(cards[0]!.querySelector(".card-line")!.textContent).toBe("Review: task:review subject");
+    const openLink = cards[0]!.querySelector<HTMLAnchorElement>(".card-link")!;
+    expect(openLink.textContent).toBe("Open ↗");
+    expect(openLink.href).toBe("https://github.com/example/repo/pull/7");
+    expect(document.querySelector("#left .card-icon, #left .card-meta")).toBeNull();
+    expect(document.getElementById("left")!.textContent).not.toMatch(/Held up/i);
+  });
+
+  it("keeps the column when Escape closes preferences or comes from the message box", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("1480"), media: query, addEventListener() {}, removeEventListener() {} }));
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], show: { title: "", summary: "", live: false, counts: {}, items: [], calls: [{ id: "call:a", kind: "call", headline: "Choose a.", why: "", decision: { task: "a", question: "Which?", choices: ["A", "B"] } }] } });
+    await settle();
+    const left = document.getElementById("left")!;
     expect(left.hidden).toBe(false);
-    expect(document.documentElement.getAttribute("data-left")).toBe("open");
-    expect(localStorage.getItem("flyd-left")).toBe("on");
-    expect(document.getElementById("left-hide")!.hidden).toBe(false);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.getElementById("prefs-open")!.click();
+    expect(document.getElementById("prefs")!.hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(document.getElementById("prefs")!.hidden).toBe(true);
+    expect(left.hidden).toBe(false);
+    expect(localStorage.getItem("flyd-left")).toBeNull();
+    document.getElementById("input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(left.hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(left.hidden).toBe(true);
-    expect(localStorage.getItem("flyd-left")).toBe("off");
   });
 
   it("takes a held card to the main chat when he clicks it, and lets it go again", async () => {
@@ -2236,10 +2280,10 @@ describe("header and artefact view", () => {
     // Escape lets it go first, and only then takes the column away.
     document.getElementById("left-open")!.click();
     card().click();
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(about().hidden).toBe(true);
     expect(document.getElementById("left")!.hidden).toBe(false);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(document.getElementById("left")!.hidden).toBe(true);
   });
 
@@ -2590,7 +2634,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     await settle();
     expect(left.hidden).toBe(false);
     expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 2");
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(left.hidden).toBe(true);
     // Opening by itself never rewrites his choice, and a reload with the same items, held work included, keeps it closed.
     expect(localStorage.getItem("flyd-left")).toBe("off");

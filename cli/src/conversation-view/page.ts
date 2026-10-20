@@ -1060,7 +1060,7 @@ var __name = function (f) { return f; };
     if (!prefs.hidden && event.target instanceof Node && !prefs.contains(event.target) && !prefsOpen.contains(event.target)) showPrefs(false);
   });
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && !prefs.hidden) { showPrefs(false); prefsOpen.focus(); }
+    if (event.key === "Escape" && !prefs.hidden) { event.preventDefault(); showPrefs(false); prefsOpen.focus(); }
   });
 
   // The page the work is on, in the header for as long as there is one.
@@ -1442,7 +1442,7 @@ var __name = function (f) { return f; };
   lightbox.addEventListener("click", function (event) { if (event.target === lightbox) lightbox.hidden = true; });
   document.addEventListener("keydown", function (event) {
     if (lightbox.hidden) return;
-    if (event.key === "Escape") lightbox.hidden = true;
+    if (event.key === "Escape") { event.preventDefault(); lightbox.hidden = true; }
     else if (event.key === "ArrowRight") stepLightbox(1);
     else if (event.key === "ArrowLeft") stepLightbox(-1);
   });
@@ -1603,7 +1603,7 @@ var __name = function (f) { return f; };
   function shortName(project) { return project ? String(project).replace(/\\s*\\([^)]*\\)\\s*$/, "") : ""; }
   function briefTop(label, extra) {
     var top = el("div", "brief-top");
-    top.appendChild(el("h2", "brief-label", label));
+    if (label) top.appendChild(el("h2", "brief-label", label));
     if (extra) top.appendChild(extra);
     return top;
   }
@@ -1718,7 +1718,7 @@ var __name = function (f) { return f; };
       nav.appendChild(el("span", "", (index + 1) + " of " + decisions.length));
       nav.appendChild(forward);
     }
-    needsEl.appendChild(briefTop("Needs you", nav));
+    if (nav) needsEl.appendChild(briefTop("", nav));
     needsEl.dataset.semanticId = decision.id;
     var meta = [shortName(decision.project), decision.createdAt ? ago(decision.createdAt) : ""].filter(Boolean).join(" · ");
     if (meta) needsEl.appendChild(el("p", "needs-meta", meta));
@@ -1790,7 +1790,7 @@ var __name = function (f) { return f; };
       nav.appendChild(el("span", "", (index + 1) + " of " + calls.length));
       nav.appendChild(forward);
     }
-    needsEl.appendChild(briefTop("Needs you", nav));
+    if (nav) needsEl.appendChild(briefTop("", nav));
     var meta = [shortName(call.project), call.at ? ago(call.at) : ""].filter(Boolean).join(" · ");
     if (meta) needsEl.appendChild(el("p", "needs-meta", meta));
     needsEl.appendChild(el("h3", "needs-head", call.headline));
@@ -2133,7 +2133,7 @@ var __name = function (f) { return f; };
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
     });
     document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape" && !pop.hidden && form.hidden) hide();
+      if (event.key === "Escape" && !pop.hidden && form.hidden) { event.preventDefault(); hide(); }
     });
     // A click elsewhere puts the card away unless he has started writing.
     document.addEventListener("mousedown", function (event) {

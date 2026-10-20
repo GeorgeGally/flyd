@@ -32,7 +32,6 @@ export const LEFT_STYLE = `
 .left-semantic .scene-ask { margin-top: 18px; width: 100%; }
 .left-semantic .scene-ask .choices { grid-template-columns: 1fr; gap: 6px; }
 .left-card { background: var(--tint); }
-.left-semantic .card-icon, .left-semantic .card-meta, .left-semantic .left-meta { display: none; }
 .left-semantic .card-line { margin-top: 0; font-size: 17px; }
 .left-card.is-open { background: color-mix(in srgb, var(--tint) 52%, var(--faint)); }
 
@@ -105,10 +104,10 @@ export const LEFT_SCRIPT = `
       store("flyd-left-seen", JSON.stringify(leftSeen));
       if (leftWide && leftWide.matches) leftAuto = true;
     }
-    var on = (!!leftPanel || ids.length > 0) && leftShown();
+    var on = ids.length > 0 && leftShown();
     document.documentElement.setAttribute("data-left", on ? "open" : "off");
     leftEl.hidden = !on;
-    leftOpenEl.hidden = !leftPanel && !ids.length;
+    leftOpenEl.hidden = !ids.length;
     leftOpenEl.textContent = "Needs you" + (ids.length ? " · " + ids.length : "");
     leftOpenEl.setAttribute("aria-pressed", String(on));
     leftToggleEl.setAttribute("aria-checked", String(leftIsOpen()));
@@ -175,6 +174,20 @@ export const LEFT_SCRIPT = `
       : phase === "queued" ? "next"
       : "live";
   }
+  var LEFT_STALE_MS = 24 * 60 * 60 * 1000;
+  var LEFT_ROUTING = /\\b(?:rout(?:e|ed|es|ing)|hand-?offs?|handed off)\\b/i;
+  var LEFT_FAILED = /\\b(?:fail\\w*|error\\w*|couldn['’]?t|could not|unable)\\b/i;
+  // Only what he can act on now: a decision, a review, or held work he can still reply about. Never Flyd's own routing trouble.
+  function leftActionable(activity) {
+    var phase = activity.activity && activity.activity.phase;
+    var decides = activity.kind === "decision" || phase === "needs_you" || !!activity.decision;
+    var said = [activity.subject, activity.summary, activity.detail, activity.status].filter(Boolean).join(" ");
+    if (LEFT_ROUTING.test(said) && LEFT_FAILED.test(said)) return false;
+    if (decides || phase === "ready") return true;
+    if (phase !== "paused" && activity.lifecycle !== "failed") return false;
+    var at = Date.parse(activity.updatedAt || activity.createdAt || (activity.activity && activity.activity.started) || "");
+    return isNaN(at) || Date.now() - at < LEFT_STALE_MS;
+  }
   function leftSemanticActivityCard(activity) {
     var phase = activity.activity && activity.activity.phase || "working";
     var visual = leftSemanticVisual(activity);
@@ -183,11 +196,13 @@ export const LEFT_SCRIPT = `
     // contents refresh in place when its state changes without duplicating it.
     var key = activity.id + "|semantic|" + phase;
     var when = phase === "working" && at ? "Started " + ago(at) : phase === "finished" && at ? ago(at) : "";
+    var open = phase === "ready" ? (activity.evidence || []).find(function (object) { return object.kind === "web" && !object.closed; }) : null;
     var card = visualCard({
       kind: visual,
-      title: activity.subject,
+      title: phase === "ready" ? "Review: " + activity.subject : activity.subject,
       line: activity.detail || activity.summary || "",
       at: at,
+      url: open ? open.ref : "",
     }, Object.assign({
       className: "left-card semantic-activity",
       key: key,
@@ -202,6 +217,7 @@ export const LEFT_SCRIPT = `
       onHide: drawActivity,
       chat: true,
     }, chatOpts({ key: key, kind: visual, title: activity.subject, when: when, line: activity.summary || "", detail: activity.decision && phase === "needs_you" ? activity.decision.question : activity.detail || "", evidence: activity.evidence, detailWhen: at ? dayOf(at) + ", " + clock(at) : "" })));
+    card.querySelectorAll(".card-icon, .card-meta").forEach(function (node) { node.remove(); });
     card.dataset.semanticId = activity.id;
     card.dataset.phase = phase;
     return card;
@@ -215,11 +231,7 @@ export const LEFT_SCRIPT = `
   }
   function drawActivity() {
     if (!leftPanel) return;
-    var semantic = (leftPanel.semantic || []).filter(function (activity) {
-      var phase = activity.activity && activity.activity.phase;
-      return activity.kind === "decision" || phase === "needs_you" || phase === "paused" || phase === "ready" || activity.lifecycle === "failed";
-    });
-    drawSemanticActivities(semantic);
+    drawSemanticActivities((leftPanel.semantic || []).filter(leftActionable));
   }
   function renderActivity(panel) {
     if (panel) leftPanel = panel;
@@ -229,11 +241,14 @@ export const LEFT_SCRIPT = `
   leftOpenEl.addEventListener("click", function () { chooseLeft(!leftShown()); });
   leftToggleEl.addEventListener("click", function () { chooseLeft(!leftIsOpen()); });
   leftHideEl.addEventListener("click", function () { chooseLeft(false); });
-  document.addEventListener("keydown", function (event) {
-    if (event.key !== "Escape") return;
-    // An open card's detail closes first; only then does Escape take the column itself away.
+  // Heard last, on the window: an Escape that closed something else is not his word to put the column away.
+  window.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    // An open card's detail closes first; only then does Escape take the column itself away, never from a box he types in.
     if (leftAbout) { chatAbout(null); return; }
-    if (!leftEl.hidden && prefs.hidden) chooseLeft(false);
+    var from = event.target;
+    if (from && from.closest && from.closest("input, textarea, select, [contenteditable]")) return;
+    if (!leftEl.hidden) chooseLeft(false);
   });
   if (leftWide && leftWide.addEventListener) leftWide.addEventListener("change", setLeft);
   // Times in the cards move on while nothing else does.
