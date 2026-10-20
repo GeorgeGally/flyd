@@ -16,6 +16,7 @@ import { ElementShots } from "./element-shots.js";
 import { isHisImage, ReplyShots } from "./reply-shots.js";
 import { pictured, PICTURE_WITHIN_MS, siteChangeOf } from "./site-changes.js";
 import { captainImageAt, toolImageAt, TranscriptConversation } from "./transcript-filter.js";
+import { expandScrawl } from "./scrawl-capture.js";
 import type {
   ConversationFollower,
   ConversationMessage,
@@ -272,6 +273,9 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   async send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[], to?: Recipient): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
     this.sessionPath(sessionId);
+    const expanded = await expandScrawl({ text, images });
+    text = expanded.text;
+    images = expanded.images;
     const command = matchCommand(text, await this.commands());
     if (this.desk) {
       // A reply goes back to whoever gave the answer; only a new message is routed.
