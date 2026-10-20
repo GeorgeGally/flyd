@@ -1388,11 +1388,13 @@ export class ConversationViewServer {
    * the box go with it.
    */
   private async sendAbout(res: ServerResponse, about: unknown, text: unknown, images: ImageUpload[] = []): Promise<void> {
-    const card = typeof about === "object" && about !== null ? about as { title?: unknown; task?: unknown; url?: unknown } : {};
+    const card = typeof about === "object" && about !== null ? about as { title?: unknown; task?: unknown; url?: unknown; line?: unknown; detail?: unknown } : {};
     const field = (value: unknown) => (typeof value === "string" && value.trim() && value.length <= 2000 ? value.trim() : undefined);
+    const content = (value: unknown) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 2000) : undefined);
     const title = field(card.title);
-    if (!title || (card.task !== undefined && !field(card.task)) || (card.url !== undefined && !field(card.url))) {
-      sendJson(res, 400, { error: "expected { about: { title, task?, url? }, text }" });
+    if (!title || (card.task !== undefined && !field(card.task)) || (card.url !== undefined && !field(card.url))
+      || (card.line !== undefined && typeof card.line !== "string") || (card.detail !== undefined && typeof card.detail !== "string")) {
+      sendJson(res, 400, { error: "expected { about: { title, task?, url?, line?, detail? }, text }" });
       return;
     }
     if (typeof text !== "string" || (!text.trim() && !images.length) || text.length > 4000) {
@@ -1405,7 +1407,9 @@ export class ConversationViewServer {
     }
     const task = field(card.task);
     const url = field(card.url);
-    const named = [`About the artefact "${title}"`, ...(task ? [`Task: ${task}`] : []), ...(url ? [`Page: ${url}`] : [])].join("\n");
+    const line = content(card.line);
+    const detail = content(card.detail);
+    const named = [`About the artefact "${title}"`, ...(task ? [`Task: ${task}`] : []), ...(url ? [`Page: ${url}`] : []), ...(line ? [`Line: ${line}`] : []), ...(detail ? [`Detail: ${detail}`] : [])].join("\n");
     try {
       const words = text.trim();
       sendJson(res, 200, { ...await this.source.sendDecision(words ? `${named}\n\n${words}` : named, images), waiting: "Sent to firstmate" });

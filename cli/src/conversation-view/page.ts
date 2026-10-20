@@ -1546,9 +1546,13 @@ var __name = function (f) { return f; };
   var lightboxImages = [];
   var lightboxIndex = 0;
   function openImage(url) {
-    lightboxImages = Array.from(document.querySelectorAll("img")).map(function (image) { return image.currentSrc || image.src; }).filter(Boolean);
-    lightboxIndex = Math.max(0, lightboxImages.findIndex(function (imageUrl) { return imageUrl.indexOf(url) >= 0; }));
-    document.getElementById("lightbox-img").src = lightboxImages[lightboxIndex] || url;
+    var shown = new URL(url, location.href).href;
+    lightboxImages = Array.from(document.querySelectorAll("img")).filter(function (image) {
+      return image.id !== "lightbox-img" && !image.closest("[hidden]");
+    }).map(function (image) { return image.currentSrc || image.src; }).filter(function (imageUrl, i, all) { return imageUrl && all.indexOf(imageUrl) === i; });
+    lightboxIndex = lightboxImages.indexOf(shown);
+    if (lightboxIndex < 0) { lightboxImages.unshift(shown); lightboxIndex = 0; }
+    document.getElementById("lightbox-img").src = lightboxImages[lightboxIndex];
     lightbox.hidden = false;
   }
   function stepLightbox(direction) {
@@ -2946,14 +2950,16 @@ ${LEFT_SCRIPT}
   function sidebarChat(key, target) {
     var chat = artefactChat(key, target, "Say something about this…");
     var form = chat.form;
-    form.hidden = true;
+    form.hidden = !chat.state.open;
     var opener = el("button", "art-chat-open");
     opener.type = "button";
     opener.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>';
     opener.setAttribute("aria-label", "Chat about this item");
-    opener.setAttribute("aria-expanded", "false");
+    opener.setAttribute("aria-expanded", String(!form.hidden));
     opener.addEventListener("click", function () {
       form.hidden = !form.hidden;
+      chat.state.open = !form.hidden;
+      chat.save();
       opener.setAttribute("aria-expanded", String(!form.hidden));
       if (!form.hidden) form.querySelector("textarea").focus();
     });
@@ -4361,7 +4367,7 @@ ${LEFT_SCRIPT}
   function schedule() {
     clearInterval(cycle);
     cycle = null;
-    if (scenes.length > 1 && !holding && !(document.activeElement && document.activeElement.closest(".scene-ask"))) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
+    if (scenes.length > 1 && !holding && !(document.activeElement && document.activeElement.closest(".scene-ask"))) cycle = setInterval(function () { if (lightbox.hidden && onShow()) show(at + 1, true); }, DWELL);
   }
   document.getElementById("show-prev").addEventListener("click", function () { holding = true; show(at - 1, true); schedule(); });
   document.getElementById("show-next").addEventListener("click", function () { holding = true; show(at + 1, true); schedule(); });

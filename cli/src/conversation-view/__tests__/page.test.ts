@@ -2165,6 +2165,34 @@ describe("header and artefact view", () => {
     const receipt = card.querySelector(".art-chat-receipt")!;
     expect(receipt.textContent).toBe("Sent to Flyd");
     expect(receipt.classList.contains("sent")).toBe(true);
+    // The rail redrawing under him keeps the chat he opened open, so the reply shows there.
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { ...rail, conversations: [{ id: "q1", question: "anything new?", answer: "Done." }] } });
+    await settle();
+    const redrawn = document.querySelector<HTMLElement>(".rail-card")!;
+    expect(redrawn.querySelector<HTMLFormElement>(".art-chat")!.hidden).toBe(false);
+    expect(redrawn.querySelector(".art-chat-open")!.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("keeps the same scene on stage while an enlarged picture is open, and after he closes it", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      stream.emit("update", { order: [], messages: [], working: true, show: SHOW, boxes: boxesOf(SHOW as ShowScreen) });
+      document.getElementById("flip")!.click();
+      expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");
+      (document.querySelector(".scene-shot .device") as HTMLElement).click();
+      const lightbox = document.getElementById("lightbox") as HTMLElement;
+      expect(lightbox.hidden).toBe(false);
+      vi.advanceTimersByTime(9_500);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      lightbox.click();
+      expect(lightbox.hidden).toBe(true);
+      expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows a reply's options in Artefacts as a choice, answered by one tap, and its steps as a numbered list", async () => {

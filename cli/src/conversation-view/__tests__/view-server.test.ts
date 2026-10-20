@@ -608,6 +608,10 @@ describe("ConversationViewServer", () => {
     const about = await post(port, JSON.stringify({ about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://example.com/map" }, text: "Make the pins bigger" }), headers);
     expect(JSON.parse(about.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent to firstmate" });
     expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toBe('About the artefact "Christmas Nuanu map"\nTask: gnm-xmas-map\nPage: https://example.com/map\n\nMake the pins bigger');
+    // A sidebar card's own words go with it, on one line each, so firstmate knows what it says.
+    await post(port, JSON.stringify({ about: { title: "Finished a job for you", line: "gnm notes", detail: "The file is at\n~/Documents/Flyd/gnm.md" }, text: "Open it" }), headers);
+    expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toBe('About the artefact "Finished a job for you"\nLine: gnm notes\nDetail: The file is at ~/Documents/Flyd/gnm.md\n\nOpen it');
+    expect((await post(port, JSON.stringify({ about: { title: "Map", detail: 3 }, text: "Hi" }), headers)).status).toBe(400);
     // A screenshot he pasted into the box goes with his words, saved where firstmate reads images.
     await post(port, JSON.stringify({ about: { title: "Christmas Nuanu map" }, text: "Like this", images: [{ mediaType: "image/png", data: PNG }] }), headers);
     const withImage = readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8");
