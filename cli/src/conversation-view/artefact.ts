@@ -7,6 +7,7 @@ import { FLYD_DIR, PLANS_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { readPlans, type Plan } from "../lib/plans.js";
 import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
+import { attentionHeld, defaultHeldOutcomesFile, heldKey, HeldOutcomes, plainHeld, type HeldAction } from "./held.js";
 import type { ShowItem, ShowKind } from "./show.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
@@ -599,6 +600,8 @@ export function fleetCounts(fleet: FleetArtefact | undefined): Partial<Record<Sh
 export interface ComposeOptions {
   /** His own name for a repository's project, when Flyd knows it. */
   project?: (repo: string) => string | undefined;
+  /** The clock a hold's age is read against. */
+  now?: number;
 }
 
 /** Where the page loads a task's screenshot from; the server serves only listed ones. */
@@ -625,13 +628,15 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
   // A question with options leads with the question in plain words, and under it the work it is about.
   const asked = kind === "call" && row.choices?.length && row.detail ? plainQuestion(row.detail) : "";
   const recommended = asked ? recommendedChoice(row.detail!) : undefined;
-  const headline = asked || (row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline));
+  const held = kind === "waiting" && sourceHeadline ? plainHeld(row, sourceHeadline, options.now ?? Date.now()) : undefined;
+  const headline = asked || held?.headline || (row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline));
   if (!headline) return undefined;
   return {
     id: `${kind}:${id}`,
     kind,
     headline,
-    why: "",
+    why: held?.why ?? "",
+    ...(held ? { action: held.action } : {}),
     ...(kind === "call" && row.task ? { decision: { task: row.task, question: row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}) } } : {}),
     ...(asked ? { detail: row.said?.line || sourceHeadline } : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
@@ -689,7 +694,12 @@ export function heldItems(fleet: FleetArtefact | undefined, options: ComposeOpti
   if (!fleet || fleet.unavailable) return [];
   const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
   return [...fleet.held].sort((a, b) => when(b) - when(a))
-    .flatMap((row, index) => rowItem("waiting", `held-${row.task ?? index}`, row, options) ?? []);
+    .flatMap((row) => rowItem("waiting", heldId(row), row, options) ?? []);
+}
+
+/** A hold's id in the Held up list: its task, else the work it names. Pure. */
+export function heldId(row: ArtefactRow): string {
+  return `held-${row.task ?? heldKey(row)}`;
 }
 
 /** Work queued next, in the fleet's own order, one line each. Pure. */
@@ -897,6 +907,7 @@ export class ArtefactFeed {
   private readonly listeners = new Set<() => void>();
   /** Calls already found overtaken and closed with the staff, by callId: kept out of Needs you. */
   private readonly overtaken = new Map<string, string>();
+  private readonly outcomes: HeldOutcomes;
 
   constructor(
     private readonly options: {
@@ -912,13 +923,31 @@ export class ArtefactFeed {
       voice?: ArtefactVoice;
       /** Reads whether old calls were overtaken; without it every call is shown. */
       overtaken?: OvertakenCheck;
+      /** What he chose for each hold; under vitest kept in memory unless a test passes one. */
+      heldOutcomes?: HeldOutcomes;
       intervalMs?: number;
       timeoutMs?: number;
     } = {},
-  ) {}
+  ) {
+    this.outcomes = options.heldOutcomes ?? new HeldOutcomes(process.env.VITEST ? undefined : defaultHeldOutcomesFile());
+  }
 
+  /** The inputs, holding up only what needs him: no stale, repeated or already-handled holds. */
   current(): ArtefactInputs {
-    return this.inputs;
+    const fleet = this.inputs.fleet;
+    if (!fleet || fleet.unavailable) return this.inputs;
+    return { ...this.inputs, fleet: { ...fleet, held: attentionHeld(fleet.held, (row) => this.outcomes.handled(row), Date.now()) } };
+  }
+
+  /** The hold the Held up list showed under this id, while it still needs him. */
+  heldRow(id: string): ArtefactRow | undefined {
+    return this.current().fleet?.held.find((row) => `waiting:${heldId(row)}` === id);
+  }
+
+  /** Records what he chose for a hold; every view redraws without it. */
+  recordHeld(row: ArtefactRow, action: HeldAction): void {
+    this.outcomes.record([row, ...(this.inputs.fleet?.held ?? []).filter((listed) => listed !== row && heldKey(listed) === heldKey(row))], action);
+    for (const listener of this.listeners) listener();
   }
 
   onRefresh(listener: () => void): () => void {

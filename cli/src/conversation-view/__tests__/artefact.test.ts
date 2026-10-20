@@ -285,7 +285,7 @@ describe("composeArtefact", () => {
       ["ready", "Island filter"],
       ["landed", "Refresh the PR branches"],
       ["landed", "Visual show mode"],
-      ["waiting", "Admin redesign"],
+      ["waiting", "“Admin redesign” failed."],
       ["next", "Add a subtle flat green light to the Flyd icon"],
       ["news", "George wants Bloom finished."],
       ["news", "Hybrid RAG"],

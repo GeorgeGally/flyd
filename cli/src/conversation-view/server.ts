@@ -32,6 +32,7 @@ import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs } from "./artefact.js";
+import { HELD_ACTIONS } from "./held.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail, RailState } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
@@ -754,6 +755,10 @@ export class ConversationViewServer {
       await this.draft(req, res, url);
       return;
     }
+    if (req.method === "POST" && url.pathname === "/api/held") {
+      await this.held(req, res);
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/taste") {
       await this.editTaste(req, res);
       return;
@@ -966,7 +971,8 @@ export class ConversationViewServer {
       .map((item) => ({
         id: item.id,
         title: item.headline,
-        ...(item.detail ? { line: item.detail } : {}),
+        // A hold's raw detail (run ids, internal checks) stays folded behind its details toggle.
+        ...(item.detail ? (item.kind === "waiting" ? { detail: item.detail } : { line: item.detail }) : {}),
         ...(item.links?.[0]?.url ? { url: item.links[0].url } : {}),
       }))];
     const interpreter = this.summaries?.interpreter;
@@ -1409,6 +1415,46 @@ export class ConversationViewServer {
     try {
       const words = text.trim();
       sendJson(res, 200, { ...await this.source.sendDecision(words ? `${named}\n\n${words}` : named, images), waiting: "Sent to firstmate" });
+    } catch (error) {
+      sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /**
+   * What he chose for one held-up piece of work. Act asks firstmate to pick it
+   * up again; every choice is kept in Core and
+   * the hold leaves the list, its count and the feed. A reply's own words go
+   * through the message box, about this work.
+   */
+  private async held(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    let payload: { id?: unknown; action?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, 4096)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    const action = HELD_ACTIONS.find((known) => known === payload.action);
+    const row = typeof payload.id === "string" ? this.feed.heldRow(payload.id) : undefined;
+    if (!action || !row) {
+      sendJson(res, 409, { error: "This is no longer held up; refresh the list" });
+      return;
+    }
+    try {
+      if (action === "act") {
+        if (!row.task || !this.source.sendDecision) {
+          sendJson(res, 409, { error: "Flyd can't pick this up from here" });
+          return;
+        }
+        await this.source.sendDecision(`George asks you to pick up held-up task ${row.task}: ${row.label}${row.status ? ` (${row.status})` : ""}.${row.detail ? `\nLast word: ${row.detail}` : ""}\n\nRestart or continue it, or tell him plainly what blocks it.`);
+      }
+      this.feed.recordHeld(row, action);
+      sendJson(res, 200, { ok: true, action });
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }

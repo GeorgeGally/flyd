@@ -373,6 +373,10 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .drill-top button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .drill-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 20px 22px 26px; list-style: none; display: grid; gap: 12px; align-content: start; }
 .drill-empty { margin: 0; padding: 6px 4px; font: 400 15px/1.5 var(--sans); color: var(--muted); }
+.held-action { display: block; margin-top: 18px; padding: 10px 14px; border: 1px solid var(--faint); border-radius: 8px; background: transparent; color: var(--fg); font: 500 14px/1.3 var(--sans); letter-spacing: .02em; cursor: pointer; }
+.held-action:hover { border-color: var(--accent); color: var(--accent); }
+.held-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.held-group { margin: 8px 0 0; font: 500 13px/1.4 var(--sans); color: var(--muted); }
 .drill-sheet:focus { outline: none; }
 
 /* The foot: what Flyd is doing, and how to talk to it. */
@@ -563,6 +567,9 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-a-md p:last-child { margin-bottom: 0; }
 .rail-a-md a { color: var(--link); }
 .rail-card-note { font-style: italic; }
+.rail-card-detail-toggle { margin: 0 16px 10px; padding: 0; border: 0; background: none; font: 400 13px/1.4 var(--sans); color: var(--muted); cursor: pointer; }
+.rail-card-detail-toggle:hover { color: var(--strong); }
+.rail-card-detail p[hidden] { display: none; }
 .rail-card .art-chat { padding: 14px 16px 16px; }
 .rail-card .art-chat-receipt { padding: 0; font-size: 13px; }
 .rail-card--down .rail-card-head span { color: var(--muted); }
@@ -2127,6 +2134,24 @@ var __name = function (f) { return f; };
     box.appendChild(hint);
     box.appendChild(say);
   }
+  // Raw internal text folds behind a toggle, as in the Held up cards; which are open survives a redraw.
+  var railDetailOpen = {};
+  function railDetail(card) {
+    var wrap = el("div", "rail-card-detail");
+    var toggle = el("button", "rail-card-detail-toggle", "Details");
+    toggle.type = "button";
+    var text = el("p", "card-detail-text", card.detail);
+    function setOpen(open) {
+      text.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      if (open) railDetailOpen[card.id] = 1; else delete railDetailOpen[card.id];
+    }
+    toggle.addEventListener("click", function () { setOpen(text.hidden); });
+    setOpen(!!railDetailOpen[card.id]);
+    wrap.appendChild(toggle);
+    wrap.appendChild(text);
+    return wrap;
+  }
   function railCard(card) {
     var kind = card.down ? "blocked" : card.image ? "image" : card.preview ? "preview" : "file";
     var box = keyed(el("div", "rail-card tone-" + kindOf(kind).tone + (card.down ? " rail-card--down" : "")), "card:" + card.id);
@@ -2156,6 +2181,7 @@ var __name = function (f) { return f; };
       box.appendChild(el("p", "rail-card-change", server.changed.title + (when ? " at " + when : "") + (server.changed.detail ? " — " + server.changed.detail : "")));
     }
     if (card.line) box.appendChild(el("p", "", card.line));
+    if (card.detail) box.appendChild(railDetail(card));
     if (card.choice) {
       var options = el("ul", "rail-card-options");
       card.choice.options.forEach(function (option) { options.appendChild(el("li", "", option)); });
@@ -4567,7 +4593,7 @@ ${LEFT_SCRIPT}
   function drillItem(item) {
     var key = item.id;
     // Where it stands, in a word or two: its state unless that only repeats the chip.
-    var line = item.status && !/^(?:landed|done|queued|merged)$/i.test(item.status) ? item.status : (item.project || "");
+    var line = item.kind !== "waiting" && item.status && !/^(?:landed|done|queued|merged)$/i.test(item.status) ? item.status : (item.project || "");
     var open = item.links && item.links.length && !item.links[0].closed ? { url: item.links[0].url } : {};
     return visualCard(Object.assign({}, item, open), {
       kind: item.kind,
@@ -4586,14 +4612,80 @@ ${LEFT_SCRIPT}
     var group = DRILL[drillKind];
     if (!group || !lastScreen) return;
     var items = group.pick(lastScreen).slice().sort(function (a, b) { return drillWhen(b) - drillWhen(a); });
+    if (drillKind === "waiting") {
+      var listed = {};
+      items.forEach(function (item) { listed[item.id] = 1; });
+      Object.keys(heldDone).forEach(function (id) { if (!listed[id]) delete heldDone[id]; });
+      items = heldGrouped(items.filter(function (item) { return !heldDone[item.id]; }));
+    }
     var key = drillKind + "|" + JSON.stringify(items);
     if (key === drawnDrill) return;
     drawnDrill = key;
     drillSheet.className = "drill-sheet k-" + group.tone;
     drillTitle.textContent = group.title;
     drillList.textContent = "";
-    if (!items.length) { drillList.appendChild(el("li", "drill-empty", "Nothing here right now.")); return; }
-    items.forEach(function (item) { drillList.appendChild(drillItem(item)); });
+    if (!items.length) { drillList.appendChild(el("li", "drill-empty", drillKind === "waiting" ? "Nothing needs your attention right now." : "Nothing here right now.")); return; }
+    var lastHeldGroup = "";
+    items.forEach(function (item) {
+      var card = drillItem(item);
+      if (drillKind === "waiting") {
+        var heldGroup = heldGroupOf(item);
+        if (heldGroup !== lastHeldGroup) {
+          drillList.appendChild(el("li", "held-group", heldGroup));
+          lastHeldGroup = heldGroup;
+        }
+        var body = card.querySelector(".card-text");
+        if (item.why) body.insertBefore(el("p", "card-sub", item.why), body.querySelector(".card-detail"));
+        if (item.action && HELD_LABELS[item.action]) body.appendChild(heldControl(item, card));
+      }
+      drillList.appendChild(card);
+    });
+  }
+  // Held up, by theme: his project's work together, else what waits on his answer, else the rest; newest theme first.
+  var HELD_LABELS = { reply: "Reply", dismiss: "Dismiss", act: "Act" };
+  var heldDone = {};
+  function heldGroupOf(item) { return item.project || (item.action === "reply" ? "Waiting on your answer" : "Other work"); }
+  function heldGrouped(items) {
+    var order = [];
+    var byGroup = {};
+    items.forEach(function (item) {
+      var name = heldGroupOf(item);
+      if (!byGroup[name]) { byGroup[name] = []; order.push(name); }
+      byGroup[name].push(item);
+    });
+    return order.reduce(function (all, name) { return all.concat(byGroup[name]); }, []);
+  }
+  // His one choice for a hold: kept in Core, so it leaves every view; a reply then goes on in the message box, about it.
+  function heldControl(item, card) {
+    var control = el("button", "held-action", HELD_LABELS[item.action]);
+    control.type = "button";
+    control.addEventListener("click", function () {
+      control.disabled = true;
+      var failed = card.querySelector(".held-problem");
+      if (failed) failed.remove();
+      authed("/api/held", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: item.action }) }, true)
+        .then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            if (!response.ok) throw new Error(data.error || "That didn't go through");
+          });
+        })
+        .then(function () {
+          heldDone[item.id] = 1;
+          if (item.action === "reply") {
+            closeDrill();
+            var replyBody = el("div", "");
+            if (item.why) replyBody.appendChild(el("p", "about-text", item.why));
+            chatAbout({ kind: "waiting", title: item.headline, detail: item.task ? "task " + item.task : "", when: item.at ? ago(item.at) : "", body: replyBody });
+            return;
+          }
+          drawnDrill = "";
+          drawDrill();
+        }, function (error) {
+          control.disabled = false;
+          control.parentNode.insertBefore(el("p", "card-sub held-problem", error.message), control);
+        });
+    });
+    return control;
   }
   function closeDrill() {
     drillEl.hidden = true;
