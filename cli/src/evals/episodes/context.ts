@@ -31,14 +31,18 @@ export async function buildEvalContext(mode: EpisodeEvalMode, question: string, 
     ...current.historical.map((item) => `[historical] ${item.entityId} ${item.attribute}: ${String(item.value)}`),
     ...current.relevant.map((item) => `[relevant; ${item.source}] ${item.content}`),
   ].join("\n");
-  if (mode === "current") return { text: currentText, evidenceSequences: [], episodeNodeIds: [] };
+  const currentEvidenceSequences = current.relevant.flatMap((item) => {
+    const match = item.source.match(/^event:(\d+)$/);
+    return match ? [Number(match[1])] : [];
+  });
+  if (mode === "current") return { text: currentText, evidenceSequences: currentEvidenceSequences, episodeNodeIds: [] };
 
   const episodic = new EpisodicMemory();
   const nodes = episodic.timeline(budget);
   const episodeText = nodes.map((node) =>
     `[${node.id}; events ${node.startSequence}-${node.endSequence}; ${node.startTime}..${node.endTime}] ${node.summary}`
   ).join("\n");
-  if (mode === "cover") return { text: [currentText, episodeText].filter(Boolean).join("\n\n"), evidenceSequences: [], episodeNodeIds: nodes.map((n) => n.id) };
+  if (mode === "cover") return { text: [currentText, episodeText].filter(Boolean).join("\n\n"), evidenceSequences: currentEvidenceSequences, episodeNodeIds: nodes.map((n) => n.id) };
 
   const words = terms(question);
   const ranked = nodes.slice().sort((a, b) => nodeScore(b, words) - nodeScore(a, words) || b.endSequence - a.endSequence);
@@ -73,7 +77,7 @@ export async function buildEvalContext(mode: EpisodeEvalMode, question: string, 
     .slice(-48);
   return {
     text: [currentText, episodeText, unique.map(eventText).join("\n")].filter(Boolean).join("\n\n"),
-    evidenceSequences: unique.map((event) => event.sequence),
+    evidenceSequences: [...new Set([...currentEvidenceSequences, ...unique.map((event) => event.sequence)])],
     episodeNodeIds: [...visited],
   };
 }
