@@ -180,7 +180,6 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .open-page:hover { opacity: 0.85; }
 .open-page:focus-visible { outline: 2px solid var(--strong); outline-offset: 3px; }
 .scene-open { margin-top: 26px; font-size: clamp(16px, 1.2vw, 19px); }
-.rail-open { margin: 10px 0 0; }
 .reply-open-page { margin: 0.6em 0 0.4em; }
 .scene-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; margin-top: 30px; font: 500 14px/1.3 var(--mono); color: var(--muted); }
 .scene-meta .kind { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--k); }
@@ -493,14 +492,8 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 }
 .rail-hide:hover { color: var(--fg); }
 .rail-hide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.rail-tabs { display: flex; gap: 20px; padding: 14px 18px 10px; }
-.rail-tabs button { padding: 0 0 6px; border: 0; border-bottom: 1px solid transparent; background: none; color: var(--muted); font: 500 14px/1.2 var(--sans); cursor: pointer; }
-.rail-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
-.rail-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .rail-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
-/* Each pane scrolls as one column: the brief and the body move together under the pinned tabs. */
-.rail-pane[hidden] { display: none; }
-/* The top of the column: one decision that needs him, the jobs under way, and what got done. */
+/* The column: what got done, one card each. */
 .brief { flex: none; padding: 20px 20px 10px; border-bottom: 1px solid var(--faint); }
 .brief[hidden], .brief > [hidden] { display: none; }
 .brief > section + section { margin-top: 28px; }
@@ -529,134 +522,16 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .brief-line { display: block; min-width: 0; font: 500 16px/1.4 var(--sans); color: var(--strong); white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
 .brief-line a { color: inherit; text-decoration: none; }
 .brief-line a:hover { color: var(--link); }
-.brief-meta { display: block; margin-top: 7px; font: 500 13px/1.4 var(--sans); letter-spacing: normal; color: var(--muted); text-transform: none; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.brief-meta { display: block; margin: 7px 0 0; font: 500 13px/1.4 var(--sans); letter-spacing: normal; color: var(--muted); text-transform: none; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 #done .brief-line { font-weight: 500; color: var(--strong); }
-#done .card-icon, #done .card-meta { display: none; }
 #done .card-text { min-width: 0; }
-#done .brief-meta { display: inline; margin-left: 9px; font-size: 13px; }
 #done .brief-card { padding: 0; background: transparent; }
+.brief-outcome { margin: 4px 0 0; font: 400 14px/1.45 var(--sans); color: var(--fg); overflow-wrap: anywhere; text-wrap: pretty; }
+.brief-open { margin-right: 10px; color: var(--link); text-decoration: none; }
+.brief-open:hover { text-decoration: underline; text-underline-offset: 2px; }
 .brief-more { margin: 22px 0 0; padding: 8px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .brief-more:hover { color: var(--fg); }
 .brief-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.rail-body { flex: 1 0 auto; padding: 12px 20px 40px; }
-.rail-body[hidden] { display: none; }
-.rail-section { margin: 24px 0 10px; font: 600 14px/1.2 var(--sans); color: var(--muted); }
-/* One row per message he sent: his words plainly, where it stands, and its own answer under it. */
-.rail-talk { margin: 0; }
-.rail-body > .rail-talk { padding: 14px 0 15px; border-top: 1px solid var(--faint); }
-.rail-body > .rail-section + .rail-talk { border-top: 0; padding-top: 4px; }
-.rail-q { margin: 0; font: 500 16px/1.45 var(--sans); color: var(--strong); white-space: pre-wrap; overflow-wrap: anywhere; text-wrap: pretty; }
-.rail-about { margin: 0 0 3px; font: 400 13px/1.4 var(--sans); color: var(--muted); overflow-wrap: anywhere; }
-.rail-about a { color: var(--link); text-decoration: none; }
-.rail-about a:hover { text-decoration: underline; text-underline-offset: 2px; }
-.rail-a { margin: 8px 0 0; font: 400 15px/1.5 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
-.rail-when { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; font: 400 13px/1.4 var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
-.rail-state { font: 500 13px/1.4 var(--sans); }
-.rail-state--needs { color: var(--k-call); }
-.rail-state--underway { color: var(--k-live); }
-/* Scannable at a glance: each message is one line, its answer at most two faded
-   lines; a click on the row opens the whole of both. Answered ones step back further. */
-.rail-talk:not(.open) > .rail-q { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.rail-talk:not(.open) > .rail-a { color: var(--muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; cursor: pointer; }
-.rail-talk:not(.open) > .rail-a * { display: inline; margin: 0; }
-.rail-talk:not(.open) > .reply { display: none; }
-.rail-talk.is-done:not(.open) > .rail-q { color: var(--muted); font-weight: 400; }
-.rail-card { margin: 0 0 24px; border-radius: 12px; background: var(--tint); overflow: hidden; }
-.rail-card-head { display: flex; align-items: flex-start; gap: 12px; padding: 15px 16px 11px; font: 500 15px/1.35 var(--sans); color: var(--strong); }
-.rail-card-head .card-icon { flex: none; width: 26px; height: 26px; border-radius: 8px; }
-.rail-card-head .card-icon svg { width: 15px; height: 15px; }
-.rail-card-words { flex: 1; min-width: 0; }
-.rail-card-title { display: block; margin-top: 5px; font: 500 17px/1.35 var(--sans); color: var(--strong); overflow-wrap: anywhere; text-wrap: pretty; }
-.rail-card-head a { color: var(--link); text-decoration: none; margin-left: auto; white-space: nowrap; transition: color 140ms ease; }
-.rail-card-head a:hover { color: var(--strong); }
-.rail-card p { margin: 0; padding: 0 16px 12px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
-.rail-a-md { white-space: normal; }
-.rail-a-md p { margin: 0 0 8px; padding: 0; font: inherit; color: inherit; }
-.rail-a-md p:last-child { margin-bottom: 0; }
-.rail-a-md a { color: var(--link); }
-.rail-card-note { font-style: italic; }
-.rail-card .art-chat { padding: 14px 16px 16px; }
-.rail-card .art-chat-receipt { padding: 0; font-size: 13px; }
-.rail-card--down .rail-card-head span { color: var(--muted); }
-.rail-card p.rail-card-server { margin-top: -6px; font: 400 13px/1.45 var(--sans); overflow-wrap: anywhere; }
-.rail-card-whose { display: block; color: var(--muted); }
-.rail-card-whose::before { content: "✓ "; }
-.rail-card-server--copy .rail-card-whose { color: var(--accent); }
-.rail-card-server--copy .rail-card-whose::before { content: "! "; }
-.rail-card p.rail-card-change { margin: 0 0 12px; color: var(--strong); font: 500 14px/1.4 var(--sans); }
-/* A framed page is laid out at a desktop width and scaled down whole, like a
-   screenshot of it: the narrow card never reflows it. The script sets --fit. */
-/* The page paints its own background over this; until it loads, and for a page that paints none, the card's own surface shows, never white. */
-.rail-frame-box { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; background: var(--bg); }
-.rail-frame {
-  position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0; background: transparent; color-scheme: normal; display: block;
-  transform: scale(var(--fit, 0.3)); transform-origin: 0 0; pointer-events: none;
-}
-/* Work at phone width is shown on a phone: the page at 390×844, scaled into a
-   quiet bezel. With comments on, a click drops a pin and opens a line to say what about it. */
-.rail-phone { padding: 14px 0 16px; }
-.rail-phone-screen {
-  position: relative; width: min(236px, 70%); aspect-ratio: 390 / 844; margin: 0 auto; overflow: hidden;
-  border-radius: 26px; background: var(--bg); box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--faint), 0 14px 32px rgba(0, 0, 0, 0.28);
-}
-.rail-phone-frame {
-  position: absolute; top: 0; left: 0; width: 390px; height: 844px; border: 0; background: transparent; display: block;
-  transform: scale(var(--fit, 0.6)); transform-origin: 0 0;
-}
-.rail-phone-pins { position: absolute; inset: 0; pointer-events: none; }
-.rail-card--commenting .rail-phone-pins { pointer-events: auto; cursor: crosshair; }
-.rail-card--commenting .rail-phone-screen { box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--accent), 0 14px 32px rgba(0, 0, 0, 0.28); }
-.rail-pin {
-  position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; box-sizing: border-box; border-radius: 50%;
-  border: 2px solid #fff; background: var(--k-call); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.45); animation: choice-in 140ms ease both;
-}
-.rail-pin.sent { background: #8a8f98; }
-.rail-card-head .rail-phone-toggle {
-  margin-left: auto; font: inherit; color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 2px 6px; cursor: pointer; transition: color 140ms ease;
-}
-.rail-card-head .rail-phone-toggle + a { margin-left: 6px; }
-.rail-phone-toggle:hover, .rail-phone-toggle[aria-pressed="true"] { color: var(--accent); }
-.rail-phone-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.rail-card p.rail-phone-hint { padding: 10px 16px 14px; font: 400 14px/1.45 var(--sans); color: var(--muted); }
-.rail-card p.rail-phone-hint[hidden], .rail-phone-say[hidden] { display: none; }
-.rail-phone-say { display: grid; gap: 10px; padding: 14px 16px 16px; }
-.rail-phone-where { font: 500 13px/1.4 var(--sans); color: var(--muted); overflow-wrap: anywhere; }
-.rail-phone-say textarea {
-  width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px; padding: 8px 10px; border: 1px solid var(--faint); border-radius: 8px;
-  background: var(--bg); color: var(--fg); font: 400 15px/1.4 var(--sans);
-}
-.rail-phone-say textarea:focus { outline: none; border-color: var(--accent); }
-.rail-phone-row { display: flex; align-items: center; gap: 8px; }
-.rail-phone-receipt { flex: 1; min-width: 0; font: 400 13px/1.4 var(--sans); color: var(--muted); }
-.rail-phone-cancel { font: 500 13px/1 var(--sans); color: var(--muted); background: none; border: 0; padding: 8px 6px; cursor: pointer; }
-.rail-phone-cancel:hover { color: var(--fg); }
-.rail-phone-send { font: 600 13px/1 var(--sans); color: var(--bg); background: var(--accent); border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer; }
-.rail-phone-send:disabled { opacity: .55; cursor: default; }
-.rail-phone-say button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.rail-frame-open { position: absolute; inset: 0; }
-.rail-frame-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.rail-shot { width: 100%; display: block; border-top: 1px solid var(--faint); background: var(--screen); }
-/* The screenshot behind an answer leads it, a size to read at a glance. */
-.rail-shots { margin: 8px 0 0; }
-.rail-shots .shot img { max-height: 15em; max-width: 100%; }
-/* What Flyd remembers: a card each, one plain sentence. What it learned while
-   we talked sits in the conversation where it learned it. */
-/* A raised surface with no outline: the fill alone sets each card apart. */
-.rail-mem { margin: 0 0 24px; padding: 14px 16px 15px; border-radius: 12px; background: var(--tint); }
-.rail-body > .rail-mem + .rail-talk { border-top: 0; }
-.rail-mem-kicker { margin: 0 0 6px; font: 600 13px/1.2 var(--sans); color: var(--accent); }
-.rail-mem-text { margin: 0; font: 400 16px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
-.rail-mem--new { background: color-mix(in srgb, var(--accent) 7%, var(--tint)); }
-/* What it already holds here: folded under one line at the top until he opens it. */
-.rail-held > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; transition: color 140ms ease; }
-.rail-held > summary::-webkit-details-marker { display: none; }
-.rail-held > summary::after { content: "›"; font-size: 15px; transition: transform 180ms ease; }
-.rail-held[open] > summary::after { transform: rotate(90deg); }
-.rail-held > summary:hover { color: var(--fg); }
-.rail-held > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.rail-held-count { font-weight: 500; font-variant-numeric: tabular-nums; }
-.rail-held .rail-mem { margin-bottom: 12px; padding: 10px 12px; }
-.rail-held .rail-mem-text { font-size: 15px; color: var(--fg); }
 :root[data-screen="show"] .rail { display: none; }
 
 .msg { position: relative; overflow-wrap: anywhere; }
@@ -769,7 +644,7 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 /* His reply to one answer: quiet until he looks for it, then a box under the answer. */
 .reply { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0.4em; }
 .reply-open { font: 500 13px/1.2 var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 4px; padding: 2px 0; cursor: pointer; opacity: 0.7; transition: opacity 160ms ease, color 160ms ease; }
-.msg:hover .reply-open, .rail-talk:hover .reply-open, .reply-open:focus-visible { opacity: 1; }
+.msg:hover .reply-open, .reply-open:focus-visible { opacity: 1; }
 .reply-open:hover { color: var(--fg); }
 /* Open, it is a card like a learned memory: its label and Close, then his words and Send as one row. */
 .reply form {
@@ -777,8 +652,6 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
   background: color-mix(in srgb, var(--accent) 7%, var(--tint)); transition: border-color 140ms ease;
 }
 .reply form:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
-/* In the column the conversation is already the card, so the box sits flat inside it. */
-.rail-body .reply form { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .reply form[hidden], .reply-open[hidden], .reply-note[hidden] { display: none; }
 .reply-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
 .reply-kicker { display: flex; align-items: center; gap: 7px; font: 500 13px/1.2 var(--sans); color: var(--accent); }
@@ -895,8 +768,6 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .auto-undo:disabled { color: var(--muted); text-decoration: none; cursor: default; }
 .auto-undo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 @media (prefers-reduced-motion: reduce) { .choice { animation: none; } }
-.rail-replies { margin: 10px 0 0 14px; padding-left: 12px; }
-.rail-replies .rail-talk { margin: 0 0 12px; }
 .sc-ask { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0.5em; }
 .sc-ask-input { flex: 1; min-width: 8em; font: 400 0.82em/1.4 var(--sans); color: var(--fg); background: var(--tint); border: 0; border-radius: 8px; padding: 8px 10px; resize: none; }
 .sc-ask-input::placeholder { color: var(--muted); }
@@ -1714,7 +1585,6 @@ var __name = function (f) { return f; };
     if (update.show) renderShow(update.show, update.boxes);
     renderSite(update.page);
     renderBrief(update.show);
-    renderRail(update.rail);
     renderActivity(update.leftColumn);
   }
 
@@ -1768,27 +1638,10 @@ var __name = function (f) { return f; };
     if (item.task && cardGone(item.id)) return false;
     return !seen || Date.now() - seen[itemKey(item)] < SEEN_FOR_MS;
   }
+  // One piece of finished work: its picture, its title, one short line on the outcome, then "open" and how long ago.
   function briefItem(item, meta) {
-    var kind = item.kind || "note";
-    var li = el("li", "card brief-card card-" + kind + " tone-" + kindOf(kind).tone);
+    var li = el("li", "card brief-card");
     li.dataset.key = item.id || item.headline;
-    li.appendChild(cardIcon(kind));
-    var text = el("div", "card-text");
-    var word = kindOf(kind).word;
-    if (word) text.appendChild(el("span", "card-meta", word));
-    var line = el("p", "card-line brief-line");
-    var link = item.open || (item.links || []).find(function (one) { return !one.closed; });
-    if (link) {
-      var a = el("a", "", item.headline);
-      a.href = link.url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      line.appendChild(a);
-    } else line.textContent = item.headline;
-    text.appendChild(line);
-    var said = kind === "landed" ? meta : [shortName(item.project), meta].filter(Boolean).join(" · ");
-    if (said) text.appendChild(el("span", "brief-meta", said));
-    li.appendChild(text);
     // Its picture, when the work has one: the small thumbnail says what changed, and opens full size on click.
     if (item.shots && item.shots.length) {
       var shotSrc = withToken(item.shots[0].src);
@@ -1803,6 +1656,23 @@ var __name = function (f) { return f; };
       thumb.addEventListener("click", function () { openImage(shotSrc); });
       li.appendChild(thumb);
     }
+    var text = el("div", "card-text");
+    text.appendChild(el("p", "card-line brief-line", item.headline));
+    var outcome = String(item.detail || "").replace(/\\s+/g, " ").trim();
+    if (outcome.length > 110) outcome = outcome.slice(0, 109).replace(/\\s+\\S*$/, "") + "…";
+    if (outcome) text.appendChild(el("p", "brief-outcome", outcome));
+    var foot = el("p", "brief-meta");
+    var link = item.open || (item.links || []).find(function (one) { return !one.closed; });
+    if (link) {
+      var a = el("a", "brief-open", "open");
+      a.href = link.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      foot.appendChild(a);
+    }
+    if (meta) foot.appendChild(document.createTextNode(meta));
+    if (foot.firstChild) text.appendChild(foot);
+    li.appendChild(text);
     if (item.task) {
       var close = el("button", "card-dismiss", "✕");
       close.type = "button";
@@ -1962,13 +1832,12 @@ var __name = function (f) { return f; };
       var visual = {
         id: artifact.id,
         kind: "landed",
-        headline: [artifact.subject, clip(artifact.summary || artifact.detail || "", 110)].filter(Boolean).join(" — "),
-        why: artifact.summary,
+        headline: artifact.subject,
+        detail: artifact.summary || artifact.detail || "",
         at: artifact.updatedAt || artifact.createdAt || "",
         status: artifact.status || "ready",
         shots: image ? [{ src: image.ref, label: image.label || artifact.subject }] : [],
         open: open ? { url: open.ref, label: open.label || "Open" } : undefined,
-        project: artifact.project,
       };
       list.appendChild(briefItem(visual, visual.at ? ago(visual.at) : ""));
     });
@@ -2002,15 +1871,11 @@ var __name = function (f) { return f; };
     lastBrief = show || null;
     var calls = (show && show.calls) || [];
     var decisions = show && show.decisions;
-    var underway = (show && show.underway) || [];
     var done = (show && show.done) || [];
     var artifacts = show && show.artifacts;
     if (decisions) drawSemanticDecisions(decisions);
     else drawNeeds(calls);
-    // Task-bound calls are manifested inside Activity, never duplicated here.
-    var needsCount = decisions ? decisions.length : calls.length;
-    if (needsCount && !leftPanel) leftPanel = { semantic: [], now: [], recent: [] };
-    if (needsCount) renderActivity(leftPanel);
+    setLeft();
     if (artifacts) drawSemanticArtifacts(artifacts);
     else drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
     var artifactCount = artifacts ? artifacts.length : done.length;
@@ -2018,268 +1883,16 @@ var __name = function (f) { return f; };
     briefEl.hidden = !briefFilled;
     showRail();
   }
-  // How long each job has run moves on with the clock, not only with updates.
+  // How long ago each piece of work was done moves on with the clock, not only with updates.
   setInterval(function () { if (lastBrief) renderBrief(lastBrief); }, 60000);
 
-  // The right column: his conversations with their answers, and artefacts beside them.
+  // The right column: what got done.
   var railEl = document.getElementById("rail");
-  var railBody = document.getElementById("rail-body");
-  var artefactBody = document.getElementById("artefact-body");
-  var railTab = store("flyd-rail-tab") || "artefacts";
-  function selectRailTab(tab) {
-    railTab = tab;
-    store("flyd-rail-tab", tab);
-    document.querySelectorAll("[data-rail-tab]").forEach(function (button) { button.setAttribute("aria-selected", String(button.getAttribute("data-rail-tab") === tab)); });
-    document.querySelectorAll("[data-rail-pane]").forEach(function (pane) { pane.hidden = pane.getAttribute("data-rail-pane") !== tab; });
-  }
-  document.querySelectorAll("[data-rail-tab]").forEach(function (button) { button.addEventListener("click", function () { selectRailTab(button.getAttribute("data-rail-tab")); }); });
-  selectRailTab(railTab === "detail" ? "detail" : "artefacts");
-  var railSignature = null;
   var railHidden = store("flyd-rail") === "off";
   function railRoot() { return document.documentElement; }
   function railOn() { return !railHidden && railEl && !railEl.hidden; }
   function setRail(on) { railRoot().setAttribute("data-rail", on ? "on" : "off"); }
-  // Each framed page is scaled from its own width (1280px desktop, 390px phone) to the card's.
-  var fitFrames = window.ResizeObserver ? new ResizeObserver(function (entries) {
-    entries.forEach(function (entry) { entry.target.style.setProperty("--fit", String(entry.contentRect.width / Number(entry.target.dataset.base || 1280))); });
-  }) : null;
-  // What he pointed at, when the page lets Flyd look inside it: "button.cta “Book now”".
-  function describeSpot(frame, x, y) {
-    try {
-      var node = frame.contentDocument && frame.contentDocument.elementFromPoint(x, y);
-      if (!node) return "";
-      var name = node.tagName.toLowerCase() + (node.id ? "#" + node.id : "") + Array.prototype.slice.call(node.classList, 0, 2).map(function (c) { return "." + c; }).join("");
-      var words = String(node.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 60);
-      return words ? name + " “" + words + "”" : name;
-    } catch (_) { return ""; }
-  }
-  // A page at phone width, on a phone: he uses it as it is, or turns on comments and clicks a spot to say something about it.
-  function railPhone(card, box, head) {
-    var W = 390, H = 844;
-    var phone = el("div", "rail-phone");
-    var screen = el("div", "rail-phone-screen");
-    screen.dataset.base = String(W);
-    var frame = el("iframe", "rail-phone-frame");
-    frame.src = card.preview;
-    frame.loading = "lazy";
-    frame.setAttribute("referrerpolicy", "no-referrer");
-    frame.setAttribute("title", "Phone preview of " + card.preview);
-    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
-    var pins = el("div", "rail-phone-pins");
-    pins.setAttribute("aria-hidden", "true");
-    screen.appendChild(frame);
-    screen.appendChild(pins);
-    phone.appendChild(screen);
-    if (fitFrames) fitFrames.observe(screen);
-    var toggle = el("button", "rail-phone-toggle", "comment");
-    toggle.type = "button";
-    toggle.setAttribute("aria-pressed", "false");
-    toggle.title = "Click a spot on the phone to comment on it";
-    head.insertBefore(toggle, head.querySelector("a"));
-    var hint = el("p", "rail-phone-hint", "Click a spot on the phone to comment on it.");
-    hint.hidden = true;
-    var say = el("form", "rail-phone-say");
-    say.hidden = true;
-    var where = el("label", "rail-phone-where");
-    var text = el("textarea");
-    text.rows = 2;
-    text.maxLength = 4000;
-    text.placeholder = "What about it?";
-    var row = el("div", "rail-phone-row");
-    var receipt = el("span", "rail-phone-receipt");
-    receipt.setAttribute("role", "status");
-    var cancel = el("button", "rail-phone-cancel", "Cancel");
-    cancel.type = "button";
-    var send = el("button", "rail-phone-send", "Send");
-    send.type = "submit";
-    row.appendChild(receipt);
-    row.appendChild(cancel);
-    row.appendChild(send);
-    say.appendChild(where);
-    say.appendChild(text);
-    say.appendChild(row);
-    var spot = null;
-    var pin = null;
-    function commenting(on) {
-      box.classList.toggle("rail-card--commenting", on);
-      toggle.setAttribute("aria-pressed", on ? "true" : "false");
-      hint.hidden = !on || !!spot;
-      if (!on) drop();
-    }
-    function drop() {
-      if (pin && !pin.classList.contains("sent")) pin.remove();
-      pin = null; spot = null; say.hidden = true; text.value = ""; receipt.textContent = "";
-      hint.hidden = !box.classList.contains("rail-card--commenting");
-    }
-    toggle.addEventListener("click", function () { commenting(!box.classList.contains("rail-card--commenting")); });
-    pins.addEventListener("click", function (event) {
-      var rect = screen.getBoundingClientRect();
-      var fit = rect.width / W;
-      var x = Math.max(0, Math.min(W, (event.clientX - rect.left) / fit));
-      var y = Math.max(0, Math.min(H, (event.clientY - rect.top) / fit));
-      if (pin && !pin.classList.contains("sent")) pin.remove();
-      pin = el("span", "rail-pin");
-      pin.style.left = (x / W * 100) + "%";
-      pin.style.top = (y / H * 100) + "%";
-      pins.appendChild(pin);
-      spot = { x: Math.round(x), y: Math.round(y), element: describeSpot(frame, x, y) };
-      where.textContent = "At " + spot.x + ", " + spot.y + (spot.element ? " · " + spot.element : "") + " on the " + W + "×" + H + " screen";
-      hint.hidden = true;
-      say.hidden = false;
-      receipt.textContent = "";
-      send.disabled = false;
-      text.focus();
-    });
-    cancel.addEventListener("click", drop);
-    text.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") { event.preventDefault(); drop(); }
-      else if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); say.requestSubmit(); }
-    });
-    say.addEventListener("submit", async function (event) {
-      event.preventDefault();
-      if (!spot || !text.value.trim() || send.disabled) return;
-      send.disabled = true;
-      receipt.textContent = "Sending…";
-      try {
-        var comment = { url: card.url || card.preview, x: spot.x, y: spot.y, text: text.value };
-        if (spot.element) comment.element = spot.element;
-        var response = await authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, comment: comment }) }, true);
-        var sent = await response.json();
-        if (!response.ok) throw new Error(sent.error || "Not sent");
-        pin.classList.add("sent");
-        pin.title = text.value.trim();
-        pin = null; spot = null; say.hidden = true; text.value = "";
-        hint.hidden = false;
-        hint.textContent = "Sent. Click another spot to say more.";
-      } catch (error) {
-        receipt.textContent = error.message || "Not sent. Try again.";
-        send.disabled = false;
-      }
-    });
-    box.appendChild(phone);
-    box.appendChild(hint);
-    box.appendChild(say);
-  }
-  function railCard(card) {
-    var kind = card.down ? "blocked" : card.image ? "image" : card.preview ? "preview" : "file";
-    var box = keyed(el("div", "rail-card tone-" + kindOf(kind).tone + (card.down ? " rail-card--down" : "")), "card:" + card.id);
-    // Options a reply put to him are a choice he answers with one tap, never a list of steps.
-    if (card.choice && card.choice.replyTo && SEND_TOKEN) {
-      box.appendChild(choiceCard(card.choice, choiceKey(card.choice)));
-      return box;
-    }
-    var head = el("div", "rail-card-head");
-    head.appendChild(cardIcon(kind));
-    var words = el("div", "rail-card-words");
-    words.appendChild(el("span", "card-meta", kindOf(kind).word));
-    words.appendChild(el("span", "rail-card-title", card.title));
-    head.appendChild(words);
-    if (card.url) {
-      var open = el("a", "", "open ↗");
-      open.href = card.url;
-      open.target = "_blank";
-      open.rel = "noopener";
-      head.appendChild(open);
-    }
-    box.appendChild(head);
-    var server = card.server;
-    // A change of server behind the page leads the card, with when it happened.
-    if (server && server.changed) {
-      var when = clock(server.changed.at);
-      box.appendChild(el("p", "rail-card-change", server.changed.title + (when ? " at " + when : "") + (server.changed.detail ? " — " + server.changed.detail : "")));
-    }
-    if (card.line) box.appendChild(el("p", "", card.line));
-    if (card.choice) {
-      var options = el("ul", "rail-card-options");
-      card.choice.options.forEach(function (option) { options.appendChild(el("li", "", option)); });
-      box.appendChild(options);
-    }
-    if (card.steps && card.steps.length) {
-      var steps = el("ol", "rail-card-steps");
-      card.steps.forEach(function (step) { steps.appendChild(el("li", "", step)); });
-      box.appendChild(steps);
-    }
-    if (server && server.command) {
-      var served = el("p", "rail-card-server" + (server.own === false ? " rail-card-server--copy" : ""));
-      served.appendChild(el("span", "", [server.command, server.folder].filter(Boolean).join(" · ")));
-      if (server.whose) served.appendChild(el("span", "rail-card-whose", server.whose));
-      served.title = "Served by " + server.command + " on " + server.address + (server.folder ? " from " + server.folder : "");
-      box.appendChild(served);
-    }
-    if (card.down) box.appendChild(el("p", "rail-card-note", "Nothing answers at this address yet."));
-    else if (card.checking) box.appendChild(el("p", "rail-card-note", "Checking the page answers…"));
-    else if (card.blocked) box.appendChild(el("p", "rail-card-note", "This page won't show inside Flyd; open it to see it."));
-    if (card.image) {
-      var shot = el("img", "rail-shot");
-      shot.src = withToken(card.image);
-      shot.alt = card.title;
-      shot.loading = "lazy";
-      box.appendChild(shot);
-    }
-    if (card.preview && card.phone) railPhone(card, box, head);
-    else if (card.preview) {
-      var framed = el("div", "rail-frame-box");
-      var frame = el("iframe", "rail-frame");
-      frame.src = card.preview;
-      frame.loading = "lazy";
-      frame.tabIndex = -1;
-      frame.setAttribute("referrerpolicy", "no-referrer");
-      frame.setAttribute("title", "Live preview of " + card.preview);
-      frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
-      framed.appendChild(frame);
-      // The preview is a picture of the page; clicking it opens the page full size.
-      if (card.url) {
-        var full = el("a", "rail-frame-open");
-        full.href = card.url;
-        full.target = "_blank";
-        full.rel = "noopener";
-        full.setAttribute("aria-label", "Open " + card.title + " full size");
-        framed.appendChild(full);
-      }
-      if (fitFrames) fitFrames.observe(framed);
-      box.appendChild(framed);
-    }
-    if (SEND_TOKEN) {
-      var about = { title: card.title };
-      if (card.url) about.url = card.url;
-      var chat = sidebarChat("flyd-about:" + card.id, { about: about });
-      box.appendChild(chat.opener);
-      box.appendChild(chat.form);
-    }
-    return box;
-  }
-  // One memory as a card: the sentence, and over what it took in while we talked, what kind of thing it is:
-  // "Learned" only for a rule or preference he taught it; work that got done is "Shipped", never a lesson.
-  var KICKERS = { taste: "Learned", shipped: "Shipped", capture: "Noted", memory: "Remembered" };
-  function railMemory(memory, fresh) {
-    var card = keyed(el("div", "rail-mem" + (fresh ? " rail-mem--new" : "")), "mem:" + memory.id);
-    if (fresh) card.appendChild(el("p", "rail-mem-kicker", KICKERS[memory.kind] || "Remembered"));
-    card.appendChild(el("p", "rail-mem-text", memory.title));
-    if (SEND_TOKEN) {
-      var chat = sidebarChat("flyd-memory:" + memory.id, { about: { title: memory.title } });
-      card.appendChild(chat.opener);
-      card.appendChild(chat.form);
-    }
-    return card;
-  }
-  // What Flyd already holds here, folded under one line at the top; he opens it when he wants it.
-  var heldOpen = store("flyd-rail-held") === "open";
-  function renderHeld(memory, into) {
-    var held = (memory && memory.remembers) || [];
-    if (!held.length) return false;
-    var box = keyed(el("details", "rail-held"), "held");
-    box.open = heldOpen;
-    var summary = el("summary", "rail-section", "Remembers" + (memory.project ? " · " + memory.project : ""));
-    summary.appendChild(el("span", "rail-held-count", " " + held.length));
-    box.appendChild(summary);
-    held.forEach(function (item) { box.appendChild(railMemory(item, false)); });
-    box.addEventListener("toggle", function () { heldOpen = box.open; store("flyd-rail-held", heldOpen ? "open" : "closed"); });
-    into.appendChild(box);
-    return true;
-  }
-  function timeOf(iso) { var at = iso ? Date.parse(iso) : NaN; return isNaN(at) ? Infinity : at; }
-  // Rebuilding the column on every update reloads each framed page, so a live
-  // preview never gets to paint: only what changed is replaced, and nothing kept is moved.
+  // Only what changed is replaced, and nothing kept is moved.
   function keyed(node, key, deep) {
     node.dataset.key = key;
     if (deep) node.dataset.deep = "1";
@@ -2312,55 +1925,6 @@ var __name = function (f) { return f; };
       }
       cursor = was.nextElementSibling;
     });
-  }
-  function talkAnswer(wrap, talk) {
-    // The picture of the result leads; the words follow.
-    if (talk.shots && talk.shots.length) wrap.appendChild(shots(talk.shots.map(withToken), "rail-shots"));
-    if (talk.page) wrap.appendChild(pageButton(talk.page, "rail-open"));
-    // Its own answer only; where it stands is the word over it, never a narrated step.
-    if (talk.answerHtml) {
-      var answer = el("div", "rail-a rail-a-md");
-      answer.innerHTML = talk.answerHtml;
-      wrap.appendChild(answer);
-    } else if (talk.answer) wrap.appendChild(el("p", "rail-a", talk.answer));
-  }
-  function talkRest(wrap, talk) {
-    (talk.previews || []).forEach(function (card) { wrap.appendChild(railCard(card)); });
-    if (SEND_TOKEN && (talk.answer || talk.answerHtml || talk.answered)) wrap.appendChild(replyBox(talk.id, "rail"));
-  }
-  var STATES = { done: "Done", underway: "Under way", needs: "Needs you" };
-  // Where a message stands, in a word, and when he sent it: both small.
-  function talkWhen(talk) {
-    var line = el("div", "rail-when");
-    var state = talk.state || (talk.answer || talk.answerHtml || talk.answered ? "done" : "underway");
-    line.appendChild(el("span", "rail-state rail-state--" + state, STATES[state] || ""));
-    if (talk.at) {
-      line.appendChild(el("span", "", "·"));
-      line.appendChild(el("span", "", ago(talk.at)));
-    }
-    return line;
-  }
-  // His words as he wrote them; what they were about (an artefact, a decision) named and linked over them.
-  function talkHead(wrap, talk) {
-    if (talk.about) {
-      var about = el("p", "rail-about");
-      if (talk.about.url) {
-        var link = el("a", "", talk.about.title + " ↗");
-        link.href = talk.about.url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        about.appendChild(link);
-      } else about.textContent = talk.about.title;
-      wrap.appendChild(about);
-    }
-    if (talk.question) wrap.appendChild(el("p", "rail-q", sentence(capital(talk.question))));
-    wrap.appendChild(talkWhen(talk));
-  }
-  // Every row is folded to a line and two until he opens it (see the column's click handler); answered ones step back.
-  var talksOpen = new Set();
-  function talkFold(wrap, talk) {
-    if ((talk.state || "") === "done") wrap.classList.add("is-done");
-    if (talksOpen.has(talk.id)) wrap.classList.add("open");
   }
 
   // His reply to one answer, in a box under it. The box is drawn from its
@@ -2866,77 +2430,11 @@ var __name = function (f) { return f; };
     draw();
     return { el: wrap, draw: draw, sync: sync };
   }
-  function railTalk(talk) {
-    var wrap = keyed(el("div", "rail-talk"), "talk:" + talk.id, true);
-    // A reply whose answer has scrolled out of the column says what it answers.
-    if (talk.replyQuote) wrap.appendChild(el("span", "reply-ref", "Replying to “" + talk.replyQuote + "”"));
-    talkHead(wrap, talk);
-    talkAnswer(wrap, talk);
-    talkFold(wrap, talk);
-    talkRest(wrap, talk);
-    if (talk.replies && talk.replies.length) {
-      var thread = keyed(el("div", "rail-replies"), "replies:" + talk.id, true);
-      talk.replies.forEach(function (reply) {
-        var sub = keyed(el("div", "rail-talk"), "talk:" + reply.id, true);
-        talkHead(sub, reply);
-        talkAnswer(sub, reply);
-        talkFold(sub, reply);
-        talkRest(sub, reply);
-        thread.appendChild(sub);
-      });
-      wrap.appendChild(thread);
-    }
-    return wrap;
-  }
-  var lastRail = null;
-  var railFilled = false;
-  // The column shows when it has something: a call, a job, done work, or his messages; unless he hid it.
+  // The column shows when there is done work, unless he hid it.
   function showRail() {
-    railEl.hidden = railHidden || !(railFilled || briefFilled);
+    railEl.hidden = railHidden || !briefFilled;
     setRail(railOn());
   }
-  function renderRail(rail) {
-    lastRail = rail;
-    if (!rail) { railFilled = false; showRail(); return; }
-    var signature = JSON.stringify([rail.conversations, rail.artefacts, rail.memory, Array.from(talksOpen)]);
-    if (signature === railSignature) { showRail(); return; }
-    railSignature = signature;
-    var next = el("div");
-    var nextArtefacts = el("div");
-    var talks = rail.conversations || [];
-    // Chat order: the newest message last, at the bottom, which stays in view
-    // unless he has scrolled up to read.
-    var detailPane = railBody.parentElement;
-    var pinned = !railBody.firstElementChild || detailPane.scrollHeight - detailPane.scrollTop - detailPane.clientHeight < 40;
-    var held = renderHeld(rail.memory, next);
-    var cards = rail.artefacts || [];
-    if (cards.length) {
-      cards.forEach(function (card) { nextArtefacts.appendChild(railCard(card)); });
-    }
-    // What Flyd learned while we talked sits in the conversation, after the message it learned it from.
-    var learned = ((rail.memory && rail.memory.remembering) || []).slice().sort(function (a, b) { return timeOf(a.at) - timeOf(b.at); });
-    var told = 0;
-    if (talks.length) next.appendChild(el("div", "rail-section", "Conversations"));
-    talks.forEach(function (talk) {
-      var start = talk.at ? Date.parse(talk.at) : NaN;
-      while (told < learned.length && timeOf(learned[told].at) < start) next.appendChild(railMemory(learned[told++], true));
-      next.appendChild(railTalk(talk));
-    });
-    while (told < learned.length) next.appendChild(railMemory(learned[told++], true));
-    patch(railBody, Array.prototype.slice.call(next.children));
-    patch(artefactBody, Array.prototype.slice.call(nextArtefacts.children));
-    railFilled = false;
-    showRail();
-    if (pinned) detailPane.scrollTop = detailPane.scrollHeight;
-  }
-  // A folded row opens with a click on its words or its answer, and stays open across updates.
-  railBody.addEventListener("click", function (event) {
-    var hit = event.target instanceof Element ? event.target.closest(".rail-talk:not(.open) > .rail-q, .rail-talk:not(.open) > .rail-a") : null;
-    if (!hit || (event.target instanceof Element && event.target.closest("a"))) return;
-    var talk = hit.parentElement;
-    talksOpen.add(String(talk.dataset.key || "").replace(/^talk:/, ""));
-    talk.classList.add("open");
-  });
   function hideRail(hidden) {
     railHidden = hidden;
     store("flyd-rail", hidden ? "off" : "on");
@@ -4815,13 +4313,11 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 ${LEFT_HTML}
 <aside class="rail" id="rail" hidden aria-label="Done">
   <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
-  <div class="rail-pane" data-rail-pane="artefacts">
+  <div class="rail-pane">
   <div class="brief" id="brief" hidden>
     <section class="brief-list" id="done" hidden aria-label="Done"></section>
   </div>
-  <div class="rail-body" id="artefact-body" hidden></div>
   </div>
-  <div class="rail-body" id="rail-body" hidden></div>
 </aside>
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>

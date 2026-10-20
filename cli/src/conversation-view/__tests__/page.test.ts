@@ -1622,54 +1622,6 @@ describe("header and artefact view", () => {
     expect(shapeAt(500, 300)).toBe("device art");
   });
 
-  it.skip("shows the right column: each conversation with its answer below, and a live preview artefact", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const rail = {
-      conversations: [
-        { id: "q1", question: "make a playlist", answer: "Nine tracks.", at: "2026-10-10T12:46:56Z", previews: [{ id: "image:x", title: "Screenshot", line: "after.png", image: "/api/rail-image?path=%2FUsers%2Fme%2Fafter.png" }] },
-        { id: "q2", question: "and tickets?", waiting: "Working on it" },
-      ],
-      artefacts: [
-        { id: "preview:http://127.0.0.1:8097/", title: "Live preview", line: "127.0.0.1:8097/", url: "http://127.0.0.1:8097/", preview: "http://127.0.0.1:8097/" },
-        { id: "landed:x", title: "Christmas Nuanu map", line: "just landed" },
-      ],
-    };
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
-    await settle();
-    const rail_ = document.getElementById("rail")!;
-    expect(rail_.hidden).toBe(false);
-    expect(document.documentElement.getAttribute("data-rail")).toBe("on");
-    const talks = document.querySelectorAll(".rail-talk");
-    expect(talks).toHaveLength(2);
-    expect(talks[1]!.querySelector(".rail-q")!.textContent).toBe("And tickets?");
-    // Where each stands, in a word, never the narrated step.
-    expect(talks[1]!.querySelector(".rail-state")!.textContent).toBe("Under way");
-    expect(talks[1]!.textContent).not.toContain("Working on it");
-    expect(talks[0]!.querySelector(".rail-state")!.textContent).toBe("Done");
-    expect(talks[0]!.querySelector(".rail-a")!.textContent).toBe("Nine tracks.");
-    const shot = talks[0]!.querySelector<HTMLImageElement>(".rail-shot")!;
-    expect(shot.src).toContain("/api/rail-image?path=%2FUsers%2Fme%2Fafter.png");
-    expect(shot.src).toContain("token=");
-    const frame = document.querySelector<HTMLIFrameElement>(".rail-frame")!;
-    expect(frame.src).toBe("http://127.0.0.1:8097/");
-    // The page is laid out at a desktop width and scaled down whole; clicking it opens it full size.
-    expect(frame.parentElement!.classList.contains("rail-frame-box")).toBe(true);
-    expect(frame.tabIndex).toBe(-1);
-    const full = frame.parentElement!.querySelector<HTMLAnchorElement>(".rail-frame-open")!;
-    expect(full.href).toBe("http://127.0.0.1:8097/");
-    expect(full.target).toBe("_blank");
-    const css = renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) });
-    expect(css).toMatch(/\.rail-frame \{[^}]*width: 1280px; height: 800px;[^}]*transform: scale\(var\(--fit, 0\.3\)\); transform-origin: 0 0; pointer-events: none;/);
-    expect(css).toMatch(/\.rail-frame-box \{[^}]*aspect-ratio: 1280 \/ 800; overflow: hidden;/);
-    // Labels and dates stay tightly tracked.
-    expect(css.match(/letter-spacing: 0?\.(0[5-9]|[1-9])\d*em/g)).toBeNull();
-    document.getElementById("rail-hide")!.click();
-    expect(document.getElementById("rail")!.hidden).toBe(true);
-    expect(document.documentElement.getAttribute("data-rail")).toBe("off");
-  });
-
   it("opens what needs him from the figure, each call with its question and answerable where it stands", async () => {
     load("");
     await settle();
@@ -1849,89 +1801,6 @@ describe("header and artefact view", () => {
     expect(copy.defaultPrevented).toBe(false);
   });
 
-  it("shows phone-width work on a phone, where a click on a spot sends a comment with the page and the spot", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const rail = {
-      conversations: [],
-      artefacts: [{ id: "live:http://127.0.0.1:8097/", title: "Live preview", url: "http://127.0.0.1:8097/#hero", preview: "http://127.0.0.1:8097/#hero", phone: true }],
-    };
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
-    await settle();
-    expect(document.querySelector(".rail-frame-box")).toBeNull();
-    const frame = document.querySelector<HTMLIFrameElement>(".rail-phone-frame")!;
-    expect(frame.src).toBe("http://127.0.0.1:8097/#hero");
-    expect(renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48) })).toMatch(/\.rail-phone-frame \{[^}]*width: 390px; height: 844px;/);
-    const screen = document.querySelector<HTMLElement>(".rail-phone-screen")!;
-    screen.getBoundingClientRect = () => ({ left: 0, top: 0, width: 195, height: 422, right: 195, bottom: 422, x: 0, y: 0, toJSON() {} });
-    const toggle = document.querySelector<HTMLButtonElement>(".rail-phone-toggle")!;
-    const say = document.querySelector<HTMLFormElement>(".rail-phone-say")!;
-    // Comments are off until he turns them on: the page is used as it is.
-    expect(say.hidden).toBe(true);
-    toggle.click();
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    document.querySelector(".rail-phone-pins")!.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 60, clientY: 150 }));
-    expect(say.hidden).toBe(false);
-    expect(document.querySelector(".rail-phone-where")!.textContent).toMatch(/^At 120, 300\b.* on the 390×844 screen$/);
-    expect(document.querySelectorAll(".rail-pin")).toHaveLength(1);
-    say.querySelector("textarea")!.value = "Full width on phones";
-    say.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
-    const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ session: "latest", comment: { url: "http://127.0.0.1:8097/#hero", x: 120, y: 300, text: "Full width on phones" } });
-    expect(say.hidden).toBe(true);
-    expect(document.querySelector(".rail-pin.sent")).not.toBeNull();
-    expect(document.querySelector(".rail-phone-hint")!.textContent).toBe("Sent. Click another spot to say more.");
-  });
-
-  it("takes a reply under an answer, keeps it through a redraw, threads replies, and sends it with what it answers", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const update = (rail: unknown) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
-    const answered = { id: "note:1", question: "other movements for bunny", answer: "Five moves now.", at: "2026-10-11T10:00:00Z" };
-    update({ conversations: [answered, { id: "note:2", question: "and tickets?", waiting: "Working on it" }], artefacts: [] });
-    await settle();
-    const talks = document.querySelectorAll(".rail-talk");
-    // Only an answer takes a reply, and its box stays shut until asked for.
-    expect(talks[1]!.querySelector(".reply")).toBeNull();
-    const opener = talks[0]!.querySelector<HTMLButtonElement>(".reply-open")!;
-    expect(talks[0]!.querySelector<HTMLFormElement>(".reply form")!.hidden).toBe(true);
-    opener.click();
-    const box = talks[0]!.querySelector<HTMLTextAreaElement>(".reply-input")!;
-    expect(document.activeElement).toBe(box);
-    // Open, Reply steps aside and Close sits in the card's header row beside the Reply label; it shuts the box and keeps what he typed.
-    expect(opener.hidden).toBe(true);
-    const form = talks[0]!.querySelector<HTMLFormElement>(".reply form")!;
-    expect([...form.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Close", "Send"]);
-    box.value = "make";
-    box.dispatchEvent(new Event("input"));
-    form.querySelector<HTMLButtonElement>(".reply-close")!.click();
-    expect(form.hidden).toBe(true);
-    expect(opener.hidden).toBe(false);
-    expect(document.activeElement).toBe(opener);
-    opener.click();
-    expect(box.value).toBe("make");
-    box.value = "make the spin";
-    box.dispatchEvent(new Event("input"));
-    update({ conversations: [{ ...answered, answer: "Five moves now, all live." }, { id: "note:2", question: "and tickets?", waiting: "Working on it" }], artefacts: [] });
-    await settle();
-    expect(document.querySelector<HTMLTextAreaElement>(".rail-talk .reply-input")).toBe(box);
-    // Speaking while the box is open fills it and sends it; the message box is left alone.
-    const voice = (window as unknown as { flydVoice: Record<string, (text?: string) => void> }).flydVoice;
-    voice.start!();
-    voice.send!("slower");
-    await settle();
-    expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("");
-    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
-    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ session: "latest", text: "make the spin slower", replyTo: "note:1" });
-    update({ conversations: [{ ...answered, replies: [{ id: "note:3", question: "make the spin slower", waiting: "Working on it", replyTo: "note:1" }] }], artefacts: [] });
-    await settle();
-    expect(document.querySelector(".rail-talk .rail-replies .rail-q")!.textContent).toBe("Make the spin slower.");
-  });
-
   it("puts a question a reply asks him in a card under it, answered by one tap or his own words", async () => {
     load("");
     await settle();
@@ -2033,148 +1902,6 @@ describe("header and artefact view", () => {
     expect(note.querySelector(".auto-undo")).toBeNull();
   });
 
-  it.skip("shows what Flyd remembers here folded at the top, and what it learned as a card in the conversation, each one plain sentence", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const memory = {
-      project: "GNM",
-      remembering: [{ id: "taste:3bf30418", kind: "taste", title: "Animate text TV-style: a clean fade in place.", line: "Taste · Everywhere · seen 4 times", detail: "Animate text TV-style.\n\nLearned from:\n“should be TV style fade in. no pop.” — 2026-10-10", at: new Date(Date.now() - 120_000).toISOString() }],
-      remembers: [{ id: "capture:2026-10-10-17-37-34.md", kind: "capture", title: "Gallery opens at ten.", line: "Capture · GNM" }],
-    };
-    const update = (rail: unknown) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
-    const learnedAt = memory.remembering[0]!.at;
-    const before = new Date(Date.parse(learnedAt) - 60_000).toISOString();
-    const after = new Date(Date.parse(learnedAt) + 60_000).toISOString();
-    update({ conversations: [{ id: "q1", question: "should be TV style fade in. no pop.", answer: "Done.", at: before }, { id: "q2", question: "and the footer", answer: "Done.", at: after }], artefacts: [], memory });
-    await settle();
-    expect(document.getElementById("rail")!.hidden).toBe(false);
-    const sections = [...document.querySelectorAll(".rail-section")].map((node) => node.textContent);
-    expect(sections).toEqual(["Remembers · GNM 1", "Conversations"]);
-    // What it already holds is folded under one line until he opens it, and stays as he left it.
-    const held = document.querySelector<HTMLDetailsElement>(".rail-held")!;
-    expect(held.open).toBe(false);
-    held.open = true;
-    held.dispatchEvent(new Event("toggle"));
-    expect(localStorage.getItem("flyd-rail-held")).toBe("open");
-    // What it learned is a card in the stream, right after the message it learned it from.
-    const order = [...document.getElementById("rail-body")!.children].map((node) => node.className);
-    expect(order).toEqual(["rail-held", "rail-section", "rail-talk", "rail-mem rail-mem--new", "rail-talk"]);
-    const card = document.querySelector(".rail-mem--new")!;
-    expect(card.querySelector(".rail-mem-kicker")!.textContent).toBe("Learned");
-    // One sentence each: no kind/scope/seen/age line, no "Learned from" quote, no dates.
-    expect([...document.querySelectorAll(".rail-mem-text")].map((node) => node.textContent)).toEqual(["Gallery opens at ten.", "Animate text TV-style: a clean fade in place."]);
-    expect([...document.querySelectorAll(".rail-mem")].map((node) => node.textContent).join(" ")).not.toMatch(/Taste ·|seen 4 times|Learned from|2026-10-10|ago/);
-    expect(document.getElementById("rail")!.textContent).not.toMatch(/firstmate/i);
-  });
-
-  it("labels work that got done as shipped, and keeps \"Learned\" for a rule or preference he taught it", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const at = new Date(Date.now() - 120_000).toISOString();
-    const remembering = [
-      { id: "memory:13-oct", kind: "shipped", title: "13 Oct: GNM's home hero fits short laptops; Flyd's artefact cards now send.", line: "Shipped", at },
-      { id: "taste:3bf30418", kind: "taste", title: "Animate text TV-style: a clean fade in place.", line: "Taste · Everywhere", at },
-      { id: "memory:bloom", kind: "memory", title: "George wants Bloom finished and hosted.", line: "Memory · Commitments", at },
-    ];
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations: [], artefacts: [], memory: { remembers: [], remembering } } });
-    await settle();
-    const kickers = Object.fromEntries([...document.querySelectorAll(".rail-mem--new")].map((card) => [card.querySelector(".rail-mem-text")!.textContent, card.querySelector(".rail-mem-kicker")!.textContent]));
-    expect(kickers).toEqual({
-      "13 Oct: GNM's home hero fits short laptops; Flyd's artefact cards now send.": "Shipped",
-      "Animate text TV-style: a clean fade in place.": "Learned",
-      "George wants Bloom finished and hosted.": "Remembered",
-    });
-  });
-
-  it("keeps the rail in chat order, newest message at the bottom, pinned there unless he scrolled up", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const memory = { project: "GNM", remembering: [], remembers: [{ id: "capture:a", kind: "capture", title: "Gallery opens at ten.", line: "" }] };
-    const update = (conversations: unknown[]) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations, artefacts: [], memory } });
-    // The detail pane scrolls as one column, so it is the pane that stays pinned.
-    const body = document.getElementById("rail-body")!.parentElement!;
-    let height = 1000;
-    Object.defineProperty(body, "scrollHeight", { configurable: true, get: () => height });
-    Object.defineProperty(body, "clientHeight", { configurable: true, get: () => 300 });
-    update([{ id: "q1", question: "first", answer: "One." }]);
-    await settle();
-    expect([...document.querySelectorAll(".rail-section")].map((node) => node.textContent)).toEqual(["Remembers · GNM 1", "Conversations"]);
-    expect(body.scrollTop).toBe(1000);
-    height = 1200;
-    update([{ id: "q1", question: "first", answer: "One." }, { id: "q2", question: "second", waiting: "Working on it" }]);
-    await settle();
-    expect([...document.querySelectorAll(".rail-q")].map((node) => node.textContent)).toEqual(["First.", "Second."]);
-    expect(body.scrollTop).toBe(1200);
-    // Scrolled up to read: a new message does not yank him back down.
-    body.scrollTop = 100;
-    height = 1400;
-    update([{ id: "q1", question: "first", answer: "One." }, { id: "q2", question: "second", answer: "Two." }, { id: "q3", question: "third", waiting: "Working on it" }]);
-    await settle();
-    expect(body.scrollTop).toBe(100);
-  });
-
-  it("shows a page that does not answer as not running, never a blank frame, and an answer as Flyd tells it", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const rail = {
-      conversations: [{ id: "q1", question: "swap the copy", answer: "Copy swap dispatched.", answerHtml: "<p>The copy swap is <strong>under way</strong>, sir.</p>" }],
-      artefacts: [
-        { id: "live:http://127.0.0.1:8088/", title: "Preview not running", line: "127.0.0.1:8088/", url: "http://127.0.0.1:8088/", down: true },
-        { id: "live:http://127.0.0.1:9000/", title: "Live preview", line: "127.0.0.1:9000/", url: "http://127.0.0.1:9000/", checking: true },
-      ],
-    };
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
-    await settle();
-    expect(document.querySelector(".rail-a")!.innerHTML).toBe("<p>The copy swap is <strong>under way</strong>, sir.</p>");
-    expect(document.querySelector(".rail-frame")).toBeNull();
-    const down = document.querySelector(".rail-card--down")!;
-    expect(down.textContent).toContain("Preview not running");
-    expect(down.textContent).toContain("127.0.0.1:8088/");
-    expect(document.querySelectorAll(".rail-card-note")).toHaveLength(2);
-  });
-
-  it("sends what he typed under a preview card on SEND, clears the box and says it went to Flyd", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const rail = { conversations: [], artefacts: [{ id: "live:http://127.0.0.1:9000/", title: "Live preview", line: "127.0.0.1:9000/", url: "http://127.0.0.1:9000/", preview: "about:blank" }] };
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
-    await settle();
-    const card = document.querySelector<HTMLElement>(".rail-card")!;
-    const opener = card.querySelector<HTMLButtonElement>(".art-chat-open")!;
-    expect(card.querySelector(".art-chat")!.hasAttribute("hidden")).toBe(true);
-    opener.click();
-    expect(card.querySelector(".art-chat")!.hasAttribute("hidden")).toBe(false);
-    const input = card.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
-    const send = card.querySelector<HTMLButtonElement>(".art-chat-send")!;
-    input.focus();
-    input.value = "move the top bit closer to the numbers";
-    input.dispatchEvent(new Event("input"));
-    // Pressing SEND keeps the caret in the box, so the box never shrinks out from under the click.
-    const press = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
-    send.dispatchEvent(press);
-    expect(press.defaultPrevented).toBe(true);
-    send.click();
-    await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
-      { text: "move the top bit closer to the numbers", about: { title: "Live preview", url: "http://127.0.0.1:9000/" } },
-    ]);
-    expect(input.value).toBe("");
-    const receipt = card.querySelector(".art-chat-receipt")!;
-    expect(receipt.textContent).toBe("Sent to Flyd");
-    expect(receipt.classList.contains("sent")).toBe(true);
-    // The rail redrawing under him keeps the chat he opened open, so the reply shows there.
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { ...rail, conversations: [{ id: "q1", question: "anything new?", answer: "Done." }] } });
-    await settle();
-    const redrawn = document.querySelector<HTMLElement>(".rail-card")!;
-    expect(redrawn.querySelector<HTMLFormElement>(".art-chat")!.hidden).toBe(false);
-    expect(redrawn.querySelector(".art-chat-open")!.getAttribute("aria-expanded")).toBe("true");
-  });
-
   it("keeps the same scene on stage while an enlarged picture is open, and after he closes it", async () => {
     vi.useFakeTimers({ toFake: ["setInterval"] });
     try {
@@ -2195,62 +1922,6 @@ describe("header and artefact view", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("shows a reply's options in Artefacts as a choice, answered by one tap, and its steps as a numbered list", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const rail = { conversations: [], artefacts: [
-      { id: "reply:r1", title: "Two ways to fix it", choice: { question: "Two ways to fix it", options: ["Use a wildcard rule", "Keep separate rules"], replyTo: "note:1" } },
-      { id: "reply:r2", title: "Fix the redirects", steps: ["Delete the ^/$ rule.", "Add ^/(.*)$ as a 301."] },
-    ] };
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
-    await settle();
-    const [options, steps] = [...document.querySelectorAll<HTMLElement>(".rail-card")];
-    expect(options!.querySelector(".rail-card-steps")).toBeNull();
-    expect(options!.querySelector(".choice-q")!.textContent).toBe("Two ways to fix it");
-    const buttons = [...options!.querySelectorAll<HTMLButtonElement>(".choice-option")];
-    expect(buttons.map((button) => button.textContent)).toEqual(["Use a wildcard rule", "Keep separate rules"]);
-    expect([...steps!.querySelectorAll(".rail-card-steps li")].map((item) => item.textContent)).toEqual(["Delete the ^/$ rule.", "Add ^/(.*)$ as a 301."]);
-    expect(steps!.querySelector(".choice-option")).toBeNull();
-    buttons[1]!.click();
-    await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String(init!.body)))).toEqual([
-      { session: "latest", text: "Keep separate rules", replyTo: "note:1" },
-    ]);
-    // Once answered, the options are only listed, with nothing to tap.
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { conversations: [], artefacts: [
-      { id: "reply:r1", title: "Two ways to fix it", choice: { question: "Two ways to fix it", options: ["Use a wildcard rule", "Keep separate rules"] } },
-    ] } });
-    await settle();
-    const listed = document.querySelector<HTMLElement>(".rail-card")!;
-    expect(listed.querySelector(".choice-option")).toBeNull();
-    expect([...listed.querySelectorAll(".rail-card-options li")].map((item) => item.textContent)).toEqual(["Use a wildcard rule", "Keep separate rules"]);
-  });
-
-  it("keeps the options he picked when the column redraws", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show = { title: "", summary: "", live: false, counts: {}, items: [] };
-    const choice = { question: "Pick the ones you want built", options: ["One", "Two", "Three", "Four", "Five"], replyTo: "note:9", multiple: true };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [], rail: { conversations: [], artefacts: [{ id: "reply:r9", title: "Pick the ones you want built", choice }] } });
-    await settle();
-    const buttons = [...document.querySelectorAll<HTMLButtonElement>(".rail-card .choice-option")];
-    buttons[1]!.click();
-    buttons[3]!.click();
-    await settle();
-    // A later column change redraws the card.
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [], rail: { conversations: [], artefacts: [{ id: "reply:r9", title: "Pick the ones you want built", choice }, { id: "live:x", title: "Live preview", line: "x", url: "http://127.0.0.1:9000/" }] } });
-    await settle();
-    const after = [...document.querySelectorAll<HTMLButtonElement>(".rail-card .choice-option")];
-    expect(after.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "true", "false", "true", "false"]);
-    document.querySelector<HTMLButtonElement>(".rail-card .choice-send")!.click();
-    await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String(init!.body)))).toEqual([
-      { session: "latest", text: "Two, Four", replyTo: "note:9" },
-    ]);
   });
 
   it("answers a Needs you line in place, delivering the answer to firstmate", async () => {
@@ -2346,38 +2017,6 @@ describe("header and artefact view", () => {
     // Still there in the artefact view.
     document.getElementById("flip")!.click();
     expect(site.hidden).toBe(false);
-  });
-
-  it("shows one row per note: answered ones step back with their answer folded, open ones stay prominent", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const rail = {
-      conversations: [
-        { id: "note:1", question: "put taste in preferences", answer: "Moved.", state: "done", at: "2026-10-12T09:00:00Z" },
-        { id: "note:2", question: "the island is too tall and big.", about: { title: "Flyd island spans to the right edge", url: "https://github.com/GeorgeGally/flyd/pull/139" }, state: "underway", at: "2026-10-12T09:02:00Z" },
-        { id: "note:3", question: "which layout?", answer: "Built both. Which do you want?", state: "needs", at: "2026-10-12T09:03:00Z" },
-      ],
-      artefacts: [],
-    };
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
-    await settle();
-    const rows = [...document.querySelectorAll<HTMLElement>("#rail-body > .rail-talk")];
-    expect(rows.map((row) => row.querySelector(".rail-state")!.textContent)).toEqual(["Done", "Under way", "Needs you"]);
-    expect(document.querySelector(".rail-topic, .rail-topic-toggle")).toBeNull();
-    // An artefact note names the artefact, linked; no task id, no raw page line.
-    const about = rows[1]!.querySelector<HTMLAnchorElement>(".rail-about a")!;
-    expect(about.textContent).toBe("Flyd island spans to the right edge ↗");
-    expect(about.href).toBe("https://github.com/GeorgeGally/flyd/pull/139");
-    expect(rows[1]!.textContent).not.toMatch(/Task:|Page:/);
-    // Only the answered one steps back; every row is folded, and a click opens it, and a redraw keeps it open.
-    expect(rows.map((row) => row.classList.contains("is-done"))).toEqual([true, false, false]);
-    expect(rows.map((row) => row.classList.contains("open"))).toEqual([false, false, false]);
-    rows[0]!.querySelector<HTMLElement>(".rail-a")!.click();
-    expect(rows[0]!.classList.contains("open")).toBe(true);
-    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail: { ...rail, artefacts: [] } });
-    await settle();
-    expect(document.querySelector("#rail-body > .rail-talk")!.classList.contains("open")).toBe(true);
   });
 
   it.skip("leads the column with one decision that needs him and its recommended choice, then every job under way and what got done", async () => {
@@ -2612,38 +2251,6 @@ describe("header and artefact view", () => {
     expect(localStorage.getItem("flyd-left")).toBe("off");
   });
 
-  it.skip("opens the left column by itself on a wide window, and says so plainly when nothing is under way", async () => {
-    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("1480"), media: query, addEventListener() {}, removeEventListener() {} }));
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "log:news", kind: "news", title: "Watched the news for you", at: new Date(Date.now() - 9 * 60_000).toISOString() }] } });
-    expect(document.documentElement.getAttribute("data-left")).toBe("open");
-    expect(document.querySelector("#left-now .left-title")!.textContent).toBe("Nothing under way right now.");
-    expect(document.querySelector("#left-now .left-meta")!.textContent).toBe("Last active 9m ago");
-    // He can still put it away; it stays away.
-    document.getElementById("left-hide")!.click();
-    expect(document.documentElement.getAttribute("data-left")).toBe("off");
-    document.getElementById("left-toggle")!.click();
-    expect(document.documentElement.getAttribute("data-left")).toBe("open");
-  });
-
-  it.skip("folds the earlier activity to a few cards and opens the rest on request", async () => {
-    localStorage.setItem("flyd-left", "on");
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const recent = Array.from({ length: 8 }, (_, index) => ({ id: `r${index}`, kind: "noted", title: `Thing ${index}`, at: new Date(Date.now() - (index + 1) * 60_000).toISOString() }));
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent } });
-    const shown = () => document.querySelectorAll("#left-recent .left-card").length;
-    const more = document.getElementById("left-more") as HTMLButtonElement;
-    expect(shown()).toBe(5);
-    expect(more.textContent).toBe("Show 3 more");
-    more.click();
-    expect(shown()).toBe(8);
-    expect(more.textContent).toBe("Show fewer");
-  });
-
   it.skip("takes a card to the main chat when he clicks it, and lets it go again", async () => {
     localStorage.setItem("flyd-left", "on");
     load("");
@@ -2711,33 +2318,6 @@ describe("header and artefact view", () => {
     card().click();
     expect(document.getElementById("about")!.hidden).toBe(false);
     expect(document.getElementById("about-title")!.textContent).toBe("Read back its own answers");
-  });
-
-  it.skip("opens the quiet Right now card on what Flyd last did, and exactly when", async () => {
-    localStorage.setItem("flyd-left", "on");
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const at = new Date(Date.now() - 9 * 60_000).toISOString();
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [{ id: "log:news", kind: "news", title: "Watched the news for you", at }] } });
-    const card = (): HTMLElement => document.querySelector("#left-now .left-card") as HTMLElement;
-    expect(card().classList.contains("is-expandable")).toBe(true);
-    expect(document.getElementById("about")!.hidden).toBe(true);
-    card().click();
-    expect(document.getElementById("about")!.hidden).toBe(false);
-    expect(document.getElementById("about-title")!.textContent).toBe("Nothing under way right now.");
-  });
-
-  it.skip("leaves the quiet Right now card plain when Flyd has done nothing yet", async () => {
-    localStorage.setItem("flyd-left", "on");
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [] } });
-    const card = document.querySelector("#left-now .left-card") as HTMLElement;
-    expect(card.querySelector(".left-title")!.textContent).toBe("Nothing under way right now.");
-    expect(card.classList.contains("is-expandable")).toBe(false);
-    expect(card.querySelector(".card-detail")).toBeNull();
   });
 
   it.skip("lets Enter on a card's ✕ hide it rather than open the card", async () => {
@@ -2845,7 +2425,7 @@ describe("the side column's type", () => {
 
   it("gives the column one container style: no bordered boxes", async () => {
     await drawColumn();
-    for (const selector of [".rail-card", ".brief-list li", ".rail-mem"]) {
+    for (const selector of [".brief-list li"]) {
       const cs = style(selector);
       const border = parseFloat(cs.borderTopWidth);
       expect(Number.isNaN(border) || border === 0, `${selector} border`).toBe(true);
@@ -2853,13 +2433,6 @@ describe("the side column's type", () => {
     }
   });
 
-  it("never lets a preview card show white, desktop or phone", async () => {
-    await drawColumn();
-    for (const selector of [".rail-frame-box", ".rail-phone-screen", ".rail-frame", ".rail-phone-frame"]) {
-      const background = style(selector).backgroundColor;
-      expect(background === "" || background === "transparent" || background === "none" || !WHITE.test(background), `${selector} background ${background}`).toBe(true);
-    }
-  });
 });
 
 describe("what Flyd shows of its staff, at a glance", () => {
@@ -3051,7 +2624,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
         title: "", summary: "", live: false, counts: {}, items: [],
         calls: [{ id: "call:decision", kind: "call", headline: "Choose the final layout.", why: "", decision: { task: "layout", question: "Which layout?", choices: ["A", "B"] } }],
         underway: [{ id: "live:active", kind: "live", headline: "Still building the page.", why: "" }],
-        done: [{ id: "landed:done", task: "done", kind: "landed", headline: "The page is live.", why: "", at: new Date(Date.now() - 4 * 60_000).toISOString(), links: [{ label: "Pull request", url: "https://github.com/example/repo/pull/1" }] }],
+        done: [{ id: "landed:done", task: "done", kind: "landed", headline: "The page is live.", why: "", detail: "Visitors now see the new gallery.", project: "GNM", status: "merged", at: new Date(Date.now() - 4 * 60_000).toISOString(), shots: [{ src: "/api/shot/1.png", label: "after.png" }], links: [{ label: "Pull request", url: "https://github.com/example/repo/pull/1" }] }],
       },
       boxes: [],
       rail: { conversations: [{ id: "note:conversation", question: "conversation-only question", answer: "conversation-only answer" }], artefacts: [{ id: "preview:live", title: "Live preview", url: "http://127.0.0.1:8097/", preview: "http://127.0.0.1:8097/" }] },
@@ -3063,13 +2636,44 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(document.querySelector("#needs .needs-head")!.textContent).toBe("Choose the final layout.");
     const done = [...document.querySelectorAll<HTMLElement>("#done li")];
     expect(done.map((item) => item.dataset.key)).toEqual(["landed:done"]);
-    expect(done[0]!.querySelector<HTMLAnchorElement>(".brief-line a")!.href).toBe("https://github.com/example/repo/pull/1");
-    expect(done[0]!.textContent).not.toMatch(/Preview|live preview|Under way|Still building|conversation-only/i);
+    // A Done card is its thumbnail, its title, one short outcome line, then "open" and how long ago.
+    expect([...done[0]!.children].map((node) => node.className)).toEqual(["card-thumb", "card-text", "card-dismiss"]);
+    expect([...done[0]!.querySelector(".card-text")!.children].map((node) => node.textContent)).toEqual(["The page is live.", "Visitors now see the new gallery.", "open4m ago"]);
+    const openLink = done[0]!.querySelector<HTMLAnchorElement>(".brief-meta a")!;
+    expect(openLink.textContent).toBe("open");
+    expect(openLink.href).toBe("https://github.com/example/repo/pull/1");
+    expect(done[0]!.querySelector(".card-icon, .card-meta")).toBeNull();
+    expect(done[0]!.textContent).not.toMatch(/GNM|merged|Preview|live preview|Under way|Still building|conversation-only/i);
     expect(document.getElementById("rail")!.hidden).toBe(false);
-    expect(document.getElementById("rail-body")!.hidden).toBe(true);
-    expect(document.getElementById("artefact-body")!.hidden).toBe(true);
+    expect(document.querySelectorAll("#rail .rail-talk, #rail .rail-card, #rail .rail-mem, #rail iframe")).toHaveLength(0);
     expect(leftIds).not.toContain(done[0]!.dataset.key);
     expect(done.map((item) => item.textContent).join(" ")).not.toContain("Still building the page");
+  });
+
+  it("opens the left column whenever something needs him, even on a narrow window with the column switched off", async () => {
+    localStorage.setItem("flyd-left", "off");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const update = (calls: unknown[]) => stream.emit("update", {
+      order: [], messages: [], working: false, boxes: [],
+      show: { title: "", summary: "", live: false, counts: {}, items: [], calls },
+      leftColumn: { now: [], recent: [], semantic: [] },
+    });
+    update([{ id: "call:decision", kind: "call", headline: "Choose the final layout.", why: "", decision: { task: "layout", question: "Which layout?", choices: ["A", "B"] } }]);
+    await settle();
+    expect(document.getElementById("left")!.hidden).toBe(false);
+    expect(document.documentElement.getAttribute("data-left")).toBe("open");
+    expect(document.getElementById("left-hide")!.hidden).toBe(true);
+    document.getElementById("left-toggle")!.click();
+    document.getElementById("left-toggle")!.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.getElementById("left")!.hidden).toBe(false);
+    expect(document.querySelector("#left #needs .needs-head")!.textContent).toBe("Choose the final layout.");
+    update([]);
+    await settle();
+    expect(document.getElementById("left")!.hidden).toBe(true);
+    expect(document.documentElement.getAttribute("data-left")).toBe("off");
   });
 
   it("puts a column card away when he hides it, and keeps it away after a reload", async () => {
