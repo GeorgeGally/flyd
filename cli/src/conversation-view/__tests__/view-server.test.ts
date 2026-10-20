@@ -9,7 +9,8 @@ import type { ConversationMessage, Exchange } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ActivityReader } from "../activity.js";
 import { artefactAsk } from "../replies.js";
-import { ArtefactFeed } from "../artefact.js";
+import { ArtefactFeed, fleetCounts, heldItems } from "../artefact.js";
+import { HeldOutcomes } from "../held.js";
 import { ConversationViewServer, replyCards, SnapshotDiffer } from "../server.js";
 import { AutoAnswers } from "../auto-answers.js";
 import { ComposerPredictions } from "../composer-predictions.js";
@@ -620,6 +621,71 @@ describe("ConversationViewServer", () => {
     expect((await post(port, JSON.stringify({ about: { title: "Map" }, text: "Hi", images: "nope" }), headers)).status).toBe(400);
     expect((await post(port, JSON.stringify({ about: { task: "x" }, text: "Hi" }), headers)).status).toBe(400);
     expect((await post(port, JSON.stringify({ about: { title: "Map" }, text: "" }), headers)).status).toBe(400);
+  });
+
+  it("takes each held-up item's one action in Core, keeps the outcome and drops it from the list and its count", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-held-server-"));
+    for (const sub of ["bin", "data", "state"]) mkdirSync(join(dir, sub));
+    const gate = "Chief-of-staff mission contract + George-facing gate";
+    writeFileSync(join(dir, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat <<'EOF'\n${JSON.stringify({ in_flight: [
+      { id: "gate", state: "unknown", repo: "flyd", name: gate, doing: "Selected run code identity unverified; run ids: 01M56VVYX723WMFPQNNCPXZHVQ" },
+      { id: "gate-again", state: "unknown", repo: "flyd", name: gate },
+      { id: "pricing", state: "failed", name: "Pricing report" },
+      { id: "hero", state: "paused", name: "Pick the hero image?" },
+      { id: "migration", state: "failed", name: "Old migration" },
+      { id: "ancient", state: "failed", name: "Ancient cleanup" },
+    ] })}\nEOF\n`, { mode: 0o755 });
+    writeFileSync(join(dir, "bin", "fm-inbox.sh"), '#!/bin/sh\nmkdir -p "$FM_HOME/state/inbox"\ncat > "$FM_HOME/state/inbox/held-note"\nprintf "queued held-note\\n"\n', { mode: 0o755 });
+    const day = 86_400_000;
+    for (const [task, age] of [["gate", day / 2], ["pricing", day / 4], ["hero", day / 8], ["migration", 10 * day], ["ancient", 40 * day]] as const) {
+      writeFileSync(join(dir, "state", `${task}.status`), "stopped\n");
+      const at = new Date(Date.now() - age);
+      utimesSync(join(dir, "state", `${task}.status`), at, at);
+    }
+    const outcomes = join(dir, "held-outcomes.json");
+    const feed = new ArtefactFeed({ home: dir, memoryFile: join(dir, "none"), newsFile: join(dir, "none"), tasteFile: join(dir, "none"), heldOutcomes: new HeldOutcomes(outcomes) });
+    await feed.refresh();
+    // A month-old hold and the same work listed twice are not his to sort through.
+    expect(feed.current().fleet!.held.map((row) => row.task).sort()).toEqual(["gate", "hero", "migration", "pricing"]);
+    expect(fleetCounts(feed.current().fleet).waiting).toBe(4);
+    const items = heldItems(feed.current().fleet, { project: (repo) => (repo === "flyd" ? "Flyd" : undefined) });
+    expect(items.map((item) => [item.task, item.action])).toEqual([["hero", "reply"], ["pricing", "save"], ["gate", "act"], ["migration", "dismiss"]]);
+    const gateItem = items.find((item) => item.task === "gate")!;
+    expect(gateItem.headline).toBe("“Chief-of-staff mission contract and George-facing gate” has gone quiet.");
+    expect(gateItem.why).toBe("Nobody is moving it forward, so Flyd can check on it and get it going again.");
+    expect(`${gateItem.headline} ${gateItem.why}`).not.toMatch(/01M56|run ids|no word/);
+    expect(gateItem.detail).toContain("01M56VVYX723WMFPQNNCPXZHVQ");
+
+    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, inbox: new FirstmateInbox({ home: dir }) }), undefined, undefined, undefined, feed);
+    const saved: string[] = [];
+    server.saveHeld = async (text) => { saved.push(text); };
+    const port = await server.listen(0);
+    viewToken = JSON.parse((await get(port, "/api/token")).body).token;
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const choose = (id: string, action: string, sent: Record<string, string> = headers) => post(port, JSON.stringify({ id, action }), sent, "/api/held");
+    expect((await choose(gateItem.id, "act", { "content-type": "application/json" })).status).toBe(403);
+    expect((await choose("waiting:held-nothing", "dismiss")).status).toBe(409);
+    expect((await choose(gateItem.id, "shout")).status).toBe(409);
+
+    expect((await choose(gateItem.id, "act")).status).toBe(200);
+    expect(readFileSync(join(dir, "state", "inbox", "held-note"), "utf8")).toMatch(/^George asks you to pick up held-up task gate: Chief-of-staff mission contract \+ George-facing gate \(no word\)\.\nLast word: .*01M56VVYX723WMFPQNNCPXZHVQ[\s\S]*Restart or continue it/);
+    expect((await choose(items.find((item) => item.task === "pricing")!.id, "save")).status).toBe(200);
+    expect(saved).toEqual(["Pricing report"]);
+    expect((await choose(items.find((item) => item.task === "hero")!.id, "reply")).status).toBe(200);
+    expect((await choose(items.find((item) => item.task === "migration")!.id, "dismiss")).status).toBe(200);
+
+    // Gone from the list and its count, the duplicate with it, and still gone after a fresh read and a restart.
+    await feed.refresh();
+    expect(feed.current().fleet!.held).toEqual([]);
+    expect(fleetCounts(feed.current().fleet).waiting).toBe(0);
+    expect((await choose(gateItem.id, "act")).status).toBe(409);
+    const reread = new ArtefactFeed({ home: dir, memoryFile: join(dir, "none"), newsFile: join(dir, "none"), tasteFile: join(dir, "none"), heldOutcomes: new HeldOutcomes(outcomes) });
+    await reread.refresh();
+    expect(reread.current().fleet!.held).toEqual([]);
+    // Work that reports again after he chose comes back to him.
+    utimesSync(join(dir, "state", "migration.status"), new Date(), new Date());
+    await reread.refresh();
+    expect(reread.current().fleet!.held.map((row) => row.task)).toEqual(["migration"]);
   });
 
   it("says whether firstmate has read a note he sent from an artefact, only with the view's token", async () => {

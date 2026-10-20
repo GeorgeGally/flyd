@@ -4571,7 +4571,7 @@ ${LEFT_SCRIPT}
   function drillItem(item) {
     var key = item.id;
     // Where it stands, in a word or two: its state unless that only repeats the chip.
-    var line = item.status && !/^(?:landed|done|queued|merged)$/i.test(item.status) ? item.status : (item.project || "");
+    var line = item.kind !== "waiting" && item.status && !/^(?:landed|done|queued|merged)$/i.test(item.status) ? item.status : (item.project || "");
     var open = item.links && item.links.length && !item.links[0].closed ? { url: item.links[0].url } : {};
     return visualCard(Object.assign({}, item, open), {
       kind: item.kind,
@@ -4591,17 +4591,10 @@ ${LEFT_SCRIPT}
     if (!group || !lastScreen) return;
     var items = group.pick(lastScreen).slice().sort(function (a, b) { return drillWhen(b) - drillWhen(a); });
     if (drillKind === "waiting") {
-      var outcomes = {};
-      try { outcomes = JSON.parse(store("flyd-held-outcomes") || "{}") || {}; } catch (e) { outcomes = {}; }
-      var cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-      var seen = {};
-      items = items.filter(function (item) {
-        var at = drillWhen(item);
-        var fingerprint = [item.project || "", item.headline || "", item.why || ""].join("|").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-        if (outcomes[item.id] || (at && at < cutoff) || seen[fingerprint]) return false;
-        seen[fingerprint] = true;
-        return true;
-      });
+      var listed = {};
+      items.forEach(function (item) { listed[item.id] = 1; });
+      Object.keys(heldDone).forEach(function (id) { if (!listed[id]) delete heldDone[id]; });
+      items = heldGrouped(items.filter(function (item) { return !heldDone[item.id]; }));
     }
     var key = drillKind + "|" + JSON.stringify(items);
     if (key === drawnDrill) return;
@@ -4614,34 +4607,63 @@ ${LEFT_SCRIPT}
     items.forEach(function (item) {
       var card = drillItem(item);
       if (drillKind === "waiting") {
-        var heldGroup = item.project || (/\\b(?:question|decision|choose|approve)\\b/i.test((item.headline || "") + " " + (item.why || "")) ? "Needs your reply" : "Work to review");
+        var heldGroup = heldGroupOf(item);
         if (heldGroup !== lastHeldGroup) {
           drillList.appendChild(el("li", "held-group", heldGroup));
           lastHeldGroup = heldGroup;
         }
         var body = card.querySelector(".card-text");
-        var why = el("p", "card-sub", sentence(capital(item.why || "This needs your attention.")));
-        body.insertBefore(why, body.querySelector(".card-detail"));
-        var action = /\\b(?:question|decision|choose|approve)\\b/i.test((item.headline || "") + " " + (item.why || "")) ? "Reply" : /\\b(?:save|remember|keep)\\b/i.test(item.headline || "") ? "Save" : /\\b(?:retry|continue|restart|act)\\b/i.test((item.headline || "") + " " + (item.detail || "")) ? "Act" : "Dismiss";
-        var control = el("button", "held-action", action);
-        control.type = "button";
-        control.addEventListener("click", function () {
-          var saved = {};
-          try { saved = JSON.parse(store("flyd-held-outcomes") || "{}") || {}; } catch (e) { saved = {}; }
-          saved[item.id] = { action: action.toLowerCase(), at: new Date().toISOString() };
-          store("flyd-held-outcomes", JSON.stringify(saved));
-          if (action === "Reply") {
-            var replyBody = el("div", "");
-            replyBody.appendChild(el("p", "about-text", item.why + " " + (item.detail || "")));
-            chatAbout({ title: item.headline, body: replyBody });
-          }
-          drawnDrill = "";
-          drawDrill();
-        });
-        body.appendChild(control);
+        if (item.why) body.insertBefore(el("p", "card-sub", item.why), body.querySelector(".card-detail"));
+        if (item.action && HELD_LABELS[item.action]) body.appendChild(heldControl(item, card));
       }
       drillList.appendChild(card);
     });
+  }
+  // Held up, by theme: his project's work together, else what waits on his answer, else the rest; newest theme first.
+  var HELD_LABELS = { reply: "Reply", save: "Save", dismiss: "Dismiss", act: "Act" };
+  var heldDone = {};
+  function heldGroupOf(item) { return item.project || (item.action === "reply" ? "Waiting on your answer" : "Other work"); }
+  function heldGrouped(items) {
+    var order = [];
+    var byGroup = {};
+    items.forEach(function (item) {
+      var name = heldGroupOf(item);
+      if (!byGroup[name]) { byGroup[name] = []; order.push(name); }
+      byGroup[name].push(item);
+    });
+    return order.reduce(function (all, name) { return all.concat(byGroup[name]); }, []);
+  }
+  // His one choice for a hold: kept in Core, so it leaves every view; a reply then goes on in the message box, about it.
+  function heldControl(item, card) {
+    var control = el("button", "held-action", HELD_LABELS[item.action]);
+    control.type = "button";
+    control.addEventListener("click", function () {
+      control.disabled = true;
+      var failed = card.querySelector(".held-problem");
+      if (failed) failed.remove();
+      authed("/api/held", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: item.action }) }, true)
+        .then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            if (!response.ok) throw new Error(data.error || "That didn't go through");
+          });
+        })
+        .then(function () {
+          heldDone[item.id] = 1;
+          if (item.action === "reply") {
+            closeDrill();
+            var replyBody = el("div", "");
+            if (item.why) replyBody.appendChild(el("p", "about-text", item.why));
+            chatAbout({ kind: "waiting", title: item.headline, detail: item.task ? "task " + item.task : "", when: item.at ? ago(item.at) : "", body: replyBody });
+            return;
+          }
+          drawnDrill = "";
+          drawDrill();
+        }, function (error) {
+          control.disabled = false;
+          control.parentNode.insertBefore(el("p", "card-sub held-problem", error.message), control);
+        });
+    });
+    return control;
   }
   function closeDrill() {
     drillEl.hidden = true;

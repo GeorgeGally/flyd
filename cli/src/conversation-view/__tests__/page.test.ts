@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { plainHeld } from "../held.js";
 import { boxesOf } from "../boxes.js";
 import { RECEIVED } from "../living.js";
 import { renderPage } from "../page.js";
@@ -58,6 +59,15 @@ class FakeAudioContext {
   createGain() {
     return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} };
   }
+}
+
+/** Held-up rows as Core's heldItems says them: its plain words, the row's own detail behind them. */
+function heldItems(fleet: { held: Array<{ label: string; task: string; repo?: string; status: string; detail?: string; at: string }> }, options: { project?: (repo: string) => string | undefined } = {}) {
+  const now = Date.now();
+  return [...fleet.held].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).map((row) => {
+    const project = row.repo ? options.project?.(row.repo) ?? row.repo : undefined;
+    return { id: `waiting:held-${row.task}`, kind: "waiting", ...plainHeld(row, row.label, now), status: row.status, task: row.task, at: row.at, ...(row.detail ? { detail: row.detail } : {}), ...(project ? { project } : {}) };
+  });
 }
 
 function json(body: unknown, status = 200): Response {
@@ -1743,32 +1753,88 @@ describe("header and artefact view", () => {
     expect(drill.hidden).toBe(true);
   });
 
-  it("shows one attention action per held item, records it, and removes the item", async () => {
+  it("groups held work by theme, offers its one action in plain words, and takes it off the list through Core", async () => {
     load("");
     await settle();
+    const posted: Array<{ id: string; action: string }> = [];
+    const answer = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (url !== "/api/held") return answer(url, init);
+      posted.push(JSON.parse(String(init!.body)));
+      return json({ ok: true });
+    });
     const stream = open("latest", []);
-    const held = [
-      { id: "held:reply", kind: "waiting", headline: "A decision needs your reply", why: "Your choice lets the work continue.", at: new Date().toISOString() },
-      { id: "held:save", kind: "waiting", headline: "Save this for later", why: "You may want to return to this.", at: new Date().toISOString() },
-      { id: "held:act", kind: "waiting", headline: "Restart the work", why: "This will let it continue.", at: new Date().toISOString() },
-      { id: "held:dismiss", kind: "waiting", headline: "A job couldn't be finished", why: "This needs your attention.", at: new Date().toISOString() },
-    ];
-    const show = { title: "", summary: "", live: false, counts: { waiting: held.length }, items: [], held };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "held up", value: held.length, tone: "waiting" }] }] });
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+    const held = heldItems({ held: [
+      { label: "Chief-of-staff mission contract + George-facing gate", task: "gate", repo: "flyd", status: "no word", detail: "Selected run code identity unverified; run ids: 01M56VVYX723WMFPQNNCPXZHVQ", at: hoursAgo(16) },
+      { label: "Pick the hero image?", task: "hero", status: "paused", at: hoursAgo(8) },
+      { label: "Pricing report", task: "pricing", repo: "flyd", status: "failed", at: hoursAgo(4) },
+      { label: "Old migration", task: "migration", status: "failed", at: hoursAgo(240) },
+    ] }, { project: (repo) => (repo === "flyd" ? "Flyd" : undefined) });
+    const screen = (items: unknown[]) => ({ order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: { waiting: items.length }, items: [], held: items }, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "held up", value: items.length, tone: "waiting" }] }] });
+    stream.emit("update", screen(held));
     await settle();
     document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
-    const actions = [...document.querySelectorAll<HTMLButtonElement>("#drill-list .held-action")];
-    expect(actions.map((button) => button.textContent)).toEqual(["Reply", "Save", "Act", "Dismiss"]);
-    expect([...document.querySelectorAll<HTMLElement>("#drill-list .card-sub")].map((node) => node.textContent)).toEqual([
-      "Your choice lets the work continue.", "You may want to return to this.", "This will let it continue.", "This needs your attention.",
+    const list = document.getElementById("drill-list")!;
+    // One theme each, even when a newer item of another theme falls between two of the same project.
+    expect([...list.querySelectorAll(".held-group")].map((node) => node.textContent)).toEqual(["Flyd", "Waiting on your answer", "Other work"]);
+    const cards = [...list.querySelectorAll<HTMLElement>(".card")];
+    expect(cards.map((card) => card.querySelector(".card-line")!.textContent)).toEqual([
+      "“Pricing report” failed.",
+      "“Chief-of-staff mission contract and George-facing gate” has gone quiet.",
+      "“Pick the hero image?” is waiting on your answer.",
+      "“Old migration” failed.",
     ]);
-    for (const button of actions) button.click();
-    const outcomes = JSON.parse(localStorage.getItem("flyd-held-outcomes") || "{}");
-    expect(Object.fromEntries(Object.entries(outcomes).map(([id, value]: [string, any]) => [id, value.action]))).toEqual({
-      "held:reply": "reply", "held:save": "save", "held:act": "act", "held:dismiss": "dismiss",
-    });
+    expect(cards.map((card) => card.querySelector(".held-action")!.textContent)).toEqual(["Save", "Act", "Reply", "Dismiss"]);
+    // The main text is plain sentences; the run id and the status word wait behind the card's own details.
+    const gate = cards[1]!;
+    expect(gate.querySelector(".card-text")!.textContent).toContain("Nobody is moving it forward, so Flyd can check on it and get it going again.");
+    const shown = [...gate.querySelectorAll(".card-text > *:not(.card-detail)")].map((node) => node.textContent).join(" ");
+    expect(shown).not.toMatch(/01M56|run ids|no word/);
+    expect(gate.querySelector<HTMLElement>(".card-detail")!.hidden).toBe(true);
+    expect(gate.querySelector(".card-detail")!.textContent).toContain("01M56VVYX723WMFPQNNCPXZHVQ");
+
+    for (const task of ["pricing", "gate", "migration"]) {
+      list.querySelector<HTMLButtonElement>(`.card[data-key="waiting:held-${task}"] .held-action`)!.click();
+      await settle();
+      expect(list.querySelector(`.card[data-key="waiting:held-${task}"]`)).toBeNull();
+    }
+    expect(posted).toEqual([{ id: "waiting:held-pricing", action: "save" }, { id: "waiting:held-gate", action: "act" }, { id: "waiting:held-migration", action: "dismiss" }]);
+
+    // A reply opens a chat about that work in the message box, in front of the closed list.
+    list.querySelector<HTMLButtonElement>('.card[data-key="waiting:held-hero"] .held-action')!.click();
+    await settle();
+    expect(posted.at(-1)).toEqual({ id: "waiting:held-hero", action: "reply" });
+    expect(document.getElementById("drill")!.hidden).toBe(true);
+    expect(document.getElementById("about")!.hidden).toBe(false);
+    expect(document.getElementById("about-title")!.textContent).toBe("“Pick the hero image?” is waiting on your answer.");
+    expect(document.activeElement).toBe(document.getElementById("input"));
+
+    // Every one dealt with, and Core's next picture no longer holds them: the list says nothing needs him.
+    document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
+    expect(document.querySelectorAll("#drill-list .card")).toHaveLength(0);
+    stream.emit("update", screen([]));
+    await settle();
+    expect(document.getElementById("drill")!.hidden).toBe(false);
     expect(document.querySelectorAll("#drill-list .card")).toHaveLength(0);
     expect(document.querySelector("#drill-list .drill-empty")?.textContent).toBe("Nothing needs your attention right now.");
+  });
+
+  it("keeps a held item on the list, saying why, when Core could not take the action", async () => {
+    load("");
+    await settle();
+    const answer = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => (url === "/api/held" ? json({ error: "Flyd can't pick this up from here" }, 409) : answer(url, init)));
+    const stream = open("latest", []);
+    const held = heldItems({ held: [{ label: "Deploy the site", task: "deploy", status: "failed", at: new Date().toISOString() }] });
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: { waiting: 1 }, items: [], held }, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "held up", value: 1, tone: "waiting" }] }] });
+    await settle();
+    document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
+    document.querySelector<HTMLButtonElement>("#drill-list .held-action")!.click();
+    await settle();
+    expect(document.querySelectorAll("#drill-list .card")).toHaveLength(1);
+    expect(document.querySelector("#drill-list .held-problem")?.textContent).toBe("Flyd can't pick this up from here");
+    expect(document.querySelector<HTMLButtonElement>("#drill-list .held-action")!.disabled).toBe(false);
   });
 
   it("opens the week's landed figure onto its own week's work, not the column's list", async () => {

@@ -7,6 +7,7 @@ import { choiceOf, choiceTarget, openChoice, type ChoiceStep } from "./choices.j
 import { callItems, composeArtefact, doneItems, fleetCounts, heldItems, nextItems, readyItems, underwayItems, weekLandedItems, type ArtefactInputs, type DayCount } from "./artefact.js";
 import { railImageSrc } from "./rail.js";
 import { semanticObjectsFromShow, type SemanticEvent, type SemanticObject } from "./semantic.js";
+import type { HeldAction } from "./held.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
 // Show mode: Flyd's own picture of what matters now, for the Conversation
@@ -48,6 +49,8 @@ export interface ShowItem {
   why: string;
   /** The next step or the concrete ask, whole. */
   detail?: string;
+  /** A hold's one suggested thing to do about it. */
+  action?: HeldAction;
   /** A word or two for its state: "merged", "checks green", "paused". */
   status?: string;
   /** Screenshots of the work, newest "after" shots first. */
@@ -420,7 +423,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   // conversation read fills what is left.
   const projectOfRepo = (repo: string): string | undefined =>
     projects.find((project) => project.repos.some((path) => base(path) === repo.toLowerCase()) || slug(project.name) === repo.toLowerCase())?.name;
-  const artefact = inputs.artefact ? composeArtefact(inputs.artefact, { project: projectOfRepo }) : [];
+  const artefact = inputs.artefact ? composeArtefact(inputs.artefact, { project: projectOfRepo, now }) : [];
   // A question just put to him in the conversation leads the fleet's older holds; the site's latest changes come next.
   const asked = items.filter((item) => item.kind === "call");
   const chosen = [...asked, ...siteItems, ...artefact, ...items.filter((item) => item.kind !== "call")]
@@ -436,20 +439,20 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
     for (const item of items) if (item.kind !== "waiting") counts[item.kind] = (counts[item.kind] ?? 0) + 1;
   }
   // The figure "N need you" opens: the fleet's every call when it has a snapshot, else the one just asked.
-  const calls = fleet && !fleet.unavailable ? callItems(fleet, { project: projectOfRepo }) : asked;
+  const calls = fleet && !fleet.unavailable ? callItems(fleet, { project: projectOfRepo, now }) : asked;
   // "N need you" is exactly the calls it opens: a call the sheet cannot show is not counted.
   if (fleet && !fleet.unavailable) {
     if (calls.length) counts.call = calls.length;
     else delete counts.call;
   }
-  const underway = underwayItems(fleet, { project: projectOfRepo });
-  const done = doneItems(fleet, { project: projectOfRepo });
+  const underway = underwayItems(fleet, { project: projectOfRepo, now });
+  const done = doneItems(fleet, { project: projectOfRepo, now });
   // What each state figure opens: every piece of work behind the number.
-  const ready = readyItems(fleet, { project: projectOfRepo });
-  const held = heldItems(fleet, { project: projectOfRepo });
-  const next = nextItems(fleet, { project: projectOfRepo });
+  const ready = readyItems(fleet, { project: projectOfRepo, now });
+  const held = heldItems(fleet, { project: projectOfRepo, now });
+  const next = nextItems(fleet, { project: projectOfRepo, now });
   // The week's landed figure opens its own week's work, not the column's eight.
-  const landedWeek = weekLandedItems(inputs.artefact, { project: projectOfRepo });
+  const landedWeek = weekLandedItems(inputs.artefact, { project: projectOfRepo, now });
   return {
     title: titleOf(chosen, recap && artefact.length === 0),
     summary: situationOf(counts, fleet?.unavailable),
