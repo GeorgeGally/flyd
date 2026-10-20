@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,6 +56,10 @@ describe("buildConversationPrompt", () => {
       await expect(turn((input) => persistTurnReceipt(input, { flydDir, id: () => "view-receipt" }))).resolves.toContain("A quiet day.");
       await expect(loadLatestTurnReceipt({ flydDir, sessionId: "view:conversation" }))
         .resolves.toMatchObject({ id: "view-receipt", sessionId: "view:conversation", turnNumber: 7, status: "succeeded" });
+      const receiptFiles = readdirSync(join(flydDir, "turn-receipts"), { recursive: true }).map(String);
+      const receiptFile = receiptFiles.find((file) => file.endsWith("000007-view-receipt.json"));
+      expect(receiptFile).toBeDefined();
+      expect(JSON.parse(readFileSync(join(flydDir, "turn-receipts", receiptFile!), "utf8"))).toMatchObject({ sessionId: "view:conversation", answer: expect.stringContaining("A quiet day.") });
       const store = new IntelligenceEventStore({ path: join(flydDir, "intelligence.sqlite") });
       const traces = store.readSource(EXPERIENCE_SOURCE_ID);
       store.close();
