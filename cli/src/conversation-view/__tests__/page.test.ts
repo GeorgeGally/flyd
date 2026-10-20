@@ -2143,6 +2143,10 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [] }, boxes: [], rail });
     await settle();
     const card = document.querySelector<HTMLElement>(".rail-card")!;
+    const opener = card.querySelector<HTMLButtonElement>(".art-chat-open")!;
+    expect(card.querySelector(".art-chat")!.hasAttribute("hidden")).toBe(true);
+    opener.click();
+    expect(card.querySelector(".art-chat")!.hasAttribute("hidden")).toBe(false);
     const input = card.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
     const send = card.querySelector<HTMLButtonElement>(".art-chat-send")!;
     input.focus();

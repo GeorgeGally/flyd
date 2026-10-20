@@ -244,6 +244,9 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 /* The chat box at the foot of every artefact: one field like the reply card,
    his words and Send inside it on one row, any pasted images above them. */
 .art-chat { display: flex; flex-direction: column; gap: 8px; }
+.art-chat[hidden] { display: none; }
+.art-chat-open { width: 28px; height: 28px; padding: 0; color: var(--muted); background: transparent; border: 0; cursor: pointer; }
+.art-chat-open:hover { color: var(--strong); }
 /* A question's own answer box, one step at a time, is the same field. */
 .art-chat-field, .scene-ask .step-free {
   padding: 6px 6px 6px 14px; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 10px;
@@ -1534,12 +1537,26 @@ var __name = function (f) { return f; };
     return row;
   }
   var lightbox = document.getElementById("lightbox");
+  var lightboxImages = [];
+  var lightboxIndex = 0;
   function openImage(url) {
-    document.getElementById("lightbox-img").src = url;
+    lightboxImages = Array.from(document.querySelectorAll("img")).map(function (image) { return image.currentSrc || image.src; }).filter(Boolean);
+    lightboxIndex = Math.max(0, lightboxImages.findIndex(function (imageUrl) { return imageUrl.indexOf(url) >= 0; }));
+    document.getElementById("lightbox-img").src = lightboxImages[lightboxIndex] || url;
     lightbox.hidden = false;
   }
-  lightbox.addEventListener("click", function () { lightbox.hidden = true; });
-  document.addEventListener("keydown", function (event) { if (event.key === "Escape") lightbox.hidden = true; });
+  function stepLightbox(direction) {
+    if (!lightboxImages.length) return;
+    lightboxIndex = (lightboxIndex + direction + lightboxImages.length) % lightboxImages.length;
+    document.getElementById("lightbox-img").src = lightboxImages[lightboxIndex];
+  }
+  lightbox.addEventListener("click", function (event) { if (event.target === lightbox) lightbox.hidden = true; });
+  document.addEventListener("keydown", function (event) {
+    if (lightbox.hidden) return;
+    if (event.key === "Escape") lightbox.hidden = true;
+    else if (event.key === "ArrowRight") stepLightbox(1);
+    else if (event.key === "ArrowLeft") stepLightbox(-1);
+  });
 
   // A sent note that was saved but did not wake firstmate says so.
   function showWarning(el, text) {
@@ -2209,7 +2226,9 @@ var __name = function (f) { return f; };
     if (SEND_TOKEN) {
       var about = { title: card.title };
       if (card.url) about.url = card.url;
-      box.appendChild(artefactChat("flyd-about:" + card.id, { about: about }, "Say something about this…").form);
+      var chat = artefactChat("flyd-about:" + card.id, { about: about }, "Say something about this…");
+      box.appendChild(chat.opener);
+      box.appendChild(chat.form);
     }
     return box;
   }
@@ -2922,6 +2941,16 @@ ${LEFT_SCRIPT}
     try { state.thread = JSON.parse(store(key) || "[]"); } catch (_) {}
     if (!Array.isArray(state.thread)) state.thread = [];
     var form = el("form", "art-chat");
+    form.hidden = true;
+    var opener = el("button", "art-chat-open", "◌");
+    opener.type = "button";
+    opener.setAttribute("aria-label", "Chat about this item");
+    opener.setAttribute("aria-expanded", "false");
+    opener.addEventListener("click", function () {
+      form.hidden = !form.hidden;
+      opener.setAttribute("aria-expanded", String(!form.hidden));
+      if (!form.hidden) input.focus();
+    });
     form.setAttribute("aria-label", label);
     var input = el("textarea", "art-chat-input");
     input.rows = 1;
@@ -3125,7 +3154,7 @@ ${LEFT_SCRIPT}
     form.appendChild(thread);
     form.appendChild(field);
     form.appendChild(receipt);
-    var chat = { form: form, state: state, deliver: deliver, save: save, onPaint: null };
+    var chat = { form: form, opener: opener, state: state, deliver: deliver, save: save, onPaint: null };
     paintThread();
     paint();
     watch();
@@ -3186,6 +3215,7 @@ ${LEFT_SCRIPT}
       chat.onPaint();
       wrap.appendChild(choices);
     }
+    wrap.appendChild(chat.opener);
     wrap.appendChild(chat.form);
     return wrap;
   }
