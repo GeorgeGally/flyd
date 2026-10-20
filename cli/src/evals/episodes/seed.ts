@@ -36,7 +36,6 @@ async function main(): Promise<void> {
   memory.rebuild();
   const store = new IntelligenceEventStore();
   const snapshotHeadSequence = store.headSequence();
-  const snapshotHeadSequence = store.headSequence();
   const allEvents = store.readFrom(0, Number.MAX_SAFE_INTEGER).filter((event) => !event.erased && event.payload);
   store.close();
   if (allEvents.length < 8) throw new Error("Not enough canonical events to seed an episodic benchmark");
