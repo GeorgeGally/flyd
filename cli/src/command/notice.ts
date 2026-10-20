@@ -47,12 +47,12 @@ export function captainNotice(run: DomainRun): string | null {
   if (run.status === "needs_decision" || run.status === "failed") return decisionNotice(run, brief);
   if (run.status !== "completed" || isRoutineChatter(brief)) return null;
   // The same outgoing-answer checks a chat reply passes: a placeholder or a
-  // ruled-out phrase reaches George as nothing, a completion that only names
+  // ruled-out phrase reaches George as nothing, an outcome that only names
   // backstage machinery gives way to a line naming the work, and what was held is recorded so a reviewer can see it.
   const held = relayShortfalls(brief);
   if (!held.length) return brief;
   recordHeld({ surface: "notification", source: `domain:${run.id}`, text: brief }, held);
-  if (held.some((shortfall) => shortfall.requirement !== "backstage_hidden")) return null;
+  if (!reportsOutcome(brief) || held.some((shortfall) => shortfall.requirement !== "backstage_hidden")) return null;
   const named = namedOutcome(run);
   return named ? `Work on ${named} is done.` : null;
 }

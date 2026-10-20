@@ -94,22 +94,27 @@ describe("notices keep the one voice", () => {
   const verdicts = () => readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
     .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
 
-  it("brings a completion that names backstage as a line naming the work, never verbatim, and records it", () => {
+  it("brings a finished outcome that names backstage as a line naming the work, keeps anything else off his screen, and records it", () => {
     for (const reply of [
       "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.",
-      "Firstmate has not read 3 notes you sent.",
       "The crewmate finished 2 jobs.",
+      "Merged the fix on fm/island-filter; the island is quiet.",
+      "Fixed it in the worktree; 2 files changed.",
+    ]) {
+      expect(captainNotice(run(reply)), reply).toBe('Work on "Fix the island" is done.');
+    }
+    for (const reply of [
+      "Firstmate has not read 3 notes you sent.",
       "Jev reviewed 4 requests.",
       "The Council reviewed 6 items.",
       "The Librarian curated 12 memories.",
       "The Scout surfaced 4 stories.",
-      "Merged the fix on fm/island-filter; the island is quiet.",
       "Task id task-9 is stuck.",
-      "Fixed it in the worktree; 2 files changed.",
       "The pipeline ran 5 checks.",
     ]) {
-      expect(captainNotice(run(reply)), reply).toBe('Work on "Fix the island" is done.');
+      expect(captainNotice(run(reply)), reply).toBeNull();
     }
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Task id task-9 is stuck.", surface: "notification", held: true }));
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.", surface: "notification", held: true }));
   });
 
