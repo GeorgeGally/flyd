@@ -1,9 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { honestyRewritePrompt, unsupportedClaims } from "../honesty-check.js";
+import { artefactRequiredViolation, honestyRewritePrompt, unsupportedClaims } from "../honesty-check.js";
 
 const mutating = (name: string) => name === "write_file" || name === "reminders" || name === "background_task" || name === "start_knowledge_task";
 
 describe("honesty check", () => {
+  it("requires an artefact for long enumerations, but not short replies or artefact references", () => {
+    expect(artefactRequiredViolation(Array.from({ length: 10 }, (_, index) => `${index + 1}. Item ${index + 1}`).join("\n"))).toEqual({ requirement: "artefact_required", count: 10 });
+    expect(artefactRequiredViolation("1. One\n2. Two\n3. Three")).toBeNull();
+    expect(artefactRequiredViolation("» Here is where the ten parts stand.\n\nThe full breakdown is in Artefacts.")).toBeNull();
+    expect(artefactRequiredViolation("| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |")).toEqual({ requirement: "artefact_required", count: 3 });
+  });
+
+  it("counts the longest top-level run, outside code, and each table on its own", () => {
+    const ten = Array.from({ length: 10 }, (_, index) => `${index + 1}. Item ${index + 1}`).join("\n");
+    expect(artefactRequiredViolation(`Here is where things stand:\n${ten}\n\nTell me which to take first.`)).toEqual({ requirement: "artefact_required", count: 10 });
+    expect(artefactRequiredViolation("- One\n  - a\n  - b\n- Two\n  - c\n  - d\n- Three")).toBeNull();
+    expect(artefactRequiredViolation("```yaml\n- a\n- b\n- c\n- d\n- e\n- f\n```")).toBeNull();
+    expect(artefactRequiredViolation("| A |\n|---|\n| 1 |\n| 2 |\n\nAnd:\n\n| B |\n|---|\n| 3 |\n| 4 |")).toBeNull();
+  });
+
   it("catches claimed work that no tool did", () => {
     expect(unsupportedClaims("I wrote the demo spec and the one-pager.", [], mutating, () => true)).toHaveLength(1);
     expect(unsupportedClaims("I wrote the demo spec.", [{ name: "write_file", input: { path: "spec.md" }, succeeded: true }], mutating, () => true)).toEqual([]);

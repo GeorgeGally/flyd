@@ -141,6 +141,22 @@ describe("FlydDesk", () => {
     ]);
   });
 
+  it("gives follow-ups the full list an answer kept in Artefacts", async () => {
+    const history: unknown[] = [];
+    const desk = new FlydDesk({ dir, answer: async (_question, earlier, _onStep, turn) => {
+      history.push(earlier);
+      turn?.onArtefact("1. First\n2. Second");
+      return "» Two parts.\n\nThe full breakdown is in Artefacts.";
+    } });
+    desk.ask("status?");
+    await until(() => desk.exchanges()[0]?.answer);
+    desk.ask("start on item 2");
+    expect(history.at(-1)).toEqual([
+      { role: "user", content: "status?" },
+      { role: "assistant", content: "» Two parts.\n\nThe full breakdown is in Artefacts.\n\n1. First\n2. Second" },
+    ]);
+  });
+
   it("keeps his screenshots with the question, and what they show for the answer and every follow-up", async () => {
     const asked: Array<[string, unknown]> = [];
     const desk = new FlydDesk({

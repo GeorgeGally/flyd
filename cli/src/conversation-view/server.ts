@@ -229,12 +229,38 @@ function railReplies(messages: ConversationMessage[], judge?: ArtefactJudge): Ma
   for (const message of [...messages].reverse()) {
     if (kept.size >= MAX_REPLY_ARTEFACTS) break;
     if (message.role !== "assistant" || kept.has(message.id)) continue;
+    if (message.artefact) {
+      kept.set(message.id, replyArtefact(message.artefact)?.artefact ?? { title: "Full breakdown", steps: artefactLines(message.artefact) });
+      continue;
+    }
     const call = replyArtefact(message.text);
     if (!call) continue;
     const kind = call.clear ? "steps" : judge?.cached(message.text);
     if (kind === "steps" || kind === "options") kept.set(message.id, replyArtefact(message.text, kind)!.artefact);
   }
   return kept;
+}
+
+/** An answer's top-level list items and table body rows, without their markers, the table's header or its divider. */
+function artefactLines(body: string): string[] {
+  const out: string[] = [];
+  let fenced = false;
+  let header = true;
+  for (const line of body.split("\n")) {
+    const trimmed = line.trim();
+    if (/^```/.test(trimmed)) fenced = !fenced;
+    if (fenced || /^```/.test(trimmed)) continue;
+    if (/^\|.*\|$/.test(trimmed)) {
+      if (/^\|?[\s:|-]+\|?$/.test(trimmed)) continue;
+      if (!header) out.push(trimmed.slice(1, -1).split("|").map((cell) => cell.trim()).filter(Boolean).join(" · "));
+      header = false;
+      continue;
+    }
+    header = true;
+    const item = /^(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line);
+    if (item?.[1]?.trim()) out.push(item[1].trim());
+  }
+  return out;
 }
 
 /**
