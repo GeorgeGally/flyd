@@ -1,5 +1,4 @@
-// Flyd's left column: what needs George — the decision waiting on him, and work
-// held for his review. The page assembles these three strings into its own
+// Flyd's left column: what needs George — decisions and reviews. The page assembles these three strings into its own
 // style, markup and script; the script runs inside the page's closure and
 // borrows its el(), ago(), patch() and store(), and the shared card system.
 
@@ -52,7 +51,7 @@ export const LEFT_STYLE = `
 
 export const LEFT_BUTTON = `<button id="left-open" type="button" aria-pressed="false" aria-controls="left">Needs you</button>`;
 
-export const LEFT_PREFERENCE = `<button id="left-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Needs you</span><span class="prefs-about">Decisions, reviews and held work</span></span><span class="track" aria-hidden="true"></span></button>`;
+export const LEFT_PREFERENCE = `<button id="left-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Needs you</span><span class="prefs-about">Decisions and reviews</span></span><span class="track" aria-hidden="true"></span></button>`;
 
 export const LEFT_HTML = `<aside class="left" id="left" hidden aria-label="What needs you">
   <button class="left-hide" id="left-hide" type="button" aria-label="Hide the column">✕</button>
@@ -61,7 +60,7 @@ export const LEFT_HTML = `<aside class="left" id="left" hidden aria-label="What 
   </div>
   <div class="left-pane">
     <section class="needs left-needs" id="needs" hidden aria-label="Needs you"></section>
-    <section class="left-semantic" id="left-semantic-section" aria-label="Held work" hidden><ul class="left-list" id="left-semantic"></ul></section>
+    <section class="left-semantic" id="left-semantic-section" aria-label="Needs you" hidden><ul class="left-list" id="left-semantic"></ul></section>
   </div>
 </aside>`;
 
@@ -174,19 +173,12 @@ export const LEFT_SCRIPT = `
       : phase === "queued" ? "next"
       : "live";
   }
-  var LEFT_STALE_MS = 24 * 60 * 60 * 1000;
-  var LEFT_ROUTING = /\\b(?:rout(?:e|ed|es|ing)|hand-?offs?|handed off)\\b/i;
-  var LEFT_FAILED = /\\b(?:fail\\w*|error\\w*|couldn['’]?t|could not|unable)\\b/i;
-  // Only what he can act on now: a decision, a review, or held work he can still reply about. Never Flyd's own routing trouble.
+  // Only decisions and reviews belong in his column. Work stalled inside the fleet belongs to Flyd.
   function leftActionable(activity) {
     var phase = activity.activity && activity.activity.phase;
     var decides = activity.kind === "decision" || phase === "needs_you" || !!activity.decision;
     if (decides || phase === "ready") return true;
-    if (phase !== "paused" && activity.lifecycle !== "failed") return false;
-    var said = [activity.subject, activity.summary, activity.detail, activity.status].filter(Boolean).join(" ");
-    if (LEFT_ROUTING.test(said) && LEFT_FAILED.test(said)) return false;
-    var at = Date.parse(activity.updatedAt || activity.createdAt || (activity.activity && activity.activity.started) || "");
-    return isNaN(at) || Date.now() - at < LEFT_STALE_MS;
+    return false;
   }
   function leftSemanticActivityCard(activity) {
     var phase = activity.activity && activity.activity.phase || "working";
