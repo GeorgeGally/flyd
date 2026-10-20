@@ -8,6 +8,7 @@ export interface EpisodeEvalCase {
   rubric: string;
   evidenceSequences: number[];
   createdAt: string;
+  snapshotHeadSequence: number;
 }
 
 export interface EpisodeEvalObservation {
