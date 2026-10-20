@@ -6,7 +6,7 @@ import { mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
 import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
 import { followUps, inlineOutcomes, withFollowUps } from "./follow-ups.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { readProjects } from "../council/projects.js";
+import { projectNamed, readProjects } from "../council/projects.js";
 import type { CrewProgress } from "./crew-progress.js";
 import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
@@ -232,6 +232,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly elements?: ElementShots;
   private commandCache?: { at: number; commands: SlashCommand[] };
   private readonly shared = new Map<string, SharedSession>();
+  /** The project his newest firstmate-routed message names, by session; absent once Flyd takes the next one. */
+  private readonly routedProjects = new Map<string, string | null>();
   private readonly liveSession?: () => Promise<string | undefined>;
 
   constructor(options: {
@@ -288,9 +290,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
           }
           : this.desk.complete,
       );
-      if (route === "flyd") return this.desk.desk.ask(text, images, sessionId);
+      if (route === "flyd") {
+        this.routedProjects.delete(sessionId);
+        return this.desk.desk.ask(text, images, sessionId);
+      }
       try {
         const sent = await this.inbox.send(text, images, command?.name, files);
+        this.routedProjects.set(sessionId, projectNamed([text]));
         return { ...sent, waiting: handoffLine("queued", { text: ownWords(text), projects: projectNames() }) };
       } catch (error) {
         // Firstmate is backstage in Flyd's window: its refusal goes to the log, not to him.
@@ -508,7 +514,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const voiced = this.desk
       ? { ...flyds, messages: relayed(snapshot.messages), ...(snapshot.activity ? { activity: inFlydsVoice(snapshot.activity) } : {}) }
       : snapshot;
-    const project = this.desk?.desk.project(sessionId);
+    const project = this.routedProjects.has(sessionId) ? this.routedProjects.get(sessionId) : this.desk?.desk.project(sessionId);
     if (exchanges.length === 0) return { ...voiced, ...(project ? { project } : {}), messages: voiced.messages.map((message) => this.sited(sessionId, message)) };
     // Firstmate's answers in its own chat, read before its supervision replies are filtered out.
     const answered = Object.fromEntries(Object.entries(this.answersOf(sessionId, snapshot, exchanges, shared))

@@ -32,7 +32,7 @@ import type { RemitSummary } from "./preparation-reading.js";
 import { createRepeatGuard } from "./repeat-guard.js";
 import { runJobShell } from "./background-jobs.js";
 import { morningPromptBlock } from "../council/morning.js";
-import { projectsPromptBlock, readProjects } from "../council/projects.js";
+import { projectNamed, projectsPromptBlock } from "../council/projects.js";
 import { loadSkills, seedSkills, skillPromptBlock, type Skill } from "./skills.js";
 import { CODE_TOOLS, offCode, offRoute, planBrief, planBudget, planTurn, routeWithJev, visibleTools, type RouteReading, type TurnPlan } from "./turn-plan.js";
 import { contractError } from "./tool-contracts.js";
@@ -945,16 +945,6 @@ function gatherProjectEvidence(projectRoot: string): string {
   return blocks.length ? `\n\n--- PROJECT EVIDENCE ---\n${blocks.join("\n\n")}` : "";
 }
 
-export function projectBadge(said: readonly string[], projects = readProjects()): string | null {
-  for (const text of said) {
-    const named = projects.filter((project) => [project.name, project.id, ...project.name.split(/[()]/)]
-      .map((alias) => alias.trim())
-      .some((alias) => alias.length >= 3 && new RegExp(`(?:^|[^a-z0-9])${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`, "i").test(text)));
-    if (named.length) return named.length === 1 ? named[0]!.name : null;
-  }
-  return null;
-}
-
 export async function respondToConversation(
   input: ConversationInput & { onToken(token: string): void },
   dependencies: ConversationResponderDependencies = {},
@@ -1170,7 +1160,7 @@ export async function respondToConversation(
       source: room ? "room" : fast?.decided ? "fast" : "fallback",
       needsCode: projectTurn,
     });
-    understanding.project = projectBadge([input.message, ...input.history.filter((turn) => turn.role === "user").map((turn) => turn.content).reverse()]);
+    understanding.project = projectNamed([input.message, ...input.history.filter((turn) => turn.role === "user").map((turn) => turn.content).reverse()]);
     input.onUnderstanding?.(understanding);
     if (understanding.interactionClass) input.onInteraction?.(understanding.interactionClass);
   }

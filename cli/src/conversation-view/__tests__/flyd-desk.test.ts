@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
 import { FlydDesk, routeMessage, routePrompt, type Answerer } from "../flyd-desk.js";
@@ -22,6 +22,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -340,6 +341,35 @@ esac
     });
     return { source, home, answered };
   }
+
+  it("moves the project badge with messages routed to firstmate and clears it when they name none", async () => {
+    const projects = join(dir, "projects.json");
+    writeFileSync(projects, JSON.stringify({ projects: [{ id: "atomise", name: "Atomise" }, { id: "gnm", name: "GNM" }] }));
+    vi.stubEnv("FLYD_PROJECTS_PATH", projects);
+    const project = join(dir, "project");
+    const home = join(dir, "firstmate");
+    mkdirSync(project);
+    mkdirSync(home);
+    writeFileSync(join(project, "s1.jsonl"), captain("status?") + "\n");
+    const script = join(dir, "fm-inbox.sh");
+    writeFileSync(script, FAKE_SCRIPT);
+    chmodSync(script, 0o755);
+    const desk = new FlydDesk({
+      dir: join(dir, "asks"),
+      answer: async (_question, _history, _step, turn) => {
+        turn?.onUnderstanding({ version: "conversational-presence.v1", route: "answer", source: "room", project: "Atomise" });
+        return "Atomise is fine.";
+      },
+    });
+    const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox: new FirstmateInbox({ home, script }), desk: { desk, complete: async () => "FIRSTMATE" }, pollMs: 15 });
+    await source.send("s1", "How is Atomise doing?", undefined, undefined, "flyd");
+    await until(() => desk.project("s1"));
+    expect((await source.read("s1")).project).toBe("Atomise");
+    await source.send("s1", "fix the GNM checkout bug", undefined, undefined, "firstmate");
+    expect((await source.read("s1")).project).toBe("GNM");
+    await source.send("s1", "tidy the hero spacing", undefined, undefined, "firstmate");
+    expect((await source.read("s1")).project).toBeUndefined();
+  });
 
   it("keeps one quiet living line on a note: working, then the step itself, never the handoff", async () => {
     const project = join(dir, "project");

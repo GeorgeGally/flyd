@@ -2,7 +2,8 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildConversationPrompt, projectBadge, respondToConversation } from "../conversation-responder.js";
+import { buildConversationPrompt, respondToConversation } from "../conversation-responder.js";
+import { projectNamed } from "../../council/projects.js";
 import { presenceBrief, understandTurn } from "../conversation-presence.js";
 import { buildRoomContext } from "../room-context.js";
 import { roomBrief, roomPrompt, type RoomRead } from "../read-the-room.js";
@@ -57,14 +58,19 @@ describe("conversational presence", () => {
     writeFileSync(path, JSON.stringify({ projects: [{ id: "gnm-good-neighbours-market", name: "GNM (Good Neighbours Market)" }, { id: "atomise", name: "Atomise" }, { id: "flyd", name: "Flyd" }] }));
     vi.stubEnv("FLYD_PROJECTS_PATH", path);
     try {
-      expect(projectBadge(["How is Atomise doing?"])).toBe("Atomise");
-      expect(projectBadge(["what about the tests?", "How is Atomise doing?"])).toBe("Atomise");
-      expect(projectBadge(["Now GNM", "How is Atomise doing?"])).toBe("GNM (Good Neighbours Market)");
-      expect(projectBadge(["back to good neighbours market"])).toBe("GNM (Good Neighbours Market)");
-      expect(projectBadge(["How is my-repo doing?"])).toBeNull();
-      expect(projectBadge(["Compare Flyd and Atomise"])).toBeNull();
-      expect(projectBadge(["Long day. I just want to talk."])).toBeNull();
-      expect(projectBadge([])).toBeNull();
+      expect(projectNamed(["How is Atomise doing?"])).toBe("Atomise");
+      expect(projectNamed(["what about the tests?", "How is Atomise doing?"])).toBe("Atomise");
+      expect(projectNamed(["Now GNM", "How is Atomise doing?"])).toBe("GNM (Good Neighbours Market)");
+      expect(projectNamed(["back to good neighbours market"])).toBe("GNM (Good Neighbours Market)");
+      expect(projectNamed(["How is my-repo doing?"])).toBeNull();
+      expect(projectNamed(["Compare Atomise and GNM"])).toBeNull();
+      expect(projectNamed(["Compare Flyd and Atomise"])).toBe("Atomise");
+      expect(projectNamed(["Flyd, what's the weather?"])).toBeNull();
+      expect(projectNamed(["hey Flyd what's the weather"])).toBeNull();
+      expect(projectNamed(["Flyd, how's GNM going?"])).toBe("GNM (Good Neighbours Market)");
+      expect(projectNamed(["Flyd needs a quieter island"])).toBe("Flyd");
+      expect(projectNamed(["Long day. I just want to talk."])).toBeNull();
+      expect(projectNamed([])).toBeNull();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
   it("does not invent an emotional reading on the confident fast path", async () => {
