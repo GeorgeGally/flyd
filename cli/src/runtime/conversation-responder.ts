@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 import { randomUUID } from "node:crypto";
 import { join, dirname, resolve, sep, basename } from "node:path";
-import { apiModelId, chatModelChain, resolveModelConnection, type ModelConnection } from "../lib/config.js";
+import { apiModelId, chatModelChain, FLYD_DIR, resolveModelConnection, type ModelConnection } from "../lib/config.js";
 import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, agentLoopWithFailover, PROMPT_CACHE_BREAK, type AgentTool, type ToolHandler } from "../lib/llm.js";
@@ -104,6 +104,16 @@ interface ConversationResponderDependencies {
   rewrite?: (prompt: string) => Promise<string>;
   /** Flyd's own live setup, for questions about itself; defaults to resolving it from the running configuration. */
   flydSetup?: () => Promise<string>;
+  /** Keeps a long answer's full list or table as a Flyd artefact and returns its reference; defaults to a markdown file under ~/.flyd/artefacts. */
+  saveArtefact?: (title: string, body: string) => string;
+}
+
+function saveAnswerArtefact(title: string, body: string): string {
+  const dir = join(FLYD_DIR, "artefacts");
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}.md`);
+  writeFileSync(path, `# ${title}\n\n${body}\n`);
+  return path;
 }
 
 async function defaultRouteTurn(message: string, history: ConversationInput["history"], notes: Array<{ id: string; text: string }> = [], remits: RemitSummary[] = []): Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null; raise?: string | null }) | null> {
@@ -1304,7 +1314,8 @@ export async function respondToConversation(
       const intro = body.split("\n").find((line) => line.trim() && !/^\s*(?:[-*+]|\d+[.)]|\|)/.test(line))?.trim();
       const sentences = (intro ?? "Here is the full breakdown.").match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [];
       const summary = sentences.slice(0, 2).join(" ") || "Here is the full breakdown.";
-      final = `» ${summary}\n\n${body}`;
+      const reference = (dependencies.saveArtefact ?? saveAnswerArtefact)(summary, body);
+      final = `» ${summary}\n\nFull breakdown: ${reference}`;
     }
     emit(final);
     await record(connection, toolCalls, final, "succeeded");

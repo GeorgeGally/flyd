@@ -7,7 +7,7 @@ describe("honesty check", () => {
   it("requires an artefact for long enumerations, but not short replies or artefact references", () => {
     expect(artefactRequiredViolation(Array.from({ length: 10 }, (_, index) => `${index + 1}. Item ${index + 1}`).join("\n"))).toEqual({ requirement: "artefact_required", count: 10 });
     expect(artefactRequiredViolation("1. One\n2. Two\n3. Three")).toBeNull();
-    expect(artefactRequiredViolation("» The ten updates are ready.\n» They cover the current status.\n\nFull breakdown: [Open the artefact](http://127.0.0.1:3000/answer)")).toBeNull();
+    expect(artefactRequiredViolation("» Here is where the ten parts stand.\n\nFull breakdown: /Users/george/.flyd/artefacts/2026-10-20T10-00-00-000Z-ab12cd34.md")).toBeNull();
     expect(artefactRequiredViolation("| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |")).toEqual({ requirement: "artefact_required", count: 3 });
   });
 
