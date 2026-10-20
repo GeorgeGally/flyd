@@ -45,6 +45,23 @@ describe("episodic memory", () => {
     store.close();
   });
 
+
+  it("uses real occurrence time for episode windows without changing sequence identity", () => {
+    const path = join(dir, `time-${randomUUID()}.sqlite`);
+    const store = new IntelligenceEventStore({ path });
+    const later = observation("t-1", "captured first");
+    later.payload = { text: "captured first", occurredAt: "2026-10-20T10:00:00.000Z" };
+    const earlier = observation("t-2", "captured second");
+    earlier.payload = { text: "captured second", occurredAt: "2026-10-18T10:00:00.000Z" };
+    store.append(later);
+    store.append(earlier);
+    const built = buildEpisodeTree(store.readFrom(0), { leafSize: 8, now: new Date("2026-10-20T12:00:00Z") });
+    expect(built.nodes[0]?.startTime).toBe("2026-10-18T10:00:00.000Z");
+    expect(built.nodes[0]?.endTime).toBe("2026-10-20T10:00:00.000Z");
+    expect(built.nodes[0]?.startSequence).toBeLessThan(built.nodes[0]!.endSequence);
+    store.close();
+  });
+
   it("uses a bounded temporal cover with finer resolution near the present", () => {
     const ranges = episodeCoverRanges(64, 8);
     expect(ranges.length).toBeLessThanOrEqual(8);
