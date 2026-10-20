@@ -7,6 +7,7 @@ import { buildEvalContext } from "./context.js";
 import { buildEpisodeJudgePrompt, evidenceRecall, evaluatePromotionGate, parseEpisodeJudge } from "./scoring.js";
 import type { EpisodeEvalCase, EpisodeEvalMode, EpisodeEvalResult } from "./types.js";
 import { EpisodicMemory } from "../../intelligence/episodes/service.js";
+import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 
 function argValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -48,6 +49,11 @@ async function main(): Promise<void> {
   const casePath = argValue("--cases") ?? join(FLYD_DIR, "evals", "episodes", "cases.json");
   const cases = JSON.parse(readFileSync(casePath, "utf8")) as EpisodeEvalCase[];
   const selected = only ? cases.filter((item) => only.includes(item.id)) : cases;
+  const eventStore = new IntelligenceEventStore();
+  const currentHead = eventStore.headSequence();
+  eventStore.close();
+  const seededHead = Math.max(...cases.map((item) => Number(item.snapshotHeadSequence ?? 0)));
+  const historyDrift = Math.max(0, currentHead - seededHead);
   if (!selected.length) throw new Error("No episodic eval cases selected");
 
   new EpisodicMemory().rebuild();
@@ -94,6 +100,7 @@ async function main(): Promise<void> {
   writeFileSync(path, results.map((row) => JSON.stringify(row)).join("\n") + "\n", { encoding: "utf8", mode: 0o600 });
 
   process.stdout.write("\nEpisodic memory benchmark\n");
+  process.stdout.write(`Corpus head=${seededHead} · current head=${currentHead} · newer events=${historyDrift}${historyDrift > 0 ? " (historical gold remains frozen; reseed deliberately if facts materially changed)" : ""}\n`);
   for (const mode of modes) {
     const rows = results.filter((row) => row.mode === mode);
     const judged = rows.filter((row) => row.judgeScore !== undefined);
