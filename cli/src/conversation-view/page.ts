@@ -4532,8 +4532,8 @@ ${LEFT_SCRIPT}
       button.title = matches.map(function (object) { return object.subject; }).join("\n");
       button.addEventListener("click", function () {
         if (group.cls === "needs") showCalls(true, button);
-        else if (group.cls === "landed") showDrill("landed", button);
-        else if (group.cls === "working") showDrill("live", button);
+        else if (group.cls === "landed") openDrill("landed", button);
+        else if (group.cls === "working") openDrill("live", button);
       });
       nav.appendChild(button);
     });
