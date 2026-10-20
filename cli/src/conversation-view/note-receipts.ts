@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { Exchange } from "./types.js";
 
 // Whether firstmate has read each note he sent, from firstmate's own durable
@@ -85,6 +88,11 @@ export function unreadBlocker(unread: UnreadNotes, now = Date.now()): string {
   return `${notes} ${unread.count === 1 ? "has" : "have"} sat unread for ${waited(unread.oldest, now)} and nothing has taken ${unread.count === 1 ? "it" : "them"} up. Tell me whether to send again or drop ${unread.count === 1 ? "it" : "them"}.`;
 }
 
+/** Where the view keeps its unread-note chase, so a restart neither chases again early nor tells George twice. */
+export function defaultUnreadChaseState(): string {
+  return join(homedir(), ".flyd", "view", "unread-chase.json");
+}
+
 /**
  * Checks the inbox records on a timer and chases firstmate when a note
  * crosses into unread, and again each grace while notes stay unread. Each
@@ -106,7 +114,29 @@ export class UnreadNoteWatcher {
     private readonly chase: (note: string, requestId: string) => Promise<unknown>,
     private readonly now: () => number = Date.now,
     private readonly notify?: (title: string, message: string, kind: "blocker") => Promise<unknown>,
-  ) {}
+    private readonly stateFile?: string,
+  ) {
+    if (!stateFile) return;
+    try {
+      const saved = JSON.parse(readFileSync(stateFile, "utf8")) as { chased?: Record<string, number>; told?: string[] };
+      for (const [id, at] of Object.entries(saved.chased ?? {})) if (Number.isFinite(at)) this.chased.set(id, at);
+      for (const id of saved.told ?? []) if (typeof id === "string") this.told.add(id);
+    } catch {
+      // No chase recorded yet.
+    }
+  }
+
+  private save(): void {
+    if (!this.stateFile) return;
+    try {
+      mkdirSync(dirname(this.stateFile), { recursive: true, mode: 0o700 });
+      const temporary = `${this.stateFile}.${process.pid}.tmp`;
+      writeFileSync(temporary, `${JSON.stringify({ chased: Object.fromEntries(this.chased), told: [...this.told] })}\n`, { encoding: "utf8", mode: 0o600 });
+      renameSync(temporary, this.stateFile);
+    } catch {
+      // Kept in memory; the next change tries again.
+    }
+  }
 
   start(): void {
     if (this.timer) return;
@@ -129,8 +159,10 @@ export class UnreadNoteWatcher {
       return false;
     }
     const now = this.now();
+    const before = this.chased.size + this.told.size;
     for (const id of this.chased.keys()) if (!unread?.ids.includes(id)) this.chased.delete(id);
     for (const id of this.told) if (!unread?.ids.includes(id)) this.told.delete(id);
+    if (this.chased.size + this.told.size !== before) this.save();
     if (!unread) return false;
     const oldest = unread.ids[0]!;
     if (this.told.has(oldest)) return false;
@@ -140,6 +172,7 @@ export class UnreadNoteWatcher {
     // him, the chase goes on rather than stopping in silence.
     if (this.notify && nudgedAt !== undefined && now - Date.parse(unread.oldest) > UNREAD_GIVE_UP_MS && now - nudgedAt >= UNREAD_CHASE_MS) {
       this.told.add(oldest);
+      this.save();
       await this.notify("Flyd", unreadBlocker(unread, now), "blocker").catch(() => undefined);
       return true;
     }
@@ -147,7 +180,10 @@ export class UnreadNoteWatcher {
     const round = Math.floor(now / UNREAD_CHASE_MS);
     const requestId = `flyd-unread-${createHash("sha256").update(`${unread.ids.join(",")}\0${round}`).digest("hex").slice(0, 16)}`;
     const sent = await this.chase(chaseNote(unread, now), requestId).then(() => true, () => false);
-    if (sent) for (const id of unread.ids) this.chased.set(id, now);
+    if (sent) {
+      for (const id of unread.ids) this.chased.set(id, now);
+      this.save();
+    }
     return sent;
   }
 }

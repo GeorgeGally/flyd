@@ -140,6 +140,46 @@ describe("UnreadNoteWatcher", () => {
     expect(await watcher.check()).toBe(true);
     expect(chase).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps its chase across a restart: no early chase, and George is told only once", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-unread-chase-"));
+    const stateFile = join(dir, "view", "unread-chase.json");
+    try {
+      const exchanges = [note("a", UNREAD_GIVE_UP_MS + 60 * 60_000, "sent")];
+      const chase = vi.fn(async () => {});
+      const notify = vi.fn(async () => {});
+      let now = NOW;
+      const first = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify, stateFile);
+      expect(await first.check()).toBe(true);
+      expect(chase).toHaveBeenCalledTimes(1);
+
+      // Restarted inside the grace: the chase is not sent again early.
+      now += UNREAD_CHASE_MS - 1;
+      const second = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify, stateFile);
+      expect(await second.check()).toBe(false);
+      expect(chase).toHaveBeenCalledTimes(1);
+
+      now += 1;
+      expect(await second.check()).toBe(true);
+      expect(notify).toHaveBeenCalledTimes(1);
+
+      // Restarted after George was told: nothing more, chase or word.
+      now += UNREAD_CHASE_MS;
+      const third = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify, stateFile);
+      expect(await third.check()).toBe(false);
+      expect(chase).toHaveBeenCalledTimes(1);
+      expect(notify).toHaveBeenCalledTimes(1);
+
+      // Read at last: the record clears, so a later restart starts afresh.
+      const cleared = new UnreadNoteWatcher(() => [note("a", 60_000, "read")], chase, () => now, notify, stateFile);
+      expect(await cleared.check()).toBe(false);
+      const fresh = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify, stateFile);
+      expect(await fresh.check()).toBe(true);
+      expect(chase).toHaveBeenCalledTimes(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("the notification boundary", () => {

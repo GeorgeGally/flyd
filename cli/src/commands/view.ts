@@ -26,7 +26,7 @@ import { ActivityReader } from "../conversation-view/activity.js";
 import { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { MemoryReader } from "../conversation-view/memory.js";
 import { OvertakenCalls } from "../conversation-view/overtaken.js";
-import { UnreadNoteWatcher } from "../conversation-view/note-receipts.js";
+import { defaultUnreadChaseState, UnreadNoteWatcher } from "../conversation-view/note-receipts.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 import { LiveStaffSession } from "../command/fleet-monitor.js";
 
@@ -175,6 +175,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       (note, requestId) => inbox.sendOwn(note, requestId),
       Date.now,
       async (title, message, kind) => (await import("../runtime/agenda.js")).notifyMac(title, message, kind),
+      defaultUnreadChaseState(),
     )
     : undefined;
   unread?.start();
