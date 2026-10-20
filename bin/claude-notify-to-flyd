@@ -2,7 +2,8 @@
 # Claude Code Notification hook: forwards the hook's JSON (stdin) to Flyd's
 # conversation view, which shows it in the island or the column instead of a
 # macOS notification. Never fails the hook: Flyd being down, or curl missing,
-# still exits 0. FLYD_VIEW_URL overrides where Flyd listens.
+# still exits 0. FLYD_VIEW_URL overrides where Flyd listens. Setup:
+# docs/product/flyd-claude-notices-setup.md.
 curl --silent --max-time 2 --output /dev/null \
   --header 'content-type: application/json' \
   --data-binary @- \
