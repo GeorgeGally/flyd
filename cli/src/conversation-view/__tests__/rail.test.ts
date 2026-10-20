@@ -306,6 +306,7 @@ describe("one row per message", () => {
     });
     expect(plainNote("Answer to pending decision gnm-sell-step-pick: Pick a layout\nQuestion: Which one?\n\n3")).toEqual({ words: "3", about: { title: "Pick a layout" } });
     expect(plainNote("just words")).toEqual({ words: "just words" });
+    expect(plainNote('About the artefact "He prefers "calm" UI"\nDetail: Quiet colours, no motion\n\nwhy?')).toEqual({ words: "why?", about: { title: 'He prefers "calm" UI' } });
     expect(plainNote('About the artefact "Finished a job for you"\nLine: gnm notes\nDetail: The file is at ~/x.md\n\nOpen it')).toEqual({ words: "Open it", about: { title: "Finished a job for you" } });
     const rail = composeRail([{ question: user("note:1", note, at(0)), waiting: "" }], []);
     expect(rail.conversations[0]).toMatchObject({ question: "the island is too tall and big.", about: { title: expect.stringContaining("Flyd island") } });

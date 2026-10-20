@@ -1409,7 +1409,7 @@ export class ConversationViewServer {
     const url = field(card.url);
     const line = content(card.line);
     const detail = content(card.detail);
-    const named = [`About the artefact "${title}"`, ...(task ? [`Task: ${task}`] : []), ...(url ? [`Page: ${url}`] : []), ...(line ? [`Line: ${line}`] : []), ...(detail ? [`Detail: ${detail}`] : [])].join("\n");
+    const named = [`About the artefact "${title.replace(/\s+/g, " ")}"`, ...(task ? [`Task: ${task}`] : []), ...(url ? [`Page: ${url}`] : []), ...(line ? [`Line: ${line}`] : []), ...(detail ? [`Detail: ${detail}`] : [])].join("\n");
     try {
       const words = text.trim();
       sendJson(res, 200, { ...await this.source.sendDecision(words ? `${named}\n\n${words}` : named, images), waiting: "Sent to firstmate" });

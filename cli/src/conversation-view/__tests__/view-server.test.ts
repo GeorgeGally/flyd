@@ -13,6 +13,7 @@ import { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, replyCards, SnapshotDiffer } from "../server.js";
 import { AutoAnswers } from "../auto-answers.js";
 import { ComposerPredictions } from "../composer-predictions.js";
+import { plainNote } from "../rail.js";
 import { ComposerDrafts } from "../drafts.js";
 import { ReplySummarizer } from "../summaries.js";
 import { ArtefactJudge } from "../artefact-judge.js";
@@ -612,6 +613,8 @@ describe("ConversationViewServer", () => {
     await post(port, JSON.stringify({ about: { title: "Finished a job for you", line: "gnm notes", detail: "The file is at\n~/Documents/Flyd/gnm.md" }, text: "Open it" }), headers);
     expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toBe('About the artefact "Finished a job for you"\nLine: gnm notes\nDetail: The file is at ~/Documents/Flyd/gnm.md\n\nOpen it');
     expect((await post(port, JSON.stringify({ about: { title: "Map", detail: 3 }, text: "Hi" }), headers)).status).toBe(400);
+    await post(port, JSON.stringify({ about: { title: 'He prefers "calm"\nUI', detail: "Quiet colours" }, text: "why?" }), headers);
+    expect(plainNote(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8"))).toEqual({ words: "why?", about: { title: 'He prefers "calm" UI' } });
     // A screenshot he pasted into the box goes with his words, saved where firstmate reads images.
     await post(port, JSON.stringify({ about: { title: "Christmas Nuanu map" }, text: "Like this", images: [{ mediaType: "image/png", data: PNG }] }), headers);
     const withImage = readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8");
