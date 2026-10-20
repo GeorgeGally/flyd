@@ -899,7 +899,7 @@ export class ArtefactFeed {
 
   /** Records what he chose for a hold; every view redraws without it. */
   recordHeld(row: ArtefactRow, action: HeldAction): void {
-    this.outcomes.record(row, action);
+    this.outcomes.record([row, ...(this.inputs.fleet?.held ?? []).filter((listed) => listed !== row && heldKey(listed) === heldKey(row))], action);
     for (const listener of this.listeners) listener();
   }
 

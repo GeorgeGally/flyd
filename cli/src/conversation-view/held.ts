@@ -67,16 +67,17 @@ export function attentionHeld(held: ArtefactRow[], handled: (row: ArtefactRow) =
   const reported = (row: ArtefactRow) => (row.at ? Date.parse(row.at) || 0 : 0);
   return [...held].sort((a, b) => reported(b) - reported(a)).filter((row) => {
     const key = heldKey(row);
-    if (ageOf(row, now) > HELD_STALE_MS || seen.has(key)) return false;
+    if (ageOf(row, now) > HELD_STALE_MS || seen.has(key) || handled(row)) return false;
     seen.add(key);
-    return !handled(row);
+    return true;
   });
 }
 
 interface Outcome {
   action: HeldAction;
   at: string;
-  task?: string;
+  /** Every task listed as this work when he chose. */
+  tasks?: string[];
 }
 
 export function defaultHeldOutcomesFile(): string {
@@ -100,19 +101,22 @@ export class HeldOutcomes {
     return this.outcomes;
   }
 
-  record(row: ArtefactRow, action: HeldAction, now = Date.now()): void {
+  /** Records his choice for one piece of work and every copy of it listed now. */
+  record(rows: ArtefactRow[], action: HeldAction, now = Date.now()): void {
     const outcomes = this.all();
-    outcomes[heldKey(row)] = { action, at: new Date(now).toISOString(), ...(row.task ? { task: row.task } : {}) };
+    const tasks = rows.map((row) => row.task).filter((task): task is string => Boolean(task));
+    outcomes[heldKey(rows[0]!)] = { action, at: new Date(now).toISOString(), ...(tasks.length ? { tasks } : {}) };
     if (!this.file) return;
     mkdirSync(dirname(this.file), { recursive: true });
     writeFileSync(this.file, `${JSON.stringify(outcomes, null, 2)}\n`);
   }
 
-  /** Dealt with, and nothing new reported since he chose. */
+  /** Dealt with, and nothing new reported since he chose: undated, it is handled only as a task he saw. */
   handled(row: ArtefactRow): boolean {
     const outcome = this.all()[heldKey(row)];
     if (!outcome) return false;
     const reported = row.at ? Date.parse(row.at) : Number.NaN;
-    return Number.isNaN(reported) || reported <= Date.parse(outcome.at);
+    if (Number.isNaN(reported)) return !row.task || !outcome.tasks || outcome.tasks.includes(row.task);
+    return reported <= Date.parse(outcome.at);
   }
 }
