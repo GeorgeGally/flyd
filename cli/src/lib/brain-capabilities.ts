@@ -46,6 +46,7 @@ export const BRAIN_CAPABILITIES = ([
   { id: "dedup", integration: "maintenance", description: "Detect and reconcile duplicate knowledge without silent loss.", mutatesArchive: true },
   { id: "consolidate", integration: "maintenance", description: "Run the archive health, synthesis, interest, graph, and contradiction loop.", mutatesArchive: true },
   { id: "distill", integration: "maintenance", description: "Distill project captures into structured durable memory.", mutatesArchive: true },
+  { id: "episodes", integration: "maintenance", description: "Inspect, rebuild, verify, and drill into derived episodic memory.", mutatesArchive: false },
   { id: "optimize-skill", integration: "maintenance", description: "Improve reusable agent skills from observed execution history.", mutatesArchive: true },
   { id: "wiki", integration: "maintenance", description: "Initialize and maintain the curated local knowledge store.", mutatesArchive: true },
   { id: "ingest", integration: "maintenance", description: "Promote raw captures into governed curated knowledge.", mutatesArchive: true },
