@@ -114,7 +114,7 @@ describe("IntelligenceEventStore", () => {
       expect(replayed[0].payload).toBeUndefined();
 
       const surfaces = sweeps.map((s) => s.surface).sort();
-      expect(surfaces).toEqual(["episodes", "indexes", "legacy_copies", "projections", "replay_snapshots"]);
+      expect(surfaces).toEqual(["indexes", "legacy_copies", "projections", "replay_snapshots"]);
       expect(sweeps.every((s) => s.status === "pending")).toBe(true);
 
       // revocation is derived from the tombstone
@@ -122,7 +122,7 @@ describe("IntelligenceEventStore", () => {
       expect(store.isRevoked("calendar.metadata")).toBe(false);
 
       store.completeSweep(sweeps[0].sweepId);
-      expect(store.pendingSweeps()).toHaveLength(4);
+      expect(store.pendingSweeps()).toHaveLength(3);
       store.close();
     });
   });
