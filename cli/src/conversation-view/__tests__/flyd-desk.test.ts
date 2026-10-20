@@ -108,6 +108,30 @@ describe("routeMessage", () => {
   });
 });
 
+describe("FlydDesk project context", () => {
+  it("tracks a resolved project, clears it when absent and changes it on the next turn", async () => {
+    let resolved: string | null = "Atomise";
+    const desk = new FlydDesk({
+      dir: join(dir, "asks"),
+      answer: async (_question, _history, _step, turn) => {
+        turn?.onUnderstanding({ version: "conversational-presence.v1", route: "answer", source: "room", project: resolved });
+        return "Done.";
+      },
+    });
+    desk.ask("First", [], "session");
+    await until(() => desk.project("session"));
+    expect(desk.project("session")).toBe("Atomise");
+    resolved = null;
+    desk.ask("No project", [], "session");
+    await until(() => desk.exchanges().length === 2 && desk.exchanges()[1]?.answer);
+    expect(desk.project("session")).toBeUndefined();
+    resolved = "GNM";
+    desk.ask("Different project", [], "session");
+    await until(() => desk.exchanges().length === 3 && desk.exchanges()[2]?.answer);
+    expect(desk.project("session")).toBe("GNM");
+  });
+});
+
 describe("FlydDesk", () => {
   function deferred(): { answer: Answerer; resolve: (text: string) => void; reject: (error: Error) => void; history: unknown[] } {
     let resolve!: (text: string) => void;

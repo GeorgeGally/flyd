@@ -121,6 +121,25 @@ afterEach(() => {
 });
 
 describe("conversation page", () => {
+  it("shows, changes and clears the resolved project badge", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+    const badge = document.getElementById("project-badge")!;
+    expect(badge.hidden).toBe(true);
+    stream.emit("update", { order: ["u1"], messages: [], working: false, project: "Atomise" });
+    expect(badge.hidden).toBe(false);
+    expect(badge.textContent).toBe("Atomise");
+    expect(badge.classList.contains("shown")).toBe(true);
+    stream.emit("update", { order: ["u1"], messages: [], working: false, project: "GNM" });
+    expect(badge.textContent).toBe("GNM");
+    stream.emit("update", { order: ["u1"], messages: [], working: false });
+    expect(badge.hidden).toBe(true);
+    expect(badge.textContent).toBe("");
+    expect(renderPage({ assistantLabel: "Flyd" })).toContain(".project-badge.shown { animation: scene-fade");
+    expect(renderPage({ assistantLabel: "Flyd" })).not.toContain(".project-badge:hover");
+  });
+
   it("runs the page Core serves under tsx, where inlined functions carry __name", async () => {
     const page = join(dirname(fileURLToPath(import.meta.url)), "..", "page.ts");
     const render = `import { renderPage } from ${JSON.stringify(page)}; process.stdout.write(renderPage({ assistantLabel: "firstmate", sendToken: "${"a".repeat(48)}" }));`;

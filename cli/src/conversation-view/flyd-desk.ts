@@ -200,6 +200,10 @@ export class FlydDesk {
   /** Parsed records by file name, with the size and mtime they were read at; a file is read again only when those change. */
   private readonly parsed = new Map<string, { stamp: string; record: AskRecord | null }>();
 
+  project(sessionId: string): string | undefined {
+    return this.records().filter((record) => (record.sessionId ?? "conversation") === sessionId).at(-1)?.understanding?.project ?? undefined;
+  }
+
   constructor(options: { answer: Answerer; see?: Seer; dir?: string; preparationStore?: PreparationStore }) {
     this.answerer = options.answer;
     this.preparations = options.preparationStore ?? new PreparationStore();

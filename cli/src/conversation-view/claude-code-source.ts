@@ -508,7 +508,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const voiced = this.desk
       ? { ...flyds, messages: relayed(snapshot.messages), ...(snapshot.activity ? { activity: inFlydsVoice(snapshot.activity) } : {}) }
       : snapshot;
-    if (exchanges.length === 0) return { ...voiced, messages: voiced.messages.map((message) => this.sited(sessionId, message)) };
+    if (exchanges.length === 0) return { ...voiced, ...(this.desk?.desk.project(sessionId) ? { project: this.desk.desk.project(sessionId) } : {}), messages: voiced.messages.map((message) => this.sited(sessionId, message)) };
     // Firstmate's answers in its own chat, read before its supervision replies are filtered out.
     const answered = Object.fromEntries(Object.entries(this.answersOf(sessionId, snapshot, exchanges, shared))
       .map(([id, answer]) => [id, this.sited(sessionId, answer)]));
@@ -520,6 +520,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const live = livened(shown.map((exchange) => (this.heard.has(exchange.question.id) ? markRead(exchange) : exchange)), { projects: projectNames(), ...(steps?.size ? { steps } : {}), ...(voiced.working && voiced.activity ? { activity: voiced.activity } : {}), ...(voiced.working && voiced.workingOn ? { workingOn: voiced.workingOn } : {}) });
     return {
       ...voiced,
+      ...(this.desk?.desk.project(sessionId) ? { project: this.desk.desk.project(sessionId) } : {}),
       messages: mergeNotes(voiced.messages.map((message) => this.sited(sessionId, message)), live, this.noteWindow(sessionId)),
       ...(Object.keys(answered).length ? { followUps: answered } : {}),
     };

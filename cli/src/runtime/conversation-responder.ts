@@ -32,7 +32,7 @@ import type { RemitSummary } from "./preparation-reading.js";
 import { createRepeatGuard } from "./repeat-guard.js";
 import { runJobShell } from "./background-jobs.js";
 import { morningPromptBlock } from "../council/morning.js";
-import { projectsPromptBlock } from "../council/projects.js";
+import { projectsPromptBlock, readProjects } from "../council/projects.js";
 import { loadSkills, seedSkills, skillPromptBlock, type Skill } from "./skills.js";
 import { CODE_TOOLS, offCode, offRoute, planBrief, planBudget, planTurn, routeWithJev, visibleTools, type RouteReading, type TurnPlan } from "./turn-plan.js";
 import { contractError } from "./tool-contracts.js";
@@ -1154,12 +1154,21 @@ export async function respondToConversation(
   const projectTurn = mobile ? false : room ? room.mode === "operator"
     : fast?.needsCode ?? (isCurrentWorkQuestion(input.message) || needsProjectContext(input.message, input.history));
   if (presenceEnabled() && !unattended) {
+    const projectIds = compiledContext?.interpretation.projectIds ?? [];
+    let project: string | null = null;
+    if (projectIds.length === 1) {
+      const id = projectIds[0]!;
+      const projectKey = id.replace(/^project:/, "");
+      project = readProjects().find((item) => item.id === projectKey)?.name
+        ?? (/^project:[a-z0-9-]+$/i.test(id) ? id.slice("project:".length).split(/[-.]+/).map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ") : null);
+    }
     understanding = understandTurn({
       route: plan?.route,
       ...(room ? { need: room.need } : {}),
       source: room ? "room" : fast?.decided ? "fast" : "fallback",
       needsCode: projectTurn,
     });
+    understanding.project = project;
     input.onUnderstanding?.(understanding);
     if (understanding.interactionClass) input.onInteraction?.(understanding.interactionClass);
   }

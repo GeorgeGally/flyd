@@ -86,6 +86,7 @@ export interface Exchange {
 
 export interface ConversationSnapshot {
   messages: ConversationMessage[];
+  project?: string;
   /** Firstmate's latest chat reply about each note, by the note's question id, in Flyd's voice. */
   followUps?: Record<string, ConversationMessage>;
   /** The assistant is mid-turn: the captain has spoken and no reply has settled yet. */
