@@ -502,14 +502,13 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return found;
   }
 
-  private withNotes(sessionId: string, snapshot: ConversationSnapshot, exchanges: Exchange[], shared?: SharedSession): ConversationSnapshot {
+  private withNotes(sessionId: string, snapshot: ConversationSnapshot, exchanges: Exchange[], project: string | undefined, shared?: SharedSession): ConversationSnapshot {
     const steps = this.crew?.steps(exchanges);
     // Firstmate's context window is its own machinery, not part of Flyd's conversation.
     const { context: _context, ...flyds } = snapshot;
     const voiced = this.desk
       ? { ...flyds, messages: relayed(snapshot.messages), ...(snapshot.activity ? { activity: inFlydsVoice(snapshot.activity) } : {}) }
       : snapshot;
-    const project = this.desk?.desk.project(sessionId);
     if (exchanges.length === 0) return { ...voiced, ...(project ? { project } : {}), messages: voiced.messages.map((message) => this.sited(sessionId, message)) };
     // Firstmate's answers in its own chat, read before its supervision replies are filtered out.
     const answered = Object.fromEntries(Object.entries(this.answersOf(sessionId, snapshot, exchanges, shared))
@@ -579,7 +578,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     }
     const conversation = new TranscriptConversation();
     new LineFollower(this.sessionPath(sessionId)).readNew((line, offset) => conversation.pushLine(line, offset));
-    return this.withNotes(sessionId, conversation.snapshot(), this.exchanges());
+    return this.withNotes(sessionId, conversation.snapshot(), this.exchanges(), this.desk?.desk.project(sessionId));
   }
 
   /**
@@ -674,13 +673,14 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private refresh(sessionId: string, shared: SharedSession): ConversationSnapshot | undefined {
     this.catchUp(shared);
     const exchanges = this.exchanges();
-    const key = exchanges.map((exchange) => `${exchange.question.id}:${exchange.waiting}:${exchange.answer?.id ?? ""}`).join(",");
+    const project = this.desk?.desk.project(sessionId);
+    const key = `${project ?? ""}|${exchanges.map((exchange) => `${exchange.question.id}:${exchange.waiting}:${exchange.answer?.id ?? ""}`).join(",")}`;
     const notesChanged = key !== shared.noteKey;
     shared.noteKey = key;
     if (shared.snapshot && !shared.dirty && !notesChanged && !shared.pictures) return undefined;
     shared.dirty = false;
     shared.pictures = false;
-    const snapshot = this.withNotes(sessionId, shared.conversation.snapshot(), exchanges, shared);
+    const snapshot = this.withNotes(sessionId, shared.conversation.snapshot(), exchanges, project, shared);
     shared.snapshot = snapshot;
     this.latest.set(sessionId, snapshot.messages.slice(-8));
     return snapshot;

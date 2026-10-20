@@ -202,6 +202,8 @@ export class FlydDesk {
   private readonly steps = new Map<string, string>();
   /** Parsed records by file name, with the size and mtime they were read at; a file is read again only when those change. */
   private readonly parsed = new Map<string, { stamp: string; record: AskRecord | null }>();
+  /** The firstmate-routed projects, with the size and mtime they were read at. */
+  private routedCache?: { stamp: string; turns: Array<{ sessionId: string; at: string; project: string }> };
 
   /** The project of the newest turn in the session that has one: his asks to Flyd and his messages passed to firstmate alike. */
   project(sessionId: string): string | undefined {
@@ -217,18 +219,27 @@ export class FlydDesk {
   routed(text: string, sessionId = "conversation", at = new Date().toISOString()): void {
     const project = projectNamed(text);
     if (!project) return;
-    mkdirSync(this.dir, { recursive: true });
-    appendFileSync(join(this.dir, ROUTED_TURNS), `${JSON.stringify({ sessionId, at, project })}\n`, { mode: 0o600 });
+    try {
+      mkdirSync(this.dir, { recursive: true });
+      appendFileSync(join(this.dir, ROUTED_TURNS), `${JSON.stringify({ sessionId, at, project })}\n`, { mode: 0o600 });
+    } catch (error) {
+      console.warn(`[view] could not keep the project of a message passed to firstmate: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private routedTurns(): Array<{ sessionId: string; at: string; project: string }> {
+    const path = join(this.dir, ROUTED_TURNS);
     let text: string;
+    let stamp: string;
     try {
-      text = readFileSync(join(this.dir, ROUTED_TURNS), "utf8");
+      const stat = statSync(path);
+      stamp = `${stat.size}:${stat.mtimeMs}`;
+      if (this.routedCache?.stamp === stamp) return this.routedCache.turns;
+      text = readFileSync(path, "utf8");
     } catch {
       return [];
     }
-    return text.split("\n").flatMap((line) => {
+    const turns = text.split("\n").flatMap((line) => {
       try {
         const turn = JSON.parse(line) as { sessionId?: unknown; at?: unknown; project?: unknown };
         return typeof turn.sessionId === "string" && typeof turn.at === "string" && typeof turn.project === "string" ? [{ sessionId: turn.sessionId, at: turn.at, project: turn.project }] : [];
@@ -236,6 +247,8 @@ export class FlydDesk {
         return [];
       }
     });
+    this.routedCache = { stamp, turns };
+    return turns;
   }
 
   constructor(options: { answer: Answerer; see?: Seer; dir?: string; preparationStore?: PreparationStore }) {

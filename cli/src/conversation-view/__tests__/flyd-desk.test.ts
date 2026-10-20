@@ -374,6 +374,26 @@ esac
     expect((await reloaded.read("s1")).project).toBe("GNM");
   });
 
+  it("delivers a message to firstmate even when its project cannot be kept", async () => {
+    const projects = join(dir, "projects.json");
+    writeFileSync(projects, JSON.stringify({ projects: [{ id: "gnm", name: "GNM" }] }));
+    vi.stubEnv("FLYD_PROJECTS_PATH", projects);
+    const project = join(dir, "project");
+    const home = join(dir, "firstmate");
+    mkdirSync(project);
+    mkdirSync(home);
+    writeFileSync(join(project, "s1.jsonl"), captain("status?") + "\n");
+    const script = join(dir, "fm-inbox.sh");
+    writeFileSync(script, FAKE_SCRIPT);
+    chmodSync(script, 0o755);
+    const asks = join(dir, "asks");
+    mkdirSync(join(asks, "routed-projects.jsonl"), { recursive: true });
+    const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox: new FirstmateInbox({ home, script }), desk: { desk: new FlydDesk({ dir: asks, answer: async () => "unused" }), complete: async () => "FIRSTMATE" }, pollMs: 15 });
+    const sent = await source.send("s1", "fix the GNM checkout bug", undefined, undefined, "firstmate");
+    expect(sent.id).toMatch(/^note:/);
+    expect(readdirSync(join(home, "state", "inbox")).filter((name) => name.endsWith(".note"))).toHaveLength(1);
+  });
+
   it("keeps one quiet living line on a note: working, then the step itself, never the handoff", async () => {
     const project = join(dir, "project");
     const home = join(dir, "firstmate");
