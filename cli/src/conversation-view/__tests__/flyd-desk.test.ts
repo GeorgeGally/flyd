@@ -110,7 +110,7 @@ describe("routeMessage", () => {
 });
 
 describe("FlydDesk project context", () => {
-  it("tracks a resolved project, clears it when absent and changes it on the next turn", async () => {
+  it("tracks a resolved project, keeps it through a projectless turn and changes it on the next turn", async () => {
     let resolved: string | null = "Atomise";
     const desk = new FlydDesk({
       dir: join(dir, "asks"),
@@ -141,11 +141,11 @@ describe("FlydDesk project context", () => {
     resolved = null;
     desk.ask("No project", [], "session");
     await until(() => desk.exchanges().length === 3 && desk.exchanges()[2]?.answer);
-    expect(desk.project("session")).toBeUndefined();
-    resolved = "GNM";
-    desk.ask("Different project", [], "session");
-    await until(() => desk.exchanges().length === 4 && desk.exchanges()[3]?.answer);
     expect(desk.project("session")).toBe("GNM");
+    resolved = "Atomise";
+    desk.ask("Back to the first project", [], "session");
+    await until(() => desk.exchanges().length === 4 && desk.exchanges()[3]?.answer);
+    expect(desk.project("session")).toBe("Atomise");
   });
 });
 
@@ -342,7 +342,7 @@ esac
     return { source, home, answered };
   }
 
-  it("moves the project badge with messages routed to firstmate and clears it when they name none", async () => {
+  it("moves the project badge across Flyd and firstmate turns, keeps it through projectless ones and after a reload", async () => {
     const projects = join(dir, "projects.json");
     writeFileSync(projects, JSON.stringify({ projects: [{ id: "atomise", name: "Atomise" }, { id: "gnm", name: "GNM" }] }));
     vi.stubEnv("FLYD_PROJECTS_PATH", projects);
@@ -354,21 +354,24 @@ esac
     const script = join(dir, "fm-inbox.sh");
     writeFileSync(script, FAKE_SCRIPT);
     chmodSync(script, 0o755);
-    const desk = new FlydDesk({
-      dir: join(dir, "asks"),
-      answer: async (_question, _history, _step, turn) => {
-        turn?.onUnderstanding({ version: "conversational-presence.v1", route: "answer", source: "room", project: "Atomise" });
-        return "Atomise is fine.";
-      },
-    });
+    const answer: Answerer = async (question, _history, _step, turn) => {
+      turn?.onUnderstanding({ version: "conversational-presence.v1", route: "answer", source: "room", project: /atomise/i.test(question) ? "Atomise" : null });
+      return "On it.";
+    };
+    const desk = new FlydDesk({ dir: join(dir, "asks"), answer });
     const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox: new FirstmateInbox({ home, script }), desk: { desk, complete: async () => "FIRSTMATE" }, pollMs: 15 });
     await source.send("s1", "How is Atomise doing?", undefined, undefined, "flyd");
     await until(() => desk.project("s1"));
     expect((await source.read("s1")).project).toBe("Atomise");
     await source.send("s1", "fix the GNM checkout bug", undefined, undefined, "firstmate");
     expect((await source.read("s1")).project).toBe("GNM");
+    await source.send("s1", "how's that going?", undefined, undefined, "flyd");
+    await until(() => desk.exchanges().length === 2 && desk.exchanges()[1]?.answer);
+    expect((await source.read("s1")).project).toBe("GNM");
     await source.send("s1", "tidy the hero spacing", undefined, undefined, "firstmate");
-    expect((await source.read("s1")).project).toBeUndefined();
+    expect((await source.read("s1")).project).toBe("GNM");
+    const reloaded = new ClaudeCodeTranscriptSource({ projectDir: project, inbox: new FirstmateInbox({ home, script }), desk: { desk: new FlydDesk({ dir: join(dir, "asks"), answer }), complete: async () => "FIRSTMATE" }, pollMs: 15 });
+    expect((await reloaded.read("s1")).project).toBe("GNM");
   });
 
   it("keeps one quiet living line on a note: working, then the step itself, never the handoff", async () => {

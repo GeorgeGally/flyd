@@ -1160,7 +1160,7 @@ export async function respondToConversation(
       source: room ? "room" : fast?.decided ? "fast" : "fallback",
       needsCode: projectTurn,
     });
-    understanding.project = projectNamed([input.message, ...input.history.filter((turn) => turn.role === "user").map((turn) => turn.content).reverse()]);
+    understanding.project = projectNamed(input.message);
     input.onUnderstanding?.(understanding);
     if (understanding.interactionClass) input.onInteraction?.(understanding.interactionClass);
   }
