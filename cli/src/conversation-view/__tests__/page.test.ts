@@ -1233,6 +1233,43 @@ describe("semantic main stage", () => {
     expect((document.getElementById("show-nav") as HTMLElement).hidden).toBe(true);
   });
 
+  it("turns semantic mode into a work-first workspace with a quiet context edge", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const decision = {
+      id: "decision:launch", kind: "decision" as const, lifecycle: "interrupted" as const,
+      subject: "Choose the launch date", summary: "Friday has the strongest evidence.", evidence: [], actions: [],
+      source: { showItemId: "decision:launch" },
+      decision: { target: "launch-date", question: "Launch Friday?", alternatives: ["Friday", "Saturday"] },
+    };
+    const activity = {
+      id: "task:site", kind: "activity" as const, lifecycle: "active" as const,
+      subject: "Building launch page", summary: "Firstmate is implementing it.", evidence: [], actions: [],
+      source: { showItemId: "task:site" }, activity: { phase: "working" as const },
+    };
+    const artifact = {
+      id: "artifact:deck", kind: "artifact" as const, lifecycle: "resolved" as const,
+      subject: "Launch deck", summary: "Ready.", evidence: [], actions: [], source: { showItemId: "artifact:deck" },
+      artifact: { type: "document" as const, phase: "ready" as const },
+    };
+    const monitor = {
+      id: "monitor:response", kind: "monitor" as const, lifecycle: "active" as const,
+      subject: "Watch launch response", summary: "Quiet.", evidence: [], actions: [], source: { showItemId: "monitor:response" },
+      monitor: { phase: "quiet" as const, condition: "Surface a meaningful response change" },
+    };
+    const show: ShowScreen = { title: "Work", summary: "", live: true, counts: { call: 1, live: 1, landed: 1 }, items: [], focus: decision, semantic: [decision, activity, artifact, monitor] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "legacy", kind: "story", title: "Legacy card", line: "Old UI", tone: "landed" }] });
+    expect(document.getElementById("show")!.classList.contains("semantic-workspace")).toBe(true);
+    expect(document.getElementById("scene")!.dataset.semantic).toBe("decision");
+    expect((document.getElementById("ticks") as HTMLElement).hidden).toBe(true);
+    expect(document.getElementById("readouts")!.children).toHaveLength(0);
+    expect(document.getElementById("semantic-context")!.textContent).toContain("1 working");
+    expect(document.getElementById("semantic-context")!.textContent).toContain("1 landed");
+    expect(document.getElementById("semantic-context")!.textContent).toContain("1 watching");
+    expect(document.getElementById("semantic-context")!.textContent).not.toContain("Legacy");
+  });
+
   it("manifests focused Artifact evidence as the work itself", async () => {
     load("");
     await settle();
