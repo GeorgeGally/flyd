@@ -167,8 +167,8 @@ describe("showOf", () => {
     expect(screen.read).toBe("2026-10-09T11:58:00Z");
   });
 
-  it("says plainly when the fleet could not be read", () => {
-    expect(situationOf({}, "timed out")).toBe("I couldn't read firstmate's fleet just now (timed out).");
+  it("keeps a fleet read failure off the line: no reason, no path, just the figures", () => {
+    expect(situationOf({})).toBe("Nothing waits on you.");
     expect(situationOf({ call: 2, waiting: 1 })).toBe("2 calls wait on you, 1 held up.");
   });
 

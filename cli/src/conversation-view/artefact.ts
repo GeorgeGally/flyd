@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { watch, type FSWatcher } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { extname, join, relative, sep } from "node:path";
+import { dirname, extname, join, relative, sep } from "node:path";
 import { FLYD_DIR, PLANS_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { readPlans, type Plan } from "../lib/plans.js";
@@ -12,8 +12,10 @@ import type { ShowItem, ShowKind } from "./show.js";
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
 // fleet snapshot (the authoritative "everything going on"), Flyd's own memory,
 // the news, and Flyd's taste. Firstmate's snapshot is read from its bearings
-// script; when it cannot be read the panel says so plainly rather than
-// inventing a feed. Everything here is bounded, cached and fails soft.
+// script; a read that fails is Flyd's own hiccup, so it is logged and never
+// shown, and the list he last saw is kept. That list persists and accumulates:
+// a refresh adds or updates a row rather than resetting the screen. Everything
+// here is bounded, cached and fails soft.
 
 export interface ArtefactRow {
   choices?: string[];
@@ -40,12 +42,14 @@ export interface ArtefactRow {
   shotDir?: string;
   /** Flyd's own words for it, once its model has said them. */
   said?: Said;
+  /** The list still holds it but the latest read no longer reports it: internal only, never shown. */
+  ledgerOnly?: boolean;
 }
 
 export interface FleetArtefact {
   /** When firstmate generated the snapshot, as it reported. */
   generated?: string;
-  /** A plain reason the snapshot could not be read; never a made-up feed. */
+  /** A plain reason the snapshot could not be read; never a made-up feed. Internal only: never shown. */
   unavailable?: string;
   /** Captain holds: calls only he can make. */
   calls: ArtefactRow[];
@@ -100,7 +104,25 @@ export interface DayCount {
 
 export const EMPTY_ARTEFACT: ArtefactInputs = { memories: [], news: [], taste: [] };
 
-const FLEET_UNAVAILABLE = (reason: string): FleetArtefact => ({ unavailable: reason, calls: [], live: [], ready: [], landed: [], held: [], next: [] });
+const emptyFleet = (): FleetArtefact => ({ calls: [], live: [], ready: [], landed: [], held: [], next: [] });
+
+const FLEET_UNAVAILABLE = (reason: string): FleetArtefact => ({ ...emptyFleet(), unavailable: reason });
+
+/** The fleet's arrays, in the order the screen reads them. */
+type FleetField = "calls" | "live" | "ready" | "landed" | "held" | "next";
+const FLEET_FIELDS: FleetField[] = ["calls", "live", "ready", "landed", "held", "next"];
+
+/** One artefact the screen has shown, kept so a later refresh adds or updates it rather than restarting the list. */
+interface LedgerEntry {
+  field: FleetField;
+  row: ArtefactRow;
+  seenAt: number;
+}
+
+/** An artefact's stable name: its task, else its words, so the same work keeps the same place on screen. */
+function artefactKey(row: ArtefactRow): string | undefined {
+  return row.task ? `task:${row.task}` : row.label ? `label:${row.label}` : undefined;
+}
 
 /** How many of each kind the artefact shows; the section says how many more there are. */
 export const ARTEFACT_LIMITS = { call: 4, live: 4, ready: 4, landed: 8, waiting: 4, next: 3 } as const;
@@ -545,9 +567,20 @@ export function tasteHighlights(markdown: string): string[] {
     .slice(0, 3);
 }
 
-/** The rows of one kind the artefact shows: work with screenshots first, then the fleet's order. Pure. */
+/** When the work a row names last moved, for ordering newest first; 0 when it says nothing. Pure. */
+function rowMovedAt(row: ArtefactRow): number {
+  const at = row.at ?? row.started ?? row.raised;
+  const moved = at ? Date.parse(at) : Number.NaN;
+  return Number.isNaN(moved) ? 0 : moved;
+}
+
+/** The rows of one kind the artefact shows, this read's rows first and newest of them leading. Pure. */
 export function shownRows(list: ArtefactRow[] | undefined, limit: number): ArtefactRow[] {
-  return [...(list ?? [])].sort((a, b) => (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0)).slice(0, limit);
+  return [...(list ?? [])].sort((a, b) =>
+    (a.ledgerOnly ? 1 : 0) - (b.ledgerOnly ? 1 : 0)
+    || rowMovedAt(b) - rowMovedAt(a)
+    || (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0),
+  ).slice(0, limit);
 }
 
 /** How many of each kind the fleet holds, before the artefact's limits. Pure. */
@@ -719,14 +752,15 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   };
 
   const fleet = inputs.fleet;
-  if (fleet?.unavailable) add("news", "fleet-unavailable", `Firstmate's fleet snapshot is unreadable: ${fleet.unavailable}.`, "fleet status unknown");
   rowsOf("call", fleet?.calls);
   rowsOf("live", fleet?.live);
   rowsOf("ready", fleet?.ready);
   rowsOf("landed", fleet?.landed);
   rowsOf("waiting", fleet?.held);
   rowsOf("next", fleet?.next);
+  const beforeMemory = items.length;
   inputs.memories.slice(0, 1).forEach((line, index) => add("news", `memory-${index}`, line, "from your memory"));
+  const memoryCount = items.length - beforeMemory;
   inputs.news.slice(0, 1).forEach((item, index) => add("news", `news-${index}`, item.title, item.why || "from the news", withLink(item.url)));
   // Plans he made come last: they wait on his /land, so they never lead urgent work.
   (inputs.plans ?? []).slice(0, PLAN_LIMIT).forEach((plan) => add("plan", plan.id, plan.headline, "a plan you made", {
@@ -734,6 +768,8 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
     ...(plan.status ? { status: plan.status } : {}),
     ...(plan.at ? { at: plan.at } : {}),
   }));
+  // A lone memory line is not a screen: drop it when nothing else earned a place beside it.
+  if (items.length === memoryCount) items.splice(beforeMemory, memoryCount);
   return items;
 }
 
@@ -805,7 +841,9 @@ export function landedRows(recent: Array<{ task: string; entry: BacklogEntry }>,
 }
 
 function reason(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = (error instanceof Error ? error.message : String(error))
+    .replace(/Command failed:[^\n]*/gi, " ")
+    .replace(/(?:^|[\s("'=])(?:~|\/)[^\s;,)'"]*/g, " ");
   return message.replace(/\s+/g, " ").trim().slice(0, 120) || "no reason given";
 }
 
@@ -813,6 +851,10 @@ function reason(error: unknown): string {
 const REPORT_SETTLE_MS = 2_000;
 /** The fleet is read at most this often when jobs report: the bearings script is not free. */
 const REPORT_GAP_MS = 15_000;
+/** How long the bearings script may take before its read is abandoned; it runs long on a loaded machine. */
+const FLEET_READ_TIMEOUT_MS = 60_000;
+/** How long an artefact the screen has shown stays once nothing reports it, before it ages out. */
+const LEDGER_KEEP_MS = RECENT_DAYS * 86_400_000;
 
 /**
  * Whether the staff's record of a pending call's task says it was overtaken
@@ -847,6 +889,9 @@ export class ArtefactFeed {
   private again = false;
   private refreshing = false;
   private generation = 0;
+  /** The artefacts the screen has shown, so a refresh adds or updates them rather than resetting the view. */
+  private readonly ledger = new Map<string, LedgerEntry>();
+  private ledgerLoaded = false;
   /** The last words Flyd said for each task on screen, shown while new ones are asked for. */
   private lastSaid = new Map<string, Said>();
   private readonly listeners = new Set<() => void>();
@@ -861,6 +906,8 @@ export class ArtefactFeed {
       tasteFile?: string;
       /** The plans folder; under vitest the real one is never read unless a test passes this. */
       plansDir?: string;
+      /** The persisted artefact list; under vitest a temp file is used unless a test passes this. */
+      artefactsFile?: string;
       /** Flyd's model, to say each row in its own words. */
       voice?: ArtefactVoice;
       /** Reads whether old calls were overtaken; without it every call is shown. */
@@ -903,7 +950,7 @@ export class ArtefactFeed {
 
   private async readFleet(): Promise<FleetArtefact> {
     const script = join(this.paths().home, "bin", "fm-bearings-snapshot.sh");
-    const timeout = this.options.timeoutMs ?? 20_000;
+    const timeout = this.options.timeoutMs ?? FLEET_READ_TIMEOUT_MS;
     try {
       const out = await new Promise<string>((resolve, reject) => {
         execFile(script, ["--json"], { timeout, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
@@ -911,10 +958,78 @@ export class ArtefactFeed {
           else resolve(stdout);
         });
       });
-      return parseBearings(JSON.parse(out));
+      const fleet = parseBearings(JSON.parse(out));
+      if (fleet.unavailable) throw new Error(fleet.unavailable);
+      return fleet;
     } catch (error) {
-      return FLEET_UNAVAILABLE(reason(error));
+      // A read that failed is Flyd's own hiccup: the reason goes to Flyd's log, never to George.
+      console.warn(`[view] fleet snapshot unreadable: ${reason(error)}`);
+      return FLEET_UNAVAILABLE("unreadable");
     }
+  }
+
+  /** Where the artefact list is kept, so the screen survives a restart and never resets under him. */
+  private ledgerPath(): string {
+    if (this.options.artefactsFile) return this.options.artefactsFile;
+    if (process.env.VITEST) return join(this.paths().home, "artefacts.json");
+    return join(FLYD_DIR, "view", "artefacts.json");
+  }
+
+  /** Loads the list once, so the first screen after a restart is the one he last saw. */
+  private loadLedger(): void {
+    if (this.ledgerLoaded) return;
+    this.ledgerLoaded = true;
+    try {
+      const stored = JSON.parse(readFileSync(this.ledgerPath(), "utf8")) as { rows?: unknown };
+      for (const raw of Array.isArray(stored.rows) ? stored.rows : []) {
+        const entry = raw as { field?: unknown; seenAt?: unknown; row?: unknown };
+        const field = str(entry.field) as FleetField;
+        const row = entry.row as ArtefactRow;
+        if (!FLEET_FIELDS.includes(field) || !row || typeof row !== "object" || !row.label) continue;
+        const key = artefactKey(row);
+        if (key) this.ledger.set(key, { field, row, seenAt: Number(entry.seenAt) || 0 });
+      }
+    } catch {
+      // No list yet, or an unreadable one: start empty rather than fail the screen.
+    }
+  }
+
+  private saveLedger(): void {
+    try {
+      const file = this.ledgerPath();
+      mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+      const temp = `${file}.${process.pid}.tmp`;
+      writeFileSync(temp, JSON.stringify({ rows: [...this.ledger.values()] }), { mode: 0o600 });
+      renameSync(temp, file);
+    } catch (error) {
+      console.warn(`[view] could not save the artefact list: ${reason(error)}`);
+    }
+  }
+
+  /** Folds a fresh read into the list: rows are added or updated in place, and only age out once reported no more. */
+  private mergeLedger(incoming: FleetArtefact, now: number, prune: boolean): FleetArtefact {
+    // One row per thing: a thing the read lists in two sections keeps the earliest, a call leading,
+    // so a collision never drops a call; and this read's rows keep its own order, ahead of rows only
+    // the list still holds, so a newly queued item is never pushed off by older entries.
+    const merged = new Map<string, LedgerEntry>();
+    for (const field of FLEET_FIELDS) {
+      for (const row of incoming[field]) {
+        const key = artefactKey(row);
+        if (key && !merged.has(key)) merged.set(key, { field, row, seenAt: now });
+      }
+    }
+    for (const [key, entry] of this.ledger) if (!merged.has(key)) merged.set(key, entry);
+    if (prune) for (const [key, entry] of merged) if (now - entry.seenAt > LEDGER_KEEP_MS) merged.delete(key);
+    this.ledger.clear();
+    for (const [key, entry] of merged) this.ledger.set(key, entry);
+    return this.ledgerFleet(incoming.generated, now);
+  }
+
+  /** The accumulated list as the fleet the screen reads, this read's rows first, ledger-only rows after. */
+  private ledgerFleet(generated: string | undefined, now: number): FleetArtefact {
+    const fleet: FleetArtefact = { ...emptyFleet(), ...(generated ? { generated } : {}) };
+    for (const entry of this.ledger.values()) fleet[entry.field].push(entry.seenAt < now ? { ...entry.row, ledgerOnly: true } : entry.row);
+    return fleet;
   }
 
   /** The absolute path of a screenshot the artefact listed, or null for anything else. */
@@ -995,15 +1110,21 @@ export class ArtefactFeed {
       const entries = new Map([...parseBacklog(archiveText), ...parseBacklog(backlogText)]);
       const listed = [bearings.calls, bearings.live, bearings.ready, bearings.landed, bearings.held, bearings.next]
         .flat().map((row) => row.task).filter((task): task is string => Boolean(task));
-      const recent = bearings.unavailable ? [] : recentlyFinished(entries, Date.now()).filter(({ task }) => !listed.includes(task)).slice(0, 30);
+      // Finished work is shown whether or not the fleet read succeeded: a failed read never empties the screen.
+      const recent = recentlyFinished(entries, Date.now()).filter(({ task }) => !listed.includes(task)).slice(0, 30);
       const referenced = bearings.calls.flatMap((row) => {
         const entry = row.task ? entries.get(row.task) : undefined;
         return entry ? referencedDirs(entry) : [];
       });
       const extras = await this.extras([...new Set([...listed, ...recent.map(({ task }) => task), ...referenced])]);
       this.shots = new Map([...extras].map(([task, extra]) => [task, new Set(extra.shots ?? [])]));
-      const withRecent = bearings.unavailable ? bearings : { ...bearings, landed: [...bearings.landed, ...landedRows(recent, extras)] };
-      const enriched = await this.withoutOvertaken(enrichFleet(withRecent, entries, extras), entries);
+      const withRecent: FleetArtefact = { ...bearings, landed: [...bearings.landed, ...landedRows(recent, extras)] };
+      // The screen is an accumulating list, persisted: a refresh adds or updates rows, and a read that fails drops nothing.
+      this.loadLedger();
+      const merged = this.mergeLedger(withRecent, Date.now(), !bearings.unavailable);
+      this.saveLedger();
+      const content = bearings.unavailable && !FLEET_FIELDS.some((field) => merged[field].length) ? FLEET_UNAVAILABLE("unreadable") : merged;
+      const enriched = await this.withoutOvertaken(enrichFleet(content, entries, extras), entries);
       const voice = this.options.voice;
       const generation = ++this.generation;
       const { fleet, unsaid } = voice ? this.voiced(voice, enriched) : { fleet: enriched, unsaid: [] };

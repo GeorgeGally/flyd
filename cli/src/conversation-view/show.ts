@@ -452,7 +452,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const landedWeek = weekLandedItems(inputs.artefact, { project: projectOfRepo });
   return {
     title: titleOf(chosen, recap && artefact.length === 0),
-    summary: situationOf(counts, fleet?.unavailable),
+    summary: situationOf(counts),
     items: chosen,
     semantic: semanticObjectsFromShow(chosen),
     counts,
@@ -471,8 +471,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
 }
 
 /** One line on the whole situation, every figure in it named. Pure. */
-export function situationOf(counts: Partial<Record<ShowKind, number>>, unavailable?: string): string {
-  if (unavailable) return `I couldn't read firstmate's fleet just now (${unavailable}).`;
+export function situationOf(counts: Partial<Record<ShowKind, number>>): string {
   const count = (kind: ShowKind) => counts[kind] ?? 0;
   const calls = count("call");
   const parts = [calls ? `${calls} ${calls === 1 ? "call waits" : "calls wait"} on you` : "nothing waits on you"];
