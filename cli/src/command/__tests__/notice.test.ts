@@ -94,7 +94,7 @@ describe("notices keep the one voice", () => {
   const verdicts = () => readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
     .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
 
-  it("keeps a completion that names backstage off his screen entirely, never as a content-free line, and records it", () => {
+  it("brings a completion that names backstage as a line naming the work, never verbatim, and records it", () => {
     for (const reply of [
       "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.",
       "Firstmate has not read 3 notes you sent.",
@@ -108,14 +108,14 @@ describe("notices keep the one voice", () => {
       "Fixed it in the worktree; 2 files changed.",
       "The pipeline ran 5 checks.",
     ]) {
-      expect(captainNotice(run(reply)), reply).toBeNull();
+      expect(captainNotice(run(reply)), reply).toBe('Work on "Fix the island" is done.');
     }
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.", surface: "notification", held: true }));
   });
 
-  it("keeps a completion that only carries a commit id, but holds branch mentions", () => {
+  it("keeps a completion that only carries a commit id, but rewrites branch mentions", () => {
     expect(captainNotice(run("The sidebar fix is merged at a1b2c3d."))).toBe("The sidebar fix is merged.");
-    expect(captainNotice(run("Merged the branch and deployed."))).toBeNull();
+    expect(captainNotice(run("Merged the branch and deployed."))).toBe('Work on "Fix the island" is done.');
     expect(captainNotice(run("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683"))).toBe("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683");
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Merged the branch and deployed.", surface: "notification", held: true }));
   });
@@ -136,6 +136,7 @@ describe("notices keep the one voice", () => {
     const machinery = "Guard relayed updates from firstmate, crewmates and the Council";
     expect(withOutcome(machinery, "Working on it", "needs_decision")).toBe("I need your decision on some of your work.");
     expect(withOutcome(machinery, "Working on it", "failed")).toBe("Some of your work hit a problem.");
+    expect(withOutcome(machinery, "Merged the branch and deployed.", "completed")).toBeNull();
     const long = withOutcome(`The sidebar opens on Artefacts by default. ${"More detail follows here. ".repeat(10)}`, "Looking into it", "needs_decision")!;
     expect(long.length).toBeLessThan(130);
     expect(long).toMatch(/^I need your decision on "The sidebar opens on Artefacts by default\. .*…"\.$/);
