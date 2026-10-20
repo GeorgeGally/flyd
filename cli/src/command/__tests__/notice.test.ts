@@ -110,6 +110,8 @@ describe("notices keep the one voice", () => {
       "The Scout surfaced 4 stories.",
       "Task id task-9 is stuck.",
       "The pipeline ran 5 checks.",
+      "The crew shipped the island fix.",
+      "The merge is blocked; the crew failed the checks.",
     ]) {
       const notice = captainNotice(run(reply));
       expect(notice, reply).toBe(news);

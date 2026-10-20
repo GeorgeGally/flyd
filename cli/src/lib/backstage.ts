@@ -1,6 +1,6 @@
 export const BACKSTAGE_DENYLIST: RegExp[] = [
   /\bfirstmates?\b/i,
-  /\bcrew ?mates?\b|\bcrewmembers?\b/i,
+  /\bcrews?\b|\bcrew ?mates?\b|\bcrewmembers?\b/i,
   /\bsubagents?\b/i,
   /\b(?:task|run)\s+id\b/i,
   /\bbranch(?:es)?\b/i,
