@@ -15,13 +15,18 @@ function terms(question: string): string[] {
     .filter((term) => term.length >= 3 && !/^(what|when|where|which|with|from|that|this|were|was|did|why|how|our|the|and|then|about|into|over|before|after)$/i.test(term)))];
 }
 
-function nodeScore(node: EpisodeNode, words: string[]): number {
+export function nodeScore(node: EpisodeNode, words: string[]): number {
   const lower = node.summary.toLowerCase();
   return words.reduce((score, word) => score + (lower.includes(word) ? 1 : 0), 0);
 }
 
 function eventText(event: StoredEvent): string {
   return `[event:${event.sequence}; ${event.capturedAt}; ${event.kind}; ${event.sourceId}] ${JSON.stringify(event.payload ?? null)}`;
+}
+
+export function selectDrillRoots(nodes: EpisodeNode[], question: string, max = 3): EpisodeNode[] {
+  const words = terms(question);
+  return nodes.slice().sort((a, b) => nodeScore(b, words) - nodeScore(a, words) || b.endSequence - a.endSequence).slice(0, Math.min(max, nodes.length));
 }
 
 export async function buildEvalContext(mode: EpisodeEvalMode, question: string, budget = 10): Promise<EpisodeEvalContext> {
@@ -45,8 +50,7 @@ export async function buildEvalContext(mode: EpisodeEvalMode, question: string, 
   if (mode === "cover") return { text: [currentText, episodeText].filter(Boolean).join("\n\n"), evidenceSequences: currentEvidenceSequences, episodeNodeIds: nodes.map((n) => n.id) };
 
   const words = terms(question);
-  const ranked = nodes.slice().sort((a, b) => nodeScore(b, words) - nodeScore(a, words) || b.endSequence - a.endSequence);
-  const chosen = ranked.slice(0, Math.min(3, ranked.length));
+  const chosen = selectDrillRoots(nodes, question, 3);
   const evidence: StoredEvent[] = [];
   const visited = new Set<string>();
 
