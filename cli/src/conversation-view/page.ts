@@ -1875,7 +1875,7 @@ var __name = function (f) { return f; };
     var artifacts = show && show.artifacts && show.artifacts.filter(function (artifact) { return !(artifact.artifact && artifact.artifact.type === "plan"); });
     if (decisions) drawSemanticDecisions(decisions);
     else drawNeeds(calls);
-    setLeft();
+    setNeeds((decisions || calls).map(function (item) { return item.id; }));
     if (artifacts) drawSemanticArtifacts(artifacts);
     else drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
     var artifactCount = artifacts ? artifacts.length : done.length;

@@ -51,7 +51,7 @@ export const LEFT_STYLE = `
 }
 ` + CARD_STYLE;
 
-export const LEFT_BUTTON = `<button id="left-open" type="button" aria-pressed="false" aria-controls="left">activity</button>`;
+export const LEFT_BUTTON = `<button id="left-open" type="button" aria-pressed="false" aria-controls="left">Needs you</button>`;
 
 export const LEFT_PREFERENCE = `<button id="left-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Needs you</span><span class="prefs-about">Decisions, reviews and held work</span></span><span class="track" aria-hidden="true"></span></button>`;
 
@@ -67,9 +67,9 @@ export const LEFT_HTML = `<aside class="left" id="left" hidden aria-label="What 
 </aside>`;
 
 export const LEFT_SCRIPT = `
-  // The left column: what needs him. Open by default only where it fits beside the chat; never hidden while something needs him.
+  // The left column: what needs him. Open by default only where it fits beside the chat; there a new item opens it once by itself,
+  // and the header button always counts what waits.
   var leftEl = document.getElementById("left");
-  var leftNeedsEl = document.getElementById("needs");
   var leftSemanticEl = document.getElementById("left-semantic");
   var leftSemanticSection = document.getElementById("left-semantic-section");
   var leftHideEl = document.getElementById("left-hide");
@@ -78,17 +78,34 @@ export const LEFT_SCRIPT = `
   var leftWide = window.matchMedia ? window.matchMedia("(min-width: ${LEFT_INLINE_MIN}px)") : null;
   var leftPref = store("flyd-left");
   var leftPanel = null;
+  var leftCallIds = [];
+  var leftSeen = {};
+  try { leftSeen = JSON.parse(store("flyd-left-seen") || "{}") || {}; } catch (_) {}
   // The card he is talking to Flyd about in the main chat, lit in the column.
   var leftAbout = null;
   function leftIsOpen() { return leftPref === "on" || (leftPref !== "off" && !!leftWide && leftWide.matches); }
-  function leftNeeds() { return !leftNeedsEl.hidden || !leftSemanticSection.hidden; }
+  function leftNeedIds() {
+    var ids = leftCallIds.slice();
+    Array.prototype.forEach.call(leftSemanticEl.children, function (card) { if (card.dataset.semanticId) ids.push(card.dataset.semanticId); });
+    return ids;
+  }
+  function setNeeds(ids) {
+    leftCallIds = ids;
+    setLeft();
+  }
   function setLeft() {
-    var needs = leftNeeds();
-    var on = needs || (!!leftPanel && leftIsOpen());
+    var ids = leftNeedIds();
+    var seen = {};
+    ids.forEach(function (id) { seen[id] = 1; });
+    var fresh = ids.some(function (id) { return !leftSeen[id]; });
+    if (JSON.stringify(seen) !== JSON.stringify(leftSeen)) store("flyd-left-seen", JSON.stringify(seen));
+    leftSeen = seen;
+    if (fresh && leftWide && leftWide.matches) { leftPref = "on"; store("flyd-left", leftPref); }
+    var on = (!!leftPanel || ids.length > 0) && leftIsOpen();
     document.documentElement.setAttribute("data-left", on ? "open" : "off");
     leftEl.hidden = !on;
-    leftHideEl.hidden = needs;
-    leftOpenEl.hidden = !leftPanel && !needs;
+    leftOpenEl.hidden = !leftPanel && !ids.length;
+    leftOpenEl.textContent = "Needs you" + (ids.length ? " · " + ids.length : "");
     leftOpenEl.setAttribute("aria-pressed", String(on));
     leftToggleEl.setAttribute("aria-checked", String(leftIsOpen()));
   }
@@ -211,7 +228,7 @@ export const LEFT_SCRIPT = `
     if (event.key !== "Escape") return;
     // An open card's detail closes first; only then does Escape take the column itself away.
     if (leftAbout) { chatAbout(null); return; }
-    if (!leftEl.hidden && !(leftWide && leftWide.matches) && prefs.hidden) chooseLeft(false);
+    if (!leftEl.hidden && prefs.hidden) chooseLeft(false);
   });
   if (leftWide && leftWide.addEventListener) leftWide.addEventListener("change", setLeft);
   // Times in the cards move on while nothing else does.

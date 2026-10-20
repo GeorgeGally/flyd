@@ -1963,7 +1963,7 @@ describe("header and artefact view", () => {
     load("");
     await settle();
     const controls = Array.from(document.querySelectorAll("header .controls button")).map((button) => button.textContent);
-    expect(controls).toEqual(["activity", "preferences", "artefact"]);
+    expect(controls).toEqual(["Needs you", "preferences", "artefact"]);
     const switches = Array.from(document.querySelectorAll('header .controls button[role="switch"], #prefs button[role="switch"]')).map((button) => button.id);
     expect(switches).toEqual(["flip", "mode", "theme", "rail-toggle", "left-toggle"]);
     const flip = document.getElementById("flip")!;
@@ -2037,6 +2037,10 @@ describe("header and artefact view", () => {
     update({ calls, underway, done });
     await settle();
     const needs = document.querySelector("#left #needs")!;
+    // A narrow window keeps it shut; the header button counts what waits and opens it.
+    expect(document.getElementById("left")!.hidden).toBe(true);
+    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 2");
+    document.getElementById("left-open")!.click();
     expect(document.getElementById("left")!.hidden).toBe(false);
     // One at a time: the first, with a way to answer, and how many wait; no recommendation it never recorded.
     expect(needs.querySelector(".needs-head")!.textContent).toBe("Pick the vendor step layout.");
@@ -2229,12 +2233,14 @@ describe("header and artefact view", () => {
     card().click();
     (document.getElementById("about-clear") as HTMLButtonElement).click();
     expect(about().hidden).toBe(true);
-    // Escape lets it go too, and the column stays while the held work needs him.
+    // Escape lets it go first, and only then takes the column away.
+    document.getElementById("left-open")!.click();
     card().click();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(about().hidden).toBe(true);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(document.getElementById("left")!.hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.getElementById("left")!.hidden).toBe(true);
   });
 
   it("makes every card in the left column clickable", async () => {
@@ -2529,7 +2535,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(done.map((item) => item.textContent).join(" ")).not.toContain("Still building the page");
   });
 
-  it("opens the left column whenever something needs him, even on a narrow window with the column switched off", async () => {
+  it("counts what needs him on the header button and never forces the column open on a narrow window", async () => {
     localStorage.setItem("flyd-left", "off");
     load("");
     await settle();
@@ -2539,20 +2545,53 @@ describe("what Flyd shows of its staff, at a glance", () => {
       show: { title: "", summary: "", live: false, counts: {}, items: [], calls },
       leftColumn: { now: [], recent: [], semantic: [] },
     });
-    update([{ id: "call:decision", kind: "call", headline: "Choose the final layout.", why: "", decision: { task: "layout", question: "Which layout?", choices: ["A", "B"] } }]);
+    const call = { id: "call:decision", kind: "call", headline: "Choose the final layout.", why: "", decision: { task: "layout", question: "Which layout?", choices: ["A", "B"] } };
+    const button = document.getElementById("left-open")!;
+    const left = document.getElementById("left")!;
+    update([call]);
     await settle();
-    expect(document.getElementById("left")!.hidden).toBe(false);
-    expect(document.documentElement.getAttribute("data-left")).toBe("open");
-    expect(document.getElementById("left-hide")!.hidden).toBe(true);
-    document.getElementById("left-toggle")!.click();
-    document.getElementById("left-toggle")!.click();
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(document.getElementById("left")!.hidden).toBe(false);
+    expect(left.hidden).toBe(true);
+    expect(button.hidden).toBe(false);
+    expect(button.textContent).toBe("Needs you · 1");
+    button.click();
+    expect(left.hidden).toBe(false);
+    expect(document.getElementById("left-hide")!.hidden).toBe(false);
     expect(document.querySelector("#left #needs .needs-head")!.textContent).toBe("Choose the final layout.");
+    document.getElementById("left-hide")!.click();
+    expect(left.hidden).toBe(true);
     update([]);
     await settle();
-    expect(document.getElementById("left")!.hidden).toBe(true);
-    expect(document.documentElement.getAttribute("data-left")).toBe("off");
+    expect(button.textContent).toBe("Needs you");
+  });
+
+  it("opens the column once by itself on a wide window when something new needs him, and lets him close it", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("1480"), media: query, addEventListener() {}, removeEventListener() {} }));
+    localStorage.setItem("flyd-left", "off");
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const update = (calls: unknown[]) => stream.emit("update", {
+      order: [], messages: [], working: false, boxes: [],
+      show: { title: "", summary: "", live: false, counts: {}, items: [], calls },
+      leftColumn: { now: [], recent: [], semantic: [] },
+    });
+    const call = (id: string) => ({ id, kind: "call", headline: `Choose ${id}.`, why: "", decision: { task: id, question: "Which?", choices: ["A", "B"] } });
+    const left = document.getElementById("left")!;
+    update([call("a")]);
+    await settle();
+    expect(left.hidden).toBe(false);
+    document.getElementById("left-hide")!.click();
+    expect(left.hidden).toBe(true);
+    // The same item again leaves it closed; a new one opens it once more, and Escape closes it.
+    update([call("a")]);
+    await settle();
+    expect(left.hidden).toBe(true);
+    update([call("a"), call("b")]);
+    await settle();
+    expect(left.hidden).toBe(false);
+    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 2");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(left.hidden).toBe(true);
   });
 
   it("never lists an unrun plan under Done", async () => {
