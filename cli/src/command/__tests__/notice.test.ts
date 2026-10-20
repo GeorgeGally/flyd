@@ -94,29 +94,38 @@ describe("notices keep the one voice", () => {
   const verdicts = () => readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
     .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
 
-  it("keeps a completion that names backstage off his screen entirely, never as a content-free line, and records it", () => {
+  it("brings a completion that names backstage as a neutral line naming the work, never claiming how it went, and records it", () => {
+    const news = 'There is news on "Fix the island". Ask Flyd for the details.';
     for (const reply of [
       "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.",
-      "Firstmate has not read 3 notes you sent.",
       "The crewmate finished 2 jobs.",
+      "Merged the fix on fm/island-filter; the island is quiet.",
+      "Fixed it in the worktree; 2 files changed.",
+      "The merge is blocked; the crewmate failed the checks.",
+      "The fix is not merged yet; the branch is waiting on review.",
+      "Firstmate has not read 3 notes you sent.",
       "Jev reviewed 4 requests.",
       "The Council reviewed 6 items.",
       "The Librarian curated 12 memories.",
       "The Scout surfaced 4 stories.",
-      "Merged the fix on fm/island-filter; the island is quiet.",
       "Task id task-9 is stuck.",
-      "Fixed it in the worktree; 2 files changed.",
       "The pipeline ran 5 checks.",
+      "The crew shipped the island fix.",
+      "The merge is blocked; the crew failed the checks.",
     ]) {
-      expect(captainNotice(run(reply)), reply).toBeNull();
+      const notice = captainNotice(run(reply));
+      expect(notice, reply).toBe(news);
+      expect(notice, reply).not.toMatch(/\b(done|finished|failed)\b/i);
     }
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Task id task-9 is stuck.", surface: "notification", held: true }));
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.", surface: "notification", held: true }));
   });
 
-  it("keeps a completion that only carries a commit id or the plain word branch, the id dropped", () => {
+  it("keeps a completion that only carries a commit id, but rewrites branch mentions", () => {
     expect(captainNotice(run("The sidebar fix is merged at a1b2c3d."))).toBe("The sidebar fix is merged.");
-    expect(captainNotice(run("Merged the branch and deployed."))).toBe("Merged the branch and deployed.");
+    expect(captainNotice(run("Merged the branch and deployed."))).toBe('There is news on "Fix the island". Ask Flyd for the details.');
     expect(captainNotice(run("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683"))).toBe("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683");
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Merged the branch and deployed.", surface: "notification", held: true }));
   });
 
   it("brings a decision or failure that names backstage as a line naming the work, and records it", () => {
@@ -135,6 +144,7 @@ describe("notices keep the one voice", () => {
     const machinery = "Guard relayed updates from firstmate, crewmates and the Council";
     expect(withOutcome(machinery, "Working on it", "needs_decision")).toBe("I need your decision on some of your work.");
     expect(withOutcome(machinery, "Working on it", "failed")).toBe("Some of your work hit a problem.");
+    expect(withOutcome(machinery, "Merged the branch and deployed.", "completed")).toBeNull();
     const long = withOutcome(`The sidebar opens on Artefacts by default. ${"More detail follows here. ".repeat(10)}`, "Looking into it", "needs_decision")!;
     expect(long.length).toBeLessThan(130);
     expect(long).toMatch(/^I need your decision on "The sidebar opens on Artefacts by default\. .*…"\.$/);

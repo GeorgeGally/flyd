@@ -39,20 +39,23 @@ export function isRoutineChatter(text: string): boolean {
   return MACHINERY.test(brief) && !reportsOutcome(brief);
 }
 
-/** The notification text for a run, or null when nothing George cares about happened, or when what it says may not reach him as written. */
+/** The notification text for a run, or null when nothing George cares about happened, or when what it says may not reach him as written and the work cannot be named instead. */
 export function captainNotice(run: DomainRun): string | null {
   if (!run.result) return null;
   const brief = stripCommitIds(plainBrief(run.result.brief));
   if (!brief) return null;
   if (run.status === "needs_decision" || run.status === "failed") return decisionNotice(run, brief);
   if (run.status !== "completed" || isRoutineChatter(brief)) return null;
-  // The same outgoing-answer checks a chat reply passes: a completion that names
-  // backstage machinery or is a placeholder reaches George as nothing, and what
+  // The same outgoing-answer checks a chat reply passes: a placeholder or a
+  // ruled-out phrase reaches George as nothing, a completion that only names
+  // backstage machinery gives way to a neutral line naming the work, and what
   // was held is recorded so a reviewer can see it.
   const held = relayShortfalls(brief);
   if (!held.length) return brief;
   recordHeld({ surface: "notification", source: `domain:${run.id}`, text: brief }, held);
-  return null;
+  if (held.some((shortfall) => shortfall.requirement !== "backstage_hidden")) return null;
+  const named = namedOutcome(run);
+  return named ? `There is news on ${named}. Ask Flyd for the details.` : null;
 }
 
 /**
@@ -68,10 +71,15 @@ function decisionNotice(run: DomainRun, brief: string): string {
   recordHeld({ surface: "notification", source: `domain:${run.id}`, text: lead + brief }, held);
   const kept = stripRetiredPhrases(brief);
   if (kept && !relayShortfalls(kept).length) return lead + kept;
-  const outcome = clip(stripCommitIds(plainBrief(run.request.intendedOutcome)));
-  const named = outcome && !relayShortfalls(outcome).length ? `"${outcome}"` : "";
+  const named = namedOutcome(run);
   if (run.status === "needs_decision") return `I need your decision on ${named || "some of your work"}.`;
   return named ? `Work on ${named} hit a problem.` : "Some of your work hit a problem.";
+}
+
+/** The work in a few words, quoted, or "" when it cannot be named without backstage. */
+function namedOutcome(run: DomainRun): string {
+  const outcome = clip(stripCommitIds(plainBrief(run.request.intendedOutcome)));
+  return outcome && !relayShortfalls(outcome).length ? `"${outcome}"` : "";
 }
 
 function clip(text: string, max = 90): string {

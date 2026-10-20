@@ -99,9 +99,12 @@ authoritative path. This change does not rewrite historical private entries.
   - A relayed update in the window and a domain-run notification pass the
     same checks a chat answer does (`relayShortfalls` in
     `cli/src/runtime/honesty-check.ts`): backstage machinery, a ruled-out
-    phrase or a placeholder holds it. A held relay or completion notice is
-    not shown at all; a decision or failure still reaches him, with the
-    ruled-out phrase stripped or, failing that, a line naming the work.
+    phrase or a placeholder holds it. A held relay is not shown at all. A
+    completion notice held only for backstage machinery becomes a neutral
+    line naming the work ("There is news on …"), with no claim of success
+    or failure; held for anything else, it is not shown. A decision or
+    failure still reaches him, with the ruled-out phrase stripped or,
+    failing that, a line naming the work.
     A bare commit id is dropped from what he sees rather than holding it;
     a commit link passes as written.
   - All of these are recorded as held verdicts.
