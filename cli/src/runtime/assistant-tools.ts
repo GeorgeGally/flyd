@@ -328,6 +328,7 @@ export async function runAssistantTool(
             doneWhen: answerOnly,
             source: "chat",
             ...(repo ? { project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo } } : {}),
+            ...(context.skill ? { skill: context.skill } : {}),
             transport: firstmate,
           });
           if (run.failure) return run.failure;

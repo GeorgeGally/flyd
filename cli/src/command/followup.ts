@@ -43,6 +43,7 @@ export async function dispatchDomainFollowup(input: {
       parentRequestId: parent.id,
       contextRefs: [`domain:${parent.id}`],
       ...(parent.request.project ? { project: parent.request.project } : {}),
+      ...(parent.request.skill ? { skill: parent.request.skill } : {}),
     });
   }
   if (parent.request.domain === "knowledge") {
