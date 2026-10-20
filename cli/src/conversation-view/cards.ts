@@ -237,6 +237,17 @@ export const CARD_SCRIPT = `
       });
       card.appendChild(close);
     }
+    if (opts.chat && SEND_TOKEN) {
+      var context = { title: item.title || item.headline || opts.kind || "Sidebar item" };
+      var line = opts.line || item.line;
+      var aboutDetail = opts.detail || item.detail;
+      if (line) context.line = line;
+      if (aboutDetail) context.detail = aboutDetail;
+      if (item.url) context.url = item.url;
+      var chat = sidebarChat("flyd-card:" + opts.key, { about: context });
+      text.appendChild(chat.opener);
+      text.appendChild(chat.form);
+    }
     return card;
   }
 `;

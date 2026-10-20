@@ -233,7 +233,7 @@ function question(text: string): string {
 }
 
 /** The lines the window put in front of his words so firstmate knows what they are about. */
-const ABOUT_ARTEFACT = /^About the artefact "([^"\n]*)"\n(?:Task: [^\n]*\n)?(?:Page: (\S+)\n)?/;
+const ABOUT_ARTEFACT = /^About the artefact "([^\n]*)"\n(?:Task: [^\n]*\n)?(?:Page: (\S+)\n)?(?:Line: [^\n]*\n)?(?:Detail: [^\n]*\n)?/;
 const ABOUT_DECISION = /^Answer to pending decision [\w.-]+: ([^\n]*)\n(?:Question: [^\n]*\n)?/;
 
 /**

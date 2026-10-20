@@ -216,6 +216,7 @@ export const LEFT_SCRIPT = `
       extra: storiesNode(item.stories),
       dismiss: true,
       onHide: drawActivity,
+      chat: true,
     }, chatOpts({ key: key, kind: item.kind, title: item.title, when: (live ? "Started " : "") + ago(item.at), line: item.line || "", detail: item.detail || "", stories: item.stories, detailWhen: item.at ? dayOf(item.at) + ", " + clock(item.at) : "" })));
   }
   function leftSemanticVisual(activity) {
@@ -252,6 +253,7 @@ export const LEFT_SCRIPT = `
       detailWhen: at ? dayOf(at) + ", " + clock(at) : "",
       dismiss: phase === "finished",
       onHide: drawActivity,
+      chat: true,
     }, chatOpts({ key: key, kind: visual, title: activity.subject, when: when, line: activity.summary || "", detail: activity.decision && phase === "needs_you" ? activity.decision.question : activity.detail || "", evidence: activity.evidence, detailWhen: at ? dayOf(at) + ", " + clock(at) : "" })));
     card.dataset.semanticId = activity.id;
     card.dataset.phase = phase;

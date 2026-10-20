@@ -244,6 +244,10 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 /* The chat box at the foot of every artefact: one field like the reply card,
    his words and Send inside it on one row, any pasted images above them. */
 .art-chat { display: flex; flex-direction: column; gap: 8px; }
+.art-chat[hidden] { display: none; }
+.art-chat-open { width: 28px; height: 28px; padding: 0; color: var(--muted); background: transparent; border: 0; cursor: pointer; }
+.art-chat-open:hover { color: var(--strong); }
+.art-chat-open svg { width: 16px; height: 16px; }
 /* A question's own answer box, one step at a time, is the same field. */
 .art-chat-field, .scene-ask .step-free {
   padding: 6px 6px 6px 14px; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 10px;
@@ -251,6 +255,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 }
 .art-chat-field:focus-within, .scene-ask .step-free:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .art-chat-row { display: flex; align-items: flex-end; gap: 8px; }
+.card .art-chat-input { min-width: 0; }
 /* It grows with what he types, never with focus: a box that shrank as Send
    took the click moved Send out from under the pointer, and nothing went. */
 .art-chat-input {
@@ -378,6 +383,8 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 /* The foot: what Flyd is doing, and how to talk to it. */
 .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; padding-bottom: 24px; }
 .foot .hint { font: 500 12px/1.4 var(--mono); color: var(--muted); }
+.show-nav { width: 32px; height: 32px; margin-left: 8px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; cursor: pointer; }
+.show-nav:hover { color: var(--strong); }
 .k-call { --k: var(--k-call); } .k-live { --k: var(--k-live); } .k-ready { --k: var(--k-ready); }
 .k-landed { --k: var(--k-landed); } .k-waiting, .k-warn { --k: var(--k-waiting); } .k-next { --k: var(--k-next); }
 .k-news, .k-clear { --k: var(--k-news); }
@@ -952,6 +959,9 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 }
 .lightbox[hidden] { display: none; }
 .lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+.lightbox-nav { position: fixed; top: 50%; width: 36px; height: 36px; border: 0; border-radius: 50%; color: white; background: #222; cursor: pointer; }
+.lightbox-prev { left: 18px; }
+.lightbox-next { right: 18px; }
 
 /* Pending: the captain's message is on its way to firstmate. */
 /* Only his words dim while on their way; the living line stays fully legible. */
@@ -1534,12 +1544,32 @@ var __name = function (f) { return f; };
     return row;
   }
   var lightbox = document.getElementById("lightbox");
+  var lightboxImages = [];
+  var lightboxIndex = 0;
   function openImage(url) {
-    document.getElementById("lightbox-img").src = url;
+    var shown = new URL(url, location.href).href;
+    lightboxImages = Array.from(document.querySelectorAll("img")).filter(function (image) {
+      return image.id !== "lightbox-img" && !image.closest("[hidden]");
+    }).map(function (image) { return image.currentSrc || image.src; }).filter(function (imageUrl, i, all) { return imageUrl && all.indexOf(imageUrl) === i; });
+    lightboxIndex = lightboxImages.indexOf(shown);
+    if (lightboxIndex < 0) { lightboxImages.unshift(shown); lightboxIndex = 0; }
+    document.getElementById("lightbox-img").src = lightboxImages[lightboxIndex];
     lightbox.hidden = false;
   }
-  lightbox.addEventListener("click", function () { lightbox.hidden = true; });
-  document.addEventListener("keydown", function (event) { if (event.key === "Escape") lightbox.hidden = true; });
+  function stepLightbox(direction) {
+    if (!lightboxImages.length) return;
+    lightboxIndex = (lightboxIndex + direction + lightboxImages.length) % lightboxImages.length;
+    document.getElementById("lightbox-img").src = lightboxImages[lightboxIndex];
+  }
+  document.querySelector(".lightbox-prev").addEventListener("click", function (event) { event.stopPropagation(); stepLightbox(-1); });
+  document.querySelector(".lightbox-next").addEventListener("click", function (event) { event.stopPropagation(); stepLightbox(1); });
+  lightbox.addEventListener("click", function (event) { if (event.target === lightbox) lightbox.hidden = true; });
+  document.addEventListener("keydown", function (event) {
+    if (lightbox.hidden) return;
+    if (event.key === "Escape") lightbox.hidden = true;
+    else if (event.key === "ArrowRight") stepLightbox(1);
+    else if (event.key === "ArrowLeft") stepLightbox(-1);
+  });
 
   // A sent note that was saved but did not wake firstmate says so.
   function showWarning(el, text) {
@@ -2209,7 +2239,9 @@ var __name = function (f) { return f; };
     if (SEND_TOKEN) {
       var about = { title: card.title };
       if (card.url) about.url = card.url;
-      box.appendChild(artefactChat("flyd-about:" + card.id, { about: about }, "Say something about this…").form);
+      var chat = sidebarChat("flyd-about:" + card.id, { about: about });
+      box.appendChild(chat.opener);
+      box.appendChild(chat.form);
     }
     return box;
   }
@@ -2220,6 +2252,11 @@ var __name = function (f) { return f; };
     var card = keyed(el("div", "rail-mem" + (fresh ? " rail-mem--new" : "")), "mem:" + memory.id);
     if (fresh) card.appendChild(el("p", "rail-mem-kicker", KICKERS[memory.kind] || "Remembered"));
     card.appendChild(el("p", "rail-mem-text", memory.title));
+    if (SEND_TOKEN) {
+      var chat = sidebarChat("flyd-memory:" + memory.id, { about: { title: memory.title } });
+      card.appendChild(chat.opener);
+      card.appendChild(chat.form);
+    }
     return card;
   }
   // What Flyd already holds here, folded under one line at the top; he opens it when he wants it.
@@ -2909,6 +2946,26 @@ var __name = function (f) { return f; };
   document.getElementById("rail-hide").addEventListener("click", function () { hideRail(true); });
 ${CARD_SCRIPT}
 ${LEFT_SCRIPT}
+
+  // A sidebar item's chat sits behind one small icon until he opens it.
+  function sidebarChat(key, target) {
+    var chat = artefactChat(key, target, "Say something about this…");
+    var form = chat.form;
+    form.hidden = !chat.state.open;
+    var opener = el("button", "art-chat-open");
+    opener.type = "button";
+    opener.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>';
+    opener.setAttribute("aria-label", "Chat about this item");
+    opener.setAttribute("aria-expanded", String(!form.hidden));
+    opener.addEventListener("click", function () {
+      form.hidden = !form.hidden;
+      chat.state.open = !form.hidden;
+      chat.save();
+      opener.setAttribute("aria-expanded", String(!form.hidden));
+      if (!form.hidden) form.querySelector("textarea").focus();
+    });
+    return { opener: opener, form: form };
+  }
 
   // The chat box at the foot of every artefact: his words about that one thing go
   // to firstmate naming it, and the line under the box says where they are in
@@ -4311,8 +4368,10 @@ ${LEFT_SCRIPT}
   function schedule() {
     clearInterval(cycle);
     cycle = null;
-    if (scenes.length > 1 && !holding && !(document.activeElement && document.activeElement.closest(".scene-ask"))) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
+    if (scenes.length > 1 && !holding && !(document.activeElement && document.activeElement.closest(".scene-ask"))) cycle = setInterval(function () { if (lightbox.hidden && onShow()) show(at + 1, true); }, DWELL);
   }
+  document.getElementById("show-prev").addEventListener("click", function () { holding = true; show(at - 1, true); schedule(); });
+  document.getElementById("show-next").addEventListener("click", function () { holding = true; show(at + 1, true); schedule(); });
   function hold(on) {
     holding = on;
     markTicks();
@@ -4331,6 +4390,8 @@ ${LEFT_SCRIPT}
   function renderTicks() {
     ticksEl.textContent = "";
     ticksEl.hidden = scenes.length < 2;
+    // One scene has nowhere to step to: no arrows that do nothing.
+    document.getElementById("show-nav").hidden = scenes.length < 2;
     scenes.forEach(function (box, index) {
       var tick = el("button", "k-" + (box.kind === "alert" ? "warn" : box.tone || "news"));
       tick.type = "button";
@@ -4769,7 +4830,7 @@ ${LEFT_HTML}
   <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span></div>
 </main>
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
-<div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
+<div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><button class="lightbox-nav lightbox-prev" type="button" aria-label="Previous image">‹</button><img id="lightbox-img" alt=""><button class="lightbox-nav lightbox-next" type="button" aria-label="Next image">›</button></div>
 <div class="problem" id="problem"></div>
 <a id="routine-suggestion" href="/routines" hidden style="position:fixed;bottom:150px;right:24px;font-size:14px;color:var(--accent);padding:12px;background:var(--tint);border-radius:12px">Keep this repeated request as a routine →</a>
 <section class="show" id="show" hidden aria-label="Flyd's artefact: what it thinks you need to see">
@@ -4796,7 +4857,7 @@ ${LEFT_HTML}
       <ul class="drill-list" id="drill-list"></ul>
     </div>
   </div>
-  <div class="foot"><p class="doing" id="show-doing">Standby</p><span class="hint">type to talk · tab for the conversation</span></div>
+  <div class="foot"><p class="doing" id="show-doing">Standby</p><span class="hint">type to talk · tab for the conversation</span><span id="show-nav" hidden><button class="show-nav" id="show-prev" type="button" aria-label="Previous card">←</button><button class="show-nav" id="show-next" type="button" aria-label="Next card">→</button></span></div>
 </section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
