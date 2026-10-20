@@ -1506,8 +1506,8 @@ export class ConversationViewServer {
         .find((exchange) => exchange.question.id === replyTo);
       // A question the session put to him in its own reply, not under a note of his: the answer goes back to that session.
       const asked = parent ? undefined : snapshot.messages.find((message) => message.role === "assistant" && message.id === replyTo);
-      const question = asked ? choiceOf(asked.text)?.question : typeof questionText === "string" && questionText.trim() ? questionText : undefined;
-      if (!parent && !(question && (asked || typeof questionText === "string"))) {
+      const question = (asked && choiceOf(asked.text)?.question) || (typeof questionText === "string" && questionText.trim() ? questionText.trim() : undefined);
+      if (!parent && !question) {
         sendJson(res, 409, { error: "That answer is no longer here; send it as a new message" });
         return;
       }
@@ -1694,7 +1694,7 @@ export class ConversationViewServer {
       sseEvent(res, "update", {
         ...update,
         messages: update.messages.map((message) => message.choice
-          ? { ...message, choice: { ...message.choice, session: session.id, questionText: snapshot.messages.find((candidate) => candidate.id === message.id)?.text ?? message.choice.question } }
+          ? { ...message, choice: { ...message.choice, session: session.id, questionText: message.choice.question } }
           : message),
       });
     };
