@@ -449,5 +449,14 @@
       "judge": "A calm chief of staff answering a simple question: the answer comes first, in one to three short sentences, with no explanation of how it was worked out, no background he did not ask for, and no offer or follow-up question.",
       "maxSeconds": 20
     }
+  },
+  {
+    "id": "long-enumeration-artefact",
+    "category": "conversation",
+    "ask": "Give me a ten-item multi-part status update, with each item covering a distinct part of the current Flyd work.",
+    "expect": {
+      "judge": "The full ten-item answer is delivered as a Flyd artefact, while the chat shows only a concise summary of at most two sentences plus a reference to the artefact. The ten-item list must not appear as a wall of chat text.",
+      "maxSeconds": 90
+    }
   }
 ]

@@ -25,6 +25,27 @@ const LOCAL_PATH = /(?:~|\/Users\/[^/\s]+)\/[^\s`'"),;:]+/g;
 
 export interface ClaimToolCall { name: string; input: Record<string, unknown>; succeeded: boolean }
 
+export interface ArtefactRequiredViolation { requirement: "artefact_required"; count: number }
+
+export function artefactRequiredViolation(answer: string): ArtefactRequiredViolation | null {
+  const lines = answer.split("\n");
+  let listCount = 0;
+  let tableRows = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^\|.*\|$/.test(trimmed)) {
+      if (/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmed)) continue;
+      tableRows += 1;
+      continue;
+    }
+    if (/^(?:[-*+]\s+|\d+[.)]\s+)/.test(trimmed)) listCount += 1;
+    else if (trimmed && !/^»\s+/.test(trimmed)) listCount = 0;
+  }
+  if (tableRows >= 4) return { requirement: "artefact_required", count: tableRows - 1 };
+  if (listCount >= 6) return { requirement: "artefact_required", count: listCount };
+  return null;
+}
+
 export function unsupportedClaims(
   answer: string,
   toolCalls: ClaimToolCall[],

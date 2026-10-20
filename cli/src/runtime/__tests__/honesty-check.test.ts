@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { honestyRewritePrompt, unsupportedClaims } from "../honesty-check.js";
+import { artefactRequiredViolation, honestyRewritePrompt, unsupportedClaims } from "../honesty-check.js";
 
 const mutating = (name: string) => name === "write_file" || name === "reminders" || name === "background_task" || name === "start_knowledge_task";
 
 describe("honesty check", () => {
+  it("requires an artefact for long enumerations, but not short replies or artefact references", () => {
+    expect(artefactRequiredViolation(Array.from({ length: 10 }, (_, index) => `${index + 1}. Item ${index + 1}`).join("\n"))).toEqual({ requirement: "artefact_required", count: 10 });
+    expect(artefactRequiredViolation("1. One\n2. Two\n3. Three")).toBeNull();
+    expect(artefactRequiredViolation("» The ten updates are ready.\n» They cover the current status.\n\nFull breakdown: [Open the artefact](http://127.0.0.1:3000/answer)")).toBeNull();
+    expect(artefactRequiredViolation("| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |")).toEqual({ requirement: "artefact_required", count: 3 });
+  });
+
   it("catches claimed work that no tool did", () => {
     expect(unsupportedClaims("I wrote the demo spec and the one-pager.", [], mutating, () => true)).toHaveLength(1);
     expect(unsupportedClaims("I wrote the demo spec.", [{ name: "write_file", input: { path: "spec.md" }, succeeded: true }], mutating, () => true)).toEqual([]);

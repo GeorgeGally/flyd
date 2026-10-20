@@ -18,7 +18,7 @@ import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-poli
 import { readTheRoom, roomBrief, roomPrompt, ROOM_RUBRIC_VERSION, type RoomInput, type RoomRead } from "./read-the-room.js";
 import { safeRoutingValue, type RoutingTrace } from "./routing-learning.js";
 import { buildRoomContext, privateNotes } from "./room-context.js";
-import { honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, stripInternalNarration, stripRetiredPhrases, styleProblems, unsupportedClaims } from "./honesty-check.js";
+import { artefactRequiredViolation, honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, stripInternalNarration, stripRetiredPhrases, styleProblems, unsupportedClaims } from "./honesty-check.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool } from "./personal-tools.js";
 import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantToolContext } from "./assistant-tools.js";
 import { fetchPublicUrl } from "./url-guard.js";
@@ -1298,6 +1298,13 @@ export async function respondToConversation(
     }
     if (containsProviderToolProtocol(final)) {
       throw new Error("Flyd's configured model returned tool protocol markup instead of a user-facing answer");
+    }
+    if (artefactRequiredViolation(final)) {
+      const body = final.replace(/^»\s+.*(?:\n»\s+.*)*/m, "").trim();
+      const intro = body.split("\n").find((line) => line.trim() && !/^\s*(?:[-*+]|\d+[.)]|\|)/.test(line))?.trim();
+      const sentences = (intro ?? "Here is the full breakdown.").match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [];
+      const summary = sentences.slice(0, 2).join(" ") || "Here is the full breakdown.";
+      final = `» ${summary}\n\n${body}`;
     }
     emit(final);
     await record(connection, toolCalls, final, "succeeded");
