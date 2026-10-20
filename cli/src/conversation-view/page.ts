@@ -61,6 +61,9 @@ header {
   font: 500 14px/1 var(--sans); color: var(--muted);
 }
 .who { color: var(--accent); white-space: nowrap; }
+.project-badge { flex: none; max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12px/1.2 var(--mono); letter-spacing: 0.03em; color: var(--muted); }
+.project-badge[hidden] { display: none; }
+.project-badge.shown { animation: scene-fade 240ms ease both; }
 .when { white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* One kind of control: a small text toggle. No borders; colour alone says
    which are on. */
@@ -445,7 +448,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
   .foot .hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-ask, .scene.in .scene-shot, .scene.in .scene-open,
+  .project-badge.shown, .show.power, .show.off, .scene.in > *, .scene.in .scene-head, .scene.in .scene-line, .scene.in .scene-meta, .scene.in .scene-ask, .scene.in .scene-shot, .scene.in .scene-open,
   .scene.out > *, .ro.fade, .doing.on::before, .msg.spot { animation: none; }
   .ticks button.on::after { transition: none; }
 }
@@ -1598,6 +1601,13 @@ var __name = function (f) { return f; };
     main.appendChild(working);
     document.getElementById("empty").hidden = update.order.length > 0 || !!main.querySelector(".msg.pending");
     isWorking = update.working;
+    var projectBadge = document.getElementById("project-badge");
+    if (projectBadge.textContent !== (update.project || "")) {
+      projectBadge.textContent = update.project || "";
+      projectBadge.hidden = !update.project;
+      projectBadge.classList.remove("shown");
+      if (update.project) { void projectBadge.offsetWidth; projectBadge.classList.add("shown"); }
+    }
     if (update.context) { usage.context = update.context; renderUsage(); }
     lastActivity = update.lastActivity || lastActivity;
     refreshWorking();
@@ -4351,6 +4361,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <body${token}>
 <header>
   <span class="who">${label}</span>
+  <span class="project-badge" id="project-badge" hidden></span>
   <span class="picker"><select id="picker" aria-label="Session"></select></span>
   <span class="air" id="air">standby</span>
   <a class="site" id="site" hidden target="_blank" rel="noopener noreferrer"><span class="site-kind" id="site-kind"></span><span class="site-host" id="site-host"></span><span class="site-path" id="site-path"></span></a>

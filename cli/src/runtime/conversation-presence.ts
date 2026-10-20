@@ -14,6 +14,7 @@ export interface TurnUnderstanding {
   need?: RoomNeed;
   interactionClass?: InteractionClass;
   source: "room" | "fast" | "fallback";
+  project?: string | null;
 }
 
 export function presenceEnabled(): boolean {

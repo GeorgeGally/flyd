@@ -2,7 +2,7 @@ import { PreparationStore } from "../runtime/preparation-store.js";
 import type { ConversationTurnSource } from "../runtime/conversation-turn.js";
 import { isAccountIntent } from "../connectors/invocation.js";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -14,6 +14,7 @@ import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage
 import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
 import type { RouteReading } from "../runtime/turn-plan.js";
 import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
+import { projectNamed } from "../council/projects.js";
 
 // Flyd is the voice of the conversation window. A question that is not
 // software or fleet work (what to do in Bangkok tonight) is Flyd's to answer,
@@ -182,6 +183,8 @@ function asAsked(record: AskRecord): string {
   return record.seen ? `${record.text}\n\n${record.seen}` : record.text;
 }
 
+const ROUTED_TURNS = "routed-projects.jsonl";
+
 const ASK_IMAGE = /^a(\d+-[0-9a-f]+-\d+\.(?:png|jpg|gif|webp))$/;
 
 export function defaultAsksDir(): string {
@@ -199,6 +202,54 @@ export class FlydDesk {
   private readonly steps = new Map<string, string>();
   /** Parsed records by file name, with the size and mtime they were read at; a file is read again only when those change. */
   private readonly parsed = new Map<string, { stamp: string; record: AskRecord | null }>();
+  /** The firstmate-routed projects, with the size and mtime they were read at. */
+  private routedCache?: { stamp: string; turns: Array<{ sessionId: string; at: string; project: string }> };
+
+  /** The project of the newest turn in the session that has one: his asks to Flyd and his messages passed to firstmate alike. */
+  project(sessionId: string): string | undefined {
+    const turns = [
+      ...this.records().filter((record) => (record.sessionId ?? "conversation") === sessionId && record.understanding?.project)
+        .map((record) => ({ at: record.at, project: record.understanding!.project! })),
+      ...this.routedTurns().filter((turn) => turn.sessionId === sessionId),
+    ];
+    return turns.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1)?.project;
+  }
+
+  /** Keeps the project a message passed to firstmate names, beside the asks, so the badge follows it across restarts. */
+  routed(text: string, sessionId = "conversation", at = new Date().toISOString()): void {
+    const project = projectNamed(text);
+    if (!project) return;
+    try {
+      mkdirSync(this.dir, { recursive: true });
+      appendFileSync(join(this.dir, ROUTED_TURNS), `${JSON.stringify({ sessionId, at, project })}\n`, { mode: 0o600 });
+    } catch (error) {
+      console.warn(`[view] could not keep the project of a message passed to firstmate: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private routedTurns(): Array<{ sessionId: string; at: string; project: string }> {
+    const path = join(this.dir, ROUTED_TURNS);
+    let text: string;
+    let stamp: string;
+    try {
+      const stat = statSync(path);
+      stamp = `${stat.size}:${stat.mtimeMs}`;
+      if (this.routedCache?.stamp === stamp) return this.routedCache.turns;
+      text = readFileSync(path, "utf8");
+    } catch {
+      return [];
+    }
+    const turns = text.split("\n").flatMap((line) => {
+      try {
+        const turn = JSON.parse(line) as { sessionId?: unknown; at?: unknown; project?: unknown };
+        return typeof turn.sessionId === "string" && typeof turn.at === "string" && typeof turn.project === "string" ? [{ sessionId: turn.sessionId, at: turn.at, project: turn.project }] : [];
+      } catch {
+        return [];
+      }
+    });
+    this.routedCache = { stamp, turns };
+    return turns;
+  }
 
   constructor(options: { answer: Answerer; see?: Seer; dir?: string; preparationStore?: PreparationStore }) {
     this.answerer = options.answer;

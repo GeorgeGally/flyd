@@ -32,7 +32,7 @@ import type { RemitSummary } from "./preparation-reading.js";
 import { createRepeatGuard } from "./repeat-guard.js";
 import { runJobShell } from "./background-jobs.js";
 import { morningPromptBlock } from "../council/morning.js";
-import { projectsPromptBlock } from "../council/projects.js";
+import { projectNamed, projectsPromptBlock } from "../council/projects.js";
 import { loadSkills, seedSkills, skillPromptBlock, type Skill } from "./skills.js";
 import { CODE_TOOLS, offCode, offRoute, planBrief, planBudget, planTurn, routeWithJev, visibleTools, type RouteReading, type TurnPlan } from "./turn-plan.js";
 import { contractError } from "./tool-contracts.js";
@@ -1160,6 +1160,7 @@ export async function respondToConversation(
       source: room ? "room" : fast?.decided ? "fast" : "fallback",
       needsCode: projectTurn,
     });
+    understanding.project = projectNamed(input.message);
     input.onUnderstanding?.(understanding);
     if (understanding.interactionClass) input.onInteraction?.(understanding.interactionClass);
   }

@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildConversationPrompt, respondToConversation } from "../conversation-responder.js";
+import { projectNamed } from "../../council/projects.js";
 import { presenceBrief, understandTurn } from "../conversation-presence.js";
 import { buildRoomContext } from "../room-context.js";
 import { roomBrief, roomPrompt, type RoomRead } from "../read-the-room.js";
@@ -49,6 +50,26 @@ describe("conversational presence", () => {
       })).rejects.toMatchObject({ name: "AbortError" });
       expect(store.listRemits("abort-fixture")).toEqual([]);
       expect(run).not.toHaveBeenCalled();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  it("names the registered project George's message is about", () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-presence-badge-"));
+    const path = join(root, "projects.json");
+    writeFileSync(path, JSON.stringify({ projects: [{ id: "gnm-good-neighbours-market", name: "GNM (Good Neighbours Market)" }, { id: "atomise", name: "Atomise" }, { id: "flyd", name: "Flyd" }] }));
+    vi.stubEnv("FLYD_PROJECTS_PATH", path);
+    try {
+      expect(projectNamed("How is Atomise doing?")).toBe("Atomise");
+      expect(projectNamed("what about the tests?")).toBeNull();
+      expect(projectNamed("Now GNM")).toBe("GNM (Good Neighbours Market)");
+      expect(projectNamed("back to good neighbours market")).toBe("GNM (Good Neighbours Market)");
+      expect(projectNamed("How is my-repo doing?")).toBeNull();
+      expect(projectNamed("Compare Atomise and GNM")).toBeNull();
+      expect(projectNamed("Compare Flyd and Atomise")).toBe("Atomise");
+      expect(projectNamed("Flyd, what's the weather?")).toBeNull();
+      expect(projectNamed("hey Flyd what's the weather")).toBeNull();
+      expect(projectNamed("Flyd, how's GNM going?")).toBe("GNM (Good Neighbours Market)");
+      expect(projectNamed("Flyd needs a quieter island")).toBe("Flyd");
+      expect(projectNamed("Long day. I just want to talk.")).toBeNull();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
   it("does not invent an emotional reading on the confident fast path", async () => {

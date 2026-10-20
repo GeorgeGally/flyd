@@ -57,6 +57,16 @@ export function readProjects(path = projectsPath()): Project[] {
   }
 }
 
+/** The registered project his message names, by its display name; null when none or several do. */
+export function projectNamed(text: string, projects = readProjects()): string | null {
+  const unaddressed = text.replace(/^\s*(?:(?:hey|hi|ok)\s+flyd\b[\s,:!.]*|flyd\s*[,:!]\s*)/i, "");
+  let named = projects.filter((project) => [project.name, project.id, ...project.name.split(/[()]/)]
+    .map((alias) => alias.trim())
+    .some((alias) => alias.length >= 3 && new RegExp(`(?:^|[^a-z0-9])${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`, "i").test(unaddressed)));
+  if (named.length > 1) named = named.filter((project) => project.id !== "flyd");
+  return named.length === 1 ? named[0]!.name : null;
+}
+
 function writeProjects(projects: Project[], path: string): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${process.pid}.tmp`;

@@ -176,6 +176,7 @@ interface StreamUpdate {
   /** Messages that are new or whose content changed. */
   messages: RenderedMessage[];
   working: boolean;
+  project?: string;
   /** While working: what the assistant is doing now, in a few plain words. */
   activity?: string;
   lastActivity?: string;
@@ -619,6 +620,7 @@ export class SnapshotDiffer {
       order,
       messages: changed,
       working: snapshot.working,
+      ...(snapshot.project ? { project: snapshot.project } : {}),
       ...(snapshot.working && snapshot.activity ? { activity: snapshot.activity } : {}),
       ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
       ...(snapshot.context ? { context: snapshot.context } : {}),
