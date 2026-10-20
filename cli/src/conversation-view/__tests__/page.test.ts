@@ -2440,11 +2440,16 @@ describe("header and artefact view", () => {
     await settle();
     const thumb = document.querySelector("#done .card-thumb") as HTMLButtonElement;
     expect(thumb.querySelector("img")!.getAttribute("src")).toContain("/api/artefact-shot?task=1&file=after.png");
+    const nextImage = document.createElement("img");
+    nextImage.src = "/api/artefact-shot?task=1&file=before.png";
+    document.body.appendChild(nextImage);
     const lightbox = document.getElementById("lightbox") as HTMLElement;
     expect(lightbox.hidden).toBe(true);
     thumb.click();
     expect(lightbox.hidden).toBe(false);
     expect(document.getElementById("lightbox-img")!.getAttribute("src")).toContain("/api/artefact-shot?task=1&file=after.png");
+    (document.querySelector(".lightbox-next") as HTMLButtonElement).click();
+    expect(document.getElementById("lightbox-img")!.getAttribute("src")).toContain("/api/artefact-shot?task=1&file=before.png");
     // Clicking outside (or Escape) closes it again.
     lightbox.click();
     expect(lightbox.hidden).toBe(true);
@@ -2505,6 +2510,9 @@ describe("header and artefact view", () => {
     expect(document.getElementById("scene-line")!.textContent).toBe("Captain decides keep or remove.");
     expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
     expect(document.getElementById("scene")!.classList.contains("has-shot")).toBe(false);
+    (document.getElementById("show-prev") as HTMLButtonElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");
 
     // The numbers are one quiet line of words and figures: no charts.
     expect(Array.from(document.querySelectorAll(".ro")).map((node) => (node as HTMLElement).dataset.id)).toEqual(["plan", "landed-week", "work-state"]);
@@ -2623,7 +2631,7 @@ describe("header and artefact view", () => {
     expect(card().dataset.key).toBe("job:1|done");
     expect(card().classList.contains("is-open")).toBe(true);
     expect((card().querySelector(".card-detail") as HTMLElement).hidden).toBe(true);
-    expect(card().querySelector("textarea, input")).toBeNull();
+    expect(card().querySelector<HTMLFormElement>(".art-chat")!.hidden).toBe(true);
     expect(about().hidden).toBe(false);
     expect(document.getElementById("about-title")!.textContent).toBe("Finished a job for you");
     // Over the message box, everything the card has to say: what it is, its line, its full detail and exactly when.

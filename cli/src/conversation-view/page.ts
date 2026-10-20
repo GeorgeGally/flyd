@@ -381,6 +381,8 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 /* The foot: what Flyd is doing, and how to talk to it. */
 .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; padding-bottom: 24px; }
 .foot .hint { font: 500 12px/1.4 var(--mono); color: var(--muted); }
+.show-nav { width: 32px; height: 32px; margin-left: 8px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; cursor: pointer; }
+.show-nav:hover { color: var(--strong); }
 .k-call { --k: var(--k-call); } .k-live { --k: var(--k-live); } .k-ready { --k: var(--k-ready); }
 .k-landed { --k: var(--k-landed); } .k-waiting, .k-warn { --k: var(--k-waiting); } .k-next { --k: var(--k-next); }
 .k-news, .k-clear { --k: var(--k-news); }
@@ -955,6 +957,9 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 }
 .lightbox[hidden] { display: none; }
 .lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+.lightbox-nav { position: fixed; top: 50%; width: 36px; height: 36px; border: 0; border-radius: 50%; color: white; background: #222; cursor: pointer; }
+.lightbox-prev { left: 18px; }
+.lightbox-next { right: 18px; }
 
 /* Pending: the captain's message is on its way to firstmate. */
 /* Only his words dim while on their way; the living line stays fully legible. */
@@ -1550,6 +1555,8 @@ var __name = function (f) { return f; };
     lightboxIndex = (lightboxIndex + direction + lightboxImages.length) % lightboxImages.length;
     document.getElementById("lightbox-img").src = lightboxImages[lightboxIndex];
   }
+  document.querySelector(".lightbox-prev").addEventListener("click", function (event) { event.stopPropagation(); stepLightbox(-1); });
+  document.querySelector(".lightbox-next").addEventListener("click", function (event) { event.stopPropagation(); stepLightbox(1); });
   lightbox.addEventListener("click", function (event) { if (event.target === lightbox) lightbox.hidden = true; });
   document.addEventListener("keydown", function (event) {
     if (lightbox.hidden) return;
@@ -2239,6 +2246,11 @@ var __name = function (f) { return f; };
     var card = keyed(el("div", "rail-mem" + (fresh ? " rail-mem--new" : "")), "mem:" + memory.id);
     if (fresh) card.appendChild(el("p", "rail-mem-kicker", KICKERS[memory.kind] || "Remembered"));
     card.appendChild(el("p", "rail-mem-text", memory.title));
+    if (SEND_TOKEN) {
+      var chat = artefactChat("flyd-memory:" + memory.id, { about: { title: memory.title } }, "Say something about this…");
+      card.appendChild(chat.opener);
+      card.appendChild(chat.form);
+    }
     return card;
   }
   // What Flyd already holds here, folded under one line at the top; he opens it when he wants it.
@@ -4343,6 +4355,8 @@ ${LEFT_SCRIPT}
     cycle = null;
     if (scenes.length > 1 && !holding && !(document.activeElement && document.activeElement.closest(".scene-ask"))) cycle = setInterval(function () { if (onShow()) show(at + 1, true); }, DWELL);
   }
+  document.getElementById("show-prev").addEventListener("click", function () { holding = true; show(at - 1, true); schedule(); });
+  document.getElementById("show-next").addEventListener("click", function () { holding = true; show(at + 1, true); schedule(); });
   function hold(on) {
     holding = on;
     markTicks();
@@ -4799,7 +4813,7 @@ ${LEFT_HTML}
   <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span></div>
 </main>
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
-<div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><img id="lightbox-img" alt=""></div>
+<div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><button class="lightbox-nav lightbox-prev" type="button" aria-label="Previous image">‹</button><img id="lightbox-img" alt=""><button class="lightbox-nav lightbox-next" type="button" aria-label="Next image">›</button></div>
 <div class="problem" id="problem"></div>
 <a id="routine-suggestion" href="/routines" hidden style="position:fixed;bottom:150px;right:24px;font-size:14px;color:var(--accent);padding:12px;background:var(--tint);border-radius:12px">Keep this repeated request as a routine →</a>
 <section class="show" id="show" hidden aria-label="Flyd's artefact: what it thinks you need to see">
@@ -4826,7 +4840,7 @@ ${LEFT_HTML}
       <ul class="drill-list" id="drill-list"></ul>
     </div>
   </div>
-  <div class="foot"><p class="doing" id="show-doing">Standby</p><span class="hint">type to talk · tab for the conversation</span></div>
+  <div class="foot"><p class="doing" id="show-doing">Standby</p><span class="hint">type to talk · tab for the conversation</span><span><button class="show-nav" id="show-prev" type="button" aria-label="Previous card">←</button><button class="show-nav" id="show-next" type="button" aria-label="Next card">→</button></span></div>
 </section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
