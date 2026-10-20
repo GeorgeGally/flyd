@@ -28,21 +28,33 @@ export interface ClaimToolCall { name: string; input: Record<string, unknown>; s
 export interface ArtefactRequiredViolation { requirement: "artefact_required"; count: number }
 
 export function artefactRequiredViolation(answer: string): ArtefactRequiredViolation | null {
-  const lines = answer.split("\n");
+  let fenced = false;
   let listCount = 0;
+  let maxList = 0;
   let tableRows = 0;
-  for (const line of lines) {
+  let maxTableRows = 0;
+  for (const line of answer.split("\n")) {
     const trimmed = line.trim();
-    if (/^\|.*\|$/.test(trimmed)) {
-      if (/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmed)) continue;
-      tableRows += 1;
+    if (/^```/.test(trimmed)) {
+      fenced = !fenced;
+      listCount = 0;
+      tableRows = 0;
       continue;
     }
-    if (/^(?:[-*+]\s+|\d+[.)]\s+)/.test(trimmed)) listCount += 1;
-    else if (trimmed && !/^»\s+/.test(trimmed)) listCount = 0;
+    if (fenced) continue;
+    if (/^\|.*\|$/.test(trimmed)) {
+      if (!/^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?$/.test(trimmed)) tableRows += 1;
+      maxTableRows = Math.max(maxTableRows, tableRows);
+      continue;
+    }
+    tableRows = 0;
+    if (/^(?:[-*+]\s+|\d+[.)]\s+)/.test(line)) {
+      listCount += 1;
+      maxList = Math.max(maxList, listCount);
+    } else if (trimmed && !/^\s/.test(line)) listCount = 0;
   }
-  if (tableRows >= 4) return { requirement: "artefact_required", count: tableRows - 1 };
-  if (listCount >= 6) return { requirement: "artefact_required", count: listCount };
+  if (maxTableRows >= 4) return { requirement: "artefact_required", count: maxTableRows - 1 };
+  if (maxList >= 6) return { requirement: "artefact_required", count: maxList };
   return null;
 }
 

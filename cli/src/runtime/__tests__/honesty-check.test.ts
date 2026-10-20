@@ -11,6 +11,14 @@ describe("honesty check", () => {
     expect(artefactRequiredViolation("| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |")).toEqual({ requirement: "artefact_required", count: 3 });
   });
 
+  it("counts the longest top-level run, outside code, and each table on its own", () => {
+    const ten = Array.from({ length: 10 }, (_, index) => `${index + 1}. Item ${index + 1}`).join("\n");
+    expect(artefactRequiredViolation(`Here is where things stand:\n${ten}\n\nTell me which to take first.`)).toEqual({ requirement: "artefact_required", count: 10 });
+    expect(artefactRequiredViolation("- One\n  - a\n  - b\n- Two\n  - c\n  - d\n- Three")).toBeNull();
+    expect(artefactRequiredViolation("```yaml\n- a\n- b\n- c\n- d\n- e\n- f\n```")).toBeNull();
+    expect(artefactRequiredViolation("| A |\n|---|\n| 1 |\n| 2 |\n\nAnd:\n\n| B |\n|---|\n| 3 |\n| 4 |")).toBeNull();
+  });
+
   it("catches claimed work that no tool did", () => {
     expect(unsupportedClaims("I wrote the demo spec and the one-pager.", [], mutating, () => true)).toHaveLength(1);
     expect(unsupportedClaims("I wrote the demo spec.", [{ name: "write_file", input: { path: "spec.md" }, succeeded: true }], mutating, () => true)).toEqual([]);

@@ -315,12 +315,14 @@ describe("SnapshotDiffer summaries", () => {
 
   it("keeps an answer's full list in the column while the answer carries only its summary", () => {
     const numbered = "Where the ten parts stand.\n\n" + Array.from({ length: 10 }, (_, index) => `${index + 1}. Part ${index + 1} is moving.`).join("\n");
-    const bullets = Array.from({ length: 6 }, (_, index) => `- Part ${index + 1}`).join("\n");
+    const bullets = "Status:\n" + Array.from({ length: 6 }, (_, index) => `- Part ${index + 1}\n  - detail`).join("\n");
     const summary = "» Where the ten parts stand.\n\nThe full breakdown is in Artefacts.";
     expect(replyCards([
       { id: "a1", role: "assistant", text: summary, artefact: numbered },
       { id: "a2", role: "assistant", text: summary, artefact: bullets },
+      { id: "a3", role: "assistant", text: summary, artefact: "| Part | State |\n|---|---|\n| One | done |\n| Two | blocked |\n| Three | open |" },
     ])).toEqual([
+      { id: "reply:a3", title: "Full breakdown", steps: ["One · done", "Two · blocked", "Three · open"] },
       { id: "reply:a2", title: "Full breakdown", steps: ["Part 1", "Part 2", "Part 3", "Part 4", "Part 5", "Part 6"] },
       { id: "reply:a1", title: "Where the ten parts stand", steps: Array.from({ length: 10 }, (_, index) => `Part ${index + 1} is moving.`) },
     ]);

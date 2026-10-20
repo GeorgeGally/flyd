@@ -238,11 +238,26 @@ function railReplies(messages: ConversationMessage[], judge?: ArtefactJudge): Ma
   return kept;
 }
 
-/** An answer's list items or table rows, one per line, without their markers or the table's divider. */
+/** An answer's top-level list items and table body rows, without their markers, the table's header or its divider. */
 function artefactLines(body: string): string[] {
-  return body.split("\n")
-    .map((line) => line.trim().replace(/^(?:[-*+]|\d+[.)])\s+/, ""))
-    .filter((line) => line && !/^\|?[\s:|-]+\|?$/.test(line));
+  const out: string[] = [];
+  let fenced = false;
+  let header = true;
+  for (const line of body.split("\n")) {
+    const trimmed = line.trim();
+    if (/^```/.test(trimmed)) fenced = !fenced;
+    if (fenced || /^```/.test(trimmed)) continue;
+    if (/^\|.*\|$/.test(trimmed)) {
+      if (/^\|?[\s:|-]+\|?$/.test(trimmed)) continue;
+      if (!header) out.push(trimmed.slice(1, -1).split("|").map((cell) => cell.trim()).filter(Boolean).join(" · "));
+      header = false;
+      continue;
+    }
+    header = true;
+    const item = /^(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line);
+    if (item?.[1]?.trim()) out.push(item[1].trim());
+  }
+  return out;
 }
 
 /**

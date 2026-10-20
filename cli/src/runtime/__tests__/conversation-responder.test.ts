@@ -498,6 +498,24 @@ describe("buildConversationPrompt", () => {
     expect(chat).toContain("Artefacts");
   });
 
+  it("keeps the model's own summary when it moves a long list to an artefact", async () => {
+    const kept: string[] = [];
+    const items = Array.from({ length: 8 }, (_, index) => `- Part ${index + 1}`).join("\n");
+    const answer = await respondToConversation({
+      message: "Status?",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: null,
+      onToken: () => undefined,
+      onArtefact: (body) => kept.push(body),
+    }, {
+      runAgentLoop: async () => `<final>» Eight parts, two blocked on review.\n\nHere's the breakdown:\n${items}\n\nWhich first?</final>`,
+      persistReceipt: async (input) => input as never,
+    });
+    expect(answer).toBe("» Eight parts, two blocked on review.\n\nThe full breakdown is in Artefacts.");
+    expect(kept[0]).toContain("- Part 8");
+  });
+
   it("cuts a ruled-out phrase the rewrite fails to remove", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
