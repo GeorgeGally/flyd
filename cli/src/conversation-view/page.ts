@@ -247,6 +247,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .art-chat[hidden] { display: none; }
 .art-chat-open { width: 28px; height: 28px; padding: 0; color: var(--muted); background: transparent; border: 0; cursor: pointer; }
 .art-chat-open:hover { color: var(--strong); }
+.art-chat-open svg { width: 16px; height: 16px; }
 /* A question's own answer box, one step at a time, is the same field. */
 .art-chat-field, .scene-ask .step-free {
   padding: 6px 6px 6px 14px; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 10px;
@@ -2233,7 +2234,7 @@ var __name = function (f) { return f; };
     if (SEND_TOKEN) {
       var about = { title: card.title };
       if (card.url) about.url = card.url;
-      var chat = artefactChat("flyd-about:" + card.id, { about: about }, "Say something about this…");
+      var chat = sidebarChat("flyd-about:" + card.id, { about: about });
       box.appendChild(chat.opener);
       box.appendChild(chat.form);
     }
@@ -2247,7 +2248,7 @@ var __name = function (f) { return f; };
     if (fresh) card.appendChild(el("p", "rail-mem-kicker", KICKERS[memory.kind] || "Remembered"));
     card.appendChild(el("p", "rail-mem-text", memory.title));
     if (SEND_TOKEN) {
-      var chat = artefactChat("flyd-memory:" + memory.id, { about: { title: memory.title } }, "Say something about this…");
+      var chat = sidebarChat("flyd-memory:" + memory.id, { about: { title: memory.title } });
       card.appendChild(chat.opener);
       card.appendChild(chat.form);
     }
@@ -2941,6 +2942,24 @@ var __name = function (f) { return f; };
 ${CARD_SCRIPT}
 ${LEFT_SCRIPT}
 
+  // A sidebar item's chat sits behind one small icon until he opens it.
+  function sidebarChat(key, target) {
+    var chat = artefactChat(key, target, "Say something about this…");
+    var form = chat.form;
+    form.hidden = true;
+    var opener = el("button", "art-chat-open");
+    opener.type = "button";
+    opener.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>';
+    opener.setAttribute("aria-label", "Chat about this item");
+    opener.setAttribute("aria-expanded", "false");
+    opener.addEventListener("click", function () {
+      form.hidden = !form.hidden;
+      opener.setAttribute("aria-expanded", String(!form.hidden));
+      if (!form.hidden) form.querySelector("textarea").focus();
+    });
+    return { opener: opener, form: form };
+  }
+
   // The chat box at the foot of every artefact: his words about that one thing go
   // to firstmate naming it, and the line under the box says where they are in
   // plain words: sent, then "Flyd has it" once firstmate has read the note.
@@ -2953,16 +2972,6 @@ ${LEFT_SCRIPT}
     try { state.thread = JSON.parse(store(key) || "[]"); } catch (_) {}
     if (!Array.isArray(state.thread)) state.thread = [];
     var form = el("form", "art-chat");
-    form.hidden = true;
-    var opener = el("button", "art-chat-open", "◌");
-    opener.type = "button";
-    opener.setAttribute("aria-label", "Chat about this item");
-    opener.setAttribute("aria-expanded", "false");
-    opener.addEventListener("click", function () {
-      form.hidden = !form.hidden;
-      opener.setAttribute("aria-expanded", String(!form.hidden));
-      if (!form.hidden) input.focus();
-    });
     form.setAttribute("aria-label", label);
     var input = el("textarea", "art-chat-input");
     input.rows = 1;
@@ -3166,7 +3175,7 @@ ${LEFT_SCRIPT}
     form.appendChild(thread);
     form.appendChild(field);
     form.appendChild(receipt);
-    var chat = { form: form, opener: opener, state: state, deliver: deliver, save: save, onPaint: null };
+    var chat = { form: form, state: state, deliver: deliver, save: save, onPaint: null };
     paintThread();
     paint();
     watch();
@@ -3227,7 +3236,6 @@ ${LEFT_SCRIPT}
       chat.onPaint();
       wrap.appendChild(choices);
     }
-    wrap.appendChild(chat.opener);
     wrap.appendChild(chat.form);
     return wrap;
   }
