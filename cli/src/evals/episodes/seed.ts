@@ -11,7 +11,7 @@ function argValue(name: string): string | undefined {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-function parseCase(text: string): Omit<EpisodeEvalCase, "id" | "createdAt" | "evidenceSequences"> | null {
+function parseCase(text: string): Omit<EpisodeEvalCase, "id" | "createdAt" | "evidenceSequences" | "snapshotHeadSequence"> | null {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return null;
   try {
@@ -35,6 +35,7 @@ async function main(): Promise<void> {
   const memory = new EpisodicMemory();
   memory.rebuild();
   const store = new IntelligenceEventStore();
+  const snapshotHeadSequence = store.headSequence();
   const allEvents = store.readFrom(0, Number.MAX_SAFE_INTEGER).filter((event) => !event.erased && event.payload);
   store.close();
   if (allEvents.length < 8) throw new Error("Not enough canonical events to seed an episodic benchmark");
@@ -57,6 +58,7 @@ async function main(): Promise<void> {
     const prompt = [
       "Create ONE hard but fair historical-memory benchmark question for Flyd, George's personal AI.",
       "Use only the evidence below. The question should require recalling an evolution, decision, change, historical state, or what happened—not a trivial string lookup.",
+      "Prefer stable past-tense questions. Do not ask what is current/latest now, because this corpus may be rerun after new events are added.",
       "Do not mention event ids, internal schemas, source ids, or that this is an eval.",
       "The gold answer must be concise, factual, and answerable solely from the evidence.",
       "The rubric should state the specific facts and temporal distinctions required for a 9/10 answer.",
@@ -71,6 +73,7 @@ async function main(): Promise<void> {
       ...generated,
       evidenceSequences: events.map((event) => event.sequence),
       createdAt: new Date().toISOString(),
+      snapshotHeadSequence,
     });
   }
 
