@@ -749,11 +749,11 @@ describe("ConversationViewServer", () => {
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
     const stream = await get(port, `/api/stream?session=s1`);
     const update = JSON.parse(/event: update\ndata: ([^\n]+)/.exec(stream.body)![1]!);
-    const asked = update.messages.find((message: { role: string; choice?: { replyTo: string; questionText: string; session: string } }) => message.role === "assistant" && message.choice);
-    expect(asked.choice).toMatchObject({ replyTo: expect.any(String), questionText: "The cleanup is small and safe to run now. Want me to start that check?", session: "s1" });
+    const asked = update.messages.find((message: { role: string; choice?: { replyTo: string; question: string; session: string } }) => message.role === "assistant" && message.choice);
+    expect(asked.choice).toMatchObject({ replyTo: expect.any(String), question: "The cleanup is small and safe to run now. Want me to start that check?", session: "s1" });
 
     writeFileSync(join(dir!, "s1.jsonl"), [captain("check this"), assistantText("I started the check and it is running.")].join("\n") + "\n");
-    const sent = await post(port, JSON.stringify({ session: asked.choice.session, replyTo: asked.choice.replyTo, questionText: asked.choice.questionText, text: "Yes" }), headers);
+    const sent = await post(port, JSON.stringify({ session: asked.choice.session, replyTo: asked.choice.replyTo, questionText: asked.choice.question, text: "Yes" }), headers);
     expect(sent.status).toBe(200);
     expect(inbox.sent[0]!.text).toContain('your question: "The cleanup is small and safe to run now. Want me to start that check?"');
     expect(inbox.sent[0]!.text).not.toContain("your reply began");

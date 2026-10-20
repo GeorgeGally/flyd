@@ -132,7 +132,7 @@ export interface RenderedMessage {
   /** A note to firstmate: sent, or read by firstmate. */
   receipt?: "sent" | "read";
   /** The reply asks him something he has not answered yet: its question, options, and where his answer goes. */
-  choice?: ReplyChoice & { replyTo: string; session?: string; questionText?: string };
+  choice?: ReplyChoice & { replyTo: string; session?: string };
   /** Flyd answered a question for him by this standing rule of his; `undone` once he took it back. */
   answeredFor?: string;
   undone?: boolean;
@@ -1694,7 +1694,7 @@ export class ConversationViewServer {
       sseEvent(res, "update", {
         ...update,
         messages: update.messages.map((message) => message.choice
-          ? { ...message, choice: { ...message.choice, session: session.id, questionText: message.choice.question } }
+          ? { ...message, choice: { ...message.choice, session: session.id } }
           : message),
       });
     };

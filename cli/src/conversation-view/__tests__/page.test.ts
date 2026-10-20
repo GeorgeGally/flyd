@@ -1356,6 +1356,21 @@ describe("header and artefact view", () => {
     expect(picks[1]!.disabled).toBe(true);
   });
 
+  it("answers a question card into the session that drew it, not the one the page follows now", async () => {
+    load("");
+    await settle();
+    const stream = open("asked-session", []);
+    const show: ShowScreen = { title: "Your move, sir.", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:reply:a#2", kind: "call", headline: "Want me to add all three?", why: "waiting on you", ref: "reply:a#2", decision: { task: "reply:a#2", replyTo: "reply:a#2", question: "Want me to add all three?", choices: ["Yes, all three", "No"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    // Another session takes the lock while the card is still on screen.
+    stream.emit("session", { id: "later-session", title: "later-session", updatedAt: "2026-10-05T20:05:00.000Z", assistantLabel: "firstmate" });
+    await settle();
+    document.querySelector<HTMLButtonElement>(".scene-ask .choice-pick")!.click();
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "asked-session", replyTo: "reply:a#2", questionText: "Want me to add all three?", text: "Yes, all three" }]);
+  });
+
   it("asks a reply's several questions on the artefact one at a time; a tap there never sends", async () => {
     load("");
     await settle();
@@ -1883,7 +1898,7 @@ describe("header and artefact view", () => {
     load("");
     await settle();
     const stream = open("latest", []);
-    const choice = { question: "Want me to add all three?", options: ["Yes, all three", "Only 1: Press feedback", "No"], replyTo: "reply:a#2", session: "asked-session", questionText: "Three places would benefit from motion. Want me to add all three?" };
+    const choice = { question: "Want me to add all three?", options: ["Yes, all three", "Only 1: Press feedback", "No"], replyTo: "reply:a#2", session: "asked-session" };
     const asked = { id: "reply:a#2", role: "assistant", html: "<p>Three places would benefit from motion.</p>", aside: true, choice };
     stream.emit("update", { order: ["u1", "reply:a#2"], messages: [{ id: "u1", role: "user", html: "<p>ok do it</p>" }, asked], working: false });
     await settle();
@@ -1897,11 +1912,11 @@ describe("header and artefact view", () => {
     buttons[0]!.click();
     await settle();
     const sends = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
-    expect(sends()).toEqual([{ session: "asked-session", text: "Yes, all three", replyTo: "reply:a#2", questionText: choice.questionText }]);
+    expect(sends()).toEqual([{ session: "asked-session", text: "Yes, all three", replyTo: "reply:a#2", questionText: choice.question }]);
     expect(message.querySelector(".choice .reply-note")!.textContent).toBe("Sent: “Yes, all three”");
     expect(buttons.every((button) => button.disabled)).toBe(true);
     // Once he has answered, the card goes; an open question takes his own words.
-    stream.emit("update", { order: ["u1", "reply:a#2", "r3"], messages: [{ ...asked, choice: undefined }, { id: "r3", role: "assistant", html: "<p>Done.</p>", choice: { question: "What should the button say?", options: [], replyTo: "r3", session: "asked-session", questionText: "What should the button say?" } }], working: false });
+    stream.emit("update", { order: ["u1", "reply:a#2", "r3"], messages: [{ ...asked, choice: undefined }, { id: "r3", role: "assistant", html: "<p>Done.</p>", choice: { question: "What should the button say?", options: [], replyTo: "r3", session: "asked-session" } }], working: false });
     await settle();
     expect(message.querySelector(".choice")).toBeNull();
     const open3 = document.querySelectorAll<HTMLElement>(".msg")[2]!;
@@ -1922,7 +1937,7 @@ describe("header and artefact view", () => {
       { question: "Discard the old CapFive experiment branches?", options: ["Yes", "No"] },
       { question: "Should Flyd's sidebar show newest at the top again?", options: ["Yes", "No"] },
     ];
-    const asked = { id: "reply:b#4", role: "assistant", html: "<p>Both fixes are live.</p>", aside: true, choice: { question: "Still waiting on you", options: [], steps, replyTo: "reply:b#4", session: "asked-session", questionText: "Both fixes are live." } };
+    const asked = { id: "reply:b#4", role: "assistant", html: "<p>Both fixes are live.</p>", aside: true, choice: { question: "Still waiting on you", options: [], steps, replyTo: "reply:b#4", session: "asked-session" } };
     stream.emit("update", { order: ["u1", "reply:b#4"], messages: [{ id: "u1", role: "user", html: "<p>fix the admin</p>" }, asked], working: false });
     await settle();
     const card = document.querySelector<HTMLElement>(".msg.aside .choice")!;
@@ -1952,7 +1967,7 @@ describe("header and artefact view", () => {
     ]);
     card.querySelector<HTMLButtonElement>(".step-send")!.click();
     await settle();
-    expect(sends()).toEqual([{ session: "asked-session", replyTo: "reply:b#4", questionText: "Both fixes are live.", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No, newest at the bottom" }]);
+    expect(sends()).toEqual([{ session: "asked-session", replyTo: "reply:b#4", questionText: "Still waiting on you", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No, newest at the bottom" }]);
     expect(card.querySelector(".reply-note")!.textContent).toBe("Sent your answers");
     expect(card.querySelector(".step-send")).toBeNull();
   });
