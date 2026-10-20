@@ -12,6 +12,7 @@ import { runConsolidate } from "./commands/consolidate.js";
 import { runReview } from "./commands/review.js";
 import { runQuiz } from "./commands/quiz.js";
 import { runCheck } from "./commands/check.js";
+import { runEpisodes } from "./commands/episodes.js";
 import { runCorrect } from "./commands/correct.js";
 import { runSkillify } from "./commands/skillify.js";
 import { runJobsCommand } from "./commands/jobs.js";
@@ -379,6 +380,16 @@ program
   .command("check")
   .description("Quick memory health check — staleness, gaps, coverage")
   .action(() => runCheck());
+
+program
+  .command("episodes")
+  .description("Inspect Flyd's derived episodic memory: timeline | rebuild | verify | drill <node-id>")
+  .argument("[action]", "timeline, rebuild, verify, or drill", "timeline")
+  .argument("[node-id]", "episode node id for drill")
+  .option("--budget <n>", "maximum timeline nodes", (value: string) => Number.parseInt(value, 10), 12)
+  .action((action: string, nodeId: string | undefined, opts: { budget: number }) =>
+    runEpisodes(action, nodeId, { budget: opts.budget })
+  );
 
 program
   .command("correct <topic> <correction>")
