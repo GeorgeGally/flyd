@@ -94,16 +94,15 @@ describe("notices keep the one voice", () => {
   const verdicts = () => readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
     .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
 
-  it("brings a finished outcome that names backstage as a line naming the work, keeps anything else off his screen, and records it", () => {
+  it("brings a completion that names backstage as a neutral line naming the work, never claiming how it went, and records it", () => {
+    const news = 'There is news on "Fix the island". Ask Flyd for the details.';
     for (const reply of [
       "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.",
       "The crewmate finished 2 jobs.",
       "Merged the fix on fm/island-filter; the island is quiet.",
       "Fixed it in the worktree; 2 files changed.",
-    ]) {
-      expect(captainNotice(run(reply)), reply).toBe('Work on "Fix the island" is done.');
-    }
-    for (const reply of [
+      "The merge is blocked; the crewmate failed the checks.",
+      "The fix is not merged yet; the branch is waiting on review.",
       "Firstmate has not read 3 notes you sent.",
       "Jev reviewed 4 requests.",
       "The Council reviewed 6 items.",
@@ -112,7 +111,9 @@ describe("notices keep the one voice", () => {
       "Task id task-9 is stuck.",
       "The pipeline ran 5 checks.",
     ]) {
-      expect(captainNotice(run(reply)), reply).toBeNull();
+      const notice = captainNotice(run(reply));
+      expect(notice, reply).toBe(news);
+      expect(notice, reply).not.toMatch(/\b(done|finished|failed)\b/i);
     }
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Task id task-9 is stuck.", surface: "notification", held: true }));
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.", surface: "notification", held: true }));
@@ -120,7 +121,7 @@ describe("notices keep the one voice", () => {
 
   it("keeps a completion that only carries a commit id, but rewrites branch mentions", () => {
     expect(captainNotice(run("The sidebar fix is merged at a1b2c3d."))).toBe("The sidebar fix is merged.");
-    expect(captainNotice(run("Merged the branch and deployed."))).toBe('Work on "Fix the island" is done.');
+    expect(captainNotice(run("Merged the branch and deployed."))).toBe('There is news on "Fix the island". Ask Flyd for the details.');
     expect(captainNotice(run("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683"))).toBe("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683");
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Merged the branch and deployed.", surface: "notification", held: true }));
   });
