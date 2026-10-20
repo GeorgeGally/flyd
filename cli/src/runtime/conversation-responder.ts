@@ -945,6 +945,12 @@ function gatherProjectEvidence(projectRoot: string): string {
   return blocks.length ? `\n\n--- PROJECT EVIDENCE ---\n${blocks.join("\n\n")}` : "";
 }
 
+export function projectBadge(projectIds: readonly string[], projects = readProjects()): string | null {
+  if (projectIds.length !== 1) return null;
+  const id = projectIds[0]!.replace(/^project:/, "");
+  return projects.find((project) => project.id === id)?.name ?? null;
+}
+
 export async function respondToConversation(
   input: ConversationInput & { onToken(token: string): void },
   dependencies: ConversationResponderDependencies = {},
@@ -1154,21 +1160,13 @@ export async function respondToConversation(
   const projectTurn = mobile ? false : room ? room.mode === "operator"
     : fast?.needsCode ?? (isCurrentWorkQuestion(input.message) || needsProjectContext(input.message, input.history));
   if (presenceEnabled() && !unattended) {
-    const projectIds = compiledContext?.interpretation.projectIds ?? [];
-    let project: string | null = null;
-    if (projectIds.length === 1) {
-      const id = projectIds[0]!;
-      const projectKey = id.replace(/^project:/, "");
-      project = readProjects().find((item) => item.id === projectKey)?.name
-        ?? (/^project:[a-z0-9-]+$/i.test(id) ? id.slice("project:".length).split(/[-.]+/).map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ") : null);
-    }
     understanding = understandTurn({
       route: plan?.route,
       ...(room ? { need: room.need } : {}),
       source: room ? "room" : fast?.decided ? "fast" : "fallback",
       needsCode: projectTurn,
     });
-    understanding.project = project;
+    understanding.project = projectBadge(compiledContext?.interpretation.projectIds ?? []);
     input.onUnderstanding?.(understanding);
     if (understanding.interactionClass) input.onInteraction?.(understanding.interactionClass);
   }

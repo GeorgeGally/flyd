@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildConversationPrompt, respondToConversation } from "../conversation-responder.js";
+import { buildConversationPrompt, projectBadge, respondToConversation } from "../conversation-responder.js";
 import { presenceBrief, understandTurn } from "../conversation-presence.js";
 import { buildRoomContext } from "../room-context.js";
 import { roomBrief, roomPrompt, type RoomRead } from "../read-the-room.js";
@@ -49,6 +49,19 @@ describe("conversational presence", () => {
       })).rejects.toMatchObject({ name: "AbortError" });
       expect(store.listRemits("abort-fixture")).toEqual([]);
       expect(run).not.toHaveBeenCalled();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  it("names only a single registered project in the badge", () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-presence-badge-"));
+    const path = join(root, "projects.json");
+    writeFileSync(path, JSON.stringify({ projects: [{ id: "gnm", name: "GNM" }, { id: "atomise", name: "Atomise" }] }));
+    vi.stubEnv("FLYD_PROJECTS_PATH", path);
+    try {
+      expect(projectBadge(["project:gnm"])).toBe("GNM");
+      expect(projectBadge(["project:atomise"])).toBe("Atomise");
+      expect(projectBadge(["project:my-repo-"])).toBeNull();
+      expect(projectBadge(["project:gnm", "project:atomise"])).toBeNull();
+      expect(projectBadge([])).toBeNull();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
   it("does not invent an emotional reading on the confident fast path", async () => {
