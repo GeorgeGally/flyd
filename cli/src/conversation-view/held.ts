@@ -64,7 +64,8 @@ export function plainHeld(row: ArtefactRow, label: string, now: number): { headl
  */
 export function attentionHeld(held: ArtefactRow[], handled: (row: ArtefactRow) => boolean, now: number): ArtefactRow[] {
   const seen = new Set<string>();
-  return held.filter((row) => {
+  const reported = (row: ArtefactRow) => (row.at ? Date.parse(row.at) || 0 : 0);
+  return [...held].sort((a, b) => reported(b) - reported(a)).filter((row) => {
     const key = heldKey(row);
     if (ageOf(row, now) > HELD_STALE_MS || seen.has(key)) return false;
     seen.add(key);
