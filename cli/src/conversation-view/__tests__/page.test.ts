@@ -1349,7 +1349,7 @@ describe("header and artefact view", () => {
     expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toBe("");
     document.querySelector<HTMLButtonElement>(".scene-ask .choice-pick")!.click();
     await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "latest", replyTo: "reply:a#2", text: "Yes, all three" }]);
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "latest", replyTo: "reply:a#2", questionText: "Want me to add all three?", text: "Yes, all three" }]);
     expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toBe("Sent to Flyd");
     const picks = [...document.querySelectorAll<HTMLButtonElement>(".scene-ask .choice-pick")];
     expect(picks.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
@@ -1378,7 +1378,7 @@ describe("header and artefact view", () => {
     expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("");
     ask.querySelector<HTMLButtonElement>(".step-send")!.click();
     await settle();
-    expect(sends()).toEqual([{ session: "latest", replyTo: "reply:b#4", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No" }]);
+    expect(sends()).toEqual([{ session: "latest", replyTo: "reply:b#4", questionText: "Still waiting on you", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No" }]);
     expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to Flyd");
     expect(ask.querySelector(".step-send")).toBeNull();
     expect(ask.querySelector(".step-count")!.textContent).toBe("Your answers");
@@ -2551,7 +2551,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     needs.querySelectorAll<HTMLButtonElement>(".choice-pick")[1]!.click();
     await settle();
     const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
-    expect(sends.at(-1)).toEqual({ session: "latest", replyTo: "reply:a#2", text: "B" });
+    expect(sends.at(-1)).toEqual({ session: "latest", replyTo: "reply:a#2", questionText: "Which direction?", text: "B" });
   });
 
   it("shows a call's designs, named, over the message box when he clicks its card", async () => {

@@ -2730,7 +2730,7 @@ ${LEFT_SCRIPT}
     var about = { title: box.title };
     if (box.task) about.task = box.task;
     if (link) about.url = link.url;
-    var target = !decision ? { about: about } : decision.replyTo ? { session: current, replyTo: decision.replyTo } : { decision: decision.task };
+    var target = !decision ? { about: about } : decision.replyTo ? { session: current, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.task };
     var chat = artefactChat(key, target, decision && (decision.choices.length || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…");
     if (decision && decision.steps && decision.steps.length) {
       // Several questions: one at a time, a tap moves on, and the answers go together from the last step.

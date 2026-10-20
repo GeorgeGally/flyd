@@ -1511,7 +1511,7 @@ export class ConversationViewServer {
         sendJson(res, 409, { error: "That answer is no longer here; send it as a new message" });
         return;
       }
-      const note = parent ? replyNote(parent, text) : answerNote(asked ?? { id: replyTo, role: "assistant", text: question! }, question!, text);
+      const note = parent ? replyNote(parent, text) : answerNote(asked ?? { id: replyTo, role: "assistant", text: "" }, question!, text);
       const sent = await this.source.send(session, note, [], [], replyTo.startsWith("ask:") ? "flyd" : "firstmate");
       this.predictions.remember(text);
       sendJson(res, 200, sent);
