@@ -79,11 +79,15 @@ export const LEFT_SCRIPT = `
   var leftPref = store("flyd-left");
   var leftPanel = null;
   var leftCallIds = [];
-  var leftSeen = {};
-  try { leftSeen = JSON.parse(store("flyd-left-seen") || "{}") || {}; } catch (_) {}
+  var leftSeen = [];
+  try { leftSeen = JSON.parse(store("flyd-left-seen") || "[]"); } catch (_) {}
+  if (!Array.isArray(leftSeen)) leftSeen = [];
+  // Opened by a new item on a wide window: for now only, never written over his choice.
+  var leftAuto = false;
   // The card he is talking to Flyd about in the main chat, lit in the column.
   var leftAbout = null;
   function leftIsOpen() { return leftPref === "on" || (leftPref !== "off" && !!leftWide && leftWide.matches); }
+  function leftShown() { return leftIsOpen() || (leftAuto && !!leftWide && leftWide.matches); }
   function leftNeedIds() {
     var ids = leftCallIds.slice();
     Array.prototype.forEach.call(leftSemanticEl.children, function (card) { if (card.dataset.semanticId) ids.push(card.dataset.semanticId); });
@@ -95,13 +99,13 @@ export const LEFT_SCRIPT = `
   }
   function setLeft() {
     var ids = leftNeedIds();
-    var seen = {};
-    ids.forEach(function (id) { seen[id] = 1; });
-    var fresh = ids.some(function (id) { return !leftSeen[id]; });
-    if (JSON.stringify(seen) !== JSON.stringify(leftSeen)) store("flyd-left-seen", JSON.stringify(seen));
-    leftSeen = seen;
-    if (fresh && leftWide && leftWide.matches) { leftPref = "on"; store("flyd-left", leftPref); }
-    var on = (!!leftPanel || ids.length > 0) && leftIsOpen();
+    var fresh = ids.filter(function (id) { return leftSeen.indexOf(id) < 0; });
+    if (fresh.length) {
+      leftSeen = leftSeen.concat(fresh).slice(-300);
+      store("flyd-left-seen", JSON.stringify(leftSeen));
+      if (leftWide && leftWide.matches) leftAuto = true;
+    }
+    var on = (!!leftPanel || ids.length > 0) && leftShown();
     document.documentElement.setAttribute("data-left", on ? "open" : "off");
     leftEl.hidden = !on;
     leftOpenEl.hidden = !leftPanel && !ids.length;
@@ -157,6 +161,7 @@ export const LEFT_SCRIPT = `
     return { open: leftAbout === info.key, onOpen: function () { aboutCard(info); } };
   }
   function chooseLeft(open) {
+    leftAuto = false;
     leftPref = open ? "on" : "off";
     store("flyd-left", leftPref);
     setLeft();
@@ -221,7 +226,7 @@ export const LEFT_SCRIPT = `
     drawActivity();
     setLeft();
   }
-  leftOpenEl.addEventListener("click", function () { chooseLeft(!leftIsOpen()); });
+  leftOpenEl.addEventListener("click", function () { chooseLeft(!leftShown()); });
   leftToggleEl.addEventListener("click", function () { chooseLeft(!leftIsOpen()); });
   leftHideEl.addEventListener("click", function () { chooseLeft(false); });
   document.addEventListener("keydown", function (event) {

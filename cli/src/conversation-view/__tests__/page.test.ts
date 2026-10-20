@@ -2592,6 +2592,30 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 2");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(left.hidden).toBe(true);
+    // Opening by itself never rewrites his choice, and a reload with the same items, held work included, keeps it closed.
+    expect(localStorage.getItem("flyd-left")).toBe("off");
+    const held = (id: string) => ({ id, kind: "activity", lifecycle: "interrupted", subject: `${id} is paused.`, summary: "", evidence: [], actions: [], source: { showItemId: id, task: id }, activity: { phase: "paused" } });
+    const reload = async (semantic: unknown[]) => {
+      load("");
+      await settle();
+      const next = open("latest", []);
+      next.emit("update", {
+        order: [], messages: [], working: false, boxes: [],
+        show: { title: "", summary: "", live: false, counts: {}, items: [], calls: [call("a"), call("b")] },
+        leftColumn: { now: [], recent: [], semantic },
+      });
+      await settle();
+      return document.getElementById("left")!;
+    };
+    update([call("a"), call("b")]);
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], show: { title: "", summary: "", live: false, counts: {}, items: [], calls: [call("a"), call("b")] }, leftColumn: { now: [], recent: [], semantic: [held("task:held")] } });
+    await settle();
+    document.getElementById("left-hide")!.click();
+    await settle();
+    expect((await reload([held("task:held")])).hidden).toBe(true);
+    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 3");
+    expect((await reload([held("task:held"), held("task:new")])).hidden).toBe(false);
+    expect(localStorage.getItem("flyd-left")).toBe("off");
   });
 
   it("never lists an unrun plan under Done", async () => {
