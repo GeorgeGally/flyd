@@ -201,7 +201,7 @@ export class FlydDesk {
   private readonly parsed = new Map<string, { stamp: string; record: AskRecord | null }>();
 
   project(sessionId: string): string | undefined {
-    return this.records().filter((record) => (record.sessionId ?? "conversation") === sessionId).at(-1)?.understanding?.project ?? undefined;
+    return this.records().filter((record) => (record.sessionId ?? "conversation") === sessionId && record.understanding).at(-1)?.understanding?.project ?? undefined;
   }
 
   constructor(options: { answer: Answerer; see?: Seer; dir?: string; preparationStore?: PreparationStore }) {

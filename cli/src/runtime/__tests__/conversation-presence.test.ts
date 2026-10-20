@@ -51,16 +51,19 @@ describe("conversational presence", () => {
       expect(run).not.toHaveBeenCalled();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
-  it("names only a single registered project in the badge", () => {
+  it("names the registered project George's newest words are about", () => {
     const root = mkdtempSync(join(tmpdir(), "flyd-presence-badge-"));
     const path = join(root, "projects.json");
-    writeFileSync(path, JSON.stringify({ projects: [{ id: "gnm", name: "GNM" }, { id: "atomise", name: "Atomise" }] }));
+    writeFileSync(path, JSON.stringify({ projects: [{ id: "gnm-good-neighbours-market", name: "GNM (Good Neighbours Market)" }, { id: "atomise", name: "Atomise" }, { id: "flyd", name: "Flyd" }] }));
     vi.stubEnv("FLYD_PROJECTS_PATH", path);
     try {
-      expect(projectBadge(["project:gnm"])).toBe("GNM");
-      expect(projectBadge(["project:atomise"])).toBe("Atomise");
-      expect(projectBadge(["project:my-repo-"])).toBeNull();
-      expect(projectBadge(["project:gnm", "project:atomise"])).toBeNull();
+      expect(projectBadge(["How is Atomise doing?"])).toBe("Atomise");
+      expect(projectBadge(["what about the tests?", "How is Atomise doing?"])).toBe("Atomise");
+      expect(projectBadge(["Now GNM", "How is Atomise doing?"])).toBe("GNM (Good Neighbours Market)");
+      expect(projectBadge(["back to good neighbours market"])).toBe("GNM (Good Neighbours Market)");
+      expect(projectBadge(["How is my-repo doing?"])).toBeNull();
+      expect(projectBadge(["Compare Flyd and Atomise"])).toBeNull();
+      expect(projectBadge(["Long day. I just want to talk."])).toBeNull();
       expect(projectBadge([])).toBeNull();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

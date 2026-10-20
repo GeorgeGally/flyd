@@ -121,13 +121,29 @@ describe("FlydDesk project context", () => {
     desk.ask("First", [], "session");
     await until(() => desk.project("session"));
     expect(desk.project("session")).toBe("Atomise");
+    let understood!: () => void;
+    const gate = new Promise<void>((resolve) => { understood = resolve; });
+    const gated = new FlydDesk({
+      dir: join(dir, "asks"),
+      answer: async (_question, _history, _step, turn) => {
+        await gate;
+        turn?.onUnderstanding({ version: "conversational-presence.v1", route: "answer", source: "room", project: "GNM" });
+        return "Done.";
+      },
+    });
+    gated.ask("Still thinking", [], "session");
+    await until(() => gated.exchanges().length === 2);
+    expect(gated.project("session")).toBe("Atomise");
+    understood();
+    await until(() => gated.exchanges()[1]?.answer);
+    expect(gated.project("session")).toBe("GNM");
     resolved = null;
     desk.ask("No project", [], "session");
-    await until(() => desk.exchanges().length === 2 && desk.exchanges()[1]?.answer);
+    await until(() => desk.exchanges().length === 3 && desk.exchanges()[2]?.answer);
     expect(desk.project("session")).toBeUndefined();
     resolved = "GNM";
     desk.ask("Different project", [], "session");
-    await until(() => desk.exchanges().length === 3 && desk.exchanges()[2]?.answer);
+    await until(() => desk.exchanges().length === 4 && desk.exchanges()[3]?.answer);
     expect(desk.project("session")).toBe("GNM");
   });
 });

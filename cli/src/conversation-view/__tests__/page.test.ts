@@ -136,8 +136,30 @@ describe("conversation page", () => {
     stream.emit("update", { order: ["u1"], messages: [], working: false });
     expect(badge.hidden).toBe(true);
     expect(badge.textContent).toBe("");
-    expect(renderPage({ assistantLabel: "Flyd" })).toContain(".project-badge.shown { animation: scene-fade");
-    expect(renderPage({ assistantLabel: "Flyd" })).not.toContain(".project-badge:hover");
+  });
+
+  it("fades the project badge in at a restrained size with no movement or hover rule", async () => {
+    const html = renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) });
+    const style = document.createElement("style");
+    style.textContent = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!;
+    document.head.appendChild(style);
+    try {
+      load("", html);
+      await settle();
+      const stream = open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+      stream.emit("update", { order: ["u1"], messages: [], working: false, project: "Atomise" });
+      const badge = document.getElementById("project-badge")!;
+      const computed = getComputedStyle(badge);
+      const animation = computed.animation.split(" ")[0];
+      const keyframes = [...style.sheet!.cssRules].find((rule): rule is CSSKeyframesRule => rule instanceof CSSKeyframesRule && rule.name === animation);
+      expect(keyframes).toBeDefined();
+      expect([...keyframes!.cssRules].flatMap((frame) => { const declared = (frame as CSSKeyframeRule).style; return Array.from({ length: declared.length }, (_, i) => declared.item(i)); })).toEqual(["opacity", "opacity"]);
+      expect(parseFloat(computed.fontSize)).toBeLessThanOrEqual(12);
+      expect(computed.transform || "none").toBe("none");
+      expect(computed.transitionProperty || "").toBe("");
+      const hover = [...style.sheet!.cssRules].filter((rule) => rule instanceof CSSStyleRule && /project-badge[^,]*:hover/.test(rule.selectorText));
+      expect(hover).toEqual([]);
+    } finally { style.remove(); }
   });
 
   it("runs the page Core serves under tsx, where inlined functions carry __name", async () => {
