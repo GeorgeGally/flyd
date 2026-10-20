@@ -160,8 +160,8 @@ export function readSources(dir = scoutDir(), now = new Date()): ScoutSource[] {
     atomicWrite(path, `${JSON.stringify(seeded, null, 2)}\n`);
     return seeded;
   }
-  const stored = readJson<ScoutSource[]>(path, []);
-  if (dir !== scoutDir()) return stored;
+  const stored = readJson<ScoutSource[] | null>(path, null);
+  if (!Array.isArray(stored)) return [];
   const merged = withSeedDefaults(stored, now);
   if (merged.length !== stored.length) atomicWrite(path, `${JSON.stringify(merged, null, 2)}\n`);
   return merged;

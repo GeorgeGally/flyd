@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   editionActivityRecord, editionBrief, evolveScout, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
-  runScout, scoutTick, SEED_TASTE, takeEvolutionNotes, watchScout, writeSources, type Edition, type ScoutSource,
+  runScout, scoutTick, SEED_TASTE, seedSources, takeEvolutionNotes, watchScout, writeSources, type Edition, type ScoutSource,
 } from "../scout.js";
 
 let dir: string;
@@ -24,7 +24,9 @@ function fakeFetch(byHost: Record<string, string>): typeof fetch {
 }
 
 function onlySources(list: Array<Partial<ScoutSource> & Pick<ScoutSource, "kind" | "name" | "target">>): void {
-  writeSources(list.map((source) => ({ id: `${source.kind}:${source.target.toLowerCase().replace(/^https?:\/\//, "")}`, status: "active", shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z", ...source } as ScoutSource)), dir);
+  const own = list.map((source) => ({ id: `${source.kind}:${source.target.toLowerCase().replace(/^https?:\/\//, "")}`, status: "active", shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z", ...source } as ScoutSource));
+  const ids = new Set(own.map((source) => source.id));
+  writeSources([...own, ...seedSources(at("2026-09-01T00:00:00Z")).filter((source) => !ids.has(source.id)).map((source) => ({ ...source, status: "paused" as const }))], dir);
 }
 
 describe("scout sources", () => {
@@ -41,17 +43,17 @@ describe("scout sources", () => {
     writeSources([
       { id: "rss:waxy.org/feed", kind: "rss", name: "Waxy.org", target: "https://waxy.org/feed/", status: "active", shown: 9, likes: 4, dislikes: 0, failures: 0, addedBy: "george", addedAt: "2026-09-01T00:00:00Z" },
     ], dir);
-    const previous = process.env.FLYD_SCOUT_DIR;
-    process.env.FLYD_SCOUT_DIR = dir;
-    try {
-      const sources = readSources(undefined, at("2026-10-18T08:00:00Z"));
-      expect(sources[0]).toMatchObject({ name: "Waxy.org", shown: 9, likes: 4, addedBy: "george" });
-      expect(sources.some((source) => source.name === "r/Bitcoin" && source.status === "active")).toBe(true);
-      expect(sources.some((source) => source.name === "FlowingData" && source.status === "reserve")).toBe(true);
-      expect(readSources().filter((source) => source.name === "r/Bitcoin")).toHaveLength(1);
-    } finally {
-      if (previous === undefined) delete process.env.FLYD_SCOUT_DIR; else process.env.FLYD_SCOUT_DIR = previous;
-    }
+    const sources = readSources(dir, at("2026-10-18T08:00:00Z"));
+    expect(sources[0]).toMatchObject({ name: "Waxy.org", shown: 9, likes: 4, addedBy: "george" });
+    expect(sources.some((source) => source.name === "r/Bitcoin" && source.status === "active")).toBe(true);
+    expect(sources.some((source) => source.name === "FlowingData" && source.status === "reserve")).toBe(true);
+    expect(readSources(dir).filter((source) => source.name === "r/Bitcoin")).toHaveLength(1);
+  });
+
+  it("leaves an unreadable sources file untouched", () => {
+    writeFileSync(join(dir, "sources.json"), "[{ half-edited");
+    expect(readSources(dir)).toEqual([]);
+    expect(readFileSync(join(dir, "sources.json"), "utf8")).toBe("[{ half-edited");
   });
 
   it("scores fitness as a posterior that fades with unrewarded exposure", () => {
@@ -110,7 +112,7 @@ describe("edition, feedback, and watch", () => {
     const fetchFn = (async (input: string | URL | Request) => { hits.push(String(input)); return new Response("slow down", { status: 429 }); }) as typeof fetch;
     await runScout({ complete: vi.fn(async () => '{"picks": []}'), fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-27T07:00:00Z") });
     expect(hits).toHaveLength(1);
-    expect(readSources(dir).every((source) => source.failures === 0 && source.status === "active")).toBe(true);
+    expect(readSources(dir).slice(0, 2).every((source) => source.failures === 0 && source.status === "active")).toBe(true);
   });
 
   it("pauses a source after repeated fetch failures instead of dropping it", async () => {
