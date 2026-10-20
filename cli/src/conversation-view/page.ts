@@ -156,6 +156,29 @@ const SHOW_STYLE = `
 @keyframes show-out { from { opacity: 1; } to { opacity: 0; } }
 .show > * { width: 100%; max-width: 1480px; margin-left: auto; margin-right: auto; }
 
+/* Semantic workspace: the focused work owns the room; the rest of Flyd is
+   context at its edge, not a competing dashboard. */
+.show.semantic-workspace { padding-top: 64px; }
+.semantic-workspace .tv { padding: clamp(26px, 6vh, 78px) 0 clamp(20px, 4vh, 48px); }
+.semantic-workspace .scene { min-height: min(68vh, 820px); align-content: center; }
+.semantic-workspace .scene[data-semantic="decision"],
+.semantic-workspace .scene[data-semantic="action"] { grid-template-columns: minmax(0, 1fr); max-width: 980px; margin-inline: auto; }
+.semantic-workspace .scene[data-semantic="artifact"].has-shot,
+.semantic-workspace .scene[data-semantic="investigation"].has-shot { grid-template-columns: minmax(280px, .7fr) minmax(0, 1.3fr); }
+.semantic-workspace .scene[data-semantic="artifact"] .scene-shot img { max-height: 70vh; object-fit: contain; background: var(--tint); }
+.semantic-workspace .scene[data-semantic="activity"] .scene-head { max-width: 18em; }
+.semantic-workspace .scene[data-semantic="monitor"] { opacity: .96; }
+.semantic-workspace .semantic-context { display: flex; gap: 10px 22px; align-items: baseline; flex-wrap: wrap; padding: 14px 0 18px; border-top: 1px solid var(--faint); font: 500 13px/1.35 var(--mono); color: var(--muted); }
+.semantic-workspace .semantic-context:empty { display: none; }
+.semantic-context button { appearance: none; border: 0; background: none; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.semantic-context button:hover { color: var(--strong); }
+.semantic-context .needs { color: var(--k-call); }
+.semantic-context .working { color: var(--k-live); }
+.semantic-context .landed { color: var(--k-landed); }
+.semantic-context .watching { color: var(--muted); }
+.semantic-workspace .ticks { display: none !important; }
+.semantic-workspace .readouts { display: none; }
+
 /* The stage: one scene, centred, the same room above and below it. */
 .tv { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: safe center; padding: clamp(20px, 5vh, 64px) 0; }
 .scene { --k: var(--k-news); display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: clamp(36px, 4.5vw, 88px); }
@@ -4149,6 +4172,7 @@ ${LEFT_SCRIPT}
     filled = JSON.stringify(box);
     var shots = shotsOf(box);
     sceneEl.className = "scene k-" + (box.kind === "alert" ? "warn" : box.tone || "news") + (shots.length ? " has-shot" : "") + (box.decision ? " has-ask" : "");
+    sceneEl.dataset.semantic = box.semanticKind || "";
     if (sceneEl.dataset.id !== box.id) sceneEl.parentElement.scrollTop = 0;
     sceneEl.dataset.id = box.id;
     sceneHead.textContent = box.title;
@@ -4484,6 +4508,37 @@ ${LEFT_SCRIPT}
     showDoing.classList.toggle("on", !!lastScreen.live);
     showDoing.textContent = lastScreen.live ? lastScreen.doing || "" : "Standby" + (lastScreen.read ? ". Fleet read " + ago(lastScreen.read) : "");
   }
+  function renderSemanticContext(screen) {
+    var nav = document.getElementById("semantic-context");
+    nav.textContent = "";
+    var objects = (screen && screen.semantic) || [];
+    var focus = screen && screen.focus;
+    var rest = objects.filter(function (object) {
+      if (!focus || object.id === focus.id) return false;
+      if (object.kind === "monitor" && object.monitor && object.monitor.phase === "quiet") return true;
+      return object.lifecycle !== "resolved" || object.kind === "artifact";
+    });
+    var groups = [
+      { cls: "needs", label: "needs you", kinds: ["decision", "action"], match: function (o) { return o.lifecycle === "interrupted"; } },
+      { cls: "working", label: "working", kinds: ["activity", "investigation"], match: function (o) { return o.lifecycle === "active"; } },
+      { cls: "landed", label: "landed", kinds: ["artifact"], match: function () { return true; } },
+      { cls: "watching", label: "watching", kinds: ["monitor"], match: function (o) { return !o.monitor || o.monitor.phase === "quiet"; } },
+    ];
+    groups.forEach(function (group) {
+      var matches = rest.filter(function (object) { return group.kinds.indexOf(object.kind) >= 0 && group.match(object); });
+      if (!matches.length) return;
+      var button = el("button", group.cls, matches.length + " " + group.label);
+      button.type = "button";
+      button.title = matches.map(function (object) { return object.subject; }).join("\\n");
+      button.addEventListener("click", function () {
+        if (group.cls === "needs") showCalls(true, button);
+        else if (group.cls === "landed") openDrill("landed", button);
+        else if (group.cls === "working") openDrill("live", button);
+      });
+      nav.appendChild(button);
+    });
+  }
+
   function semanticBox(object) {
     if (!object) return null;
     var tone = { conversation: "news", activity: "live", decision: "call", investigation: "news", action: "ready", artifact: "landed", monitor: object.monitor && object.monitor.phase === "changed" ? "call" : "waiting" }[object.kind] || "news";
@@ -4526,6 +4581,7 @@ ${LEFT_SCRIPT}
       links: (object.evidence || []).filter(function (work) { return work.kind === "web"; }).map(function (work) { return { label: work.label || "Open", url: work.ref, closed: work.closed }; }),
       children: children,
       semantic: true,
+      semanticKind: object.kind,
     };
   }
 
@@ -4538,8 +4594,13 @@ ${LEFT_SCRIPT}
     var focusBox = semanticBox(next.focus);
     var sourceBoxes = boxes && boxes.length ? boxes : [{ id: "situation", kind: "note", size: "wide", title: next.title, line: next.summary, why: "where things stand" }];
     var parts = split(sourceBoxes);
+    showEl.classList.toggle("semantic-workspace", !!focusBox);
     if (focusBox) {
       parts.stage = [focusBox];
+      parts.readouts = [];
+      renderSemanticContext(next);
+    } else {
+      document.getElementById("semantic-context").textContent = "";
     }
     var current = scenes[at] ? scenes[at].id : null;
     var sameSet = parts.stage.length === scenes.length && parts.stage.every(function (box, index) { return box.id === scenes[index].id; });
@@ -4845,6 +4906,7 @@ ${LEFT_HTML}
   </div>
   <div class="ticks" id="ticks" aria-label="Flyd's scenes" hidden></div>
   <div class="readouts" id="readouts" aria-label="Readouts"></div>
+  <nav class="semantic-context" id="semantic-context" aria-label="Other work"></nav>
   <div class="calls" id="calls" hidden role="dialog" aria-modal="true" aria-labelledby="calls-title">
     <div class="calls-sheet" tabindex="-1">
       <div class="calls-top"><h2 id="calls-title">Your decisions</h2><button id="calls-close" type="button" aria-label="Close">✕</button></div>
