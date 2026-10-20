@@ -113,10 +113,11 @@ describe("notices keep the one voice", () => {
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.", surface: "notification", held: true }));
   });
 
-  it("keeps a completion that only carries a commit id or the plain word branch, the id dropped", () => {
+  it("keeps a completion that only carries a commit id, but holds branch mentions", () => {
     expect(captainNotice(run("The sidebar fix is merged at a1b2c3d."))).toBe("The sidebar fix is merged.");
-    expect(captainNotice(run("Merged the branch and deployed."))).toBe("Merged the branch and deployed.");
+    expect(captainNotice(run("Merged the branch and deployed."))).toBeNull();
     expect(captainNotice(run("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683"))).toBe("Done and live: https://github.com/GeorgeGally/flyd/commit/c170683");
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Merged the branch and deployed.", surface: "notification", held: true }));
   });
 
   it("brings a decision or failure that names backstage as a line naming the work, and records it", () => {
