@@ -14,6 +14,12 @@ function nodeId(level: number, leafStart: number, leafEnd: number): string {
   return `episode:${level}:${leafStart}-${leafEnd}`;
 }
 
+/**
+ * Build an aligned binary forest over canonical event order.
+ * Incomplete tail ranges stay at their finest available level instead of
+ * inventing non-power-of-two parents. This keeps node identity deterministic
+ * as new events arrive.
+ */
 export function buildEpisodeTree(
   events: StoredEvent[],
   options: { leafSize?: number; summarizer?: EpisodeSummarizer; now?: Date } = {},
@@ -22,7 +28,8 @@ export function buildEpisodeTree(
   const summarizer = options.summarizer ?? deterministicEpisodeSummarizer;
   const generatedAt = (options.now ?? new Date()).toISOString();
   const ordered = events.slice().sort((a, b) => a.sequence - b.sequence);
-  const levels: EpisodeNode[][] = [];
+  const nodes: EpisodeNode[] = [];
+  const byRange = new Map<string, EpisodeNode>();
 
   const leaves: EpisodeNode[] = [];
   for (let i = 0; i < ordered.length; i += leafSize) {
@@ -31,7 +38,7 @@ export function buildEpisodeTree(
     const views = batch.map(episodicEventView);
     const leafStart = leaves.length;
     const leafEnd = leafStart + 1;
-    leaves.push({
+    const leaf: EpisodeNode = {
       id: nodeId(0, leafStart, leafEnd),
       level: 0,
       leafStart,
@@ -45,26 +52,25 @@ export function buildEpisodeTree(
       sourceHash: hash(batch.map((e) => [e.sequence, e.erased, e.payload ?? null])),
       summaryVersion: EPISODE_SUMMARY_VERSION,
       generatedAt,
-    });
+    };
+    leaves.push(leaf);
+    nodes.push(leaf);
+    byRange.set(`${leafStart}:${leafEnd}`, leaf);
   }
-  levels.push(leaves);
 
-  let current = leaves;
-  let level = 1;
-  while (current.length > 1) {
-    const next: EpisodeNode[] = [];
-    for (let i = 0; i < current.length; i += 2) {
-      const left = current[i]!;
-      const right = current[i + 1];
-      if (!right) {
-        next.push({ ...left });
-        continue;
-      }
+  for (let size = 2, level = 1; size <= leaves.length; size *= 2, level += 1) {
+    const half = size / 2;
+    for (let start = 0; start + size <= leaves.length; start += size) {
+      const mid = start + half;
+      const end = start + size;
+      const left = byRange.get(`${start}:${mid}`);
+      const right = byRange.get(`${mid}:${end}`);
+      if (!left || !right) throw new Error(`episode tree missing child range ${start}:${end}`);
       const node: EpisodeNode = {
-        id: nodeId(level, left.leafStart, right.leafEnd),
+        id: nodeId(level, start, end),
         level,
-        leafStart: left.leafStart,
-        leafEnd: right.leafEnd,
+        leafStart: start,
+        leafEnd: end,
         startSequence: left.startSequence,
         endSequence: right.endSequence,
         startTime: left.startTime,
@@ -78,12 +84,10 @@ export function buildEpisodeTree(
         rightChildId: right.id,
       };
       node.summary = summarizer.summarizeParent(left, right);
-      next.push(node);
+      nodes.push(node);
+      byRange.set(`${start}:${end}`, node);
     }
-    levels.push(next);
-    current = next;
-    level += 1;
   }
 
-  return { nodes: levels.flat(), leafCount: leaves.length, eventCount: ordered.length };
+  return { nodes, leafCount: leaves.length, eventCount: ordered.length };
 }
