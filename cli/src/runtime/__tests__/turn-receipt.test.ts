@@ -6,6 +6,8 @@ import {
   loadLatestTurnReceipt,
   persistTurnReceipt,
 } from "../turn-receipt.js";
+import { IntelligenceEventStore } from "../../intelligence/event-store.js";
+import { EXPERIENCE_SOURCE_ID } from "../experience-trace.js";
 
 const directories: string[] = [];
 
@@ -81,5 +83,34 @@ describe("turn receipts", () => {
 
     await expect(loadLatestTurnReceipt({ flydDir, sessionId: "session-a" }))
       .resolves.toMatchObject({ id: "receipt-a", sessionId: "session-a" });
+  });
+
+  it("persists a conversation-view turn whose session id is not a safe path segment, with its experience trace", async () => {
+    const flydDir = await mkdtemp(join(tmpdir(), "flyd-turn-view-"));
+    directories.push(flydDir);
+    const base = {
+      turnNumber: 6,
+      route: "conversation" as const,
+      message: "question",
+      model: "gpt-4.6",
+      providerIdentity: "models.example.test/gpt-4.6",
+      memory: { verdict: "insufficient" as const, matches: [] },
+      toolCalls: [],
+      answer: "answer",
+      status: "succeeded" as const,
+    };
+    const receipt = await persistTurnReceipt({ ...base, sessionId: "view:conversation" }, {
+      flydDir, id: () => "receipt-view",
+    });
+    await persistTurnReceipt({ ...base, sessionId: "view_3a_conversation" }, {
+      flydDir, id: () => "receipt-other",
+    });
+
+    expect(receipt.sessionId).toBe("view:conversation");
+    await expect(loadLatestTurnReceipt({ flydDir, sessionId: "view:conversation" })).resolves.toEqual(receipt);
+    const store = new IntelligenceEventStore({ path: join(flydDir, "intelligence.sqlite") });
+    const traces = store.readSource(EXPERIENCE_SOURCE_ID).map((event) => (event.payload as { trace?: { receiptId?: string; sessionId?: string; turnNumber?: number } }).trace);
+    store.close();
+    expect(traces).toContainEqual(expect.objectContaining({ receiptId: "receipt-view", sessionId: "view:conversation", turnNumber: 6 }));
   });
 });

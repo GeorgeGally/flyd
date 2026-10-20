@@ -51,6 +51,10 @@ function safeSegment(value: string): string {
   return value;
 }
 
+function sessionSegment(sessionId: string): string {
+  return sessionId.replace(/[^A-Za-z0-9._-]/g, (character) => `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`);
+}
+
 async function atomicWrite(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temporaryPath = `${path}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
@@ -64,18 +68,17 @@ export async function persistTurnReceipt(
 ): Promise<TurnReceipt> {
   const flydDir = options.flydDir ?? FLYD_DIR;
   const id = safeSegment((options.id ?? randomUUID)());
-  const sessionId = safeSegment(input.sessionId);
+  const sessionDir = sessionSegment(input.sessionId);
   const receipt: TurnReceipt = {
     version: 1,
     id,
     recordedAt: (options.now?.() ?? new Date()).toISOString(),
     ...input,
-    sessionId,
   };
   const serialized = `${JSON.stringify(receipt, null, 2)}\n`;
   const filename = `${String(input.turnNumber).padStart(6, "0")}-${id}.json`;
-  await atomicWrite(join(flydDir, "turn-receipts", sessionId, filename), serialized);
-  await atomicWrite(join(flydDir, "turn-receipts", sessionId, "latest.json"), serialized);
+  await atomicWrite(join(flydDir, "turn-receipts", sessionDir, filename), serialized);
+  await atomicWrite(join(flydDir, "turn-receipts", sessionDir, "latest.json"), serialized);
   await atomicWrite(join(flydDir, "turn-receipts", "latest.json"), serialized);
   // Evidence capture never turns a successful conversation into a failure.
   if (receipt.routing && process.env.FLYD_ROUTING_LEARNING !== "0") {
@@ -91,7 +94,7 @@ export async function loadLatestTurnReceipt(
   options: { flydDir?: string; sessionId?: string } = {},
 ): Promise<TurnReceipt | null> {
   try {
-    const sessionId = options.sessionId ? safeSegment(options.sessionId) : null;
+    const sessionId = options.sessionId ? sessionSegment(options.sessionId) : null;
     const content = await readFile(
       sessionId
         ? join(options.flydDir ?? FLYD_DIR, "turn-receipts", sessionId, "latest.json")

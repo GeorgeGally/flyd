@@ -1023,6 +1023,8 @@ export async function respondToConversation(
       ...(understanding ? { understanding } : {}),
       ...(error ? { error } : {}),
       plan: { ...(turnPlan ? { route: turnPlan.route, source: turnPlan.source, cover: turnPlan.cover } : { route: "unplanned", cover: [] }), ...(turnSkill ? { skill: turnSkill } : {}) },
+    }).catch((persistError: unknown) => {
+      console.warn("[turn-receipt] persist failed:", persistError instanceof Error ? persistError.message : persistError);
     });
   };
   const emit = (text: string): string => {

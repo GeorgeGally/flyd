@@ -182,6 +182,20 @@ describe("FlydDesk", () => {
     ]);
   });
 
+  it("numbers each turn by every earlier question in the session, past the history it carries", async () => {
+    const numbers: Array<number | undefined> = [];
+    const desk = new FlydDesk({ dir, answer: async (_question, _history, _onStep, turn) => {
+      numbers.push(turn?.turnNumber);
+      return "Done.";
+    } });
+    for (let asked = 1; asked <= 6; asked += 1) {
+      desk.ask(`question ${asked}`, [], "numbered");
+      await until(() => (desk.exchanges().filter((exchange) => exchange.answer).length === asked ? true : undefined));
+    }
+    desk.ask("elsewhere", [], "other");
+    expect(numbers).toEqual([1, 2, 3, 4, 5, 6, 1]);
+  });
+
   it("gives follow-ups the full list an answer kept in Artefacts", async () => {
     const history: unknown[] = [];
     const desk = new FlydDesk({ dir, answer: async (_question, earlier, _onStep, turn) => {
