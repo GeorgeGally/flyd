@@ -25,19 +25,7 @@ describe("episodic eval scoring", () => {
   it("measures exact evidence recall without rewarding duplicates", () => {
     expect(evidenceRecall([1, 2, 3, 4], [2, 2, 4, 9])).toBe(0.5);
     expect(evidenceRecall([], [])).toBe(1);
-    it("promotes only when quality improves without material regressions", () => {
-    expect(evaluatePromotionGate({
-      currentQuality: 7.2, drillQuality: 8.0, currentPasses: 6, drillPasses: 8,
-      currentMedianSeconds: 5, drillMedianSeconds: 7, currentContextCharacters: 4000, drillContextCharacters: 9000,
-    }).promoted).toBe(true);
-    const blocked = evaluatePromotionGate({
-      currentQuality: 7.5, drillQuality: 7.7, currentPasses: 7, drillPasses: 6,
-      currentMedianSeconds: 5, drillMedianSeconds: 14, currentContextCharacters: 4000, drillContextCharacters: 20000,
-    });
-    expect(blocked.promoted).toBe(false);
-    expect(blocked.reasons.length).toBeGreaterThan(1);
   });
-});
 
   it("parses bounded judge output", () => {
     expect(parseEpisodeJudge('{"score":9,"reason":"accurate"}')).toEqual({ score: 9, reason: "accurate" });
@@ -53,5 +41,31 @@ describe("episodic eval scoring", () => {
     const selected = selectDrillRoots(nodes, "How did the Nuanu venue negotiation change?", 2);
     expect(selected[0]?.id).toBe("old-nuanu");
     expect(selected.map((item) => item.id)).toContain("recent-nuanu");
+  });
+
+  it("promotes only when quality improves without material regressions", () => {
+    expect(evaluatePromotionGate({
+      currentQuality: 7.2,
+      drillQuality: 8.0,
+      currentPasses: 6,
+      drillPasses: 8,
+      currentMedianSeconds: 5,
+      drillMedianSeconds: 7,
+      currentContextCharacters: 4000,
+      drillContextCharacters: 9000,
+    }).promoted).toBe(true);
+
+    const blocked = evaluatePromotionGate({
+      currentQuality: 7.5,
+      drillQuality: 7.7,
+      currentPasses: 7,
+      drillPasses: 6,
+      currentMedianSeconds: 5,
+      drillMedianSeconds: 14,
+      currentContextCharacters: 4000,
+      drillContextCharacters: 20000,
+    });
+    expect(blocked.promoted).toBe(false);
+    expect(blocked.reasons.length).toBeGreaterThan(1);
   });
 });
