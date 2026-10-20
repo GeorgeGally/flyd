@@ -2212,11 +2212,14 @@ describe("header and artefact view", () => {
       activity("task:stale-decision", "needs_you", "interrupted", { updatedAt: old, decision: { target: "x", question: "Ship it?", alternatives: ["Yes", "No"] } }),
       activity("task:routing", "paused", "failed", { updatedAt: recent, detail: "Flyd couldn't route this to the crew." }),
       activity("task:working", "working", "active", { updatedAt: recent }),
+      activity("task:route-decision", "needs_you", "interrupted", { subject: "Routing tests fail on Node 22, skip them?", decision: { target: "y", question: "Skip them?", alternatives: ["Yes", "No"] } }),
+      activity("task:route-review", "ready", "active", { subject: "Fix the /login route error" }),
     ] } });
     await settle();
     const cards = [...document.querySelectorAll<HTMLElement>("#left-semantic .semantic-activity")];
-    expect(cards.map((card) => card.dataset.semanticId)).toEqual(["task:review", "task:paused", "task:stale-decision"]);
-    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 3");
+    // A decision or review stays even when its own words mention routes and errors.
+    expect(cards.map((card) => card.dataset.semanticId)).toEqual(["task:review", "task:paused", "task:stale-decision", "task:route-decision", "task:route-review"]);
+    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 5");
     // A review says so and opens the work; no status chip, icon or dot on any card.
     expect(cards[0]!.querySelector(".card-line")!.textContent).toBe("Review: task:review subject");
     const openLink = cards[0]!.querySelector<HTMLAnchorElement>(".card-link")!;

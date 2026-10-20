@@ -181,10 +181,10 @@ export const LEFT_SCRIPT = `
   function leftActionable(activity) {
     var phase = activity.activity && activity.activity.phase;
     var decides = activity.kind === "decision" || phase === "needs_you" || !!activity.decision;
-    var said = [activity.subject, activity.summary, activity.detail, activity.status].filter(Boolean).join(" ");
-    if (LEFT_ROUTING.test(said) && LEFT_FAILED.test(said)) return false;
     if (decides || phase === "ready") return true;
     if (phase !== "paused" && activity.lifecycle !== "failed") return false;
+    var said = [activity.subject, activity.summary, activity.detail, activity.status].filter(Boolean).join(" ");
+    if (LEFT_ROUTING.test(said) && LEFT_FAILED.test(said)) return false;
     var at = Date.parse(activity.updatedAt || activity.createdAt || (activity.activity && activity.activity.started) || "");
     return isNaN(at) || Date.now() - at < LEFT_STALE_MS;
   }
