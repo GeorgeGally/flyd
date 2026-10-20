@@ -743,6 +743,22 @@ describe("ConversationViewServer", () => {
     expect((await post(port, JSON.stringify({ session: "s1", text: "Yes", replyTo: reported!.id }), headers)).status).toBe(409);
   });
 
+  it("delivers a visible choice to its asking session after its message leaves the snapshot", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox, [captain("check this"), assistantText("Want me to start that check?")]);
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const stream = await get(port, `/api/stream?session=s1`);
+    const update = JSON.parse(/event: update\ndata: ([^\n]+)/.exec(stream.body)![1]!);
+    const asked = update.messages.find((message: { role: string; choice?: { replyTo: string; questionText: string; session: string } }) => message.role === "assistant" && message.choice);
+    expect(asked.choice).toMatchObject({ replyTo: expect.any(String), questionText: "Want me to start that check?", session: "s1" });
+
+    writeFileSync(join(dir!, "s1.jsonl"), [captain("check this"), assistantText("I started the check and it is running.")].join("\n") + "\n");
+    const sent = await post(port, JSON.stringify({ session: asked.choice.session, replyTo: asked.choice.replyTo, questionText: asked.choice.questionText, text: "Yes" }), headers);
+    expect(sent.status).toBe(200);
+    expect(inbox.sent[0]!.text).toContain('your question: "Want me to start that check?"');
+    expect(inbox.sent[0]!.text).toMatch(/\n\nYes$/);
+  });
+
   it("answers firstmate's routine question for him by his standing rule, shows it as Flyd's, and takes it back on Undo", async () => {
     const inbox = new MemoryInbox();
     dir = mkdtempSync(join(tmpdir(), "flyd-auto-answer-"));

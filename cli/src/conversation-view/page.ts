@@ -2323,11 +2323,11 @@ var __name = function (f) { return f; };
     }
     function deliver(text) {
       text = String(text || "").trim();
-      if (!text || !current || state.sending || state.sent) return;
+      if (!text || !choice.session || state.sending || state.sent) return;
       state.sending = true;
       settle();
       say("Sending…");
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, text: text, replyTo: choice.replyTo }) }, true)
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: choice.session, text: text, replyTo: choice.replyTo, questionText: choice.questionText }) }, true)
         .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
         .then(function () { state.sent = true; state.draft = ""; input.value = ""; say("Sent: “" + text + "”"); })
         .catch(function (error) { say("Not sent: " + (error.message || "try again")); })
@@ -2349,11 +2349,11 @@ var __name = function (f) { return f; };
     note.hidden = !state.note;
     function say(text) { state.note = text; note.textContent = text; note.hidden = !text; }
     var steps = stepper(choice.steps, state.steps, { option: "choice-option", input: "reply-input", next: "reply-send" }, function () {}, function (text) {
-      if (!current || state.steps.sending || state.steps.sent) return;
+        if (!choice.session || state.steps.sending || state.steps.sent) return;
       state.steps.sending = true;
       steps.sync();
       say("Sending…");
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, text: text, replyTo: choice.replyTo }) }, true)
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: choice.session, text: text, replyTo: choice.replyTo, questionText: choice.questionText }) }, true)
         .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
         .then(function () { state.steps.sent = true; say("Sent your answers"); })
         .catch(function (error) { say("Not sent: " + (error.message || "try again")); })

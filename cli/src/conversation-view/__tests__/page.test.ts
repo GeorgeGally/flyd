@@ -1883,7 +1883,7 @@ describe("header and artefact view", () => {
     load("");
     await settle();
     const stream = open("latest", []);
-    const choice = { question: "Want me to add all three?", options: ["Yes, all three", "Only 1: Press feedback", "No"], replyTo: "reply:a#2" };
+    const choice = { question: "Want me to add all three?", options: ["Yes, all three", "Only 1: Press feedback", "No"], replyTo: "reply:a#2", session: "asked-session", questionText: "Three places would benefit from motion. Want me to add all three?" };
     const asked = { id: "reply:a#2", role: "assistant", html: "<p>Three places would benefit from motion.</p>", aside: true, choice };
     stream.emit("update", { order: ["u1", "reply:a#2"], messages: [{ id: "u1", role: "user", html: "<p>ok do it</p>" }, asked], working: false });
     await settle();
@@ -1897,11 +1897,11 @@ describe("header and artefact view", () => {
     buttons[0]!.click();
     await settle();
     const sends = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
-    expect(sends()).toEqual([{ session: "latest", text: "Yes, all three", replyTo: "reply:a#2" }]);
+    expect(sends()).toEqual([{ session: "asked-session", text: "Yes, all three", replyTo: "reply:a#2", questionText: choice.questionText }]);
     expect(message.querySelector(".choice .reply-note")!.textContent).toBe("Sent: “Yes, all three”");
     expect(buttons.every((button) => button.disabled)).toBe(true);
     // Once he has answered, the card goes; an open question takes his own words.
-    stream.emit("update", { order: ["u1", "reply:a#2", "r3"], messages: [{ ...asked, choice: undefined }, { id: "r3", role: "assistant", html: "<p>Done.</p>", choice: { question: "What should the button say?", options: [], replyTo: "r3" } }], working: false });
+    stream.emit("update", { order: ["u1", "reply:a#2", "r3"], messages: [{ ...asked, choice: undefined }, { id: "r3", role: "assistant", html: "<p>Done.</p>", choice: { question: "What should the button say?", options: [], replyTo: "r3", session: "asked-session", questionText: "What should the button say?" } }], working: false });
     await settle();
     expect(message.querySelector(".choice")).toBeNull();
     const open3 = document.querySelectorAll<HTMLElement>(".msg")[2]!;
@@ -1911,7 +1911,7 @@ describe("header and artefact view", () => {
     words.dispatchEvent(new Event("input"));
     words.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     await settle();
-    expect(sends().at(-1)).toEqual({ session: "latest", text: "Book a stall", replyTo: "r3" });
+    expect(sends().at(-1)).toEqual({ session: "asked-session", text: "Book a stall", replyTo: "r3", questionText: "What should the button say?" });
   });
 
   it("asks several questions one at a time, sends nothing on a tap, and sends his answers together at the end", async () => {
@@ -1922,7 +1922,7 @@ describe("header and artefact view", () => {
       { question: "Discard the old CapFive experiment branches?", options: ["Yes", "No"] },
       { question: "Should Flyd's sidebar show newest at the top again?", options: ["Yes", "No"] },
     ];
-    const asked = { id: "reply:b#4", role: "assistant", html: "<p>Both fixes are live.</p>", aside: true, choice: { question: "Still waiting on you", options: [], steps, replyTo: "reply:b#4" } };
+    const asked = { id: "reply:b#4", role: "assistant", html: "<p>Both fixes are live.</p>", aside: true, choice: { question: "Still waiting on you", options: [], steps, replyTo: "reply:b#4", session: "asked-session", questionText: "Both fixes are live." } };
     stream.emit("update", { order: ["u1", "reply:b#4"], messages: [{ id: "u1", role: "user", html: "<p>fix the admin</p>" }, asked], working: false });
     await settle();
     const card = document.querySelector<HTMLElement>(".msg.aside .choice")!;
@@ -1952,7 +1952,7 @@ describe("header and artefact view", () => {
     ]);
     card.querySelector<HTMLButtonElement>(".step-send")!.click();
     await settle();
-    expect(sends()).toEqual([{ session: "latest", replyTo: "reply:b#4", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No, newest at the bottom" }]);
+    expect(sends()).toEqual([{ session: "asked-session", replyTo: "reply:b#4", questionText: "Both fixes are live.", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No, newest at the bottom" }]);
     expect(card.querySelector(".reply-note")!.textContent).toBe("Sent your answers");
     expect(card.querySelector(".step-send")).toBeNull();
   });
