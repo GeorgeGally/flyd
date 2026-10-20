@@ -4,7 +4,7 @@ import { FLYD_DIR } from "../../lib/config.js";
 import { query } from "../../lib/llm.js";
 import { evalJudgeModel } from "../chat/scoring.js";
 import { buildEvalContext } from "./context.js";
-import { buildEpisodeJudgePrompt, evidenceRecall, parseEpisodeJudge } from "./scoring.js";
+import { buildEpisodeJudgePrompt, evidenceRecall, evaluatePromotionGate, parseEpisodeJudge } from "./scoring.js";
 import type { EpisodeEvalCase, EpisodeEvalMode, EpisodeEvalResult } from "./types.js";
 import { EpisodicMemory } from "../../intelligence/episodes/service.js";
 
@@ -44,6 +44,7 @@ async function main(): Promise<void> {
   const model = argValue("--model");
   const judgeModel = argValue("--judge") ?? evalJudgeModel();
   const only = argValue("--only")?.split(",").map((value) => value.trim()).filter(Boolean);
+  const enforceGate = process.argv.includes("--gate");
   const casePath = argValue("--cases") ?? join(FLYD_DIR, "evals", "episodes", "cases.json");
   const cases = JSON.parse(readFileSync(casePath, "utf8")) as EpisodeEvalCase[];
   const selected = only ? cases.filter((item) => only.includes(item.id)) : cases;
@@ -107,7 +108,22 @@ async function main(): Promise<void> {
   const drill = results.filter((row) => row.mode === "cover-drill");
   const currentMean = current.reduce((sum, row) => sum + (row.judgeScore ?? 0), 0) / current.length;
   const drillMean = drill.reduce((sum, row) => sum + (row.judgeScore ?? 0), 0) / drill.length;
-  process.stdout.write(`\nDelta cover+drill vs current: ${(drillMean - currentMean).toFixed(2)} judge points\nResults: ${path}\n`);
+  const gate = evaluatePromotionGate({
+    currentQuality: currentMean,
+    drillQuality: drillMean,
+    currentPasses: current.filter((row) => row.passed).length,
+    drillPasses: drill.filter((row) => row.passed).length,
+    currentMedianSeconds: median(current.map((row) => row.seconds)),
+    drillMedianSeconds: median(drill.map((row) => row.seconds)),
+    currentContextCharacters: current.reduce((sum, row) => sum + row.contextCharacters, 0) / current.length,
+    drillContextCharacters: drill.reduce((sum, row) => sum + row.contextCharacters, 0) / drill.length,
+  });
+  process.stdout.write(`\nDelta cover+drill vs current: ${(drillMean - currentMean).toFixed(2)} judge points\n`);
+  process.stdout.write(gate.promoted
+    ? "PROMOTION GATE: PASS — episodic cover+drill earned rollout to shadow production context.\n"
+    : `PROMOTION GATE: HOLD — ${gate.reasons.join("; ")}\n`);
+  process.stdout.write(`Results: ${path}\n`);
+  if (enforceGate && !gate.promoted) process.exitCode = 2;
 }
 
 main().catch((error) => {
