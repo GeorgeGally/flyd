@@ -88,6 +88,8 @@ export interface ArtefactInputs {
   news: ArtefactNews[];
   /** Top taste rules: they shape wording; shown only when nothing else exists. */
   taste: string[];
+  /** WhatsApp is not linked yet: the panel offers to link it, and drops the offer the moment it is. */
+  whatsappLink?: boolean;
   /** Plans he made, newest first. */
   plans?: PlanArtefact[];
   /** Work landed on each of the last seven days, oldest first. */
@@ -126,6 +128,18 @@ function artefactKey(row: ArtefactRow): string | undefined {
 
 /** How many of each kind the artefact shows; the section says how many more there are. */
 export const ARTEFACT_LIMITS = { call: 4, live: 4, ready: 4, landed: 8, waiting: 4, next: 3 } as const;
+
+/**
+ * The one action card while WhatsApp is unlinked: the same words in the
+ * timeline, the artefacts panel and the artefact view. `/whatsapp` is the
+ * People page, where the code is drawn live.
+ */
+export const WHATSAPP_LINK = {
+  id: "whatsapp-link",
+  title: "Link WhatsApp so Flyd can message people for you",
+  line: "In WhatsApp: Linked devices, then Link a device, then scan the code.",
+  url: "/whatsapp",
+} as const;
 
 const str = (value: unknown): string => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
 const rows = (value: unknown): Record<string, unknown>[] =>
@@ -752,6 +766,8 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   };
 
   const fleet = inputs.fleet;
+  // Unlinked WhatsApp leads: it is one step only he can take, and it goes the moment it is done.
+  if (inputs.whatsappLink) add("news", WHATSAPP_LINK.id, WHATSAPP_LINK.title, "only you can link it", { detail: WHATSAPP_LINK.line, links: [{ label: "Open the code", url: WHATSAPP_LINK.url }] });
   rowsOf("call", fleet?.calls);
   rowsOf("live", fleet?.live);
   rowsOf("ready", fleet?.ready);

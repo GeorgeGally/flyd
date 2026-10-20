@@ -9,24 +9,28 @@ transitions and responsive layout, not WhatsApp branding or navigation.
 ## Connect
 
 1. Update/build Flyd (`cd cli && npm ci && npm run build`).
-2. Run `flyd whatsapp connect`. In WhatsApp Settings → Linked Devices, scan the
-   QR. Leave pairing running briefly for initial sync, then Ctrl+C.
-3. Restart Flyd Core (or reopen Flyd.app). Core maintains the linked-device socket
-   and reconnects with bounded retries. Open Flyd's conversation window and select
-   **people** in its header; `/whatsapp` is the same server's artefact route.
+2. Link it from inside Flyd: open the conversation window and select **people** in
+   its header (`/whatsapp`), or open the “Link WhatsApp” card in the timeline or the
+   artefacts column. The page draws the pairing QR live; in WhatsApp Settings →
+   Linked Devices, scan it. The code refreshes by itself until it is scanned.
+3. Core maintains the linked-device socket and reconnects with bounded retries. The
+   offer card and the page's QR disappear once it is linked, and the page lists
+   synced conversations.
 4. Choose a contact, focus the composer and use Flyd dictation, or type. Review
    the recipient and exact words, then click Send. Spoken assistant commands also
    support “Read my WhatsApp messages” and “Draft a WhatsApp reply to Erica…”.
    That path returns a draft id: “Send WhatsApp draft <id>” approves that exact
    immutable draft. Merely asking to draft or reading a message never sends it.
 
-The daemon owns the socket. The window/CLI use its authenticated loopback API
-when it is running; another process cannot open a competing linked-device socket.
-A stale process lock is recovered after its owner exits. Stop the pairing CLI
-before opening the Core connection. `flyd whatsapp status` checks local pairing;
+The daemon owns the socket. The window/CLI use its authenticated loopback API when
+it is running. While WhatsApp is unlinked the window draws the pairing QR itself and
+holds the socket for a minute after linking, so the first history sync lands; Core
+then owns it again, and on-demand reconnects pick it up from there. A stale process
+lock is recovered after its owner exits. `flyd whatsapp status` checks local pairing;
 `flyd whatsapp disconnect` removes local credentials/cache/drafts (close Core
-first), then unlink Flyd in WhatsApp Settings. Keep WhatsApp installed for account
-administration, recovery, calls and unsupported media.
+first), then unlink Flyd in WhatsApp Settings. `flyd whatsapp connect` still prints
+a QR in a terminal. Keep WhatsApp installed for account administration, recovery,
+calls and unsupported media.
 
 ## Data and limitations
 
