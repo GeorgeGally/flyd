@@ -531,10 +531,15 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .brief-line a:hover { color: var(--link); }
 .brief-meta { display: block; margin-top: 7px; font: 500 13px/1.4 var(--sans); letter-spacing: normal; color: var(--muted); text-transform: none; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 #done .brief-line { font-weight: 500; color: var(--strong); }
-.brief-more { margin: 12px 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
+#done .card-icon, #done .card-meta { display: none; }
+#done .card-text { min-width: 0; }
+#done .brief-meta { display: inline; margin-left: 9px; font-size: 13px; }
+#done .brief-card { padding: 0; background: transparent; }
+.brief-more { margin: 22px 0 0; padding: 8px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .brief-more:hover { color: var(--fg); }
 .brief-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .rail-body { flex: 1 0 auto; padding: 12px 20px 40px; }
+.rail-body[hidden] { display: none; }
 .rail-section { margin: 24px 0 10px; font: 600 14px/1.2 var(--sans); color: var(--muted); }
 /* One row per message he sent: his words plainly, where it stands, and its own answer under it. */
 .rail-talk { margin: 0; }
@@ -1713,12 +1718,9 @@ var __name = function (f) { return f; };
     renderActivity(update.leftColumn);
   }
 
-  // The top of the column, Flyd as chief of staff: the one decision that needs
-  // him, with what Flyd advises; every job a worker is on now; and what got
-  // done, one line each. Read from firstmate's own records on every update.
+  // Done items are read from firstmate's own records on every update.
   var briefEl = document.getElementById("brief");
   var needsEl = document.getElementById("needs");
-  var underwayEl = document.getElementById("underway");
   var doneEl = document.getElementById("done");
   var briefFilled = false;
   var lastBrief = null;
@@ -1784,7 +1786,7 @@ var __name = function (f) { return f; };
       line.appendChild(a);
     } else line.textContent = item.headline;
     text.appendChild(line);
-    var said = [shortName(item.project), meta].filter(Boolean).join(" · ");
+    var said = kind === "landed" ? meta : [shortName(item.project), meta].filter(Boolean).join(" · ");
     if (said) text.appendChild(el("span", "brief-meta", said));
     li.appendChild(text);
     // Its picture, when the work has one: the small thumbnail says what changed, and opens full size on click.
@@ -1950,7 +1952,7 @@ var __name = function (f) { return f; };
     doneEl.textContent = "";
     doneEl.hidden = !items.length;
     if (!items.length) return;
-    doneEl.appendChild(briefTop("Artefacts"));
+    doneEl.appendChild(briefTop("Done"));
     var list = el("ul");
     var shown = !doneAll ? items.slice(0, DONE_FEW) : items;
     shown.forEach(function (artifact) {
@@ -1960,7 +1962,7 @@ var __name = function (f) { return f; };
       var visual = {
         id: artifact.id,
         kind: "landed",
-        headline: artifact.subject,
+        headline: [artifact.subject, clip(artifact.summary || artifact.detail || "", 110)].filter(Boolean).join(" — "),
         why: artifact.summary,
         at: artifact.updatedAt || artifact.createdAt || "",
         status: artifact.status || "ready",
@@ -2007,11 +2009,12 @@ var __name = function (f) { return f; };
     else drawNeeds(calls);
     // Task-bound calls are manifested inside Activity, never duplicated here.
     var needsCount = decisions ? decisions.length : calls.length;
-    drawList(underwayEl, "Under way", underway, function (item) { return item.started ? "Started " + ago(item.started) : ""; });
+    if (needsCount && !leftPanel) leftPanel = { semantic: [], now: [], recent: [] };
+    if (needsCount) renderActivity(leftPanel);
     if (artifacts) drawSemanticArtifacts(artifacts);
     else drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
     var artifactCount = artifacts ? artifacts.length : done.length;
-    briefFilled = needsCount + underway.length + artifactCount > 0;
+    briefFilled = artifactCount > 0;
     briefEl.hidden = !briefFilled;
     showRail();
   }
@@ -2922,7 +2925,7 @@ var __name = function (f) { return f; };
     while (told < learned.length) next.appendChild(railMemory(learned[told++], true));
     patch(railBody, Array.prototype.slice.call(next.children));
     patch(artefactBody, Array.prototype.slice.call(nextArtefacts.children));
-    railFilled = talks.length > 0 || cards.length > 0 || held || learned.length > 0;
+    railFilled = false;
     showRail();
     if (pinned) detailPane.scrollTop = detailPane.scrollHeight;
   }
@@ -4803,27 +4806,22 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <p class="prefs-title">Preferences</p>
   <button id="mode" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Full replies</span><span class="prefs-about">Every reply as written, not Flyd's reading</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
-  <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Side column</span><span class="prefs-about">What needs you, what is under way and done</span></span><span class="track" aria-hidden="true"></span></button>
+  <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Done column</span><span class="prefs-about">Finished work and delivered artefacts</span></span><span class="track" aria-hidden="true"></span></button>
   ${LEFT_PREFERENCE}
   <button id="preparation-link" type="button"><span class="prefs-words"><span class="prefs-name">Local preparation</span><span class="prefs-about">Review drafts and stop preparation</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="routines-link" type="button"><span class="prefs-words"><span class="prefs-name">Routines</span><span class="prefs-about">Useful requests, ready to use again</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
 </div>
 ${LEFT_HTML}
-<aside class="rail" id="rail" hidden aria-label="What needs you, what is under way and done, and your conversations">
+<aside class="rail" id="rail" hidden aria-label="Done">
   <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
-  <nav class="rail-tabs" aria-label="Sidebar view"><button type="button" data-rail-tab="artefacts" aria-selected="true">Artefacts</button><button type="button" data-rail-tab="detail" aria-selected="false">Detailed view</button></nav>
   <div class="rail-pane" data-rail-pane="artefacts">
   <div class="brief" id="brief" hidden>
-    <section class="needs" id="needs" hidden aria-label="Needs you"></section>
-    <section class="brief-list" id="underway" hidden aria-label="Under way"></section>
     <section class="brief-list" id="done" hidden aria-label="Done"></section>
   </div>
-  <div class="rail-body" id="artefact-body"></div>
+  <div class="rail-body" id="artefact-body" hidden></div>
   </div>
-  <div class="rail-pane" data-rail-pane="detail" hidden>
-    <div class="rail-body" id="rail-body"></div>
-  </div>
+  <div class="rail-body" id="rail-body" hidden></div>
 </aside>
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>

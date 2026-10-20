@@ -30,9 +30,9 @@ export const LEFT_STYLE = `
 .left-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 20px 40px; }
 .left-pane > section + section { margin-top: 30px; }
 .left-label { margin: 0 0 14px; font: 600 14px/1.2 var(--sans); color: var(--muted); }
-.left-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.left-list { display: grid; gap: 20px; margin: 0; padding: 0; list-style: none; }
 .left-week[hidden], .left-semantic[hidden] { display: none; }
-.left-semantic .scene-ask { margin-top: 10px; width: 100%; }
+.left-semantic .scene-ask { margin-top: 18px; width: 100%; }
 .left-semantic .scene-ask .choices { grid-template-columns: 1fr; gap: 6px; }
 /* The earlier list runs down one hairline: a card's icon tile sits on it, and the line shows in the gaps between. */
 .left-timeline { position: relative; }
@@ -40,6 +40,8 @@ export const LEFT_STYLE = `
 .left-timeline > .left-card { position: relative; z-index: 1; }
 .left-timeline .card-icon { box-shadow: 0 0 0 3px var(--tint); }
 .left-card { background: var(--tint); }
+.left-semantic .card-icon, .left-semantic .card-meta, .left-semantic .left-meta { display: none; }
+.left-semantic .card-line { margin-top: 0; font-size: 17px; }
 .left-card.is-quiet .card-line { font-weight: 400; color: var(--muted); }
 .left-timeline .left-card.is-quiet .card-icon { box-shadow: 0 0 0 3px var(--tint); }
 .left-more { margin: 18px 0 0; padding: 4px 0; border: 0; background: none; cursor: pointer; font: 500 14px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
@@ -64,22 +66,19 @@ export const LEFT_STYLE = `
 
 export const LEFT_BUTTON = `<button id="left-open" type="button" aria-pressed="false" aria-controls="left">activity</button>`;
 
-export const LEFT_PREFERENCE = `<button id="left-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Activity column</span><span class="prefs-about">What Flyd is doing and has done</span></span><span class="track" aria-hidden="true"></span></button>`;
+export const LEFT_PREFERENCE = `<button id="left-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Needs you</span><span class="prefs-about">Decisions, reviews and held work</span></span><span class="track" aria-hidden="true"></span></button>`;
 
-export const LEFT_HTML = `<aside class="left" id="left" hidden aria-label="What Flyd is doing">
+export const LEFT_HTML = `<aside class="left" id="left" hidden aria-label="What needs you">
   <button class="left-hide" id="left-hide" type="button" aria-label="Hide the column">✕</button>
   <div class="left-head">
-    <h2 class="left-tab"><span>Activity</span></h2>
-    <p class="left-live" id="left-live">Nothing under way.</p>
+    <h2 class="left-tab"><span>Needs you</span></h2>
   </div>
   <div class="left-pane">
-    <section class="left-week" id="left-week-section" aria-label="This week" hidden>
-      <h3 class="left-label">This week</h3>
-      <div class="mini-bars" id="left-week"></div>
-    </section>
-    <section class="left-semantic" id="left-semantic-section" aria-label="Tasks" hidden><h3 class="left-label">Tasks</h3><ul class="left-list" id="left-semantic"></ul></section>
-    <section aria-label="Right now"><h3 class="left-label">Right now</h3><ul class="left-list" id="left-now"></ul></section>
-    <section aria-label="Earlier"><h3 class="left-label">Earlier</h3><ul class="left-list left-timeline" id="left-recent"></ul><button class="left-more" id="left-more" type="button" hidden></button></section>
+    <section class="needs left-needs" id="needs" hidden aria-label="Needs you"></section>
+    <section class="left-semantic" id="left-semantic-section" aria-label="Held work" hidden><ul class="left-list" id="left-semantic"></ul></section>
+    <section class="left-week" id="left-week-section" hidden><div id="left-week"></div></section>
+    <section hidden><ul id="left-now"></ul></section>
+    <section hidden><ul id="left-recent"></ul><button class="left-more" id="left-more" type="button" hidden></button></section>
   </div>
 </aside>`;
 
@@ -285,23 +284,15 @@ export const LEFT_SCRIPT = `
   }
   function drawActivity() {
     if (!leftPanel) return;
-    var semantic = leftPanel.semantic || [];
+    var semantic = (leftPanel.semantic || []).filter(function (activity) {
+      var phase = activity.activity && activity.activity.phase;
+      return activity.kind === "decision" || phase === "needs_you" || phase === "paused" || phase === "ready" || activity.lifecycle === "failed";
+    });
     var semanticTasks = {};
     semantic.forEach(function (activity) { if (activity.source && activity.source.task) semanticTasks["job:" + activity.source.task] = true; });
     var now = (leftPanel.now || []).filter(function (item) { return !semanticTasks[item.id] && !cardGone(activityKey(item, true)); });
     var recent = (leftPanel.recent || []).filter(function (item) { return !semanticTasks[item.id] && !cardGone(activityKey(item, false)); });
-    var moving = semantic.filter(function (activity) { return activity.activity && activity.activity.phase !== "finished"; }).length + now.length;
-    leftLiveEl.textContent = moving ? "Working on " + moving + (moving === 1 ? " thing." : " things.") : "Nothing under way.";
     drawSemanticActivities(semantic);
-    drawWeek(leftPanel.week);
-    var nowCards = now.map(function (item) { return activityCard(item, true); });
-    if (!nowCards.length) nowCards.push(quietCard(recent));
-    patch(leftNowEl, nowCards);
-    var shown = leftAll ? recent : recent.slice(0, LEFT_FEW);
-    patch(leftRecentEl, shown.map(function (item) { return activityCard(item, false); }));
-    leftRecentEl.parentElement.hidden = !recent.length;
-    leftMoreEl.hidden = recent.length <= LEFT_FEW;
-    leftMoreEl.textContent = leftAll ? "Show fewer" : "Show " + (recent.length - LEFT_FEW) + " more";
   }
   function renderActivity(panel) {
     if (panel) leftPanel = panel;
