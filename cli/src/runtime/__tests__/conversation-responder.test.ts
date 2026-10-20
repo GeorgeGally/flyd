@@ -477,7 +477,7 @@ describe("buildConversationPrompt", () => {
 
   it("delivers a long enumeration as an artefact and emits only its summary and reference", async () => {
     const streamed: string[] = [];
-    const saved: Array<{ title: string; body: string }> = [];
+    const kept: string[] = [];
     const items = Array.from({ length: 10 }, (_, index) => `${index + 1}. Part ${index + 1} is moving.`).join("\n");
     const answer = await respondToConversation({
       message: "Give me a ten-part status update",
@@ -485,17 +485,17 @@ describe("buildConversationPrompt", () => {
       memory: { verdict: "insufficient", matches: [] },
       situation: null,
       onToken: (token) => streamed.push(token),
+      onArtefact: (body) => kept.push(body),
     }, {
       runAgentLoop: async () => `<final>Here is where the ten parts stand.\n\n${items}</final>`,
-      saveArtefact: (title, body) => { saved.push({ title, body }); return "/tmp/flyd-artefact.md"; },
       persistReceipt: async (input) => input as never,
     });
-    expect(saved).toHaveLength(1);
-    expect(saved[0]!.body).toContain("10. Part 10 is moving.");
-    expect(answer).toBe("» Here is where the ten parts stand.\n\nFull breakdown: /tmp/flyd-artefact.md");
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toContain("10. Part 10 is moving.");
+    expect(answer).toBe("» Here is where the ten parts stand.\n\nThe full breakdown is in Artefacts.");
     const chat = streamed.join("");
     expect(chat).not.toMatch(/Part \d+ is moving/);
-    expect(chat).toContain("/tmp/flyd-artefact.md");
+    expect(chat).toContain("Artefacts");
   });
 
   it("cuts a ruled-out phrase the rewrite fails to remove", async () => {

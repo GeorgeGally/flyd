@@ -30,6 +30,8 @@ export interface ConversationMessage {
   settled?: boolean;
   /** Under a settled outcome: what is still being done on this message right now, when work carries on. */
   doing?: string;
+  /** The full list or table behind a summarised answer, shown in the Artefacts column rather than the conversation. */
+  artefact?: string;
   /** An assistant message that answers the captain message with this id. */
   answers?: string;
   /** An assistant message relayed from the assistant's own session: not an answer to the captain message above it. */

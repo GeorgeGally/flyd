@@ -226,12 +226,23 @@ function railReplies(messages: ConversationMessage[], judge?: ArtefactJudge): Ma
   for (const message of [...messages].reverse()) {
     if (kept.size >= MAX_REPLY_ARTEFACTS) break;
     if (message.role !== "assistant" || kept.has(message.id)) continue;
+    if (message.artefact) {
+      kept.set(message.id, replyArtefact(message.artefact)?.artefact ?? { title: "Full breakdown", steps: artefactLines(message.artefact) });
+      continue;
+    }
     const call = replyArtefact(message.text);
     if (!call) continue;
     const kind = call.clear ? "steps" : judge?.cached(message.text);
     if (kind === "steps" || kind === "options") kept.set(message.id, replyArtefact(message.text, kind)!.artefact);
   }
   return kept;
+}
+
+/** An answer's list items or table rows, one per line, without their markers or the table's divider. */
+function artefactLines(body: string): string[] {
+  return body.split("\n")
+    .map((line) => line.trim().replace(/^(?:[-*+]|\d+[.)])\s+/, ""))
+    .filter((line) => line && !/^\|?[\s:|-]+\|?$/.test(line));
 }
 
 /**
