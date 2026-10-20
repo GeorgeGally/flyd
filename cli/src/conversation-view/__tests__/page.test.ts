@@ -1743,6 +1743,34 @@ describe("header and artefact view", () => {
     expect(drill.hidden).toBe(true);
   });
 
+  it("shows one attention action per held item, records it, and removes the item", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const held = [
+      { id: "held:reply", kind: "waiting", headline: "A decision needs your reply", why: "Your choice lets the work continue.", at: new Date().toISOString() },
+      { id: "held:save", kind: "waiting", headline: "Save this for later", why: "You may want to return to this.", at: new Date().toISOString() },
+      { id: "held:act", kind: "waiting", headline: "Restart the work", why: "This will let it continue.", at: new Date().toISOString() },
+      { id: "held:dismiss", kind: "waiting", headline: "A job couldn't be finished", why: "This needs your attention.", at: new Date().toISOString() },
+    ];
+    const show = { title: "", summary: "", live: false, counts: { waiting: held.length }, items: [], held };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "held up", value: held.length, tone: "waiting" }] }] });
+    await settle();
+    document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
+    const actions = [...document.querySelectorAll<HTMLButtonElement>("#drill-list .held-action")];
+    expect(actions.map((button) => button.textContent)).toEqual(["Reply", "Save", "Act", "Dismiss"]);
+    expect([...document.querySelectorAll<HTMLElement>("#drill-list .card-sub")].map((node) => node.textContent)).toEqual([
+      "Your choice lets the work continue.", "You may want to return to this.", "This will let it continue.", "This needs your attention.",
+    ]);
+    for (const button of actions) button.click();
+    const outcomes = JSON.parse(localStorage.getItem("flyd-held-outcomes") || "{}");
+    expect(Object.fromEntries(Object.entries(outcomes).map(([id, value]: [string, any]) => [id, value.action]))).toEqual({
+      "held:reply": "reply", "held:save": "save", "held:act": "act", "held:dismiss": "dismiss",
+    });
+    expect(document.querySelectorAll("#drill-list .card")).toHaveLength(0);
+    expect(document.querySelector("#drill-list .drill-empty")?.textContent).toBe("Nothing needs your attention right now.");
+  });
+
   it("opens the week's landed figure onto its own week's work, not the column's list", async () => {
     load("");
     await settle();

@@ -373,6 +373,10 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .drill-top button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .drill-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 20px 22px 26px; list-style: none; display: grid; gap: 12px; align-content: start; }
 .drill-empty { margin: 0; padding: 6px 4px; font: 400 15px/1.5 var(--sans); color: var(--muted); }
+.held-action { display: block; margin-top: 18px; padding: 10px 14px; border: 1px solid var(--faint); border-radius: 8px; background: transparent; color: var(--fg); font: 500 14px/1.3 var(--sans); letter-spacing: .02em; cursor: pointer; }
+.held-action:hover { border-color: var(--accent); color: var(--accent); }
+.held-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.held-group { margin: 8px 0 0; font: 500 13px/1.4 var(--sans); color: var(--muted); }
 .drill-sheet:focus { outline: none; }
 
 /* The foot: what Flyd is doing, and how to talk to it. */
@@ -4586,14 +4590,58 @@ ${LEFT_SCRIPT}
     var group = DRILL[drillKind];
     if (!group || !lastScreen) return;
     var items = group.pick(lastScreen).slice().sort(function (a, b) { return drillWhen(b) - drillWhen(a); });
+    if (drillKind === "waiting") {
+      var outcomes = {};
+      try { outcomes = JSON.parse(store("flyd-held-outcomes") || "{}") || {}; } catch (e) { outcomes = {}; }
+      var cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      var seen = {};
+      items = items.filter(function (item) {
+        var at = drillWhen(item);
+        var fingerprint = [item.project || "", item.headline || "", item.why || ""].join("|").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        if (outcomes[item.id] || (at && at < cutoff) || seen[fingerprint]) return false;
+        seen[fingerprint] = true;
+        return true;
+      });
+    }
     var key = drillKind + "|" + JSON.stringify(items);
     if (key === drawnDrill) return;
     drawnDrill = key;
     drillSheet.className = "drill-sheet k-" + group.tone;
     drillTitle.textContent = group.title;
     drillList.textContent = "";
-    if (!items.length) { drillList.appendChild(el("li", "drill-empty", "Nothing here right now.")); return; }
-    items.forEach(function (item) { drillList.appendChild(drillItem(item)); });
+    if (!items.length) { drillList.appendChild(el("li", "drill-empty", drillKind === "waiting" ? "Nothing needs your attention right now." : "Nothing here right now.")); return; }
+    var lastHeldGroup = "";
+    items.forEach(function (item) {
+      var card = drillItem(item);
+      if (drillKind === "waiting") {
+        var heldGroup = item.project || (/\\b(?:question|decision|choose|approve)\\b/i.test((item.headline || "") + " " + (item.why || "")) ? "Needs your reply" : "Work to review");
+        if (heldGroup !== lastHeldGroup) {
+          drillList.appendChild(el("li", "held-group", heldGroup));
+          lastHeldGroup = heldGroup;
+        }
+        var body = card.querySelector(".card-text");
+        var why = el("p", "card-sub", sentence(capital(item.why || "This needs your attention.")));
+        body.insertBefore(why, body.querySelector(".card-detail"));
+        var action = /\\b(?:question|decision|choose|approve)\\b/i.test((item.headline || "") + " " + (item.why || "")) ? "Reply" : /\\b(?:save|remember|keep)\\b/i.test(item.headline || "") ? "Save" : /\\b(?:retry|continue|restart|act)\\b/i.test((item.headline || "") + " " + (item.detail || "")) ? "Act" : "Dismiss";
+        var control = el("button", "held-action", action);
+        control.type = "button";
+        control.addEventListener("click", function () {
+          var saved = {};
+          try { saved = JSON.parse(store("flyd-held-outcomes") || "{}") || {}; } catch (e) { saved = {}; }
+          saved[item.id] = { action: action.toLowerCase(), at: new Date().toISOString() };
+          store("flyd-held-outcomes", JSON.stringify(saved));
+          if (action === "Reply") {
+            var replyBody = el("div", "");
+            replyBody.appendChild(el("p", "about-text", item.why + " " + (item.detail || "")));
+            chatAbout({ title: item.headline, body: replyBody });
+          }
+          drawnDrill = "";
+          drawDrill();
+        });
+        body.appendChild(control);
+      }
+      drillList.appendChild(card);
+    });
   }
   function closeDrill() {
     drillEl.hidden = true;
