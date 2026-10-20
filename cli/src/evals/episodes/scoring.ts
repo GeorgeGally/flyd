@@ -30,3 +30,27 @@ export function parseEpisodeJudge(text: string): { score: number; reason: string
     return null;
   }
 }
+
+
+export interface EpisodePromotionMetrics {
+  currentQuality: number;
+  drillQuality: number;
+  currentPasses: number;
+  drillPasses: number;
+  currentMedianSeconds: number;
+  drillMedianSeconds: number;
+  currentContextCharacters: number;
+  drillContextCharacters: number;
+}
+
+export function evaluatePromotionGate(metrics: EpisodePromotionMetrics): { promoted: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  const qualityDelta = metrics.drillQuality - metrics.currentQuality;
+  if (qualityDelta < 0.5) reasons.push(`quality delta ${qualityDelta.toFixed(2)} < 0.50`);
+  if (metrics.drillPasses < metrics.currentPasses) reasons.push(`passes regressed ${metrics.drillPasses} < ${metrics.currentPasses}`);
+  const latencyCeiling = metrics.currentMedianSeconds * 1.75 + 2;
+  if (metrics.drillMedianSeconds > latencyCeiling) reasons.push(`median latency ${metrics.drillMedianSeconds.toFixed(1)}s > ${latencyCeiling.toFixed(1)}s ceiling`);
+  const contextCeiling = metrics.currentContextCharacters * 3 + 6000;
+  if (metrics.drillContextCharacters > contextCeiling) reasons.push(`context ${Math.round(metrics.drillContextCharacters)} chars > ${Math.round(contextCeiling)} ceiling`);
+  return { promoted: reasons.length === 0, reasons };
+}
