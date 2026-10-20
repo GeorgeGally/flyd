@@ -1229,6 +1229,8 @@ describe("semantic main stage", () => {
     expect(document.getElementById("scene-head")!.textContent).toBe("Choose the launch date");
     expect(document.getElementById("scene-line")!.textContent).toContain("The evidence points to Friday");
     expect(document.querySelectorAll(".scene-ask .choice-pick")).toHaveLength(2);
+    // The focus is the only card, so there are no card arrows that would do nothing.
+    expect((document.getElementById("show-nav") as HTMLElement).hidden).toBe(true);
   });
 
   it("manifests focused Artifact evidence as the work itself", async () => {
@@ -2538,6 +2540,7 @@ describe("header and artefact view", () => {
     expect(document.getElementById("scene-line")!.textContent).toBe("Captain decides keep or remove.");
     expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
     expect(document.getElementById("scene")!.classList.contains("has-shot")).toBe(false);
+    expect((document.getElementById("show-nav") as HTMLElement).hidden).toBe(false);
     (document.getElementById("show-prev") as HTMLButtonElement).click();
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(document.getElementById("scene-head")!.textContent).toBe("Header controls");

@@ -255,6 +255,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 }
 .art-chat-field:focus-within, .scene-ask .step-free:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .art-chat-row { display: flex; align-items: flex-end; gap: 8px; }
+.card .art-chat-input { min-width: 0; }
 /* It grows with what he types, never with focus: a box that shrank as Send
    took the click moved Send out from under the pointer, and nothing went. */
 .art-chat-input {
@@ -4389,6 +4390,8 @@ ${LEFT_SCRIPT}
   function renderTicks() {
     ticksEl.textContent = "";
     ticksEl.hidden = scenes.length < 2;
+    // One scene has nowhere to step to: no arrows that do nothing.
+    document.getElementById("show-nav").hidden = scenes.length < 2;
     scenes.forEach(function (box, index) {
       var tick = el("button", "k-" + (box.kind === "alert" ? "warn" : box.tone || "news"));
       tick.type = "button";
@@ -4854,7 +4857,7 @@ ${LEFT_HTML}
       <ul class="drill-list" id="drill-list"></ul>
     </div>
   </div>
-  <div class="foot"><p class="doing" id="show-doing">Standby</p><span class="hint">type to talk · tab for the conversation</span><span><button class="show-nav" id="show-prev" type="button" aria-label="Previous card">←</button><button class="show-nav" id="show-next" type="button" aria-label="Next card">→</button></span></div>
+  <div class="foot"><p class="doing" id="show-doing">Standby</p><span class="hint">type to talk · tab for the conversation</span><span id="show-nav" hidden><button class="show-nav" id="show-prev" type="button" aria-label="Previous card">←</button><button class="show-nav" id="show-next" type="button" aria-label="Next card">→</button></span></div>
 </section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
