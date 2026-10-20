@@ -50,6 +50,7 @@ import { ComposerDrafts, draftKey } from "./drafts.js";
 import { readStaffView, type StaffView } from "../command/fleet-monitor.js";
 import { noteSaid, recordHeld } from "../council/reply-review.js";
 import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
+import { expandScrawl, fileScrawl } from "./scrawl-capture.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -1396,11 +1397,16 @@ export class ConversationViewServer {
       return;
     }
     try {
-      const sent = await this.source.send(payload.session, payload.text, images as ImageUpload[], files as FileUpload[]);
+      const expanded = await expandScrawl({ text: payload.text, images: images as ImageUpload[] });
+      const sent = await this.source.send(payload.session, expanded.text, expanded.images, files as FileUpload[]);
+      if (expanded.bundle) {
+        await fileScrawl(expanded.bundle).catch((error: unknown) =>
+          console.warn(`[view] Flyd could not file the Scrawl capture: ${error instanceof Error ? error.message : String(error)}`));
+      }
       this.predictionContexts.delete(payload.session);
       this.predictions.remember(payload.text);
       let routineSuggestion = false;
-      if (!sent.warning && (images as ImageUpload[]).length === 0 && (files as FileUpload[]).length === 0) {
+      if (!sent.warning && (expanded.images ?? []).length === 0 && (files as FileUpload[]).length === 0) {
         try { routineSuggestion = Boolean(this.routines.observe(payload.session, sent.id, payload.text)); }
         catch { /* A delivered message stays delivered if discovery fails. */ }
       }
