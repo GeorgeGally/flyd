@@ -142,6 +142,7 @@ export interface AssistantToolContext {
   situation?: { project?: string; projectRoot?: string } | null;
   /** George's current message, retained verbatim for a delegated boss. */
   userMessage?: string;
+  skill?: { name: string; body: string } | null;
   /** Called when the model hands a job to the coding runtime. */
   onCodingHandoff?: (outcome: string) => void;
 }
@@ -278,6 +279,7 @@ export async function runAssistantTool(
             intendedOutcome: outcome,
             doneWhen,
             source: "chat",
+            ...(context.skill ? { skill: context.skill } : {}),
             project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo },
             transport: firstmate,
           });

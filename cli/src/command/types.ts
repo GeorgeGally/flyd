@@ -25,6 +25,7 @@ export interface DomainRequest {
   project?: { name?: string; root?: string };
   contextRefs?: string[];
   parentRequestId?: string;
+  skill?: { name: string; body: string };
 }
 
 export interface DomainRecommendation {

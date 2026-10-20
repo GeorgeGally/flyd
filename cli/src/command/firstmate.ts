@@ -368,6 +368,7 @@ export function firstmateRequestBody(request: DomainRequest): string {
     "",
     "FLYD INTERPRETATION:",
     request.intendedOutcome,
+    ...(request.skill ? [`USE SKILL: ${request.skill.name}`, "Follow this skill's process for this request:", request.skill.body] : []),
     request.parentRequestId ? `Follow-up to prior Flyd domain run: ${request.parentRequestId}` : "",
     request.contextRefs?.length ? `Context refs: ${request.contextRefs.join(", ")}` : "",
     project,
