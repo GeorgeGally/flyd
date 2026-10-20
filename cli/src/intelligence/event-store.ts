@@ -53,7 +53,7 @@ export interface ErasureTombstone {
 export interface PendingErasureSweep {
   sweepId: string;
   sourceId: string;
-  surface: "projections" | "indexes" | "replay_snapshots" | "legacy_copies" | "episodes";
+  surface: "projections" | "indexes" | "replay_snapshots" | "legacy_copies";
   status: "pending" | "done";
 }
 
