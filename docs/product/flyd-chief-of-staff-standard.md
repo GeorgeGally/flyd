@@ -107,7 +107,14 @@ authoritative path. This change does not rewrite historical private entries.
     failing that, a line naming the work.
     A bare commit id is dropped from what he sees rather than holding it;
     a commit link passes as written.
-  - All of these are recorded as held verdicts.
+  - All of the above are recorded as held verdicts.
+  - A conversation-window answer that is an enumeration — six or more
+    top-level list items, or a table of three or more rows, outside code
+    fences (`artefactRequiredViolation` in `cli/src/runtime/honesty-check.ts`)
+    — goes whole to the Artefacts column; the chat answer keeps only a
+    summary of at most two sentences (the answer's own `» ` lines when it has
+    them) and a pointer to Artefacts. Follow-up turns still see the full list.
+    Other surfaces (TUI, mobile, agenda) still send it as chat text.
 - **What is read.** Chat turns (the journal), the conversation window's
   answers and relayed updates, the work cards' headlines, agenda results,
   status lines and notifications. Each text is reviewed once.
