@@ -36,6 +36,7 @@ async function main(): Promise<void> {
   memory.rebuild();
   const store = new IntelligenceEventStore();
   const snapshotHeadSequence = store.headSequence();
+  const snapshotHeadSequence = store.headSequence();
   const allEvents = store.readFrom(0, Number.MAX_SAFE_INTEGER).filter((event) => !event.erased && event.payload);
   store.close();
   if (allEvents.length < 8) throw new Error("Not enough canonical events to seed an episodic benchmark");
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
     const prompt = [
       "Create ONE hard but fair historical-memory benchmark question for Flyd, George's personal AI.",
       "Use only the evidence below. The question should require recalling an evolution, decision, change, historical state, or what happened—not a trivial string lookup.",
+      "Prefer stable past-tense questions. Do not ask what is current/latest now, because this corpus may be rerun after new events are added.",
       "Prefer stable past-tense questions. Do not ask what is current/latest now, because this corpus may be rerun after new events are added.",
       "Do not mention event ids, internal schemas, source ids, or that this is an eval.",
       "The gold answer must be concise, factual, and answerable solely from the evidence.",
