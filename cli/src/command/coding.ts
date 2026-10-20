@@ -11,6 +11,7 @@ export interface CodingDispatchInput {
   contextRefs?: string[];
   project?: { name?: string; root?: string };
   transport?: FirstmateDomainTransport;
+  skill?: DomainRequest["skill"];
   now?: Date;
 }
 
@@ -27,6 +28,7 @@ export async function dispatchCodingDomain(input: CodingDispatchInput): Promise<
     ...(input.parentRequestId ? { parentRequestId: input.parentRequestId } : {}),
     ...(input.contextRefs?.length ? { contextRefs: input.contextRefs } : {}),
     ...(input.project ? { project: input.project } : {}),
+    ...(input.skill ? { skill: input.skill } : {}),
   };
   return (input.transport ?? new FirstmateDomainTransport()).submit(request);
 }

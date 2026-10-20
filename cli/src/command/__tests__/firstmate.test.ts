@@ -47,6 +47,15 @@ describe("FirstMate domain transport", () => {
     expect(body).toContain("fm-inbox.sh reply");
   });
 
+  it("hands the matched skill and its process to FirstMate after Flyd's interpretation", () => {
+    const body = firstmateRequestBody({ ...request(), skill: { name: "design-lab", body: "Explore three directions, then critique." } });
+    expect(body).toContain("FLYD INTERPRETATION:\nFix the call site without replacing the existing abstraction.\nUSE SKILL: design-lab\nFollow this skill's process for this request:\nExplore three directions, then critique.");
+  });
+
+  it("does not add a skill section when no skill matched", () => {
+    expect(firstmateRequestBody(request())).not.toContain("USE SKILL:");
+  });
+
   it("starts a session only when the inbox cannot receive work and no harness is live", async () => {
     const calls: string[] = [];
     const exec: FirstmateExec = async (script) => {

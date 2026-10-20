@@ -1206,6 +1206,7 @@ export async function respondToConversation(
     presentHypothesis: input.presentHypothesis,
     situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
     userMessage: input.message,
+    skill: skill ? { name: skill.name, body: skill.body } : null,
     onCodingHandoff: input.onCodingHandoff,
   }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction);
   // A failed attempt may only be replayed on another provider if it changed nothing.
