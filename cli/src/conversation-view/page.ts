@@ -4620,7 +4620,7 @@ ${LEFT_SCRIPT}
     });
   }
   // Held up, by theme: his project's work together, else what waits on his answer, else the rest; newest theme first.
-  var HELD_LABELS = { reply: "Reply", save: "Save", dismiss: "Dismiss", act: "Act" };
+  var HELD_LABELS = { reply: "Reply", dismiss: "Dismiss", act: "Act" };
   var heldDone = {};
   function heldGroupOf(item) { return item.project || (item.action === "reply" ? "Waiting on your answer" : "Other work"); }
   function heldGrouped(items) {

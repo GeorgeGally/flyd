@@ -651,10 +651,6 @@ export class ConversationViewServer {
   /** What Core's staff watch found stuck (command/fleet-monitor.ts); nothing under tests unless one sets it. */
   staffView: () => StaffView | null = process.env.VITEST ? () => null : () => readStaffView();
   private readonly chased = new Set<string>();
-  /** Keeps a held-up item he chose to save in his captures; nothing is written under tests unless one sets it. */
-  saveHeld: (text: string) => Promise<unknown> = process.env.VITEST
-    ? async () => undefined
-    : async (text) => (await import("../commands/capture.js")).runCapture(text, { quiet: true });
 
   constructor(
     private readonly source: ConversationSource,
@@ -1425,7 +1421,7 @@ export class ConversationViewServer {
 
   /**
    * What he chose for one held-up piece of work. Act asks firstmate to pick it
-   * up again, save keeps it in his captures; every choice is kept in Core and
+   * up again; every choice is kept in Core and
    * the hold leaves the list, its count and the feed. A reply's own words go
    * through the message box, about this work.
    */
@@ -1456,7 +1452,6 @@ export class ConversationViewServer {
         }
         await this.source.sendDecision(`George asks you to pick up held-up task ${row.task}: ${row.label}${row.status ? ` (${row.status})` : ""}.${row.detail ? `\nLast word: ${row.detail}` : ""}\n\nRestart or continue it, or tell him plainly what blocks it.`);
       }
-      if (action === "save") await this.saveHeld(`${row.label}${row.detail ? `\n\n${row.detail}` : ""}${row.url ? `\n\n${row.url}` : ""}`);
       this.feed.recordHeld(row, action);
       sendJson(res, 200, { ok: true, action });
     } catch (error) {

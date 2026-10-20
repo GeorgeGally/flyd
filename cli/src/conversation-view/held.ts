@@ -7,8 +7,8 @@ import type { ArtefactRow } from "./artefact.js";
 // matters to him, and the one thing he can do about it. What he chose is kept
 // here, in Core, so every view (and the counts) stop showing what he has dealt with.
 
-export type HeldAction = "reply" | "save" | "dismiss" | "act";
-export const HELD_ACTIONS: readonly HeldAction[] = ["reply", "save", "dismiss", "act"];
+export type HeldAction = "reply" | "dismiss" | "act";
+export const HELD_ACTIONS: readonly HeldAction[] = ["reply", "dismiss", "act"];
 
 /** Older than this, a hold is noise: it is not shown at all. */
 export const HELD_STALE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -16,7 +16,6 @@ export const HELD_STALE_MS = 30 * 24 * 60 * 60 * 1000;
 export const HELD_QUIET_MS = 7 * 24 * 60 * 60 * 1000;
 
 const ASKS = /\?|\b(?:decide|decision|choose|pick|approve|confirm|answer|your call|needs? (?:you|your|george|the captain))\b/i;
-const KEEPS = /\b(?:report|findings|ready to read|write-?up)\b/i;
 
 /** The same work, however many times the fleet lists it. Pure. */
 export function heldKey(row: ArtefactRow): string {
@@ -31,7 +30,6 @@ const ageOf = (row: ArtefactRow, now: number): number => {
 /** The one thing he can do about a hold. Pure. */
 export function heldAction(row: ArtefactRow, now: number): HeldAction {
   if (ASKS.test(`${row.label} ${row.detail ?? ""}`)) return "reply";
-  if (KEEPS.test(`${row.label} ${row.detail ?? ""}`)) return "save";
   return ageOf(row, now) > HELD_QUIET_MS ? "dismiss" : "act";
 }
 
@@ -52,7 +50,6 @@ export function plainHeld(row: ArtefactRow, label: string, now: number): { headl
     : `${work} has stopped.`;
   const days = Math.floor(ageOf(row, now) / 86_400_000);
   const why = action === "reply" ? "It can't go on until you answer, so a word from you moves it."
-    : action === "save" ? "It left something worth keeping, and saving it means it isn't lost when the work is cleared."
     : action === "dismiss" ? `Nothing has happened on it for ${days} days, so it is probably no longer needed.`
     : status === "failed" ? "It stopped with an error, so nothing moves until Flyd restarts it."
     : status === "paused" ? "It won't finish until it is told to carry on, and Flyd can do that for you."

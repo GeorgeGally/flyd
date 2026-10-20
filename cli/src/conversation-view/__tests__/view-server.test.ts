@@ -649,7 +649,7 @@ describe("ConversationViewServer", () => {
     expect(feed.current().fleet!.held.map((row) => row.task).sort()).toEqual(["gate", "hero", "migration", "pricing"]);
     expect(fleetCounts(feed.current().fleet).waiting).toBe(4);
     const items = heldItems(feed.current().fleet, { project: (repo) => (repo === "flyd" ? "Flyd" : undefined) });
-    expect(items.map((item) => [item.task, item.action])).toEqual([["hero", "reply"], ["pricing", "save"], ["gate", "act"], ["migration", "dismiss"]]);
+    expect(items.map((item) => [item.task, item.action])).toEqual([["hero", "reply"], ["pricing", "act"], ["gate", "act"], ["migration", "dismiss"]]);
     const gateItem = items.find((item) => item.task === "gate")!;
     expect(gateItem.headline).toBe("“Chief-of-staff mission contract and George-facing gate” has gone quiet.");
     expect(gateItem.why).toBe("Nobody is moving it forward, so Flyd can check on it and get it going again.");
@@ -657,8 +657,6 @@ describe("ConversationViewServer", () => {
     expect(gateItem.detail).toContain("01M56VVYX723WMFPQNNCPXZHVQ");
 
     server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, inbox: new FirstmateInbox({ home: dir }) }), undefined, undefined, undefined, feed);
-    const saved: string[] = [];
-    server.saveHeld = async (text) => { saved.push(text); };
     const port = await server.listen(0);
     viewToken = JSON.parse((await get(port, "/api/token")).body).token;
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
@@ -669,8 +667,10 @@ describe("ConversationViewServer", () => {
 
     expect((await choose(gateItem.id, "act")).status).toBe(200);
     expect(readFileSync(join(dir, "state", "inbox", "held-note"), "utf8")).toMatch(/^George asks you to pick up held-up task gate: Chief-of-staff mission contract \+ George-facing gate \(no word\)\.\nLast word: .*01M56VVYX723WMFPQNNCPXZHVQ[\s\S]*Restart or continue it/);
-    expect((await choose(items.find((item) => item.task === "pricing")!.id, "save")).status).toBe(200);
-    expect(saved).toEqual(["Pricing report"]);
+    expect((await choose(items.find((item) => item.task === "pricing")!.id, "save")).status).toBe(409);
+    expect((await choose(items.find((item) => item.task === "pricing")!.id, "act")).status).toBe(200);
+    expect(readFileSync(join(dir, "state", "inbox", "held-note"), "utf8")).toMatch(/^George asks you to pick up held-up task pricing: Pricing report \(failed\)\./);
+    expect(items.find((item) => item.task === "pricing")!.why).toBe("It stopped with an error, so nothing moves until Flyd restarts it.");
     expect((await choose(items.find((item) => item.task === "hero")!.id, "reply")).status).toBe(200);
     expect((await choose(items.find((item) => item.task === "migration")!.id, "dismiss")).status).toBe(200);
 

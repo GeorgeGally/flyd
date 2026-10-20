@@ -1785,7 +1785,7 @@ describe("header and artefact view", () => {
       "“Pick the hero image?” is waiting on your answer.",
       "“Old migration” failed.",
     ]);
-    expect(cards.map((card) => card.querySelector(".held-action")!.textContent)).toEqual(["Save", "Act", "Reply", "Dismiss"]);
+    expect(cards.map((card) => card.querySelector(".held-action")!.textContent)).toEqual(["Act", "Act", "Reply", "Dismiss"]);
     // The main text is plain sentences; the run id and the status word wait behind the card's own details.
     const gate = cards[1]!;
     expect(gate.querySelector(".card-text")!.textContent).toContain("Nobody is moving it forward, so Flyd can check on it and get it going again.");
@@ -1799,7 +1799,7 @@ describe("header and artefact view", () => {
       await settle();
       expect(list.querySelector(`.card[data-key="waiting:held-${task}"]`)).toBeNull();
     }
-    expect(posted).toEqual([{ id: "waiting:held-pricing", action: "save" }, { id: "waiting:held-gate", action: "act" }, { id: "waiting:held-migration", action: "dismiss" }]);
+    expect(posted).toEqual([{ id: "waiting:held-pricing", action: "act" }, { id: "waiting:held-gate", action: "act" }, { id: "waiting:held-migration", action: "dismiss" }]);
 
     // A reply opens a chat about that work in the message box, in front of the closed list.
     list.querySelector<HTMLButtonElement>('.card[data-key="waiting:held-hero"] .held-action')!.click();
