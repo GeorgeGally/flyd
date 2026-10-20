@@ -53,7 +53,7 @@ export interface ErasureTombstone {
 export interface PendingErasureSweep {
   sweepId: string;
   sourceId: string;
-  surface: "projections" | "indexes" | "replay_snapshots" | "legacy_copies";
+  surface: "projections" | "indexes" | "replay_snapshots" | "legacy_copies" | "episodes";
   status: "pending" | "done";
 }
 
@@ -285,7 +285,7 @@ export class IntelligenceEventStore {
       this.db
         .prepare(`INSERT INTO erasure_tombstones (source_id, erased_at, event_count) VALUES (?, ?, ?)`)
         .run(sourceId, now, ids.length);
-      for (const surface of ["projections", "indexes", "replay_snapshots", "legacy_copies"] as const) {
+      for (const surface of ["projections", "indexes", "replay_snapshots", "legacy_copies", "episodes"] as const) {
         this.db
           .prepare(`INSERT INTO erasure_sweeps (sweep_id, source_id, surface) VALUES (?, ?, ?)`)
           .run(crypto.randomUUID(), sourceId, surface);
