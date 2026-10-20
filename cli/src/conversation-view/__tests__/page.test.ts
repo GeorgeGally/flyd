@@ -2670,6 +2670,18 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["New today."]);
   });
 
+  it("keeps the right column shut when every Done card has faded or been put away", async () => {
+    localStorage.setItem("flyd-done-seen", JSON.stringify({ "landed:old": Date.now() - 2 * 24 * 60 * 60 * 1000 }));
+    load("");
+    await settle();
+    const done = [{ id: "landed:old", task: "old", kind: "landed", headline: "Seen two days ago.", why: "", at: new Date().toISOString() }];
+    open("latest", []).emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [] });
+    await settle();
+    expect(document.getElementById("done")!.hidden).toBe(true);
+    expect(document.getElementById("rail")!.hidden).toBe(true);
+    expect(document.documentElement.getAttribute("data-rail")).toBe("off");
+  });
+
   it("forgets Done cards it saw that have long left the column, and keeps at most 300", async () => {
     const day = 24 * 60 * 60 * 1000;
     const old: Record<string, number> = { "landed:gone": Date.now() - 4 * day, "landed:still": Date.now() - 4 * day };

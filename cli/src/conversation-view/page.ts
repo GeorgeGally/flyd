@@ -1878,8 +1878,7 @@ var __name = function (f) { return f; };
     setNeeds((decisions || calls).map(function (item) { return item.id; }));
     if (artifacts) drawSemanticArtifacts(artifacts);
     else drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
-    var artifactCount = artifacts ? artifacts.length : done.length;
-    briefFilled = artifactCount > 0;
+    briefFilled = !doneEl.hidden;
     briefEl.hidden = !briefFilled;
     showRail();
   }
