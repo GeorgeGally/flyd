@@ -72,9 +72,10 @@ describe("composeSessionBriefing", () => {
     expect(agendaPromptBlock(paths)).toContain("(weekdays)");
   });
 
-  it("keeps paused fleet work in Flyd's prompt, not George's briefing", async () => {
+  it("keeps paused fleet work to Flyd's work turns, never companion chat or George's briefing", async () => {
     syncFleetFollowups([{ id: "job-1", task: "Daily news brief", status: "paused", detail: "Waiting for work to resume." }], join(dir, "view"));
-    expect(agendaPromptBlock(paths)).toContain("Daily news brief: paused. Waiting for work to resume.");
+    expect(agendaPromptBlock(paths)).not.toContain("Daily news brief");
+    expect(agendaPromptBlock(paths, true)).toContain("Daily news brief: paused. Waiting for work to resume.");
     expect(await composeSessionBriefing({ paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE })).toEqual([]);
   });
 

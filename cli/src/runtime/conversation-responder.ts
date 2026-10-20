@@ -228,7 +228,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
   const cognitiveContext = compiledContext ? `\n${formatCompiledContext(compiledContext, { includeProjects: projectTurn, includeTaste: projectTurn })}\n` : "";
   let agenda = "";
-  try { agenda = agendaPromptBlock(); } catch { agenda = ""; }
+  try { agenda = agendaPromptBlock(undefined, projectTurn || currentWorkQuestion); } catch { agenda = ""; }
   let projects = "";
   try { projects = projectsPromptBlock(); } catch { projects = ""; }
   try { agenda += morningPromptBlock(input.now?.() ?? new Date()); } catch { /* no morning note */ }
