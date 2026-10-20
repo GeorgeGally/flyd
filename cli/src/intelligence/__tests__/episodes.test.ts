@@ -76,6 +76,7 @@ describe("episodic memory", () => {
     const erase = new IntelligenceEventStore({ path });
     erase.eraseSource("episodes.test");
     erase.close();
+    expect(memory.timeline(99)).toHaveLength(0);
     memory.rebuild();
     expect(memory.timeline(99).every((n) => !n.summary.includes("secret phrase"))).toBe(true);
   });
