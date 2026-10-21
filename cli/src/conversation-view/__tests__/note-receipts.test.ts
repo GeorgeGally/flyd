@@ -141,6 +141,26 @@ describe("UnreadNoteWatcher", () => {
     expect(chase).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps chasing a later note once George has been told about an older one", async () => {
+    let exchanges = [note("a", UNREAD_GIVE_UP_MS + 60 * 60_000, "sent")];
+    const chase = vi.fn(async (_note: string) => {});
+    const notify = vi.fn(async () => {});
+    let now = NOW;
+    const watcher = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify);
+    expect(await watcher.check()).toBe(true);
+    now += UNREAD_CHASE_MS;
+    expect(await watcher.check()).toBe(true);
+    expect(notify).toHaveBeenCalledTimes(1);
+
+    // A new note, still unread past the grace: it is chased, and the told note is not named again.
+    exchanges = [...exchanges, { ...note("b", 0, "sent"), question: { ...note("b", 0, "sent").question, timestamp: new Date(now - 10 * 60_000).toISOString() } }];
+    expect(await watcher.check()).toBe(true);
+    expect(chase).toHaveBeenCalledTimes(2);
+    expect(chase.mock.calls[1]![0]).toContain("note:b");
+    expect(chase.mock.calls[1]![0]).not.toContain("note:a");
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps its chase across a restart: no early chase, and George is told only once", async () => {
     const dir = mkdtempSync(join(tmpdir(), "flyd-unread-chase-"));
     const stateFile = join(dir, "view", "unread-chase.json");

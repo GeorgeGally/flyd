@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import { semanticObjectFromShow } from "../semantic.js";
 import {
-  ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
+  ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, heldItems, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
   callItems, doneItems, underwayItems, workerStarted, weekLandedRows, type FleetArtefact,
 } from "../artefact.js";
@@ -43,6 +43,20 @@ describe("parseBearings", () => {
     expect(fleet.next).toEqual([{ label: "Add a subtle flat green light to the Flyd icon", task: "flyd-icon-led", status: "queued" }]);
     // The failed job is the staff's to repair (Flyd chases it), never a count on his screen.
     expect(fleetCounts(fleet)).toEqual({ call: 1, live: 1, ready: 1, landed: 2, waiting: 0, next: 1 });
+  });
+
+  it("opens the held-up figure on exactly the rows it counts: failed and silent work stays Flyd's", () => {
+    const fleet = {
+      calls: [], live: [], ready: [], landed: [], next: [],
+      held: [
+        { label: "Admin redesign", task: "a", status: "failed" },
+        { label: "Footer links", task: "b", status: "no word" },
+        { label: "Island filter", task: "c", status: "blocked" },
+      ],
+    };
+    const held = heldItems(fleet);
+    expect(held.map((item) => item.task)).toEqual(["c"]);
+    expect(fleetCounts(fleet).waiting).toBe(held.length);
   });
 
   it("says firstmate's run notes in plain words", () => {

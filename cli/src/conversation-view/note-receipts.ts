@@ -51,14 +51,15 @@ export function markRead(exchange: Exchange): Exchange {
 }
 
 /**
- * The notes firstmate has not read for longer than UNREAD_AFTER_MS: still in
- * its inbox, and with nothing to show firstmate has them (see readUnacknowledged).
+ * The notes firstmate has not read for longer than `after` (UNREAD_AFTER_MS
+ * unless given): still in its inbox, and with nothing to show firstmate has
+ * them (see readUnacknowledged). Notes in `skip` are left out.
  */
-export function unreadNotes(exchanges: Exchange[], now = Date.now()): UnreadNotes | null {
+export function unreadNotes(exchanges: Exchange[], now = Date.now(), skip: ReadonlySet<string> = new Set(), after = UNREAD_AFTER_MS): UnreadNotes | null {
   const late = exchanges
-    .filter((exchange) => exchange.question.receipt === "sent" && !exchange.question.flydAsked && !readUnacknowledged(exchange))
+    .filter((exchange) => exchange.question.receipt === "sent" && !exchange.question.flydAsked && !readUnacknowledged(exchange) && !skip.has(exchange.question.id))
     .map((exchange) => ({ id: exchange.question.id, at: Date.parse(exchange.question.timestamp ?? "") }))
-    .filter((note) => Number.isFinite(note.at) && now - note.at > UNREAD_AFTER_MS)
+    .filter((note) => Number.isFinite(note.at) && now - note.at > after)
     .sort((a, b) => a.at - b.at);
   if (late.length === 0) return null;
   return { count: late.length, oldest: new Date(late[0]!.at).toISOString(), ids: late.map((note) => note.id) };
@@ -152,36 +153,42 @@ export class UnreadNoteWatcher {
 
   /** Chases firstmate when a note is newly unread or its last chase has gone unanswered, and tells George once when the chase runs out of moves; returns whether it did anything. */
   async check(): Promise<boolean> {
+    const now = this.now();
+    let exchanges: Exchange[];
     let unread: UnreadNotes | null;
     try {
-      unread = unreadNotes(this.exchanges(), this.now());
+      exchanges = this.exchanges();
+      unread = unreadNotes(exchanges, now);
     } catch {
       return false;
     }
-    const now = this.now();
     const before = this.chased.size + this.told.size;
     for (const id of this.chased.keys()) if (!unread?.ids.includes(id)) this.chased.delete(id);
     for (const id of this.told) if (!unread?.ids.includes(id)) this.told.delete(id);
     if (this.chased.size + this.told.size !== before) this.save();
-    if (!unread) return false;
-    const oldest = unread.ids[0]!;
-    if (this.told.has(oldest)) return false;
-    const nudgedAt = this.chased.get(oldest);
-    // Chased, unanswered for a whole grace, and unread two days: Flyd is out of moves,
-    // so George hears it once, and the notes are chased no more. With nowhere to tell
-    // him, the chase goes on rather than stopping in silence.
-    if (this.notify && nudgedAt !== undefined && now - Date.parse(unread.oldest) > UNREAD_GIVE_UP_MS && now - nudgedAt >= UNREAD_CHASE_MS) {
-      this.told.add(oldest);
+    const pending = unreadNotes(exchanges, now, this.told);
+    if (!pending) return false;
+    // Chased, unanswered for a whole grace, and unread two days: Flyd is out of moves
+    // on those notes, so George hears of them once and they are chased no more; the
+    // rest are still chased. With nowhere to tell him, the chase goes on rather than
+    // stopping in silence.
+    const notDue = new Set([...this.told, ...pending.ids.filter((id) => {
+      const nudgedAt = this.chased.get(id);
+      return nudgedAt === undefined || now - nudgedAt < UNREAD_CHASE_MS;
+    })]);
+    const due = this.notify ? unreadNotes(exchanges, now, notDue, UNREAD_GIVE_UP_MS) : null;
+    if (this.notify && due) {
+      for (const id of due.ids) this.told.add(id);
       this.save();
-      await this.notify("Flyd", unreadBlocker(unread, now), "blocker").catch(() => undefined);
+      await this.notify("Flyd", unreadBlocker(due, now), "blocker").catch(() => undefined);
       return true;
     }
-    if (unread.ids.every((id) => now - (this.chased.get(id) ?? Number.NEGATIVE_INFINITY) < UNREAD_CHASE_MS)) return false;
+    if (pending.ids.every((id) => now - (this.chased.get(id) ?? Number.NEGATIVE_INFINITY) < UNREAD_CHASE_MS)) return false;
     const round = Math.floor(now / UNREAD_CHASE_MS);
-    const requestId = `flyd-unread-${createHash("sha256").update(`${unread.ids.join(",")}\0${round}`).digest("hex").slice(0, 16)}`;
-    const sent = await this.chase(chaseNote(unread, now), requestId).then(() => true, () => false);
+    const requestId = `flyd-unread-${createHash("sha256").update(`${pending.ids.join(",")}\0${round}`).digest("hex").slice(0, 16)}`;
+    const sent = await this.chase(chaseNote(pending, now), requestId).then(() => true, () => false);
     if (sent) {
-      for (const id of unread.ids) this.chased.set(id, now);
+      for (const id of pending.ids) this.chased.set(id, now);
       this.save();
     }
     return sent;

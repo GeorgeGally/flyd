@@ -755,7 +755,7 @@ export function heldItems(fleet: FleetArtefact | undefined, options: ComposeOpti
   if (!fleet || fleet.unavailable) return [];
   const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
   return [...fleet.held].sort((a, b) => when(b) - when(a))
-    .flatMap((row, index) => rowItem("waiting", `held-${row.task ?? index}`, row, options) ?? []);
+    .flatMap((row, index) => gatedItem(rowItem("waiting", `held-${row.task ?? index}`, row, options), aboutRow("waiting", row)) ?? []);
 }
 
 /** Work queued next, in the fleet's own order, one line each. Pure. */
