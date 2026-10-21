@@ -227,8 +227,6 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
    * before the note is filed.
    */
   private readonly heard = new Set<string>();
-  /** The live transcript as heardExchanges last read it, so an unchanged one is not parsed again. */
-  private heardFrom: string | undefined;
   /** The newest snapshot followed per session: what the router sees as recent conversation. */
   private readonly latest = new Map<string, ConversationMessage[]>();
   private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
@@ -504,16 +502,11 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     if (!unreadNotes(exchanges, now)) return exchanges;
     const live = await this.liveSession?.().catch(() => undefined);
     if (!live) return exchanges;
-    let seen: string;
     try {
-      const stat = statSync(this.sessionPath(live));
-      seen = `${live}:${stat.size}:${stat.mtimeMs}`;
+      this.follow(live, () => {}).close();
     } catch {
       return exchanges;
     }
-    if (seen === this.heardFrom) return exchanges;
-    await this.read(live).catch(() => undefined);
-    this.heardFrom = seen;
     return this.exchanges();
   }
 
