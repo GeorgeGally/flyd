@@ -6,7 +6,7 @@ import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
-  doneItems, underwayItems, workerStarted, weekLandedRows,
+  callItems, doneItems, underwayItems, workerStarted, weekLandedRows,
 } from "../artefact.js";
 
 const BEARINGS = {
@@ -612,6 +612,53 @@ describe("ArtefactFeed", () => {
     try {
       await feed.refresh();
       expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a", "b"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("does not ask George to act on a call a successful read no longer reports", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-closed-call-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "x", summary: "Pick one" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), "- [ ] x - Pick one (hold: Choose a color: 1 Red, 2 Blue)\n");
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(feed.current().fleet!.calls).toMatchObject([{ label: "Pick one", task: "x" }]);
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [] }));
+    await feed.refresh();
+    const fleet = feed.current().fleet!;
+    expect(fleet.calls[0]).toMatchObject({ task: "x", ledgerOnly: true });
+    expect(fleetCounts(fleet).call).toBe(0);
+    expect(callItems(fleet)).toEqual([]);
+    expect(composeArtefact(feed.current()).some((item) => item.kind === "call")).toBe(false);
+  });
+
+  it("keeps an actionable call on screen after a failed read", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-failed-call-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "x", summary: "Pick one" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), "- [ ] x - Pick one (hold: Choose a color: 1 Red, 2 Blue)\n");
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(feed.current().fleet!.calls).toMatchObject([{ label: "Pick one", task: "x" }]);
+    writeFileSync(script, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await feed.refresh();
+      const fleet = feed.current().fleet!;
+      expect(fleet.calls[0]).toMatchObject({ task: "x" });
+      expect(fleet.calls[0]!.ledgerOnly).toBeUndefined();
+      expect(fleetCounts(fleet).call).toBe(1);
+      expect(callItems(fleet)).toHaveLength(1);
     } finally {
       warn.mockRestore();
     }

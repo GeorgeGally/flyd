@@ -120,6 +120,7 @@ interface LedgerEntry {
   field: FleetField;
   row: ArtefactRow;
   seenAt: number;
+  ledgerOnly?: boolean;
 }
 
 /** An artefact's stable name: its task, else its words, so the same work keeps the same place on screen. */
@@ -602,7 +603,7 @@ export function shownRows(list: ArtefactRow[] | undefined, limit: number): Artef
 export function fleetCounts(fleet: FleetArtefact | undefined): Partial<Record<ShowKind, number>> {
   if (!fleet || fleet.unavailable) return {};
   return {
-    call: fleet.calls.length,
+    call: fleet.calls.filter((row) => !row.ledgerOnly).length,
     live: fleet.live.length,
     ready: fleet.ready.filter((row) => row.status !== "report available").length,
     landed: fleet.landed.length,
@@ -669,7 +670,7 @@ function withLink(url: string | undefined): Partial<ShowItem> {
 /** Every call the fleet holds for him, past the panel's limit, each with its question. Pure. */
 export function callItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
   if (!fleet || fleet.unavailable) return [];
-  return fleet.calls.flatMap((row, index) => rowItem("call", `call-${row.task ?? index}`, row, options) ?? []);
+  return fleet.calls.filter((row) => !row.ledgerOnly).flatMap((row, index) => rowItem("call", `call-${row.task ?? index}`, row, options) ?? []);
 }
 
 /** Every job a worker is on right now, the longest running first. Pure. */
@@ -769,7 +770,7 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   const fleet = inputs.fleet;
   // Unlinked WhatsApp leads: it is one step only he can take, and it goes the moment it is done.
   if (inputs.whatsappLink) add("news", WHATSAPP_LINK.id, WHATSAPP_LINK.title, "only you can link it", { detail: WHATSAPP_LINK.line, links: [{ label: "Open the code", url: WHATSAPP_LINK.url }] });
-  rowsOf("call", fleet?.calls);
+  rowsOf("call", fleet?.calls.filter((row) => !row.ledgerOnly));
   rowsOf("live", fleet?.live);
   rowsOf("ready", fleet?.ready);
   rowsOf("landed", fleet?.landed);
@@ -1006,12 +1007,12 @@ export class ArtefactFeed {
     try {
       const stored = JSON.parse(readFileSync(this.ledgerPath(), "utf8")) as { rows?: unknown };
       for (const raw of Array.isArray(stored.rows) ? stored.rows : []) {
-        const entry = raw as { field?: unknown; seenAt?: unknown; row?: unknown };
+        const entry = raw as { field?: unknown; seenAt?: unknown; row?: unknown; ledgerOnly?: unknown };
         const field = str(entry.field) as FleetField;
         const row = entry.row as ArtefactRow;
         if (!FLEET_FIELDS.includes(field) || !row || typeof row !== "object" || !row.label) continue;
         const key = artefactKey(row);
-        if (key) this.ledger.set(key, { field, row, seenAt: Number(entry.seenAt) || 0 });
+        if (key) this.ledger.set(key, { field, row, seenAt: Number(entry.seenAt) || 0, ledgerOnly: entry.ledgerOnly === true });
       }
     } catch {
       // No list yet, or an unreadable one: start empty rather than fail the screen.
@@ -1039,20 +1040,23 @@ export class ArtefactFeed {
     for (const field of FLEET_FIELDS) {
       for (const row of incoming[field]) {
         const key = artefactKey(row);
-        if (key && !merged.has(key)) merged.set(key, { field, row, seenAt: now });
+        if (key && !merged.has(key)) merged.set(key, { field, row, seenAt: now, ledgerOnly: false });
       }
     }
-    for (const [key, entry] of this.ledger) if (!merged.has(key)) merged.set(key, entry);
+    for (const [key, entry] of this.ledger) {
+      if (merged.has(key)) continue;
+      merged.set(key, { ...entry, ...(prune ? { ledgerOnly: true } : {}) });
+    }
     if (prune) for (const [key, entry] of merged) if (now - entry.seenAt > LEDGER_KEEP_MS) merged.delete(key);
     this.ledger.clear();
     for (const [key, entry] of merged) this.ledger.set(key, entry);
-    return this.ledgerFleet(incoming.generated, now);
+    return this.ledgerFleet(incoming.generated);
   }
 
   /** The accumulated list as the fleet the screen reads, this read's rows first, ledger-only rows after. */
-  private ledgerFleet(generated: string | undefined, now: number): FleetArtefact {
+  private ledgerFleet(generated?: string): FleetArtefact {
     const fleet: FleetArtefact = { ...emptyFleet(), ...(generated ? { generated } : {}) };
-    for (const entry of this.ledger.values()) fleet[entry.field].push(entry.seenAt < now ? { ...entry.row, ledgerOnly: true } : entry.row);
+    for (const entry of this.ledger.values()) fleet[entry.field].push(entry.ledgerOnly ? { ...entry.row, ledgerOnly: true } : entry.row);
     return fleet;
   }
 
@@ -1176,7 +1180,7 @@ export class ArtefactFeed {
   private async withoutOvertaken(fleet: FleetArtefact, entries: Map<string, BacklogEntry>): Promise<FleetArtefact> {
     const check = this.options.overtaken;
     if (!check || fleet.unavailable) return fleet;
-    const calls = fleet.calls.map((row) => ({ row, call: callId(row) }));
+    const calls = fleet.calls.filter((row) => !row.ledgerOnly).map((row) => ({ row, call: callId(row) }));
     for (const call of this.overtaken.keys()) if (!calls.some((item) => item.call === call)) this.overtaken.delete(call);
     const verdicts = await Promise.all(calls.map(async ({ row, call }) => {
       if (!row.task) return undefined;
@@ -1190,7 +1194,9 @@ export class ArtefactFeed {
       this.overtaken.set(call, why);
       return why;
     }));
-    return { ...fleet, calls: fleet.calls.filter((_row, index) => !verdicts[index]) };
+    const closed = new Set<ArtefactRow>();
+    calls.forEach(({ row }, index) => { if (verdicts[index]) closed.add(row); });
+    return { ...fleet, calls: fleet.calls.filter((row) => row.ledgerOnly || !closed.has(row)) };
   }
 
   /**
