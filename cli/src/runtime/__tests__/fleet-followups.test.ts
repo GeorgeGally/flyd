@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { agendaPaths, readInbox, unreadInbox, type AgendaPaths } from "../agenda.js";
+import { runAgendaCommand } from "../../commands/agenda.js";
+import { agendaPaths, readInbox, recordInbox, unreadInbox, type AgendaPaths } from "../agenda.js";
 import { buildConversationPrompt } from "../conversation-responder.js";
 import { syncFleetFollowups } from "../fleet-followups.js";
 import { agendaPromptBlock, composeSessionBriefing } from "../session-briefing.js";
@@ -33,6 +34,18 @@ describe("fleet followups", () => {
     expect(filed[0]!.result).toBe("Daily news brief as good as Hermes's is paused and needs Flyd and FirstMate to get it moving again.");
     syncFleetFollowups([{ ...STALLED, status: "failed" }], paths);
     expect(readInbox(paths)).toHaveLength(2);
+  });
+
+  it("keeps stalled fleet work out of George's `flyd agenda inbox`", async () => {
+    recordInbox({ itemId: "brief", task: "Morning brief", status: "ok", result: "All clear." }, paths);
+    syncFleetFollowups([STALLED], paths);
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await runAgendaCommand("inbox");
+      const printed = out.mock.calls.map(([chunk]) => String(chunk)).join("");
+      expect(printed).toContain("All clear.");
+      expect(printed).not.toContain("Daily news brief");
+    } finally { out.mockRestore(); }
   });
 
   it("keeps stalled fleet work out of George's briefing and every chat prompt", async () => {

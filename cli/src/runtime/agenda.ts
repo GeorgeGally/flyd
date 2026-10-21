@@ -161,8 +161,13 @@ export function readInbox(paths = agendaPaths()): InboxEntry[] {
   });
 }
 
+/** What George may see: everything except Flyd's own internal follow-ups. */
+export function georgeInbox(paths = agendaPaths()): InboxEntry[] {
+  return readInbox(paths).filter((entry) => !entry.internal);
+}
+
 export function unreadInbox(paths = agendaPaths()): InboxEntry[] {
-  return readInbox(paths).filter((entry) => !entry.read && !entry.internal);
+  return georgeInbox(paths).filter((entry) => !entry.read);
 }
 
 export function markInboxRead(paths = agendaPaths()): void {

@@ -4,8 +4,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { FLYD_APPLICATION_ROOT, FLYD_DIR } from "../lib/config.js";
 import {
-  addAgendaItem, cancelAgendaItem, describeAgendaItem, formatLocalDateTime, markInboxRead,
-  readInbox, runDueAgenda, upcomingAgenda, type AgendaRepeat,
+  addAgendaItem, cancelAgendaItem, describeAgendaItem, formatLocalDateTime, georgeInbox, markInboxRead,
+  runDueAgenda, upcomingAgenda, type AgendaRepeat,
 } from "../runtime/agenda.js";
 
 const LABEL = "com.flyd.agenda";
@@ -172,7 +172,7 @@ export async function runAgendaCommand(
       return;
     }
     case "inbox": {
-      const entries = readInbox().slice(-10);
+      const entries = georgeInbox().slice(-10);
       process.stdout.write(entries.length
         ? `${entries.map((entry) => `${entry.read ? " " : "•"} ${formatLocalDateTime(new Date(entry.at))} ${entry.task}\n  ${entry.result.replace(/\n/g, "\n  ")}`).join("\n\n")}\n`
         : "Nothing in Flyd's inbox yet.\n");
