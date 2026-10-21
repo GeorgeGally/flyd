@@ -316,7 +316,9 @@ function storyOf(raw: unknown): ActivityStory | null {
   const item = raw as Record<string, unknown> | null;
   const title = typeof item?.title === "string" ? item.title.replace(/\s+/g, " ").trim() : "";
   const url = typeof item?.url === "string" ? item.url.trim() : "";
-  if (!title || !/^https?:\/\//i.test(url)) return null;
+  let parsedUrl: URL;
+  try { parsedUrl = new URL(url); } catch { return null; }
+  if (!title || !["http:", "https:"].includes(parsedUrl.protocol) || parsedUrl.hostname === "example.com" || parsedUrl.hostname.endsWith(".example.com")) return null;
   const said = typeof item?.why === "string" ? item.why : typeof item?.gist === "string" ? item.gist : "";
   const gist = said.replace(/\s+/g, " ").trim();
   const source = typeof item?.source === "string" ? item.source.trim() : "";

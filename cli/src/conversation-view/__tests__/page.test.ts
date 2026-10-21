@@ -2639,7 +2639,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     load("");
     await settle();
     const stream = open("latest", []);
-    const stories = Array.from({ length: 14 }, (_, i) => ({ title: `Story ${i + 1}`, url: `https://example.com/${i + 1}`, ...(i === 0 ? { mark: "Hot" } : i === 13 ? { mark: "Rabbit hole" } : {}), gist: `Why ${i + 1}`, source: "r/Bitcoin" }));
+    const stories = Array.from({ length: 14 }, (_, i) => ({ title: `Story ${i + 1}`, url: `https://www.reddit.com/r/Bitcoin/comments/story${i + 1}/story-${i + 1}/`, ...(i === 0 ? { mark: "Hot" } : i === 13 ? { mark: "Rabbit hole" } : {}), gist: `Why ${i + 1}`, source: "r/Bitcoin" }));
     const update = (recent: unknown[]) => stream.emit("update", {
       order: [], messages: [], working: false, boxes: [],
       leftColumn: { now: [], recent, semantic: [] },
