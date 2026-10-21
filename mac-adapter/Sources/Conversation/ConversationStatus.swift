@@ -48,7 +48,7 @@ enum ConversationStatusDecision: Equatable {
            waiting.id != previous?.waiting?.id || previous?.waiting?.failed != true {
             decisions.append(.announce(waiting.text, .reply))
         }
-        // A notice that needs him (a permission prompt, a usage limit) rings once; a repeat keeps its id.
+        // A notice that needs him (a permission prompt, a usage limit) rings once per id; each new ask gets a new id.
         if !newSession, let notice = current.notice, notice.id != previous?.notice?.id {
             decisions.append(.announce("Needs you: \(notice.text)", .decision))
         }

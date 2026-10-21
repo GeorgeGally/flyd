@@ -21,18 +21,29 @@ describe("noticeOf", () => {
 });
 
 describe("NoticeBoard", () => {
-  it("keeps one notice for repeats, so the island rings once", () => {
+  it("keeps one notice for idle repeats", () => {
+    let now = 1_000_000;
+    const board = new NoticeBoard(() => now);
+    const idle = { session_id: "s1", message: "Claude is waiting for your input", notification_type: "idle_prompt" };
+    const first = board.add(idle)!;
+    now += 60_000;
+    const again = board.add(idle)!;
+    expect(again).toMatchObject({ id: first.id, count: 2 });
+    expect(board.list()).toHaveLength(1);
+    now += REPEAT_MS + 1;
+    expect(board.add(idle)!.id).not.toBe(first.id);
+  });
+
+  it("rings again for a second ask that needs him, even in the same words", () => {
     let now = 1_000_000;
     const board = new NoticeBoard(() => now);
     const asked = { session_id: "s1", message: "Claude needs your permission to use Bash", notification_type: "permission_prompt" };
     const first = board.add(asked)!;
-    now += 60_000;
-    const again = board.add(asked)!;
-    expect(again).toMatchObject({ id: first.id, count: 2 });
+    now += 5 * 60_000;
+    const second = board.add(asked)!;
+    expect(second.id).not.toBe(first.id);
     expect(board.list()).toHaveLength(1);
-    expect(board.ringing()?.id).toBe(first.id);
-    now += REPEAT_MS + 1;
-    expect(board.add(asked)!.id).not.toBe(first.id);
+    expect(board.ringing()?.id).toBe(second.id);
   });
 
   it("lets a session's newer notice replace its older one, and stops ringing once it is stale", () => {

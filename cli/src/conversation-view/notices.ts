@@ -3,14 +3,15 @@ import { basename } from "node:path";
 // Notices other tools would have popped up as macOS notifications (Claude
 // Code's "needs your permission", "waiting for your input", a usage-limit
 // warning) come to Flyd instead. One that needs him rings the island; an idle
-// one sits quietly in the column. A repeat refreshes the notice it repeats
-// rather than adding another, and a session's newer notice replaces its older
-// one: the session has moved on. Held in memory only; nothing is written.
+// one sits quietly in the column. A repeated idle notice refreshes the one it
+// repeats rather than adding another; every notice that needs him is a new ask
+// and rings again. A session's newer notice replaces its older one: the
+// session has moved on. Held in memory only; nothing is written.
 
 export type NoticeKind = "attention" | "idle";
 
 export interface Notice {
-  /** Stable across repeats, so the island rings once. */
+  /** Stable across idle repeats; new for each notice that needs him, so each rings. */
   id: string;
   kind: NoticeKind;
   /** Who sent it: "Claude Code". */
@@ -43,7 +44,7 @@ export interface NoticeInput {
 }
 
 export const MAX_NOTICES = 12;
-/** A repeat within this long is the same notice. */
+/** An idle repeat within this long is the same notice. */
 export const REPEAT_MS = 30 * 60_000;
 /** Notices older than this are gone. */
 export const NOTICE_TTL_MS = 12 * 3600_000;
@@ -99,8 +100,8 @@ export class NoticeBoard {
     const fresh = noticeOf(input, now);
     if (!fresh) return null;
     this.prune(now);
-    const same = this.notices.find((notice) =>
-      notice.kind === fresh.kind && notice.message === fresh.message && notice.source === fresh.source &&
+    const same = fresh.kind === "idle" && this.notices.find((notice) =>
+      notice.kind === "idle" && notice.message === fresh.message && notice.source === fresh.source &&
       (notice.session ?? notice.project ?? "") === (fresh.session ?? fresh.project ?? "") &&
       now - Date.parse(notice.last) < REPEAT_MS);
     let held: Notice;

@@ -53,5 +53,6 @@ The island should ring with `flyd: Claude needs your permission to use Bash`.
   header, so web pages cannot post to it.
 - At most 12 notices are kept. A notice disappears 12 hours after it last
   repeated, and the island only rings for one that is under 30 minutes old.
-  A repeat within 30 minutes updates the existing notice. A newer notice from
+  An idle notice repeated within 30 minutes updates the existing one; every
+  notice that needs George rings again, even in the same words. A newer notice from
   the same session replaces the older one.

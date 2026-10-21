@@ -1391,8 +1391,10 @@ describe("ConversationViewServer", () => {
     expect((await post(port, JSON.stringify({ title: "Nothing to say" }), json, "/api/notice")).status).toBe(400);
     const first = JSON.parse((await post(port, hook, json, "/api/notice")).body);
     expect(first).toMatchObject({ kind: "attention", count: 1 });
-    // A repeat is the same notice, so the island rings once.
-    expect(JSON.parse((await post(port, hook, json, "/api/notice")).body)).toMatchObject({ id: first.id, count: 2 });
+    // A second ask in the same words is a new ask, so the island rings for it too.
+    const second = JSON.parse((await post(port, hook, json, "/api/notice")).body);
+    expect(second).toMatchObject({ kind: "attention", count: 1 });
+    expect(second.id).not.toBe(first.id);
     const body = await new Promise<string>((resolve, reject) => {
       const req = request({ host: "127.0.0.1", port, path: "/api/status", headers: { host: `127.0.0.1:${port}` } }, (res) => {
         let text = "";
@@ -1406,7 +1408,7 @@ describe("ConversationViewServer", () => {
       req.end();
     });
     const status = JSON.parse(body.split("event: status\ndata: ")[1]!.split("\n")[0]!);
-    expect(status.notice).toEqual({ id: first.id, text: "flyd: Claude needs your permission to use Bash" });
+    expect(status.notice).toEqual({ id: second.id, text: "flyd: Claude needs your permission to use Bash" });
     // The session moved on to waiting for input: the column shows that, quietly.
     await post(port, JSON.stringify({ hook_event_name: "Notification", session_id: "abc", cwd: "/Users/x/flyd", message: "Claude is waiting for your input", notification_type: "idle_prompt" }), json, "/api/notice");
     const stream = await get(port, "/api/stream");
