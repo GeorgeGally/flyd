@@ -133,7 +133,7 @@ export interface RenderedMessage {
   /** A note to firstmate: sent, or read by firstmate. */
   receipt?: "sent" | "read";
   /** The reply asks him something he has not answered yet: its question, options, and where his answer goes. */
-  choice?: ReplyChoice & { replyTo: string };
+  choice?: ReplyChoice & { replyTo: string; session?: string };
   /** Flyd answered a question for him by this standing rule of his; `undone` once he took it back. */
   answeredFor?: string;
   undone?: boolean;
@@ -1371,7 +1371,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown; questionText?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -1434,7 +1434,7 @@ export class ConversationViewServer {
       return;
     }
     if (payload.replyTo !== undefined) {
-      await this.reply(res, payload.session, payload.replyTo, payload.text);
+      await this.reply(res, payload.session, payload.replyTo, payload.text, payload.questionText);
       return;
     }
     try {
@@ -1536,7 +1536,7 @@ export class ConversationViewServer {
   }
 
   /** His reply to one answer: back to whoever gave it, saying what it answers. */
-  private async reply(res: ServerResponse, session: string, replyTo: unknown, text: string): Promise<void> {
+  private async reply(res: ServerResponse, session: string, replyTo: unknown, text: string, questionText?: unknown): Promise<void> {
     if (typeof replyTo !== "string" || !text.trim()) {
       sendJson(res, 400, { error: "expected { session, text, replyTo }" });
       return;
@@ -1547,12 +1547,12 @@ export class ConversationViewServer {
         .find((exchange) => exchange.question.id === replyTo);
       // A question the session put to him in its own reply, not under a note of his: the answer goes back to that session.
       const asked = parent ? undefined : snapshot.messages.find((message) => message.role === "assistant" && message.id === replyTo);
-      const question = asked ? choiceOf(asked.text)?.question : undefined;
-      if (!parent && !(asked && question)) {
+      const question = (asked && choiceOf(asked.text)?.question) || (typeof questionText === "string" && questionText.trim() ? questionText.trim() : undefined);
+      if (!parent && !question) {
         sendJson(res, 409, { error: "That answer is no longer here; send it as a new message" });
         return;
       }
-      const note = parent ? replyNote(parent, text) : answerNote(asked!, question!, text);
+      const note = parent ? replyNote(parent, text) : answerNote(asked ?? { id: replyTo, role: "assistant", text: "" }, question!, text);
       const sent = await this.source.send(session, note, [], [], replyTo.startsWith("ask:") ? "flyd" : "firstmate");
       this.predictions.remember(text);
       sendJson(res, 200, sent);
@@ -1720,7 +1720,7 @@ export class ConversationViewServer {
           ...this.summaries,
           // A summary landed: push whatever it changed.
           onSummary: () => {
-            if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+            if (!closed && latest) emitUpdate(latest);
           },
         }
       : undefined, {
@@ -1733,6 +1733,15 @@ export class ConversationViewServer {
         live: (url) => this.previews.state(url),
         whatsappUnlinked: () => this.whatsappUnlinked(),
       });
+    const emitUpdate = (snapshot: ConversationSnapshot) => {
+      const update = differ.next(snapshot);
+      sseEvent(res, "update", {
+        ...update,
+        messages: update.messages.map((message) => message.choice
+          ? { ...message, choice: { ...message.choice, session: session.id } }
+          : message),
+      });
+    };
     const follower = this.source.follow(
       session.id,
       (snapshot) => {
@@ -1740,20 +1749,20 @@ export class ConversationViewServer {
         this.cachePredictionContext(session.id, snapshot.messages);
         this.autoAnswer(session.id, snapshot);
         this.chaseArtefact(session.id, snapshot);
-        sseEvent(res, "update", differ.next(snapshot));
+        emitUpdate(snapshot);
       },
       (error) => sseEvent(res, "problem", { error: error.message }),
     );
     const stopFeed = this.feed.onRefresh(() => {
-      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+      if (!closed && latest) emitUpdate(latest);
     });
     // A previewed page came up or went down: the column's card changes.
     const stopPreviews = this.previews.onChange(() => {
-      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+      if (!closed && latest) emitUpdate(latest);
     });
     // A memory landed: the column's "Remembering now" shows it.
     const stopMemory = this.memory?.onChange(() => {
-      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+      if (!closed && latest) emitUpdate(latest);
     });
     // A notice came: the column shows it.
     const stopNotices = this.notices.onChange(() => {
@@ -1761,11 +1770,11 @@ export class ConversationViewServer {
     });
     // Flyd did or started something: the left column's cards change.
     const stopActivity = this.activity?.onChange(() => {
-      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+      if (!closed && latest) emitUpdate(latest);
     });
     // WhatsApp linked (or a new code drawn): the offer goes, or its code turns over.
     const stopPairing = this.whatsapp?.onChange(() => {
-      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+      if (!closed && latest) emitUpdate(latest);
     });
     emitStaff();
     const heartbeat = setInterval(() => {

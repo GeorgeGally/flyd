@@ -745,6 +745,32 @@ describe("ConversationViewServer", () => {
     expect((await post(port, JSON.stringify({ session: "s1", text: "Yes", replyTo: reported!.id }), headers)).status).toBe(409);
   });
 
+  it("delivers a visible choice to its asking session after its message leaves the snapshot", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox, [captain("check this"), assistantText("I looked over the form and the leftover test page is still wired into the router, along with two stale fixtures that nothing imports any more.\n\nThe cleanup is small and safe to run now. Want me to start that check?")]);
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const stream = await get(port, `/api/stream?session=s1`);
+    const update = JSON.parse(/event: update\ndata: ([^\n]+)/.exec(stream.body)![1]!);
+    const asked = update.messages.find((message: { role: string; choice?: { replyTo: string; question: string; session: string } }) => message.role === "assistant" && message.choice);
+    expect(asked.choice).toMatchObject({ replyTo: expect.any(String), question: "The cleanup is small and safe to run now. Want me to start that check?", session: "s1" });
+
+    writeFileSync(join(dir!, "s1.jsonl"), [captain("check this"), assistantText("I started the check and it is running.")].join("\n") + "\n");
+    const sent = await post(port, JSON.stringify({ session: asked.choice.session, replyTo: asked.choice.replyTo, questionText: asked.choice.question, text: "Yes" }), headers);
+    expect(sent.status).toBe(200);
+    expect(inbox.sent[0]!.text).toContain('your question: "The cleanup is small and safe to run now. Want me to start that check?"');
+    expect(inbox.sent[0]!.text).not.toContain("your reply began");
+    expect(inbox.sent[0]!.text).toMatch(/\n\nYes$/);
+    // A column card answering a note whose exchange has gone still reaches the session with its question.
+    const gone = await post(port, JSON.stringify({ session: "s1", replyTo: "note:gone", questionText: "Which direction?", text: "B" }), headers);
+    expect(gone.status).toBe(200);
+    expect(inbox.sent.at(-1)!.text).toBe('[Captain is replying from Flyd to note:gone — your question: "Which direction?". His answer follows.]\n\nB');
+    // A card whose message is still here but no longer reads as a question keeps the card's own question.
+    const [, reported] = (await server!["source"].read("s1")).messages;
+    const again = await post(port, JSON.stringify({ session: "s1", replyTo: reported!.id, questionText: "Want me to start that check?", text: "No" }), headers);
+    expect(again.status).toBe(200);
+    expect(inbox.sent.at(-1)!.text).toContain('your question: "Want me to start that check?"');
+  });
+
   it("answers firstmate's routine question for him by his standing rule, shows it as Flyd's, and takes it back on Undo", async () => {
     const inbox = new MemoryInbox();
     dir = mkdtempSync(join(tmpdir(), "flyd-auto-answer-"));

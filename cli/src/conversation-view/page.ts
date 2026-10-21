@@ -1031,6 +1031,7 @@ var __name = function (f) { return f; };
   var nodes = new Map();
   var source = null;
   var current = null;
+  var drawnFrom = null;
   var explicit = new URLSearchParams(location.search).get("session");
   var lastActivity = null;
   var isWorking = false;
@@ -1566,6 +1567,7 @@ var __name = function (f) { return f; };
   setInterval(refreshWorking, 15000);
 
   function apply(update) {
+    drawnFrom = current;
     var stick = first || pinned;
     var at = stick || !onConversation() ? null : anchor();
     var added = false;
@@ -1979,6 +1981,7 @@ var __name = function (f) { return f; };
   // The column and the window each keep their own box for the same answer.
   function replyBox(id, place) {
     var state = replyState(place + ":" + id);
+    var from = drawnFrom;
     var box = keyed(el("div", "reply"), "reply:" + id);
     // Reply opens the box and steps aside; open, the box is a card like a
     // learned memory, its label and Close over his words and Send.
@@ -2029,10 +2032,10 @@ var __name = function (f) { return f; };
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       var text = input.value.trim();
-      if (!text || !current || state.sending) return;
+      if (!text || !from || state.sending) return;
       state.sending = true;
       say("Sending…");
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, text: text, replyTo: id }) }, true)
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: from, text: text, replyTo: id }) }, true)
         .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
         .then(function () { input.value = ""; state.draft = ""; say(""); show(false); })
         .catch(function (error) { say("Not sent: " + (error.message || "try again")); })
@@ -2332,11 +2335,11 @@ var __name = function (f) { return f; };
     }
     function deliver(text) {
       text = String(text || "").trim();
-      if (!text || !current || state.sending || state.sent) return;
+      if (!text || !choice.session || state.sending || state.sent) return;
       state.sending = true;
       settle();
       say("Sending…");
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, text: text, replyTo: choice.replyTo }) }, true)
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: choice.session, text: text, replyTo: choice.replyTo, questionText: choice.question }) }, true)
         .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
         .then(function () { state.sent = true; state.draft = ""; input.value = ""; say("Sent: “" + text + "”"); })
         .catch(function (error) { say("Not sent: " + (error.message || "try again")); })
@@ -2358,11 +2361,11 @@ var __name = function (f) { return f; };
     note.hidden = !state.note;
     function say(text) { state.note = text; note.textContent = text; note.hidden = !text; }
     var steps = stepper(choice.steps, state.steps, { option: "choice-option", input: "reply-input", next: "reply-send" }, function () {}, function (text) {
-      if (!current || state.steps.sending || state.steps.sent) return;
+      if (!choice.session || state.steps.sending || state.steps.sent) return;
       state.steps.sending = true;
       steps.sync();
       say("Sending…");
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: current, text: text, replyTo: choice.replyTo }) }, true)
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: choice.session, text: text, replyTo: choice.replyTo, questionText: choice.question }) }, true)
         .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
         .then(function () { state.steps.sent = true; say("Sent your answers"); })
         .catch(function (error) { say("Not sent: " + (error.message || "try again")); })
@@ -2739,7 +2742,7 @@ ${LEFT_SCRIPT}
     var about = { title: box.title };
     if (box.task) about.task = box.task;
     if (link) about.url = link.url;
-    var target = !decision ? { about: about } : decision.replyTo ? { session: current, replyTo: decision.replyTo } : { decision: decision.task };
+    var target = !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.task };
     var chat = artefactChat(key, target, decision && (decision.choices.length || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…");
     if (decision && decision.steps && decision.steps.length) {
       // Several questions: one at a time, a tap moves on, and the answers go together from the last step.
