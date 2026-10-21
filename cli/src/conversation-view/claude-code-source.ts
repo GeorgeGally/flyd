@@ -522,7 +522,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return {
       ...voiced,
       ...(project ? { project } : {}),
-      messages: mergeNotes(voiced.messages.map((message) => this.sited(sessionId, message)), live, this.noteWindow(sessionId)),
+      messages: mergeNotes(voiced.messages.map((message) => this.sited(sessionId, message)), live, this.noteWindow(sessionId), snapshot.messages.map((message) => message.id)),
       ...(Object.keys(answered).length ? { followUps: answered } : {}),
     };
   }

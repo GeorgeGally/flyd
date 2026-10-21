@@ -372,8 +372,11 @@ export function relayed(messages: ConversationMessage[]): ConversationMessage[] 
 
 /**
  * Places the captain's questions from the window among transcript messages
- * by time. Only those inside the session's window belong to it: from its
- * first entry until the next session started (open-ended for the newest).
+ * by time. A reply belongs where the message it answers is (`here`: this
+ * session's own message ids, before any are filtered out of view), wherever
+ * its time falls. Any other question belongs to the session whose window it
+ * was sent in: from its first entry until the next session started
+ * (open-ended for the newest).
  *
  * A question's answer sits directly under it, whenever it was written; until
  * then the question says what is happening to it. Nothing else is ever shown
@@ -383,14 +386,20 @@ export function mergeNotes(
   messages: ConversationMessage[],
   exchanges: Exchange[],
   window: { from?: string; until?: string },
+  here: Iterable<string> = messages.map((message) => message.id),
 ): ConversationMessage[] {
   const time = (iso?: string): number => (iso ? Date.parse(iso) : Number.NaN);
   const from = time(window.from);
   const until = time(window.until);
+  const own = new Set(here);
+  // Oldest first, so a reply to a reply finds its parent already placed.
   const inWindow = exchanges.filter((exchange) => {
     if (exchange.question.flydAsked) return false;
+    const { replyTo } = exchange.question;
     const at = time(exchange.question.timestamp);
-    return (Number.isNaN(from) || at >= from) && (Number.isNaN(until) || at < until);
+    const belongs = replyTo ? own.has(replyTo) : (Number.isNaN(from) || at >= from) && (Number.isNaN(until) || at < until);
+    if (belongs) own.add(exchange.question.id);
+    return belongs;
   });
   if (inWindow.length === 0) return messages;
   const merged: ConversationMessage[] = [];
