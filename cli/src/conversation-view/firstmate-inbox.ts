@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
@@ -259,6 +259,14 @@ export class FirstmateInbox implements CaptainInbox {
       child.stdin?.on("error", () => {});
       child.stdin?.end(text.trim().slice(0, MAX_NOTE_CHARS));
     });
+  }
+
+  /** Flyd's note about one task, keyed on the task and the note so the inbox takes each note at most once per task. */
+  async sendTaskNote(taskId: string, text: string): Promise<string> {
+    const note = text.startsWith(`Task ${taskId}.`) ? text : `Task ${taskId}. ${text}`;
+    const requestId = `flyd-task-${taskId.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 80)}-${createHash("sha256").update(note).digest("hex").slice(0, 16)}`;
+    await this.sendOwn(note, requestId);
+    return requestId;
   }
 
   /** Runs `fm-inbox.sh note -` with the text on stdin: no shell, no interpolation. */
