@@ -540,7 +540,11 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     if (previous?.disposition === "ask_george" && previous.show) continue;
     byTask.set(decision.taskId, decision);
   }
-  const calls = fleet.calls.flatMap((row) => {
+  // A George choice can come from a work row's state as well as from an open decision.
+  const askedIn = new Set(fleet.calls.map((row) => row.task));
+  const stateRows = [...fleet.live, ...fleet.ready, ...fleet.landed, ...fleet.held, ...fleet.next]
+    .filter((row) => row.task && !askedIn.has(row.task) && askedIn.add(row.task));
+  const calls = [...fleet.calls, ...stateRows].flatMap((row) => {
     if (row.ledgerOnly) return [row];
     const decision = row.task ? byTask.get(row.task) : undefined;
     if (decision?.disposition !== "ask_george" || !decision.show || !decision.question) return [];
@@ -567,7 +571,8 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
       ...(decision.notify ? { notable: true } : {}),
     }];
   });
-  const failed = fleet.held.flatMap((row) => row.status === "failed" ? [{ ...row, detail: undefined }] : []);
+  const asking = new Set(calls.map((row) => row.task));
+  const failed = fleet.held.flatMap((row) => row.status === "failed" && !asking.has(row.task) ? [{ ...row, detail: undefined }] : []);
   return { ...emptyFleet(), ...(fleet.generated ? { generated: fleet.generated } : {}), ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}), calls, landed: verified, held: [...failed, ...attention] };
 }
 

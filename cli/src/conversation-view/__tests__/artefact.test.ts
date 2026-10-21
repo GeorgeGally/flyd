@@ -109,6 +109,14 @@ describe("the decision-backed fleet projection", () => {
     expect(firstmateChangesFromFleet(fleet).find((change) => change.taskId === "t1")).toMatchObject({ kind: "fleet_state", detail: "finished and merged\nhttps://github.com/o/r/pull/9" });
   });
 
+  it("puts a George choice raised only by a work row's state in front of him", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "gnm-9", state: "unknown", name: "Release gate", doing: "ship it today, or hold it for review?" }] });
+    const asked = projectFleetDecisions(fleet, [decision({ taskId: "gnm-9", disposition: "ask_george", question: "Ship it today, or hold it for review?", options: ["ship it today", "hold it for review"], recommendation: { option: "hold it for review", rationale: "It has not been reviewed." }, show: true, notify: true })]);
+    expect(asked.calls).toEqual([expect.objectContaining({ task: "gnm-9", status: "Needs your choice", question: "Ship it today, or hold it for review?", choices: ["ship it today", "hold it for review"] })]);
+    expect(fleetCounts(asked).call).toBe(1);
+    expect(asked.held).toEqual([]);
+  });
+
   it("projects only George decisions and independently verified results", () => {
     const fleet = parseBearings({
       decisions_open: [{ id: "choice", summary: "Review options" }],
