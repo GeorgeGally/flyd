@@ -492,7 +492,7 @@ export function editionActivityRecord(edition: Edition): ActivityRecord {
     kind: "news",
     title: "Put together today's news",
     line: `${edition.items.length} ${edition.items.length === 1 ? "story" : "stories"} from your sources.`,
-    stories: edition.items.map(({ title, url, why, source }) => ({ title, url, ...(why ? { gist: why } : {}), ...(source ? { source } : {}) })),
+    stories: edition.items.map(({ title, url, why, source, kind }) => ({ title, url, kind, ...(why ? { gist: why } : {}), ...(source ? { source } : {}) })),
     state: "done",
     at: edition.generatedAt,
   };

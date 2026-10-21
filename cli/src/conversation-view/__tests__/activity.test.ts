@@ -112,11 +112,11 @@ describe("activity records", () => {
 
   it("shows the stories a record carries, each with its own working link", () => {
     const stories = [
-      { title: "A real find", url: "https://x.test/a", gist: "why it matters", source: "r/ordinals" },
+      { title: "A real find", url: "https://x.test/a", kind: "relevant", gist: "why it matters", source: "r/ordinals" },
       { title: "Not a story", url: "javascript:alert(1)" },
     ];
     const out = activityFromRecords([{ key: "scout-edition", kind: "news", title: "Put together today's news", stories, state: "done", at: minutesAgo(2) }], NOW);
-    expect(out.done[0]!.stories).toEqual([{ title: "A real find", url: "https://x.test/a", gist: "why it matters", source: "r/ordinals" }]);
+    expect(out.done[0]!.stories).toEqual([{ title: "A real find", url: "https://x.test/a", mark: "Worth a look", gist: "why it matters", source: "r/ordinals" }]);
   });
 
 });

@@ -2664,7 +2664,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     load("");
     await settle();
     const stream = open("latest", []);
-    const stories = Array.from({ length: 14 }, (_, i) => ({ title: `Story ${i + 1}`, url: `https://example.com/${i + 1}`, gist: `Why ${i + 1}`, source: "r/Bitcoin" }));
+    const stories = Array.from({ length: 14 }, (_, i) => ({ title: `Story ${i + 1}`, url: `https://example.com/${i + 1}`, ...(i === 0 ? { mark: "Hot" } : i === 13 ? { mark: "Rabbit hole" } : {}), gist: `Why ${i + 1}`, source: "r/Bitcoin" }));
     const update = (recent: unknown[]) => stream.emit("update", {
       order: [], messages: [], working: false, boxes: [],
       leftColumn: { now: [], recent, semantic: [] },
@@ -2684,6 +2684,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(links.map((a) => a.textContent)).toEqual(stories.map((story) => story.title));
     expect(links.map((a) => a.getAttribute("href"))).toEqual(stories.map((story) => story.url));
     expect(links.every((a) => a.target === "_blank" && a.rel === "noopener noreferrer")).toBe(true);
+    expect(Array.from(news.querySelectorAll(".card-story-mark")).map((mark) => mark.textContent)).toEqual(["Hot", "Rabbit hole"]);
     update([{ id: "log:memory", kind: "memory", title: "Tidied memory", at: "2026-10-21T05:00:00.000Z" }]);
     await settle();
     expect(news.hidden).toBe(true);

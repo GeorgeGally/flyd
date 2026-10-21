@@ -15,13 +15,18 @@ import { monitorObjectsFromSources, type SemanticObject } from "./semantic.js";
 
 export type ActivityKind = "watching" | "decided" | "reviewed" | "news" | "memory" | "routine" | "work" | "done" | "held" | "noted";
 
-/** One story behind a news card: its headline, a one-line gist, and where it came from. */
+/** One story behind a news card: its headline, how it was marked, a one-line gist, and where it came from. */
 export interface ActivityStory {
   title: string;
+  mark?: StoryMark;
   gist?: string;
   url: string;
   source?: string;
 }
+
+export type StoryMark = "Hot" | "Worth a look" | "Rabbit hole";
+
+const STORY_MARKS: Record<string, StoryMark> = { must: "Hot", relevant: "Worth a look", rabbit_hole: "Rabbit hole", wildcard: "Rabbit hole" };
 
 export interface ActivityItem {
   id: string;
@@ -61,8 +66,8 @@ export interface ActivityRecord {
   kind: ActivityKind;
   title: string;
   line?: string;
-  /** The actual stories behind a news card, each with its own link, shown only when he opens it. */
-  stories?: ActivityStory[];
+  /** The actual stories behind a news card, each with its own link and the kind it was picked as, shown only when he opens it. */
+  stories?: Array<Omit<ActivityStory, "mark"> & { kind?: string }>;
   state?: "now" | "done";
   at?: string;
 }
@@ -314,7 +319,8 @@ function storyOf(raw: unknown): ActivityStory | null {
   const said = typeof item?.why === "string" ? item.why : typeof item?.gist === "string" ? item.gist : "";
   const gist = said.replace(/\s+/g, " ").trim();
   const source = typeof item?.source === "string" ? item.source.trim() : "";
-  return { title, url, ...(gist ? { gist } : {}), ...(source ? { source } : {}) };
+  const mark = typeof item?.kind === "string" ? STORY_MARKS[item.kind] : undefined;
+  return { title, url, ...(mark ? { mark } : {}), ...(gist ? { gist } : {}), ...(source ? { source } : {}) };
 }
 
 /** The stories a record carries for its card, kept only when each has a headline and a real link. */

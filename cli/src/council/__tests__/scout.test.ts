@@ -6,6 +6,7 @@ import {
   editionActivityRecord, evolveScout, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
   runScout, scoutTick, SEED_TASTE, seedSources, takeEvolutionNotes, watchScout, writeSources, type Edition, type ScoutSource,
 } from "../scout.js";
+import { activityFromRecords } from "../../conversation-view/activity.js";
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "flyd-scout-")); });
@@ -182,10 +183,11 @@ describe("edition brief", () => {
     const record = editionActivityRecord(edition);
     expect(record).toMatchObject({ key: "scout-edition", kind: "news", title: "Put together today's news", line: "2 stories from your sources.", state: "done", at: edition.generatedAt });
     expect(record.stories).toEqual([
-      { title: "A new ordinal generative technique", url: "https://x.test/ordinal", gist: "Direct precedent for your work", source: "r/ordinals" },
-      { title: "Game of Life on a torus", url: "https://x.test/torus", gist: "Creative coding you love", source: "r/creativecoding" },
+      { title: "A new ordinal generative technique", url: "https://x.test/ordinal", kind: "must", gist: "Direct precedent for your work", source: "r/ordinals" },
+      { title: "Game of Life on a torus", url: "https://x.test/torus", kind: "rabbit_hole", gist: "Creative coding you love", source: "r/creativecoding" },
     ]);
     expect(record).not.toHaveProperty("detail");
+    expect(activityFromRecords([record], Date.parse(edition.generatedAt) + 60_000).done[0]!.stories!.map((story) => story.mark)).toEqual(["Hot", "Rabbit hole"]);
   });
 
   it("records the day's brief with the activity only when it has stories and is wired to", async () => {

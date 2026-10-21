@@ -1931,11 +1931,12 @@ var __name = function (f) { return f; };
     briefEl.hidden = !briefFilled;
     showRail();
   }
-  // The stories behind a news card: the headline as a link, a line of gist, and where it came from.
+  // The stories behind a news card: how each was marked, the headline as a link, a line of gist, and where it came from.
   function storiesNode(stories) {
     var list = el("ul", "card-stories");
     stories.forEach(function (story) {
       var li = el("li", "");
+      if (story.mark) li.appendChild(el("p", "card-story-mark", story.mark));
       var a = el("a", "card-story-head", story.title);
       a.href = story.url;
       a.target = "_blank";
