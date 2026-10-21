@@ -1457,6 +1457,35 @@ describe("conversation action tools", () => {
       rmSync(outside, { recursive: true, force: true });
     }
   });
+
+  it("lets a job George asked for open his apps but keeps an unattended agenda run from doing it", async () => {
+    const readReminders = async (sessionId: string): Promise<string> => {
+      let output = "";
+      await respondToConversation({
+        message: "check my reminders",
+        sessionId,
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      }, {
+        runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+          output = await onToolCall("reminders", { action: "list" });
+          return "<final>done</final>";
+        },
+        persistReceipt: async (input) => input as never,
+      });
+      return output;
+    };
+
+    const job = await readReminders("job-abc");
+    const agenda = await readReminders("agenda-round-1");
+
+    // The job runs the tool rather than refusing it (the VITEST guard proves osascript was attempted).
+    expect(job).toMatch(/AppleScript is disabled in tests/);
+    expect(job).not.toMatch(/background run does not open it/);
+    expect(agenda).toMatch(/background run does not open it/);
+  });
 });
 
 describe("mobile transport ceiling", () => {

@@ -130,7 +130,7 @@ export interface PersonalToolDependencies {
   fetchFn?: FetchLike;
   now?: () => Date;
   runOsascript?: (script: string, args: string[]) => Promise<string>;
-  /** Nobody asked for this run (investigator, agenda, jobs): never open an app George has closed. */
+  /** Nobody asked for this run (investigator, agenda, council): never open an app George has closed. A job he asked for may. */
   background?: boolean;
   appRunning?: (app: string, byId?: boolean) => Promise<boolean>;
   capture?: (text: string) => Promise<string>;
