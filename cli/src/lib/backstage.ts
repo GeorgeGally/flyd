@@ -2,7 +2,7 @@ export const BACKSTAGE_DENYLIST: RegExp[] = [
   /\bfirstmates?\b/i,
   /\bcrews?\b|\bcrew ?mates?\b|\bcrewmembers?\b/i,
   /\bsubagents?\b/i,
-  /\b(?:task|run)\s+id\b/i,
+  /\b(?:run|task|job)[ -]?id\b/i,
   /\bbranch(?:es)?\b/i,
   /\bfm\/[\w.-]+/i,
   /\bPR\s*#?\d+\b/i,
@@ -10,16 +10,19 @@ export const BACKSTAGE_DENYLIST: RegExp[] = [
   /\bpipelines?\b/i,
   /\bjev\b/i,
   /\bsystem-1\b/i,
-  /\bdomain-[\w-]+\b/i,
-  /\b(?:Librarians?|Strategists?|Critics?|Muses?|Scouts?)\b/i,
+  /\bdomain-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i,
+  // Proper names are matched as written so "a critic" or "my muse" stays ordinary speech.
+  /\b(?:Librarians?|Strategists?|Critics?|Muses?|Scouts?)\b/,
   /\bCouncil\b/,
   /\bthe (?:council|librarian|strategist|critic|muse|scout)s?\b/i,
-  /\bfm\/[\w.-]+/i,
-  /\bPR\s*#\d+\b/i,
   /\bjob-[0-9a-f]{6,}\b/i,
-  /\b(?:run|task|job)[ -]?id\b/i,
   /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/i,
 ];
+
+/** A commit id inside a link is part of the address, not news: masked before the denylist reads the text. Pure. */
+export function withoutLinkIds(text: string): string {
+  return text.replace(/https?:\/\/\S+/g, (url) => url.replace(/[0-9a-f]{7,40}/gi, ""));
+}
 
 export function firstBackstage(text: string): string | null {
   for (const re of BACKSTAGE_DENYLIST) {
@@ -27,10 +30,6 @@ export function firstBackstage(text: string): string | null {
     if (match) return match[0];
   }
   return null;
-}
-
-export function namesBackstageMachinery(text: string): boolean {
-  return firstBackstage(text) !== null;
 }
 
 export function hasBackstage(text: string): boolean {
@@ -53,7 +52,7 @@ function neutralOutcome(text: string): string {
 }
 
 export function scrubBackstage(text: string): string {
-  if (!hasBackstage(text)) return text;
-  const safe = text.split(/(?<=[.!?])\s+/).filter((sentence) => !hasBackstage(sentence)).join(" ").trim();
+  if (!hasBackstage(withoutLinkIds(text))) return text;
+  const safe = text.split(/(?<=[.!?])\s+/).filter((sentence) => !hasBackstage(withoutLinkIds(sentence))).join(" ").trim();
   return safe || neutralOutcome(text);
 }

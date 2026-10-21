@@ -794,6 +794,17 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(relayed).not.toMatch(/FirstMate|System-1/i);
   });
 
+  it("keeps a link whose address carries a commit id", async () => {
+    const told = "The fix is live: https://github.com/o/r/commit/abc1234def.";
+    const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "link.json"), profile: () => null, complete: async () => told });
+    expect(await interpreter.request({ question: "q", answer: "The fix is live.", recent: [] })).toBe(told);
+  });
+
+  it("holds back a scrubbed retelling that still fails the relay checks", async () => {
+    const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "still-held.json"), profile: () => null, complete: async () => "FirstMate finished the replay. Working on it." });
+    expect(await interpreter.request({ question: "q", answer: "The sidebar now opens on Artefacts.", recent: [] })).toBeUndefined();
+  });
+
   it("drops a commit id from the staff's own words when they lead, leaving their full reply and its code as written", () => {
     const reply = "Merged at a1b2c3d; the sidebar opens on Artefacts.\n\n```ts\nfetch(url)\n  .then((r) => r.json())\n```";
     const shown = new SnapshotDiffer().next({ messages: noteWithReply(reply), working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
