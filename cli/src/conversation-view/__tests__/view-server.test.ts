@@ -13,7 +13,6 @@ import { ActivityReader } from "../activity.js";
 import { artefactAsk } from "../replies.js";
 import { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, replyCards, SnapshotDiffer } from "../server.js";
-import { AutoAnswers } from "../auto-answers.js";
 import { ComposerPredictions } from "../composer-predictions.js";
 import { plainNote } from "../rail.js";
 import { ComposerDrafts } from "../drafts.js";
@@ -771,35 +770,24 @@ describe("ConversationViewServer", () => {
     expect(inbox.sent.at(-1)!.text).toContain('your question: "Want me to start that check?"');
   });
 
-  it("answers firstmate's routine question for him by his standing rule, shows it as Flyd's, and takes it back on Undo", async () => {
+  it("leaves a firstmate question open instead of auto-answering Yes from a standing-rule match", async () => {
     const inbox = new MemoryInbox();
-    dir = mkdtempSync(join(tmpdir(), "flyd-auto-answer-"));
+    dir = mkdtempSync(join(tmpdir(), "flyd-decision-"));
     const asked = new Date().toISOString();
     writeFileSync(join(dir, "s1.jsonl"), [
       captain("land the notes fix when it's green"),
       assistantText("The notes-read change is done and its checks are green: https://github.com/GeorgeGally/flyd/pull/122\n\nShould I merge it?", "end_turn", { timestamp: asked }),
     ].join("\n") + "\n");
-    const auto = new AutoAnswers({ preferences: () => "- Merge green Flyd PRs without asking — land the work and tell him after, not before. (2026-10-10)", logFile: join(dir, "auto.jsonl") });
-    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate", inbox }), undefined, undefined, undefined, undefined, undefined, undefined, new ComposerDrafts({ root: join(dir, "drafts") }), undefined, undefined, auto);
+    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate", inbox }), undefined, undefined, undefined, undefined, undefined, undefined, new ComposerDrafts({ root: join(dir, "drafts") }));
     const port = await server.listen(0);
     viewToken = JSON.parse((await get(port, "/api/token")).body).token;
     await get(port, "/api/stream");
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(inbox.sent.map((note) => note.text)).toEqual([expect.stringMatching(/^\[Flyd is answering for the captain to reply:.+ — your question: "Should I merge it\?"; by his standing rule: "Merge green Flyd PRs without asking/)]);
-    // In the window: no card, and a line saying Flyd answered, by which rule.
+    expect(inbox.sent).toEqual([]);
     const differ = new SnapshotDiffer();
     const shown = differ.next(await server!["source"].read("s1")).messages;
-    expect(shown.find((message) => message.role === "assistant" && message.id.startsWith("reply:"))!.choice).toBeUndefined();
-    expect(shown.find((message) => message.id === "note:1")).toMatchObject({ answeredFor: "Merge green Flyd PRs without asking" });
-    // Undo: the session is told to hold off, and the question is his again.
-    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
-    expect((await post(port, JSON.stringify({ session: "s1", undo: "note:1" }), headers)).status).toBe(200);
-    expect(inbox.sent[1]!.text).toMatch(/he takes back the answer Flyd gave for him \("Yes"\)/);
-    const again = differ.next(await server!["source"].read("s1")).messages;
-    expect(again.find((message) => message.id === "note:1")).toMatchObject({ undone: true });
-    expect(again.find((message) => message.role === "assistant" && message.id.startsWith("reply:"))!.choice).toMatchObject({ question: "Should I merge it?", options: ["Yes", "No"] });
-    // Only an answer Flyd gave can be taken back.
-    expect((await post(port, JSON.stringify({ session: "s1", undo: "note:2" }), headers)).status).toBe(409);
+    expect(shown.find((message) => message.role === "assistant" && message.id.startsWith("reply:"))!.choice)
+      .toMatchObject({ question: "Should I merge it?", options: ["Yes", "No"] });
   });
 
   it("sends his comment on a spot of the phone preview to firstmate, with the page, viewport and spot", async () => {
@@ -1001,7 +989,7 @@ describe("ConversationViewServer", () => {
     writeFileSync(join(home, "logs", "agenda.log"), `${new Date(Date.now() - 5 * 60_000).toISOString()} scout: watch: 0 must-know\n`);
     writeFileSync(join(dir, "s1.jsonl"), [captain("hello"), assistantText("Hi.")].join("\n") + "\n");
     const source = () => new ClaudeCodeTranscriptSource({ projectDir: dir!, assistantLabel: "firstmate" });
-    server = new ConversationViewServer(source(), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, new ActivityReader({ dir: home }));
+    server = new ConversationViewServer(source(), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, new ActivityReader({ dir: home }));
     const port = await server.listen(0);
     viewToken = JSON.parse((await get(port, "/api/token")).body).token;
     const update = JSON.parse((await get(port, "/api/stream")).body.split("event: update\ndata: ")[1]!.split("\n")[0]!);

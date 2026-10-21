@@ -1,3 +1,4 @@
+import { parseExecutiveDecision } from "../../intelligence/executive/decision-step.js";
 import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +10,8 @@ import {
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
   callItems, doneItems, underwayItems, workerStarted, weekLandedRows, type FleetArtefact,
 } from "../artefact.js";
+import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
+import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
 const BEARINGS = {
   schema: "fm-bearings.v1",
@@ -77,6 +80,70 @@ describe("parseBearings", () => {
   it("says plainly when the snapshot is not the expected shape", () => {
     expect(parseBearings({ schema: "something-else" }).unavailable).toContain("something-else");
     expect(parseBearings("not json").unavailable).toBeTruthy();
+  });
+});
+
+describe("the decision-backed fleet projection", () => {
+  const decision = (overrides: Partial<ExecutiveDecisionRecord>): ExecutiveDecisionRecord => {
+    const parsed = parseExecutiveDecision({
+    schema: "flyd.executive-decision.v1",
+    decisionId: "decision-1",
+    sourceId: "firstmate.change",
+    sourceEventId: "event-1",
+    disposition: "backstage",
+    reason: "routine work stays backstage",
+    summary: "Routine work",
+    evidenceRefs: [],
+    verification: { status: "unknown", evidenceRefs: [] },
+    show: false,
+    notify: false,
+    createdAt: "2026-10-21T00:00:00.000Z",
+    ...overrides,
+   });
+    if (!parsed) throw new Error("Invalid executive fixture");
+    return parsed;
+  };
+
+  it("carries a recorded pull request into the finished change so it can be verified", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "t1", state: "done", name: "Island fix", doing: "finished and merged" }], recorded_prs: [{ id: "t1", url: "https://github.com/o/r/pull/9" }] });
+    expect(firstmateChangesFromFleet(fleet).find((change) => change.taskId === "t1")).toMatchObject({ kind: "fleet_state", detail: "finished and merged\nhttps://github.com/o/r/pull/9" });
+  });
+
+  it("puts a George choice raised only by a work row's state in front of him", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "gnm-9", state: "unknown", name: "Release gate", doing: "ship it today, or hold it for review?" }] });
+    const asked = projectFleetDecisions(fleet, [decision({ taskId: "gnm-9", disposition: "ask_george", question: "Ship it today, or hold it for review?", options: ["ship it today", "hold it for review"], recommendation: { option: "hold it for review", rationale: "It has not been reviewed." }, show: true, notify: true })]);
+    expect(asked.calls).toEqual([expect.objectContaining({ task: "gnm-9", status: "Needs your choice", question: "Ship it today, or hold it for review?", choices: ["ship it today", "hold it for review"] })]);
+    expect(fleetCounts(asked).call).toBe(1);
+    expect(asked.held).toEqual([]);
+  });
+
+  it("projects only George decisions and independently verified results", () => {
+    const fleet = parseBearings({
+      decisions_open: [{ id: "choice", summary: "Review options" }],
+      in_flight: [
+        { id: "working", state: "working", name: "Worker is rebuilding it", doing: "compiling project" },
+        { id: "paused", state: "paused", name: "Paused check", doing: "Paused [at=1792311581]: driving no-mistakes run 01M56X1VHPRFDXWTHCZVTG38VZ" },
+        { id: "result", state: "done", name: "Review complete", doing: "Requested tests passed" },
+      ],
+    });
+    const withFailure = parseBearings({ in_flight: [{ id: "broken", state: "failed", name: "Admin redesign", doing: "Exit 1 in run 01M56X1VHPRFDXWTHCZVTG38VZ" }] });
+    expect(projectFleetDecisions(withFailure, [decision({ taskId: "broken", disposition: "backstage", summary: "Handed back" })]).held)
+      .toEqual([expect.objectContaining({ task: "broken", label: "Admin redesign", status: "failed", detail: undefined })]);
+    expect(projectFleetDecisions(withFailure, [], [{ label: "Add a turn-end guard", task: "domain-1", status: "needs attention" }]).held.map((row) => row.status))
+      .toEqual(["failed", "needs attention"]);
+    const publicFleet = projectFleetDecisions(fleet, [
+      decision({ taskId: "choice", disposition: "ask_george", question: "Close it or add the tools?", options: ["close it", "add the tools"], recommendation: { option: "add the tools", rationale: "They remain required." }, show: true, notify: true }),
+      decision({ taskId: "paused", disposition: "backstage", summary: "Worker paused", show: false }),
+      decision({ taskId: "working", disposition: "backstage", summary: "Worker compiling", show: false }),
+      decision({ taskId: "result", disposition: "handle_internally", summary: "Requested tests passed", verification: { status: "verified", evidenceRefs: ["receipt:test-run"] }, show: true }),
+    ]);
+
+    expect(publicFleet.calls).toEqual([expect.objectContaining({ task: "choice", question: "Close it or add the tools?", choices: ["close it", "add the tools"] })]);
+    expect(publicFleet.landed).toEqual([expect.objectContaining({ task: "result", label: "Requested tests passed", status: "verified" })]);
+    expect(publicFleet.live).toEqual([]);
+    expect(publicFleet.held).toEqual([]);
+    expect(publicFleet.next).toEqual([]);
+    expect(JSON.stringify(publicFleet)).not.toMatch(/Paused|no-mistakes run|compiling project|working|paused/i);
   });
 });
 
@@ -860,4 +927,37 @@ describe("ArtefactFeed", () => {
     expect(feed.current().fleet!.calls.map((row) => row.task)).toEqual(["x"]);
     expect(feed.current().fleet!.ready.some((row) => row.task === "x")).toBe(false);
   });
+});
+
+it("sends every current question and its original evidence to the production decision owner before legacy filtering", async () => {
+  const home = mkdtempSync(join(tmpdir(), "artefact-decision-order-"));
+  mkdirSync(join(home, "bin"));
+  const original = "run cancelled during recovery; should I close the work, or finish the missing tools?";
+  writeFileSync(join(home, "snapshot.json"), JSON.stringify({
+    decisions_open: [{ id: "scope", summary: "Close the review, or finish the missing tools?" }],
+    in_flight: [{ id: "cancelled", state: "unknown", name: "Review", doing: original }],
+  }));
+  writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat '${join(home, "snapshot.json")}'\n`, { mode: 0o700 });
+  const decideChanges = vi.fn(async () => []);
+  const feed = new ArtefactFeed({ home, decideChanges, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+  await feed.refresh();
+  expect(decideChanges).toHaveBeenCalledWith(expect.arrayContaining([
+    expect.objectContaining({ kind: "decision", taskId: "scope", detail: "Close the review, or finish the missing tools?" }),
+    expect.objectContaining({ kind: "fleet_state", taskId: "cancelled", detail: original }),
+  ]));
+  expect(feed.current().fleet?.calls).toEqual([]);
+  const legacy = enrichFleet(parseBearings({ decisions_open: [{ id: "scope", summary: "Close the review, or finish the missing tools?" }] }), new Map());
+  expect(legacy.calls).toEqual([]);
+});
+
+it("renders a Core-owned choice as a decision with its answer target, rather than an Activity", async () => {
+  const { decideExecutiveStep } = await import("../../intelligence/executive/decision-step.js");
+  const { semanticObjectFromShow } = await import("../semantic.js");
+  const question = "Close it or add the tools?";
+  const record = decideExecutiveStep({ sourceId: "firstmate.change", sourceEventId: "choice", taskId: "scope", sourceText: question,
+    proposal: { kind: "question", summary: "Choose the scope.", question, questionEvidence: question, options: ["Close it", "add the tools"], evidenceRefs: ["task:scope"] } });
+  const fleet = projectFleetDecisions(parseBearings({ decisions_open: [{ id: "scope", summary: question }] }), [record]);
+  const item = composeArtefact({ fleet, memories: [], news: [], taste: [] }).find((item) => item.kind === "call")!;
+  expect(semanticObjectFromShow(item)).toMatchObject({ kind: "decision", status: "Needs your choice", decision: { decisionId: record.decisionId, target: "scope", alternatives: ["Close it", "add the tools"] } });
+  expect(semanticObjectFromShow(item).activity).toBeUndefined();
 });

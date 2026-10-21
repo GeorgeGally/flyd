@@ -336,7 +336,8 @@ const SURFACE_WORDS: Record<Surface, string> = { chat: "answer", status: "status
 export function scorecard(options: { dir?: string; now?: Date; days?: number } = {}): string {
   const now = options.now ?? new Date();
   const days = options.days ?? 7;
-  const verdicts = readVerdicts(options.dir, new Date(now.getTime() - days * 86_400_000).toISOString());
+  const verdicts = readVerdicts(options.dir, new Date(now.getTime() - days * 86_400_000).toISOString())
+    .filter((verdict) => !verdict.held || verdict.shortfalls.length);
   if (!verdicts.length) return `Nothing reviewed in the last ${days} days yet.\n`;
   const met = verdicts.filter((verdict) => !verdict.shortfalls.length).length;
   const lines = [`Last ${days} days: ${met} of ${verdicts.length} things you were shown met the standard (${Math.round((met / verdicts.length) * 100)}%).`];

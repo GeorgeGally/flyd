@@ -1,25 +1,23 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
 import { artefactJudgeFromEnv } from "../conversation-view/artefact-judge.js";
 import { semanticJudgeFromEnv } from "../conversation-view/semantic-judge.js";
 import { importanceJudgeFromEnv } from "../conversation-view/importance-judge.js";
 import { ArtefactVoice, defaultVoiceCache } from "../conversation-view/artefact-voice.js";
-import { AutoAnswers, defaultAutoAnswerLog } from "../conversation-view/auto-answers.js";
 import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } from "../conversation-view/claude-code-source.js";
 import { CrewProgress } from "../conversation-view/crew-progress.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
 import { FlydDesk, type Answerer, type Complete, type Seer } from "../conversation-view/flyd-desk.js";
 import { flydBrief } from "../conversation-view/flyd-brief.js";
+import { executiveConversationSource } from "../conversation-view/executive-source.js";
+import { FlydConversationSource } from "../conversation-view/flyd-source.js";
+import type { ConversationSource } from "../conversation-view/types.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { memoryLookup } from "../conversation-view/living.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { claudeApiKey } from "../lib/claude-spend.js";
 import { readProjects } from "../council/projects.js";
-import { tastePath } from "../council/taste.js";
-import { userProfilePath } from "../lib/user-profile.js";
-import { firstmateHome } from "../lib/firstmate-home.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
 import { WeatherReader } from "../conversation-view/weather.js";
 import { ActivityReader } from "../conversation-view/activity.js";
@@ -29,6 +27,15 @@ import { OvertakenCalls } from "../conversation-view/overtaken.js";
 import { defaultUnreadChaseState, UnreadNoteWatcher } from "../conversation-view/note-receipts.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 import { LiveStaffSession } from "../command/fleet-monitor.js";
+import { listDomainRuns } from "../command/store.js";
+import { sendRunMessage } from "../command/messages.js";
+import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
+import { IntelligenceEventStore } from "../intelligence/event-store.js";
+import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision } from "../intelligence/executive/decision-step.js";
+import { deliverBossNote } from "../command/scheduler.js";
+import { CognitiveCurator } from "../cognition/curator/curator.js";
+import { runCuratorSweep } from "../cognition/curator/reconcile.js";
+import { autonomyLevel } from "../runtime/tool-policy.js";
 
 export interface ViewOptions {
   project?: string;
@@ -38,16 +45,6 @@ export interface ViewOptions {
 }
 
 const PORT_ATTEMPTS = 10;
-
-/**
- * His recorded preferences, whole (a prompt's copy of USER.md is cut short): USER.md, TASTE.md without the rules
- * he vetoed or the Librarian retired, and the standing memos he gave firstmate (its data/captain.md).
- */
-function recordedPreferences(): string {
-  const read = (path: string): string => (existsSync(path) ? readFileSync(path, "utf8") : "");
-  const kept = read(tastePath()).split(/^(?=## )/m).filter((section) => !/^## (?:Not me|Retired)\b/i.test(section)).join("");
-  return [read(userProfilePath()), kept, read(join(firstmateHome(), "data", "captain.md"))].join("\n");
-}
 
 async function listenNear(server: ConversationViewServer, port: number, explicit: boolean): Promise<number> {
   for (let attempt = 0; ; attempt += 1) {
@@ -75,6 +72,26 @@ const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
   return respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
 };
 
+function runCouncilAfterTurn(turn: { sessionId: string; user: string; assistant: string; recordInCognition?: boolean }): void {
+  void (async () => {
+    if (turn.recordInCognition) {
+      const curator = new CognitiveCurator();
+      try {
+        curator.recordConversationTurn({ sessionId: `view:${turn.sessionId}`, user: turn.user, assistant: turn.assistant });
+      } finally {
+        curator.close();
+      }
+      await runCuratorSweep().catch(() => undefined);
+    }
+    const { runCouncilInBackground } = await import("../council/council.js");
+    runCouncilInBackground();
+  })().catch(() => undefined);
+}
+
+function flydDesk(): FlydDesk {
+  return new FlydDesk({ answer: answerAsFlyd, see: screenshotsSeen, afterTurn: runCouncilAfterTurn });
+}
+
 /** What the screenshots he attached to a question show, read by a vision model. */
 const screenshotsSeen: Seer = async (question, images, onStep) => {
   onStep?.(images.length === 1 ? "Looking at your screenshot" : "Looking at your screenshots");
@@ -96,7 +113,7 @@ function openInBrowser(url: string): void {
   execFile(command, [url], () => {});
 }
 
-/** `flyd view`: a calm view of a conversation, served on loopback, with a box to message firstmate. */
+/** `flyd view`: Flyd's own conversation, served on loopback. */
 export async function runView(options: ViewOptions = {}): Promise<void> {
   const { acquireDesktopOwner } = await import("../mobile/owner.js");
   const { FLYD_DIR } = await import("../lib/config.js");
@@ -105,33 +122,58 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   if (options.port !== undefined && !(Number.isInteger(options.port) && options.port > 0 && options.port < 65536)) {
     throw new Error("--port must be an integer between 1 and 65535");
   }
-  const projectDir = resolveProjectDir(options.project ?? FIRSTMATE_PROJECT_DIR);
-  // Messages go to firstmate's own inbox, so the box only appears on
-  // firstmate's conversation.
-  const inbox = new FirstmateInbox();
-  // Routing, retold answers and status lines are quick jobs: Claude Haiku first.
   const complete: Complete = async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt);
-  const wantsInbox = options.project === undefined && inbox.available();
-  const liveSession = wantsInbox ? new LiveStaffSession({ home: inbox.home }) : undefined;
-  const source = new ClaudeCodeTranscriptSource({
-    projectDir,
-    // Skills and commands: ~/.claude plus firstmate's own .claude, as Claude Code lists them.
-    ...(wantsInbox ? { inbox, crew: new CrewProgress({ home: inbox.home }), commandRoots: { projectDir: inbox.home } } : {}),
-    // The window follows the session that holds firstmate's lock, not whichever transcript was written last.
-    ...(liveSession ? { liveSession: () => liveSession.current() } : {}),
-    // Flyd answers what is not software work itself; the router is one short call to Flyd's model.
-    ...(wantsInbox ? {
-      desk: {
-        desk: new FlydDesk({ answer: answerAsFlyd, see: screenshotsSeen }),
-        complete,
-        brief: (text, recent) => flydBrief(text, recent, complete),
-      },
-    } : {}),
-  });
+  const inbox = new FirstmateInbox();
+  const resolveDecision = async (decisionId: string, taskId: string, answer: string): Promise<void> => {
+    const store = new IntelligenceEventStore({ path: join(FLYD_DIR, "intelligence.sqlite") });
+    try {
+      const decision = readExecutiveDecision(store, decisionId);
+      if (!decision || decision.taskId !== taskId || decision.disposition !== "ask_george") throw new Error("That decision is no longer available");
+      if (decision.resolution) {
+        if (decision.resolution.answer === answer.trim()) return;
+        throw new Error("That decision already has George's answer");
+      }
+      const run = listDomainRuns().find((item) => item.id === taskId && item.transport.kind === "firstmate"
+        && item.request.domain === "coding" && ["queued", "accepted", "working", "needs_decision", "incomplete"].includes(item.status));
+      let evidenceRef: string;
+      if (run) {
+        const message = `George's answer to: ${decision.question}\n\n${answer.trim()}`;
+        const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
+        if (!sent.delivered) throw new Error("Flyd could not deliver that decision to the active work");
+        const receipt = sent.run?.messages?.find((item) => item.kind === "decision" && item.body === message && item.deliveredAt);
+        if (!receipt) throw new Error("Flyd could not verify delivery of that decision");
+        evidenceRef = `domain-message:${receipt.id}`;
+      } else {
+        if (!inbox.available()) throw new Error("There is no connected coding employee to receive that decision");
+        await inbox.sendOwn(`George's answer to the recorded decision ${decision.question}:\n\n${answer.trim()}`, `flyd-decision-${decisionId}`);
+        evidenceRef = `firstmate-note:flyd-decision-${decisionId}`;
+      }
+      resolveExecutiveDecision(store, decisionId, answer, [evidenceRef]);
+    } finally {
+      store.close();
+    }
+  };
+  const flydSource = new FlydConversationSource({ desk: flydDesk(), resolveDecision });
+  let source: ConversationSource = flydSource;
+  let wantsInbox = false;
+  let transcriptProjectDir: string | undefined;
+  let transcript: ClaudeCodeTranscriptSource | undefined;
+  if (options.project !== undefined || options.session !== undefined) {
+    transcriptProjectDir = resolveProjectDir(options.project ?? FIRSTMATE_PROJECT_DIR);
+    wantsInbox = options.project === undefined && inbox.available();
+    const liveSession = wantsInbox ? new LiveStaffSession({ home: inbox.home }) : undefined;
+    transcript = new ClaudeCodeTranscriptSource({
+      projectDir: transcriptProjectDir,
+      ...(wantsInbox ? { inbox, crew: new CrewProgress({ home: inbox.home }), commandRoots: { projectDir: inbox.home } } : {}),
+      ...(liveSession ? { liveSession: () => liveSession.current() } : {}),
+      ...(wantsInbox ? { desk: { desk: flydDesk(), complete, brief: (text, recent) => flydBrief(text, recent, complete) } } : {}),
+    });
+    source = transcript;
+  }
   const sessions = await source.listSessions();
-  if (sessions.length === 0) throw new Error(`No Claude Code sessions in ${projectDir}`);
-  if (options.session && !sessions.some((session) => session.id === options.session)) {
-    throw new Error(`No session ${options.session} in ${projectDir}`);
+  if (sessions.length === 0 && transcriptProjectDir) throw new Error(`No Claude Code sessions in ${transcriptProjectDir}`);
+  if (options.session && transcriptProjectDir && !sessions.some((session) => session.id === options.session)) {
+    throw new Error(`No session ${options.session} in ${transcriptProjectDir}`);
   }
 
   // Plain-English summaries: Claude Haiku, then xAI Grok, from whichever keys
@@ -146,22 +188,55 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   const interpreter = new AnswerInterpreter({ complete, cacheFile: defaultInterpretationCache() });
   // The artefact says each piece of work in Flyd's own words, through Flyd's own model.
   // A call whose task the staff's record shows finished, answered or released leaves Needs you, and firstmate is told to close it.
-  const overtaken = wantsInbox && process.env.FLYD_CLOSE_OVERTAKEN !== "0"
-    ? new OvertakenCalls({ send: (note, requestId) => inbox.sendOwn(note, requestId) })
+  const firstmateInbox = inbox;
+  const overtaken = wantsInbox && firstmateInbox && process.env.FLYD_CLOSE_OVERTAKEN !== "0"
+    ? new OvertakenCalls({ send: (note, requestId) => firstmateInbox.sendOwn(note, requestId) })
     : undefined;
-  const feed = new ArtefactFeed({ voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }), ...(overtaken ? { overtaken } : {}) });
-  // Show mode names things by his own projects; the column shows what Flyd remembers for the one we are on.
-  // Firstmate's routine questions that his standing rules settle are answered for him, each one he can take back.
-  const autoAnswers = wantsInbox && process.env.FLYD_AUTO_ANSWER !== "0"
-    ? new AutoAnswers({ preferences: recordedPreferences, logFile: defaultAutoAnswerLog() })
-    : undefined;
-  const server = new ConversationViewServer(source, { summarizer, interpreter, artefacts: artefactJudgeFromEnv(), semantic: semanticJudgeFromEnv(), importance: importanceJudgeFromEnv(), always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), autoAnswers, undefined, new ActivityReader(), new WhatsAppPairing());
+  const decideChanges = async (changes: import("../intelligence/executive/firstmate-decision.js").FirstmateChange[]) => {
+    const runs = listDomainRuns();
+    const activeStatuses = new Set(["queued", "accepted", "working", "needs_decision", "incomplete", "failed"]);
+    const prepared = changes.map((change) => {
+      const run = change.taskId ? runs.find((item) => item.id === change.taskId) : undefined;
+      const authority = run ? authorityForStaffRun({
+        runId: run.id,
+        firstmate: run.transport.kind === "firstmate" && run.request.domain === "coding",
+        active: activeStatuses.has(run.status),
+        autonomy: autonomyLevel(),
+      }) : change.taskId && change.kind === "fleet_state" && ["working", "paused", "unknown", "failed"].includes(change.state)
+        ? authorityForStaffRun({ runId: change.taskId, firstmate: inbox.available(), active: true, autonomy: autonomyLevel() })
+        : [];
+      const sentToBoss = notesSentToBoss(run?.messages);
+      return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
+    });
+    return processFirstmateChanges(prepared, {
+      complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
+      jev: { ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) },
+      executeInternalAction: async (action) => {
+        const run = listDomainRuns().find((item) => item.id === action.target && item.transport.kind === "firstmate"
+          && item.request.domain === "coding" && activeStatuses.has(item.status));
+        if (!run) {
+          const observedTask = prepared.find((change) => change.taskId === action.target && change.authority?.some((grant) => grant.grantId === action.grantId));
+          if (!observedTask || !inbox.available()) return { status: "unknown", evidenceRefs: [] };
+          const { requestId, replayed } = await inbox.sendTaskNote(action.target, action.text);
+          return replayed
+            ? { status: "failed", evidenceRefs: [`${NOTE_ALREADY_SENT}${requestId}`] }
+            : { status: "verified", evidenceRefs: [`firstmate-note:${requestId}`] };
+        }
+        return deliverBossNote(run, action);
+      },
+    });
+  };
+  const feed = new ArtefactFeed({
+    voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }),
+    decideChanges,
+    ...(overtaken ? { overtaken } : {}),
+  });
+  if (source !== flydSource) source = executiveConversationSource(source, decideChanges, resolveDecision);
+  const server = new ConversationViewServer(source, { summarizer, interpreter, artefacts: artefactJudgeFromEnv(), semantic: semanticJudgeFromEnv(), importance: importanceJudgeFromEnv(), always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), undefined, new ActivityReader(), new WhatsAppPairing());
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);
-  console.log(source.canSend
-    ? `Flyd answers what you type; software work goes to firstmate's inbox (${inbox.script}). Ctrl-C to stop.`
-    : "Read-only. Ctrl-C to stop.");
+  console.log(source.canSend ? "Flyd answers what you type. Ctrl-C to stop." : "Read-only. Ctrl-C to stop.");
   console.log(providers.length
     ? `Summaries: ${providers.map((provider) => provider.name).join(", then ")} (reply text is sent to that provider; FLYD_VIEW_SUMMARIES=0 turns it off).`
     : process.env.FLYD_VIEW_SUMMARIES === "0"
@@ -169,9 +244,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       : "Summaries: no CLAUDE_API_KEY, ANTHROPIC_API_KEY or XAI_API_KEY found; long replies lead with Flyd's whole briefing.");
   if (options.open !== false) openInBrowser(url);
   // A note firstmate leaves unread past three minutes: Flyd chases firstmate itself, quietly, and George never hears.
-  const unread = wantsInbox
+  const heard = wantsInbox ? transcript : undefined;
+  const unread = heard
     ? new UnreadNoteWatcher(
-      () => source.heardExchanges(),
+      () => heard.heardExchanges(),
       (note, requestId) => inbox.sendOwn(note, requestId),
       Date.now,
       defaultUnreadChaseState(),

@@ -4,6 +4,7 @@ import { asksIn, brief, decisionOf, handledBy, statusHeadline, withoutStubs } fr
 import { staffLine } from "./for-george.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { authorSummary, digestReply, isActionable, isRoutine } from "./summaries.js";
+import type { FleetArtefact } from "./artefact.js";
 import type { ConversationSnapshot } from "./types.js";
 
 // A glanceable status of the conversation for Flyd's notch island: is the
@@ -118,5 +119,21 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
     ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
     ...(reply ? { reply } : {}),
     ...(newest?.waiting ? { waiting: { id: newest.id, text: plainLinks(newest.waiting), ...(newest.waitingFailed ? { failed: true as const } : {}) } } : {}),
+  };
+}
+
+export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefact): ConversationStatus {
+  const ask = fleet?.calls.find((row) => !row.ledgerOnly);
+  const notable = fleet?.landed.find((row) => row.notable);
+  const reply = ask
+    ? { id: `decision:${ask.executiveDecisionId ?? ask.task ?? ask.label}`, headline: ask.question ?? ask.label, asks: true }
+    : notable
+      ? { id: `outcome:${notable.executiveDecisionId ?? notable.task ?? notable.label}`, headline: notable.label, asks: false }
+      : current.reply?.asks || current.reply?.id.startsWith("answer:") ? current.reply : undefined;
+  return {
+    working: current.working,
+    ...(current.lastActivity ? { lastActivity: current.lastActivity } : {}),
+    ...(reply ? { reply } : {}),
+    ...(current.waiting?.failed ? { waiting: current.waiting } : {}),
   };
 }

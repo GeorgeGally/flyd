@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from
 import { join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
+import { defaultIntelligenceDbPath, IntelligenceEventStore } from "../intelligence/event-store.js";
 
 // One continuous record of what George and Flyd said, across launches. Chat
 // sessions are disposable; the journal is what the Archivist curates from and
@@ -12,6 +13,9 @@ export interface JournalTurn {
   at: string;
   user: string;
   assistant: string;
+  sessionId?: string;
+  turnNumber?: number;
+  projectIds?: string[];
   /** Short "name: outcome" lines for tools the turn used. */
   tools?: string[];
   surface?: string;
@@ -47,7 +51,7 @@ export function appendJournalTurn(
 }
 
 /** Turns strictly after `sinceIso`, oldest first. */
-export function readJournalSince(sinceIso: string | null, dir = journalDir(), limit = 400): JournalTurn[] {
+function turnsFromFile(sinceIso: string | null, dir: string, limit: number): JournalTurn[] {
   if (!existsSync(dir)) return [];
   const sinceDay = sinceIso ? sinceIso.slice(0, 10) : "";
   const turns: JournalTurn[] = [];
@@ -68,18 +72,56 @@ export function readJournalSince(sinceIso: string | null, dir = journalDir(), li
   return turns.slice(-limit);
 }
 
+function viewTurnsFromEventSpine(sinceIso: string | null, limit: number): JournalTurn[] {
+  const path = defaultIntelligenceDbPath();
+  if (!existsSync(path)) return [];
+  const store = new IntelligenceEventStore({ path });
+  try {
+    return store.readSource("chat.cognition").flatMap((event) => {
+      if (event.erased || !event.payload) return [];
+      const value = event.payload.conversation;
+      if (!value || typeof value !== "object") return [];
+      const conversation = value as Record<string, unknown>;
+      if (typeof conversation.sessionId !== "string" || !conversation.sessionId.startsWith("view:")
+        || typeof conversation.user !== "string" || typeof conversation.assistant !== "string") return [];
+      if (sinceIso && event.capturedAt <= sinceIso) return [];
+      return [{
+        id: event.id,
+        at: event.capturedAt,
+        user: conversation.user,
+        assistant: conversation.assistant,
+        sessionId: conversation.sessionId,
+        ...(typeof conversation.turnNumber === "number" ? { turnNumber: conversation.turnNumber } : {}),
+        ...(Array.isArray(conversation.projectIds) ? { projectIds: conversation.projectIds.filter((id): id is string => typeof id === "string") } : {}),
+        surface: "conversation-view",
+      }];
+    }).sort((a, b) => a.at.localeCompare(b.at)).slice(-limit);
+  } finally {
+    store.close();
+  }
+}
+
+export function readJournalSince(sinceIso: string | null, dir?: string, limit = 400): JournalTurn[] {
+  const legacy = turnsFromFile(sinceIso, dir ?? journalDir(), limit);
+  const view = dir === undefined ? viewTurnsFromEventSpine(sinceIso, limit) : [];
+  return [...legacy, ...view].sort((a, b) => a.at.localeCompare(b.at)).slice(-limit);
+}
+
 /** The most recent turns, for continuity across launches. */
-export function recentJournal(count: number, dir = journalDir()): JournalTurn[] {
-  if (!existsSync(dir)) return [];
-  const files = readdirSync(dir).filter((name) => name.endsWith(".jsonl")).sort().slice(-3);
-  const turns: JournalTurn[] = [];
-  for (const file of files) {
-    for (const line of readFileSync(join(dir, file), "utf8").split("\n")) {
-      if (!line.trim()) continue;
-      try { turns.push(JSON.parse(line) as JournalTurn); } catch { /* torn line */ }
+export function recentJournal(count: number, dir?: string): JournalTurn[] {
+  const legacyDir = dir ?? journalDir();
+  const legacy: JournalTurn[] = [];
+  if (existsSync(legacyDir)) {
+    const files = readdirSync(legacyDir).filter((name) => name.endsWith(".jsonl")).sort().slice(-3);
+    for (const file of files) {
+      for (const line of readFileSync(join(legacyDir, file), "utf8").split("\n")) {
+        if (!line.trim()) continue;
+        try { legacy.push(JSON.parse(line) as JournalTurn); } catch { /* torn line */ }
+      }
     }
   }
-  return turns.sort((a, b) => a.at.localeCompare(b.at)).slice(-count);
+  const view = dir === undefined ? viewTurnsFromEventSpine(null, count) : [];
+  return [...legacy, ...view].sort((a, b) => a.at.localeCompare(b.at)).slice(-count);
 }
 
 function shiftDay(day: string, delta: number): string {

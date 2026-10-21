@@ -9,6 +9,15 @@ const RUN_ID = /\b(?:run|task)[ -]?id\b/i;
 const JOB_ID = /\bjob[ -]?id\b|\bjob-[0-9a-f]{6,}\b/i;
 const DOMAIN_RUN_ID = /\bdomain-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i;
 const PR_NUMBER = /\bPR\s*#?\d+\b/i;
+const CREWS = /\bcrews?\b/i;
+const COUNCIL_ROLES: RegExp[] = [
+  /\b(?:Librarians?|Strategists?|Critics?|Muses?)\b/,
+  /\bCouncil\b/,
+  /\bthe (?:council|librarian|strategist|critic|muse|scout)s?\b/i,
+];
+
+/** Flyd's backstage roles and agents, as opposed to the mechanics of the work. */
+export const BACKSTAGE_ROLES: RegExp[] = [HELPERS, CREWS, /\bjev\b/i, COUNCIL_NAMED, ...COUNCIL_ROLES];
 
 /** Git and run telemetry: commit hashes, fm/ branches, task, run, job and domain-run ids. */
 export const BACKSTAGE_TELEMETRY: RegExp[] = [COMMIT_ID, FM_BRANCH, RUN_ID, JOB_ID, DOMAIN_RUN_ID];
@@ -19,12 +28,10 @@ export const CHAT_BACKSTAGE: RegExp[] = [HELPERS, MACHINERY, COUNCIL_NAMED];
 /** What a chat answer may not name. A PR number or a job or domain-run id George asked about may be named back to him. */
 export const CHAT_ANSWER_BACKSTAGE: RegExp[] = [
   ...CHAT_BACKSTAGE,
-  /\bcrews?\b/i,
+  CREWS,
   /\bbranch(?:es)?\b/i,
   /\bpipelines?\b/i,
-  /\b(?:Librarians?|Strategists?|Critics?|Muses?)\b/,
-  /\bCouncil\b/,
-  /\bthe (?:council|librarian|strategist|critic|muse|scout)s?\b/i,
+  ...COUNCIL_ROLES,
   COMMIT_ID,
   FM_BRANCH,
   RUN_ID,

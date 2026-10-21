@@ -54,6 +54,7 @@ export interface SemanticObject {
   };
   decision?: {
     /** Where a choice is sent. This is routing identity, not presentation. */
+    decisionId?: string;
     target: string;
     question: string;
     alternatives: string[];
@@ -121,6 +122,7 @@ export type SemanticKindOverride = (item: ShowItem) => SemanticKind | undefined;
 const FAILED = /\b(?:failed|error|errored|broken|stuck)\b/i;
 
 export function semanticKindFor(item: ShowItem): SemanticKind {
+  if (item.executiveDecisionId) return item.decision ? "decision" : "artifact";
   // A Firstmate task is one Activity for its whole life. A decision or result
   // can happen *inside* that activity without turning the job into a new object.
   if (item.task && item.kind !== "plan") return "activity";
@@ -183,7 +185,7 @@ function actionsFor(item: ShowItem): SemanticAction[] {
 }
 
 export function semanticObjectFromShow(item: ShowItem, override?: SemanticKind): SemanticObject {
-  const kind = item.task && item.kind !== "plan" ? "activity" : override ?? semanticKindFor(item);
+  const kind = item.executiveDecisionId ? semanticKindFor(item) : item.task && item.kind !== "plan" ? "activity" : override ?? semanticKindFor(item);
   return {
     id: semanticIdentityFor(item),
     kind,
@@ -203,6 +205,7 @@ export function semanticObjectFromShow(item: ShowItem, override?: SemanticKind):
     ...(activityPhaseFor(item) ? { activity: activityPhaseFor(item) } : {}),
     ...(item.decision ? {
       decision: {
+        ...(item.decision.decisionId ? { decisionId: item.decision.decisionId } : {}),
         target: item.decision.task,
         question: item.decision.question,
         alternatives: item.decision.choices,
@@ -301,7 +304,7 @@ export function decisionObjectsFromShow(source: DecisionSources): SemanticObject
   const seen = new Set<string>();
   const decisions: SemanticObject[] = [];
   for (const item of source.calls ?? []) {
-    if (item.task) continue;
+    if (item.task && !item.executiveDecisionId) continue;
     const object = semanticObjectFromShow(item);
     if (object.kind !== "decision" || seen.has(object.id)) continue;
     seen.add(object.id);

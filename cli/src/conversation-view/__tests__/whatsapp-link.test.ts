@@ -89,7 +89,7 @@ describe("the pairing endpoints", () => {
 
   it("draws the code only for this page's own token, and never as text", async () => {
     const feed = { start() {}, stop() {}, current: () => EMPTY, onRefresh: () => () => {} };
-    const server = new ConversationViewServer({ assistantLabel: "Flyd", canSend: false } as never, undefined, undefined, undefined, feed as never, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, pairing("2@secretcode"));
+    const server = new ConversationViewServer({ assistantLabel: "Flyd", canSend: false } as never, undefined, undefined, undefined, feed as never, undefined, undefined, undefined, undefined, undefined, undefined, undefined, pairing("2@secretcode"));
     try {
       const base = `http://127.0.0.1:${await server.listen(0)}`;
       const token = (await (await fetch(base + "/api/token")).json()).token;
@@ -108,7 +108,7 @@ describe("the pairing endpoints", () => {
 
   it("answers with an image before the first code is drawn, so the box is never blank", async () => {
     const feed = { start() {}, stop() {}, current: () => EMPTY, onRefresh: () => () => {} };
-    const server = new ConversationViewServer({ assistantLabel: "Flyd", canSend: false } as never, undefined, undefined, undefined, feed as never, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, pairing());
+    const server = new ConversationViewServer({ assistantLabel: "Flyd", canSend: false } as never, undefined, undefined, undefined, feed as never, undefined, undefined, undefined, undefined, undefined, undefined, undefined, pairing());
     try {
       const base = `http://127.0.0.1:${await server.listen(0)}`;
       const token = (await (await fetch(base + "/api/token")).json()).token;

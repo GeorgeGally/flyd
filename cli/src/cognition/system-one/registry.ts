@@ -22,6 +22,7 @@ export type PredicateFamily =
   | "learning"
   | "model_routing"
   | "council"
+  | "executive"
   | "chat"
   | "self_review"
   | "presentation";
@@ -71,6 +72,7 @@ const CURATOR_PROJECTION = ["statement", "project_ids", "intent_kind", "temporal
 const MEMORY_PROJECTION = ["request", "temporal_frame", "candidates"] as const;
 const FRONT_DOOR_PROJECTION = ["utterance", "foreground_app", "focused_element_role", "has_selection", "user_projects"] as const;
 const SELF_REVIEW_PROJECTION = ["text", "surface", "george_said"] as const;
+const EXECUTIVE_PROJECTION = ["source_kind", "source_state", "summary", "question", "options", "goal_context", "evidence_refs"] as const;
 
 const interpret = (id: string, instructions: string, extra: Partial<PredicateDefinition> = {}): PredicateDefinition => ({
   id, family: "interpret", type: "noul", instructions,
@@ -459,6 +461,29 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     threshold: 0.7, use: "gate", failureMode: "fallback_heuristic",
     projection: ["kind", "headline", "detail", "project", "status", "age_hours", "his_recent_words"], evaluatorVersion: "matters_to_george.v1", status: "production",
     consumer: "conversation-view/importance-judge.ts ImportanceJudge: an item judged false at or above the threshold leaves the big screen; until a judgment lands (or with Jev off or failing) the item shows as before",
+  },
+
+  {
+    id: "executive_change_route", family: "executive", type: "choice",
+    instructions: "Flyd is George's chief of staff. `summary` is a model's evidence-grounded interpretation of a change from `source_kind` in state `source_state`; `question` and `options` are copied from the source when present; `goal_context` is the relevant existing goal and `evidence_refs` identify the source records. Which disposition best serves George? This is judgment only, never permission.",
+    criteria: {
+      ask_george: "A real decision belongs to George about his goals, priorities, money, name, people, taste, or an irreversible outward action; the question and its alternatives are grounded in the source.",
+      handle_internally: "A concrete, reversible internal follow-up to existing work is needed, and deterministic policy may separately authorize that exact capability and target.",
+      backstage: "Routine progress, worker lifecycle, duplicate or stale state, or a verified/non-notable fact that does not change what George needs to do.",
+      unclear: "The evidence, ownership, or options are incomplete or conflicting; do not infer permission or claim an outcome.",
+    },
+    threshold: 0.8, use: "choice", failureMode: "skip_mutation",
+    projection: EXECUTIVE_PROJECTION, evaluatorVersion: "executive_change_route.v1", status: "production",
+    consumer: "intelligence/executive/firstmate-decision.ts: semantic disposition evidence; deterministic authority policy alone allows internal effects",
+  },
+
+  {
+    id: "executive_outcome_notable", family: "executive", type: "noul",
+    instructions: "Does this verified outcome materially change George's immediate priorities, a time-sensitive commitment, money or a significant risk enough to interrupt him now? Routine completed work and staff/process changes are not interruptions. Without evidence of consequence, answer false.",
+    criteria: { true: "A verified result has an explicit significant, time-sensitive consequence for George or his goal.", false: "Routine completion, internal mechanics, an unverified claim, a question, or no concrete timely consequence." },
+    threshold: 0.9, use: "gate", failureMode: "skip_mutation",
+    projection: EXECUTIVE_PROJECTION, evaluatorVersion: "executive_outcome_notable.v1", status: "production",
+    consumer: "intelligence/executive/firstmate-decision.ts: only verified results judged notable may interrupt",
   },
 
   // ── proposed: model routing (replay only) ─────────────────────────────

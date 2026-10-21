@@ -1,3 +1,4 @@
+import { recommendationText } from "../intelligence/executive/decision-step.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, watch, writeFileSync, type FSWatcher } from "node:fs";
@@ -10,6 +11,10 @@ import { readPlans, type Plan } from "../lib/plans.js";
 import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
 import { recordKept } from "../council/reply-review.js";
 import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
+import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision-step.js";
+import type { FirstmateChange } from "../intelligence/executive/firstmate-decision.js";
+import { readVerdicts } from "../council/reply-review.js";
+import { readDomainRun } from "../command/store.js";
 import type { ShowItem, ShowKind } from "./show.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
@@ -21,6 +26,8 @@ import type { ShowItem, ShowKind } from "./show.js";
 // here is bounded, cached and fails soft.
 
 export interface ArtefactRow {
+  /** Original evidence for Core judgment; never a display string. */
+  sourceDetail?: string;
   choices?: string[];
   references?: Array<{ label: string; url: string }>;
   context?: string;
@@ -45,6 +52,11 @@ export interface ArtefactRow {
   shotDir?: string;
   /** Flyd's own words for it, once its model has said them. */
   said?: Said;
+  /** The shared decision step's question and recommendation, when George owns it. */
+  executiveDecisionId?: string;
+  question?: string;
+  recommendation?: { option?: string; rationale: string };
+  notable?: boolean;
   /** The list still holds it but the latest read no longer reports it: a call shows as settled, never as asking him. */
   ledgerOnly?: boolean;
 }
@@ -66,6 +78,8 @@ export interface FleetArtefact {
   held: ArtefactRow[];
   /** Queued next. */
   next: ArtefactRow[];
+  /** Source changes awaiting or carrying their Core-owned disposition. */
+  changes?: FirstmateChange[];
 }
 
 export interface ArtefactNews {
@@ -109,7 +123,7 @@ export interface DayCount {
 
 export const EMPTY_ARTEFACT: ArtefactInputs = { memories: [], news: [], taste: [] };
 
-const emptyFleet = (): FleetArtefact => ({ calls: [], live: [], ready: [], landed: [], held: [], next: [] });
+const emptyFleet = (): FleetArtefact => ({ calls: [], live: [], ready: [], landed: [], held: [], next: [], changes: [] });
 
 const FLEET_UNAVAILABLE = (reason: string): FleetArtefact => ({ ...emptyFleet(), unavailable: reason });
 
@@ -238,11 +252,28 @@ export function parseBearings(raw: unknown): FleetArtefact {
       } as ArtefactRow,
     };
   }).filter((entry) => entry.row.label);
+  const changes: FirstmateChange[] = flight.map((entry) => ({
+    eventId: str(entry.row.task) || entry.row.label,
+    ...(entry.row.task ? { taskId: entry.row.task } : {}),
+    kind: "fleet_state",
+    state: entry.state,
+    label: entry.row.label,
+    detail: entry.row.url && !entry.doing.includes(entry.row.url) ? [entry.doing, entry.row.url].filter(Boolean).join("\n") : entry.doing,
+    evidenceRefs: entry.row.task ? [`firstmate-task:${entry.row.task}`] : [],
+  }));
   const inState = (...states: string[]) => flight.filter((entry) => states.includes(entry.state));
+  changes.push(...rows(data.decisions_open).map((row): FirstmateChange => ({
+    eventId: `decision:${str(row.id) || str(row.summary)}`,
+    ...(str(row.id) ? { taskId: str(row.id) } : {}),
+    kind: "decision", state: "needs-decision", label: str(row.summary) || str(row.id),
+    detail: [str(row.summary), str(row.question), str(row.detail)].filter(Boolean).join("\n"),
+    evidenceRefs: str(row.id) ? [`firstmate-task:${str(row.id)}`] : [],
+  })));
   const finished = inState("done").map((entry) => ({ ...entry.row, status: entry.kind === "scout" ? "report available" : readyStatus(entry.doing) }));
   const HELD: Record<string, string> = { failed: "failed", unknown: "no word", paused: "paused" };
   return {
     ...(str(data.generated) ? { generated: str(data.generated) } : {}),
+    changes,
     calls: rows(data.decisions_open).map((row) => ({ label: str(row.summary) || str(row.id), ...(str(row.id) ? { task: str(row.id) } : {}) })).filter((row) => row.label),
     live: inState("working").map((entry) => entry.row),
     ready: finished.filter((row) => row.status !== "merged"),
@@ -400,12 +431,12 @@ export function isCurrentDecision(row: ArtefactRow, now: number): boolean {
 }
 
 /** Bearings' rows with the backlog's full words, last-report times and screenshots. Pure. */
-export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEntry>, extras: Map<string, TaskExtra> = new Map(), now = Date.now()): FleetArtefact {
+export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEntry>, extras: Map<string, TaskExtra> = new Map(), now = Date.now(), options: { includeUnclassifiedCalls?: boolean } = {}): FleetArtefact {
   const enrich = (row: ArtefactRow, call = false): ArtefactRow => {
     const entry = row.task ? backlog.get(row.task) : undefined;
     const extra = row.task ? extras.get(row.task) : undefined;
     let next: ArtefactRow = { ...row };
-    if (entry && call) next = { ...next, label: entry.title, ...(entry.hold ? { detail: entry.hold } : {}) };
+    if (entry && call) next = { ...next, label: entry.title, ...(entry.hold ? { detail: entry.hold, ...(options.includeUnclassifiedCalls ? { sourceDetail: [row.sourceDetail, entry.hold].filter(Boolean).join("\n") } : {}) } : {}) };
     else if (entry) next = { ...next, label: wholeLabel(row.label, entry.title) };
     if (entry?.repo) next.repo = entry.repo;
     if (call && entry?.hold) {
@@ -433,13 +464,116 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
   if (fleet.unavailable) return fleet;
   return {
     ...fleet,
-    calls: fleet.calls.map((row) => (row.ledgerOnly ? row : enrich(row, true))).filter((row) => (row.ledgerOnly ? !notADecision(row) : isCurrentDecision(row, now))),
+    calls: fleet.calls.map((row) => (row.ledgerOnly ? row : enrich(row, true))).filter((row) => (row.ledgerOnly ? !notADecision(row) : options.includeUnclassifiedCalls || isCurrentDecision(row, now))),
     live: fleet.live.map((row) => enrich(row)),
     ready: fleet.ready.map((row) => enrich(row)),
     landed: fleet.landed.map((row) => enrich(row)),
     held: fleet.held.map((row) => enrich(row)),
     next: fleet.next.map((row) => enrich(row)),
   };
+}
+
+export function firstmateChangesFromFleet(fleet: FleetArtefact): FirstmateChange[] {
+  const changes = new Map<string, FirstmateChange>();
+  const add = (change: FirstmateChange) => changes.set(`${change.taskId ?? change.eventId}:${change.state}`, change);
+  for (const change of fleet.changes ?? []) add(change);
+  for (const row of fleet.calls) {
+    if (row.ledgerOnly) continue;
+    const original = fleet.changes?.find((change) => change.taskId === row.task && change.kind === "decision");
+    add({
+      eventId: `decision:${row.task ?? row.label}`,
+      ...(row.task ? { taskId: row.task } : {}),
+      kind: "decision",
+      state: "needs-decision",
+      label: row.label,
+      detail: [original?.detail, row.sourceDetail ?? row.detail, row.context].filter(Boolean).join("\n"),
+      goalContext: row.context,
+      evidenceRefs: row.task ? [`firstmate-task:${row.task}`] : [],
+    });
+  }
+  for (const row of [...fleet.ready, ...fleet.landed]) {
+    if (fleet.changes?.some((change) => change.taskId === row.task && change.kind === "fleet_state")) continue;
+    add({
+      eventId: `result:${row.task ?? row.label}`,
+      ...(row.task ? { taskId: row.task } : {}),
+      kind: "fleet_state",
+      state: "done",
+      label: row.label,
+      detail: [row.sourceDetail ?? row.detail ?? row.status, row.url].filter(Boolean).join("\n"),
+      evidenceRefs: row.task ? [`firstmate-task:${row.task}`] : [],
+    });
+  }
+  for (const row of [...fleet.live, ...fleet.held, ...fleet.next]) {
+    if (fleet.changes?.some((change) => change.taskId === row.task && change.kind === "fleet_state")) continue;
+    const state = row.status ?? (fleet.live.includes(row) ? "working" : fleet.next.includes(row) ? "queued" : "unknown");
+    add({
+      eventId: `status:${row.task ?? row.label}`,
+      ...(row.task ? { taskId: row.task } : {}),
+      kind: "fleet_state",
+      state,
+      label: row.label,
+      detail: row.sourceDetail ?? row.detail ?? "",
+      evidenceRefs: row.task ? [`firstmate-task:${row.task}`] : [],
+    });
+  }
+  return [...changes.values()].slice(0, 40);
+}
+
+/** Domain runs Flyd held for its own attention after their boss could not settle them, until the run moves on. */
+export function heldForAttention(): ArtefactRow[] {
+  const rows = new Map<string, ArtefactRow>();
+  for (const verdict of readVerdicts()) {
+    if (!verdict.held || verdict.shortfalls.length || !verdict.source.startsWith("domain:")) continue;
+    const task = verdict.source.slice("domain:".length);
+    const run = readDomainRun(task);
+    if (!run?.notified || run.updatedAt > verdict.at) continue;
+    rows.set(task, { label: run.request.intendedOutcome, task, status: "needs attention", at: verdict.at });
+  }
+  return [...rows.values()];
+}
+
+export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly ExecutiveDecisionRecord[], attention: readonly ArtefactRow[] = []): FleetArtefact {
+  const byTask = new Map<string, ExecutiveDecisionRecord>();
+  for (const decision of decisions) {
+    if (!decision.taskId) continue;
+    const previous = byTask.get(decision.taskId);
+    if (previous?.disposition === "ask_george" && previous.show) continue;
+    byTask.set(decision.taskId, decision);
+  }
+  // A George choice can come from a work row's state as well as from an open decision.
+  const askedIn = new Set(fleet.calls.map((row) => row.task));
+  const stateRows = [...fleet.live, ...fleet.ready, ...fleet.landed, ...fleet.held, ...fleet.next]
+    .filter((row) => row.task && !askedIn.has(row.task) && askedIn.add(row.task));
+  const calls = [...fleet.calls, ...stateRows].flatMap((row) => {
+    if (row.ledgerOnly) return [row];
+    const decision = row.task ? byTask.get(row.task) : undefined;
+    if (decision?.disposition !== "ask_george" || !decision.show || !decision.question) return [];
+    return [{
+      ...row,
+      executiveDecisionId: decision.decisionId,
+      status: "Needs your choice",
+      label: decision.question,
+      question: decision.question,
+      choices: decision.options ?? [],
+      ...(decision.recommendation ? { recommendation: decision.recommendation } : {}),
+      detail: recommendationText(decision.recommendation),
+    }];
+  });
+  const verified = [...fleet.ready, ...fleet.landed].flatMap((row) => {
+    const decision = row.task ? byTask.get(row.task) : undefined;
+    if (decision?.disposition !== "handle_internally" || !decision.show || decision.verification.status !== "verified") return [];
+    return [{
+      ...row,
+      executiveDecisionId: decision.decisionId,
+      label: decision.summary,
+      detail: undefined,
+      status: "verified",
+      ...(decision.notify ? { notable: true } : {}),
+    }];
+  });
+  const asking = new Set(calls.map((row) => row.task));
+  const failed = fleet.held.flatMap((row) => row.status === "failed" && !asking.has(row.task) ? [{ ...row, detail: undefined }] : []);
+  return { ...emptyFleet(), ...(fleet.generated ? { generated: fleet.generated } : {}), ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}), calls, landed: verified, held: [...failed, ...attention] };
 }
 
 /** The firstmate data directories a backlog row's words point at ("report data/gnm-lab/report.md"). Pure. */
@@ -689,17 +823,18 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
   const detail = row.said?.line || row.detail;
   const sourceHeadline = withoutProject(row.label, names);
   // A question with options leads with the question in plain words, and under it the work it is about.
-  const asked = kind === "call" && row.choices?.length && row.detail ? plainQuestion(row.detail) : "";
-  const recommended = asked ? recommendedChoice(row.detail!) : undefined;
+  const asked = kind === "call" ? row.question ?? (row.choices?.length && row.detail ? plainQuestion(row.detail) : "") : "";
+  const recommended = row.recommendation?.option ?? (asked ? recommendedChoice(row.detail ?? "") : undefined);
   const headline = asked || (row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline));
   if (!headline) return undefined;
   return {
     id: `${kind}:${id}`,
     kind,
+    ...(row.executiveDecisionId ? { executiveDecisionId: row.executiveDecisionId } : {}),
     headline,
     why: "",
-    ...(kind === "call" && row.task ? { decision: { task: row.task, question: row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}) } } : {}),
-    ...(asked ? { detail: row.said?.line || sourceHeadline } : detail ? { detail } : {}),
+    ...(kind === "call" && row.task ? { decision: { task: row.task, ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}) } } : {}),
+    ...(asked ? { detail: row.recommendation ? recommendationText(row.recommendation) : row.said?.line || sourceHeadline } : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
     ...(row.started ? { started: row.started } : {}),
     ...((row.shotDir ?? row.task) && row.shots?.length
@@ -978,6 +1113,11 @@ export class ArtefactFeed {
   /** Calls already found overtaken and closed with the staff, by callId: kept out of Needs you. */
   private readonly overtaken = new Map<string, string>();
 
+  /** Notices and replies use the same decision owner as polled fleet changes. */
+  decide(changes: FirstmateChange[]): Promise<ExecutiveDecisionRecord[]> | null {
+    return this.options.decideChanges?.(changes) ?? null;
+  }
+
   constructor(
     private readonly options: {
       home?: string;
@@ -990,6 +1130,8 @@ export class ArtefactFeed {
       artefactsFile?: string;
       /** Flyd's model, to say each row in its own words. */
       voice?: ArtefactVoice;
+      /** Every FirstMate change must receive a Core decision before it can reach a surface. */
+      decideChanges?: (changes: FirstmateChange[]) => Promise<ExecutiveDecisionRecord[]>;
       /** Reads whether old calls were overtaken; without it every call is shown. */
       overtaken?: OvertakenCheck;
       intervalMs?: number;
@@ -1115,7 +1257,7 @@ export class ArtefactFeed {
     if (prune) for (const [key, entry] of merged) if (now - entry.seenAt > LEDGER_KEEP_MS) merged.delete(key);
     this.ledger.clear();
     for (const [key, entry] of merged) this.ledger.set(key, entry);
-    return this.ledgerFleet(incoming.generated);
+    return { ...this.ledgerFleet(incoming.generated), changes: incoming.changes };
   }
 
   /** The accumulated list as the fleet the screen reads, this read's rows first, ledger-only rows after. */
@@ -1218,15 +1360,22 @@ export class ArtefactFeed {
       this.loadLedger();
       const merged = this.mergeLedger(withRecent, Date.now(), !bearings.unavailable);
       const content = bearings.unavailable && !FLEET_FIELDS.some((field) => merged[field].length) ? FLEET_UNAVAILABLE("unreadable") : merged;
-      const enriched = await this.withoutOvertaken(enrichFleet(content, entries, extras), entries);
-      for (const row of enriched.calls) {
+      const allQuestions = enrichFleet(content, entries, extras, Date.now(), { includeUnclassifiedCalls: Boolean(this.options.decideChanges) });
+      const enriched = this.options.decideChanges ? allQuestions : await this.withoutOvertaken(allQuestions, entries);
+      const decided = this.options.decideChanges
+        ? projectFleetDecisions(enriched, await this.options.decideChanges(firstmateChangesFromFleet(enriched)).catch((error: unknown) => {
+          console.warn(`[view] executive decision step failed: ${reason(error)}`);
+          return [];
+        }), heldForAttention())
+        : enriched;
+      for (const row of decided.calls) {
         const entry = row.ledgerOnly ? undefined : this.ledger.get(ledgerKey("calls", row) ?? "");
         if (entry) Object.assign(entry, { asked: true, row });
       }
       this.saveLedger();
       const voice = this.options.voice;
       const generation = ++this.generation;
-      const { fleet, unsaid } = voice ? this.voiced(voice, enriched) : { fleet: enriched, unsaid: [] };
+      const { fleet, unsaid } = voice && !this.options.decideChanges ? this.voiced(voice, decided) : { fleet: decided, unsaid: [] };
       this.inputs = {
         fleet,
         ...(bearings.unavailable ? {} : { landedByDay: landedByDay(entries, Date.now()), landedWeek: weekLandedRows(entries, Date.now()) }),
@@ -1236,7 +1385,7 @@ export class ArtefactFeed {
         plans: planArtefacts(readPlans(plansDir), Date.now()),
       };
       for (const listener of this.listeners) listener();
-      if (voice && unsaid.length) void this.say(voice, enriched, unsaid, generation);
+      if (voice && !this.options.decideChanges && unsaid.length) void this.say(voice, decided, unsaid, generation);
     } finally {
       this.refreshing = false;
       if (this.again) this.refreshSoon();

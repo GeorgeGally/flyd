@@ -1,13 +1,15 @@
+import { parseExecutiveDecision } from "../../intelligence/executive/decision-step.js";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
-import { notifyRun } from "../scheduler.js";
+import { decideRun, notifyRun } from "../scheduler.js";
 import { readDomainRun } from "../store.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
+import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
 function run(reply: string, status?: DomainRunStatus): DomainRun {
   const parsed = parseDomainResult(reply);
@@ -201,14 +203,29 @@ describe("notifyRun", () => {
   it("notifies an outcome once and marks chatter handled without showing it", async () => {
     const sent: string[] = [];
     const notify = async (_title: string, message: string) => { sent.push(message); };
+    const decision = (summary: string, notify: boolean): ExecutiveDecisionRecord => ({
+      schema: "flyd.executive-decision.v1",
+      decisionId: "decision-1",
+      sourceId: "firstmate.change",
+      sourceEventId: "event-1",
+      taskId: "domain-notice-1",
+      disposition: "handle_internally",
+      reason: "verified result",
+      summary,
+      evidenceRefs: ["domain-notice-1"],
+      verification: { status: "verified", evidenceRefs: ["domain-notice-1:completed"] },
+      show: true,
+      notify,
+      createdAt: "2026-10-21T00:00:00.000Z",
+    });
 
-    await notifyRun(run("Captain, shipshape."), notify);
+    await notifyRun(run("Captain, shipshape."), notify, undefined, async () => decision("No result to share.", false));
     expect(sent).toEqual([]);
     expect(readDomainRun("domain-notice-1")?.notified).toBe(true);
 
     const outcome = run("Captain, dark mode is merged.");
-    await notifyRun(outcome, notify);
-    await notifyRun({ ...outcome, notified: true }, notify);
+    await notifyRun(outcome, notify, undefined, async () => decision("Dark mode is merged.", true));
+    await notifyRun({ ...outcome, notified: true }, notify, undefined, async () => decision("Dark mode is merged.", true));
     expect(sent).toEqual(["Dark mode is merged."]);
   });
 
@@ -217,12 +234,78 @@ describe("notifyRun", () => {
     const notify = async (_title: string, message: string) => { sent.push(message); };
 
     const decision = run(JSON.stringify({ status: "needs_decision", brief: "Merge the sidebar change or hold it?" }));
-    await notifyRun(decision, notify);
-    await notifyRun({ ...decision, notified: true }, notify);
-    expect(sent).toEqual(["I need your decision: Merge the sidebar change or hold it?"]);
+    const decided: ExecutiveDecisionRecord = {
+      schema: "flyd.executive-decision.v1",
+      decisionId: "decision-2",
+      sourceId: "firstmate.change",
+      sourceEventId: "event-2",
+      taskId: "domain-notice-1",
+      disposition: "ask_george",
+      reason: "George owns the choice",
+      summary: "The review needs your call.",
+      evidenceRefs: ["domain-notice-1"],
+      question: "Merge the sidebar change or hold it?",
+      options: ["Merge the sidebar change", "Hold it"],
+      recommendation: { option: "Hold it", rationale: "The request still has an open requirement." },
+      verification: { status: "unknown", evidenceRefs: [] },
+      show: true,
+      notify: true,
+      createdAt: "2026-10-21T00:00:00.000Z",
+    };
+    await notifyRun(decision, notify, undefined, async () => decided);
+    await notifyRun({ ...decision, notified: true }, notify, undefined, async () => decided);
+    expect(sent).toEqual(["Merge the sidebar change or hold it? I recommend \"Hold it\". The request still has an open requirement."]);
   });
 
-  it("sends a failed run back to its boss once, and only then tells George it is blocked, without the error", async () => {
+  it("shows only decisions and notable verified outcomes selected by the executive record", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const record = (overrides: Partial<ExecutiveDecisionRecord>): ExecutiveDecisionRecord => {
+    const parsed = parseExecutiveDecision({
+      schema: "flyd.executive-decision.v1",
+      decisionId: "decision-1",
+      sourceId: "firstmate.change",
+      sourceEventId: "event-1",
+      taskId: "domain-notice-1",
+      disposition: "backstage",
+      reason: "routine state stays backstage",
+      summary: "No result to surface.",
+      evidenceRefs: ["domain-notice-1"],
+      verification: { status: "unknown", evidenceRefs: [] },
+      show: false,
+      notify: false,
+      createdAt: "2026-10-21T00:00:00.000Z",
+      ...overrides,
+     });
+    if (!parsed) throw new Error("Invalid executive fixture");
+    return parsed;
+  };
+
+    await notifyRun(run("Captain, dark mode is merged."), notify, undefined, async () => record({}));
+    await notifyRun(run("The review needs a decision.", "needs_decision"), notify, undefined, async () => record({
+      disposition: "ask_george",
+      summary: "The review needs your call.",
+      question: "Keep the current review or add the missing tools?",
+      options: ["Keep the current review", "Add the missing tools"],
+      recommendation: { option: "Add the missing tools", rationale: "They remain required by the task." },
+      show: true,
+      notify: true,
+    }));
+    await notifyRun(run("The site is live."), notify, undefined, async () => record({
+      disposition: "handle_internally",
+      summary: "The requested release is verified.",
+      verification: { status: "verified", evidenceRefs: ["receipt:release"] },
+      show: true,
+      notify: true,
+    }));
+
+    expect(sent).toEqual([
+      "Keep the current review or add the missing tools? I recommend \"Add the missing tools\". They remain required by the task.",
+      "The requested release is verified.",
+    ]);
+  });
+
+  it("sends a failed run back to its boss, and brings George only his call on it, without the error", async () => {
     const sent: Array<{ message: string; kind?: string }> = [];
     const notify = async (_title: string, message: string, kind?: string) => { sent.push({ message, kind }); };
     const asked: string[] = [];
@@ -233,16 +316,23 @@ describe("notifyRun", () => {
     };
     const failed = run(JSON.stringify({ status: "failed", brief: "Command failed: npm test exited with code 1" }));
 
-    await notifyRun(failed, notify, send);
+    await notifyRun(failed, notify, send, (item, deliver) => decideRun(item, deliver, async () => JSON.stringify({ kind: "unclear", summary: "The run failed.", evidenceRefs: [] })));
     expect(sent).toEqual([]);
     expect(asked).toHaveLength(1);
     const reopened = readDomainRun("domain-notice-1")!;
     expect(reopened.status).toBe("working");
     expect(reopened.notified).toBeFalsy();
 
-    await notifyRun({ ...reopened, status: "failed" }, notify, send);
+    const blocked: ExecutiveDecisionRecord = {
+      schema: "flyd.executive-decision.v1", decisionId: "decision-3", sourceId: "firstmate.change", sourceEventId: "event-3",
+      taskId: "domain-notice-1", disposition: "ask_george", reason: "Flyd is out of moves", summary: "The island fix is still failing.",
+      evidenceRefs: ["domain-notice-1"], question: "Try the island fix another way or drop it?", options: ["Try another way", "Drop it"],
+      recommendation: { option: "Try another way", rationale: "The fix is still wanted." },
+      verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-10-21T00:00:00.000Z",
+    };
+    await notifyRun({ ...reopened, status: "failed" }, notify, send, async () => blocked);
     expect(asked).toHaveLength(1);
-    expect(sent).toEqual([{ message: "Fix the island is blocked: I sent it back once and it failed again. Tell me whether to try another way or drop it.", kind: "blocker" }]);
+    expect(sent).toEqual([{ message: "Try the island fix another way or drop it? I recommend \"Try another way\". The fix is still wanted.", kind: "decision" }]);
     expect(readDomainRun("domain-notice-1")?.notified).toBe(true);
   });
 });

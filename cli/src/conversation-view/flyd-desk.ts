@@ -196,6 +196,7 @@ export class FlydDesk {
   private readonly dir: string;
   private readonly answerer: Answerer;
   private readonly see?: Seer;
+  private readonly afterTurn?: (turn: { sessionId: string; user: string; assistant: string; recordInCognition?: boolean }) => void | Promise<void>;
   private readonly preparations: PreparationStore;
   /** Questions this process is answering right now. */
   private readonly inFlight = new Set<string>();
@@ -252,10 +253,11 @@ export class FlydDesk {
     return turns;
   }
 
-  constructor(options: { answer: Answerer; see?: Seer; dir?: string; preparationStore?: PreparationStore }) {
+  constructor(options: { answer: Answerer; see?: Seer; dir?: string; preparationStore?: PreparationStore; afterTurn?: (turn: { sessionId: string; user: string; assistant: string; recordInCognition?: boolean }) => void | Promise<void> }) {
     this.answerer = options.answer;
     this.preparations = options.preparationStore ?? new PreparationStore();
     this.see = options.see;
+    this.afterTurn = options.afterTurn;
     this.dir = options.dir ?? defaultAsksDir();
   }
 
@@ -354,6 +356,7 @@ export class FlydDesk {
       .then((answer) => {
         if (!answer.trim()) throw new Error("no answer came back");
         this.write({ ...record, answer: answer.trim(), answeredAt: new Date().toISOString() });
+        void Promise.resolve(this.afterTurn?.({ sessionId, user: record.text, assistant: answer.trim() })).catch(() => undefined);
       })
       .catch((error: unknown) => {
         this.write({ ...record, error: (error instanceof Error ? error.message : String(error)).slice(0, MAX_ERROR_CHARS) });
@@ -363,6 +366,16 @@ export class FlydDesk {
         this.steps.delete(record.id);
       });
     return { id: `ask:${record.id}`, timestamp: record.at, waiting: first };
+  }
+
+  recordDecisionAnswer(answer: string, sessionId = "conversation"): SentMessage {
+    const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    const at = new Date().toISOString();
+    const words = answer.trim();
+    const response = "I've passed your choice to the work it answers.";
+    this.write({ id, sessionId, at, text: words, answer: response, answeredAt: at });
+    void Promise.resolve(this.afterTurn?.({ sessionId, user: words, assistant: response, recordInCognition: true })).catch(() => undefined);
+    return { id: `ask:${id}`, timestamp: at };
   }
 
   /** Checks and keeps the screenshots of a question beside the asks; returns their image ids. */
@@ -394,8 +407,8 @@ export class FlydDesk {
     return type ? { mediaType: type.mediaType, data } : null;
   }
 
-  exchanges(): Exchange[] {
-    return this.records().map((record) => {
+  exchanges(sessionId?: string): Exchange[] {
+    return this.records().filter((record) => sessionId === undefined || (record.sessionId ?? "conversation") === sessionId).map((record) => {
       const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}) };
       if (record.answer) {
         const preparation = record.preparationId ? this.preparations.read(record.preparationId) : undefined;

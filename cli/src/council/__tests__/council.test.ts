@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, w
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CognitiveCurator } from "../../cognition/curator/curator.js";
+import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { advisoriesPath, openAdvisories, parseAdvisories, pruneAdvisories, readAdvisories, runAdvisors, sameIdea, updateAdvisoryStatus, type Advisory } from "../advisors.js";
 import { appendJournalTurn, readJournalSince } from "../journal.js";
 import { collectNewCaptures, parseLibrarianProposal, readLibrarianState, runLibrarian } from "../librarian.js";
@@ -11,8 +13,11 @@ import { readTaste, ruleId, writeTaste } from "../taste.js";
 import { runCouncilPass } from "../council.js";
 
 let home: string;
+let previousFlydDir: string | undefined;
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "flyd-council-"));
+  previousFlydDir = process.env.FLYD_DIR;
+  process.env.FLYD_DIR = home;
   process.env.FLYD_JOURNAL_DIR = join(home, "journal");
   process.env.FLYD_MEMORY_DIR = join(home, "mem");
   process.env.FLYD_COUNCIL_DIR = join(home, "council");
@@ -21,7 +26,11 @@ beforeEach(() => {
   process.env.FLYD_USER_PROFILE = join(home, "USER.md");
   process.env.FLYD_TASTE_FILE = join(home, "TASTE.md");
 });
-afterEach(() => rmSync(home, { recursive: true, force: true }));
+afterEach(() => {
+  rmSync(home, { recursive: true, force: true });
+  if (previousFlydDir === undefined) delete process.env.FLYD_DIR;
+  else process.env.FLYD_DIR = previousFlydDir;
+});
 
 const at = (iso: string) => new Date(iso);
 
@@ -32,9 +41,57 @@ describe("journal", () => {
     expect(readJournalSince(null).map((turn) => turn.user)).toEqual(["hi", "Maya lands Thursday"]);
     expect(readJournalSince(first.at).map((turn) => turn.user)).toEqual(["Maya lands Thursday"]);
   });
+
+  it("includes a native Flyd view turn from the canonical cognition event spine", () => {
+    const store = new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") });
+    const curator = new CognitiveCurator(store);
+    try {
+      curator.recordConversationTurn({
+        sessionId: "view:conversation",
+        turnNumber: 1,
+        user: "The launch is slipping and I need a recommendation.",
+        assistant: "Move the review to Tuesday and tell the team today.",
+        projectIds: ["project:launch"],
+      });
+    } finally {
+      curator.close();
+    }
+
+    expect(readJournalSince(null)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        surface: "conversation-view",
+        user: "The launch is slipping and I need a recommendation.",
+        assistant: "Move the review to Tuesday and tell the team today.",
+      }),
+    ]));
+  });
 });
 
 describe("librarian", () => {
+  it("curates a completed native conversation-view turn from the event spine", async () => {
+    const store = new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") });
+    const curator = new CognitiveCurator(store);
+    try {
+      curator.recordConversationTurn({ sessionId: "view:conversation", turnNumber: 1, user: "I moved the launch to Tuesday.", assistant: "I have updated the project plan." });
+    } finally {
+      curator.close();
+    }
+    const raw = join(home, "empty-raw");
+    mkdirSync(raw);
+    const prompts: string[] = [];
+
+    const result = await runLibrarian({
+      rawDir: raw,
+      complete: async (prompt) => {
+        prompts.push(prompt);
+        return JSON.stringify({ memory_ops: [], project_ops: [], taste_ops: [], observations: [] });
+      },
+    });
+
+    expect(result.turns).toBe(1);
+    expect(prompts[0]).toContain("I moved the launch to Tuesday.");
+  });
+
   it("curates new journal turns and captures, then advances its cursors", async () => {
     appendJournalTurn({ user: "I moved the CleanX launch to 3 October", assistant: "Got it", at: at("2026-09-27T09:00:00Z") });
     const raw = join(home, "raw");

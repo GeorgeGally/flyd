@@ -54,6 +54,31 @@ afterEach(() => {
 });
 
 describe("FirstmateInbox", () => {
+  it("takes Flyd's note about a task once, however often the task's status text changes", async () => {
+    // fm-inbox.sh replays a request id it already holds instead of queuing it again.
+    const script = writeScript("fm-inbox.sh", `#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = "note" ] && [ "$2" = "--request-id" ] && [ "$4" = "-" ] || exit 2
+mkdir -p "$FM_HOME/state/inbox"
+file="$FM_HOME/state/inbox/$3.note"
+if [ -f "$file" ]; then echo "replay $3"; exit 0; fi
+cat > "$file"
+echo "queued $3"
+`);
+    const inbox = new FirstmateInbox({ home, script });
+    const recover = "This work stopped or its state is unclear.";
+    // The failed row's status text moved from "tests red" to "tests red, retrying": a new decision, the same note.
+    const first = await inbox.sendTaskNote("gnm-7", recover);
+    const again = await inbox.sendTaskNote("gnm-7", recover);
+    const notes = readdirSync(join(home, "state", "inbox"));
+    expect(first.replayed).toBe(false);
+    expect(again).toEqual({ requestId: first.requestId, replayed: true });
+    expect(notes).toHaveLength(1);
+    expect(readFileSync(join(home, "state", "inbox", notes[0]!), "utf8")).toBe(`Task gnm-7. ${recover}`);
+    await inbox.sendTaskNote("gnm-8", recover);
+    expect(readdirSync(join(home, "state", "inbox"))).toHaveLength(2);
+  });
+
   it("hands the text to fm-inbox.sh on stdin with FM_HOME, never through a shell", async () => {
     const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
     const text = `run the flyd viewer "now"; $(touch ${join(dir, "pwned")}) \`id\``;
