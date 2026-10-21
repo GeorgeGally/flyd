@@ -2352,7 +2352,7 @@ var __name = function (f) { return f; };
     note.hidden = !state.note;
     function say(text) { state.note = text; note.textContent = text; note.hidden = !text; }
     var steps = stepper(choice.steps, state.steps, { option: "choice-option", input: "reply-input", next: "reply-send" }, function () {}, function (text) {
-        if (!choice.session || state.steps.sending || state.steps.sent) return;
+      if (!choice.session || state.steps.sending || state.steps.sent) return;
       state.steps.sending = true;
       steps.sync();
       say("Sending…");
