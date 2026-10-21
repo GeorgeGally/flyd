@@ -1459,7 +1459,7 @@ describe("conversation action tools", () => {
   });
 
   it("lets a job George asked for open his apps but keeps unattended agenda and eval runs from doing it", async () => {
-    const readReminders = async (sessionId: string): Promise<string> => {
+    const readReminders = async (sessionId: string, tool = "reminders", toolInput: Record<string, unknown> = { action: "list" }): Promise<string> => {
       let output = "";
       await respondToConversation({
         message: "check my reminders",
@@ -1470,7 +1470,7 @@ describe("conversation action tools", () => {
         onToken: () => undefined,
       }, {
         runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
-          output = await onToolCall("reminders", { action: "list" });
+          output = await onToolCall(tool, toolInput);
           return "<final>done</final>";
         },
         persistReceipt: async (input) => input as never,
@@ -1486,7 +1486,8 @@ describe("conversation action tools", () => {
     expect(job).toMatch(/AppleScript is disabled in tests/);
     expect(job).not.toMatch(/background run does not open it/);
     expect(agenda).toMatch(/background run does not open it/);
-    expect(evaluation).toMatch(/background run does not open it/);
+    expect(evaluation).toBe("No open reminders.");
+    expect(await readReminders("eval-calendar", "calendar_events", { from: "2026-10-21" })).toBe("No calendar events from 2026-10-21 for 1 day(s).");
   });
 });
 

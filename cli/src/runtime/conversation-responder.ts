@@ -20,7 +20,7 @@ import { safeRoutingValue, type RoutingTrace } from "./routing-learning.js";
 import { buildRoomContext, privateNotes } from "./room-context.js";
 import { authorSummary, clip as clipProse, sentences } from "../conversation-view/summaries.js";
 import { artefactRequiredViolation, honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, stripInternalNarration, stripRetiredPhrases, styleProblems, unsupportedClaims } from "./honesty-check.js";
-import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool } from "./personal-tools.js";
+import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool, type PersonalToolDependencies } from "./personal-tools.js";
 import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantToolContext } from "./assistant-tools.js";
 import { fetchPublicUrl } from "./url-guard.js";
 import { withSecurityAudit } from "./code-audit.js";
@@ -540,8 +540,8 @@ function createToolHandler(
   jobId?: string,
   signal?: AbortSignal,
   onAction?: (action: import("../conversation-view/semantic.js").SemanticObject) => void,
-  /** Nobody asked for this run (the agenda, an eval): never open an app George has closed. A job he asked for may. */
-  backgroundPersonalTools = false,
+  /** Nobody asked for an agenda run or an eval: it never opens an app George has closed. A job he asked for may. */
+  personalToolDeps: PersonalToolDependencies = {},
 ): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
     try { return realpathSync(resolve(value)); } catch { return null; }
@@ -574,7 +574,7 @@ function createToolHandler(
 
   const policy: ToolPolicyState = { tainted: false };
   const execute = async (name: string, input: Record<string, unknown>): Promise<string> => {
-    if (PERSONAL_TOOL_NAMES.has(name)) return runPersonalTool(name, input, { fetchFn, background: backgroundPersonalTools });
+    if (PERSONAL_TOOL_NAMES.has(name)) return runPersonalTool(name, input, { fetchFn, ...personalToolDeps });
     if (ASSISTANT_TOOL_NAMES.has(name)) return runAssistantTool(name, input, assistantContext);
     const repoRoot = resolveRoot(String(input.repo || ""));
     if (!repoRoot) return `Repository not found: ${input.repo || projectRoot}`;
@@ -854,6 +854,12 @@ export function describeToolActivity(name: string, input: Record<string, unknown
     case "crew": return "Checking on the work under way";
     default: return `Using ${name}`;
   }
+}
+
+/** Evals read nothing of George's Mac: every AppleScript answers empty. */
+function unattendedPersonalTools(sessionId?: string): PersonalToolDependencies {
+  if (sessionId?.startsWith("eval-")) return { background: true, appRunning: async () => true, runOsascript: async () => "" };
+  return sessionId?.startsWith("agenda-") ? { background: true } : {};
 }
 
 const EVAL_SIMULATED_TOOLS = new Set(["todos", "work_model", "schedule", "start_coding_task", "start_knowledge_task", "background_task", "pass_on_question", "remember", "reminders", "speaking_style"]);
@@ -1210,7 +1216,7 @@ export async function respondToConversation(
     userMessage: input.message,
     skill: skill ? { name: skill.name, body: skill.body } : null,
     onCodingHandoff: input.onCodingHandoff,
-  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction, /^(?:agenda|eval)-/.test(input.sessionId ?? ""));
+  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction, unattendedPersonalTools(input.sessionId));
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
   const repeats = createRepeatGuard();
