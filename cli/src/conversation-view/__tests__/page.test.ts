@@ -1360,13 +1360,15 @@ describe("header and artefact view", () => {
     load("");
     await settle();
     const stream = open("asked-session", []);
-    const show: ShowScreen = { title: "Your move, sir.", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:reply:a#2", kind: "call", headline: "Want me to add all three?", why: "waiting on you", ref: "reply:a#2", decision: { task: "reply:a#2", replyTo: "reply:a#2", question: "Want me to add all three?", choices: ["Yes, all three", "No"] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    // Another session takes the lock while the card is still on screen.
+    const calls = [{ id: "call:reply:a#2", kind: "call", headline: "Want me to add all three?", why: "waiting on you", ref: "reply:a#2", decision: { task: "reply:a#2", replyTo: "reply:a#2", question: "Want me to add all three?", choices: ["Yes, all three", "No"] } }];
+    const show = { title: "Your move, sir.", summary: "", live: false, counts: { call: 1 }, items: [], calls };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "need you", value: 1, tone: "call" }] }] });
+    await settle();
+    // Another session takes the lock before he opens the decision that session drew.
     stream.emit("session", { id: "later-session", title: "later-session", updatedAt: "2026-10-05T20:05:00.000Z", assistantLabel: "firstmate" });
     await settle();
-    document.querySelector<HTMLButtonElement>(".scene-ask .choice-pick")!.click();
+    document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
+    document.querySelector<HTMLButtonElement>("#calls .choice-pick")!.click();
     await settle();
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "asked-session", replyTo: "reply:a#2", questionText: "Want me to add all three?", text: "Yes, all three" }]);
   });
