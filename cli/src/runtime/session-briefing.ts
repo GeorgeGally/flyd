@@ -66,6 +66,8 @@ export interface SessionBriefingDependencies {
   loadCalendar?: () => Promise<string[]>;
   /** Gather without marking anything seen (news told, advisories shown, inbox read): for preparing ahead. */
   peek?: boolean;
+  /** Prepared with nobody asking: read Calendar and Reminders only if George has them open. */
+  background?: boolean;
 }
 
 /** After telling him the news, don't lead with the same stories again for a few hours. */
@@ -148,7 +150,11 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
   }
 
   try {
-    const real = async () => (process.env.VITEST ? [] : (await import("./personal-tools.js")).calendarToday(now));
+    const real = async () => {
+      if (process.env.VITEST) return [];
+      const { appRunning, calendarToday } = await import("./personal-tools.js");
+      return deps.background && !(await appRunning("Calendar")) ? [] : calendarToday(now);
+    };
     const events = await (deps.loadCalendar ?? real)();
     if (events.length) lines.push(`Calendar today: ${events.slice(0, 6).map((event) => firstLine(event, 90)).join("; ")}`);
   } catch {
@@ -157,7 +163,9 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
 
   let reminders: DueReminder[] = [];
   try {
-    reminders = await (deps.loadReminders ?? loadDueReminders)();
+    reminders = deps.loadReminders
+      ? await deps.loadReminders()
+      : deps.background && !(await (await import("./personal-tools.js")).appRunning("Reminders")) ? [] : await loadDueReminders();
   } catch {
     reminders = [];
   }

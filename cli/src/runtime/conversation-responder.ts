@@ -540,6 +540,7 @@ function createToolHandler(
   jobId?: string,
   signal?: AbortSignal,
   onAction?: (action: import("../conversation-view/semantic.js").SemanticObject) => void,
+  unattended = false,
 ): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
     try { return realpathSync(resolve(value)); } catch { return null; }
@@ -572,7 +573,7 @@ function createToolHandler(
 
   const policy: ToolPolicyState = { tainted: false };
   const execute = async (name: string, input: Record<string, unknown>): Promise<string> => {
-    if (PERSONAL_TOOL_NAMES.has(name)) return runPersonalTool(name, input, { fetchFn });
+    if (PERSONAL_TOOL_NAMES.has(name)) return runPersonalTool(name, input, { fetchFn, background: unattended });
     if (ASSISTANT_TOOL_NAMES.has(name)) return runAssistantTool(name, input, assistantContext);
     const repoRoot = resolveRoot(String(input.repo || ""));
     if (!repoRoot) return `Repository not found: ${input.repo || projectRoot}`;
@@ -1208,7 +1209,7 @@ export async function respondToConversation(
     userMessage: input.message,
     skill: skill ? { name: skill.name, body: skill.body } : null,
     onCodingHandoff: input.onCodingHandoff,
-  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction);
+  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction, unattended);
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
   const repeats = createRepeatGuard();

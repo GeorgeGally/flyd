@@ -12,6 +12,40 @@ describe("personal tools", () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
+  it("leaves a closed Reminders app closed on a background run", async () => {
+    const runOsascript = vi.fn(async () => "Pay rent");
+    const result = await runPersonalTool("reminders", { action: "list" }, { runOsascript, background: true, appRunning: async () => false });
+    expect(runOsascript).not.toHaveBeenCalled();
+    expect(result).toMatch(/^Error/);
+  });
+
+  it("leaves a closed Notes app closed when a background run drives it through AppleScript", async () => {
+    const runOsascript = vi.fn(async () => "note");
+    const checked: string[] = [];
+    const result = await runPersonalTool(
+      "mac",
+      { action: "applescript", script: 'tell app "Notes" to get name of every note' },
+      { runOsascript, background: true, appRunning: async (app) => { checked.push(app); return false; } },
+    );
+    expect(runOsascript).not.toHaveBeenCalled();
+    expect(result).toMatch(/^Error/);
+    if (process.platform === "darwin") expect(checked).toEqual(["Notes"]);
+  });
+
+  it("reads Reminders on a background run when George already has it open", async () => {
+    const runOsascript = vi.fn(async () => "Pay rent");
+    const result = await runPersonalTool("reminders", { action: "list" }, { runOsascript, background: true, appRunning: async () => true });
+    expect(result).toBe("Pay rent");
+  });
+
+  it("reads Calendar for George's own request even when Calendar is closed", async () => {
+    const runOsascript = vi.fn(async () => "Mon 9:00 | Standup [Work]");
+    const appRunning = vi.fn(async () => false);
+    const result = await runPersonalTool("calendar_events", { from: "2026-10-21", days: 1 }, { runOsascript, appRunning });
+    expect(result).toBe("Mon 9:00 | Standup [Work]");
+    expect(appRunning).not.toHaveBeenCalled();
+  });
+
   it("creates a reminder with a local due time passed as script arguments, not interpolated", async () => {
     const calls: string[][] = [];
     const runOsascript = async (_script: string, args: string[]) => {

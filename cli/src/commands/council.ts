@@ -89,8 +89,8 @@ export async function runCouncilCommand(action = "status", options: { all?: bool
       ]);
       const result = await investigate({
         complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
-        calendar: (from, days) => runPersonalTool("calendar_events", { from, days }),
-        reminders: () => runPersonalTool("reminders", { action: "list" }),
+        calendar: (from, days) => runPersonalTool("calendar_events", { from, days }, { background: true }),
+        reminders: () => runPersonalTool("reminders", { action: "list" }, { background: true }),
         recall: (text) => runPersonalTool("recall", { query: text }),
         otherAssistants: async () => {
           const { readFileSync } = await import("node:fs");

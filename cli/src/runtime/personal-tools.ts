@@ -130,6 +130,9 @@ export interface PersonalToolDependencies {
   fetchFn?: FetchLike;
   now?: () => Date;
   runOsascript?: (script: string, args: string[]) => Promise<string>;
+  /** Nobody asked for this run (investigator, agenda, jobs): never open an app George has closed. */
+  background?: boolean;
+  appRunning?: (app: string) => Promise<boolean>;
   capture?: (text: string) => Promise<string>;
   /** Legacy injection seam, deliberately unused: model tools cannot edit USER.md. */
   appendProfileFact?: (text: string, section?: string) => boolean;
@@ -158,14 +161,16 @@ const PERMISSION_WAIT_MS = 2 * 60 * 1000;
 /** An app that timed out is almost always blocked on a macOS permission prompt. */
 const blockedApps = new Map<string, number>();
 
-async function defaultOsascript(script: string, args: string[]): Promise<string> {
-  if (process.platform !== "darwin") throw new Error("Apple apps are only available on macOS");
+export async function appRunning(app: string): Promise<boolean> {
+  if (process.env.VITEST) return false;
+  const { stdout } = await execFileAsync("pgrep", ["-x", app], { timeout: 2_000 }).catch(() => ({ stdout: "" }));
+  return Boolean(stdout.trim());
+}
+
+async function defaultOsascript(script: string, args: string[], background = false): Promise<string> {
   if (process.env.VITEST) throw new Error("AppleScript is disabled in tests");
+  if (process.platform !== "darwin") throw new Error("Apple apps are only available on macOS");
   const app = script.match(/tell application "([^"]+)"/)?.[1] ?? "the app";
-  if (app === "Calendar") {
-    const { stdout } = await execFileAsync("pgrep", ["-x", "Calendar"], { timeout: 2_000 }).catch(() => ({ stdout: "" }));
-    if (!stdout.trim()) throw new Error("Calendar is not running; not launching it for a background read");
-  }
   if ((blockedApps.get(app) ?? 0) > Date.now()) {
     throw new Error(`${app} is still waiting on macOS permission; do not retry until George approves it`);
   }
@@ -179,7 +184,7 @@ async function defaultOsascript(script: string, args: string[]): Promise<string>
         `(or it is off in System Settings › Privacy & Security › Automation). Do not retry; tell George.`,
       );
     }
-    if (!APP_NOT_RUNNING.test(appleScriptError(error))) throw new Error(appleScriptError(error));
+    if (background || !APP_NOT_RUNNING.test(appleScriptError(error))) throw new Error(appleScriptError(error));
     // Scripting a closed app fails with -600 from some hosts; start it hidden and retry once.
     await execFileAsync("open", ["-g", "-a", app], { timeout: 10_000 }).catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -503,7 +508,15 @@ export async function runPersonalTool(
   deps: PersonalToolDependencies = {},
 ): Promise<string> {
   if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, input, deps.connectors);
-  const osascript = deps.runOsascript ?? defaultOsascript;
+  const run = deps.runOsascript ?? ((script: string, args: string[]) => defaultOsascript(script, args, deps.background));
+  const osascript = deps.background
+    ? async (script: string, args: string[]) => {
+      for (const [, app] of script.matchAll(/\bapp(?:lication)? "([^"]+)"/g)) {
+        if (!(await (deps.appRunning ?? appRunning)(app))) throw new Error(`${app} is not running; a background run does not open it`);
+      }
+      return run(script, args);
+    }
+    : run;
   switch (name) {
     case "web_search": {
       const query = String(input.query ?? "").trim();
