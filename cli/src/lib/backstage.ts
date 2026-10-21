@@ -1,22 +1,31 @@
-export const BACKSTAGE_DENYLIST: RegExp[] = [
-  /\bfirstmates?\b/i,
-  /\bcrews?\b|\bcrew ?mates?\b|\bcrewmembers?\b/i,
-  /\bsubagents?\b/i,
-  /\b(?:run|task|job)[ -]?id\b/i,
-  /\bbranch(?:es)?\b/i,
+const HELPERS = /\b(?:firstmates?|first mate|crew ?mates?|crewmembers?|subagents?|no-mistakes|domain boss)\b/i;
+const MACHINERY = /\b(?:worktrees?|system-1|jev)\b/i;
+// Proper names are matched as written so "a critic" or "my muse" stays ordinary speech.
+const COUNCIL_NAMED = /\b(?:the (?:Librarian|Critic|Strategist|Muse|Council)|Scouts?)\b/;
+
+/** Git and run telemetry: commit hashes, fm/ branches, task, run, job and domain-run ids. */
+export const BACKSTAGE_TELEMETRY: RegExp[] = [
+  /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/i,
   /\bfm\/[\w.-]+/i,
-  /\bPR\s*#?\d+\b/i,
-  /\bworktrees?\b/i,
-  /\bpipelines?\b/i,
-  /\bjev\b/i,
-  /\bsystem-1\b/i,
+  /\b(?:run|task|job)[ -]?id\b/i,
+  /\bjob-[0-9a-f]{6,}\b/i,
   /\bdomain-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i,
-  // Proper names are matched as written so "a critic" or "my muse" stays ordinary speech.
-  /\b(?:Librarians?|Strategists?|Critics?|Muses?|Scouts?)\b/,
+];
+
+/** The names chat review holds back: helpers, machinery and the council by name, words that are rarely ordinary speech in an answer. */
+export const CHAT_BACKSTAGE: RegExp[] = [HELPERS, MACHINERY, COUNCIL_NAMED];
+
+/** Everything relays, notices, status cards and agenda lines may not show. */
+export const BACKSTAGE_DENYLIST: RegExp[] = [
+  ...CHAT_BACKSTAGE,
+  /\bcrews?\b/i,
+  /\bbranch(?:es)?\b/i,
+  /\bPR\s*#?\d+\b/i,
+  /\bpipelines?\b/i,
+  /\b(?:Librarians?|Strategists?|Critics?|Muses?)\b/,
   /\bCouncil\b/,
   /\bthe (?:council|librarian|strategist|critic|muse|scout)s?\b/i,
-  /\bjob-[0-9a-f]{6,}\b/i,
-  /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/i,
+  ...BACKSTAGE_TELEMETRY,
 ];
 
 /** A commit id inside a link is part of the address, not news: masked before the denylist reads the text. Pure. */
@@ -24,12 +33,16 @@ export function withoutLinkIds(text: string): string {
   return text.replace(/https?:\/\/\S+/g, (url) => url.replace(/[0-9a-f]{7,40}/gi, ""));
 }
 
-export function firstBackstage(text: string): string | null {
-  for (const re of BACKSTAGE_DENYLIST) {
+export function firstMatch(text: string, patterns: RegExp[]): string | null {
+  for (const re of patterns) {
     const match = text.match(re);
     if (match) return match[0];
   }
   return null;
+}
+
+export function firstBackstage(text: string): string | null {
+  return firstMatch(text, BACKSTAGE_DENYLIST);
 }
 
 export function hasBackstage(text: string): boolean {
@@ -53,6 +66,11 @@ function neutralOutcome(text: string): string {
 
 export function scrubBackstage(text: string): string {
   if (!hasBackstage(withoutLinkIds(text))) return text;
-  const safe = text.split(/(?<=[.!?])\s+/).filter((sentence) => !hasBackstage(withoutLinkIds(sentence))).join(" ").trim();
+  const lines = text.split("\n").flatMap((line) => {
+    if (!line.trim()) return [line];
+    const kept = line.split(/(?<=[.!?])[ \t]+/).filter((sentence) => !hasBackstage(withoutLinkIds(sentence)));
+    return kept.length ? [kept.join(" ")] : [];
+  });
+  const safe = lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   return safe || neutralOutcome(text);
 }

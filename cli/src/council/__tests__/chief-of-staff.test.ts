@@ -10,7 +10,8 @@ import { parseDomainResult } from "../../command/result.js";
 import { HANDLE_IT_YOURSELF, notifyRun } from "../../command/scheduler.js";
 import { FirstmateDomainTransport, syncFirstmateDomainRuns, type FirstmateExec } from "../../command/firstmate.js";
 import { readDomainRun, saveDomainRun } from "../../command/store.js";
-import { hasBackstage } from "../../lib/backstage.js";
+import { BACKSTAGE_DENYLIST, BACKSTAGE_TELEMETRY, CHAT_BACKSTAGE, firstMatch, hasBackstage, scrubBackstage } from "../../lib/backstage.js";
+import { relayShortfalls } from "../../runtime/honesty-check.js";
 import type { DomainRun } from "../../command/types.js";
 
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
@@ -32,12 +33,36 @@ function jev(answers: Record<string, number>, sink: Array<{ state: Record<string
 
 describe("the chief-of-staff checks", () => {
   it("shares its backstage vocabulary with the display guards", () => {
-    for (const text of ["FirstMate", "System-1", "Scout", "crewmate", "worktree", "run id 9f1a2b3"]) {
-      expect(hasBackstage(text), text).toBe(true);
-      expect(checkSaid({ surface: "chat", text }).map((item) => item.requirement)).toContain("backstage_hidden");
+    for (const pattern of [...CHAT_BACKSTAGE, ...BACKSTAGE_TELEMETRY]) expect(BACKSTAGE_DENYLIST).toContain(pattern);
+    const samples = [
+      "FirstMate", "first mate", "System-1", "Scout", "crewmate", "worktree", "the Librarian", "no-mistakes", "jev",
+      "run id 9f1a2b3", "fm/sidebar", "job-abc123", "merged at a1b2c3d", "domain-0f8c2d4e-1a2b-4c3d-9e8f-0123456789ab",
+      "the crew", "a new branch", "a sales pipeline", "PR #200", "The film critics loved it.", "The sidebar now opens on Artefacts.",
+    ];
+    for (const text of samples) {
+      const chatFlags = checkSaid({ surface: "chat", text }).some((item) => item.requirement === "backstage_hidden");
+      expect(chatFlags, text).toBe(firstMatch(text, [...CHAT_BACKSTAGE, ...BACKSTAGE_TELEMETRY]) !== null);
+      if (chatFlags) expect(hasBackstage(text), text).toBe(true);
     }
-    for (const text of ["PR #200", "domain-0f8c2d4e-1a2b-4c3d-9e8f-0123456789ab"]) expect(hasBackstage(text), text).toBe(true);
-    expect(hasBackstage("The sidebar now opens on Artefacts.")).toBe(false);
+    for (const text of ["the crew", "a new branch", "PR #200"]) expect(hasBackstage(text), text).toBe(true);
+  });
+
+  it("holds back the relayed lines Flyd itself reported", () => {
+    for (const text of [
+      "Closest match is the System-1 replay bench for the routing predicates.",
+      "I'm making sure FirstMate's answers land in the conversation view.",
+      "Firstmate's answers will now land under your note.",
+    ]) {
+      expect(relayShortfalls(text).map((item) => item.requirement), text).toContain("backstage_hidden");
+      expect(hasBackstage(scrubBackstage(text)), text).toBe(false);
+    }
+  });
+
+  it("scrubs machinery line by line, keeping the other lines and a bare link", () => {
+    expect(scrubBackstage("The sidebar opens on Artefacts.\nhttps://github.com/o/r/pull/9\nFirstMate is watching CI."))
+      .toBe("The sidebar opens on Artefacts.\nhttps://github.com/o/r/pull/9");
+    expect(scrubBackstage("Done. The worktree is gone.\n\nThe fix is live: https://github.com/o/r/commit/abc1234def."))
+      .toBe("Done.\n\nThe fix is live: https://github.com/o/r/commit/abc1234def.");
   });
 
   it("leaves ordinary speech alone", () => {

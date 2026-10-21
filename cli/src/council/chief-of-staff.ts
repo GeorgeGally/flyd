@@ -1,6 +1,7 @@
 import { evaluatePredicates, JEV_PINNED_MODEL } from "../cognition/system-one/jev.js";
 import { familyEgress, predicateThreshold, questionFor } from "../cognition/system-one/registry.js";
 import { retiredPhrasesIn } from "../runtime/honesty-check.js";
+import { BACKSTAGE_TELEMETRY, CHAT_BACKSTAGE, firstMatch } from "../lib/backstage.js";
 import { readFileSync } from "node:fs";
 import { readSoul } from "../lib/soul.js";
 import { userProfilePath } from "../lib/user-profile.js";
@@ -137,12 +138,6 @@ const PLACEHOLDER = /^(?:(?:ok(?:ay)?|sure|right|alright|sir)[,!.]?\s+)?(?:(?:i'
 
 const PREAMBLE = /^(?:(?:sure|certainly|of course|absolutely|great question|good question|happy to help|okay so|alright so)\b|let me\b|i'?ll (?:start|begin|take a look|look|check|go|dig)\b|first,? i'?ll\b|i'?m going to\b|sir, done\b)/i;
 
-/** Helpers and machinery George never needs to hear about. Proper names are matched as written so "a critic" or "my muse" stays ordinary speech. */
-const BACKSTAGE_ANY_CASE = /\b(firstmate|first mate|crewmates?|no-mistakes|worktrees?|subagents?|system-1|domain boss|jev)\b/i;
-const BACKSTAGE_PROPER = /\b(the (?:Librarian|Critic|Strategist|Muse|Council)|Scout)\b/;
-/** Git and run telemetry: commit hashes, fm/ branches, task and run ids. */
-const TELEMETRY = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b|\bfm\/[\w.-]+|\b(?:run|task|job)[ -]?id\b|\bjob-[0-9a-f]{6,}\b/i;
-
 /** He is being asked to choose. */
 const ASKS_HIM = /\b(needs? your (?:call|decision|ok|okay|approval|sign-?off|input)|your call\b|up to you\b|do you want (?:me|us|it|them) to\b|should (?:i|we)\b|shall (?:i|we)\b|which (?:do you|would you|one)\b|want me to\b[^.?!]*\bor\b|(?:please )?(?:approve|decide)\b)/i;
 /** …about how the work is built or run, which is not his to decide. */
@@ -154,8 +149,7 @@ const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const LIST_ITEM = /^\s*(?:[-*+•]|\d+[.)])\s+/;
 
 function backstageWord(text: string): string | undefined {
-  const plain = prose(text);
-  return (plain.match(BACKSTAGE_ANY_CASE) ?? plain.match(BACKSTAGE_PROPER))?.[0];
+  return firstMatch(prose(text), CHAT_BACKSTAGE) ?? undefined;
 }
 
 /**
@@ -200,11 +194,12 @@ export function checkSaid(said: Said, rules: VoiceRules = { banned: [] }): Short
   }
 
   const word = backstageWord(text);
+  const telemetry = firstMatch(prose(text), BACKSTAGE_TELEMETRY);
   // He named it himself, or asked how Flyd works: answering in kind is fine.
   if (word && !asked.includes(normal(word)) && !/\bhow (?:do|does) (?:you|flyd) work\b/.test(asked)) {
     add("backstage_hidden", `names backstage machinery ("${word}")`);
-  } else if (TELEMETRY.test(prose(text)) && !/\b(commit|branch|sha|hash|id)\b/.test(asked)) {
-    add("backstage_hidden", "reads like git or run telemetry", prose(text).match(TELEMETRY)?.[0] ?? text);
+  } else if (telemetry && !/\b(commit|branch|sha|hash|id)\b/.test(asked)) {
+    add("backstage_hidden", "reads like git or run telemetry", telemetry);
   }
 
   if (said.interactionClass !== "conversation" && said.surface !== "status" && handsHimInternalDecision(text)) {
