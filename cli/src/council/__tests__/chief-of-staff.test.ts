@@ -361,6 +361,30 @@ describe("before display", () => {
     expect(shown).toEqual(["Lender B is cheaper over five years."]);
   });
 
+  it("marks a run notified only once George was told or Flyd holds it in view", async () => {
+    const base: ExecutiveDecisionRecord = {
+      schema: "flyd.executive-decision.v1", decisionId: "d", sourceId: "domain.knowledge", sourceEventId: "e", disposition: "backstage",
+      reason: "interpretation is unclear", summary: "", evidenceRefs: [], verification: { status: "unknown", evidenceRefs: [] }, show: false, notify: false, createdAt: "2026-10-21T00:00:00Z",
+    };
+    const cases: Array<{ name: string; status: DomainRun["status"]; decision: ExecutiveDecisionRecord }> = [
+      { name: "failed", status: "failed", decision: base },
+      { name: "requested", status: "completed", decision: { ...base, disposition: "handle_internally", summary: "Lender B is cheaper over five years.", verification: { status: "verified", evidenceRefs: ["domain-report:r"] }, show: true, notify: true } },
+      { name: "fenced", status: "completed", decision: { ...base, reason: "the final output check held this wording" } },
+      { name: "empty", status: "completed", decision: { ...base, disposition: "handle_internally", summary: "", verification: { status: "verified", evidenceRefs: ["r"] }, show: true, notify: true } },
+      { name: "unsent", status: "completed", decision: { ...base, disposition: "handle_internally", summary: "The page is live.", verification: { status: "verified", evidenceRefs: ["r"] }, show: true, notify: false } },
+    ];
+    for (const { name, status, decision } of cases) {
+      const id = `domain-table-${name}`;
+      const shown: string[] = [];
+      const run: DomainRun = { ...decisionRun(INTERNAL_DECISION), id, status, request: { ...decisionRun(INTERNAL_DECISION).request, id, intendedOutcome: `Work ${name}` } };
+      await notifyRun(run, async (_title, message) => { shown.push(message); }, async () => { throw new Error("no boss note"); }, async () => ({ ...decision, taskId: id }));
+      const held = heldForAttention().some((row) => row.task === id);
+      expect(readDomainRun(id)?.notified, name).toBe(true);
+      expect(shown.length > 0 || held, name).toBe(true);
+      expect(shown.length > 0 && held, name).toBe(false);
+    }
+  });
+
   it("holds work for Flyd's attention when its note to the boss could not be delivered", async () => {
     const failed: DomainRun = { ...decisionRun(INTERNAL_DECISION), status: "failed" };
     await notifyRun(failed, async () => undefined, async () => ({ delivered: false, reason: "delivery_failed" as const }),
