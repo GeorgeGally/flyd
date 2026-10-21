@@ -113,9 +113,13 @@ function blockerLine(run: DomainRun): string {
   return plain;
 }
 
-/** The work in a few words, quoted, or "" when it cannot be named without backstage. */
 function namedOutcome(run: DomainRun): string {
-  const outcome = clip(stripCommitIds(plainBrief(run.request.intendedOutcome)));
+  return quotedWork(run.request.intendedOutcome);
+}
+
+/** The work in a few words, quoted, or "" when it cannot be named without backstage. */
+export function quotedWork(text: string): string {
+  const outcome = clip(stripCommitIds(plainBrief(text)));
   return outcome && !relayShortfalls(outcome).length ? `"${outcome}"` : "";
 }
 

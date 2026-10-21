@@ -106,9 +106,13 @@ describe("agenda", () => {
       return { ok: true, json: async () => ({ delivered: 1 }) };
     }));
     try {
-      expect(await deliverNotification("Flyd", "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toBe(false);
-      expect(await deliverNotification("Logo", "Firstmate needs your call on the logo.")).toBe(true);
-      expect(bodies).toEqual([{ title: "Logo", message: "I need your decision on some of your work." }]);
+      expect(await deliverNotification("Flyd", "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toBe("backstage");
+      expect(await deliverNotification("Logo", "Firstmate needs your call on the logo.")).toBe("shown");
+      expect(await deliverNotification("Flyd", "Logo refresh: Firstmate needs your call on the crew branch", "deliverable", "Logo refresh")).toBe("shown");
+      expect(bodies).toEqual([
+        { title: "Logo", message: "I need your decision on some of your work.", kind: "deliverable" },
+        { title: "Flyd", message: 'I need your decision on "Logo refresh".', kind: "deliverable" },
+      ]);
     } finally {
       vi.unstubAllGlobals();
       Object.defineProperty(process, "platform", { value: previousPlatform, configurable: true });

@@ -152,6 +152,11 @@ function backstageWord(text: string): string | undefined {
   return firstMatch(prose(text), CHAT_BACKSTAGE) ?? undefined;
 }
 
+/** He is being asked to choose something. Pure. */
+export function asksHimToDecide(text: string): boolean {
+  return ASKS_HIM.test(prose(text));
+}
+
 /**
  * An implementation or process call handed to George, by wording alone: one
  * sentence both asks him and is about how the work is built or run. Sentence
@@ -159,11 +164,6 @@ function backstageWord(text: string): string | undefined {
  * paragraph about a guard is not read as asking him about the guard. Anything
  * that touches his money, his name or an outward step stays his.
  */
-/** He is being asked to choose something. Pure. */
-export function asksHimToDecide(text: string): boolean {
-  return ASKS_HIM.test(prose(text));
-}
-
 export function handsHimInternalDecision(text: string): boolean {
   const plain = prose(text);
   if (HIS_DECISION.test(plain)) return false;

@@ -192,7 +192,7 @@ describe("the notification boundary", () => {
       return { ok: true, json: async () => ({ delivered: 1 }) };
     }));
     try {
-      return { sent: await deliverNotification("Flyd", message, kind), bodies };
+      return { sent: (await deliverNotification("Flyd", message, kind)) === "shown", bodies };
     } finally {
       vi.unstubAllGlobals();
       Object.defineProperty(process, "platform", { value: previousPlatform, configurable: true });

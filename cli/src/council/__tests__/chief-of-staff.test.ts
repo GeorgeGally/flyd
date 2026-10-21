@@ -284,12 +284,12 @@ describe("before display", () => {
   });
 
   it("holds back a whole notification that names backstage and records it", async () => {
-    expect(await deliverNotification("Flyd", "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toBe(false);
+    expect(await deliverNotification("Flyd", "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toBe("backstage");
     expect(readVerdicts().filter((verdict) => verdict.held && verdict.text === "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toHaveLength(1);
   });
 
   it("keeps a placeholder notification from George and records it", async () => {
-    expect(await deliverNotification("Flyd", "Working on it")).toBe(false);
+    expect(await deliverNotification("Flyd", "Working on it")).toBe("placeholder");
     expect(readVerdicts().filter((verdict) => verdict.held && verdict.text === "Working on it")).toHaveLength(1);
   });
 });
@@ -303,7 +303,7 @@ describe("notifications", () => {
     expect(isIdleNotice("Flyd", "The DreamHost invoice needs your attention")).toBe(false);
     expect(isIdleNotice("Agenda", "The crew is waiting for your input on the logo")).toBe(false);
     expect(isIdleNotice("Codex", "Codex needs your attention")).toBe(true);
-    expect(await deliverNotification("Claude", "Claude is waiting for your input")).toBe(false);
+    expect(await deliverNotification("Claude", "Claude is waiting for your input")).toBe("undelivered");
   });
 
 

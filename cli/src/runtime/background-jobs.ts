@@ -368,8 +368,8 @@ export async function deliverJob(result: JobResult): Promise<void> {
   const agenda = await import("./agenda.js");
   agenda.recordInbox({ itemId: `job-${result.id}`, task: result.task, status: result.status, result: result.result });
   if (result.status === "failed") {
-    await agenda.notifyMac("Flyd", `${result.task.slice(0, 60)} is blocked: I couldn't finish it. Tell me whether to start it again or drop it.`, "blocker");
+    await agenda.notifyMac("Flyd", `${result.task.slice(0, 60)} is blocked: I couldn't finish it. Tell me whether to start it again or drop it.`, "blocker", result.task);
     return;
   }
-  await agenda.notifyMac("Flyd", `${result.task.slice(0, 60)}: ${result.result.slice(0, 180)}`, result.status === "blocked" ? "blocker" : "deliverable");
+  await agenda.notifyMac("Flyd", `${result.task.slice(0, 60)}: ${result.result.slice(0, 180)}`, result.status === "blocked" ? "blocker" : "deliverable", result.task);
 }
