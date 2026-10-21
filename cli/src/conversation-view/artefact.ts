@@ -977,7 +977,13 @@ export class ArtefactFeed {
       });
       const fleet = parseBearings(JSON.parse(out));
       if (fleet.unavailable) throw new Error(fleet.unavailable);
-      if (!process.env.VITEST) syncFleetFollowups(fleet.held.flatMap((row) => row.task ? [{ id: row.task, task: row.label, status: row.status ?? "stopped", detail: row.detail ?? "No further status was provided." }] : []));
+      if (!process.env.VITEST) {
+        try {
+          syncFleetFollowups(fleet.held.flatMap((row) => row.task ? [{ id: row.task, task: row.label, status: row.status ?? "" }] : []));
+        } catch (error) {
+          console.warn(`[view] fleet follow-ups not filed: ${reason(error)}`);
+        }
+      }
       return fleet;
     } catch (error) {
       // A read that failed is Flyd's own hiccup: the reason goes to Flyd's log, never to George.

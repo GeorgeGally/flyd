@@ -177,8 +177,7 @@ export const LEFT_SCRIPT = `
   function leftActionable(activity) {
     var phase = activity.activity && activity.activity.phase;
     var decides = activity.kind === "decision" || phase === "needs_you" || !!activity.decision;
-    if (decides || phase === "ready") return true;
-    return false;
+    return decides || phase === "ready";
   }
   function leftSemanticActivityCard(activity) {
     var phase = activity.activity && activity.activity.phase || "working";

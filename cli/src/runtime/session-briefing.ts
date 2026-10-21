@@ -1,10 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { dirname, join } from "node:path";
 import {
   agendaPaths, formatLocalDateTime, markInboxRead, unreadInbox, upcomingAgenda, type AgendaPaths,
 } from "./agenda.js";
-import { fleetFollowupsBlock } from "./fleet-followups.js";
 
 // What a good PA says when you sit down: what happened while you were away,
 // what is due today, and what is coming. Deterministic and local so opening
@@ -190,16 +188,10 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
   return lines;
 }
 
-/**
- * Compact agenda block for the chat prompt so Flyd knows what it has promised.
- * Work stalled in the fleet is Flyd's to sort out, so it rides in only on turns
- * where Flyd is working (never in companion chat, where it would sit unprompted).
- */
-export function agendaPromptBlock(paths = agendaPaths(), work = false): string {
+/** Compact agenda block for the chat prompt so Flyd knows what it has promised. */
+export function agendaPromptBlock(paths = agendaPaths()): string {
   const items = upcomingAgenda(paths).slice(0, 8);
-  const agenda = items.length === 0
-    ? ""
-    : `\n<flyd-agenda>\nThings Flyd has scheduled itself to do (manage with the schedule tool):\n${items.map((item) => `- ${formatLocalDateTime(new Date(item.nextRunAt))}${item.repeat === "none" ? "" : ` (${item.repeat})`} [${item.id}] ${item.task}`).join("\n")}\n</flyd-agenda>\n`;
-  const followups = work ? fleetFollowupsBlock(join(dirname(paths.inbox), "view")) : "";
-  return `${agenda}${followups}`;
+  if (items.length === 0) return "";
+  const lines = items.map((item) => `- ${formatLocalDateTime(new Date(item.nextRunAt))}${item.repeat === "none" ? "" : ` (${item.repeat})`} [${item.id}] ${item.task}`);
+  return `\n<flyd-agenda>\nThings Flyd has scheduled itself to do (manage with the schedule tool):\n${lines.join("\n")}\n</flyd-agenda>\n`;
 }

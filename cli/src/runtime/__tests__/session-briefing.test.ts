@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addAgendaItem, agendaPaths, parseLocalDateTime, runDueAgenda, unreadInbox, type AgendaPaths } from "../agenda.js";
 import { agendaPromptBlock, composeSessionBriefing, profileGaps } from "../session-briefing.js";
-import { syncFleetFollowups } from "../fleet-followups.js";
 
 const FULL_PROFILE = "## About me\n- Lives in Canggu\n## People\n- Partner: Maya\n## Routines\n- Runs at 6am\n## Goals\n- Ship Flyd";
 
@@ -70,13 +69,6 @@ describe("composeSessionBriefing", () => {
     const lines = await composeSessionBriefing({ paths, now: () => at("2026-09-26 20:00"), loadReminders: async () => [], readProfile: () => FULL_PROFILE });
     expect(lines).toEqual(["Later I'll: 08:00 Morning brief"]);
     expect(agendaPromptBlock(paths)).toContain("(weekdays)");
-  });
-
-  it("keeps paused fleet work to Flyd's work turns, never companion chat or George's briefing", async () => {
-    syncFleetFollowups([{ id: "job-1", task: "Daily news brief", status: "paused", detail: "Waiting for work to resume." }], join(dir, "view"));
-    expect(agendaPromptBlock(paths)).not.toContain("Daily news brief");
-    expect(agendaPromptBlock(paths, true)).toContain("Daily news brief: paused. Waiting for work to resume.");
-    expect(await composeSessionBriefing({ paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE })).toEqual([]);
   });
 
   it("survives Reminders being unavailable", async () => {
