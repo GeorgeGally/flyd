@@ -288,8 +288,10 @@ export function decideExecutiveStep(input: ExecutiveDecisionInput, now = new Dat
   if (!decision.show || !fenced(decision)) return decision;
   const held: HeldDecision = { schema: decision.schema, decisionId: decision.decisionId, sourceId: decision.sourceId, sourceEventId: decision.sourceEventId, ...(decision.taskId ? { taskId: decision.taskId } : {}), createdAt: decision.createdAt, summary: decision.summary, evidenceRefs: decision.evidenceRefs, verification: { status: "unknown", evidenceRefs: [] }, disposition: "backstage", show: false, notify: false, reason: FENCE_HELD };
   if (decision.disposition !== "ask_george") return held;
-  return input.sentToBoss?.includes(RESTATE_FOR_GEORGE) ? plainAsk(decision, held)
-    : toBoss(input, held, RESTATE_FOR_GEORGE, "the final output check held a George decision; its boss is asked to restate it");
+  if (input.sentToBoss?.includes(RESTATE_FOR_GEORGE)) return plainAsk(decision, held);
+  // With no boss Flyd may ask to restate it, Flyd asks George itself rather than dropping his decision.
+  const restate = toBoss(input, held, RESTATE_FOR_GEORGE, "the final output check held a George decision; its boss is asked to restate it");
+  return restate === held ? plainAsk(decision, held) : restate;
 }
 
 export function persistExecutiveDecision(store: IntelligenceEventStore, decision: ExecutiveDecisionRecord, revision = ""): StoredEvent | null {

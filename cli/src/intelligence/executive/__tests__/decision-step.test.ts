@@ -217,7 +217,7 @@ describe("executive decision step", () => {
 
   it("asks the boss to restate a George decision the last output fence holds, instead of dropping it", () => {
     const fenced = { ...eitherOr, proposal: { ...eitherOrProposal, question: "Should FirstMate tell the crewmate to close it?" } };
-    expect(decideExecutiveStep(fenced)).toMatchObject({ disposition: "backstage", show: false, notify: false });
+    expect(decideExecutiveStep(fenced)).toMatchObject({ disposition: "ask_george", show: true, notify: true, question: "Should the team tell the team to close it?" });
     const restated = decideExecutiveStep({ ...fenced, taskId: "review", authority: authorityForStaffRun({ runId: "review", firstmate: true, active: true, autonomy: "trusted" }) });
     expect(restated).toMatchObject({ disposition: "handle_internally", show: false, notify: false, action: { target: "review", text: RESTATE_FOR_GEORGE }, verification: { status: "pending" } });
 
@@ -238,6 +238,18 @@ describe("executive decision step", () => {
     });
     expect(asked).toMatchObject({ disposition: "ask_george", question: "Choose whether to merge the island fix now.", options: [] });
     expect(JSON.stringify(asked)).not.toContain("the team");
+  });
+
+  it("asks George itself when a fenced decision has no boss to restate it, instead of dropping it", () => {
+    const evidence = "Merge the calendar sync branch tonight, or wait for Monday's review?";
+    const asked = decideExecutiveStep({
+      sourceId: "firstmate.status", sourceEventId: "t-branch:decision", taskId: "t-branch", sourceText: `Calendar sync release: ${evidence}`,
+      judgment: { route: "ask_george", confidence: 0.95, notable: false },
+      proposal: { kind: "question", summary: "Calendar sync release", question: evidence, questionEvidence: evidence,
+        options: ["Merge the calendar sync branch tonight", "wait for Monday's review"], evidenceRefs: [] },
+    });
+    expect(asked).toMatchObject({ disposition: "ask_george", show: true, notify: true, question: "Calendar sync release", options: [] });
+    expect(asked).not.toHaveProperty("action");
   });
 
   it("drops alternatives it cannot say cleanly when it asks George itself after one restate", () => {
@@ -287,5 +299,6 @@ it("keeps an explicit source question answerable when interpretation fails, with
 
 it("holds an unexecuted personal promise at the final output fence", () => {
   const decision = decideExecutiveStep({ ...eitherOr, proposal: { ...eitherOrProposal, question: "I'll decide whether to restart it and let you know." } });
-  expect(decision).toMatchObject({ disposition: "backstage", show: false, notify: false });
+  expect(decision).toMatchObject({ disposition: "ask_george", question: eitherOrProposal.summary });
+  expect(JSON.stringify(decision)).not.toMatch(/I'll decide/);
 });
