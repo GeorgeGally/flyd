@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
-import { notifyRun } from "../scheduler.js";
+import { decideRun, notifyRun } from "../scheduler.js";
 import { readDomainRun } from "../store.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -305,7 +305,7 @@ describe("notifyRun", () => {
     ]);
   });
 
-  it("sends a failed run back to its boss once, and only then tells George it is blocked, without the error", async () => {
+  it("sends a failed run back to its boss, and brings George only his call on it, without the error", async () => {
     const sent: Array<{ message: string; kind?: string }> = [];
     const notify = async (_title: string, message: string, kind?: string) => { sent.push({ message, kind }); };
     const asked: string[] = [];
@@ -316,16 +316,23 @@ describe("notifyRun", () => {
     };
     const failed = run(JSON.stringify({ status: "failed", brief: "Command failed: npm test exited with code 1" }));
 
-    await notifyRun(failed, notify, send);
+    await notifyRun(failed, notify, send, (item, deliver) => decideRun(item, deliver, async () => JSON.stringify({ kind: "unclear", summary: "The run failed.", evidenceRefs: [] })));
     expect(sent).toEqual([]);
     expect(asked).toHaveLength(1);
     const reopened = readDomainRun("domain-notice-1")!;
     expect(reopened.status).toBe("working");
     expect(reopened.notified).toBeFalsy();
 
-    await notifyRun({ ...reopened, status: "failed" }, notify, send);
+    const blocked: ExecutiveDecisionRecord = {
+      schema: "flyd.executive-decision.v1", decisionId: "decision-3", sourceId: "firstmate.change", sourceEventId: "event-3",
+      taskId: "domain-notice-1", disposition: "ask_george", reason: "Flyd is out of moves", summary: "The island fix is still failing.",
+      evidenceRefs: ["domain-notice-1"], question: "Try the island fix another way or drop it?", options: ["Try another way", "Drop it"],
+      recommendation: { option: "Try another way", rationale: "The fix is still wanted." },
+      verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-10-21T00:00:00.000Z",
+    };
+    await notifyRun({ ...reopened, status: "failed" }, notify, send, async () => blocked);
     expect(asked).toHaveLength(1);
-    expect(sent).toEqual([{ message: "Fix the island is blocked: I sent it back once and it failed again. Tell me whether to try another way or drop it.", kind: "blocker" }]);
+    expect(sent).toEqual([{ message: "Try the island fix another way or drop it? I recommend \"Try another way\". The fix is still wanted.", kind: "decision" }]);
     expect(readDomainRun("domain-notice-1")?.notified).toBe(true);
   });
 });
