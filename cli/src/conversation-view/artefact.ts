@@ -43,7 +43,7 @@ export interface ArtefactRow {
   shotDir?: string;
   /** Flyd's own words for it, once its model has said them. */
   said?: Said;
-  /** The list still holds it but the latest read no longer reports it: internal only, never shown. */
+  /** The list still holds it but the latest read no longer reports it: a call shows as settled, never as asking him. */
   ledgerOnly?: boolean;
 }
 
@@ -752,6 +752,9 @@ export function planArtefacts(plans: Plan[], now: number): PlanArtefact[] {
   });
 }
 
+/** A call the fleet no longer reports: its card stays where it was, with nothing left to do. */
+const SETTLED_CALL = "Settled, nothing needed.";
+
 /** Compose the panel's items from the inputs, in priority order. Pure. */
 export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions = {}): ShowItem[] {
   const items: ShowItem[] = [];
@@ -761,7 +764,13 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   };
   const fromRow = (kind: ShowKind, id: string, row: ArtefactRow): void => {
     const item = rowItem(kind, id, row, options);
-    if (item) items.push(item);
+    if (!item) return;
+    if (kind !== "call" || !row.ledgerOnly) {
+      items.push(item);
+      return;
+    }
+    const { decision: _decision, status: _status, ...settled } = item;
+    items.push({ ...settled, kind: "clear", detail: SETTLED_CALL });
   };
   const rowsOf = (kind: keyof typeof ARTEFACT_LIMITS, list: ArtefactRow[] | undefined): void => {
     shownRows(list, ARTEFACT_LIMITS[kind]).forEach((row, index) => fromRow(row.status === "report available" ? "news" : kind, `${kind}-${row.task ?? index}`, row));
@@ -770,7 +779,7 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   const fleet = inputs.fleet;
   // Unlinked WhatsApp leads: it is one step only he can take, and it goes the moment it is done.
   if (inputs.whatsappLink) add("news", WHATSAPP_LINK.id, WHATSAPP_LINK.title, "only you can link it", { detail: WHATSAPP_LINK.line, links: [{ label: "Open the code", url: WHATSAPP_LINK.url }] });
-  rowsOf("call", fleet?.calls.filter((row) => !row.ledgerOnly));
+  rowsOf("call", fleet?.calls);
   rowsOf("live", fleet?.live);
   rowsOf("ready", fleet?.ready);
   rowsOf("landed", fleet?.landed);

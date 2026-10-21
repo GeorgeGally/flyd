@@ -617,7 +617,7 @@ describe("ArtefactFeed", () => {
     }
   });
 
-  it("does not ask George to act on a call a successful read no longer reports", async () => {
+  it("keeps a call a background refresh no longer reports in place as settled, with nothing to act on", async () => {
     const home = mkdtempSync(join(tmpdir(), "artefact-closed-call-"));
     mkdirSync(join(home, "bin"));
     mkdirSync(join(home, "data"));
@@ -629,13 +629,20 @@ describe("ArtefactFeed", () => {
     const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
     await feed.refresh();
     expect(feed.current().fleet!.calls).toMatchObject([{ label: "Pick one", task: "x" }]);
+    const before = composeArtefact(feed.current());
+    const asked = before.findIndex((item) => item.id === "call:call-x");
+    expect(before[asked]).toMatchObject({ kind: "call", decision: { task: "x" } });
     writeFileSync(snapshot, JSON.stringify({ decisions_open: [] }));
     await feed.refresh();
     const fleet = feed.current().fleet!;
     expect(fleet.calls[0]).toMatchObject({ task: "x", ledgerOnly: true });
     expect(fleetCounts(fleet).call).toBe(0);
     expect(callItems(fleet)).toEqual([]);
-    expect(composeArtefact(feed.current()).some((item) => item.kind === "call")).toBe(false);
+    const after = composeArtefact(feed.current());
+    expect(after.map((item) => item.id)).toEqual(before.map((item) => item.id));
+    expect(after[asked]).toMatchObject({ kind: "clear", headline: before[asked]!.headline, detail: "Settled, nothing needed." });
+    expect(after[asked]!.decision).toBeUndefined();
+    expect(after.some((item) => item.kind === "call")).toBe(false);
   });
 
   it("keeps an actionable call on screen after a failed read", async () => {
