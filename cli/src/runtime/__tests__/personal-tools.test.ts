@@ -32,6 +32,31 @@ describe("personal tools", () => {
     if (process.platform === "darwin") expect(checked).toEqual(["Notes"]);
   });
 
+  it("checks an app named by bundle id on a background run", async () => {
+    const runOsascript = vi.fn(async () => "note");
+    const checked: Array<[string, boolean | undefined]> = [];
+    const result = await runPersonalTool(
+      "mac",
+      { action: "applescript", script: 'tell application id "com.apple.Notes" to get name of every note' },
+      { runOsascript, background: true, appRunning: async (app, byId) => { checked.push([app, byId]); return false; } },
+    );
+    expect(runOsascript).not.toHaveBeenCalled();
+    expect(result).toMatch(/^Error/);
+    if (process.platform === "darwin") expect(checked).toEqual([["com.apple.Notes", true]]);
+  });
+
+  it("lets a background run use System Events, which has no window", async () => {
+    const runOsascript = vi.fn(async () => "true");
+    const appRunning = vi.fn(async () => false);
+    const result = await runPersonalTool(
+      "mac",
+      { action: "applescript", script: 'tell application "System Events" to tell appearance preferences to get dark mode' },
+      { runOsascript, background: true, appRunning },
+    );
+    expect(appRunning).not.toHaveBeenCalled();
+    if (process.platform === "darwin") expect(result).toBe("true");
+  });
+
   it("reads Reminders on a background run when George already has it open", async () => {
     const runOsascript = vi.fn(async () => "Pay rent");
     const result = await runPersonalTool("reminders", { action: "list" }, { runOsascript, background: true, appRunning: async () => true });

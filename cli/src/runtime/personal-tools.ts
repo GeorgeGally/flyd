@@ -132,7 +132,7 @@ export interface PersonalToolDependencies {
   runOsascript?: (script: string, args: string[]) => Promise<string>;
   /** Nobody asked for this run (investigator, agenda, jobs): never open an app George has closed. */
   background?: boolean;
-  appRunning?: (app: string) => Promise<boolean>;
+  appRunning?: (app: string, byId?: boolean) => Promise<boolean>;
   capture?: (text: string) => Promise<string>;
   /** Legacy injection seam, deliberately unused: model tools cannot edit USER.md. */
   appendProfileFact?: (text: string, section?: string) => boolean;
@@ -161,10 +161,20 @@ const PERMISSION_WAIT_MS = 2 * 60 * 1000;
 /** An app that timed out is almost always blocked on a macOS permission prompt. */
 const blockedApps = new Map<string, number>();
 
-export async function appRunning(app: string): Promise<boolean> {
+const APP_IS_RUNNING = `on run argv
+  if item 2 of argv is "id" then return application id (item 1 of argv) is running
+  return application (item 1 of argv) is running
+end run`;
+
+/** Windowless helpers that macOS starts and quits on its own; starting one shows nothing. */
+const WINDOWLESS_APPS = new Set(["System Events", "com.apple.systemevents"]);
+
+/** Asks without launching: `is running` never starts the app. */
+export async function appRunning(app: string, byId = false): Promise<boolean> {
   if (process.env.VITEST) return false;
-  const { stdout } = await execFileAsync("pgrep", ["-x", app], { timeout: 2_000 }).catch(() => ({ stdout: "" }));
-  return Boolean(stdout.trim());
+  const { stdout } = await execFileAsync("osascript", ["-e", APP_IS_RUNNING, app, byId ? "id" : "name"], { timeout: 5_000 })
+    .catch(() => ({ stdout: "" }));
+  return stdout.trim() === "true";
 }
 
 async function defaultOsascript(script: string, args: string[], background = false): Promise<string> {
@@ -511,8 +521,9 @@ export async function runPersonalTool(
   const run = deps.runOsascript ?? ((script: string, args: string[]) => defaultOsascript(script, args, deps.background));
   const osascript = deps.background
     ? async (script: string, args: string[]) => {
-      for (const [, app] of script.matchAll(/\bapp(?:lication)? "([^"]+)"/g)) {
-        if (!(await (deps.appRunning ?? appRunning)(app))) throw new Error(`${app} is not running; a background run does not open it`);
+      for (const [, byId, app] of script.matchAll(/\bapp(?:lication)?( id)? "([^"]+)"/g)) {
+        if (WINDOWLESS_APPS.has(app!)) continue;
+        if (!(await (deps.appRunning ?? appRunning)(app!, Boolean(byId)))) throw new Error(`${app} is not running; a background run does not open it`);
       }
       return run(script, args);
     }
