@@ -1,8 +1,9 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
+import { respondToConversation } from "../conversation-responder.js";
 import { persistTurnReceipt } from "../turn-receipt.js";
 import { repairLatestTurn } from "../turn-repair.js";
 import { EXPERIENCE_SOURCE_ID, EXPERIENCE_TRACE_SCHEMA } from "../experience-trace.js";
@@ -14,6 +15,56 @@ afterEach(async () => {
 });
 
 describe("experience traces", () => {
+  it("persists a real view responder turn and its trace under a temporary Flyd home", async () => {
+    const flydDir = await mkdtemp(join(tmpdir(), "flyd-view-experience-"));
+    directories.push(flydDir);
+
+    const answer = await respondToConversation({
+      sessionId: "view:conversation",
+      turnNumber: 6,
+      message: "Give me a short greeting.",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: null,
+      onToken: () => undefined,
+    }, {
+      readOnly: true,
+      resolveConnection: () => ({
+        model: "gpt-test",
+        apiKey: "test-key",
+        baseURL: "https://models.example.test/v1",
+        providerIdentity: "models.example.test/gpt-test",
+      }),
+      routeTurn: async () => ({ route: "answer", source: "jev", confidence: 1, decided: true, needsCode: false }),
+      runAgentLoop: async () => "<final>Hello, George.</final>",
+      persistReceipt: (input) => persistTurnReceipt(input, {
+        flydDir,
+        id: () => "view-receipt",
+        now: () => new Date("2026-10-21T00:00:00.000Z"),
+      }),
+    });
+
+    expect(answer).toBe("Hello, George.");
+    const receiptPath = join(flydDir, "turn-receipts", "view%3aconversation", "000006-view-receipt.json");
+    expect(JSON.parse(await readFile(receiptPath, "utf8"))).toMatchObject({
+      id: "view-receipt",
+      sessionId: "view:conversation",
+      turnNumber: 6,
+    });
+
+    const store = new IntelligenceEventStore({ path: join(flydDir, "intelligence.sqlite") });
+    try {
+      const traces = store.readSource(EXPERIENCE_SOURCE_ID);
+      expect(traces).toHaveLength(1);
+      expect(traces[0]?.payload).toMatchObject({
+        type: "experience_trace",
+        trace: { receiptId: "view-receipt", sessionId: "view:conversation", turnNumber: 6 },
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   it("records a compact versioned trace without duplicating answer text or tool inputs", async () => {
     const flydDir = await mkdtemp(join(tmpdir(), "flyd-experience-"));
     directories.push(flydDir);
