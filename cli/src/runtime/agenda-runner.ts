@@ -5,7 +5,7 @@ import { startStaffMonitor, stopStaffMonitor } from "../command/fleet-monitor.js
 // Runs one due agenda item as an unattended agent turn. Nobody is there to
 // approve anything, so actions the policy would ask about are refused and
 // reported; reads, searches, and summaries run normally.
-export async function runAgendaTask(task: string, item: AgendaItem): Promise<string> {
+export async function runAgendaTask(task: string, item: AgendaItem, onTool?: (name: string) => void): Promise<string> {
   const { respondToConversation } = await import("./conversation-responder.js");
   const { retrieveAgentMemory, loadAgentSituation } = await import("../commands/code.js");
   const { refreshRepoRegistry } = await import("./repo-registry.js");
@@ -26,6 +26,7 @@ export async function runAgendaTask(task: string, item: AgendaItem): Promise<str
     situation,
     crossRepo,
     onToken: () => {},
+    ...(onTool ? { onTool } : {}),
   });
 }
 

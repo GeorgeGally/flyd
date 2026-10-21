@@ -296,7 +296,7 @@ describe("SnapshotDiffer show", () => {
     const shipped: ConversationMessage = { id: "a1", role: "assistant", text: "Sir, the menu change shipped to production." };
     const update = new SnapshotDiffer({ importance }, { artefact: () => unreadable }).next(snapshot([shipped]));
     expect(update.show.items).toEqual([]);
-    expect(update.show.title).toBe("Here's where things stand, sir.");
+    expect(update.show.title).toBe("Nothing to show you yet, sir.");
     expect(update.show.summary).not.toMatch(/nothing waits on you|couldn't read|timed out/i);
 
     const read = { ...unreadable, fleet: { ...unreadable.fleet, unavailable: undefined } };

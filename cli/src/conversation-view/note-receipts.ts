@@ -100,7 +100,7 @@ export class UnreadNoteWatcher {
   private timer: NodeJS.Timeout | undefined;
 
   constructor(
-    private readonly exchanges: () => Exchange[],
+    private readonly exchanges: () => Exchange[] | Promise<Exchange[]>,
     private readonly chase: (note: string, requestId: string) => Promise<unknown>,
     private readonly now: () => number = Date.now,
     private readonly stateFile?: string,
@@ -144,7 +144,7 @@ export class UnreadNoteWatcher {
     let exchanges: Exchange[];
     let unread: UnreadNotes | null;
     try {
-      exchanges = this.exchanges();
+      exchanges = await this.exchanges();
       unread = unreadNotes(exchanges, now);
     } catch {
       return false;

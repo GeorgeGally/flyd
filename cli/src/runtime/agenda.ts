@@ -264,8 +264,8 @@ export async function deliverNotification(title: string, message: string, kind: 
 export interface RunDueDependencies {
   now?: () => Date;
   paths?: AgendaPaths;
-  /** Runs one agenda task as an agent turn and returns Flyd's answer. */
-  runTask(task: string, item: AgendaItem): Promise<string>;
+  /** Runs one agenda task as an agent turn and returns Flyd's answer; onTool hears each tool the turn ran. */
+  runTask(task: string, item: AgendaItem, onTool: (name: string) => void): Promise<string>;
   notify?: (title: string, message: string, kind?: GeorgeKind) => Promise<void>;
 }
 
@@ -296,12 +296,18 @@ export async function runDueAgenda(deps: RunDueDependencies): Promise<RunDueResu
       }), paths);
       let status: "ok" | "failed" = "ok";
       let result: string;
+      let toolRan = false;
+      let retried = false;
+      const onTool = () => { toolRan = true; };
       try {
-        result = (await deps.runTask(item.task, item)).trim() || "(no answer)";
-      } catch {
-        // Flyd's own to repair: run it again once, and only then is a failure George's to hear about.
+        result = (await deps.runTask(item.task, item, onTool)).trim() || "(no answer)";
+      } catch (first) {
+        // Flyd's own to repair: a turn that failed before any tool ran is run again once. One that
+        // failed after a tool ran may already have had effects, so it is never run twice; George decides.
         try {
-          result = (await deps.runTask(item.task, item)).trim() || "(no answer)";
+          if (toolRan) throw first;
+          retried = true;
+          result = (await deps.runTask(item.task, item, onTool)).trim() || "(no answer)";
         } catch (error) {
           status = "failed";
           result = `Could not complete: ${error instanceof Error ? error.message : String(error)}`;
@@ -309,10 +315,11 @@ export async function runDueAgenda(deps: RunDueDependencies): Promise<RunDueResu
       }
       writeAgenda(readAgenda(paths).map((existing) => existing.id === item.id ? { ...existing, lastStatus: status } : existing), paths);
       appendInbox({ id: randomUUID().slice(0, 8), itemId: item.id, task: item.task, at: now.toISOString(), status, result, read: false }, paths);
-      // A failure it has already run twice is his to hear about, plainly: what failed, that it was tried again, and the one thing that clears it.
+      // A failure is his to hear about plainly: what failed, what was tried, and the one thing that clears it.
+      const tried = retried ? "I ran it again and it failed" : "it stopped partway, so I didn't run it twice";
       await (deps.notify ?? notifyMac)(
         `Flyd — ${item.task.slice(0, 60)}`,
-        status === "failed" ? `"${item.task}" is blocked: I ran it again and it failed. Tell me whether to try another way or drop it.` : result,
+        status === "failed" ? `"${item.task}" is blocked: ${tried}. Tell me whether to try another way or drop it.` : result,
         status === "failed" ? "blocker" : "deliverable",
       ).catch(() => undefined);
       ran.push({ id: item.id, task: item.task, status });

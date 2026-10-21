@@ -171,7 +171,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // A note firstmate leaves unread past three minutes: Flyd chases firstmate itself, quietly, and George never hears.
   const unread = wantsInbox
     ? new UnreadNoteWatcher(
-      () => source.exchanges(),
+      () => source.heardExchanges(),
       (note, requestId) => inbox.sendOwn(note, requestId),
       Date.now,
       defaultUnreadChaseState(),

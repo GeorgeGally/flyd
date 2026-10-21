@@ -57,7 +57,7 @@ describe("crew", () => {
     expect(done).toMatchObject({ status: "ready", commits: 1, summary: "Added feature.txt; README unchanged." });
     expect(done.diffStat).toContain("1 file changed");
     expect(runCommand).toHaveBeenCalledWith("git diff --check", task.worktree);
-    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/is done and tested\. Say \/land to merge it in\.$/));
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/is done and tested\. Say \/land to merge it in\.$/), "deliverable");
     expect(existsSync(join(repo, "feature.txt"))).toBe(false);
 
     const landed = await landCrewTask(task.id);
@@ -68,8 +68,10 @@ describe("crew", () => {
 
   it("fails a crewmate that committed nothing or whose checks fail, and never lands it", async () => {
     await dispatchCrewTask({ repo, outcome: "Do nothing", launch: fakeCrewmate(false) });
-    const [idle] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }) });
+    const notify = vi.fn(async () => undefined);
+    const [idle] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify });
     expect(idle).toMatchObject({ status: "failed", failure: "no commits" });
+    expect(notify).toHaveBeenCalledWith("Flyd", "Do nothing is blocked: it couldn't be finished. Tell me whether to try another way or drop it.", "blocker");
     await expect(landCrewTask(idle.id)).rejects.toThrow("not ready to land");
 
     await dispatchCrewTask({ repo, outcome: "Break the tests", launch: fakeCrewmate() });
@@ -127,7 +129,7 @@ describe("crew review against done_when", () => {
     expect(review.mock.calls[0][0]).toContain("+done");
     expect(review.mock.calls[0][0]).toContain("find what would make it unacceptable");
     expect(done).toMatchObject({ status: "ready", review: [{ met: true }, { met: true }] });
-    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/done and tested/));
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/done and tested/), "deliverable");
   });
 
   it("sends unmet points back to the crewmate once in the same worktree, then reports what is still short", async () => {
@@ -143,7 +145,7 @@ describe("crew review against done_when", () => {
     const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, launch: relaunch, notify });
     expect(relaunch).toHaveBeenCalledTimes(MAX_CREW_ATTEMPTS - 1);
     expect(done).toMatchObject({ id: task.id, status: "ready" });
-    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("still short on: a test covers the feature (no test in the diff). Your call whether to /land it."));
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("still short on: a test covers the feature (no test in the diff). Your call whether to /land it."), "deliverable");
   });
 
   it("doesn't rebuild when the review itself breaks", async () => {
@@ -173,7 +175,7 @@ describe("crew review against done_when", () => {
       launch: () => { throw new Error("opencode missing"); },
     });
     expect(done).toMatchObject({ status: "ready", attempts: 1 });
-    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("still short on: a test covers the feature (no test)"));
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("still short on: a test covers the feature (no test)"), "deliverable");
   });
 
   it("says so when it couldn't review, rather than calling the work short", async () => {
@@ -181,7 +183,7 @@ describe("crew review against done_when", () => {
     const notify = vi.fn(async () => {});
     const [done] = await superviseCrew({ alive: () => false, runCommand: passing, notify, review: async () => "LGTM" });
     expect(done.review?.every((check) => check.unchecked)).toBe(true);
-    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("I couldn't check it against what you asked"));
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("I couldn't check it against what you asked"), "deliverable");
   });
 
   it("holds a task without done_when to its outcome", async () => {

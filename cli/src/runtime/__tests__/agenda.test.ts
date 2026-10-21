@@ -159,4 +159,18 @@ describe("agenda", () => {
     expect(seen[1]).toEqual({ message: "\"Second try\" is blocked: I ran it again and it failed. Tell me whether to try another way or drop it.", kind: "blocker" });
     expect(seen[1]!.message).not.toMatch(/ENOENT|Command failed|\/tmp/);
   });
+
+  it("never runs a turn again once a tool has run in it, and leaves the failure for George", async () => {
+    addAgendaItem({ task: "Draft the reply", when: "2026-09-26 08:00" }, paths, at("2026-09-26 07:00"));
+    const seen: Array<{ message: string; kind?: string }> = [];
+    const notify = async (_title: string, message: string, kind?: string) => { seen.push({ message, kind }); };
+    const late = vi.fn(async (_task: string, _item: unknown, onTool: (name: string) => void) => {
+      onTool("email_draft");
+      throw new Error("model timed out");
+    });
+    const result = await runDueAgenda({ paths, now: () => at("2026-09-26 08:05"), runTask: late, notify });
+    expect(late).toHaveBeenCalledTimes(1);
+    expect(result.ran[0]!.status).toBe("failed");
+    expect(seen).toEqual([{ message: "\"Draft the reply\" is blocked: it stopped partway, so I didn't run it twice. Tell me whether to try another way or drop it.", kind: "blocker" }]);
+  });
 });

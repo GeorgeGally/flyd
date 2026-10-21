@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
+import type { GeorgeKind } from "../lib/reaches-george.js";
 import { claudeApiKey, claudeHeaders, recordClaudeUsage } from "../lib/claude-spend.js";
 import { normalizeCriteria, parseVerdicts, shortfall, unmetChecks, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
 import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
@@ -308,7 +309,7 @@ export function lastSummary(logPath: string): string {
 export interface SuperviseDependencies {
   now?: () => Date;
   dir?: string;
-  notify?: (title: string, message: string) => Promise<void>;
+  notify?: (title: string, message: string, kind?: GeorgeKind) => Promise<void>;
   /** Test seams. */
   alive?: (pid: number | undefined) => boolean;
   runCommand?: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>;
@@ -487,13 +488,13 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
     const short = unmetChecks(judged).length ? shortfall(judged) : "";
     const unreviewed = judged.length < (task.review ?? []).length;
     const message = task.status !== "ready"
-      ? `I couldn't finish ${plainOutcome(task)} (${task.failure}).`
+      ? `${plainOutcome(task)} is blocked: it couldn't be finished. Tell me whether to try another way or drop it.`
       : short
         ? `${plainOutcome(task)} passes its tests but is still short on: ${short}. Your call whether to /land it.`
         : unreviewed
           ? `${plainOutcome(task)} passes its tests, but I couldn't check it against what you asked. Have a look before you /land it.`
           : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
-    await deps.notify!("Flyd", message).catch(() => undefined);
+    await deps.notify!("Flyd", message, task.status !== "ready" ? "blocker" : "deliverable").catch(() => undefined);
     saveTask({ ...task, notified: true }, dir);
   }
   return changed;

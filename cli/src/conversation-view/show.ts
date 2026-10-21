@@ -495,6 +495,7 @@ export function situationOf(counts: Partial<Record<ShowKind, number>>, known = t
 
 /** Flyd's opening line: led by the most important thing on screen. */
 export function titleOf(items: ShowItem[], quiet = false, known = true): string {
+  if (!items.length && !known) return "Nothing to show you yet, sir.";
   const kinds = new Set(items.map((item) => item.kind));
   if (kinds.has("call")) return "Your move, sir.";
   if (quiet) return "Here's where things stand, sir.";
