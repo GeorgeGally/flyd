@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, crewBrief, discardCrewTask, dispatchCrewTask, landCrewTask, lastSummary, listTasks, readTask, superviseCrew } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, crewBrief, discardCrewTask, dispatchCrewTask, landCrewTask, lastSummary, listTasks, readTask, superviseCrew } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -71,7 +71,7 @@ describe("crew", () => {
     const notify = vi.fn(async () => undefined);
     const [idle] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify });
     expect(idle).toMatchObject({ status: "failed", failure: "no commits" });
-    expect(notify).toHaveBeenCalledWith("Flyd", "Do nothing is blocked: it couldn't be finished. Tell me whether to try another way or drop it.", "blocker");
+    expect(notify).toHaveBeenCalledWith("Flyd", "Do nothing is blocked: nothing was committed. Tell me whether to try another way or drop it.", "blocker");
     await expect(landCrewTask(idle.id)).rejects.toThrow("not ready to land");
 
     await dispatchCrewTask({ repo, outcome: "Break the tests", launch: fakeCrewmate() });
@@ -215,5 +215,16 @@ describe("after landing", () => {
     const landed = await landCrewTask(task.id, undefined, run);
     expect(run).not.toHaveBeenCalled();
     expect(landed.afterLandResults).toEqual([{ step: "deploy", ok: false, detail: expect.stringContaining("declares no deploy command") }]);
+  });
+});
+
+describe("what stopped a failed task", () => {
+  it("says each failure in plain words, never the raw error", () => {
+    expect(blockedBy({ failure: "no commits" })).toBe("nothing was committed");
+    expect(blockedBy({ failure: "no commits (uncommitted changes left in the worktree)" })).toBe("changes were made but never committed");
+    expect(blockedBy({ failure: "verification failed: npm test" })).toBe("its tests failed");
+    expect(blockedBy({ failure: "stopped after 2 hours without finishing" })).toBe("it ran for two hours without finishing");
+    expect(blockedBy({ failure: "Command failed: ENOENT /tmp/x.sh" })).toBe("it couldn't be finished");
+    expect(blockedBy({})).toBe("it couldn't be finished");
   });
 });

@@ -488,7 +488,7 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
     const short = unmetChecks(judged).length ? shortfall(judged) : "";
     const unreviewed = judged.length < (task.review ?? []).length;
     const message = task.status !== "ready"
-      ? `${plainOutcome(task)} is blocked: it couldn't be finished. Tell me whether to try another way or drop it.`
+      ? `${plainOutcome(task)} is blocked: ${blockedBy(task)}. Tell me whether to try another way or drop it.`
       : short
         ? `${plainOutcome(task)} passes its tests but is still short on: ${short}. Your call whether to /land it.`
         : unreviewed
@@ -564,6 +564,15 @@ export async function discardCrewTask(id: string, dir = crewDir()): Promise<Crew
   const discarded = { ...task, status: "discarded" as const };
   saveTask(discarded, dir);
   return discarded;
+}
+
+/** What stopped a failed task, in plain words; the raw failure stays in the task record. */
+export function blockedBy(task: Pick<CrewTask, "failure">): string {
+  const failure = task.failure ?? "";
+  if (failure.startsWith("no commits")) return /uncommitted/.test(failure) ? "changes were made but never committed" : "nothing was committed";
+  if (failure.startsWith("verification failed")) return "its tests failed";
+  if (failure.startsWith("stopped after")) return "it ran for two hours without finishing";
+  return "it couldn't be finished";
 }
 
 /** The work in George's terms: its first sentence, without the self-improvement preamble. */
