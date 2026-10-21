@@ -130,6 +130,7 @@ function groundedRefs(input: ExecutiveDecisionInput): string[] {
   return [...new Set(input.proposal.evidenceRefs.filter((ref) => ref.trim()))];
 }
 
+export const FENCE_HELD = "the final output check held this wording";
 export const HELD_FOR_ATTENTION = "already returned to its boss once; held for Flyd's attention";
 
 const BOSS_NOTES = [HANDLE_IT_YOURSELF, RECOVER_IT_YOURSELF, RESTATE_FOR_GEORGE];
@@ -285,7 +286,7 @@ function plainAsk(decision: AskDecision, held: HeldDecision): ExecutiveDecisionR
 export function decideExecutiveStep(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecisionRecord {
   const decision = decide(input, now);
   if (!decision.show || !fenced(decision)) return decision;
-  const held: HeldDecision = { schema: decision.schema, decisionId: decision.decisionId, sourceId: decision.sourceId, sourceEventId: decision.sourceEventId, ...(decision.taskId ? { taskId: decision.taskId } : {}), createdAt: decision.createdAt, summary: decision.summary, evidenceRefs: decision.evidenceRefs, verification: { status: "unknown", evidenceRefs: [] }, disposition: "backstage", show: false, notify: false, reason: "the final output check held this wording" };
+  const held: HeldDecision = { schema: decision.schema, decisionId: decision.decisionId, sourceId: decision.sourceId, sourceEventId: decision.sourceEventId, ...(decision.taskId ? { taskId: decision.taskId } : {}), createdAt: decision.createdAt, summary: decision.summary, evidenceRefs: decision.evidenceRefs, verification: { status: "unknown", evidenceRefs: [] }, disposition: "backstage", show: false, notify: false, reason: FENCE_HELD };
   if (decision.disposition !== "ask_george") return held;
   return input.sentToBoss?.includes(RESTATE_FOR_GEORGE) ? plainAsk(decision, held)
     : toBoss(input, held, RESTATE_FOR_GEORGE, "the final output check held a George decision; its boss is asked to restate it");

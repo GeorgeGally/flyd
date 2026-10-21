@@ -14,7 +14,7 @@ import { BACKSTAGE_DENYLIST, BACKSTAGE_TELEMETRY, CHAT_BACKSTAGE, firstMatch, ha
 import { relayShortfalls } from "../../runtime/honesty-check.js";
 import type { DomainRun } from "../../command/types.js";
 import { heldForAttention } from "../../conversation-view/artefact.js";
-import { HANDLE_IT_YOURSELF, RECOVER_IT_YOURSELF, type ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
+import { FENCE_HELD, HANDLE_IT_YOURSELF, RECOVER_IT_YOURSELF, type ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
 const PLACEHOLDER = "Working on it";
@@ -361,27 +361,27 @@ describe("before display", () => {
     expect(shown).toEqual(["Lender B is cheaper over five years."]);
   });
 
-  it("marks a run notified only once George was told or Flyd holds it in view", async () => {
+  it("settles a run only by telling George, holding what still needs action, or keeping a quiet success backstage", async () => {
     const base: ExecutiveDecisionRecord = {
       schema: "flyd.executive-decision.v1", decisionId: "d", sourceId: "domain.knowledge", sourceEventId: "e", disposition: "backstage",
       reason: "interpretation is unclear", summary: "", evidenceRefs: [], verification: { status: "unknown", evidenceRefs: [] }, show: false, notify: false, createdAt: "2026-10-21T00:00:00Z",
     };
-    const cases: Array<{ name: string; status: DomainRun["status"]; decision: ExecutiveDecisionRecord }> = [
-      { name: "failed", status: "failed", decision: base },
-      { name: "requested", status: "completed", decision: { ...base, disposition: "handle_internally", summary: "Lender B is cheaper over five years.", verification: { status: "verified", evidenceRefs: ["domain-report:r"] }, show: true, notify: true } },
-      { name: "fenced", status: "completed", decision: { ...base, reason: "the final output check held this wording" } },
-      { name: "empty", status: "completed", decision: { ...base, disposition: "handle_internally", summary: "", verification: { status: "verified", evidenceRefs: ["r"] }, show: true, notify: true } },
-      { name: "unsent", status: "completed", decision: { ...base, disposition: "handle_internally", summary: "The page is live.", verification: { status: "verified", evidenceRefs: ["r"] }, show: true, notify: false } },
+    const cases: Array<{ name: string; status: DomainRun["status"]; decision: ExecutiveDecisionRecord; outcome: "notice" | "hold" | "quiet" }> = [
+      { name: "failed", status: "failed", decision: base, outcome: "hold" },
+      { name: "requested", status: "completed", decision: { ...base, disposition: "handle_internally", summary: "Lender B is cheaper over five years.", verification: { status: "verified", evidenceRefs: ["domain-report:r"] }, show: true, notify: true }, outcome: "notice" },
+      { name: "fenced", status: "completed", decision: { ...base, reason: FENCE_HELD }, outcome: "hold" },
+      { name: "empty", status: "completed", decision: { ...base, disposition: "handle_internally", summary: "", verification: { status: "verified", evidenceRefs: ["r"] }, show: true, notify: true }, outcome: "hold" },
+      { name: "unsent", status: "completed", decision: { ...base, disposition: "handle_internally", summary: "The page is live.", verification: { status: "verified", evidenceRefs: ["r"] }, show: true, notify: false }, outcome: "quiet" },
+      { name: "routine", status: "completed", decision: { ...base, reason: "routine operational state stays backstage" }, outcome: "quiet" },
     ];
-    for (const { name, status, decision } of cases) {
+    for (const { name, status, decision, outcome } of cases) {
       const id = `domain-table-${name}`;
       const shown: string[] = [];
       const run: DomainRun = { ...decisionRun(INTERNAL_DECISION), id, status, request: { ...decisionRun(INTERNAL_DECISION).request, id, intendedOutcome: `Work ${name}` } };
       await notifyRun(run, async (_title, message) => { shown.push(message); }, async () => { throw new Error("no boss note"); }, async () => ({ ...decision, taskId: id }));
       const held = heldForAttention().some((row) => row.task === id);
       expect(readDomainRun(id)?.notified, name).toBe(true);
-      expect(shown.length > 0 || held, name).toBe(true);
-      expect(shown.length > 0 && held, name).toBe(false);
+      expect(shown.length > 0 ? "notice" : held ? "hold" : "quiet", name).toBe(outcome);
     }
   });
 

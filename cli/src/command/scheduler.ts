@@ -1,4 +1,4 @@
-import { bossMessageKind, notesSentToBoss, recommendationText } from "../intelligence/executive/decision-step.js";
+import { bossMessageKind, FENCE_HELD, HELD_FOR_ATTENTION, notesSentToBoss, recommendationText } from "../intelligence/executive/decision-step.js";
 import { recordHeld } from "../council/reply-review.js";
 import { syncFirstmateDomainRuns } from "./firstmate.js";
 import { syncLibrarianDomainRuns } from "./librarian.js";
@@ -91,10 +91,12 @@ export async function notifyRun(
     const decision = await decide(run, send);
     // Work sent back to its boss stays open: the boss's next reply is decided afresh.
     if (decision.action && decision.verification.status === "verified") return;
-    // A run is only settled once George was told or Flyd holds it in view.
+    // Settled once George was told, or quietly when nothing is left for him or Flyd; otherwise Flyd holds it in view.
     const notice = noticeForDecision(decision);
+    const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
+      || decision.action !== undefined || decision.reason === FENCE_HELD || decision.reason === HELD_FOR_ATTENTION;
     if (notice) await (notify ?? (await import("../runtime/agenda.js")).notifyMac)("Flyd", notice, decision.disposition === "ask_george" ? "decision" : noticeKind(run));
-    else recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
+    else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
   } catch {
     // The durable result remains in the command store; notification is best effort.
