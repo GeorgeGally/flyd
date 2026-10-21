@@ -540,7 +540,7 @@ function createToolHandler(
   jobId?: string,
   signal?: AbortSignal,
   onAction?: (action: import("../conversation-view/semantic.js").SemanticObject) => void,
-  /** Nobody asked for this run (the agenda): never open an app George has closed. A job he asked for may. */
+  /** Nobody asked for this run (the agenda, an eval): never open an app George has closed. A job he asked for may. */
   backgroundPersonalTools = false,
 ): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
@@ -1210,7 +1210,7 @@ export async function respondToConversation(
     userMessage: input.message,
     skill: skill ? { name: skill.name, body: skill.body } : null,
     onCodingHandoff: input.onCodingHandoff,
-  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction, Boolean(input.sessionId?.startsWith("agenda-")));
+  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction, /^(?:agenda|eval)-/.test(input.sessionId ?? ""));
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
   const repeats = createRepeatGuard();

@@ -1458,7 +1458,7 @@ describe("conversation action tools", () => {
     }
   });
 
-  it("lets a job George asked for open his apps but keeps an unattended agenda run from doing it", async () => {
+  it("lets a job George asked for open his apps but keeps unattended agenda and eval runs from doing it", async () => {
     const readReminders = async (sessionId: string): Promise<string> => {
       let output = "";
       await respondToConversation({
@@ -1480,11 +1480,13 @@ describe("conversation action tools", () => {
 
     const job = await readReminders("job-abc");
     const agenda = await readReminders("agenda-round-1");
+    const evaluation = await readReminders("eval-reminders-list");
 
     // The job runs the tool rather than refusing it (the VITEST guard proves osascript was attempted).
     expect(job).toMatch(/AppleScript is disabled in tests/);
     expect(job).not.toMatch(/background run does not open it/);
     expect(agenda).toMatch(/background run does not open it/);
+    expect(evaluation).toMatch(/background run does not open it/);
   });
 });
 

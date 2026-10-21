@@ -45,6 +45,31 @@ describe("personal tools", () => {
     if (process.platform === "darwin") expect(checked).toEqual([["com.apple.Notes", true]]);
   });
 
+  it("never opens an app or URL through the mac tool on a background run", async () => {
+    const result = await runPersonalTool("mac", { action: "open", target: "Notes" }, { background: true, appRunning: async () => false });
+    expect(result).toBe("Error: a background run does not open Notes");
+  });
+
+  it("keeps a background AppleScript from launching an app through System Events or a shell", async () => {
+    const runOsascript = vi.fn(async () => "");
+    const checked: string[] = [];
+    const appRunning = async (app: string) => { checked.push(app); return false; };
+    const viaSystemEvents = await runPersonalTool(
+      "mac",
+      { action: "applescript", script: 'tell application "System Events" to launch application "Notes"' },
+      { runOsascript, background: true, appRunning },
+    );
+    const viaShell = await runPersonalTool(
+      "mac",
+      { action: "applescript", script: 'do shell script "open -a Notes"' },
+      { runOsascript, background: true, appRunning },
+    );
+    expect(runOsascript).not.toHaveBeenCalled();
+    expect(viaSystemEvents).toMatch(/^Error/);
+    expect(viaShell).toMatch(/^Error/);
+    if (process.platform === "darwin") expect(checked).toEqual(["Notes"]);
+  });
+
   it("lets a background run use System Events, which has no window", async () => {
     const runOsascript = vi.fn(async () => "true");
     const appRunning = vi.fn(async () => false);

@@ -467,7 +467,9 @@ function localDateParts(date: Date): [string, string, string] {
 async function runMacAction(
   input: Record<string, unknown>,
   osascript: (script: string, args: string[]) => Promise<string>,
+  background = false,
 ): Promise<string> {
+  if (background && input.action === "open") return `Error: a background run does not open ${String(input.target ?? "").trim() || "anything"}`;
   if (process.platform !== "darwin") return "Error: Mac control is only available on macOS";
   try {
     switch (input.action) {
@@ -521,6 +523,7 @@ export async function runPersonalTool(
   const run = deps.runOsascript ?? ((script: string, args: string[]) => defaultOsascript(script, args, deps.background));
   const osascript = deps.background
     ? async (script: string, args: string[]) => {
+      if (/\bdo shell script\b.*\b(?:open|osascript)\b/.test(script)) throw new Error("a background run does not open apps from a shell");
       for (const [, byId, app] of script.matchAll(/\bapp(?:lication)?( id)? "([^"]+)"/g)) {
         if (WINDOWLESS_APPS.has(app!)) continue;
         if (!(await (deps.appRunning ?? appRunning)(app!, Boolean(byId)))) throw new Error(`${app} is not running; a background run does not open it`);
@@ -618,7 +621,7 @@ export async function runPersonalTool(
       }
     }
     case "mac":
-      return runMacAction(input, osascript);
+      return runMacAction(input, osascript, deps.background);
     case "calendar_events": {
       const fromText = String(input.from ?? "").trim();
       const from = fromText.match(LOCAL_DATE_TIME);
