@@ -24,6 +24,12 @@ describe("conversation status for the island", () => {
     expect(notable.reply).toEqual({ id: "outcome:result", headline: "The release is verified", asks: false });
   });
 
+  it("stops asking on the island once his answered call is settled", () => {
+    const current = statusOf({ messages: [], working: false });
+    const settled = islandStatusOf(current, { ...parseBearings({}), calls: [{ label: "Ship it today, or hold it for review?", task: "gnm-9", question: "Ship it today, or hold it for review?", choices: ["ship it today", "hold it for review"], ledgerOnly: true }] });
+    expect(settled.reply).toBeUndefined();
+  });
+
   it("keeps Flyd's answer to his own question and a failed send of his message on the island", () => {
     const answered = islandStatusOf({ working: false, reply: { id: "answer:1", headline: "Your flight leaves at nine.", asks: false } });
     expect(answered.reply).toEqual({ id: "answer:1", headline: "Your flight leaves at nine.", asks: false });

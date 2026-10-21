@@ -123,7 +123,7 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
 }
 
 export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefact): ConversationStatus {
-  const ask = fleet?.calls[0];
+  const ask = fleet?.calls.find((row) => !row.ledgerOnly);
   const notable = fleet?.landed.find((row) => row.notable);
   const reply = ask
     ? { id: `decision:${ask.executiveDecisionId ?? ask.task ?? ask.label}`, headline: ask.question ?? ask.label, asks: true }
