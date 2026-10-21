@@ -9,8 +9,8 @@ import type { Exchange } from "./types.js";
 // state/inbox/handled/, and that move is the one acknowledgement there is.
 // A note still in the inbox is only sent. On 2026-10-12 thirteen notes sat
 // unread for over an hour while nothing here said so. A note left unread past
-// UNREAD_AFTER_MS is now Flyd's to chase: its own note to firstmate, another
-// each grace, and no more. Unread notes are staff silence, which never reaches
+// UNREAD_AFTER_MS is now Flyd's to chase: its own note to firstmate, and
+// another each UNREAD_CHASE_MS while it stays unread. Unread notes are staff silence, which never reaches
 // George (lib/reaches-george.ts): he never hears that someone has gone quiet.
 
 /** How long a note may sit unread before Flyd chases it. */
