@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,9 @@ import {
   isInstagramLoginWall,
   respondToConversation,
 } from "../conversation-responder.js";
+import { IntelligenceEventStore } from "../../intelligence/event-store.js";
+import { EXPERIENCE_SOURCE_ID } from "../experience-trace.js";
+import { loadLatestTurnReceipt, persistTurnReceipt } from "../turn-receipt.js";
 
 // These suites exercise the prompt and the tool loop, not routing: turns run
 // unplanned, as with the room reading switched off. Routing tests inject
@@ -34,6 +37,38 @@ describe("buildConversationPrompt", () => {
       });
       expect(capture).not.toHaveBeenCalled();
     } finally { capture.mockRestore(); }
+  });
+  it("persists a conversation-view turn's receipt and experience trace, and a failed persist never fails the answer", async () => {
+    const flydDir = mkdtempSync(join(tmpdir(), "flyd-view-turn-"));
+    try {
+      const turn = (persistReceipt: typeof persistTurnReceipt) => respondToConversation({
+        message: "what is on today?",
+        sessionId: "view:conversation", turnNumber: 7, history: [],
+        memory: { verdict: "insufficient", matches: [] }, situation: null,
+        onToken: () => undefined,
+      }, {
+        readOnly: true,
+        routeTurn: async () => ({ route: "answer", source: "jev", confidence: 1, decided: true, needsCode: false }),
+        runAgentLoop: async () => "<final>A quiet day.</final>",
+        persistReceipt,
+      });
+
+      await expect(turn((input) => persistTurnReceipt(input, { flydDir, id: () => "view-receipt" }))).resolves.toContain("A quiet day.");
+      await expect(loadLatestTurnReceipt({ flydDir, sessionId: "view:conversation" }))
+        .resolves.toMatchObject({ id: "view-receipt", sessionId: "view:conversation", turnNumber: 7, status: "succeeded" });
+      const receiptFiles = readdirSync(join(flydDir, "turn-receipts"), { recursive: true }).map(String);
+      const receiptFile = receiptFiles.find((file) => file.endsWith("000007-view-receipt.json"));
+      expect(receiptFile).toBeDefined();
+      expect(JSON.parse(readFileSync(join(flydDir, "turn-receipts", receiptFile!), "utf8"))).toMatchObject({ sessionId: "view:conversation", answer: expect.stringContaining("A quiet day.") });
+      const store = new IntelligenceEventStore({ path: join(flydDir, "intelligence.sqlite") });
+      const traces = store.readSource(EXPERIENCE_SOURCE_ID);
+      store.close();
+      expect(traces.map((event) => event.correlationId)).toEqual(["view-receipt"]);
+
+      await expect(turn(async () => { throw new Error("disk full"); })).resolves.toContain("A quiet day.");
+    } finally {
+      rmSync(flydDir, { recursive: true, force: true });
+    }
   });
   it("treats memory as personal evidence rather than a refusal boundary", () => {
     const prompt = buildConversationPrompt({
