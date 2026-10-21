@@ -5,7 +5,7 @@ import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
 import { noticeKind } from "./notice.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
-import { saveDomainRun } from "./store.js";
+import { readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
 import { notificationLine } from "../council/chief-of-staff.js";
 import { relayShortfalls } from "../runtime/honesty-check.js";
@@ -90,13 +90,11 @@ export async function notifyRun(
     const notice = noticeForDecision(decision);
     if (notice) await (notify ?? (await import("../runtime/agenda.js")).notifyMac)("Flyd", notice, decision.disposition === "ask_george" ? "decision" : noticeKind(run));
     // Work sent back to its boss stays open: the boss's next reply is decided afresh.
-    if (decision.action) return;
-    if (decision.reason === HELD_FOR_ATTENTION) {
-      recordHeld({ surface: "notification", source: `domain:${run.id}`, text: decision.summary || run.request.intendedOutcome }, [{
-        requirement: "decisions_handled", reason: decision.reason, quote: run.result.brief.slice(0, 240), by: "check",
-      }]);
+    if (decision.action && decision.verification.status === "verified") return;
+    if (decision.action || decision.reason === HELD_FOR_ATTENTION) {
+      recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     }
-    saveDomainRun({ ...run, notified: true });
+    saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
   } catch {
     // The durable result remains in the command store; notification is best effort.
   }

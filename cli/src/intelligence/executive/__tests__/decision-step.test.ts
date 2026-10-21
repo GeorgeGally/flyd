@@ -227,6 +227,19 @@ describe("executive decision step", () => {
     expect(JSON.stringify([asked.question, asked.options, asked.recommendation])).not.toMatch(/firstmate|crewmate/i);
   });
 
+  it("names only roles in its own words, and never rewrites the work's own mechanics into nonsense", () => {
+    const evidence = "Merge fm/fix-island into main, or keep the branch open?";
+    const asked = decideExecutiveStep({
+      sourceId: "firstmate.status", sourceEventId: "island:merge", taskId: "review", sourceText: `Island fix: ${evidence}`,
+      authority: authorityForStaffRun({ runId: "review", firstmate: true, active: true, autonomy: "trusted" }), sentToBoss: [RESTATE_FOR_GEORGE],
+      judgment: { route: "ask_george", confidence: 0.95, notable: false },
+      proposal: { kind: "question", summary: "Choose whether to merge the island fix now.", question: evidence, questionEvidence: evidence,
+        options: ["Merge fm/fix-island into main", "keep the branch open"], evidenceRefs: [] },
+    });
+    expect(asked).toMatchObject({ disposition: "ask_george", question: "Choose whether to merge the island fix now.", options: [] });
+    expect(JSON.stringify(asked)).not.toContain("the team");
+  });
+
   it("drops alternatives it cannot say cleanly when it asks George itself after one restate", () => {
     const promise = { ...eitherOrProposal, question: "Close the review or add the tools?", options: ["close it", "bring in the missing editing tools and route checker"],
       recommendation: { ...eitherOrProposal.recommendation, rationale: "I'll add them next." } };

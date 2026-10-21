@@ -1,5 +1,5 @@
 import { relayShortfalls } from "../../runtime/honesty-check.js";
-import { BACKSTAGE_DENYLIST } from "../../lib/backstage.js";
+import { BACKSTAGE_ROLES } from "../../lib/backstage.js";
 import { createHash } from "node:crypto";
 import { validateEnvelope, type ContextEnvelope } from "../context-envelope.js";
 import type { IntelligenceEventStore, StoredEvent } from "../event-store.js";
@@ -255,7 +255,7 @@ function fenced(decision: ExecutiveDecisionRecord): boolean {
 }
 
 function plainWords(text: string): string {
-  return BACKSTAGE_DENYLIST.reduce((said, name) => said.replace(new RegExp(`(?:\\bthe\\s+)?(?:${name.source})`, `${name.flags.replace("g", "")}g`), "the team"), text)
+  return BACKSTAGE_ROLES.reduce((said, name) => said.replace(new RegExp(`(?:\\bthe\\s+)?(?:${name.source})`, `${name.flags.replace("g", "")}g`), "the team"), text)
     .replace(/\s+/g, " ").trim();
 }
 

@@ -13,7 +13,8 @@ import { readDomainRun, saveDomainRun } from "../../command/store.js";
 import { BACKSTAGE_DENYLIST, BACKSTAGE_TELEMETRY, CHAT_BACKSTAGE, firstMatch, hasBackstage } from "../../lib/backstage.js";
 import { relayShortfalls } from "../../runtime/honesty-check.js";
 import type { DomainRun } from "../../command/types.js";
-import { HANDLE_IT_YOURSELF, HELD_FOR_ATTENTION, RECOVER_IT_YOURSELF, type ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
+import { heldForAttention } from "../../conversation-view/artefact.js";
+import { HANDLE_IT_YOURSELF, RECOVER_IT_YOURSELF, type ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
 const PLACEHOLDER = "Working on it";
@@ -177,11 +178,14 @@ describe("before display", () => {
   let commandDir: string;
   let previous: string | undefined;
   let previousFlydDir: string | undefined;
+  let previousReviewDir: string | undefined;
 
   beforeEach(() => {
     commandDir = mkdtempSync(join(tmpdir(), "flyd-cos-command-"));
     previous = process.env.FLYD_COMMAND_DIR;
     previousFlydDir = process.env.FLYD_DIR;
+    previousReviewDir = process.env.FLYD_SELF_REVIEW_DIR;
+    process.env.FLYD_SELF_REVIEW_DIR = join(commandDir, "self-review");
     process.env.FLYD_COMMAND_DIR = commandDir;
     process.env.FLYD_DIR = join(commandDir, "flyd-home");
   });
@@ -189,6 +193,8 @@ describe("before display", () => {
   afterEach(() => {
     if (previous === undefined) delete process.env.FLYD_COMMAND_DIR;
     else process.env.FLYD_COMMAND_DIR = previous;
+    if (previousReviewDir === undefined) delete process.env.FLYD_SELF_REVIEW_DIR;
+    else process.env.FLYD_SELF_REVIEW_DIR = previousReviewDir;
     if (previousFlydDir === undefined) delete process.env.FLYD_DIR;
     else process.env.FLYD_DIR = previousFlydDir;
     rmSync(commandDir, { recursive: true, force: true });
@@ -331,7 +337,17 @@ describe("before display", () => {
       (run, send) => decideRun(run, send, async () => JSON.stringify({ kind: "unclear", summary: "The run failed again.", evidenceRefs: [] })));
     expect(shown).toEqual([]);
     expect(readDomainRun("domain-cos-1")?.notified).toBe(true);
-    expect(readVerdicts().find((verdict) => verdict.source === "domain:domain-cos-1")).toMatchObject({ held: true, shortfalls: [{ requirement: "decisions_handled", reason: HELD_FOR_ATTENTION }] });
+    expect(readVerdicts().find((verdict) => verdict.source === "domain:domain-cos-1")).toMatchObject({ held: true, shortfalls: [], text: "Add a turn-end guard" });
+    expect(heldForAttention()).toEqual([expect.objectContaining({ task: "domain-cos-1", label: "Add a turn-end guard", status: "needs attention" })]);
+    expect(scorecard()).toBe("Nothing reviewed in the last 7 days yet.\n");
+  });
+
+  it("holds work for Flyd's attention when its note to the boss could not be delivered", async () => {
+    const failed: DomainRun = { ...decisionRun(INTERNAL_DECISION), status: "failed" };
+    await notifyRun(failed, async () => undefined, async () => ({ delivered: false, reason: "delivery_failed" as const }),
+      (run, send) => decideRun(run, send, async () => JSON.stringify({ kind: "unclear", summary: "The run failed.", evidenceRefs: [] })));
+    expect(readDomainRun("domain-cos-1")).toMatchObject({ status: "failed", notified: true });
+    expect(heldForAttention()).toEqual([expect.objectContaining({ task: "domain-cos-1", label: "Add a turn-end guard" })]);
   });
 
   it("keeps a placeholder notification from George and records it", async () => {

@@ -13,6 +13,8 @@ import { recordKept } from "../council/reply-review.js";
 import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
 import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision-step.js";
 import type { FirstmateChange } from "../intelligence/executive/firstmate-decision.js";
+import { readVerdicts } from "../council/reply-review.js";
+import { readDomainRun } from "../command/store.js";
 import type { ShowItem, ShowKind } from "./show.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
@@ -518,7 +520,20 @@ export function firstmateChangesFromFleet(fleet: FleetArtefact, verifiedByTask: 
   return [...changes.values()].slice(0, 40);
 }
 
-export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly ExecutiveDecisionRecord[]): FleetArtefact {
+/** Domain runs Flyd held for its own attention after their boss could not settle them, until the run moves on. */
+export function heldForAttention(): ArtefactRow[] {
+  const rows = new Map<string, ArtefactRow>();
+  for (const verdict of readVerdicts()) {
+    if (!verdict.held || verdict.shortfalls.length || !verdict.source.startsWith("domain:")) continue;
+    const task = verdict.source.slice("domain:".length);
+    const run = readDomainRun(task);
+    if (!run?.notified || run.updatedAt > verdict.at) continue;
+    rows.set(task, { label: run.request.intendedOutcome, task, status: "needs attention", at: verdict.at });
+  }
+  return [...rows.values()];
+}
+
+export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly ExecutiveDecisionRecord[], attention: readonly ArtefactRow[] = []): FleetArtefact {
   const byTask = new Map<string, ExecutiveDecisionRecord>();
   for (const decision of decisions) {
     if (!decision.taskId) continue;
@@ -554,7 +569,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     }];
   });
   const failed = fleet.held.flatMap((row) => row.status === "failed" ? [{ ...row, detail: undefined }] : []);
-  return { ...emptyFleet(), ...(fleet.generated ? { generated: fleet.generated } : {}), ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}), calls, landed: verified, held: failed };
+  return { ...emptyFleet(), ...(fleet.generated ? { generated: fleet.generated } : {}), ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}), calls, landed: verified, held: [...failed, ...attention] };
 }
 
 /** The firstmate data directories a backlog row's words point at ("report data/gnm-lab/report.md"). Pure. */
@@ -1347,7 +1362,7 @@ export class ArtefactFeed {
         ? projectFleetDecisions(enriched, await this.options.decideChanges(firstmateChangesFromFleet(enriched)).catch((error: unknown) => {
           console.warn(`[view] executive decision step failed: ${reason(error)}`);
           return [];
-        }))
+        }), heldForAttention())
         : enriched;
       for (const row of decided.calls) {
         const entry = row.ledgerOnly ? undefined : this.ledger.get(ledgerKey("calls", row) ?? "");
