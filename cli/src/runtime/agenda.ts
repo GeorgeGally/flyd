@@ -221,15 +221,15 @@ export async function notifyMac(title: string, message: string, kind: GeorgeKind
   await deliverNotification(title, message, kind, work);
 }
 
-/** What became of a notification: shown, kept as Flyd's own to handle, held for naming backstage or only saying work is under way, or not delivered. */
-export type NotificationOutcome = "shown" | "kept" | "backstage" | "placeholder" | "undelivered";
+/** What became of a notification: shown, kept as Flyd's own to handle, dropped as a coding session idle at its prompt, held for naming backstage or only saying work is under way, or not delivered. */
+export type NotificationOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "undelivered";
 
-/** `work` names what the notification is about, for the line he hears when a held message asked him to decide. */
+/** `work` names what the notification is about, for the line he hears when a held decision or blocker still needs his call. */
 export async function deliverNotification(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string): Promise<NotificationOutcome> {
   // One line, outcome first: the rest of what was said is Flyd's to keep or show elsewhere.
-  const { asksHimToDecide, isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/chief-of-staff.js");
+  const { isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/chief-of-staff.js");
   // A coding session idle at its prompt is never George's to hear about.
-  if (isIdleNotice(title, message)) return "undelivered";
+  if (isIdleNotice(title, message)) return "idle";
   const { noteSaid, recordHeld, recordKept } = await import("../council/reply-review.js");
   // Only what may reach him: a fault, a stale reading or staff silence is Flyd's own, recorded and kept.
   const gated = reachesGeorge({ kind, text: message }, "notification");
@@ -240,13 +240,13 @@ export async function deliverNotification(title: string, message: string, kind: 
   title = stripCommitIds(title);
   message = stripCommitIds(gated.line);
   // A title naming backstage machinery gives way to Flyd's own name. A
-  // message that does is held back whole; when it asked him to decide, he
-  // still hears that his call is needed.
+  // message that does is held back whole; when it is a decision or a
+  // blocker, he still hears that his call is needed.
   if (relayShortfalls(title).some((item) => item.requirement === "backstage_hidden")) title = "Flyd";
   const backstage = relayShortfalls(message).filter((item) => item.requirement === "backstage_hidden");
   if (backstage.length) {
     recordHeld({ surface: "notification", source: "notification", text: message }, backstage);
-    if (!asksHimToDecide(message)) return "backstage";
+    if (kind !== "decision" && kind !== "blocker") return "backstage";
     const { quotedWork } = await import("../command/notice.js");
     message = `I need your decision on ${(work && quotedWork(work)) || "some of your work"}.`;
   }

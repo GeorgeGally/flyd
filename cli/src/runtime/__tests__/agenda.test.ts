@@ -92,7 +92,7 @@ describe("agenda", () => {
     }
   });
 
-  it("holds a notification naming backstage whole, telling him only that his call is needed when it asked for one", async () => {
+  it("holds a notification naming backstage whole, telling him only that his call is needed when it is a decision or blocker", async () => {
     const home = mkdtempSync(join(tmpdir(), "flyd-agenda-home-"));
     mkdirSync(join(home, ".flyd", "overlay"), { recursive: true });
     writeFileSync(join(home, ".flyd", "overlay", "auth-token"), "token\n");
@@ -107,11 +107,12 @@ describe("agenda", () => {
     }));
     try {
       expect(await deliverNotification("Flyd", "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toBe("backstage");
-      expect(await deliverNotification("Logo", "Firstmate needs your call on the logo.")).toBe("shown");
-      expect(await deliverNotification("Flyd", "Logo refresh: Firstmate needs your call on the crew branch", "deliverable", "Logo refresh")).toBe("shown");
+      expect(await deliverNotification("Flyd", "Logo refresh: Firstmate will decide whether to merge the crew branch.", "deliverable", "Logo refresh")).toBe("backstage");
+      expect(await deliverNotification("Logo", "Firstmate needs your call on the logo.", "decision")).toBe("shown");
+      expect(await deliverNotification("Flyd", "Logo refresh: the crew branch is stuck.", "blocker", "Logo refresh")).toBe("shown");
       expect(bodies).toEqual([
-        { title: "Logo", message: "I need your decision on some of your work.", kind: "deliverable" },
-        { title: "Flyd", message: 'I need your decision on "Logo refresh".', kind: "deliverable" },
+        { title: "Logo", message: "I need your decision on some of your work.", kind: "decision" },
+        { title: "Flyd", message: 'I need your decision on "Logo refresh".', kind: "blocker" },
       ]);
     } finally {
       vi.unstubAllGlobals();

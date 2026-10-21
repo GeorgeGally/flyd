@@ -152,11 +152,6 @@ function backstageWord(text: string): string | undefined {
   return firstMatch(prose(text), CHAT_BACKSTAGE) ?? undefined;
 }
 
-/** He is being asked to choose something. Pure. */
-export function asksHimToDecide(text: string): boolean {
-  return ASKS_HIM.test(prose(text));
-}
-
 /**
  * An implementation or process call handed to George, by wording alone: one
  * sentence both asks him and is about how the work is built or run. Sentence

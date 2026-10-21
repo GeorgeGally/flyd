@@ -303,7 +303,7 @@ describe("notifications", () => {
     expect(isIdleNotice("Flyd", "The DreamHost invoice needs your attention")).toBe(false);
     expect(isIdleNotice("Agenda", "The crew is waiting for your input on the logo")).toBe(false);
     expect(isIdleNotice("Codex", "Codex needs your attention")).toBe(true);
-    expect(await deliverNotification("Claude", "Claude is waiting for your input")).toBe("undelivered");
+    expect(await deliverNotification("Claude", "Claude is waiting for your input")).toBe("idle");
   });
 
 
