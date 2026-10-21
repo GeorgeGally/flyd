@@ -6,7 +6,7 @@ Flyd owns the default Conversation session. `flyd view` starts without a FirstMa
 
 `cli/src/intelligence/executive/firstmate-decision.ts` interprets a bounded staff change with `quickQuery` and declared Jev predicates. `decision-step.ts` applies deterministic policy and records exactly one disposition on the intelligence event store:
 
-- `handle_internally`: request status about existing work under a matching policy grant, send work back to its boss (`HANDLE_IT_YOURSELF` or `RESTATE_FOR_GEORGE`), or retain an independently verified result.
+- `handle_internally`: request status about existing work under a matching policy grant, send work back to its boss (`HANDLE_IT_YOURSELF`, `RECOVER_IT_YOURSELF` or `RESTATE_FOR_GEORGE`), or retain an independently verified result.
 - `ask_george`: preserve the question and its source alternatives, with a recommendation and an answer route.
 - `backstage`: retain operational or unclear information without displaying or announcing it.
 
@@ -14,7 +14,7 @@ Flyd owns the default Conversation session. `flyd view` starts without a FirstMa
 
 Every current source question reaches the decision owner before the legacy `isCurrentDecision` filter. Raw `doing` text remains evidence even when the legacy renderer shortens its display copy. Explicit source questions remain answerable when model interpretation fails: Flyd preserves their wording, requests clarification, and provides free-text input. It never invents a binary approval from an either/or question.
 
-Under a matching grant, a staff question that Jev has not confidently routed to George goes back to its boss once. This includes every question when Jev is off. The boss's next ask reaches George. The same happens to an internal action Jev has not confirmed and to a failed run Flyd cannot act on. A failed run stays in Flyd's held view. A George decision whose wording fails the final output check goes back to its boss with a request to restate it. A domain run sent back this way stays un-notified until its boss replies.
+Under a matching grant, a staff question that Jev has not confidently routed to George goes back to its boss once with `HANDLE_IT_YOURSELF`. This includes every question when Jev is off. The boss's next ask reaches George. An internal action Jev has not confirmed, and a failed run Flyd cannot act on, go back once with `RECOVER_IT_YOURSELF`. Delivering that note reopens a failed run so the boss's reply is read. A George decision whose wording fails the final output check goes back once with `RESTATE_FOR_GEORGE`. Each note is sent at most once per run, and only these exact notes count as sent; George's own answers do not. If the restated wording still fails, Flyd asks George itself. It replaces backstage names in the question, and it drops the alternatives if they still fail. If a run's recovery note was already sent, Flyd records the run as held for its attention and marks it notified, so it does not wait silently. A domain run that is with its boss stays un-notified until the boss replies. Failed fleet rows stay in Flyd's held view.
 
 ## Authority and verification
 

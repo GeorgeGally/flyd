@@ -19,8 +19,8 @@ export interface FirstmateChange {
   evidenceRefs: string[];
   verification?: { status: "verified" | "failed" | "unknown"; evidenceRefs: string[] };
   authority?: ExecutiveAuthorityGrant[];
-  /** Flyd already returned this source's question to its boss once. */
-  handedBack?: boolean;
+  /** Flyd's hand-back notes already delivered to this task's boss. */
+  sentToBoss?: string[];
 }
 
 export interface FirstmateDecisionOptions {
@@ -159,7 +159,7 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
   const store = options.store ?? new IntelligenceEventStore();
   const ownsStore = options.store === undefined;
   const sourceId = change.sourceId ?? "firstmate.change";
-  const sourceEventId = createHash("sha256").update(`${change.eventId}\0${change.kind}\0${change.state}\0${change.label}\0${change.detail}\0${JSON.stringify([...change.evidenceRefs].sort())}${change.handedBack ? "\0handed-back" : ""}`).digest("hex");
+  const sourceEventId = createHash("sha256").update(`${change.eventId}\0${change.kind}\0${change.state}\0${change.label}\0${change.detail}\0${JSON.stringify([...change.evidenceRefs].sort())}${change.sentToBoss?.length ? `\0${[...change.sentToBoss].sort().join("\0")}` : ""}`).digest("hex");
   const decisionId = createHash("sha256").update(`${sourceId}\0${sourceEventId}`).digest("hex").slice(0, 32);
   const existing = store.findByIdempotencyKey("executive.cycle", `step:${decisionId}`);
   if (existing?.payload?.decision && typeof existing.payload.decision === "object") {
@@ -207,7 +207,7 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
       ...(judgment ? { judgment } : {}),
       ...(change.authority ? { authority: change.authority } : {}),
       ...(verification ? { verification } : {}),
-      ...(change.handedBack ? { handedBack: true } : {}),
+      ...(change.sentToBoss?.length ? { sentToBoss: change.sentToBoss } : {}),
       ...(change.state === "failed" ? { sourceFailed: true } : {}),
     }, options.now?.() ?? new Date());
     const canonical = store.transaction(() => {

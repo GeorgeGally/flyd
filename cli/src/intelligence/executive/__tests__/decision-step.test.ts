@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IntelligenceEventStore } from "../../event-store.js";
-import { decideExecutiveStep, HANDLE_IT_YOURSELF, persistExecutiveDecision, RESTATE_FOR_GEORGE, resolveExecutiveDecision, type ExecutiveDecisionInput } from "../decision-step.js";
+import { decideExecutiveStep, HANDLE_IT_YOURSELF, HELD_FOR_ATTENTION, persistExecutiveDecision, RECOVER_IT_YOURSELF, RESTATE_FOR_GEORGE, resolveExecutiveDecision, type ExecutiveDecisionInput } from "../decision-step.js";
 import { authorityForStaffRun, processFirstmateChange } from "../firstmate-decision.js";
 
 let dir: string | undefined;
@@ -220,6 +220,18 @@ describe("executive decision step", () => {
     expect(decideExecutiveStep(fenced)).toMatchObject({ disposition: "backstage", show: false, notify: false });
     const restated = decideExecutiveStep({ ...fenced, taskId: "review", authority: authorityForStaffRun({ runId: "review", firstmate: true, active: true, autonomy: "trusted" }) });
     expect(restated).toMatchObject({ disposition: "handle_internally", show: false, notify: false, action: { target: "review", text: RESTATE_FOR_GEORGE }, verification: { status: "pending" } });
+
+    const asked = decideExecutiveStep({ ...fenced, taskId: "review", authority: authorityForStaffRun({ runId: "review", firstmate: true, active: true, autonomy: "trusted" }), sentToBoss: [RESTATE_FOR_GEORGE] });
+    expect(asked).toMatchObject({ disposition: "ask_george", show: true, notify: true, question: "Should the team tell the team to close it?" });
+    expect(asked).not.toHaveProperty("action");
+    expect(JSON.stringify([asked.question, asked.options, asked.recommendation])).not.toMatch(/firstmate|crewmate/i);
+  });
+
+  it("drops alternatives it cannot say cleanly when it asks George itself after one restate", () => {
+    const promise = { ...eitherOrProposal, question: "Close the review or add the tools?", options: ["close it", "bring in the missing editing tools and route checker"],
+      recommendation: { ...eitherOrProposal.recommendation, rationale: "I'll add them next." } };
+    const asked = decideExecutiveStep({ ...eitherOr, proposal: promise, taskId: "review", authority: authorityForStaffRun({ runId: "review", firstmate: true, active: true, autonomy: "trusted" }), sentToBoss: [RESTATE_FOR_GEORGE] });
+    expect(asked).toMatchObject({ disposition: "ask_george", show: true, question: "Close the review or add the tools?", options: [], recommendation: { rationale: "I recommend clarifying the alternatives before acting." } });
   });
 
   it("returns a staff question Flyd has not judged George's to its boss once, then brings the next ask to George", () => {
@@ -228,7 +240,8 @@ describe("executive decision step", () => {
     for (const input of [{ ...withoutJev, taskId: "review", authority }, { ...eitherOr, taskId: "review", authority, judgment: { route: "handle_internally" as const, confidence: 0.92, notable: false } }]) {
       expect(decideExecutiveStep(input)).toMatchObject({ disposition: "handle_internally", show: false, notify: false, action: { target: "review", text: HANDLE_IT_YOURSELF } });
     }
-    expect(decideExecutiveStep({ ...withoutJev, taskId: "review", authority, handedBack: true })).toMatchObject({ disposition: "ask_george", show: true, notify: true });
+    expect(decideExecutiveStep({ ...withoutJev, taskId: "review", authority, sentToBoss: [HANDLE_IT_YOURSELF] })).toMatchObject({ disposition: "ask_george", show: true, notify: true });
+    expect(decideExecutiveStep({ ...withoutJev, taskId: "review", authority, sentToBoss: [RECOVER_IT_YOURSELF] })).toMatchObject({ action: { text: HANDLE_IT_YOURSELF } });
     expect(decideExecutiveStep({ ...eitherOr, taskId: "review", authority })).toMatchObject({ disposition: "ask_george", show: true });
   });
 
@@ -236,9 +249,12 @@ describe("executive decision step", () => {
     const authority = authorityForStaffRun({ runId: "review", firstmate: true, active: true, autonomy: "trusted" });
     const base = { sourceId: "firstmate.status", sourceEventId: "review:cancelled", taskId: "review", authority, sourceText: "The review was cancelled before it reached a verdict." };
     const unconfirmed = decideExecutiveStep({ ...base, proposal: { kind: "internal_action", summary: "Check the review.", action: { kind: "request_status", target: "review", evidence: "The review was cancelled" }, evidenceRefs: [] } });
-    expect(unconfirmed).toMatchObject({ disposition: "handle_internally", action: { target: "review", text: HANDLE_IT_YOURSELF }, verification: { status: "pending" } });
+    expect(unconfirmed).toMatchObject({ disposition: "handle_internally", action: { target: "review", text: RECOVER_IT_YOURSELF }, verification: { status: "pending" } });
     const failed = decideExecutiveStep({ ...base, sourceFailed: true, proposal: { kind: "unclear", summary: "The run failed.", evidenceRefs: [] } });
-    expect(failed).toMatchObject({ disposition: "handle_internally", show: false, notify: false, action: { text: HANDLE_IT_YOURSELF } });
+    expect(failed).toMatchObject({ disposition: "handle_internally", show: false, notify: false, action: { text: RECOVER_IT_YOURSELF } });
+    const again = decideExecutiveStep({ ...base, sourceFailed: true, sentToBoss: [RECOVER_IT_YOURSELF], proposal: { kind: "unclear", summary: "The run failed.", evidenceRefs: [] } });
+    expect(again).toMatchObject({ disposition: "backstage", show: false, notify: false, reason: HELD_FOR_ATTENTION });
+    expect(again).not.toHaveProperty("action");
     expect(decideExecutiveStep({ ...base, proposal: { kind: "routine", summary: "Routine.", evidenceRefs: [] } })).toMatchObject({ disposition: "backstage" });
   });
 

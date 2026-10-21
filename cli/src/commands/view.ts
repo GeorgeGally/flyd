@@ -31,7 +31,8 @@ import { listDomainRuns } from "../command/store.js";
 import { sendRunMessage } from "../command/messages.js";
 import { processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
-import { HANDLE_IT_YOURSELF, readExecutiveDecision, resolveExecutiveDecision } from "../intelligence/executive/decision-step.js";
+import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision } from "../intelligence/executive/decision-step.js";
+import { deliverBossNote } from "../command/scheduler.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { runCuratorSweep } from "../cognition/curator/reconcile.js";
 import { autonomyLevel } from "../runtime/tool-policy.js";
@@ -204,8 +205,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       }) : change.taskId && change.kind === "fleet_state" && ["working", "paused", "unknown", "failed"].includes(change.state)
         ? authorityForStaffRun({ runId: change.taskId, firstmate: inbox.available(), active: true, autonomy: autonomyLevel() })
         : [];
-      const handedBack = run?.messages?.some((message) => message.from === "flyd" && message.kind === "decision");
-      return { ...change, ...(authority.length ? { authority } : {}), ...(handedBack ? { handedBack } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
+      const sentToBoss = notesSentToBoss(run?.messages);
+      return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
     });
     return processFirstmateChanges(prepared, {
       complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
@@ -220,13 +221,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
           await inbox.sendOwn(action.text, requestId);
           return { status: "verified", evidenceRefs: [`firstmate-note:${requestId}`] };
         }
-        const sent = await sendRunMessage({ run, kind: action.text === HANDLE_IT_YOURSELF ? "decision" : "question", body: action.text, from: "flyd" }).catch(() => null);
-        if (!sent) return { status: "failed", evidenceRefs: [] };
-        const receipt = sent.run?.messages?.find((message) => message.body === action.text && message.deliveredAt);
-        return {
-          status: !sent.delivered ? "failed" : receipt ? "verified" : "unknown",
-          evidenceRefs: receipt ? [`domain-message:${receipt.id}`] : [],
-        };
+        return deliverBossNote(run, action);
       },
     });
   };

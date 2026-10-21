@@ -13,7 +13,7 @@ import { readDomainRun, saveDomainRun } from "../../command/store.js";
 import { BACKSTAGE_DENYLIST, BACKSTAGE_TELEMETRY, CHAT_BACKSTAGE, firstMatch, hasBackstage } from "../../lib/backstage.js";
 import { relayShortfalls } from "../../runtime/honesty-check.js";
 import type { DomainRun } from "../../command/types.js";
-import { HANDLE_IT_YOURSELF, type ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
+import { HANDLE_IT_YOURSELF, HELD_FOR_ATTENTION, RECOVER_IT_YOURSELF, type ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
 const PLACEHOLDER = "Working on it";
@@ -244,10 +244,20 @@ describe("before display", () => {
     expect(readDomainRun("domain-cos-1")?.notified).toBeUndefined();
 
     // Asked again after Flyd sent it back: now it is his.
-    const again = { ...decisionRun(INTERNAL_DECISION), messages: [{ id: "m1", kind: "decision" as const, body: HANDLE_IT_YOURSELF, at: "2026-10-14T00:01:00.000Z", from: "flyd" as const }] };
+    const again = { ...decisionRun(INTERNAL_DECISION), messages: [{ id: "m1", kind: "decision" as const, body: HANDLE_IT_YOURSELF, at: "2026-10-14T00:01:00.000Z", deliveredAt: "2026-10-14T00:01:00.000Z", from: "flyd" as const }] };
     await notifyRun(again, async (_title, message) => { shown.push(message); }, async () => { throw new Error("not again"); }, decide);
     expect(shown).toHaveLength(1);
     expect(shown[0]).toContain("Gate the guard behind config or push back?");
+  });
+
+  it("still returns an internal decision after George answered an earlier call on the run", async () => {
+    const sent: string[] = [];
+    const run = { ...decisionRun(INTERNAL_DECISION), messages: [{ id: "g1", kind: "decision" as const, body: "George's answer to: Close it or keep it?\n\nClose it", at: "2026-10-14T00:01:00.000Z", deliveredAt: "2026-10-14T00:01:00.000Z", from: "flyd" as const }] };
+    await notifyRun(run, async () => undefined, async (input) => {
+      sent.push(input.body);
+      return { delivered: true, run: input.run };
+    }, decide);
+    expect(sent).toEqual([HANDLE_IT_YOURSELF]);
   });
 
   it("still returns an internal decision when Flyd only checked in on the run before", async () => {
@@ -308,8 +318,20 @@ describe("before display", () => {
       return { delivered: true, run: { ...input.run, messages: [{ id: "m1", kind: input.kind, body: input.body, at: "2026-10-14T00:01:00.000Z", deliveredAt: "2026-10-14T00:01:00.000Z", from: "flyd" }] } };
     }, (run, send) => decideRun(run, send, async () => JSON.stringify({ kind: "unclear", summary: "The run failed.", evidenceRefs: [] })));
     expect(shown).toEqual([]);
-    expect(sent).toEqual([{ body: HANDLE_IT_YOURSELF, kind: "decision" }]);
+    expect(sent).toEqual([{ body: RECOVER_IT_YOURSELF, kind: "decision" }]);
+    expect(readDomainRun("domain-cos-1")).toMatchObject({ status: "working" });
     expect(readDomainRun("domain-cos-1")?.notified).toBeUndefined();
+  });
+
+  it("holds failed work for Flyd's attention once its boss was already asked to recover it", async () => {
+    const shown: string[] = [];
+    const failed: DomainRun = { ...decisionRun(INTERNAL_DECISION), status: "failed",
+      messages: [{ id: "r1", kind: "decision", body: RECOVER_IT_YOURSELF, at: "2026-10-14T00:01:00.000Z", deliveredAt: "2026-10-14T00:01:00.000Z", from: "flyd" }] };
+    await notifyRun(failed, async (_title, message) => { shown.push(message); }, async () => { throw new Error("sent at most once"); },
+      (run, send) => decideRun(run, send, async () => JSON.stringify({ kind: "unclear", summary: "The run failed again.", evidenceRefs: [] })));
+    expect(shown).toEqual([]);
+    expect(readDomainRun("domain-cos-1")?.notified).toBe(true);
+    expect(readVerdicts().find((verdict) => verdict.source === "domain:domain-cos-1")).toMatchObject({ held: true, shortfalls: [{ requirement: "decisions_handled", reason: HELD_FOR_ATTENTION }] });
   });
 
   it("keeps a placeholder notification from George and records it", async () => {

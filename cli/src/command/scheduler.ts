@@ -1,4 +1,5 @@
-import { HANDLE_IT_YOURSELF, recommendationText } from "../intelligence/executive/decision-step.js";
+import { bossMessageKind, HELD_FOR_ATTENTION, notesSentToBoss, recommendationText } from "../intelligence/executive/decision-step.js";
+import { recordHeld } from "../council/reply-review.js";
 import { syncFirstmateDomainRuns } from "./firstmate.js";
 import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
@@ -9,7 +10,7 @@ import type { DomainRun } from "./types.js";
 import { notificationLine } from "../council/chief-of-staff.js";
 import { relayShortfalls } from "../runtime/honesty-check.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
-import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision-step.js";
+import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -17,6 +18,21 @@ let running = false;
 type Notify = (title: string, message: string, kind?: GeorgeKind) => Promise<void>;
 
 export type RunDecisionStep = (run: DomainRun, send: typeof sendRunMessage) => Promise<ExecutiveDecisionRecord>;
+
+/** Delivers Flyd's note to a run's boss once; a note already delivered is not counted again, and failed work goes back to its boss. */
+export async function deliverBossNote(
+  run: DomainRun,
+  action: ExecutiveInternalAction,
+  send: typeof sendRunMessage = sendRunMessage,
+): Promise<{ status: "verified" | "failed" | "unknown"; evidenceRefs: string[] }> {
+  if (run.messages?.some((message) => message.body === action.text && message.deliveredAt)) return { status: "failed", evidenceRefs: [] };
+  const kind = bossMessageKind(action.text);
+  const outcome = await send({ run, kind, body: action.text, from: "flyd" }).catch(() => null);
+  if (!outcome?.delivered) return { status: "failed", evidenceRefs: [] };
+  const receipt = outcome.run?.messages?.find((message) => message.kind === kind && message.body === action.text && message.deliveredAt);
+  if (receipt && outcome.run && run.status === "failed") saveDomainRun({ ...outcome.run, status: "working" });
+  return { status: receipt ? "verified" : "unknown", evidenceRefs: receipt ? [`domain-message:${receipt.id}`] : [] };
+}
 
 export async function decideRun(
   run: DomainRun,
@@ -41,18 +57,13 @@ export async function decideRun(
       active,
       autonomy: (await import("../runtime/tool-policy.js")).autonomyLevel(),
     }),
-    // Flyd's check-ins on quiet work (fleet-monitor.ts) are questions, not this return.
-    handedBack: run.messages?.some((message) => message.from === "flyd" && message.kind === "decision") ?? false,
+    sentToBoss: notesSentToBoss(run.messages),
   }, {
     complete,
     jev: { ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) },
     executeInternalAction: async (action) => {
       if (action.target !== run.id || action.capability !== "firstmate.message" || !active) return { status: "failed", evidenceRefs: [] };
-      const kind = action.text === HANDLE_IT_YOURSELF ? "decision" : "question";
-      const outcome = await send({ run, kind, body: action.text, from: "flyd" }).catch(() => null);
-      if (!outcome?.delivered) return { status: "failed", evidenceRefs: [] };
-      const receipt = outcome.run?.messages?.find((message) => message.kind === kind && message.body === action.text && message.deliveredAt);
-      return { status: receipt ? "verified" : "unknown", evidenceRefs: receipt ? [`domain-message:${receipt.id}`] : [] };
+      return deliverBossNote(run, action, send);
     },
   });
 }
@@ -80,6 +91,11 @@ export async function notifyRun(
     if (notice) await (notify ?? (await import("../runtime/agenda.js")).notifyMac)("Flyd", notice, decision.disposition === "ask_george" ? "decision" : noticeKind(run));
     // Work sent back to its boss stays open: the boss's next reply is decided afresh.
     if (decision.action) return;
+    if (decision.reason === HELD_FOR_ATTENTION) {
+      recordHeld({ surface: "notification", source: `domain:${run.id}`, text: decision.summary || run.request.intendedOutcome }, [{
+        requirement: "decisions_handled", reason: decision.reason, quote: run.result.brief.slice(0, 240), by: "check",
+      }]);
+    }
     saveDomainRun({ ...run, notified: true });
   } catch {
     // The durable result remains in the command store; notification is best effort.

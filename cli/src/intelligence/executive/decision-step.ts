@@ -1,4 +1,5 @@
 import { relayShortfalls } from "../../runtime/honesty-check.js";
+import { BACKSTAGE_DENYLIST } from "../../lib/backstage.js";
 import { createHash } from "node:crypto";
 import { validateEnvelope, type ContextEnvelope } from "../context-envelope.js";
 import type { IntelligenceEventStore, StoredEvent } from "../event-store.js";
@@ -47,8 +48,8 @@ export interface ExecutiveDecisionInput {
   judgment?: ExecutiveJudgment;
   authority?: ExecutiveAuthorityGrant[];
   verification?: { status: "verified" | "failed" | "unknown"; evidenceRefs: string[] };
-  /** Flyd already sent this source's question back once; its next ask is George's. */
-  handedBack?: boolean;
+  /** Flyd's notes already delivered to this task's boss; each is sent at most once per run. */
+  sentToBoss?: string[];
   sourceFailed?: boolean;
 }
 
@@ -97,11 +98,18 @@ export function recommendationText(recommendation: ExecutiveRecommendation): str
 const MIN_CONFIDENCE = 0.8;
 const INTERNAL_STATUS_NOTE = "Check the original request and current result. Continue only within its accepted scope, then report verified evidence or a genuine George-owned decision with your recommendation.";
 
-/** What Flyd tells a domain boss that asked George for an implementation call, or whose work failed. */
+/** What Flyd tells a domain boss that asked George for an implementation call. */
 export const HANDLE_IT_YOURSELF = [
   "This is an implementation call, not one for George, so Flyd has not put it to him.",
   "Make it yourself in line with what he asked for, using the authority the run already has, and reply with the outcome.",
   "Only if it truly turns on what he wants, his money, his name, people he deals with, or something irreversible, reply needs_decision again saying why it is his, with your recommendation, and Flyd will bring it to him.",
+].join(" ");
+
+/** What Flyd tells a domain boss whose work stopped or whose state is unclear. */
+export const RECOVER_IT_YOURSELF = [
+  "This work stopped or its state is unclear, and that is not a decision for George, so Flyd has not put it to him.",
+  "Find out where it stands, recover it within what he asked for using the authority the run already has, and reply with the verified outcome.",
+  "Only if recovery truly turns on what he wants, his money, his name, people he deals with, or something irreversible, reply needs_decision saying why it is his, with your recommendation.",
 ].join(" ");
 
 /** What Flyd tells a domain boss whose question for George failed the final output check. */
@@ -120,12 +128,27 @@ function groundedRefs(input: ExecutiveDecisionInput): string[] {
   return [...new Set(input.proposal.evidenceRefs.filter((ref) => ref.trim()))];
 }
 
-type HeldDecision = Extract<ExecutiveDecisionRecord, { disposition: "backstage" }>;
+export const HELD_FOR_ATTENTION = "already returned to its boss once; held for Flyd's attention";
 
-/** Sends the item back to its own boss when policy grants a message to that task; otherwise it stays held. */
+const BOSS_NOTES = [HANDLE_IT_YOURSELF, RECOVER_IT_YOURSELF, RESTATE_FOR_GEORGE];
+
+/** The hand-back notes Flyd has delivered on a run; George's own answers and check-ins are not among them. */
+export function notesSentToBoss(messages: ReadonlyArray<{ from?: string; body: string; deliveredAt?: string }> = []): string[] {
+  return [...new Set(messages.filter((message) => message.from === "flyd" && message.deliveredAt && BOSS_NOTES.includes(message.body)).map((message) => message.body))];
+}
+
+export function bossMessageKind(text: string): "decision" | "question" {
+  return text === HANDLE_IT_YOURSELF || text === RECOVER_IT_YOURSELF ? "decision" : "question";
+}
+
+type HeldDecision = Extract<ExecutiveDecisionRecord, { disposition: "backstage" }>;
+type AskDecision = Extract<ExecutiveDecisionRecord, { disposition: "ask_george" }>;
+
+/** Sends the item back to its own boss once when policy grants a message to that task; otherwise it stays held. */
 function toBoss(input: ExecutiveDecisionInput, held: HeldDecision, text: string, reason: string): ExecutiveDecisionRecord {
   const grant = input.taskId ? input.authority?.find((candidate) => candidate.capability === "firstmate.message" && candidate.target === input.taskId) : undefined;
   if (!grant || !input.taskId) return held;
+  if (input.sentToBoss?.includes(text)) return { ...held, reason: HELD_FOR_ATTENTION };
   return {
     ...held,
     disposition: "handle_internally",
@@ -165,7 +188,7 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
     if (!grounded || judgment?.route === "backstage" && confidence >= MIN_CONFIDENCE) {
       return { ...decision, reason: grounded ? "Jev judged the item backstage" : "question or alternatives were not grounded in source evidence" };
     }
-    if (!input.handedBack && (judgment?.route !== "ask_george" || confidence < MIN_CONFIDENCE)) {
+    if (!input.sentToBoss?.includes(HANDLE_IT_YOURSELF) && (judgment?.route !== "ask_george" || confidence < MIN_CONFIDENCE)) {
       const returned = toBoss(input, decision, HANDLE_IT_YOURSELF, "not judged George's; returned to its boss once");
       if (returned !== decision) return returned;
     }
@@ -205,7 +228,7 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
     if (!grant || judgment?.route !== "handle_internally" || confidence < MIN_CONFIDENCE
       || !containsEvidence(input.sourceText, proposal.action.evidence)) {
       return toBoss(input, { ...decision, reason: "no matching deterministic authority grant and grounded high-confidence interpretation" },
-        HANDLE_IT_YOURSELF, "the status request was not confirmed; returned to its boss");
+        RECOVER_IT_YOURSELF, "the status request was not confirmed; returned to its boss");
     }
     return {
       ...decision,
@@ -223,17 +246,47 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
   }
 
   const held = { ...decision, reason: proposal.kind === "routine" ? "routine operational state stays backstage" : "interpretation is unclear" };
-  return input.sourceFailed ? toBoss(input, held, HANDLE_IT_YOURSELF, "failed work returned to its boss") : held;
+  return input.sourceFailed ? toBoss(input, held, RECOVER_IT_YOURSELF, "failed work returned to its boss") : held;
+}
+
+function fenced(decision: ExecutiveDecisionRecord): boolean {
+  const displayed = [decision.question ?? decision.summary, ...(decision.options ?? []), decision.recommendation?.rationale ?? ""].join("\n");
+  return relayShortfalls(displayed).length > 0 || /\b(?:I|we|Flyd)(?:['’]ll|\s+will|\s+(?:am|are|is)\s+going\s+to)\b/i.test(displayed);
+}
+
+function plainWords(text: string): string {
+  return BACKSTAGE_DENYLIST.reduce((said, name) => said.replace(new RegExp(`(?:\\bthe\\s+)?(?:${name.source})`, `${name.flags.replace("g", "")}g`), "the team"), text)
+    .replace(/\s+/g, " ").trim();
+}
+
+/** After one restate request, Flyd asks George itself, in its own words, dropping alternatives it cannot say cleanly. */
+function plainAsk(decision: AskDecision, held: HeldDecision): ExecutiveDecisionRecord {
+  const clarify = { rationale: "I recommend clarifying the alternatives before acting." };
+  for (const question of [decision.question, decision.summary].map(plainWords).filter(Boolean)) {
+    const withOptions: AskDecision = {
+      ...decision,
+      reason: "its boss was asked to restate it once; Flyd asks in its own words",
+      question,
+      options: decision.options.map(plainWords),
+      recommendation: decision.recommendation.option
+        ? { option: plainWords(decision.recommendation.option), rationale: plainWords(decision.recommendation.rationale) }
+        : { rationale: plainWords(decision.recommendation.rationale) },
+    };
+    if (!fenced(withOptions)) return withOptions;
+    const withoutOptions: AskDecision = { ...withOptions, options: [], recommendation: clarify };
+    if (!fenced(withoutOptions)) return withoutOptions;
+  }
+  return { ...held, reason: HELD_FOR_ATTENTION };
 }
 
 /** Output checks remain the final fence after interpretation, policy and verification. */
 export function decideExecutiveStep(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecisionRecord {
   const decision = decide(input, now);
-  if (!decision.show) return decision;
-  const displayed = [decision.question ?? decision.summary, ...(decision.options ?? []), decision.recommendation?.rationale ?? ""].join("\n");
-  if (!relayShortfalls(displayed).length && !/\b(?:I|we|Flyd)(?:['’]ll|\s+will|\s+(?:am|are|is)\s+going\s+to)\b/i.test(displayed)) return decision;
+  if (!decision.show || !fenced(decision)) return decision;
   const held: HeldDecision = { schema: decision.schema, decisionId: decision.decisionId, sourceId: decision.sourceId, sourceEventId: decision.sourceEventId, ...(decision.taskId ? { taskId: decision.taskId } : {}), createdAt: decision.createdAt, summary: decision.summary, evidenceRefs: decision.evidenceRefs, verification: { status: "unknown", evidenceRefs: [] }, disposition: "backstage", show: false, notify: false, reason: "the final output check held this wording" };
-  return decision.disposition === "ask_george" ? toBoss(input, held, RESTATE_FOR_GEORGE, "the final output check held a George decision; its boss is asked to restate it") : held;
+  if (decision.disposition !== "ask_george") return held;
+  return input.sentToBoss?.includes(RESTATE_FOR_GEORGE) ? plainAsk(decision, held)
+    : toBoss(input, held, RESTATE_FOR_GEORGE, "the final output check held a George decision; its boss is asked to restate it");
 }
 
 export function persistExecutiveDecision(store: IntelligenceEventStore, decision: ExecutiveDecisionRecord, revision = ""): StoredEvent | null {
