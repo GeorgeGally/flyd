@@ -35,7 +35,7 @@ import { ArtefactFeed, composeArtefact, WHATSAPP_LINK, type ArtefactInputs } fro
 import type { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail, RailState } from "./rail.js";
-import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailPreview } from "./rail.js";
+import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailNotice, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import type { ActivityPanel, ActivityReader } from "./activity.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
@@ -51,6 +51,7 @@ import { readStaffView, type StaffView } from "../command/fleet-monitor.js";
 import { noteSaid, recordHeld } from "../council/reply-review.js";
 import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
 import { expandScrawl, fileScrawl } from "./scrawl-capture.js";
+import { NoticeBoard, noticeLine, type NoticeInput } from "./notices.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -691,6 +692,8 @@ export class ConversationViewServer {
   /** What Core's staff watch found stuck (command/fleet-monitor.ts); nothing under tests unless one sets it. */
   staffView: () => StaffView | null = process.env.VITEST ? () => null : () => readStaffView();
   private readonly chased = new Set<string>();
+  /** Notices that would have been macOS notifications: the island rings for those that need him, the column keeps the rest. */
+  readonly notices = new NoticeBoard();
 
   constructor(
     private readonly source: ConversationSource,
@@ -800,6 +803,10 @@ export class ConversationViewServer {
       const code = this.whatsapp?.state().code;
       res.writeHead(200, { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'", "x-content-type-options": "nosniff" });
       res.end(code ? qrSvg(code) : PAIRING_PLACEHOLDER_SVG);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/notice") {
+      await this.notice(req, res);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/send") {
@@ -942,6 +949,29 @@ export class ConversationViewServer {
       return;
     }
     sendJson(res, 404, { error: "not found" });
+  }
+
+  /**
+   * A notice from a local tool (Claude Code's Notification hook, say). No token:
+   * the sender is a script, not this page. A browser always names its origin on
+   * a cross-site POST and cannot send JSON without one, so a request with an
+   * origin, or without a JSON body, is refused; the Host check covers rebinding.
+   */
+  private async notice(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.headers.origin !== undefined) { sendJson(res, 403, { error: "forbidden" }); return; }
+    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) { sendJson(res, 415, { error: "expected application/json" }); return; }
+    let input: NoticeInput;
+    try {
+      const parsed: unknown = JSON.parse(await readBody(req, 16 * 1024));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+      input = parsed as NoticeInput;
+    } catch {
+      sendJson(res, 400, { error: "expected a JSON object" });
+      return;
+    }
+    const held = this.notices.add(input);
+    if (!held) { sendJson(res, 400, { error: "a notice needs a message" }); return; }
+    sendJson(res, 200, { id: held.id, kind: held.kind, count: held.count });
   }
 
   /** Suggestions and feedback share the composer's origin, host and token gates. */
@@ -1095,7 +1125,18 @@ export class ConversationViewServer {
         return renderBriefing(condense(outcomeFirst(reading ? inFlydsVoice(reading) : spoken(answer.text), spoken(answer.text))), RAIL_CARD_TITLES);
       },
     });
-    return this.memory ? { ...rail, memory: composeMemory(this.memory.current(), snapshot.messages, projects) } : rail;
+    const notices: RailNotice[] = this.notices.list().map((notice) => ({
+      id: notice.id,
+      kind: notice.kind,
+      text: noticeLine(notice),
+      at: notice.last,
+      ...(notice.count > 1 ? { count: notice.count } : {}),
+    }));
+    return {
+      ...rail,
+      ...(this.memory ? { memory: composeMemory(this.memory.current(), snapshot.messages, projects) } : {}),
+      ...(notices.length ? { notices } : {}),
+    };
   }
 
   /** The same-origin src of a file in firstmate's data tree; its relative assets resolve under the same prefix. */
@@ -1602,7 +1643,8 @@ export class ConversationViewServer {
     const emit = () => {
       if (!latest) return;
       const current = statusOf(latest);
-      const status = JSON.stringify({ session: session.id, ...current });
+      const ringing = this.notices.ringing();
+      const status = JSON.stringify({ session: session.id, ...current, ...(ringing ? { notice: { id: ringing.id, text: noticeLine(ringing) } } : {}) });
       if (status === sent) return;
       sent = status;
       // What the island and the line under his message say, kept for Flyd's self-review.
@@ -1614,6 +1656,7 @@ export class ConversationViewServer {
       latest = snapshot;
       emit();
     });
+    const stopNotices = this.notices.onChange(emit);
     const tick = setInterval(() => {
       emit();
       res.write(": keep-alive\n\n");
@@ -1633,6 +1676,7 @@ export class ConversationViewServer {
     const stop = () => {
       clearInterval(tick);
       clearInterval(moved);
+      stopNotices();
       follower.close();
     };
     req.on("close", stop);
@@ -1711,6 +1755,10 @@ export class ConversationViewServer {
     const stopMemory = this.memory?.onChange(() => {
       if (!closed && latest) sseEvent(res, "update", differ.next(latest));
     });
+    // A notice came: the column shows it.
+    const stopNotices = this.notices.onChange(() => {
+      if (!closed && latest) sseEvent(res, "update", differ.next(latest));
+    });
     // Flyd did or started something: the left column's cards change.
     const stopActivity = this.activity?.onChange(() => {
       if (!closed && latest) sseEvent(res, "update", differ.next(latest));
@@ -1747,6 +1795,7 @@ export class ConversationViewServer {
       stopMemory?.();
       stopActivity?.();
       stopPairing?.();
+      stopNotices();
       follower.close();
       this.predictionContexts.delete(session.id);
     });

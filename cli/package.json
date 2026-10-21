@@ -49,10 +49,10 @@
     "ws": "^8.21.1"
   },
   "overrides": {
-    "@modelcontextprotocol/sdk": "1.31.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "braces": "$braces",
     "fast-uri": "3.1.8",
-    "hono": "4.13.7",
+    "hono": "4.13.13",
     "ip-address": "10.7.1",
     "nanoid": "5.1.16",
     "proxy-addr": "2.0.8",

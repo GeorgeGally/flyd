@@ -137,6 +137,15 @@ final class ConversationStatusDecisionTests: XCTestCase {
         XCTAssertEqual(ConversationStatusDecision.decide(previous: nil, current: taken), [.showWorking])
     }
 
+    func testANoticeThatNeedsHimRingsOnceAndOnlyWhenNew() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8)) }
+        let quiet = try decode(#"{"session":"s1","working":false}"#)
+        let asked = try decode(#"{"session":"s1","working":false,"notice":{"id":"notice:1","text":"flyd: Claude needs your permission to use Bash"}}"#)
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: nil, current: asked), [.none])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: quiet, current: asked), [.announce("Needs you: flyd: Claude needs your permission to use Bash", .decision)])
+        XCTAssertEqual(ConversationStatusDecision.decide(previous: asked, current: asked), [.none])
+    }
+
     func testAFailedLineIsSaidOnceWithoutASpinner() throws {
         let decode = { (json: String) in try JSONDecoder().decode(ConversationStatusPayload.self, from: Data(json.utf8)) }
         let answering = try decode(#"{"session":"s1","working":false,"waiting":{"id":"ask:1","text":"Working on it"}}"#)
