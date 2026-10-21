@@ -106,7 +106,7 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
       lines.push(heard
         ? `News he already heard at ${clock(toldAt!)} (bring up only if something is new or he asks):`
         : "Today's news, not yet told him (/more N, /less N):");
-      const shown = edition.items.slice(0, heard ? 4 : 12);
+      const shown = edition.items.slice(0, heard ? 4 : scout.BRIEF_MAX);
       const sections = new Map<string, typeof shown>();
       for (const item of shown) sections.set(item.topic, [...(sections.get(item.topic) ?? []), item]);
       for (const [topic, items] of sections) {
