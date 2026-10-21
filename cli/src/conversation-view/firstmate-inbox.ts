@@ -244,6 +244,11 @@ export class FirstmateInbox implements CaptainInbox {
    * his window: it is never something he said.
    */
   sendOwn(text: string, requestId: string): Promise<void> {
+    return this.deliverOwn(text, requestId).then(() => undefined);
+  }
+
+  /** Whether firstmate replayed a note it already held under this request id rather than taking a new one. */
+  private deliverOwn(text: string, requestId: string): Promise<{ replayed: boolean }> {
     if (!/^flyd-[A-Za-z0-9._:-]{1,120}$/.test(requestId)) return Promise.reject(new Error("Flyd's own notes need a flyd- request id"));
     return new Promise((resolve, reject) => {
       const child = execFile(
@@ -252,7 +257,7 @@ export class FirstmateInbox implements CaptainInbox {
         { env: { ...process.env, FM_HOME: this.home }, timeout: SEND_TIMEOUT_MS, maxBuffer: 1 << 20 },
         (error, stdout, stderr) => {
           // Saved (or replayed) is delivered: a failed wake after that is firstmate's to repair.
-          if (/^(?:queued|replay)\b/m.test(String(stdout))) resolve();
+          if (/^(?:queued|replay)\b/m.test(String(stdout))) resolve({ replayed: /^replay\b/m.test(String(stdout)) });
           else reject(new Error(`firstmate did not take Flyd's note: ${`${stderr}`.trim().split("\n").pop() || error?.message || "no note id returned"}`));
         },
       );
@@ -262,11 +267,11 @@ export class FirstmateInbox implements CaptainInbox {
   }
 
   /** Flyd's note about one task, keyed on the task and the note so the inbox takes each note at most once per task. */
-  async sendTaskNote(taskId: string, text: string): Promise<string> {
+  async sendTaskNote(taskId: string, text: string): Promise<{ requestId: string; replayed: boolean }> {
     const note = text.startsWith(`Task ${taskId}.`) ? text : `Task ${taskId}. ${text}`;
     const requestId = `flyd-task-${taskId.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 80)}-${createHash("sha256").update(note).digest("hex").slice(0, 16)}`;
-    await this.sendOwn(note, requestId);
-    return requestId;
+    const { replayed } = await this.deliverOwn(note, requestId);
+    return { requestId, replayed };
   }
 
   /** Runs `fm-inbox.sh note -` with the text on stdin: no shell, no interpolation. */

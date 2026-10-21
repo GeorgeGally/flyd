@@ -232,26 +232,44 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
   }
 }
 
+/** Evidence that the boss already held this exact note, so nothing new was delivered. */
+export const NOTE_ALREADY_SENT = "firstmate-note-replay:";
+
+/** A note the boss already held counts as sent: each change it touched is decided once more, so the once-only fallbacks apply. */
 export async function processFirstmateChanges(changes: FirstmateChange[], options: FirstmateDecisionOptions): Promise<ExecutiveDecisionRecord[]> {
   const store = options.store ?? new IntelligenceEventStore();
   const ownsStore = options.store === undefined;
   try {
     const pending = changes.slice(0, 40);
-    const decisions: ExecutiveDecisionRecord[] = [];
-    let next = 0;
-    const workers = Array.from({ length: Math.min(4, pending.length) }, async () => {
-      while (next < pending.length) {
-        const index = next++;
-        decisions[index] = await processFirstmateChange(pending[index]!, { ...options, store });
-      }
+    const decisions = await decideAll(pending, { ...options, store });
+    const resent = pending.flatMap((change, index) => {
+      const action = decisions[index]?.action;
+      return action && decisions[index]!.verification.evidenceRefs.some((ref) => ref.startsWith(NOTE_ALREADY_SENT))
+        ? [{ index, change: { ...change, sentToBoss: [...new Set([...(change.sentToBoss ?? []), action.text])] } }] : [];
     });
-    const settled = await Promise.allSettled(workers);
-    const failed = settled.find((result) => result.status === "rejected");
-    if (failed) throw failed.reason;
+    if (resent.length) {
+      const again = await decideAll(resent.map((item) => item.change), { ...options, store });
+      resent.forEach(({ index }, position) => { decisions[index] = again[position]!; });
+    }
     return decisions;
   } finally {
     if (ownsStore) store.close();
   }
+}
+
+async function decideAll(pending: FirstmateChange[], options: FirstmateDecisionOptions & { store: IntelligenceEventStore }): Promise<ExecutiveDecisionRecord[]> {
+  const decisions: ExecutiveDecisionRecord[] = [];
+  let next = 0;
+  const workers = Array.from({ length: Math.min(4, pending.length) }, async () => {
+    while (next < pending.length) {
+      const index = next++;
+      decisions[index] = await processFirstmateChange(pending[index]!, options);
+    }
+  });
+  const settled = await Promise.allSettled(workers);
+  const failed = settled.find((result) => result.status === "rejected");
+  if (failed) throw failed.reason;
+  return decisions;
 }
 
 async function executeAction(

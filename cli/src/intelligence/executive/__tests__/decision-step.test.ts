@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IntelligenceEventStore } from "../../event-store.js";
 import { decideExecutiveStep, HANDLE_IT_YOURSELF, HELD_FOR_ATTENTION, persistExecutiveDecision, RECOVER_IT_YOURSELF, RESTATE_FOR_GEORGE, resolveExecutiveDecision, type ExecutiveDecisionInput } from "../decision-step.js";
-import { authorityForStaffRun, processFirstmateChange } from "../firstmate-decision.js";
+import { authorityForStaffRun, NOTE_ALREADY_SENT, processFirstmateChange, processFirstmateChanges } from "../firstmate-decision.js";
 
 let dir: string | undefined;
 afterEach(() => {
@@ -285,6 +285,31 @@ describe("executive decision step", () => {
     expect(decideExecutiveStep({ ...base, proposal: { kind: "routine", summary: "Routine.", evidenceRefs: [] } })).toMatchObject({ disposition: "backstage" });
   });
 
+});
+
+it("brings George a fleet task's second real either/or once its boss already holds the hand-back note", async () => {
+  dir = mkdtempSync(join(tmpdir(), "flyd-fleet-replay-"));
+  const store = new IntelligenceEventStore({ path: join(dir, "events.sqlite") });
+  const held = new Set<string>();
+  const executeInternalAction = vi.fn(async (action: { text: string }) => {
+    const replayed = held.has(action.text);
+    held.add(action.text);
+    return replayed ? { status: "failed" as const, evidenceRefs: [`${NOTE_ALREADY_SENT}gnm-7`] } : { status: "verified" as const, evidenceRefs: ["firstmate-note:gnm-7"] };
+  });
+  const complete = async (prompt: string) => {
+    const passage = prompt.match(/^Detail: .*?: (.*)$/m)?.[1] ?? "";
+    return JSON.stringify({ kind: "question", summary: "A direction is needed.", question: passage, questionEvidence: passage, options: passage.replace(/\?$/, "").split(", or "), evidenceRefs: [] });
+  };
+  const change = (detail: string) => ({ eventId: "gnm-7", taskId: "gnm-7", kind: "decision" as const, state: "needs-decision", label: "Guard", detail: `Guard: ${detail}`, evidenceRefs: [],
+    authority: authorityForStaffRun({ runId: "gnm-7", firstmate: true, active: true, autonomy: "trusted" }) });
+
+  const [first] = await processFirstmateChanges([change("gate it behind config, or push back?")], { store, complete, executeInternalAction });
+  const [second] = await processFirstmateChanges([change("ship it today, or hold it for review?")], { store, complete, executeInternalAction });
+
+  expect(first).toMatchObject({ disposition: "handle_internally", action: { text: HANDLE_IT_YOURSELF }, verification: { status: "verified" } });
+  expect(second).toMatchObject({ disposition: "ask_george", show: true, notify: true, options: ["ship it today", "hold it for review"] });
+  expect(held.size).toBe(1);
+  store.close();
 });
 
 it("keeps an explicit source question answerable when interpretation fails, without inventing Yes/No", async () => {

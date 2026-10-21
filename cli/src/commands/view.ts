@@ -29,7 +29,7 @@ import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../convers
 import { LiveStaffSession } from "../command/fleet-monitor.js";
 import { listDomainRuns } from "../command/store.js";
 import { sendRunMessage } from "../command/messages.js";
-import { processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
+import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision } from "../intelligence/executive/decision-step.js";
 import { deliverBossNote } from "../command/scheduler.js";
@@ -217,8 +217,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         if (!run) {
           const observedTask = prepared.find((change) => change.taskId === action.target && change.authority?.some((grant) => grant.grantId === action.grantId));
           if (!observedTask || !inbox.available()) return { status: "unknown", evidenceRefs: [] };
-          const requestId = await inbox.sendTaskNote(action.target, action.text);
-          return { status: "verified", evidenceRefs: [`firstmate-note:${requestId}`] };
+          const { requestId, replayed } = await inbox.sendTaskNote(action.target, action.text);
+          return replayed
+            ? { status: "failed", evidenceRefs: [`${NOTE_ALREADY_SENT}${requestId}`] }
+            : { status: "verified", evidenceRefs: [`firstmate-note:${requestId}`] };
         }
         return deliverBossNote(run, action);
       },

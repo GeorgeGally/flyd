@@ -71,7 +71,8 @@ echo "queued $3"
     const first = await inbox.sendTaskNote("gnm-7", recover);
     const again = await inbox.sendTaskNote("gnm-7", recover);
     const notes = readdirSync(join(home, "state", "inbox"));
-    expect(again).toBe(first);
+    expect(first.replayed).toBe(false);
+    expect(again).toEqual({ requestId: first.requestId, replayed: true });
     expect(notes).toHaveLength(1);
     expect(readFileSync(join(home, "state", "inbox", notes[0]!), "utf8")).toBe(`Task gnm-7. ${recover}`);
     await inbox.sendTaskNote("gnm-8", recover);
