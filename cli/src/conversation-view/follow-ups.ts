@@ -202,10 +202,11 @@ function answerFrom(message: ConversationMessage, exchange: Exchange, text: stri
   const own = exchange.question.id.slice("note:".length);
   // The turn that took in the note's crew work looked at that work, as much as the turn that handled the note.
   const handled = message.notes?.includes(own) === true || message.reports?.includes(own) === true;
+  const whole = inFlydsVoice(message.text);
   return {
     id: message.id,
     role: "assistant",
-    text: inFlydsVoice(text),
+    text: whole.trim() === exchange.answer?.text.trim() ? whole : inFlydsVoice(text),
     ...(message.timestamp ? { timestamp: message.timestamp } : {}),
     answers: exchange.question.id,
     // Only the turn that handled the note looked at it; a later report's screenshot, or page, may be of anything.
@@ -224,7 +225,7 @@ export function withFollowUps(exchanges: Exchange[], found: Record<string, Conve
     const chat = found[exchange.question.id];
     if (!chat) return exchange;
     const formal = exchange.answer ? Date.parse(exchange.answer.timestamp ?? "") : Number.NaN;
-    if (!exchange.answer || Date.parse(chat.timestamp ?? "") > formal) return { ...exchange, answer: chat, waiting: "" };
+    if (!exchange.answer || (Date.parse(chat.timestamp ?? "") > formal && chat.text.trim() !== exchange.answer.text.trim())) return { ...exchange, answer: chat, waiting: "" };
     // A formal reply keeps its words; the screenshot firstmate looked at for the note, and the page it changed, still lead it.
     const shots = chat.shots?.length && !exchange.answer.shots?.length ? { shots: chat.shots } : {};
     const page = chat.page && !exchange.answer.page ? { page: chat.page } : {};

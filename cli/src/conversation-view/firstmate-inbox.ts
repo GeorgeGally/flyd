@@ -402,6 +402,11 @@ export function mergeNotes(
     return belongs;
   });
   if (inWindow.length === 0) return messages;
+  const formal = inWindow.filter((exchange) => exchange.answer?.id.startsWith("note-reply:"));
+  const represented = (message: ConversationMessage): boolean => message.aside === true && formal.some(({ question, answer }) =>
+    answer?.text.trim() === message.text.trim()
+    && time(message.timestamp) >= time(question.timestamp)
+    && (!message.notes?.length || message.notes.includes(question.id.slice("note:".length))));
   const merged: ConversationMessage[] = [];
   const push = (exchange: Exchange): void => {
     if (exchange.answer) merged.push(exchange.question, exchange.answer);
@@ -411,7 +416,7 @@ export function mergeNotes(
   for (const message of messages) {
     const at = time(message.timestamp);
     while (next < inWindow.length && !Number.isNaN(at) && time(inWindow[next]!.question.timestamp) <= at) push(inWindow[next++]!);
-    merged.push(message);
+    if (!represented(message)) merged.push(message);
   }
   while (next < inWindow.length) push(inWindow[next++]!);
   return merged;
