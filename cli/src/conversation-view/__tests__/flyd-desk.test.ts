@@ -768,13 +768,9 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     for (const [reply, file] of [[helperReport, "helper.json"], [placeholder, "placeholder.json"]] as const) {
       // The model retells the reply word for word, as a leaky retelling would.
       const { told, shown } = await relay(reply, file);
-      if (reply === helperReport) {
-        expect(told).toBe("Upstream reviewers call this new default behaviour, not a fix.");
-        expect(shown[1]?.summary).toBeDefined();
-      } else {
-        expect(told).toBeUndefined();
-        expect(shown).toEqual([undefined, undefined]);
-      }
+      expect(told).toBeUndefined();
+      // Nothing of it is rendered: no summary, no body behind "more".
+      expect(shown).toEqual([undefined, undefined]);
     }
     const verdicts = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "verdicts.jsonl"), "utf8")
       .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
@@ -786,23 +782,15 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(plain(clean.shown[1]!.summary!.html)).toContain("acceptance.ts");
   });
 
-  it("relays a concrete neutral outcome when the retelling names backstage", async () => {
+  it("holds back a whole retelling that names backstage, keeping none of its sentences", async () => {
     const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "backstage.json"), profile: () => null, complete: async () => "FirstMate finished. The sidebar now opens on Artefacts." });
-    const answer = "The sidebar now opens on Artefacts.";
-    const relayed = await interpreter.request({ question: "q", answer, recent: [] });
-    expect(relayed).toBe("The sidebar now opens on Artefacts.");
-    expect(relayed).not.toMatch(/FirstMate|System-1/i);
+    expect(await interpreter.request({ question: "q", answer: "The sidebar now opens on Artefacts.", recent: [] })).toBeUndefined();
   });
 
   it("keeps a link whose address carries a commit id", async () => {
     const told = "The fix is live: https://github.com/o/r/commit/abc1234def.";
     const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "link.json"), profile: () => null, complete: async () => told });
     expect(await interpreter.request({ question: "q", answer: "The fix is live.", recent: [] })).toBe(told);
-  });
-
-  it("holds back a scrubbed retelling that still fails the relay checks", async () => {
-    const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "still-held.json"), profile: () => null, complete: async () => "FirstMate finished the replay. Working on it." });
-    expect(await interpreter.request({ question: "q", answer: "The sidebar now opens on Artefacts.", recent: [] })).toBeUndefined();
   });
 
   it("drops a commit id from the staff's own words when they lead, leaving their full reply and its code as written", () => {

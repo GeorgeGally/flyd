@@ -3,8 +3,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, s
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
-import { scrubBackstage } from "../lib/backstage.js";
 import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
+import { relayShortfalls, stripCommitIds } from "./honesty-check.js";
 
 // Flyd's own agenda: things George (or Flyd, on his behalf) asked to happen
 // later — follow-ups, recurring briefings, checks on something pending. A
@@ -223,7 +223,7 @@ export async function notifyMac(title: string, message: string, kind: GeorgeKind
 
 export async function deliverNotification(title: string, message: string, kind: GeorgeKind = "deliverable"): Promise<boolean> {
   // One line, outcome first: the rest of what was said is Flyd's to keep or show elsewhere.
-  const { isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/chief-of-staff.js");
+  const { asksHimToDecide, isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/chief-of-staff.js");
   // A coding session idle at its prompt is never George's to hear about.
   if (isIdleNotice(title, message)) return false;
   const { noteSaid, recordHeld, recordKept } = await import("../council/reply-review.js");
@@ -233,8 +233,19 @@ export async function deliverNotification(title: string, message: string, kind: 
     recordKept("notification", gated, message);
     return false;
   }
-  title = scrubBackstage(title);
-  message = notificationLine(scrubBackstage(gated.line));
+  title = stripCommitIds(title);
+  message = stripCommitIds(gated.line);
+  // A title naming backstage machinery gives way to Flyd's own name. A
+  // message that does is held back whole; when it asked him to decide, he
+  // still hears that his call is needed.
+  if (relayShortfalls(title).some((item) => item.requirement === "backstage_hidden")) title = "Flyd";
+  const backstage = relayShortfalls(message).filter((item) => item.requirement === "backstage_hidden");
+  if (backstage.length) {
+    recordHeld({ surface: "notification", source: "notification", text: message }, backstage);
+    if (!asksHimToDecide(message)) return false;
+    message = "I need your decision on some of your work.";
+  }
+  message = notificationLine(message);
   // A notification that only says work is happening carries nothing: kept
   // from George and recorded against the chief-of-staff standard instead.
   const screened = screenBeforeDisplay({ surface: "notification", text: message });

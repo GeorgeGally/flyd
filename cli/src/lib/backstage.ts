@@ -53,29 +53,3 @@ export function firstBackstage(text: string): string | null {
 export function hasBackstage(text: string): boolean {
   return firstBackstage(text) !== null;
 }
-
-const COUNT_UNITS =
-  "h|hrs?|hours?|mins?|minutes?|days?|weeks?|notes?|files?|items?|jobs?|tests?|checks?|requests?|memories|stories|plans?|ideas?|commits?|updates?|entries?|reports?|tasks?|fixes|points?|lines?|steps?|tickets?|issues?";
-
-const COUNT_TOKEN = "\\d+(?:[\\/.\\-]\\d+)?";
-
-const COUNT_PHRASE = new RegExp(
-  `(?<!\\w)(?<!\\d[\\/.\\-])${COUNT_TOKEN}\\s+(?:${COUNT_UNITS})\\b(?:\\s+(?:${COUNT_TOKEN}(?=\\s+(?:${COUNT_UNITS})\\b)|(?:${COUNT_UNITS})\\b))*`,
-  "gi",
-);
-
-function neutralOutcome(text: string): string {
-  const amounts = (text.match(COUNT_PHRASE) ?? []).map((amount) => amount.replace(/\s+/g, " ").trim());
-  return amounts.length ? `Update — ${amounts.join(", ")}.` : "There is an update on your work.";
-}
-
-export function scrubBackstage(text: string): string {
-  if (!hasBackstage(withoutLinkIds(text))) return text;
-  const lines = text.split("\n").flatMap((line) => {
-    if (!line.trim()) return [line];
-    const kept = line.split(/(?<=[.!?])[ \t]+/).filter((sentence) => !hasBackstage(withoutLinkIds(sentence)));
-    return kept.length ? [kept.join(" ")] : [];
-  });
-  const safe = lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  return safe || neutralOutcome(text);
-}

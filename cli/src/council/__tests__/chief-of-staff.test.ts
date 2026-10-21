@@ -10,7 +10,7 @@ import { parseDomainResult } from "../../command/result.js";
 import { HANDLE_IT_YOURSELF, notifyRun } from "../../command/scheduler.js";
 import { FirstmateDomainTransport, syncFirstmateDomainRuns, type FirstmateExec } from "../../command/firstmate.js";
 import { readDomainRun, saveDomainRun } from "../../command/store.js";
-import { BACKSTAGE_DENYLIST, BACKSTAGE_TELEMETRY, CHAT_BACKSTAGE, firstMatch, hasBackstage, scrubBackstage } from "../../lib/backstage.js";
+import { BACKSTAGE_DENYLIST, BACKSTAGE_TELEMETRY, CHAT_BACKSTAGE, firstMatch, hasBackstage } from "../../lib/backstage.js";
 import { relayShortfalls } from "../../runtime/honesty-check.js";
 import type { DomainRun } from "../../command/types.js";
 
@@ -54,15 +54,7 @@ describe("the chief-of-staff checks", () => {
       "Firstmate's answers will now land under your note.",
     ]) {
       expect(relayShortfalls(text).map((item) => item.requirement), text).toContain("backstage_hidden");
-      expect(hasBackstage(scrubBackstage(text)), text).toBe(false);
     }
-  });
-
-  it("scrubs machinery line by line, keeping the other lines and a bare link", () => {
-    expect(scrubBackstage("The sidebar opens on Artefacts.\nhttps://github.com/o/r/pull/9\nFirstMate is watching CI."))
-      .toBe("The sidebar opens on Artefacts.\nhttps://github.com/o/r/pull/9");
-    expect(scrubBackstage("Done. The worktree is gone.\n\nThe fix is live: https://github.com/o/r/commit/abc1234def."))
-      .toBe("Done.\n\nThe fix is live: https://github.com/o/r/commit/abc1234def.");
   });
 
   it("leaves ordinary speech alone", () => {
@@ -289,6 +281,11 @@ describe("before display", () => {
     const shown: string[] = [];
     await notifyRun(decisionRun("The CapFive privacy page is ready; publish it to the live site now?"), async (_title, message) => { shown.push(message); }, async () => { throw new Error("should not be returned"); });
     expect(shown).toEqual(["I need your decision: The CapFive privacy page is ready; publish it to the live site now?"]);
+  });
+
+  it("holds back a whole notification that names backstage and records it", async () => {
+    expect(await deliverNotification("Flyd", "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toBe(false);
+    expect(readVerdicts().filter((verdict) => verdict.held && verdict.text === "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toHaveLength(1);
   });
 
   it("keeps a placeholder notification from George and records it", async () => {

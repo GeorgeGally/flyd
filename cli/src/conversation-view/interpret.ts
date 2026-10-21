@@ -6,7 +6,6 @@ import { memoryPaths } from "../council/memory-store.js";
 import { recordHeld } from "../council/reply-review.js";
 import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
 import { readUserProfile } from "../lib/user-profile.js";
-import { scrubBackstage } from "../lib/backstage.js";
 import type { Complete } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { isAcknowledgement, isRoutine } from "./summaries.js";
@@ -146,15 +145,16 @@ export class AnswerInterpreter {
           timer = setTimeout(() => reject(new Error("timed out")), this.options.timeoutMs ?? TIMEOUT_MS);
         }),
       ]);
-      const original = stripCommitIds(inFlydsVoice(raw.trim()));
-      const text = scrubBackstage(original);
+      const text = stripCommitIds(inFlydsVoice(raw.trim()));
       if (!text || isRoutine(text) || isAcknowledgement(text)) throw new Error("no interpretation");
       // The relayed update reaches George under the same outgoing-answer checks
       // a chat reply passes: one that names backstage machinery or is a
       // placeholder is not shown, and what was held is recorded.
-      const held = relayShortfalls(original);
-      if (held.length) recordHeld({ surface: "relay", source: "relay:interpretation", text: original }, held);
-      if (relayShortfalls(text).length) throw new Error("relay held back");
+      const held = relayShortfalls(text);
+      if (held.length) {
+        recordHeld({ surface: "relay", source: "relay:interpretation", text }, held);
+        throw new Error("relay held back");
+      }
       return text;
     } finally {
       if (timer) clearTimeout(timer);
