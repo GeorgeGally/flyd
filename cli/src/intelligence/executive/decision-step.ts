@@ -259,6 +259,7 @@ function fenced(decision: ExecutiveDecisionRecord): boolean {
 
 function plainWords(text: string): string {
   return BACKSTAGE_ROLES.reduce((said, name) => said.replace(new RegExp(`(?:\\bthe\\s+)?(?:${name.source})`, `${name.flags.replace("g", "")}g`), "the team"), text)
+    .replace(/\bbranch(?:es)?\b/gi, "changes")
     .replace(/\s+/g, " ").trim();
 }
 

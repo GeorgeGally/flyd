@@ -248,7 +248,9 @@ describe("executive decision step", () => {
       proposal: { kind: "question", summary: "Calendar sync release", question: evidence, questionEvidence: evidence,
         options: ["Merge the calendar sync branch tonight", "wait for Monday's review"], evidenceRefs: [] },
     });
-    expect(asked).toMatchObject({ disposition: "ask_george", show: true, notify: true, question: "Calendar sync release", options: [] });
+    expect(asked).toMatchObject({ disposition: "ask_george", show: true, notify: true,
+      question: "Merge the calendar sync changes tonight, or wait for Monday's review?",
+      options: ["Merge the calendar sync changes tonight", "wait for Monday's review"] });
     expect(asked).not.toHaveProperty("action");
   });
 
