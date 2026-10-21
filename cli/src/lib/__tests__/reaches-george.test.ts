@@ -48,6 +48,8 @@ describe("the gate", () => {
     expect(plainLine("Read it with fm-bearings-snapshot --json now")).toBe("Read it with fm-bearings-snapshot now");
     expect(plainLine("Landed (exit code 1 on the first try): https://github.com/GeorgeGally/flyd/pull/174")).toBe("Landed: https://github.com/GeorgeGally/flyd/pull/174");
     expect(plainLine("Dark mode is merged (with a test).")).toBe("Dark mode is merged (with a test).");
+    expect(plainLine("Fixed the /api/status 500 and the and/or check")).toBe("Fixed the /api/status 500 and the and/or check");
+    expect(plainLine("Wrote /Users/george/notes/today and …/bin/fm-inbox.sh and /docs/product/plan.md")).toBe("Wrote today and fm-inbox.sh and plan.md");
   });
 
   it("holds a line that is nothing but machinery as a fault", () => {

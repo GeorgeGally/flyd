@@ -77,8 +77,8 @@ const FAULT = new RegExp([
   String.raw`\b(?:snapshot|state|records?) (?:is |was |are |were )?unreadable\b`,
 ].join("|"), "i");
 
-/** A path on this machine ("/Users/…", "~/…", "…/bin/x.sh"), never part of a link. */
-const PATH = /(?<![\w:/.])(?:~|…|\.{3})?\/(?:[\w.@-]+\/)+[\w.@-]*/g;
+/** A path on this machine ("/Users/…", "~/…", "…/bin/x.sh", "/a/b.md"), never a link or a route like "/api/status". */
+const PATH = /(?<![\w:/.])(?:(?:~|…|\.{3})\/|\/(?=(?:Users|home|tmp|private|var|opt|Volumes)\/|(?:[\w.@-]+\/)+[\w@-]*\.[a-z]\w*))(?:[\w.@-]+\/)+[\w.@-]*/g;
 /** A command-line flag left in prose ("--json"). */
 const FLAG = /(?<=\s|^)--[a-z][\w-]*/gi;
 /** A parenthesised aside that only carries error text or a path. */
