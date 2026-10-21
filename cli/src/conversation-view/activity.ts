@@ -283,7 +283,7 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
   const done: ActivityItem[] = [];
   for (const [key, record] of latest) {
     const stories = recordStories(record.stories);
-    if (stories.length && localDay(new Date(record.at)) !== localDay(new Date(now))) continue;
+    if (Array.isArray(record.stories) && record.stories.length && localDay(new Date(record.at)) !== localDay(new Date(now))) continue;
     const line = plainLine(record.line);
     const detail = stories.length ? undefined : detailBehind(record.line, line);
     const item: ActivityItem = { id: `record:${key}`, kind: record.kind, title: record.title.trim(), ...(line ? { line } : {}), ...(detail ? { detail } : {}), ...(stories.length ? { stories } : {}), at: record.at };
@@ -316,7 +316,9 @@ function storyOf(raw: unknown): ActivityStory | null {
   const item = raw as Record<string, unknown> | null;
   const title = typeof item?.title === "string" ? item.title.replace(/\s+/g, " ").trim() : "";
   const url = typeof item?.url === "string" ? item.url.trim() : "";
-  if (!title || !/^https?:\/\//i.test(url)) return null;
+  let parsedUrl: URL;
+  try { parsedUrl = new URL(url); } catch { return null; }
+  if (!title || !["http:", "https:"].includes(parsedUrl.protocol) || parsedUrl.hostname === "example.com" || parsedUrl.hostname.endsWith(".example.com")) return null;
   const said = typeof item?.why === "string" ? item.why : typeof item?.gist === "string" ? item.gist : "";
   const gist = said.replace(/\s+/g, " ").trim();
   const source = typeof item?.source === "string" ? item.source.trim() : "";

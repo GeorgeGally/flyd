@@ -191,7 +191,7 @@ describe("composeActivity", () => {
 
 describe("the stories behind a news card", () => {
   // The shape a card shows: a headline, a one-line gist, and where it came from.
-  const story = { title: "Flyd ships a new sidebar", url: "https://example.com/a", gist: "It affects your project.", source: "Example" };
+  const story = { title: "Flyd ships a new sidebar", url: "https://www.reddit.com/r/AskHistorians/comments/abc123/a_real_find/", gist: "It affects your project.", source: "r/AskHistorians" };
   const raw = { ...story, why: story.gist };
   let dir: string;
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "flyd-news-")); });
@@ -202,6 +202,12 @@ describe("the stories behind a news card", () => {
     expect(editionStories({ date: "2026-10-17", items: [raw, { ...raw, url: "javascript:alert(1)" }] }, "2026-10-17")).toEqual({ day: "2026-10-17", stories: [story] });
     expect(editionStories({ date: "2026-10-16", items: [raw] }, "2026-10-17")).toBeUndefined();
     expect(editionStories(null, "2026-10-17")).toBeUndefined();
+  });
+
+  it("drops placeholder example.com links while keeping the edition's Reddit URL", () => {
+    const redditUrl = "https://www.reddit.com/r/AskHistorians/comments/abc123/why_did_this_happen/";
+    const data = { date: "2026-10-17", items: [{ ...raw, title: "A historian answers", url: "https://example.com/r-AskHistorians/0" }, { ...raw, url: redditUrl }] };
+    expect(editionStories(data, "2026-10-17")?.stories.map((item) => item.url)).toEqual([redditUrl]);
   });
 
   it("reads the watch's flashes for a day, and keeps only stories with a headline and an http(s) link", () => {
@@ -217,9 +223,34 @@ describe("the stories behind a news card", () => {
     expect(other.recent[0]!.stories).toBeUndefined();
   });
 
+  it("keeps real story URLs and drops example.com from a persisted news record", () => {
+    const redditUrl = "https://www.reddit.com/r/AskHistorians/comments/abc123/why_did_this_happen/";
+    recordActivity({
+      kind: "news",
+      title: "Put together today's news",
+      stories: [
+        { title: "Fixture", url: "https://example.com/r-AskHistorians/0" },
+        { title: "A historian answers", url: redditUrl },
+      ],
+      state: "done",
+    }, dir, new Date(NOW - 60_000));
+    const item = new ActivityReader({ dir, now: () => NOW }).current().recent[0]!;
+    expect(item.stories?.map((story) => story.url)).toEqual([redditUrl]);
+  });
+
   it("never shows yesterday's news record as today's, nor lets it hide today's news", () => {
     const log = ["2026-10-17T11:00:00.000Z scout: edition: 1 items"];
     const stale = { key: "scout-edition", kind: "news", title: "Put together today's news", line: "14 stories from your sources.", stories: [{ title: "Old story", url: "https://x.test/old" }], state: "done", at: minutesAgo(60 * 24) };
+    expect(activityFromRecords([stale], NOW).done).toEqual([]);
+    const panel = composeActivity({ log, jobs: [], advice: [], records: [stale], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
+    const news = panel.recent.filter((item) => item.title === "Put together today's news");
+    expect(news).toHaveLength(1);
+    expect(news[0]!.stories).toEqual([story]);
+  });
+
+  it("drops yesterday's news record even when every story it carried was a placeholder", () => {
+    const log = ["2026-10-17T11:00:00.000Z scout: edition: 1 items"];
+    const stale = { key: "scout-edition", kind: "news", title: "Put together today's news", line: "14 stories from your sources.", stories: [{ title: "Fixture story", url: "https://example.com/a" }], state: "done", at: minutesAgo(60 * 24) };
     expect(activityFromRecords([stale], NOW).done).toEqual([]);
     const panel = composeActivity({ log, jobs: [], advice: [], records: [stale], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
     const news = panel.recent.filter((item) => item.title === "Put together today's news");
