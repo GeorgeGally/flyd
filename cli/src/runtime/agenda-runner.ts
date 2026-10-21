@@ -56,8 +56,8 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
         const [{ investigate }, { runPersonalTool }] = await Promise.all([import("../council/investigator.js"), import("./personal-tools.js")]);
         await investigate({
           complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
-          calendar: (from, days) => runPersonalTool("calendar_events", { from, days }),
-          reminders: () => runPersonalTool("reminders", { action: "list" }),
+          calendar: (from, days) => runPersonalTool("calendar_events", { from, days }, { background: true }),
+          reminders: () => runPersonalTool("reminders", { action: "list" }, { background: true }),
           recall: (text) => runPersonalTool("recall", { query: text }),
           otherAssistants: async () => {
             const { readFileSync } = await import("node:fs");
@@ -91,7 +91,7 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
           import("../lib/user-profile.js"), import("../council/scout.js"), import("../council/memory-store.js"),
         ]);
         await prepareMorning({
-          briefing: (now) => composeSessionBriefing({ now: () => now, peek: true }),
+          briefing: (now) => composeSessionBriefing({ now: () => now, peek: true, background: true }),
           compose: (briefing, now) => museGreeting({ briefing, now, profile: (() => { try { return readUserProfile(); } catch { return null; } })() }, (prompt) => query(prompt)),
           newsReady: (now) => scout.latestEdition()?.date === localDay(now),
         }).catch(() => undefined);

@@ -130,6 +130,9 @@ export interface PersonalToolDependencies {
   fetchFn?: FetchLike;
   now?: () => Date;
   runOsascript?: (script: string, args: string[]) => Promise<string>;
+  /** Nobody asked for this run (investigator, agenda, council): never open an app George has closed. A job he asked for may. */
+  background?: boolean;
+  appRunning?: (app: string, byId?: boolean) => Promise<boolean>;
   capture?: (text: string) => Promise<string>;
   /** Legacy injection seam, deliberately unused: model tools cannot edit USER.md. */
   appendProfileFact?: (text: string, section?: string) => boolean;
@@ -158,7 +161,24 @@ const PERMISSION_WAIT_MS = 2 * 60 * 1000;
 /** An app that timed out is almost always blocked on a macOS permission prompt. */
 const blockedApps = new Map<string, number>();
 
-async function defaultOsascript(script: string, args: string[]): Promise<string> {
+const APP_IS_RUNNING = `on run argv
+  if item 2 of argv is "id" then return application id (item 1 of argv) is running
+  return application (item 1 of argv) is running
+end run`;
+
+/** Windowless helpers that macOS starts and quits on its own; starting one shows nothing. */
+const WINDOWLESS_APPS = new Set(["System Events", "com.apple.systemevents"]);
+
+/** Asks without launching: `is running` never starts the app. */
+export async function appRunning(app: string, byId = false): Promise<boolean> {
+  if (process.env.VITEST) return false;
+  const { stdout } = await execFileAsync("osascript", ["-e", APP_IS_RUNNING, app, byId ? "id" : "name"], { timeout: 5_000 })
+    .catch(() => ({ stdout: "" }));
+  return stdout.trim() === "true";
+}
+
+async function defaultOsascript(script: string, args: string[], background = false): Promise<string> {
+  if (process.env.VITEST) throw new Error("AppleScript is disabled in tests");
   if (process.platform !== "darwin") throw new Error("Apple apps are only available on macOS");
   const app = script.match(/tell application "([^"]+)"/)?.[1] ?? "the app";
   if ((blockedApps.get(app) ?? 0) > Date.now()) {
@@ -174,7 +194,7 @@ async function defaultOsascript(script: string, args: string[]): Promise<string>
         `(or it is off in System Settings › Privacy & Security › Automation). Do not retry; tell George.`,
       );
     }
-    if (!APP_NOT_RUNNING.test(appleScriptError(error))) throw new Error(appleScriptError(error));
+    if (background || !APP_NOT_RUNNING.test(appleScriptError(error))) throw new Error(appleScriptError(error));
     // Scripting a closed app fails with -600 from some hosts; start it hidden and retry once.
     await execFileAsync("open", ["-g", "-a", app], { timeout: 10_000 }).catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -447,7 +467,9 @@ function localDateParts(date: Date): [string, string, string] {
 async function runMacAction(
   input: Record<string, unknown>,
   osascript: (script: string, args: string[]) => Promise<string>,
+  background = false,
 ): Promise<string> {
+  if (background && input.action === "open") return `Error: a background run does not open ${String(input.target ?? "").trim() || "anything"}`;
   if (process.platform !== "darwin") return "Error: Mac control is only available on macOS";
   try {
     switch (input.action) {
@@ -498,7 +520,17 @@ export async function runPersonalTool(
   deps: PersonalToolDependencies = {},
 ): Promise<string> {
   if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, input, deps.connectors);
-  const osascript = deps.runOsascript ?? defaultOsascript;
+  const run = deps.runOsascript ?? ((script: string, args: string[]) => defaultOsascript(script, args, deps.background));
+  const osascript = deps.background
+    ? async (script: string, args: string[]) => {
+      if (/\bdo shell script\b.*\b(?:open|osascript)\b/.test(script)) throw new Error("a background run does not open apps from a shell");
+      for (const [, byId, app] of script.matchAll(/\bapp(?:lication)?( id)? "([^"]+)"/g)) {
+        if (WINDOWLESS_APPS.has(app!)) continue;
+        if (!(await (deps.appRunning ?? appRunning)(app!, Boolean(byId)))) throw new Error(`${app} is not running; a background run does not open it`);
+      }
+      return run(script, args);
+    }
+    : run;
   switch (name) {
     case "web_search": {
       const query = String(input.query ?? "").trim();
@@ -589,7 +621,7 @@ export async function runPersonalTool(
       }
     }
     case "mac":
-      return runMacAction(input, osascript);
+      return runMacAction(input, osascript, deps.background);
     case "calendar_events": {
       const fromText = String(input.from ?? "").trim();
       const from = fromText.match(LOCAL_DATE_TIME);

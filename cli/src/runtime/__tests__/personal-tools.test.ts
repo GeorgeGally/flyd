@@ -7,7 +7,94 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 describe("personal tools", () => {
+  it("never executes AppleScript from the test runner", async () => {
+    await expect(runPersonalTool("calendar_events", {})).resolves.toMatch(/AppleScript is disabled in tests/);
+  });
   afterEach(() => vi.unstubAllEnvs());
+
+  it("leaves a closed Reminders app closed on a background run", async () => {
+    const runOsascript = vi.fn(async () => "Pay rent");
+    const result = await runPersonalTool("reminders", { action: "list" }, { runOsascript, background: true, appRunning: async () => false });
+    expect(runOsascript).not.toHaveBeenCalled();
+    expect(result).toMatch(/^Error/);
+  });
+
+  it("leaves a closed Notes app closed when a background run drives it through AppleScript", async () => {
+    const runOsascript = vi.fn(async () => "note");
+    const checked: string[] = [];
+    const result = await runPersonalTool(
+      "mac",
+      { action: "applescript", script: 'tell app "Notes" to get name of every note' },
+      { runOsascript, background: true, appRunning: async (app) => { checked.push(app); return false; } },
+    );
+    expect(runOsascript).not.toHaveBeenCalled();
+    expect(result).toMatch(/^Error/);
+    if (process.platform === "darwin") expect(checked).toEqual(["Notes"]);
+  });
+
+  it("checks an app named by bundle id on a background run", async () => {
+    const runOsascript = vi.fn(async () => "note");
+    const checked: Array<[string, boolean | undefined]> = [];
+    const result = await runPersonalTool(
+      "mac",
+      { action: "applescript", script: 'tell application id "com.apple.Notes" to get name of every note' },
+      { runOsascript, background: true, appRunning: async (app, byId) => { checked.push([app, byId]); return false; } },
+    );
+    expect(runOsascript).not.toHaveBeenCalled();
+    expect(result).toMatch(/^Error/);
+    if (process.platform === "darwin") expect(checked).toEqual([["com.apple.Notes", true]]);
+  });
+
+  it("never opens an app or URL through the mac tool on a background run", async () => {
+    const result = await runPersonalTool("mac", { action: "open", target: "Notes" }, { background: true, appRunning: async () => false });
+    expect(result).toBe("Error: a background run does not open Notes");
+  });
+
+  it("keeps a background AppleScript from launching an app through System Events or a shell", async () => {
+    const runOsascript = vi.fn(async () => "");
+    const checked: string[] = [];
+    const appRunning = async (app: string) => { checked.push(app); return false; };
+    const viaSystemEvents = await runPersonalTool(
+      "mac",
+      { action: "applescript", script: 'tell application "System Events" to launch application "Notes"' },
+      { runOsascript, background: true, appRunning },
+    );
+    const viaShell = await runPersonalTool(
+      "mac",
+      { action: "applescript", script: 'do shell script "open -a Notes"' },
+      { runOsascript, background: true, appRunning },
+    );
+    expect(runOsascript).not.toHaveBeenCalled();
+    expect(viaSystemEvents).toMatch(/^Error/);
+    expect(viaShell).toMatch(/^Error/);
+    if (process.platform === "darwin") expect(checked).toEqual(["Notes"]);
+  });
+
+  it("lets a background run use System Events, which has no window", async () => {
+    const runOsascript = vi.fn(async () => "true");
+    const appRunning = vi.fn(async () => false);
+    const result = await runPersonalTool(
+      "mac",
+      { action: "applescript", script: 'tell application "System Events" to tell appearance preferences to get dark mode' },
+      { runOsascript, background: true, appRunning },
+    );
+    expect(appRunning).not.toHaveBeenCalled();
+    if (process.platform === "darwin") expect(result).toBe("true");
+  });
+
+  it("reads Reminders on a background run when George already has it open", async () => {
+    const runOsascript = vi.fn(async () => "Pay rent");
+    const result = await runPersonalTool("reminders", { action: "list" }, { runOsascript, background: true, appRunning: async () => true });
+    expect(result).toBe("Pay rent");
+  });
+
+  it("reads Calendar for George's own request even when Calendar is closed", async () => {
+    const runOsascript = vi.fn(async () => "Mon 9:00 | Standup [Work]");
+    const appRunning = vi.fn(async () => false);
+    const result = await runPersonalTool("calendar_events", { from: "2026-10-21", days: 1 }, { runOsascript, appRunning });
+    expect(result).toBe("Mon 9:00 | Standup [Work]");
+    expect(appRunning).not.toHaveBeenCalled();
+  });
 
   it("creates a reminder with a local due time passed as script arguments, not interpolated", async () => {
     const calls: string[][] = [];
@@ -118,4 +205,3 @@ describe("changing a reminder", () => {
       .toBe("Error: reminders update needs a new due or title");
   });
 });
-
