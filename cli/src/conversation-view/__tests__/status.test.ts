@@ -24,6 +24,15 @@ describe("conversation status for the island", () => {
     expect(notable.reply).toEqual({ id: "outcome:result", headline: "The release is verified", asks: false });
   });
 
+  it("keeps Flyd's answer to his own question and a failed send of his message on the island", () => {
+    const answered = islandStatusOf({ working: false, reply: { id: "answer:1", headline: "Your flight leaves at nine.", asks: false } });
+    expect(answered.reply).toEqual({ id: "answer:1", headline: "Your flight leaves at nine.", asks: false });
+    const failed = islandStatusOf({ working: false, waiting: { id: "ask:2", text: "Could not send", failed: true } });
+    expect(failed.waiting).toEqual({ id: "ask:2", text: "Could not send", failed: true });
+    expect(islandStatusOf({ working: false, waiting: { id: "ask:3", text: "Queued" } }).waiting).toBeUndefined();
+    expect(islandStatusOf({ working: false, reply: { id: "staff-1", headline: "Worker paused", asks: false } }).reply).toBeUndefined();
+  });
+
   it("leads with the reply's own » summary, else its first sentence without the salutation, kept short", () => {
     expect(headlineOf("» Menu bar fixed and pushed.\n\nDetails…")).toBe("Menu bar fixed and pushed.");
     expect(headlineOf("Captain, the stats are centred. Also pushed.")).toBe("The stats are centred.");

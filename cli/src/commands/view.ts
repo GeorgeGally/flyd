@@ -13,7 +13,6 @@ import { flydBrief } from "../conversation-view/flyd-brief.js";
 import { executiveConversationSource } from "../conversation-view/executive-source.js";
 import { FlydConversationSource } from "../conversation-view/flyd-source.js";
 import type { ConversationSource } from "../conversation-view/types.js";
-import { conversationSourceForView } from "./view-source.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { memoryLookup } from "../conversation-view/living.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
@@ -32,7 +31,7 @@ import { listDomainRuns } from "../command/store.js";
 import { sendRunMessage } from "../command/messages.js";
 import { processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
-import { readExecutiveDecision, resolveExecutiveDecision } from "../intelligence/executive/decision-step.js";
+import { HANDLE_IT_YOURSELF, readExecutiveDecision, resolveExecutiveDecision } from "../intelligence/executive/decision-step.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { runCuratorSweep } from "../cognition/curator/reconcile.js";
 import { autonomyLevel } from "../runtime/tool-policy.js";
@@ -168,7 +167,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       ...(liveSession ? { liveSession: () => liveSession.current() } : {}),
       ...(wantsInbox ? { desk: { desk: flydDesk(), complete, brief: (text, recent) => flydBrief(text, recent, complete) } } : {}),
     });
-    source = conversationSourceForView(options, flydSource, transcript);
+    source = transcript;
   }
   const sessions = await source.listSessions();
   if (sessions.length === 0 && transcriptProjectDir) throw new Error(`No Claude Code sessions in ${transcriptProjectDir}`);
@@ -194,7 +193,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     : undefined;
   const decideChanges = async (changes: import("../intelligence/executive/firstmate-decision.js").FirstmateChange[]) => {
     const runs = listDomainRuns();
-    const activeStatuses = new Set(["queued", "accepted", "working", "needs_decision", "incomplete"]);
+    const activeStatuses = new Set(["queued", "accepted", "working", "needs_decision", "incomplete", "failed"]);
     const prepared = changes.map((change) => {
       const run = change.taskId ? runs.find((item) => item.id === change.taskId) : undefined;
       const authority = run ? authorityForStaffRun({
@@ -205,7 +204,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       }) : change.taskId && change.kind === "fleet_state" && ["working", "paused", "unknown", "failed"].includes(change.state)
         ? authorityForStaffRun({ runId: change.taskId, firstmate: inbox.available(), active: true, autonomy: autonomyLevel() })
         : [];
-      return { ...change, ...(authority.length ? { authority } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
+      const handedBack = run?.messages?.some((message) => message.from === "flyd" && message.kind === "decision");
+      return { ...change, ...(authority.length ? { authority } : {}), ...(handedBack ? { handedBack } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
     });
     return processFirstmateChanges(prepared, {
       complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
@@ -220,7 +220,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
           await inbox.sendOwn(action.text, requestId);
           return { status: "verified", evidenceRefs: [`firstmate-note:${requestId}`] };
         }
-        const sent = await sendRunMessage({ run, kind: "question", body: action.text, from: "flyd" }).catch(() => null);
+        const sent = await sendRunMessage({ run, kind: action.text === HANDLE_IT_YOURSELF ? "decision" : "question", body: action.text, from: "flyd" }).catch(() => null);
         if (!sent) return { status: "failed", evidenceRefs: [] };
         const receipt = sent.run?.messages?.find((message) => message.body === action.text && message.deliveredAt);
         return {
@@ -235,7 +235,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     decideChanges,
     ...(overtaken ? { overtaken } : {}),
   });
-  if (source !== flydSource) source = executiveConversationSource(source, decideChanges);
+  if (source !== flydSource) source = executiveConversationSource(source, decideChanges, resolveDecision);
   const server = new ConversationViewServer(source, { summarizer, interpreter, artefacts: artefactJudgeFromEnv(), semantic: semanticJudgeFromEnv(), importance: importanceJudgeFromEnv(), always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), undefined, new ActivityReader(), new WhatsAppPairing());
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;

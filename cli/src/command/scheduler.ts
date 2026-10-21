@@ -1,4 +1,4 @@
-import { recommendationText } from "../intelligence/executive/decision-step.js";
+import { HANDLE_IT_YOURSELF, recommendationText } from "../intelligence/executive/decision-step.js";
 import { syncFirstmateDomainRuns } from "./firstmate.js";
 import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
@@ -18,10 +18,14 @@ type Notify = (title: string, message: string, kind?: GeorgeKind) => Promise<voi
 
 export type RunDecisionStep = (run: DomainRun, send: typeof sendRunMessage) => Promise<ExecutiveDecisionRecord>;
 
-async function decideRun(run: DomainRun, send: typeof sendRunMessage): Promise<ExecutiveDecisionRecord> {
+export async function decideRun(
+  run: DomainRun,
+  send: typeof sendRunMessage,
+  complete: (prompt: string) => Promise<string> = async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
+): Promise<ExecutiveDecisionRecord> {
   const result = run.result;
   const detail = [result?.brief, ...(result?.unresolvedQuestions ?? []), ...(result?.risks ?? [])].filter(Boolean).join("\n").slice(0, 2_000);
-  const active = ["queued", "accepted", "working", "needs_decision", "incomplete"].includes(run.status);
+  const active = ["queued", "accepted", "working", "needs_decision", "incomplete", "failed"].includes(run.status);
   return processFirstmateChange({
     sourceId: run.transport.kind === "firstmate" ? "firstmate.change" : `domain.${run.request.domain}`,
     eventId: `domain-run:${run.id}:${run.status}`,
@@ -37,14 +41,17 @@ async function decideRun(run: DomainRun, send: typeof sendRunMessage): Promise<E
       active,
       autonomy: (await import("../runtime/tool-policy.js")).autonomyLevel(),
     }),
+    // Flyd's check-ins on quiet work (fleet-monitor.ts) are questions, not this return.
+    handedBack: run.messages?.some((message) => message.from === "flyd" && message.kind === "decision") ?? false,
   }, {
-    complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
+    complete,
     jev: { ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) },
     executeInternalAction: async (action) => {
       if (action.target !== run.id || action.capability !== "firstmate.message" || !active) return { status: "failed", evidenceRefs: [] };
-      const outcome = await send({ run, kind: "question", body: action.text, from: "flyd" }).catch(() => null);
+      const kind = action.text === HANDLE_IT_YOURSELF ? "decision" : "question";
+      const outcome = await send({ run, kind, body: action.text, from: "flyd" }).catch(() => null);
       if (!outcome?.delivered) return { status: "failed", evidenceRefs: [] };
-      const receipt = outcome.run?.messages?.find((message) => message.kind === "question" && message.body === action.text && message.deliveredAt);
+      const receipt = outcome.run?.messages?.find((message) => message.kind === kind && message.body === action.text && message.deliveredAt);
       return { status: receipt ? "verified" : "unknown", evidenceRefs: receipt ? [`domain-message:${receipt.id}`] : [] };
     },
   });
@@ -71,6 +78,8 @@ export async function notifyRun(
     const decision = await decide(run, send);
     const notice = noticeForDecision(decision);
     if (notice) await (notify ?? (await import("../runtime/agenda.js")).notifyMac)("Flyd", notice, decision.disposition === "ask_george" ? "decision" : noticeKind(run));
+    // Work sent back to its boss stays open: the boss's next reply is decided afresh.
+    if (decision.action) return;
     saveDomainRun({ ...run, notified: true });
   } catch {
     // The durable result remains in the command store; notification is best effort.

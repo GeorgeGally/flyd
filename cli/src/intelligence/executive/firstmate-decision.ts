@@ -19,6 +19,8 @@ export interface FirstmateChange {
   evidenceRefs: string[];
   verification?: { status: "verified" | "failed" | "unknown"; evidenceRefs: string[] };
   authority?: ExecutiveAuthorityGrant[];
+  /** Flyd already returned this source's question to its boss once. */
+  handedBack?: boolean;
 }
 
 export interface FirstmateDecisionOptions {
@@ -157,7 +159,7 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
   const store = options.store ?? new IntelligenceEventStore();
   const ownsStore = options.store === undefined;
   const sourceId = change.sourceId ?? "firstmate.change";
-  const sourceEventId = createHash("sha256").update(`${change.eventId}\0${change.kind}\0${change.state}\0${change.label}\0${change.detail}\0${JSON.stringify([...change.evidenceRefs].sort())}`).digest("hex");
+  const sourceEventId = createHash("sha256").update(`${change.eventId}\0${change.kind}\0${change.state}\0${change.label}\0${change.detail}\0${JSON.stringify([...change.evidenceRefs].sort())}${change.handedBack ? "\0handed-back" : ""}`).digest("hex");
   const decisionId = createHash("sha256").update(`${sourceId}\0${sourceEventId}`).digest("hex").slice(0, 32);
   const existing = store.findByIdempotencyKey("executive.cycle", `step:${decisionId}`);
   if (existing?.payload?.decision && typeof existing.payload.decision === "object") {
@@ -205,6 +207,8 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
       ...(judgment ? { judgment } : {}),
       ...(change.authority ? { authority: change.authority } : {}),
       ...(verification ? { verification } : {}),
+      ...(change.handedBack ? { handedBack: true } : {}),
+      ...(change.state === "failed" ? { sourceFailed: true } : {}),
     }, options.now?.() ?? new Date());
     const canonical = store.transaction(() => {
       const existing = store.findByIdempotencyKey("executive.cycle", `step:${decisionId}`);
@@ -226,8 +230,18 @@ export async function processFirstmateChanges(changes: FirstmateChange[], option
   const store = options.store ?? new IntelligenceEventStore();
   const ownsStore = options.store === undefined;
   try {
+    const pending = changes.slice(0, 40);
     const decisions: ExecutiveDecisionRecord[] = [];
-    for (const change of changes.slice(0, 40)) decisions.push(await processFirstmateChange(change, { ...options, store }));
+    let next = 0;
+    const workers = Array.from({ length: Math.min(4, pending.length) }, async () => {
+      while (next < pending.length) {
+        const index = next++;
+        decisions[index] = await processFirstmateChange(pending[index]!, { ...options, store });
+      }
+    });
+    const settled = await Promise.allSettled(workers);
+    const failed = settled.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
     return decisions;
   } finally {
     if (ownsStore) store.close();

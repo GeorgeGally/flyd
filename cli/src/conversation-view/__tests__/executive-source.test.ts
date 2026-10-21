@@ -60,3 +60,21 @@ it("keeps the real either/or alternatives instead of creating an automatic Yes",
   expect(store.readSource("executive.cycle")[0].payload?.decision).toMatchObject({ disposition: "ask_george", show: true });
   store.close();
 });
+
+it("carries an answer to a Core-owned decision through the decision record, not as a bare staff note", async () => {
+  const sendDecision = vi.fn(async () => ({ id: "staff-note", timestamp: "2026-10-21T00:00:00Z" }));
+  const resolveDecision = vi.fn(async () => undefined);
+  const source: ConversationSource = {
+    assistantLabel: "firstmate", canSend: true, listSessions: async () => [],
+    read: async () => ({ messages: [], working: false }),
+    follow: () => ({ close() {} }), send: vi.fn(), sendDecision, commands: async () => [], image: async () => null,
+  };
+  const projected = executiveConversationSource(source, async () => [], resolveDecision);
+
+  await projected.sendDecision!("close it", [], { decisionId: "decision-1", taskId: "review" });
+  expect(resolveDecision).toHaveBeenCalledWith("decision-1", "review", "close it");
+  expect(sendDecision).not.toHaveBeenCalled();
+
+  await projected.sendDecision!("Answer to pending decision review", []);
+  expect(sendDecision).toHaveBeenCalledWith("Answer to pending decision review", [], undefined);
+});

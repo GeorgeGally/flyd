@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlydConversationSource } from "../flyd-source.js";
 import { FlydDesk } from "../flyd-desk.js";
-import { conversationSourceForView } from "../../commands/view-source.js";
 
 let dir: string | undefined;
 afterEach(() => {
@@ -13,14 +12,6 @@ afterEach(() => {
 });
 
 describe("Flyd's standalone conversation source", () => {
-  it("owns the default view even when there is no FirstMate source", () => {
-    const flyd = new FlydConversationSource({ desk: new FlydDesk({ dir: join(tmpdir(), "flyd-source-unused"), answer: async () => "" }) });
-    const firstmate = { assistantLabel: "firstmate" } as never;
-
-    expect(conversationSourceForView({}, flyd, firstmate)).toBe(flyd);
-    expect(conversationSourceForView({ project: "/tmp/firstmate" }, flyd, firstmate)).toBe(firstmate);
-  });
-
   it("keeps a Flyd question and its own answer in a live session", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-source-"));
     let finishAnswer: (answer: string) => void = () => undefined;

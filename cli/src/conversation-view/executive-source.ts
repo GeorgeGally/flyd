@@ -2,12 +2,13 @@ import { recommendationText } from "../intelligence/executive/decision-step.js";
 import { createHash } from "node:crypto";
 import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision-step.js";
 import type { FirstmateChange } from "../intelligence/executive/firstmate-decision.js";
-import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange } from "./types.js";
+import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, ImageUpload, SentMessage } from "./types.js";
 
 /** Staff transcripts remain evidence. All three display paths read this projection. */
 export function executiveConversationSource(
   source: ConversationSource,
   decide: (changes: FirstmateChange[]) => Promise<ExecutiveDecisionRecord[]>,
+  resolveDecision?: (decisionId: string, taskId: string, answer: string) => Promise<void>,
 ): ConversationSource {
   const projections = new Map<string, ConversationMessage | null>();
   const pending = new Map<string, Promise<void>>();
@@ -70,7 +71,14 @@ export function executiveConversationSource(
       return { close: () => { closed = true; follower.close(); } };
     },
     send: (...args) => source.send(...args),
-    ...(source.sendDecision ? { sendDecision: (...args: Parameters<NonNullable<ConversationSource["sendDecision"]>>) => source.sendDecision!(...args) } : {}),
+    ...(source.sendDecision ? { sendDecision: async (text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }): Promise<SentMessage> => {
+      if (decision && resolveDecision) {
+        if (images.length) throw new Error("Images cannot be attached to a fixed executive decision");
+        await resolveDecision(decision.decisionId, decision.taskId, text);
+        return { id: `decision:${decision.decisionId}`, timestamp: new Date().toISOString() };
+      }
+      return source.sendDecision!(text, images, decision);
+    } } : {}),
     commands: () => source.commands(),
     image: (...args) => source.image(...args),
     exchanges: (): Exchange[] => (source.exchanges?.() ?? []).map((exchange) => {

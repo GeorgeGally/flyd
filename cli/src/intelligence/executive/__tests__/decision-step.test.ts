@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IntelligenceEventStore } from "../../event-store.js";
-import { decideExecutiveStep, persistExecutiveDecision, resolveExecutiveDecision, type ExecutiveDecisionInput } from "../decision-step.js";
+import { decideExecutiveStep, HANDLE_IT_YOURSELF, persistExecutiveDecision, RESTATE_FOR_GEORGE, resolveExecutiveDecision, type ExecutiveDecisionInput } from "../decision-step.js";
 import { authorityForStaffRun, processFirstmateChange } from "../firstmate-decision.js";
 
 let dir: string | undefined;
@@ -215,9 +215,31 @@ describe("executive decision step", () => {
     store.close();
   });
 
-  it("keeps backstage names behind the last output fence even if a model asks to display them", () => {
-    const decision = decideExecutiveStep({ ...eitherOr, proposal: { ...eitherOrProposal, question: "Should FirstMate tell the crewmate to close it?" } });
-    expect(decision).toMatchObject({ disposition: "backstage", show: false, notify: false });
+  it("asks the boss to restate a George decision the last output fence holds, instead of dropping it", () => {
+    const fenced = { ...eitherOr, proposal: { ...eitherOrProposal, question: "Should FirstMate tell the crewmate to close it?" } };
+    expect(decideExecutiveStep(fenced)).toMatchObject({ disposition: "backstage", show: false, notify: false });
+    const restated = decideExecutiveStep({ ...fenced, taskId: "review", authority: authorityForStaffRun({ runId: "review", firstmate: true, active: true, autonomy: "trusted" }) });
+    expect(restated).toMatchObject({ disposition: "handle_internally", show: false, notify: false, action: { target: "review", text: RESTATE_FOR_GEORGE }, verification: { status: "pending" } });
+  });
+
+  it("returns a staff question Flyd has not judged George's to its boss once, then brings the next ask to George", () => {
+    const authority = authorityForStaffRun({ runId: "review", firstmate: true, active: true, autonomy: "trusted" });
+    const { judgment: _judgment, ...withoutJev } = eitherOr;
+    for (const input of [{ ...withoutJev, taskId: "review", authority }, { ...eitherOr, taskId: "review", authority, judgment: { route: "handle_internally" as const, confidence: 0.92, notable: false } }]) {
+      expect(decideExecutiveStep(input)).toMatchObject({ disposition: "handle_internally", show: false, notify: false, action: { target: "review", text: HANDLE_IT_YOURSELF } });
+    }
+    expect(decideExecutiveStep({ ...withoutJev, taskId: "review", authority, handedBack: true })).toMatchObject({ disposition: "ask_george", show: true, notify: true });
+    expect(decideExecutiveStep({ ...eitherOr, taskId: "review", authority })).toMatchObject({ disposition: "ask_george", show: true });
+  });
+
+  it("returns an unconfirmed internal action and failed work to the boss rather than holding them silently", () => {
+    const authority = authorityForStaffRun({ runId: "review", firstmate: true, active: true, autonomy: "trusted" });
+    const base = { sourceId: "firstmate.status", sourceEventId: "review:cancelled", taskId: "review", authority, sourceText: "The review was cancelled before it reached a verdict." };
+    const unconfirmed = decideExecutiveStep({ ...base, proposal: { kind: "internal_action", summary: "Check the review.", action: { kind: "request_status", target: "review", evidence: "The review was cancelled" }, evidenceRefs: [] } });
+    expect(unconfirmed).toMatchObject({ disposition: "handle_internally", action: { target: "review", text: HANDLE_IT_YOURSELF }, verification: { status: "pending" } });
+    const failed = decideExecutiveStep({ ...base, sourceFailed: true, proposal: { kind: "unclear", summary: "The run failed.", evidenceRefs: [] } });
+    expect(failed).toMatchObject({ disposition: "handle_internally", show: false, notify: false, action: { text: HANDLE_IT_YOURSELF } });
+    expect(decideExecutiveStep({ ...base, proposal: { kind: "routine", summary: "Routine.", evidenceRefs: [] } })).toMatchObject({ disposition: "backstage" });
   });
 
 });

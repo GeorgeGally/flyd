@@ -553,7 +553,8 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
       ...(decision.notify ? { notable: true } : {}),
     }];
   });
-  return { ...emptyFleet(), ...(fleet.generated ? { generated: fleet.generated } : {}), ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}), calls, landed: verified };
+  const failed = fleet.held.flatMap((row) => row.status === "failed" ? [{ ...row, detail: undefined }] : []);
+  return { ...emptyFleet(), ...(fleet.generated ? { generated: fleet.generated } : {}), ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}), calls, landed: verified, held: failed };
 }
 
 /** The firstmate data directories a backlog row's words point at ("report data/gnm-lab/report.md"). Pure. */

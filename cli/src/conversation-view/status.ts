@@ -129,10 +129,11 @@ export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefac
     ? { id: `decision:${ask.executiveDecisionId ?? ask.task ?? ask.label}`, headline: ask.question ?? ask.label, asks: true }
     : notable
       ? { id: `outcome:${notable.executiveDecisionId ?? notable.task ?? notable.label}`, headline: notable.label, asks: false }
-      : current.reply?.asks ? current.reply : undefined;
+      : current.reply?.asks || current.reply?.id.startsWith("answer:") ? current.reply : undefined;
   return {
     working: current.working,
     ...(current.lastActivity ? { lastActivity: current.lastActivity } : {}),
     ...(reply ? { reply } : {}),
+    ...(current.waiting?.failed ? { waiting: current.waiting } : {}),
   };
 }

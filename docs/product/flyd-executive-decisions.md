@@ -6,13 +6,15 @@ Flyd owns the default Conversation session. `flyd view` starts without a FirstMa
 
 `cli/src/intelligence/executive/firstmate-decision.ts` interprets a bounded staff change with `quickQuery` and declared Jev predicates. `decision-step.ts` applies deterministic policy and records exactly one disposition on the intelligence event store:
 
-- `handle_internally`: request status about existing work under a matching policy grant, or retain an independently verified result.
+- `handle_internally`: request status about existing work under a matching policy grant, send work back to its boss (`HANDLE_IT_YOURSELF` or `RESTATE_FOR_GEORGE`), or retain an independently verified result.
 - `ask_george`: preserve the question and its source alternatives, with a recommendation and an answer route.
 - `backstage`: retain operational or unclear information without displaying or announcing it.
 
 `ExecutiveDecisionRecord` separates visible results, questions and internal actions. Durable payloads are parsed before use. A material source identity, state, text or evidence-reference change produces a new observation identity. Repeated polls reuse the decision and its resolution.
 
 Every current source question reaches the decision owner before the legacy `isCurrentDecision` filter. Raw `doing` text remains evidence even when the legacy renderer shortens its display copy. Explicit source questions remain answerable when model interpretation fails: Flyd preserves their wording, requests clarification, and provides free-text input. It never invents a binary approval from an either/or question.
+
+Under a matching grant, a staff question that Jev has not confidently routed to George goes back to its boss once. This includes every question when Jev is off. The boss's next ask reaches George. The same happens to an internal action Jev has not confirmed and to a failed run Flyd cannot act on. A failed run stays in Flyd's held view. A George decision whose wording fails the final output check goes back to its boss with a request to restate it. A domain run sent back this way stays un-notified until its boss replies.
 
 ## Authority and verification
 
@@ -28,14 +30,14 @@ The Jev routing predicate uses a confidence threshold of 0.8; outcome interrupti
 
 The production artefact feed, optional staff transcript source, incoming tool notices and domain-run notifier consume executive decisions. Routine pauses, cancellations, run identifiers and quoted explanations of an unsafe `Yes` remain backstage. Core-owned questions render as decisions with their original alternatives and a free-text answer control. A question's decision identity survives into the submitted answer; a changed question rejects the old identity.
 
-The island announces an open decision or an independently verified outcome that passes the separate notability judgment. Routine completion does not interrupt. The existing backstage-name and honesty checks remain the last output fence, including a check against personal promises without an executed action.
+The island announces an open decision, an independently verified outcome that passes the separate notability judgment, Flyd's own answer to a question George typed, or a failed send of his message. Routine completion does not interrupt. The existing backstage-name and honesty checks remain the last output fence, including a check against personal promises without an executed action.
 
 This production path supersedes:
 
 - regex-based automatic standing-rule `Yes` answers in `AutoAnswers`;
 - status-to-card presentation and row-voice narration as the authority for staff news;
 - legacy decision-age/choice-parser filtering before Core interpretation;
-- the domain notifier's separate implementation-question return rule and raw-status conclusion;
+- the domain notifier's regex implementation-question return rule and raw-status conclusion;
 - direct incoming tool notices as island interruptions.
 
 Legacy parser helpers and their tests remain for explicit compatibility consumers. They do not authorize effects in the production decision path. The landed held-up-to-Flyd behavior and chief-of-staff/output checks remain in use. No Rails dependency, new personal source, new scheduler or new outward capability is introduced.

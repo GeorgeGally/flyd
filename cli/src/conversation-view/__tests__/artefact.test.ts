@@ -113,6 +113,9 @@ describe("the decision-backed fleet projection", () => {
         { id: "result", state: "done", name: "Review complete", doing: "Requested tests passed" },
       ],
     });
+    const withFailure = parseBearings({ in_flight: [{ id: "broken", state: "failed", name: "Admin redesign", doing: "Exit 1 in run 01M56X1VHPRFDXWTHCZVTG38VZ" }] });
+    expect(projectFleetDecisions(withFailure, [decision({ taskId: "broken", disposition: "backstage", summary: "Handed back" })]).held)
+      .toEqual([expect.objectContaining({ task: "broken", label: "Admin redesign", status: "failed", detail: undefined })]);
     const publicFleet = projectFleetDecisions(fleet, [
       decision({ taskId: "choice", disposition: "ask_george", question: "Close it or add the tools?", options: ["close it", "add the tools"], recommendation: { option: "add the tools", rationale: "They remain required." }, show: true, notify: true }),
       decision({ taskId: "paused", disposition: "backstage", summary: "Worker paused", show: false }),

@@ -47,6 +47,9 @@ export interface ExecutiveDecisionInput {
   judgment?: ExecutiveJudgment;
   authority?: ExecutiveAuthorityGrant[];
   verification?: { status: "verified" | "failed" | "unknown"; evidenceRefs: string[] };
+  /** Flyd already sent this source's question back once; its next ask is George's. */
+  handedBack?: boolean;
+  sourceFailed?: boolean;
 }
 
 export interface ExecutiveVerification {
@@ -94,6 +97,16 @@ export function recommendationText(recommendation: ExecutiveRecommendation): str
 const MIN_CONFIDENCE = 0.8;
 const INTERNAL_STATUS_NOTE = "Check the original request and current result. Continue only within its accepted scope, then report verified evidence or a genuine George-owned decision with your recommendation.";
 
+/** What Flyd tells a domain boss that asked George for an implementation call, or whose work failed. */
+export const HANDLE_IT_YOURSELF = [
+  "This is an implementation call, not one for George, so Flyd has not put it to him.",
+  "Make it yourself in line with what he asked for, using the authority the run already has, and reply with the outcome.",
+  "Only if it truly turns on what he wants, his money, his name, people he deals with, or something irreversible, reply needs_decision again saying why it is his, with your recommendation, and Flyd will bring it to him.",
+].join(" ");
+
+/** What Flyd tells a domain boss whose question for George failed the final output check. */
+export const RESTATE_FOR_GEORGE = "Flyd has not put your question to George because its wording is not fit to show him. Restate the decision in plain words: the choice, its real alternatives and your recommendation, without naming internal roles or promising future work.";
+
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -107,13 +120,28 @@ function groundedRefs(input: ExecutiveDecisionInput): string[] {
   return [...new Set(input.proposal.evidenceRefs.filter((ref) => ref.trim()))];
 }
 
+type HeldDecision = Extract<ExecutiveDecisionRecord, { disposition: "backstage" }>;
+
+/** Sends the item back to its own boss when policy grants a message to that task; otherwise it stays held. */
+function toBoss(input: ExecutiveDecisionInput, held: HeldDecision, text: string, reason: string): ExecutiveDecisionRecord {
+  const grant = input.taskId ? input.authority?.find((candidate) => candidate.capability === "firstmate.message" && candidate.target === input.taskId) : undefined;
+  if (!grant || !input.taskId) return held;
+  return {
+    ...held,
+    disposition: "handle_internally",
+    reason,
+    action: { capability: "firstmate.message", grantId: grant.grantId, target: input.taskId, text, idempotencyKey: `executive:${held.decisionId}:${grant.grantId}` },
+    verification: { status: "pending", evidenceRefs: [] },
+  };
+}
+
 function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecisionRecord {
   const { proposal, judgment } = input;
   const evidenceRefs = groundedRefs(input);
   const decisionId = digest(`${input.sourceId}\0${input.sourceEventId}`).slice(0, 32);
   const verification = input.verification ?? { status: "unknown" as const, evidenceRefs: [] };
   const confidence = judgment?.confidence ?? 0;
-  const decision: ExecutiveDecisionRecord = {
+  const decision: HeldDecision = {
     schema: EXECUTIVE_DECISION_VERSION,
     decisionId,
     sourceId: input.sourceId,
@@ -136,6 +164,10 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
       && options.every((option) => containsEvidence(proposal.questionEvidence, option));
     if (!grounded || judgment?.route === "backstage" && confidence >= MIN_CONFIDENCE) {
       return { ...decision, reason: grounded ? "Jev judged the item backstage" : "question or alternatives were not grounded in source evidence" };
+    }
+    if (!input.handedBack && (judgment?.route !== "ask_george" || confidence < MIN_CONFIDENCE)) {
+      const returned = toBoss(input, decision, HANDLE_IT_YOURSELF, "not judged George's; returned to its boss once");
+      if (returned !== decision) return returned;
     }
     const recommendation = proposal.recommendation && options.includes(proposal.recommendation.option)
       && containsEvidence(input.sourceText, proposal.recommendation.evidence)
@@ -172,7 +204,8 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
       && candidate.target === proposal.action.target);
     if (!grant || judgment?.route !== "handle_internally" || confidence < MIN_CONFIDENCE
       || !containsEvidence(input.sourceText, proposal.action.evidence)) {
-      return { ...decision, reason: "no matching deterministic authority grant and grounded high-confidence interpretation" };
+      return toBoss(input, { ...decision, reason: "no matching deterministic authority grant and grounded high-confidence interpretation" },
+        HANDLE_IT_YOURSELF, "the status request was not confirmed; returned to its boss");
     }
     return {
       ...decision,
@@ -189,7 +222,8 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
     };
   }
 
-  return { ...decision, reason: proposal.kind === "routine" ? "routine operational state stays backstage" : "interpretation is unclear" };
+  const held = { ...decision, reason: proposal.kind === "routine" ? "routine operational state stays backstage" : "interpretation is unclear" };
+  return input.sourceFailed ? toBoss(input, held, HANDLE_IT_YOURSELF, "failed work returned to its boss") : held;
 }
 
 /** Output checks remain the final fence after interpretation, policy and verification. */
@@ -197,8 +231,9 @@ export function decideExecutiveStep(input: ExecutiveDecisionInput, now = new Dat
   const decision = decide(input, now);
   if (!decision.show) return decision;
   const displayed = [decision.question ?? decision.summary, ...(decision.options ?? []), decision.recommendation?.rationale ?? ""].join("\n");
-  if (relayShortfalls(displayed).length || /\b(?:I|we|Flyd)(?:['’]ll|\s+will|\s+(?:am|are|is)\s+going\s+to)\b/i.test(displayed)) return { schema: decision.schema, decisionId: decision.decisionId, sourceId: decision.sourceId, sourceEventId: decision.sourceEventId, ...(decision.taskId ? { taskId: decision.taskId } : {}), createdAt: decision.createdAt, summary: decision.summary, evidenceRefs: decision.evidenceRefs, verification: { status: "unknown", evidenceRefs: [] }, disposition: "backstage", show: false, notify: false, reason: "the final output check held this wording" };
-  return decision;
+  if (!relayShortfalls(displayed).length && !/\b(?:I|we|Flyd)(?:['’]ll|\s+will|\s+(?:am|are|is)\s+going\s+to)\b/i.test(displayed)) return decision;
+  const held: HeldDecision = { schema: decision.schema, decisionId: decision.decisionId, sourceId: decision.sourceId, sourceEventId: decision.sourceEventId, ...(decision.taskId ? { taskId: decision.taskId } : {}), createdAt: decision.createdAt, summary: decision.summary, evidenceRefs: decision.evidenceRefs, verification: { status: "unknown", evidenceRefs: [] }, disposition: "backstage", show: false, notify: false, reason: "the final output check held this wording" };
+  return decision.disposition === "ask_george" ? toBoss(input, held, RESTATE_FOR_GEORGE, "the final output check held a George decision; its boss is asked to restate it") : held;
 }
 
 export function persistExecutiveDecision(store: IntelligenceEventStore, decision: ExecutiveDecisionRecord, revision = ""): StoredEvent | null {
