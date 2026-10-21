@@ -10,7 +10,7 @@ import {
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
   callItems, doneItems, underwayItems, workerStarted, weekLandedRows, type FleetArtefact,
 } from "../artefact.js";
-import { projectFleetDecisions } from "../artefact.js";
+import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
 const BEARINGS = {
@@ -103,6 +103,11 @@ describe("the decision-backed fleet projection", () => {
     if (!parsed) throw new Error("Invalid executive fixture");
     return parsed;
   };
+
+  it("carries a recorded pull request into the finished change so it can be verified", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "t1", state: "done", name: "Island fix", doing: "finished and merged" }], recorded_prs: [{ id: "t1", url: "https://github.com/o/r/pull/9" }] });
+    expect(firstmateChangesFromFleet(fleet).find((change) => change.taskId === "t1")).toMatchObject({ kind: "fleet_state", detail: "finished and merged\nhttps://github.com/o/r/pull/9" });
+  });
 
   it("projects only George decisions and independently verified results", () => {
     const fleet = parseBearings({

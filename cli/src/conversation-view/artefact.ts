@@ -258,7 +258,7 @@ export function parseBearings(raw: unknown): FleetArtefact {
     kind: "fleet_state",
     state: entry.state,
     label: entry.row.label,
-    detail: entry.doing,
+    detail: entry.row.url && !entry.doing.includes(entry.row.url) ? [entry.doing, entry.row.url].filter(Boolean).join("\n") : entry.doing,
     evidenceRefs: entry.row.task ? [`firstmate-task:${entry.row.task}`] : [],
   }));
   const inState = (...states: string[]) => flight.filter((entry) => states.includes(entry.state));
@@ -473,7 +473,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
   };
 }
 
-export function firstmateChangesFromFleet(fleet: FleetArtefact, verifiedByTask: ReadonlyMap<string, string[]> = new Map()): FirstmateChange[] {
+export function firstmateChangesFromFleet(fleet: FleetArtefact): FirstmateChange[] {
   const changes = new Map<string, FirstmateChange>();
   const add = (change: FirstmateChange) => changes.set(`${change.taskId ?? change.eventId}:${change.state}`, change);
   for (const change of fleet.changes ?? []) add(change);
@@ -501,7 +501,6 @@ export function firstmateChangesFromFleet(fleet: FleetArtefact, verifiedByTask: 
       label: row.label,
       detail: [row.sourceDetail ?? row.detail ?? row.status, row.url].filter(Boolean).join("\n"),
       evidenceRefs: row.task ? [`firstmate-task:${row.task}`] : [],
-      ...(row.task && verifiedByTask.has(row.task) ? { verification: { status: "verified" as const, evidenceRefs: verifiedByTask.get(row.task)! } } : {}),
     });
   }
   for (const row of [...fleet.live, ...fleet.held, ...fleet.next]) {

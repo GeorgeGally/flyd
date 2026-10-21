@@ -218,7 +218,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
           const observedTask = prepared.find((change) => change.taskId === action.target && change.authority?.some((grant) => grant.grantId === action.grantId));
           if (!observedTask || !inbox.available()) return { status: "unknown", evidenceRefs: [] };
           const requestId = `flyd-executive-${action.idempotencyKey.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 100)}`;
-          await inbox.sendOwn(action.text, requestId);
+          const note = action.text.startsWith(`Task ${action.target}.`) ? action.text : `Task ${action.target}. ${action.text}`;
+          await inbox.sendOwn(note, requestId);
           return { status: "verified", evidenceRefs: [`firstmate-note:${requestId}`] };
         }
         return deliverBossNote(run, action);
