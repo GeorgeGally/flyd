@@ -223,6 +223,30 @@ describe("ClaudeCodeTranscriptSource", () => {
     }
   });
 
+  it("checks unread notes against the live session reading only what it appended since", async () => {
+    const path = join(dir, "s1.jsonl");
+    writeFileSync(path, [captain("check the footer"), toolUse()].join("\n") + "\n");
+    const note: Exchange = {
+      question: { id: "note:1791000000-abcdef", role: "user", text: "the footer spacing is off", timestamp: "2026-10-05T17:00:00.000Z", receipt: "sent" },
+      waiting: "Queued",
+    };
+    const inbox: CaptainInbox = { send: async () => ({ id: "note:x", timestamp: "x" }), notes: () => [note], image: () => null };
+    const source = new ClaudeCodeTranscriptSource({ projectDir: dir, pollMs: 60_000, inbox, liveSession: async () => "s1" });
+    const pushed = vi.spyOn(TranscriptConversation.prototype, "pushLine");
+    const now = Date.parse("2026-10-05T18:00:00.000Z");
+    try {
+      await source.heardExchanges(now);
+      expect(pushed).toHaveBeenCalledTimes(2);
+      appendFileSync(path, [toolUse(), toolResult("ok")].join("\n") + "\n");
+      await source.heardExchanges(now);
+      expect(pushed).toHaveBeenCalledTimes(4);
+      await source.heardExchanges(now);
+      expect(pushed).toHaveBeenCalledTimes(4);
+    } finally {
+      pushed.mockRestore();
+    }
+  });
+
   it("works out firstmate's answers to the notes again only when the notes or its replies change", async () => {
     const path = join(dir, "s1.jsonl");
     writeFileSync(path, [captain("check the footer"), toolUse("Bash", { command: "bin/fm-inbox.sh drain --ack" })].join("\n") + "\n");

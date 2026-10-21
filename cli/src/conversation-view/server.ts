@@ -47,7 +47,8 @@ import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
-import { readStaffView, type StaffView } from "../command/fleet-monitor.js";
+import { concernKind, readStaffView, type StaffView } from "../command/fleet-monitor.js";
+import { reachesGeorge } from "../lib/reaches-george.js";
 import { noteSaid, recordHeld } from "../council/reply-review.js";
 import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
 import { expandScrawl, fileScrawl } from "./scrawl-capture.js";
@@ -551,10 +552,13 @@ export class SnapshotDiffer {
       }
     }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
+    const artefact = this.show?.artefact?.();
+    // Without a reading of the fleet, nothing on the screen may claim that all is quiet (show.ts).
+    const known = !artefact || Boolean(artefact.fleet && !artefact.fleet.unavailable);
     const show = showOf(snapshot, {
         ...(this.show?.assistant ? { assistant: this.show.assistant } : {}),
         projects: this.show?.projects?.() ?? [],
-        ...(this.show?.artefact ? { artefact: this.show.artefact() } : {}),
+        ...(artefact ? { artefact } : {}),
         reading: (message) => this.reading(message),
         muted: (message) => this.routine(message, handledOf(message)),
       });
@@ -570,7 +574,7 @@ export class SnapshotDiffer {
       const kept = show.items.filter((item) => importance.matters(item) !== false);
       let trimmed = kept.length !== show.items.length;
       if (trimmed) {
-        show.items = kept.length ? kept : [{ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" }];
+        show.items = kept.length || !known ? kept : [{ id: "clear", kind: "clear", headline: "Nothing needs you right now.", why: "I'll flag it when something does" }];
       }
       // A call Flyd is sure is not his leaves the sheet too, and "N need you" counts only what the sheet can open.
       if (show.calls) {
@@ -583,10 +587,9 @@ export class SnapshotDiffer {
         }
       }
       // The opening line and the tally speak for what is left on the screen, not what the judge took off it.
-      // An unreadable fleet keeps its own line.
-      if (trimmed && !show.summary.startsWith("I couldn't read")) {
-        show.title = titleOf(show.items);
-        show.summary = situationOf(show.counts);
+      if (trimmed) {
+        show.title = titleOf(show.items, false, known);
+        show.summary = situationOf(show.counts, known);
       }
     }
     const semanticJudge = this.summaries?.semantic;
@@ -1706,8 +1709,11 @@ export class ConversationViewServer {
       if (closed || !this.source.canSend) return;
       let text = "";
       try {
-        // Only what he has been told: while the staff has a nudge to answer, that stays Flyd's business.
-        text = (this.staffView()?.concerns ?? []).filter((concern) => concern.toldAt).map((concern) => concern.text).join(" ");
+        // Only what he has been told, and only what the gate lets reach him: staff silence stays Flyd's to chase.
+        text = (this.staffView()?.concerns ?? []).filter((concern) => concern.toldAt).flatMap((concern) => {
+          const gated = reachesGeorge({ kind: concernKind(concern), text: concern.text }, "notice");
+          return gated.reach ? [gated.line] : [];
+        }).join(" ");
       } catch {
         text = "";
       }

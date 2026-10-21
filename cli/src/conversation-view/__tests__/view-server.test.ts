@@ -1021,7 +1021,7 @@ describe("ConversationViewServer", () => {
     expect((await get(port, "/api/stream", `127.0.0.1:${port}`, false)).status).toBe(403);
   });
 
-  it("streams each note's receipt, saying nothing over the composer about notes left waiting", async () => {
+  it("streams each note's receipt, and never a warning about notes firstmate left unread: they are Flyd's to chase", async () => {
     const inbox = new MemoryInbox();
     const old = new Date(Date.now() - 12 * 60_000).toISOString();
     inbox.notes = () => [
@@ -1263,6 +1263,8 @@ describe("ConversationViewServer", () => {
       "note:1791720003-cccccc": "read",
       "note:1791720004-dddddd": "sent",
     });
+    // The one note still unread is Flyd's to chase, never a warning to him.
+    expect(body).not.toContain("event: unread");
     // The column shows each note's own recorded answer, never a chat paragraph that seemed to be about it.
     const rows = Object.fromEntries(update.rail.conversations.map((talk: { id: string; answer?: string; state?: string }) => [talk.id, [talk.answer, talk.state]]));
     expect(rows["note:1791720001-aaaaaa"]).toEqual([undefined, "done"]);
@@ -1289,12 +1291,12 @@ describe("ConversationViewServer", () => {
   it("says over the composer only the stuck coding work George has been told about", async () => {
     const inbox = new MemoryInbox();
     const port = await start(inbox);
-    const concern = { kind: "unreachable" as const, since: new Date().toISOString() };
+    const since = new Date().toISOString();
     server!.staffView = () => ({
-      snapshot: { at: new Date().toISOString(), available: true, readiness: { lock: "held", liveHarness: true, heartbeat: "healthy", canReceive: true }, workers: [], waitingOnHim: [], queued: 0, handoffs: [] },
+      snapshot: { at: new Date().toISOString(), available: true, readiness: { lock: "free", liveHarness: false, heartbeat: "unknown", canReceive: false }, workers: [], waitingOnHim: [], queued: 0, handoffs: [] },
       concerns: [
-        { ...concern, key: "a", text: "Nobody has been looking after your coding work for 3 h.", toldAt: new Date().toISOString() },
-        { ...concern, key: "b", text: "Still being asked about.", nudgedAt: new Date().toISOString() },
+        { kind: "handoff_stale", since, key: "b", text: "Still being asked about.", nudgedAt: since },
+        { kind: "unreachable", since, key: "c", text: "Nobody has been looking after your coding work for 45 min.", toldAt: since },
       ],
     });
     const body = await new Promise<string>((resolve, reject) => {
@@ -1309,7 +1311,9 @@ describe("ConversationViewServer", () => {
       req.on("error", reject);
       req.end();
     });
-    expect(JSON.parse(body.split("event: staff\ndata: ")[1]!.split("\n")[0]!)).toEqual({ text: "Nobody has been looking after your coding work for 3 h." });
+    expect(JSON.parse(body.split("event: staff\ndata: ")[1]!.split("\n")[0]!)).toEqual({
+      text: "Nobody has been looking after your coding work for 45 min.",
+    });
   });
 
   it("follows the session that holds firstmate's lock, not the one written last", async () => {

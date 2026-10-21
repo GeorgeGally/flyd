@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
+import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
 import type { FirstmateExec } from "./firstmate.js";
 import { sendRunMessage } from "./messages.js";
 import { commandDir, listDomainRuns } from "./store.js";
@@ -12,9 +13,10 @@ import type { DomainRun } from "./types.js";
 // Flyd watches its coding staff (FirstMate) from Core, read-only: the staff's
 // own readiness (`fm-inbox.sh ready`), its home summary (state/home-summary.json:
 // workers, decisions waiting on George, the queue), each worker's status log,
-// and Flyd's own handoffs. Stuck work is Flyd's to chase with a note to the
-// staff, again every few hours; George is told only when nobody is there to
-// look after his work, or once when the chase has gone unanswered for two days.
+// and Flyd's own handoffs. Stuck work is Flyd's to chase: a note to the staff,
+// and another every few hours while one goes unanswered, never a word to
+// George. He is told only when nobody is there to take the chase at all
+// (lib/reaches-george.ts: a blocker Flyd has run out of moves on), once.
 // Nothing here writes into the FirstMate home except notes through its inbox.
 
 /** A handoff with no word back this long gets a note asking where it stands. */
@@ -23,8 +25,6 @@ export const STALE_HANDOFF_MS = 2 * 60 * 60_000;
 export const WORKER_WAIT_MS = 30 * 60_000;
 /** While a handoff stays quiet or a worker stays waiting, Flyd asks the staff again this often. */
 export const RENUDGE_MS = 6 * 60 * 60_000;
-/** Stuck this long with no reply, George hears it once, with what Flyd does next. */
-export const ESCALATE_MS = 48 * 60 * 60_000;
 /** The staff unreachable this long, with work open, is told to George. */
 export const UNREACHABLE_MS = 30 * 60_000;
 /** How often Core reads the staff's state. */
@@ -69,7 +69,7 @@ export interface StaffSnapshot {
   handoffs: StaffHandoff[];
 }
 
-export type StaffConcernKind = "handoff_stale" | "worker_waiting" | "unreachable";
+export type StaffConcernKind = "handoff_stale" | "worker_waiting" | "worker_stopped" | "unreachable";
 
 export interface StaffConcern {
   /** Stable while the same thing stays stuck; a fresh stall gets a new key. */
@@ -78,8 +78,12 @@ export interface StaffConcern {
   since: string;
   /** George's words: no machinery names. */
   text: string;
+  /** What is stuck, in a few words. */
+  subject?: string;
   runId?: string;
   workerId?: string;
+  /** The staff's own word for where a stopped worker stands: failed, or unknown. */
+  workerState?: string;
   /** When Flyd sent the staff a note about it. */
   nudgedAt?: string;
   /** When George was told; until then only Flyd knows. */
@@ -92,6 +96,8 @@ export interface StaffView {
 }
 
 const DECIDING = new Set(["needs-decision", "needs_decision", "blocked"]);
+/** Work that stopped without asking anyone: it failed, or the staff lost sight of it. */
+const STOPPED = new Set(["failed", "unknown"]);
 const OPEN_HANDOFF = new Set(["queued", "accepted", "working"]);
 
 async function defaultExec(script: string, args: string[], options: { env: NodeJS.ProcessEnv; input?: string; timeout: number }): Promise<{ stdout: string; stderr: string }> {
@@ -202,19 +208,33 @@ export function assessStaff(snapshot: StaffSnapshot, unreachableSince: string | 
       kind: "handoff_stale",
       since: handoff.lastHeard,
       runId: handoff.id,
+      subject: clip(handoff.outcome),
       text: `I've heard nothing back on "${clip(handoff.outcome)}" for ${waited(quiet)}.`,
     });
   }
   for (const worker of snapshot.workers) {
-    if (!DECIDING.has(worker.state) || !worker.since) continue;
+    if (!worker.since || !(DECIDING.has(worker.state) || STOPPED.has(worker.state))) continue;
     const waiting = now - Date.parse(worker.since);
     if (!(waiting > WORKER_WAIT_MS)) continue;
+    if (DECIDING.has(worker.state)) {
+      concerns.push({
+        key: `worker:${worker.id}:${worker.since}`,
+        kind: "worker_waiting",
+        since: worker.since,
+        workerId: worker.id,
+        subject: clip(worker.name),
+        text: `"${clip(worker.name)}" has been stuck waiting for ${waited(waiting)}.`,
+      });
+      continue;
+    }
     concerns.push({
-      key: `worker:${worker.id}:${worker.since}`,
-      kind: "worker_waiting",
+      key: `stopped:${worker.id}:${worker.since}`,
+      kind: "worker_stopped",
       since: worker.since,
       workerId: worker.id,
-      text: `"${clip(worker.name)}" has been stuck waiting for ${waited(waiting)}.`,
+      workerState: worker.state,
+      subject: clip(worker.name),
+      text: worker.state === "failed" ? `"${clip(worker.name)}" failed ${waited(waiting)} ago.` : `There has been no word on "${clip(worker.name)}" for ${waited(waiting)}.`,
     });
   }
   const openWork = snapshot.handoffs.some((handoff) => OPEN_HANDOFF.has(handoff.status)) || snapshot.workers.length > 0;
@@ -229,11 +249,9 @@ export function assessStaff(snapshot: StaffSnapshot, unreachableSince: string | 
   return concerns;
 }
 
-/** The one line George hears about a stuck thing: what is stuck and what Flyd does next. */
-function escalation(concern: StaffConcern): string {
-  if (concern.kind === "handoff_stale") return `${concern.text} I'm still asking for an answer every few hours; tell me if you'd rather I drop it.`;
-  if (concern.kind === "worker_waiting") return `${concern.text} I keep asking for it to be settled or brought to you; tell me if it's yours to call.`;
-  return concern.text;
+/** What a stuck thing is to George: nobody there to take the chase is a blocker; the rest is staff silence, Flyd's to chase. */
+export function concernKind(concern: Pick<StaffConcern, "kind">): GeorgeKind {
+  return concern.kind === "unreachable" ? "blocker" : "silence";
 }
 
 /** One line per thing, for chat: what is under way, what is stuck, what waits on George. */
@@ -282,7 +300,7 @@ function writeJsonAtomic(path: string, value: unknown): void {
   renameSync(temporary, path);
 }
 
-type Notify = (title: string, message: string) => Promise<void>;
+type Notify = (title: string, message: string, kind?: GeorgeKind) => Promise<void>;
 
 export interface StaffMonitorOptions {
   home?: string;
@@ -374,7 +392,7 @@ export class StaffMonitor {
     return { at, available: true, readiness, ...(session ? { session } : {}), workers, waitingOnHim, queued: Number.isFinite(queued) ? queued : 0, handoffs };
   }
 
-  /** One pass: read, record, nudge what is newly stuck, and tell George what a nudge did not fix. */
+  /** One pass: read, record, chase what is stuck, and tell George only what nobody is there to chase. */
   async tick(): Promise<StaffView | null> {
     if (this.running || !this.available()) return null;
     this.running = true;
@@ -395,12 +413,9 @@ export class StaffMonitor {
       // Forget what is no longer stuck, so the records stay small.
       const live = new Set(concerns.map((concern) => concern.key));
       state.nudged = Object.fromEntries(Object.entries(state.nudged).filter(([key]) => live.has(key)));
-      // Only an outage or a two-day stall is ever told; a wait told under an older rule is not.
+      // Only an outage is ever told; anything recorded under an older rule is not.
       const byKey = new Map(concerns.map((concern) => [concern.key, concern]));
-      state.told = Object.fromEntries(Object.entries(state.told).filter(([key, at]) => {
-        const concern = byKey.get(key);
-        return concern !== undefined && (concern.kind === "unreachable" || Date.parse(at) - Date.parse(concern.since) >= ESCALATE_MS);
-      }));
+      state.told = Object.fromEntries(Object.entries(state.told).filter(([key]) => byKey.get(key)?.kind === "unreachable"));
       const view: StaffView = {
         snapshot,
         concerns: concerns.map((concern) => ({
@@ -418,42 +433,47 @@ export class StaffMonitor {
   }
 
   private async act(concern: StaffConcern, state: MonitorState, nobodyThere: boolean, now: number): Promise<void> {
-    // A quiet handoff or a worker left waiting is Flyd's to chase: the staff is
-    // asked again every few hours. A note the inbox would not take is no nudge,
-    // so it is tried again next tick.
-    if (concern.kind !== "unreachable" && !nobodyThere) {
-      const nudgedAt = state.nudged[concern.key];
-      if ((!nudgedAt || now - Date.parse(nudgedAt) >= RENUDGE_MS) && await this.nudge(concern, now)) {
-        state.nudged[concern.key] = new Date(now).toISOString();
-      }
-    }
     if (state.told[concern.key]) return;
-    // George hears one line: at once when nobody is looking after his work,
-    // otherwise only once the chase has gone unanswered for two days.
-    if (concern.kind !== "unreachable" && now - Date.parse(concern.since) < ESCALATE_MS) return;
-    const notify = this.options.notify ?? (await import("../runtime/agenda.js")).notifyMac;
-    await notify("Flyd", escalation(concern)).catch(() => undefined);
-    state.told[concern.key] = new Date(now).toISOString();
+    const nudgedAt = state.nudged[concern.key];
+    const gated = reachesGeorge({ kind: concernKind(concern), text: concern.text }, "notification");
+    if (gated.reach) {
+      const notify = this.options.notify ?? (await import("../runtime/agenda.js")).notifyMac;
+      await notify("Flyd", gated.line, gated.kind).catch(() => undefined);
+      state.told[concern.key] = new Date(now).toISOString();
+      return;
+    }
+    // Staff silence is chased, quietly: one note, and another every few hours while it goes unanswered.
+    // With nobody there to take a note, the outage itself is what reaches him. A note the inbox
+    // would not take is tried again on the next pass.
+    if (nobodyThere || (nudgedAt && now - Date.parse(nudgedAt) < RENUDGE_MS)) return;
+    if (await this.nudge(concern, nudgedAt)) state.nudged[concern.key] = new Date(now).toISOString();
   }
 
-  /** A note to the staff about one stuck thing; true once the inbox has it. */
-  private async nudge(concern: StaffConcern, now: number): Promise<boolean> {
+  /** A note to the staff about one stuck thing, saying when Flyd last asked; true once the inbox has it. */
+  private async nudge(concern: StaffConcern, askedBefore?: string): Promise<boolean> {
+    const again = askedBefore ? ` Flyd asked at ${askedBefore} and has had no answer.` : "";
     if (concern.runId) {
       const run = listDomainRuns(this.dir()).find((item) => item.id === concern.runId);
       if (!run) return false;
       const body = [
-        `Flyd has had no word on this handoff since ${concern.since}; asking again as of ${new Date(Math.floor(now / RENUDGE_MS) * RENUDGE_MS).toISOString()}.`,
+        `Flyd has had no word on this handoff since ${concern.since}.${again}`,
         "Reply with where it stands. Plain prose is fine: done (and what changed), needs George's decision (and your recommendation), failed (and why), or still working (and what is next).",
       ].join(" ");
       const outcome = await (this.options.sendRun ?? sendRunMessage)({ run, kind: "question", body, from: "flyd" }).catch(() => ({ delivered: false }));
       return outcome.delivered;
     }
     if (concern.workerId) {
-      const id = `flyd-staff-check-${createHash("sha256").update(`${concern.key}:${Math.floor(now / RENUDGE_MS)}`).digest("hex").slice(0, 16)}`;
-      const body = [
-        `FLYD CHECK-IN: worker ${concern.workerId} has been waiting on a decision since ${concern.since}.`,
-        "Settle it within the authority you already have, or bring it to George through Flyd with your recommendation if it is truly his. Reply to this note (fm-inbox.sh reply) with what you did; plain prose is fine.",
-      ].join("\n");
+      // Each chase is its own note: the same request id again would only replay the first.
+      const id = `flyd-staff-check-${createHash("sha256").update(askedBefore ? `${concern.key}\0${askedBefore}` : concern.key).digest("hex").slice(0, 16)}`;
+      const body = concern.kind === "worker_stopped"
+        ? [
+          `FLYD CHECK-IN: worker ${concern.workerId} stopped (${concern.workerState === "failed" ? "failed" : "no word"}) at ${concern.since}.${again}`,
+          "Retry or repair it within the authority you already have; bring it to George through Flyd only as a real blocker, in plain words, with your recommendation. Reply to this note (fm-inbox.sh reply) with what you did; plain prose is fine.",
+        ].join("\n")
+        : [
+          `FLYD CHECK-IN: worker ${concern.workerId} has been waiting on a decision since ${concern.since}.${again}`,
+          "Settle it within the authority you already have, or bring it to George through Flyd with your recommendation if it is truly his. Reply to this note (fm-inbox.sh reply) with what you did; plain prose is fine.",
+        ].join("\n");
       try {
         const { stdout } = await this.exec(this.script, ["note", "--request-id", id, "--json", "-"], { env: this.env(), input: body, timeout: 20_000 });
         return (JSON.parse(stdout) as { saved?: boolean }).saved === true;

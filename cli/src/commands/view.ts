@@ -11,6 +11,7 @@ import { ClaudeCodeTranscriptSource, FIRSTMATE_PROJECT_DIR, resolveProjectDir } 
 import { CrewProgress } from "../conversation-view/crew-progress.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
 import { FlydDesk, type Answerer, type Complete, type Seer } from "../conversation-view/flyd-desk.js";
+import { flydBrief } from "../conversation-view/flyd-brief.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { memoryLookup } from "../conversation-view/living.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
@@ -25,6 +26,7 @@ import { ActivityReader } from "../conversation-view/activity.js";
 import { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { MemoryReader } from "../conversation-view/memory.js";
 import { OvertakenCalls } from "../conversation-view/overtaken.js";
+import { defaultUnreadChaseState, UnreadNoteWatcher } from "../conversation-view/note-receipts.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 import { LiveStaffSession } from "../command/fleet-monitor.js";
 
@@ -122,6 +124,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       desk: {
         desk: new FlydDesk({ answer: answerAsFlyd, see: screenshotsSeen }),
         complete,
+        brief: (text, recent) => flydBrief(text, recent, complete),
       },
     } : {}),
   });
@@ -165,6 +168,16 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       ? "Summaries: model summaries off (FLYD_VIEW_SUMMARIES=0); long replies lead with Flyd's whole briefing."
       : "Summaries: no CLAUDE_API_KEY, ANTHROPIC_API_KEY or XAI_API_KEY found; long replies lead with Flyd's whole briefing.");
   if (options.open !== false) openInBrowser(url);
+  // A note firstmate leaves unread past three minutes: Flyd chases firstmate itself, quietly, and George never hears.
+  const unread = wantsInbox
+    ? new UnreadNoteWatcher(
+      () => source.heardExchanges(),
+      (note, requestId) => inbox.sendOwn(note, requestId),
+      Date.now,
+      defaultUnreadChaseState(),
+    )
+    : undefined;
+  unread?.start();
 
   await new Promise<void>((resolve) => {
     let watchdog: NodeJS.Timeout | undefined;
@@ -172,6 +185,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       process.off("SIGINT", stop);
       process.off("SIGTERM", stop);
       if (watchdog) clearInterval(watchdog);
+      unread?.stop();
       void server.close().then(resolve);
     };
     process.on("SIGINT", stop);

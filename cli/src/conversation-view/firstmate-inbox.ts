@@ -34,8 +34,18 @@ export function commandMarker(name: string): string {
 }
 const COMMAND_MARKER = /^\[Captain ran \/[\w:.-]+ from Flyd:[^\]\n]*\]$/gm;
 
+/**
+ * Flyd's own brief under his words (flyd-brief.ts), marked so firstmate never
+ * reads it as his wording. Hidden again when the note is shown.
+ */
+export function briefBlock(brief: string): string {
+  return `--- Flyd's brief (Flyd's own judgement, not George's words) ---\n${brief.trim()}\n--- end of Flyd's brief ---`;
+}
+const BRIEF_BLOCK = /\n*^--- Flyd's brief \(Flyd's own judgement, not George's words\) ---$[\s\S]*?^--- end of Flyd's brief ---$/m;
+
 export interface CaptainInbox {
-  send(text: string, images?: ImageUpload[], command?: string, files?: FileUpload[]): Promise<SentMessage>;
+  /** His words to firstmate, with Flyd's own brief under them when it has one. */
+  send(text: string, images?: ImageUpload[], command?: string, files?: FileUpload[], brief?: string): Promise<SentMessage>;
   /** Every note the captain has sent, pending or already read by firstmate, with its reply; oldest first. */
   notes(): Exchange[];
   /** A saved image a note names, by the id `notes()` gave it. */
@@ -122,6 +132,7 @@ function parseNote(file: string, imagesDir: string, filesDir: string): Conversat
   const images: string[] = [];
   const files: string[] = [];
   const text = record.body
+    .replace(BRIEF_BLOCK, "")
     .replace(COMMAND_MARKER, "")
     .replace(/^\[image: (.+)\]$/gm, (line, path: string) => {
       const name = path.slice(imagesDir.length + 1);
@@ -251,7 +262,7 @@ export class FirstmateInbox implements CaptainInbox {
   }
 
   /** Runs `fm-inbox.sh note -` with the text on stdin: no shell, no interpolation. */
-  send(text: string, images: ImageUpload[] = [], command?: string, files: FileUpload[] = []): Promise<SentMessage> {
+  send(text: string, images: ImageUpload[] = [], command?: string, files: FileUpload[] = [], brief?: string): Promise<SentMessage> {
     const typed = text.trim();
     if (!typed && images.length === 0 && files.length === 0) return Promise.reject(new Error("Nothing to send"));
     if (typed.length > MAX_NOTE_CHARS) return Promise.reject(new Error(`Message is longer than ${MAX_NOTE_CHARS} characters`));
@@ -264,7 +275,7 @@ export class FirstmateInbox implements CaptainInbox {
       return Promise.reject(error);
     }
     const attached = [...paths.map((path) => `[image: ${path}]`), ...filePaths.map((path) => `[file: ${path}]`)].join("\n");
-    const body = [typed, attached, command ? commandMarker(command) : ""]
+    const body = [typed, attached, brief?.trim() ? briefBlock(brief) : "", command ? commandMarker(command) : ""]
       .filter(Boolean)
       .join("\n\n");
     return new Promise((resolve, reject) => {

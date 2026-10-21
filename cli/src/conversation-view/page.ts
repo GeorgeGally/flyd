@@ -892,7 +892,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
   font-size: 0.8em;
 }
 .composer[hidden] { display: none; }
-/* Coding work Flyd found stuck after chasing it: said plainly over the message box. */
+/* Stuck work Flyd could not settle: said plainly over the message box. */
 .composer .unread {
   display: flex; align-items: flex-start; gap: 0.55em; margin: 0 0 0.6em -0.75em; padding: 0.5em 0.75em;
   border-radius: 0.4em; font: 500 0.82em/1.45 var(--sans); color: var(--k-waiting);
@@ -1271,7 +1271,7 @@ var __name = function (f) { return f; };
   setInterval(function () {
     main.querySelectorAll(".msg > .receipt").forEach(function (line) { receiptLine(line.parentNode, line); });
   }, 15000);
-  // Coding work Flyd found stuck after nudging it, said over the composer.
+  // Coding work Flyd found stuck and could not settle, said plainly over the message box.
   var staffEl = document.getElementById("staff");
   function showStaff(staff) {
     staffEl.hidden = !staff.text;

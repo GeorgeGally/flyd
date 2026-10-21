@@ -10,7 +10,7 @@ import { readProjects } from "../council/projects.js";
 import type { CrewProgress } from "./crew-progress.js";
 import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
-import { markRead, readUnacknowledged } from "./note-receipts.js";
+import { markRead, readUnacknowledged, unreadNotes } from "./note-receipts.js";
 import { ownWords, threaded } from "./replies.js";
 import { ElementShots } from "./element-shots.js";
 import { isHisImage, ReplyShots } from "./reply-shots.js";
@@ -205,12 +205,20 @@ function sessionHead(path: string, size: number): { start?: string; entrypoint?:
  * software work goes to Flyd's own assistant, the rest to firstmate's inbox,
  * and firstmate's session lines become updates Flyd relays.
  */
+/** The window as Flyd's: its own answers, who answers each message, and what Flyd adds when it hands his words on. */
+export interface Desk {
+  desk: FlydDesk;
+  complete: Complete;
+  /** Flyd's own brief for firstmate under his words (flyd-brief.ts); none when it has nothing to add. */
+  brief?: (text: string, recent: ConversationMessage[]) => Promise<string | undefined>;
+}
+
 export class ClaudeCodeTranscriptSource implements ConversationSource {
   readonly assistantLabel: string;
   private readonly projectDir: string;
   private readonly pollMs: number;
   private readonly inbox?: CaptainInbox;
-  private readonly desk?: { desk: FlydDesk; complete: Complete };
+  private readonly desk?: Desk;
   /** What the crewmate working on each note is doing now. */
   private readonly crew?: Pick<CrewProgress, "steps">;
   /**
@@ -239,8 +247,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     assistantLabel?: string;
     pollMs?: number;
     inbox?: CaptainInbox;
-    /** Flyd's own answers, and the model call that decides who answers each message. */
-    desk?: { desk: FlydDesk; complete: Complete };
+    /** Flyd's own answers, the model call that decides who answers each message, and Flyd's brief for what it hands on. */
+    desk?: Desk;
     /** Reads each note's crewmate step; only with an inbox. */
     crew?: Pick<CrewProgress, "steps">;
     /** Where the assistant's skills and commands live (default ~/.claude, plus its working directory's .claude). */
@@ -289,9 +297,11 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
           : this.desk.complete,
       );
       if (route === "flyd") return this.desk.desk.ask(text, images, sessionId);
+      // Firstmate is one of Flyd's staff: his words go with Flyd's own brief. A slash command runs exactly as he typed it.
+      const brief = command ? undefined : await this.desk.brief?.(text, this.latest.get(sessionId) ?? []).catch(() => undefined);
       try {
-        const sent = await this.inbox.send(text, images, command?.name, files);
-        this.desk.desk.routed(text, sessionId, sent.timestamp);
+        const sent = await this.inbox.send(text, images, command?.name, files, brief);
+        this.desk.desk.routed?.(text, sessionId, sent.timestamp);
         return { ...sent, waiting: handoffLine("queued", { text: ownWords(text), projects: projectNames() }) };
       } catch (error) {
         // Firstmate is backstage in Flyd's window: its refusal goes to the log, not to him.
@@ -480,6 +490,24 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       if (step && !exchange.answer && !exchange.answered && !exchange.settled) return markRead({ ...exchange, waiting: step });
       return this.heard.has(exchange.question.id) ? markRead(exchange) : exchange;
     });
+  }
+
+  /**
+   * Every note as the window would show it. When one looks unread, firstmate's
+   * live session is read first, so a note it answered in its own chat or its
+   * turn names counts as read even with no window open.
+   */
+  async heardExchanges(now = Date.now()): Promise<Exchange[]> {
+    const exchanges = this.exchanges();
+    if (!unreadNotes(exchanges, now)) return exchanges;
+    const live = await this.liveSession?.().catch(() => undefined);
+    if (!live) return exchanges;
+    try {
+      this.follow(live, () => {}).close();
+    } catch {
+      return exchanges;
+    }
+    return this.exchanges();
   }
 
   /**

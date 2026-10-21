@@ -80,8 +80,8 @@ describe("captain notices", () => {
   it("always surfaces decisions and failures", () => {
     expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Captain, merge PR 68 or hold it?" }))))
       .toBe("I need your decision: Merge PR 68 or hold it?");
-    expect(captainNotice(run(JSON.stringify({ status: "failed", brief: "the build is broken on main" }))))
-      .toBe("Work hit a problem: The build is broken on main");
+    expect(captainNotice(run(JSON.stringify({ status: "failed", brief: "Command failed: npm test exited with code 1" }))))
+      .toBe("Fix the island is blocked: it couldn't be finished. Tell me whether to try another way or drop it.");
   });
 
   it("says nothing for unsettled runs", () => {
@@ -132,7 +132,7 @@ describe("notices keep the one voice", () => {
     const decision = captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate needs your call on a composer idle-row guard." })));
     expect(decision).toBe('I need your decision on "Fix the island".');
     const failure = captainNotice(run(JSON.stringify({ status: "failed", brief: "the branch fm/x is broken" })));
-    expect(failure).toBe('Work on "Fix the island" hit a problem.');
+    expect(failure).toBe("Fix the island is blocked: it couldn't be finished. Tell me whether to try another way or drop it.");
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "I need your decision: Firstmate needs your call on a composer idle-row guard.", surface: "notification", held: true }));
   });
 
@@ -143,7 +143,7 @@ describe("notices keep the one voice", () => {
     };
     const machinery = "Guard relayed updates from firstmate, crewmates and the Council";
     expect(withOutcome(machinery, "Working on it", "needs_decision")).toBe("I need your decision on some of your work.");
-    expect(withOutcome(machinery, "Working on it", "failed")).toBe("Some of your work hit a problem.");
+    expect(withOutcome(machinery, "Working on it", "failed")).toBe("Some of your work is blocked: it couldn't be finished. Tell me whether to try another way or drop it.");
     expect(withOutcome(machinery, "Merged the branch and deployed.", "completed")).toBeNull();
     const long = withOutcome(`The sidebar opens on Artefacts by default. ${"More detail follows here. ".repeat(10)}`, "Looking into it", "needs_decision")!;
     expect(long.length).toBeLessThan(130);
@@ -169,7 +169,7 @@ describe("a decision or failure the checks catch", () => {
     expect(decision).toContain("the sidebar can open on Artefacts or Changes");
     expect(decision).not.toMatch(/one moment/i);
     expect(captainNotice(run("Working on it", "needs_decision"))).toBe('I need your decision on "Fix the island".');
-    expect(captainNotice(run("Looking into it", "failed"))).toBe('Work on "Fix the island" hit a problem.');
+    expect(captainNotice(run("Looking into it", "failed"))).toBe("Fix the island is blocked: it couldn't be finished. Tell me whether to try another way or drop it.");
     const verdicts = readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
       .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
     expect(verdicts).toContainEqual(expect.objectContaining({ text: "I need your decision: Working on it", surface: "notification", held: true }));
@@ -214,5 +214,29 @@ describe("notifyRun", () => {
     await notifyRun(decision, notify);
     await notifyRun({ ...decision, notified: true }, notify);
     expect(sent).toEqual(["I need your decision: Merge the sidebar change or hold it?"]);
+  });
+
+  it("sends a failed run back to its boss once, and only then tells George it is blocked, without the error", async () => {
+    const sent: Array<{ message: string; kind?: string }> = [];
+    const notify = async (_title: string, message: string, kind?: string) => { sent.push({ message, kind }); };
+    const asked: string[] = [];
+    const send: Parameters<typeof notifyRun>[2] = async ({ run: failed, kind, body, from }) => {
+      asked.push(body);
+      const message = { id: "m1", kind, body, at: "2026-10-09T01:00:00.000Z", deliveredAt: "2026-10-09T01:00:00.000Z", ...(from ? { from } : {}) };
+      return { delivered: true, run: { ...failed, messages: [...(failed.messages ?? []), message] } };
+    };
+    const failed = run(JSON.stringify({ status: "failed", brief: "Command failed: npm test exited with code 1" }));
+
+    await notifyRun(failed, notify, send);
+    expect(sent).toEqual([]);
+    expect(asked).toHaveLength(1);
+    const reopened = readDomainRun("domain-notice-1")!;
+    expect(reopened.status).toBe("working");
+    expect(reopened.notified).toBeFalsy();
+
+    await notifyRun({ ...reopened, status: "failed" }, notify, send);
+    expect(asked).toHaveLength(1);
+    expect(sent).toEqual([{ message: "Fix the island is blocked: I sent it back once and it failed again. Tell me whether to try another way or drop it.", kind: "blocker" }]);
+    expect(readDomainRun("domain-notice-1")?.notified).toBe(true);
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ImportanceJudge } from "../importance-judge.js";
 import { SnapshotDiffer } from "../server.js";
 import { MAX_SHOW_ITEMS, showOf, situationOf, titleOf } from "../show.js";
 import type { ConversationMessage, ConversationSnapshot } from "../types.js";
@@ -167,9 +168,48 @@ describe("showOf", () => {
     expect(screen.read).toBe("2026-10-09T11:58:00Z");
   });
 
-  it("keeps a fleet read failure off the line: no reason, no path, just the figures", () => {
+  it("never shows him why the fleet could not be read, and claims nothing it does not know", () => {
+    expect(situationOf({}, false)).toBe("");
+    expect(situationOf({ call: 1, live: 2 }, false)).toBe("1 call waits on you, 2 under way.");
     expect(situationOf({})).toBe("Nothing waits on you.");
     expect(situationOf({ call: 2, waiting: 1 })).toBe("2 calls wait on you, 1 held up.");
+  });
+
+  it("keeps an unreadable fleet off his screen: no fault under good news, the conversation's own picture instead", () => {
+    const landed: ConversationMessage = { id: "l", role: "assistant", text: "Dark mode is merged: https://github.com/GeorgeGally/flyd/pull/90", timestamp: new Date(NOW - 60_000).toISOString() };
+    const screen = showOf(snapshot([landed]), {
+      now: NOW,
+      artefact: { fleet: { unavailable: "Command failed: /Users/george/Documents/firstmate/bin/fm-bearings-snapshot.sh --json", calls: [], live: [], ready: [], landed: [], held: [], next: [] }, memories: [], news: [], taste: [] },
+    });
+    expect(screen.title).toBe("Good news, sir.");
+    expect(screen.summary).toBe("");
+    expect(JSON.stringify(screen)).not.toMatch(/couldn't read|unreadable|Command failed|fm-bearings|--json/);
+    expect(screen.items.map((item) => item.kind)).toEqual(["landed"]);
+  });
+
+  it("never says nothing needs him when the fleet could not be read", () => {
+    const screen = showOf(snapshot([]), {
+      now: NOW,
+      artefact: { fleet: { unavailable: "timed out", calls: [], live: [], ready: [], landed: [], held: [], next: [] }, memories: [], news: [], taste: [] },
+    });
+    expect(screen.items).toEqual([]);
+    expect(screen.summary).toBe("");
+    expect(screen.title).not.toBe("All quiet, sir.");
+  });
+
+  it("never claims quiet when the fleet could not be read and only a plan is on screen", () => {
+    const screen = showOf(snapshot([]), {
+      now: NOW,
+      artefact: {
+        fleet: { unavailable: "timed out", calls: [], live: [], ready: [], landed: [], held: [], next: [] },
+        memories: [],
+        news: [],
+        taste: [],
+        plans: [{ id: "p1", headline: "Ship the notch island" }],
+      },
+    });
+    expect(screen.items.map((item) => item.kind)).toEqual(["plan"]);
+    expect(screen.title).not.toBe("All quiet, sir.");
   });
 
   it("says all clear beside queued work, so the screen always has something to show", () => {
@@ -248,5 +288,20 @@ describe("SnapshotDiffer show", () => {
       ["live", "Checking the live site", "firstmate is on it now"],
     ]);
     expect(update.show.title).toBe("Good news, sir.");
+  });
+
+  it("never calls the screen quiet when Flyd's judge clears it while the fleet is unreadable", () => {
+    const importance = { asked: () => true, pending: () => false, matters: () => false } as unknown as ImportanceJudge;
+    const unreadable = { fleet: { unavailable: "timed out", calls: [], live: [], ready: [], landed: [], held: [], next: [] }, memories: [], news: [], taste: [] };
+    const shipped: ConversationMessage = { id: "a1", role: "assistant", text: "Sir, the menu change shipped to production." };
+    const update = new SnapshotDiffer({ importance }, { artefact: () => unreadable }).next(snapshot([shipped]));
+    expect(update.show.items).toEqual([]);
+    expect(update.show.title).toBe("Nothing to show you yet, sir.");
+    expect(update.show.summary).not.toMatch(/nothing waits on you|couldn't read|timed out/i);
+
+    const read = { ...unreadable, fleet: { ...unreadable.fleet, unavailable: undefined } };
+    const quiet = new SnapshotDiffer({ importance }, { artefact: () => read }).next(snapshot([shipped]));
+    expect(quiet.show.items.map((item) => item.kind)).toEqual(["clear"]);
+    expect(quiet.show.title).toBe("All quiet, sir.");
   });
 });

@@ -66,6 +66,7 @@ export function routePrompt(text: string, recent: ConversationMessage[]): string
     "Firstmate is the engineering lead who runs his software fleet. It takes requests that require inspecting or changing code, repositories, pull requests, builds, bugs, deployments or crew work, and replies to something firstmate asked him (a choice like \"A\", a yes/no, \"go ahead\"). Mere discussion of software, Flyd or firstmate is Flyd's unless inspecting the code or work state is needed. Planning-only requests keep their no-implementation constraint.",
     "Local draft preparation remits, concerns about those goals, and stopping or reviewing those preparations belong to Flyd. They do not require code access. Explicit coding tasks still belong to Firstmate.",
     "Questions about Flyd itself (which models it uses, its settings, its features, why it answered the way it did) and follow-ups to an answer Flyd just gave are Flyd's: Flyd looks up its own setup and passes on what it can't answer.",
+    "Where his work stands (what is under way, what landed, what is waiting on him, what was decided) is Flyd's: it reads its staff's state and its own memory and answers itself. It goes to firstmate only when the code, a repository or a build has to be looked at.",
     context ? `Recent conversation:\n${context}` : "",
     `New message from George: ${text.replace(/\s+/g, " ").slice(0, 1_000)}`,
     "Who should handle it? Answer with exactly one word: FLYD or FIRSTMATE.",

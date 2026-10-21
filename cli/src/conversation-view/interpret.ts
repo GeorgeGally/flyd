@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { memoryPaths } from "../council/memory-store.js";
 import { recordHeld } from "../council/reply-review.js";
 import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
 import { readUserProfile } from "../lib/user-profile.js";
@@ -10,15 +11,17 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { isAcknowledgement, isRoutine } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
 
-// Firstmate's answer to one of George's notes, told to him by Flyd. Flyd's own
-// model reads the question, firstmate's whole answer, the recent conversation
-// and what Flyd knows about George, and answers his question first, in a few
-// short lines: the outcome, a decision only he can make, and the links.
+// Firstmate's answer to one of George's notes, told to him by Flyd, his chief
+// of staff. Flyd's own model reads the question, firstmate's whole answer, the
+// recent conversation, what Flyd knows about George and its own memory, judges
+// the answer against them, and answers his question first, in a few short
+// lines: the outcome, a decision only he can make, and the links.
 // Cached on disk by the answer's text, so each answer is interpreted once.
 
-const PROMPT_VERSION = "5";
+const PROMPT_VERSION = "6";
 const MAX_ANSWER_CHARS = 8_000;
 const MAX_PROFILE_CHARS = 3_000;
+const MAX_MEMORY_CHARS = 3_000;
 const RECENT_MESSAGES = 6;
 const TIMEOUT_MS = 60_000;
 const MAX_IN_FLIGHT = 2;
@@ -31,19 +34,20 @@ export interface InterpretInput {
   recent: ConversationMessage[];
 }
 
-export function interpretPrompt(input: InterpretInput, profile: string | null): string {
+export function interpretPrompt(input: InterpretInput, profile: string | null, memory: string | null = null): string {
   const recent = input.recent
     .slice(-RECENT_MESSAGES)
     .map((message) => `${message.role === "user" ? "George" : message.aside ? "Firstmate (update)" : "Flyd"}: ${message.text.replace(/\s+/g, " ").slice(0, 400)}`)
     .join("\n");
   const answer = input.answer.length > MAX_ANSWER_CHARS ? `${input.answer.slice(0, MAX_ANSWER_CHARS)}\n…` : input.answer;
   return [
-    "You are Flyd, George's personal assistant. He leads a software fleet; firstmate, his engineering lead, has answered a question he asked. Tell him what the answer means for him, in your own voice.",
+    "You are Flyd, George's chief of staff. Firstmate, the engineering lead on your staff, has answered a question he asked. You own the outcome: judge the answer against what he asked and what you know of him, and tell him what it means for him, in your own voice.",
     "Address him as \"sir\", never \"Captain\". Do not quote firstmate or say \"firstmate says\"; tell him yourself.",
     "You are his chief of staff, not a reporter: answer his question first, in at most three short lines. Then, only if there is one, the decision only he can make, with your recommendation. Keep the link to what landed and any number that matters to him. Leave out how the work was done (reviews, checks, tests, tools, who did it, internal choices) and anything you or the team can handle; he can open the full answer if he wants it. Never answer with only an acknowledgement.",
     "You decide routine calls yourself with his delegated authority (committing, syncing, pushing or merging green work, the obvious follow-up build, wording and formatting): tell him you have handled them, never ask him. Only what is destructive or irreversible, costs money, touches security or access, goes public or speaks for him, or is a genuine taste or strategy call is his decision.",
     "Speak in short plain-English prose, never bullet points, numbered lists or headings. Name the work by what it does, never by PR or issue number, branch name, commit hash or check count; put a link on the words that name the work, as a Markdown link, never a bare URL.",
     profile ? `What you know about George:\n${profile.slice(0, MAX_PROFILE_CHARS)}` : "",
+    memory?.trim() ? `Your memory:\n${memory.slice(0, MAX_MEMORY_CHARS)}` : "",
     recent ? `Recent conversation:\n${recent}` : "",
     `George asked: ${input.question.trim()}`,
     `Firstmate's full answer:\n${answer}`,
@@ -63,17 +67,27 @@ function profileOrNull(): string | null {
   }
 }
 
+function memoryOrNull(): string | null {
+  try {
+    return readFileSync(memoryPaths().memory, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 /** Interpretations keyed by a hash of the answer: asked for at most once per answer in a process, kept on disk. */
 export class AnswerInterpreter {
   private readonly cache: Record<string, { text: string; at: string }>;
   private readonly inFlight = new Map<string, Promise<string | undefined>>();
   private readonly failed = new Set<string>();
   private readonly profile: () => string | null;
+  private readonly memory: () => string | null;
   private readonly queue: Array<() => void> = [];
   private running = 0;
 
-  constructor(private readonly options: { complete: Complete; cacheFile: string; profile?: () => string | null; timeoutMs?: number }) {
+  constructor(private readonly options: { complete: Complete; cacheFile: string; profile?: () => string | null; memory?: () => string | null; timeoutMs?: number }) {
     this.profile = options.profile ?? profileOrNull;
+    this.memory = options.memory ?? memoryOrNull;
     try {
       this.cache = JSON.parse(readFileSync(options.cacheFile, "utf8")) as Record<string, { text: string; at: string }>;
     } catch {
@@ -126,7 +140,7 @@ export class AnswerInterpreter {
     let timer: NodeJS.Timeout | undefined;
     try {
       const raw = await Promise.race([
-        this.options.complete(interpretPrompt(input, this.profile())),
+        this.options.complete(interpretPrompt(input, this.profile(), this.memory())),
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new Error("timed out")), this.options.timeoutMs ?? TIMEOUT_MS);
         }),

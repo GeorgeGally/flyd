@@ -1,3 +1,4 @@
+import { reachesGeorge } from "../lib/reaches-george.js";
 import { clipKeepingLinks } from "./line-links.js";
 import { isPlaceholderStatus, type InFlightTool } from "./status-text.js";
 import type { Exchange } from "./types.js";
@@ -8,7 +9,8 @@ import type { Exchange } from "./types.js";
 // where it went (George's rule: no "Passing this to firstmate", no handoff
 // news); it says what is being done: the session's current step when known, else what
 // his message asks for (with the project he named), else only that it is under way. His
-// own words are never quoted back unless they read as a task Flyd is doing.
+// own words are never quoted back unless they read as a task Flyd is doing. A line from
+// the staff's own step passes the gate first, as where work stands, in plain words.
 
 /** The quiet line from the moment he sends until something more is known: it is queued to happen. */
 export const WORKING = "Queued";
@@ -102,6 +104,13 @@ export function handoffLine(handoff: Handoff, details: { activity?: string; text
   return project && !new RegExp(project.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(subject) ? `${project}: ${subject}` : subject;
 }
 
+/** A staff step as the gate (lib/reaches-george.ts) lets it under his message: where work stands, in plain words. */
+function shown(line: string): string {
+  if (!line) return "";
+  const gated = reachesGeorge({ kind: "status", text: line }, "status");
+  return gated.reach ? gated.line : "";
+}
+
 function upperFirst(text: string): string {
   return text[0]!.toUpperCase() + text.slice(1);
 }
@@ -126,7 +135,7 @@ export function livened(exchanges: Exchange[], live: { activity?: string; projec
     const step = live.steps?.get(exchange.question.id);
     const onIt = picked.has(exchange.question.id);
     const activity = onIt && live.activity && !isPlaceholderStatus(live.activity) ? live.activity : "";
-    const doing = step ? upperFirst(clip(step)) : activity ? handoffLine("taken", { activity }) : "";
+    const doing = shown(step ? upperFirst(clip(step)) : activity ? handoffLine("taken", { activity }) : "");
     if (exchange.settled) return doing ? { ...exchange, doing } : exchange;
     if (doing) return { ...exchange, waiting: doing };
     return { ...exchange, waiting: handoffLine(onIt ? "taken" : exchange.handoff, { text: exchange.question.text, ...(live.projects ? { projects: live.projects } : {}) }) };

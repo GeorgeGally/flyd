@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  ESCALATE_MS,
   LiveStaffSession,
   RENUDGE_MS,
   STALE_HANDOFF_MS,
@@ -60,7 +59,7 @@ describe("Flyd's watch on its coding staff", () => {
     ...overrides,
   });
 
-  const monitor = (now: () => number, extra: { notify?: (title: string, message: string) => Promise<void>; sendRun?: typeof sendRunMessage } = {}) =>
+  const monitor = (now: () => number, extra: { notify?: (title: string, message: string, kind?: string) => Promise<void>; sendRun?: typeof sendRunMessage } = {}) =>
     new StaffMonitor({ home, script: "/fake/fm-inbox.sh", exec, sessionsDir: sessions, dir, now, ...extra });
 
   beforeEach(() => {
@@ -108,7 +107,7 @@ describe("Flyd's watch on its coding staff", () => {
     expect(snapshot.handoffs.map((handoff) => handoff.id)).toEqual(["domain-quiet"]);
   });
 
-  it("asks the staff about a quiet handoff, and never tells George about a staff wait", async () => {
+  it("chases the staff about a quiet handoff, and keeps chasing, never telling George", async () => {
     saveDomainRun(run(), dir);
     let now = T0 + STALE_HANDOFF_MS + MIN;
     const told: string[] = [];
@@ -137,10 +136,18 @@ describe("Flyd's watch on its coding staff", () => {
     expect(later!.concerns[0]!.toldAt).toBeUndefined();
     expect(readStaffView({ file: staffFile(dir), now })?.concerns[0]?.toldAt).toBeUndefined();
 
-    // Still quiet six hours after the last note: Flyd asks again, still without telling George.
+    // Still quiet six hours after the last note: Flyd asks again, saying when it last asked; George still hears nothing.
     now += RENUDGE_MS - 4 * 60 * 60_000;
-    await watch.tick();
+    const again = await watch.tick();
     expect(nudged).toHaveLength(2);
+    expect(nudged[1]!.body).toContain(`Flyd asked at ${first!.concerns[0]!.nudgedAt} and has had no answer.`);
+    expect(told).toEqual([]);
+    expect(again!.concerns[0]!.toldAt).toBeUndefined();
+    expect(readStaffView({ file: staffFile(dir), now })?.concerns[0]?.nudgedAt).toBe(new Date(now).toISOString());
+
+    now += RENUDGE_MS;
+    await watch.tick();
+    expect(nudged).toHaveLength(3);
     expect(told).toEqual([]);
   });
 
@@ -167,29 +174,26 @@ describe("Flyd's watch on its coding staff", () => {
     }
   });
 
-  it("tells George once, naming the work and what Flyd does next, only after two days with no reply", async () => {
+  it("keeps chasing a stall every six hours however long it stays stuck, never telling George", async () => {
     saveDomainRun(run(), dir);
     let now = T0 + STALE_HANDOFF_MS + MIN;
-    const told: string[] = [];
+    const told: Array<{ message: string; kind?: string }> = [];
     let nudges = 0;
     const sendRun: typeof sendRunMessage = async () => { nudges += 1; return { delivered: true }; };
-    const watch = monitor(() => now, { notify: async (_title, message) => { told.push(message); }, sendRun });
+    const watch = monitor(() => now, { notify: async (_title, message, kind?: string) => { told.push({ message, kind }); }, sendRun });
 
-    for (; now < T0 + ESCALATE_MS; now += RENUDGE_MS) await watch.tick();
-    expect(told).toEqual([]);
-    expect(nudges).toBe(Math.ceil((ESCALATE_MS - STALE_HANDOFF_MS - MIN) / RENUDGE_MS));
-
-    now = T0 + ESCALATE_MS + MIN;
-    const escalated = await watch.tick();
-    expect(told).toHaveLength(1);
-    expect(told[0]).toContain("The footer link opens the partners page");
-    expect(told[0]).toMatch(/every few hours/);
-    expect(told[0]).not.toMatch(/firstmate|staff/i);
-    expect(escalated!.concerns[0]!.toldAt).toBeDefined();
-
-    now += RENUDGE_MS;
     await watch.tick();
-    expect(told).toHaveLength(1);
+    expect(nudges).toBe(1);
+
+    // Well past two days of silence: the chase never stops, and George is told nothing.
+    for (let i = 0; i < 11; i++) {
+      now += RENUDGE_MS;
+      const view = await watch.tick();
+      expect(view!.concerns[0]!.toldAt).toBeUndefined();
+    }
+    expect(nudges).toBe(12);
+    expect(told).toEqual([]);
+    expect(readStaffView({ file: staffFile(dir), now })?.concerns[0]?.toldAt).toBeUndefined();
   });
 
   it("drops a wait George was told about under the old rule, so its notice leaves the window", async () => {
@@ -202,6 +206,19 @@ describe("Flyd's watch on its coding staff", () => {
     expect(view!.concerns[0]!.key).toBe(key);
     expect(view!.concerns[0]!.toldAt).toBeUndefined();
     expect(readStaffView({ file: staffFile(dir), now })?.concerns[0]?.toldAt).toBeUndefined();
+    expect(told).toEqual([]);
+  });
+
+  it("chases a stall that is already days old when Flyd first sees it, and tells George nothing", async () => {
+    saveDomainRun(run(), dir);
+    const now = T0 + 10 * 24 * 60 * 60_000;
+    const told: Array<{ message: string; kind?: string }> = [];
+    let nudges = 0;
+    const sendRun: typeof sendRunMessage = async () => { nudges += 1; return { delivered: true }; };
+    const watch = monitor(() => now, { notify: async (_title, message, kind?: string) => { told.push({ message, kind }); }, sendRun });
+
+    await watch.tick();
+    expect(nudges).toBe(1);
     expect(told).toEqual([]);
   });
 
@@ -218,7 +235,7 @@ describe("Flyd's watch on its coding staff", () => {
     expect(state.nudged).toEqual({});
   });
 
-  it("nudges the staff about a worker left waiting on a decision, never telling George", async () => {
+  it("nudges the staff about a worker left waiting on a decision, and tries again rather than telling George if the note cannot be left", async () => {
     summary({ active_children: [{ id: "island-text", state: "needs-decision", name: "Restore readable island text" }], decisions_open: [], counts: {} });
     writeFileSync(join(home, "state", "island-text.status"), `needs-decision [at=${T0 / 1000}]: which size?\n`);
     const told: string[] = [];
@@ -232,7 +249,36 @@ describe("Flyd's watch on its coding staff", () => {
     // Even when the note cannot be left, a staff wait is Flyd's to chase, not George's to hear.
     rmSync(join(dir, "staff-monitor.json"));
     noteSaved = false;
-    await monitor(() => now, { notify: async (_title, message) => { told.push(message); } }).tick();
+    const watch = monitor(() => now, { notify: async (_title, message) => { told.push(message); } });
+    expect((await watch.tick())!.concerns[0]!.nudgedAt).toBeUndefined();
+    await watch.tick();
+    expect(notes).toHaveLength(3);
+    expect(told).toEqual([]);
+  });
+
+  it("chases a worker that failed or went quiet, under its own note each time, and keeps it from George", async () => {
+    summary({ active_children: [
+      { id: "admin", state: "failed", name: "Admin redesign" },
+      { id: "footer", state: "unknown", name: "Footer fix" },
+    ], decisions_open: [], counts: {} });
+    writeFileSync(join(home, "state", "admin.status"), `failed [at=${T0 / 1000}]: tests failed\n`);
+    writeFileSync(join(home, "state", "footer.status"), `working [at=${T0 / 1000}]: on it\n`);
+    const told: string[] = [];
+    let now = T0 + WORKER_WAIT_MS + MIN;
+    const watch = monitor(() => now, { notify: async (_title, message) => { told.push(message); } });
+    const view = await watch.tick();
+    expect(view!.concerns.map((concern) => [concern.kind, concern.text])).toEqual([
+      ["worker_stopped", "\"Admin redesign\" failed 31 min ago."],
+      ["worker_stopped", "There has been no word on \"Footer fix\" for 31 min."],
+    ]);
+    expect(notes.map((item) => item.input)).toEqual([
+      expect.stringMatching(/^FLYD CHECK-IN: worker admin stopped \(failed\) at .*\nRetry or repair it/),
+      expect.stringMatching(/^FLYD CHECK-IN: worker footer stopped \(no word\) at /),
+    ]);
+    now += RENUDGE_MS + MIN;
+    await watch.tick();
+    expect(notes).toHaveLength(4);
+    expect(new Set(notes.map((item) => item.args[2])).size).toBe(4);
     expect(told).toEqual([]);
   });
 

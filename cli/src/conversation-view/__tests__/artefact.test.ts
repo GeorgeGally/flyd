@@ -5,9 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import { semanticObjectFromShow } from "../semantic.js";
 import {
-  ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
+  ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, heldItems, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
-  callItems, doneItems, underwayItems, workerStarted, weekLandedRows,
+  callItems, doneItems, underwayItems, workerStarted, weekLandedRows, type FleetArtefact,
 } from "../artefact.js";
 
 const BEARINGS = {
@@ -41,7 +41,22 @@ describe("parseBearings", () => {
     ]);
     expect(fleet.held).toEqual([{ label: "Admin redesign", task: "d", detail: "The run failed", repo: "gnm", status: "failed" }]);
     expect(fleet.next).toEqual([{ label: "Add a subtle flat green light to the Flyd icon", task: "flyd-icon-led", status: "queued" }]);
-    expect(fleetCounts(fleet)).toEqual({ call: 1, live: 1, ready: 1, landed: 2, waiting: 1, next: 1 });
+    // The failed job is the staff's to repair (Flyd chases it), never a count on his screen.
+    expect(fleetCounts(fleet)).toEqual({ call: 1, live: 1, ready: 1, landed: 2, waiting: 0, next: 1 });
+  });
+
+  it("opens the held-up figure on exactly the rows it counts: failed and silent work stays Flyd's", () => {
+    const fleet = {
+      calls: [], live: [], ready: [], landed: [], next: [],
+      held: [
+        { label: "Admin redesign", task: "a", status: "failed" },
+        { label: "Footer links", task: "b", status: "no word" },
+        { label: "Island filter", task: "c", status: "blocked" },
+      ],
+    };
+    const held = heldItems(fleet);
+    expect(held.map((item) => item.task)).toEqual(["c"]);
+    expect(fleetCounts(fleet).waiting).toBe(held.length);
   });
 
   it("says firstmate's run notes in plain words", () => {
@@ -286,7 +301,6 @@ describe("composeArtefact", () => {
       ["ready", "Island filter"],
       ["landed", "Refresh the PR branches"],
       ["landed", "Visual show mode"],
-      ["waiting", "Admin redesign"],
       ["next", "Add a subtle flat green light to the Flyd icon"],
       ["news", "George wants Bloom finished."],
       ["news", "Hybrid RAG"],
@@ -294,7 +308,7 @@ describe("composeArtefact", () => {
     expect(items[0]!.why).toBe("");
     expect(items[2]).toMatchObject({ project: "flyd", status: "PR open", detail: "PR open; its checks passed" });
     expect(items[4]!.links).toEqual([{ label: "flyd #79", url: "https://github.com/GeorgeGally/flyd/pull/79" }]);
-    expect(items[7]).toMatchObject({ why: "from your memory" });
+    expect(items[6]).toMatchObject({ why: "from your memory" });
   });
 
   it("shows the newest of an accumulated group, so older rows never push newer ones off", () => {
@@ -327,6 +341,28 @@ describe("composeArtefact", () => {
     expect(composeArtefact({ memories: ["Ship the artefact panel."], news: [], taste: [] })).toEqual([]);
     const withFleet = composeArtefact({ fleet: { calls: [{ label: "A call" }], live: [], ready: [], landed: [], held: [], next: [] }, memories: ["A note"], news: [], taste: [] });
     expect(withFleet.map((item) => item.why)).toContain("from your memory");
+  });
+
+  it("keeps an unreadable fleet snapshot off his screen without inventing a fallback card", () => {
+    const items = composeArtefact({ fleet: { unavailable: "Command failed: /Users/george/Documents/firstmate/bin/fm-bearings-snapshot.sh --json", calls: [], live: [], ready: [], landed: [], held: [], next: [] }, memories: ["George wants Bloom finished."], news: [], taste: [] });
+    expect(items).toEqual([]);
+  });
+
+  it("passes every item through the gate by its kind: his calls and paused work stay, failed and silent work go", () => {
+    const fleet: FleetArtefact = {
+      calls: [{ label: "Publish the GNM page?", task: "gnm", detail: "Read it first (Command failed: /tmp/x.sh)" }],
+      live: [{ label: "Island filter", task: "island", detail: "No word from the worker" }],
+      ready: [], landed: [], next: [],
+      held: [
+        { label: "Admin redesign", task: "a", status: "failed" },
+        { label: "Footer fix", task: "b", status: "no word" },
+        { label: "Dark mode", task: "c", status: "paused" },
+      ],
+    };
+    const items = composeArtefact({ fleet, memories: [], news: [], taste: [] });
+    expect(items.map((item) => [item.kind, item.headline])).toEqual([["call", "Publish the GNM page?"], ["live", "Island filter"], ["waiting", "Dark mode"]]);
+    // His call keeps its detail, said without the machinery.
+    expect(items[0]!.detail).toBe("Read it first");
   });
 });
 
