@@ -311,6 +311,7 @@ export async function runAssistantTool(
           originalMessage: context.userMessage ?? outcome,
           intendedOutcome: outcome,
           doneWhen,
+          background: context.background,
         });
         return `Knowledge work accepted (run ${run.id}). Flyd remains your point of contact; the knowledge boss will use specialists, independently check the result, and retain the detailed report. Tell George only what you started, not the internal team or id.`;
       }
@@ -337,7 +338,7 @@ export async function runAssistantTool(
           return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
         }
         const { dispatchKnowledgeDomain } = await import("../command/librarian.js");
-        const run = dispatchKnowledgeDomain({ originalMessage, intendedOutcome: `Answer George's question and change nothing: ${question}`, doneWhen: answerOnly });
+        const run = dispatchKnowledgeDomain({ originalMessage, intendedOutcome: `Answer George's question and change nothing: ${question}`, doneWhen: answerOnly, background: context.background });
         return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
       }
       case "background_task": {
@@ -375,7 +376,7 @@ export async function runAssistantTool(
           if (!question) return "Error: domain_work ask needs a question";
           const { dispatchDomainFollowup } = await import("../command/followup.js");
           try {
-            const followup = await dispatchDomainFollowup({ parentRunId: id, question });
+            const followup = await dispatchDomainFollowup({ parentRunId: id, question, background: context.background });
             if (followup.failure) return followup.failure;
             return `Follow-up accepted as domain run ${followup.id}. Flyd will retain the detailed answer when the domain boss returns.`;
           } catch (error) {

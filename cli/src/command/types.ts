@@ -26,6 +26,8 @@ export interface DomainRequest {
   contextRefs?: string[];
   parentRequestId?: string;
   skill?: { name: string; body: string };
+  /** Started by unattended work: its specialist jobs never open an app George has closed. */
+  background?: boolean;
 }
 
 export interface DomainRecommendation {

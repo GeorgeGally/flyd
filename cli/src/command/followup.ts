@@ -17,6 +17,7 @@ function parentContext(parent: DomainRun): string {
 export async function dispatchDomainFollowup(input: {
   parentRunId: string;
   question: string;
+  background?: boolean;
 }): Promise<DomainRun> {
   const parent = readDomainRun(input.parentRunId);
   if (!parent) throw new Error(`Unknown domain run ${input.parentRunId}`);
@@ -53,6 +54,7 @@ export async function dispatchDomainFollowup(input: {
       doneWhen,
       parentRequestId: parent.id,
       contextRefs: [`domain:${parent.id}`],
+      background: input.background,
     });
   }
   throw new Error(`No domain boss supports follow-ups for ${parent.request.domain} yet`);

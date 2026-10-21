@@ -21,11 +21,12 @@ export interface KnowledgeDispatchInput {
   doneWhen: string[];
   contextRefs?: string[];
   parentRequestId?: string;
+  background?: boolean;
   now?: Date;
 }
 
-function startSpecialist(role: "Retriever" | "Researcher" | "Fact Checker", task: string, doneWhen: string[]): string {
-  return startBackgroundJob({ task, doneWhen }, {
+function startSpecialist(role: "Retriever" | "Researcher" | "Fact Checker", task: string, doneWhen: string[], background?: boolean): string {
+  return startBackgroundJob({ task, doneWhen, ...(background ? { background: true } : {}) }, {
     run: runJobTurn,
     verify: verifyJobTurn,
     // Specialist results are internal to the Librarian. They must not notify
@@ -49,6 +50,7 @@ export function dispatchKnowledgeDomain(input: KnowledgeDispatchInput): DomainRu
     source: "chat",
     ...(input.contextRefs?.length ? { contextRefs: input.contextRefs } : {}),
     ...(input.parentRequestId ? { parentRequestId: input.parentRequestId } : {}),
+    ...(input.background ? { background: true } : {}),
   };
 
   const retriever = startSpecialist(
@@ -60,6 +62,7 @@ export function dispatchKnowledgeDomain(input: KnowledgeDispatchInput): DomainRu
       "Retrieve the strongest relevant material already available in Flyd's memory, project knowledge, files and conversation context. Distinguish what George actually decided from inference. Return detailed findings with provenance/pointers. Do not compress away important qualifications.",
     ].join("\n"),
     ["relevant prior decisions/facts are identified", "important provenance or source pointers are included", "uncertainty and contradictions are explicit"],
+    request.background,
   );
   const researcher = startSpecialist(
     "Researcher",
@@ -70,6 +73,7 @@ export function dispatchKnowledgeDomain(input: KnowledgeDispatchInput): DomainRu
       "Investigate what is needed beyond existing memory. Use current external evidence when the question is current; use repo/files when the question is internal. Return a detailed research report with source locators and dates where relevant. Do not decide the final answer for George.",
     ].join("\n"),
     ["the question is investigated with appropriate current/internal evidence", "claims that could change have source locators", "gaps and uncertainty are explicit"],
+    request.background,
   );
 
   const run: DomainRun = {
@@ -162,6 +166,7 @@ export async function syncLibrarianDomainRuns(options: {
           ...reports.map((item) => `--- ${item.specialist} report ---\n${item.raw ?? item.outcome}`),
         ].join("\n"),
         ["consequential claims are checked independently", "contradictions/unsupported claims are explicit", "verified claims retain source/provenance pointers"],
+        run.request.background,
       );
       const next: DomainRun = {
         ...run,
