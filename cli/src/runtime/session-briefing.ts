@@ -30,7 +30,7 @@ on run argv
 end run`;
 
 export async function loadDueReminders(): Promise<DueReminder[]> {
-  if (process.platform !== "darwin") return [];
+  if (process.platform !== "darwin" || process.env.VITEST) return [];
   const { stdout } = await execFileAsync("osascript", ["-e", DUE_REMINDERS], { timeout: 6_000 });
   return stdout.split("\n").filter(Boolean).flatMap((line) => {
     const [title, iso] = line.split("\t");

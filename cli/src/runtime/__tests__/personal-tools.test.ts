@@ -7,6 +7,9 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 describe("personal tools", () => {
+  it("never executes AppleScript from the test runner", async () => {
+    await expect(runPersonalTool("calendar_events", {})).resolves.toMatch(/AppleScript is disabled in tests/);
+  });
   afterEach(() => vi.unstubAllEnvs());
 
   it("creates a reminder with a local due time passed as script arguments, not interpolated", async () => {
@@ -118,4 +121,3 @@ describe("changing a reminder", () => {
       .toBe("Error: reminders update needs a new due or title");
   });
 });
-

@@ -160,7 +160,12 @@ const blockedApps = new Map<string, number>();
 
 async function defaultOsascript(script: string, args: string[]): Promise<string> {
   if (process.platform !== "darwin") throw new Error("Apple apps are only available on macOS");
+  if (process.env.VITEST) throw new Error("AppleScript is disabled in tests");
   const app = script.match(/tell application "([^"]+)"/)?.[1] ?? "the app";
+  if (app === "Calendar") {
+    const { stdout } = await execFileAsync("pgrep", ["-x", "Calendar"], { timeout: 2_000 }).catch(() => ({ stdout: "" }));
+    if (!stdout.trim()) throw new Error("Calendar is not running; not launching it for a background read");
+  }
   if ((blockedApps.get(app) ?? 0) > Date.now()) {
     throw new Error(`${app} is still waiting on macOS permission; do not retry until George approves it`);
   }
