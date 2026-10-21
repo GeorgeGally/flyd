@@ -342,6 +342,25 @@ describe("before display", () => {
     expect(scorecard()).toBe("Nothing reviewed in the last 7 days yet.\n");
   });
 
+  it("holds a failed knowledge run Flyd cannot send back, and brings George the knowledge work he asked for once its report exists", async () => {
+    const knowledge = (status: DomainRun["status"], brief: string, detailedReport: string): DomainRun => {
+      const base = decisionRun(brief);
+      return { ...base, owner: "Librarian", status, request: { ...base.request, domain: "knowledge", intendedOutcome: "Compare the two lenders" },
+        transport: { kind: "native", requestId: "domain-cos-1" }, result: { ...base.result!, brief, detailedReport } };
+    };
+    const routine = (run: DomainRun, send: Parameters<typeof decideRun>[1]) => decideRun(run, send, async () => JSON.stringify({ kind: "routine", summary: "Routine.", evidenceRefs: [] }));
+    const shown: string[] = [];
+    const notify = async (_title: string, message: string) => { shown.push(message); };
+
+    await notifyRun(knowledge("failed", "The lender comparison stopped.", ""), notify, async () => { throw new Error("no boss to message"); }, routine);
+    expect(shown).toEqual([]);
+    expect(readDomainRun("domain-cos-1")?.notified).toBe(true);
+    expect(heldForAttention()).toEqual([expect.objectContaining({ task: "domain-cos-1", label: "Compare the two lenders", status: "needs attention" })]);
+
+    await notifyRun(knowledge("completed", "Lender B is cheaper over five years.", "Full comparison of both lenders."), notify, async () => { throw new Error("no boss to message"); }, routine);
+    expect(shown).toEqual(["Lender B is cheaper over five years."]);
+  });
+
   it("holds work for Flyd's attention when its note to the boss could not be delivered", async () => {
     const failed: DomainRun = { ...decisionRun(INTERNAL_DECISION), status: "failed" };
     await notifyRun(failed, async () => undefined, async () => ({ delivered: false, reason: "delivery_failed" as const }),

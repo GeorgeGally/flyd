@@ -51,6 +51,8 @@ export interface ExecutiveDecisionInput {
   /** Flyd's notes already delivered to this task's boss; each is sent at most once per run. */
   sentToBoss?: string[];
   sourceFailed?: boolean;
+  /** George asked for this outcome himself, so its verified result is his news. */
+  requested?: boolean;
 }
 
 export interface ExecutiveVerification {
@@ -210,7 +212,7 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
   }
 
   if (proposal.kind === "verified_result" && verification.status === "verified" && verification.evidenceRefs.length) {
-    const notable = judgment?.notable === true;
+    const notable = judgment?.notable === true || input.requested === true;
     return {
       ...decision,
       disposition: "handle_internally",

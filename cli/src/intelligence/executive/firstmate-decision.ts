@@ -18,6 +18,8 @@ export interface FirstmateChange {
   goalContext?: string;
   evidenceRefs: string[];
   verification?: { status: "verified" | "failed" | "unknown"; evidenceRefs: string[] };
+  /** George asked for this outcome himself; its verified result reaches him. */
+  requested?: boolean;
   authority?: ExecutiveAuthorityGrant[];
   /** Flyd's hand-back notes already delivered to this task's boss. */
   sentToBoss?: string[];
@@ -195,6 +197,9 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
       const original = text(change.detail || change.label, 800);
       proposal = { kind: "question", summary: "An unresolved choice needs clarification.", question: original, questionEvidence: original, options: [], evidenceRefs: change.evidenceRefs };
     }
+    if (change.requested && change.verification?.status === "verified" && (proposal.kind === "routine" || proposal.kind === "unclear")) {
+      proposal = { kind: "verified_result", summary: text(change.detail.split("\n")[0]), evidenceRefs: change.evidenceRefs };
+    }
     const judgment = lowLevel ? undefined : await judgeProposal(change, proposal, options.jev).catch(() => undefined);
     const verification = proposal.kind === "verified_result" && !change.verification
       ? await verifyStaffOutcome([change.detail, ...change.evidenceRefs]) : change.verification;
@@ -208,6 +213,7 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
       ...(change.authority ? { authority: change.authority } : {}),
       ...(verification ? { verification } : {}),
       ...(change.sentToBoss?.length ? { sentToBoss: change.sentToBoss } : {}),
+      ...(change.requested ? { requested: true } : {}),
       ...(change.state === "failed" ? { sourceFailed: true } : {}),
     }, options.now?.() ?? new Date());
     const canonical = store.transaction(() => {

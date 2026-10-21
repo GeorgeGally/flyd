@@ -42,6 +42,7 @@ export async function decideRun(
   const result = run.result;
   const detail = [result?.brief, ...(result?.unresolvedQuestions ?? []), ...(result?.risks ?? [])].filter(Boolean).join("\n").slice(0, 2_000);
   const active = ["queued", "accepted", "working", "needs_decision", "incomplete", "failed"].includes(run.status);
+  const report = run.request.domain === "knowledge" && run.status === "completed" && Boolean(result?.detailedReport.trim());
   return processFirstmateChange({
     sourceId: run.transport.kind === "firstmate" ? "firstmate.change" : `domain.${run.request.domain}`,
     eventId: `domain-run:${run.id}:${run.status}`,
@@ -58,6 +59,7 @@ export async function decideRun(
       autonomy: (await import("../runtime/tool-policy.js")).autonomyLevel(),
     }),
     sentToBoss: notesSentToBoss(run.messages),
+    ...(report ? { requested: true, verification: { status: "verified" as const, evidenceRefs: [`domain-report:${run.id}`] } } : {}),
   }, {
     complete,
     jev: { ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) },
@@ -91,7 +93,7 @@ export async function notifyRun(
     if (notice) await (notify ?? (await import("../runtime/agenda.js")).notifyMac)("Flyd", notice, decision.disposition === "ask_george" ? "decision" : noticeKind(run));
     // Work sent back to its boss stays open: the boss's next reply is decided afresh.
     if (decision.action && decision.verification.status === "verified") return;
-    if (decision.action || decision.reason === HELD_FOR_ATTENTION) {
+    if (decision.action || decision.reason === HELD_FOR_ATTENTION || run.status === "failed" && !decision.show) {
       recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     }
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
