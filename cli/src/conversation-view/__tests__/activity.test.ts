@@ -217,6 +217,16 @@ describe("the stories behind a news card", () => {
     expect(other.recent[0]!.stories).toBeUndefined();
   });
 
+  it("never shows yesterday's news record as today's, nor lets it hide today's news", () => {
+    const log = ["2026-10-17T11:00:00.000Z scout: edition: 1 items"];
+    const stale = { key: "scout-edition", kind: "news", title: "Put together today's news", line: "14 stories from your sources.", stories: [{ title: "Old story", url: "https://x.test/old" }], state: "done", at: minutesAgo(60 * 24) };
+    expect(activityFromRecords([stale], NOW).done).toEqual([]);
+    const panel = composeActivity({ log, jobs: [], advice: [], records: [stale], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
+    const news = panel.recent.filter((item) => item.title === "Put together today's news");
+    expect(news).toHaveLength(1);
+    expect(news[0]!.stories).toEqual([story]);
+  });
+
   it("reads the edition and the watch's flashes already on disk", () => {
     mkdirSync(join(dir, "scout"), { recursive: true });
     mkdirSync(join(dir, "logs"), { recursive: true });
