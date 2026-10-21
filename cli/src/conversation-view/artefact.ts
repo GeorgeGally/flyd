@@ -1188,7 +1188,7 @@ export class ArtefactFeed {
   }
 
   /**
-   * The fleet without the calls the work has moved past: George is never
+   * The fleet with the calls the work has moved past settled: George is never
    * asked a question the record already answers. Each is closed with the
    * staff once.
    */
@@ -1211,7 +1211,7 @@ export class ArtefactFeed {
     }));
     const closed = new Set<ArtefactRow>();
     calls.forEach(({ row }, index) => { if (verdicts[index]) closed.add(row); });
-    return { ...fleet, calls: fleet.calls.filter((row) => row.ledgerOnly || !closed.has(row)) };
+    return { ...fleet, calls: fleet.calls.map((row) => (closed.has(row) ? { ...row, ledgerOnly: true } : row)) };
   }
 
   /**
