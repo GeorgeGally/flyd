@@ -1794,6 +1794,7 @@ var __name = function (f) { return f; };
         title: decision.subject,
         decision: {
           task: decision.decision.target,
+          decisionId: decision.decision.decisionId,
           question: decision.decision.question,
           choices: decision.decision.alternatives || [],
           recommended: decision.decision.recommended,
@@ -1855,7 +1856,7 @@ var __name = function (f) { return f; };
       a.rel = "noopener noreferrer";
       needsEl.appendChild(a);
     });
-    if (call.decision && VIEW_TOKEN) needsEl.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + call.decision.task + ":" + call.decision.question));
+    if (call.decision && VIEW_TOKEN) needsEl.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + (call.decision.decisionId || call.decision.task) + ":" + call.decision.question));
   }
   function drawSemanticArtifacts(artifacts) {
     var seen = artifacts.length ? seenDone(artifacts.map(function (artifact) {
@@ -2783,7 +2784,7 @@ ${LEFT_SCRIPT}
     var about = { title: box.title };
     if (box.task) about.task = box.task;
     if (link) about.url = link.url;
-    var target = !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.task };
+    var target = !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.decisionId || decision.task };
     var chat = artefactChat(key, target, decision && (decision.choices.length || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…");
     if (decision && decision.steps && decision.steps.length) {
       // Several questions: one at a time, a tap moves on, and the answers go together from the last step.
@@ -3759,7 +3760,7 @@ ${LEFT_SCRIPT}
     var oldAsk = sceneEl.querySelector(".scene-ask");
     // Only a piece of work takes words about it; "Working on it" and the situation line are not one.
     var aboutWork = box.decision || box.task || box.ref || box.open || (box.links && box.links.length) || shots.length;
-    var askKey = !VIEW_TOKEN || !aboutWork ? "" : box.decision ? "flyd-decision:" + box.decision.task + ":" + box.decision.question : "flyd-about:" + box.id;
+      var askKey = !VIEW_TOKEN || !aboutWork ? "" : box.decision ? "flyd-decision:" + (box.decision.decisionId || box.decision.task) + ":" + box.decision.question : "flyd-about:" + box.id;
     if (oldAsk && oldAsk.dataset.key !== askKey) oldAsk.remove();
     if (askKey && !(oldAsk && oldAsk.isConnected)) sceneEl.querySelector(".scene-text").appendChild(sceneAsk(box, askKey));
     sceneMeta.textContent = "";
@@ -4111,6 +4112,7 @@ ${LEFT_SCRIPT}
     var web = (object.evidence || []).find(function (work) { return work.kind === "web" && !work.closed; });
     var decision = object.decision ? {
       task: object.decision.target,
+      decisionId: object.decision.decisionId,
       question: object.decision.question,
       choices: object.decision.alternatives || [],
       recommended: object.decision.recommended,
@@ -4134,7 +4136,7 @@ ${LEFT_SCRIPT}
       title: object.subject,
       line: kindLine,
       why: object.kind,
-      status: object.status || (object.activity && object.activity.phase) || (object.action && object.action.phase) || (object.monitor && object.monitor.phase) || object.lifecycle,
+      status: object.kind === "decision" && object.decision && object.decision.decisionId ? "" : object.status || (object.activity && object.activity.phase) || (object.action && object.action.phase) || (object.monitor && object.monitor.phase) || object.lifecycle,
       project: object.project,
       at: object.updatedAt || object.createdAt,
       ref: object.source && object.source.ref,
@@ -4220,7 +4222,7 @@ ${LEFT_SCRIPT}
         a.rel = "noopener noreferrer";
         item.appendChild(a);
       });
-      if (call.decision && VIEW_TOKEN) item.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + call.decision.task + ":" + call.decision.question));
+      if (call.decision && VIEW_TOKEN) item.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + (call.decision.decisionId || call.decision.task) + ":" + call.decision.question));
       callsList.appendChild(item);
     });
   }

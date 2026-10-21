@@ -7,17 +7,15 @@ import { collectSaid, noteSaid, readVerdicts, reviewEvidence, runReplyReview, sc
 import { gatherEvidence } from "../../crew/self-improve.js";
 import { deliverNotification } from "../../runtime/agenda.js";
 import { parseDomainResult } from "../../command/result.js";
-import { HANDLE_IT_YOURSELF, notifyRun } from "../../command/scheduler.js";
-import { FirstmateDomainTransport, syncFirstmateDomainRuns, type FirstmateExec } from "../../command/firstmate.js";
-import { readDomainRun, saveDomainRun } from "../../command/store.js";
+import { notifyRun } from "../../command/scheduler.js";
 import { BACKSTAGE_DENYLIST, BACKSTAGE_TELEMETRY, CHAT_BACKSTAGE, firstMatch, hasBackstage } from "../../lib/backstage.js";
 import { relayShortfalls } from "../../runtime/honesty-check.js";
 import type { DomainRun } from "../../command/types.js";
+import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
 const PLACEHOLDER = "Working on it";
 const INTERNAL_DECISION = "Firstmate's new turn-end guard needs your call: gate it behind config, or push back.";
-const SHOWN_INTERNAL_DECISION = 'I need your decision on "Add a turn-end guard".';
 
 /** A Jev reply with the given probabilities, standing in for the TypeSafe API. */
 function jev(answers: Record<string, number>, sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = []): typeof fetch {
@@ -201,86 +199,18 @@ describe("before display", () => {
     };
   }
 
-  it("still returns an internal decision when Flyd only checked in on the run before", async () => {
-    const sent: string[] = [];
-    const run = { ...decisionRun(INTERNAL_DECISION), messages: [{ id: "c1", kind: "question" as const, body: "Reply with where it stands.", at: "2026-10-14T00:01:00.000Z", from: "flyd" as const }] };
-    await notifyRun(run, async () => undefined, async (input) => {
-      sent.push(input.body);
-      return { delivered: true, run: input.run };
-    });
-    expect(sent).toEqual([HANDLE_IT_YOURSELF]);
-  });
-
-  it("returns a relayed internal decision to the work instead of showing it to George", async () => {
+  it("uses the ExecutiveDecision record, not raw domain status, for an island notice", async () => {
     const shown: string[] = [];
-    const sent: Array<{ body: string; from?: string; kind: string }> = [];
-    const run = decisionRun(INTERNAL_DECISION);
-    await notifyRun(run, async (_title, message) => { shown.push(message); }, async (input) => {
-      sent.push({ body: input.body, kind: input.kind, ...(input.from ? { from: input.from } : {}) });
-      return { delivered: true, run: { ...input.run, messages: [{ id: "m1", kind: input.kind, body: input.body, at: "2026-10-14T00:01:00.000Z", from: "flyd" }] } };
-    });
-    expect(shown).toEqual([]);
-    expect(sent).toEqual([{ body: HANDLE_IT_YOURSELF, kind: "decision", from: "flyd" }]);
-    expect(readDomainRun("domain-cos-1")?.notified).toBeUndefined();
-    expect(readVerdicts().find((verdict) => verdict.source === "domain:domain-cos-1")).toMatchObject({ held: true, shortfalls: [{ requirement: "decisions_handled" }] });
-
-    // Asked again after Flyd sent it back: now it is his.
-    const again = { ...decisionRun(INTERNAL_DECISION), messages: [{ id: "m1", kind: "decision" as const, body: HANDLE_IT_YOURSELF, at: "2026-10-14T00:01:00.000Z", from: "flyd" as const }] };
-    await notifyRun(again, async (_title, message) => { shown.push(message); }, async () => { throw new Error("not again"); });
-    expect(shown).toEqual([SHOWN_INTERNAL_DECISION]);
-  });
-
-  it("brings George the boss's next reply after sending it back, even the same question again", async () => {
-    const brief = INTERNAL_DECISION;
-    const ask = JSON.stringify({ status: "needs_decision", brief });
-    const original = { id: "note-1", request_id: "domain-cos-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-14T01:00:00.000Z", body: ask, cursor: "000000000001" } };
-    const handled: unknown[] = [original];
-    const sentNotes: string[] = [];
-    const exec: FirstmateExec = async (_script, args, options) => {
-      if (args[0] === "note") {
-        sentNotes.push(String(options.input));
-        return { stdout: JSON.stringify({ id: "note-2", saved: true }), stderr: "" };
-      }
-      return { stdout: JSON.stringify({ pending: [], handled }), stderr: "" };
+    const decision: ExecutiveDecisionRecord = {
+      schema: "flyd.executive-decision.v1", decisionId: "d", sourceId: "firstmate.change", sourceEventId: "e",
+      taskId: "domain-cos-1", disposition: "ask_george", reason: "George owns it", summary: "Choose a direction.",
+      evidenceRefs: ["domain-cos-1"], question: "Publish the page or hold it?", options: ["Publish", "Hold"],
+      recommendation: { option: "Hold", rationale: "The live effect needs your approval." },
+      verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-10-21T00:00:00Z",
     };
-    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
-    saveDomainRun({ ...decisionRun(brief), status: "accepted", result: undefined, transport: { kind: "firstmate", requestId: "domain-cos-1", externalId: "note-1" } });
-    const shown: string[] = [];
-    const onChanged = (run: DomainRun) => notifyRun(run, async (_title, message) => { shown.push(message); }, (input) => import("../../command/messages.js").then(({ sendRunMessage }) => sendRunMessage({ ...input, transport })));
-
-    await syncFirstmateDomainRuns({ transport, onChanged });
-    expect(shown).toEqual([]);
-    expect(sentNotes).toHaveLength(1);
-    // Nothing new from the boss: still nothing for George.
-    expect(await syncFirstmateDomainRuns({ transport, onChanged })).toEqual([]);
-    expect(shown).toEqual([]);
-
-    const flydNote = readDomainRun("domain-cos-1")!.messages!.find((message) => message.from === "flyd")!;
-    handled.push({ id: "note-2", request_id: flydNote.id, acknowledged: true, reply: { id: "note-2", at: "2026-10-14T02:00:00.000Z", body: ask, cursor: "000000000002" } });
-    await syncFirstmateDomainRuns({ transport, onChanged });
-    expect(shown).toEqual([SHOWN_INTERNAL_DECISION]);
-    expect(sentNotes).toHaveLength(1);
-    expect(readDomainRun("domain-cos-1")?.notified).toBe(true);
-  });
-
-  it("brings George a decision about his money even when it mentions how the work runs", async () => {
-    const shown: string[] = [];
-    const brief = "Do you want me to retry the Stripe payment or cancel the subscription?";
-    await notifyRun(decisionRun(brief), async (_title, message) => { shown.push(message); }, async () => { throw new Error("should not be returned"); });
-    expect(shown).toEqual([`I need your decision: ${brief}`]);
-  });
-
-  it("does not send a decision back to a boss that never replies", async () => {
-    const shown: string[] = [];
-    const run: DomainRun = { ...decisionRun(INTERNAL_DECISION), owner: "Librarian", request: { ...decisionRun(INTERNAL_DECISION).request, domain: "knowledge" }, transport: { kind: "native", requestId: "domain-cos-1" } };
-    await notifyRun(run, async (_title, message) => { shown.push(message); }, async () => { throw new Error("should not be returned"); });
-    expect(shown).toEqual([SHOWN_INTERNAL_DECISION]);
-  });
-
-  it("still brings George a decision that is his", async () => {
-    const shown: string[] = [];
-    await notifyRun(decisionRun("The CapFive privacy page is ready; publish it to the live site now?"), async (_title, message) => { shown.push(message); }, async () => { throw new Error("should not be returned"); });
-    expect(shown).toEqual(["I need your decision: The CapFive privacy page is ready; publish it to the live site now?"]);
+    const run = decisionRun("The page has choices.");
+    await notifyRun(run, async (_title, message) => { shown.push(message); }, undefined, async () => decision);
+    expect(shown).toEqual(["Publish the page or hold it? I recommend \"Hold\". The live effect needs your approval."]);
   });
 
   it("holds back a whole notification that names backstage and records it", async () => {

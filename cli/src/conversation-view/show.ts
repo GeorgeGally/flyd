@@ -35,12 +35,14 @@ export interface ShowShot {
 }
 
 export interface ShowItem {
+  /** Core decision that authorized this presentation. */
+  executiveDecisionId?: string;
   /**
    * A question only he can answer, with its options. A fleet hold names its
    * task; a question a reply put to him names where his answer goes (replyTo),
    * and goes back the way a reply to an answer does.
    */
-  decision?: { task: string; question: string; choices: string[]; replyTo?: string; recommended?: string; steps?: ChoiceStep[] };
+  decision?: { task: string; decisionId?: string; question: string; choices: string[]; replyTo?: string; recommended?: string; steps?: ChoiceStep[] };
   /** Stable while it is the same thing, so the page animates only what is new. */
   id: string;
   kind: ShowKind;

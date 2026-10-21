@@ -36,6 +36,8 @@ interface GitHubRepo {
 }
 
 interface GitHubIssue {
+  merged?: boolean;
+  merge_commit_sha?: string | null;
   id: number;
   number: number;
   title: string;
@@ -284,7 +286,7 @@ export class GitHubRestAdapter implements CapabilityAdapter {
     }
 
     if ((parsed.kind === "issue" || parsed.kind === "pull") && parsed.number) {
-      const issue = await fetchJson<GitHubIssue>(this.fetchFn, `${base}/issues/${parsed.number}`, { headers });
+      const issue = await fetchJson<GitHubIssue>(this.fetchFn, `${base}/${parsed.kind === "pull" ? "pulls" : "issues"}/${parsed.number}`, { headers });
       return [makeEvidenceItem({
         capability: this.capability,
         backend: this.id,
@@ -299,6 +301,7 @@ export class GitHubRestAdapter implements CapabilityAdapter {
         nativeRank: 1,
         sourceQuality: 0.96,
         now: this.now(),
+        ...(parsed.kind === "pull" ? { metadata: { merged: issue.merged === true, mergeCommitSha: issue.merge_commit_sha } } : {}),
       })];
     }
 

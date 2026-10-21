@@ -22,7 +22,7 @@ it("discovers via send ingress, activates, routes once and preserves uncertain d
   } as unknown as ConversationSource;
   const feed = { start() {}, stop() {}, current: () => ({ memories: [], news: [], taste: [] }), onRefresh: () => () => {} };
   const server = new ConversationViewServer(source, undefined, undefined, undefined, feed as never,
-    undefined, undefined, undefined, undefined, undefined, undefined, routines);
+    undefined, undefined, undefined, undefined, undefined, routines);
   try {
     const port = await server.listen(0);
     const base = `http://127.0.0.1:${port}`;

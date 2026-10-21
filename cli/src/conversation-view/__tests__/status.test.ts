@@ -1,8 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { asksForDecision, forCaptain, headlineOf, statusOf } from "../status.js";
+import { asksForDecision, forCaptain, headlineOf, islandStatusOf, statusOf } from "../status.js";
+import { parseBearings } from "../artefact.js";
 import { ABOUT_FIXES, PHANTOM_NOTICES, STAFF_LANDED, STAFF_PROGRESS } from "./fixtures/replies.js";
 
 describe("conversation status for the island", () => {
+  it("keeps job chatter off the island and rings only for a decision or notable result", () => {
+    const current = statusOf({
+      messages: [{ id: "a", role: "assistant", text: "The requested lookup is finished." }],
+      working: true,
+      activity: "Reading worker status from run 01M5",
+    });
+    const askFleet = parseBearings({ decisions_open: [{ id: "launch", summary: "Choose the launch date" }] });
+    const ask = islandStatusOf(current, { ...askFleet, calls: [{ label: "Move launch or keep the date?", task: "launch", question: "Move launch or keep the date?", choices: ["Move launch", "Keep the date"] }] });
+    expect(ask.reply).toEqual({ id: "decision:launch", headline: "Move launch or keep the date?", asks: true });
+    expect(ask.activity).toBeUndefined();
+
+    const ordinary = islandStatusOf(current, parseBearings({ in_flight: [{ id: "w", state: "working", name: "Build Flyd", doing: "checking tests" }] }));
+    expect(ordinary.reply).toBeUndefined();
+    expect(ordinary.activity).toBeUndefined();
+
+    const notableFleet = parseBearings({ landed: [{ id: "result", what: "The release is verified" }] });
+    const notable = islandStatusOf(current, { ...notableFleet, landed: [{ label: "The release is verified", task: "result", status: "verified", notable: true }] });
+    expect(notable.reply).toEqual({ id: "outcome:result", headline: "The release is verified", asks: false });
+  });
+
   it("leads with the reply's own » summary, else its first sentence without the salutation, kept short", () => {
     expect(headlineOf("» Menu bar fixed and pushed.\n\nDetails…")).toBe("Menu bar fixed and pushed.");
     expect(headlineOf("Captain, the stats are centred. Also pushed.")).toBe("The stats are centred.");

@@ -1,3 +1,4 @@
+import { recommendationText } from "../intelligence/executive/decision-step.js";
 import { PreparationStore } from "../runtime/preparation-store.js";
 import { renderPreparationPage } from "./preparation-page.js";
 import { RoutineArtefacts } from "./routines.js";
@@ -19,7 +20,7 @@ import { syncTasteSkills } from "../council/taste-skills.js";
 import { readProjects } from "../council/projects.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
-import { statusOf } from "./status.js";
+import { islandStatusOf, statusOf } from "./status.js";
 import { authorSummary, digestReply, isActionable, isRoutine, isRoutineAnswer, askedForArtefact, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
@@ -40,9 +41,8 @@ import { Workshop } from "./workshop.js";
 import type { ActivityPanel, ActivityReader } from "./activity.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
-import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote } from "./replies.js";
+import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote, undoNote } from "./replies.js";
 import { answered, answeredForHim, choiceOf, choiceTarget, labelOf, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
-import type { AutoAnswers } from "./auto-answers.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
@@ -52,7 +52,7 @@ import { reachesGeorge } from "../lib/reaches-george.js";
 import { noteSaid, recordHeld } from "../council/reply-review.js";
 import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
 import { expandScrawl, fileScrawl } from "./scrawl-capture.js";
-import { NoticeBoard, noticeLine, type NoticeInput } from "./notices.js";
+import { NoticeBoard, noticeLine, noticeOf, type NoticeInput } from "./notices.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -710,8 +710,6 @@ export class ConversationViewServer {
     private readonly previews = new PreviewProbe(),
     /** Flyd's memory stores, read for the column; without it the column shows no memory. */
     private readonly memory?: MemoryReader,
-    /** Answers firstmate's routine questions by his standing rules; without it every question waits for him. */
-    private readonly autoAnswers?: AutoAnswers,
     private readonly routines = new RoutineArtefacts(),
     /** Flyd's own activity records, read for the left column; without it the column is not offered. */
     private readonly activity?: ActivityReader,
@@ -971,6 +969,25 @@ export class ConversationViewServer {
     } catch {
       sendJson(res, 400, { error: "expected a JSON object" });
       return;
+    }
+    const evidence = noticeOf(input);
+    if (!evidence) { sendJson(res, 400, { error: "a notice needs a message" }); return; }
+    const decisionWork = this.feed.decide([{
+      sourceId: "staff.notice",
+      eventId: `${evidence.source}:${evidence.session ?? evidence.project ?? ""}:${evidence.message}`,
+      kind: "reply", state: "reported", label: evidence.title, detail: evidence.message,
+      evidenceRefs: [`notice:${evidence.source}:${evidence.session ?? "unscoped"}`],
+    }]);
+    if (decisionWork) {
+      const decision = (await decisionWork.catch(() => []))[0];
+      if (!decision?.show) { sendJson(res, 200, { backstage: true }); return; }
+      const message = decision.question
+        ? `${decision.question} ${(decision.options ?? []).join(" / ")}${decision.recommendation ? ` ${recommendationText(decision.recommendation)}` : ""}`
+        : decision.summary;
+      input = { source: "Flyd", message, session: decision.decisionId, kind: decision.notify ? "attention" : "idle" };
+      if (this.notices.list().some((notice) => notice.session === decision.decisionId)) {
+        sendJson(res, 200, { id: decision.decisionId, duplicate: true }); return;
+      }
     }
     const held = this.notices.add(input);
     if (!held) { sendJson(res, 400, { error: "a notice needs a message" }); return; }
@@ -1390,7 +1407,7 @@ export class ConversationViewServer {
       typeof image === "object" && image !== null &&
       typeof (image as ImageUpload).mediaType === "string" && typeof (image as ImageUpload).data === "string");
     if (payload.decision !== undefined) {
-      const call = this.feed.current().fleet?.calls.find((row) => row.task === payload.decision);
+      const call = this.feed.current().fleet?.calls.find((row) => row.executiveDecisionId ? row.executiveDecisionId === payload.decision : row.task === payload.decision);
       if (typeof payload.decision !== "string" || !call || !this.source.sendDecision) {
         sendJson(res, 409, { error: "This question is no longer available; refresh before answering" });
         return;
@@ -1404,8 +1421,14 @@ export class ConversationViewServer {
         return;
       }
       try {
-        const sent = await this.source.sendDecision(`Answer to pending decision ${call.task}: ${call.label}\nQuestion: ${call.detail ?? call.label}\n\n${payload.text.trim()}`, images as ImageUpload[]);
-        sendJson(res, 200, { ...sent, waiting: "Sent to firstmate" });
+        const executive = Boolean(call.executiveDecisionId);
+        const answer = executive ? payload.text.trim() : `Answer to pending decision ${call.task}: ${call.label}\nQuestion: ${call.detail ?? call.label}\n\n${payload.text.trim()}`;
+        const sent = await this.source.sendDecision(answer, images as ImageUpload[], executive ? {
+          decisionId: call.executiveDecisionId!,
+          taskId: call.task ?? "",
+        } : undefined);
+        if (executive) await this.feed.refresh();
+        sendJson(res, 200, { ...sent, waiting: executive ? "Flyd is carrying your decision into the work" : "Sent to firstmate" });
       } catch (error) {
         sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
       }
@@ -1567,24 +1590,15 @@ export class ConversationViewServer {
   /** He takes back an answer Flyd gave for him: the session is told to hold off until he answers. */
   private async undo(res: ServerResponse, session: unknown, noteId: unknown): Promise<void> {
     const note = typeof noteId === "string" ? this.source.exchanges?.().find((exchange) => exchange.question.id === noteId)?.question : undefined;
-    if (typeof session !== "string" || !note?.answeredFor || !this.autoAnswers) {
+    if (typeof session !== "string" || !note?.answeredFor || !note.replyTo || !this.source.canSend) {
       sendJson(res, 409, { error: "That answer is no longer here" });
       return;
     }
     try {
-      sendJson(res, 200, await this.autoAnswers.undo(note, (text) => this.source.send(session, text, [], [], "firstmate")));
+      sendJson(res, 200, await this.source.send(session, undoNote(note.replyTo, note.replyQuote ?? "", note.text), [], [], "firstmate"));
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }
-  }
-
-  /** A routine question firstmate just put to him that a standing rule of his settles: Flyd answers it. */
-  private autoAnswer(session: string, snapshot: ConversationSnapshot): void {
-    if (!this.autoAnswers || !this.source.canSend) return;
-    const open = openChoice(snapshot.messages, (message) => isRoutine(message.text));
-    void this.autoAnswers
-      .answer(session, open, (text) => this.source.send(session, text, [], [], "firstmate"))
-      .catch((error: unknown) => console.warn(`[view] Flyd could not answer for him: ${error instanceof Error ? error.message : String(error)}`));
   }
 
   private chaseArtefact(session: string, snapshot: ConversationSnapshot): void {
@@ -1645,14 +1659,13 @@ export class ConversationViewServer {
     let sent = "";
     const emit = () => {
       if (!latest) return;
-      const current = statusOf(latest);
+      const current = islandStatusOf(statusOf(latest), this.feed.current().fleet);
       const ringing = this.notices.ringing();
       const status = JSON.stringify({ session: session.id, ...current, ...(ringing ? { notice: { id: ringing.id, text: noticeLine(ringing) } } : {}) });
       if (status === sent) return;
       sent = status;
       // What the island and the line under his message say, kept for Flyd's self-review.
-      if (current.activity) noteSaid({ surface: "status", text: current.activity });
-      if (current.waiting && !current.waiting.failed) noteSaid({ surface: "status", text: current.waiting.text });
+      if (current.reply) noteSaid({ surface: "status", text: current.reply.headline });
       res.write(`event: status\ndata: ${status}\n\n`);
     };
     const follower = this.source.follow(session.id, (snapshot) => {
@@ -1660,6 +1673,7 @@ export class ConversationViewServer {
       emit();
     });
     const stopNotices = this.notices.onChange(emit);
+    const stopFeed = this.feed.onRefresh(emit);
     const tick = setInterval(() => {
       emit();
       res.write(": keep-alive\n\n");
@@ -1680,6 +1694,7 @@ export class ConversationViewServer {
       clearInterval(tick);
       clearInterval(moved);
       stopNotices();
+      stopFeed();
       follower.close();
     };
     req.on("close", stop);
@@ -1753,7 +1768,6 @@ export class ConversationViewServer {
       (snapshot) => {
         latest = snapshot;
         this.cachePredictionContext(session.id, snapshot.messages);
-        this.autoAnswer(session.id, snapshot);
         this.chaseArtefact(session.id, snapshot);
         emitUpdate(snapshot);
       },

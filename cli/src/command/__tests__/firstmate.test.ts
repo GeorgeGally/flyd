@@ -1,11 +1,14 @@
+import { parseExecutiveDecision } from "../../intelligence/executive/decision-step.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FirstmateDomainTransport, firstmateRequestBody, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
+import { captainNotice } from "../notice.js";
 import { parseDomainResult } from "../result.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, saveDomainRun } from "../store.js";
+import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 import type { DomainRequest, DomainRun } from "../types.js";
 
 describe("FirstMate domain transport", () => {
@@ -39,6 +42,33 @@ describe("FirstMate domain transport", () => {
     createdAt: request().createdAt, updatedAt: request().createdAt,
     transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1" },
   });
+
+  function decisionForTest(run: DomainRun): ExecutiveDecisionRecord {
+    const notice = captainNotice(run);
+    const question = run.status === "needs_decision" || run.status === "failed" ? notice ?? run.result?.brief ?? "" : "";
+    const decision = parseExecutiveDecision({
+      schema: "flyd.executive-decision.v1",
+      decisionId: `test:${run.id}:${run.status}`,
+      sourceId: "firstmate.change",
+      sourceEventId: `${run.id}:${run.status}`,
+      taskId: run.id,
+      disposition: question ? "ask_george" : notice ? "handle_internally" : "backstage",
+      reason: notice ? "test evidence says this outcome matters" : "routine test fixture",
+      summary: notice ?? run.result?.brief ?? "No material outcome.",
+      evidenceRefs: [`domain-run:${run.id}`],
+      ...(question ? { question, options: [], recommendation: { rationale: "Choose the scope you want." } } : {}),
+      verification: run.status === "completed" ? { status: "verified", evidenceRefs: [`domain-run:${run.id}:completed`] } : { status: "unknown", evidenceRefs: [] },
+      show: Boolean(notice),
+      notify: Boolean(notice),
+      createdAt: run.updatedAt,
+    });
+    if (!decision) throw new Error("Invalid test decision");
+    return decision;
+  }
+
+  function notifyWithTestDecision(run: DomainRun, notify?: Parameters<typeof notifyRun>[1], send?: Parameters<typeof notifyRun>[2]): Promise<void> {
+    return notifyRun(run, notify, send, async (changed) => decisionForTest(changed));
+  }
 
   it("preserves George's original words and asks for a layered durable reply", () => {
     const body = firstmateRequestBody(request());
@@ -258,7 +288,7 @@ describe("FirstMate domain transport", () => {
     const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
     const sent: string[] = [];
     const judged: string[] = [];
-    const onChanged = (run: DomainRun) => notifyRun(run, async (_title, message) => { sent.push(message); });
+    const onChanged = (run: DomainRun) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); });
     const judge = async (reply: string, outcome: string) => { judged.push(`${outcome}|${reply}`); return "completed" as const; };
 
     const [settled] = await syncFirstmateDomainRuns({ transport, onChanged, judge });
@@ -283,7 +313,7 @@ describe("FirstMate domain transport", () => {
       handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T01:00:00.000Z", body: reply, cursor: "000000000001" } }],
     }), stderr: "" });
     const sent: string[] = [];
-    const onChanged = (run: DomainRun) => notifyRun(run, async (_title, message) => { sent.push(message); });
+    const onChanged = (run: DomainRun) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); });
     let judged = 0;
     const judge = async () => { judged += 1; return null; };
 
@@ -452,13 +482,13 @@ describe("FirstMate domain transport", () => {
       transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
       now: () => now,
       judge: async () => "completed" as const,
-      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+      onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }),
     });
     expect(changed.map((run) => [run.id, run.status, run.notified ?? false]).sort()).toEqual([
       ["domain-old", "completed", true],
       ["domain-recent", "completed", false],
     ]);
-    expect(sent).toEqual([prose]);
+    expect(sent).toEqual(["The footer link now opens the right page."]);
   });
 
   it("still tells George when a stale re-read is a decision or a failure, silent only on done", async () => {
@@ -485,7 +515,7 @@ describe("FirstMate domain transport", () => {
       transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
       now: () => now,
       judge: async (reply) => reply.startsWith("status=needs_decision") ? "needs_decision" : reply.startsWith("status=failed") ? "failed" : "completed",
-      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }, async () => ({ delivered: false })),
+      onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }),
     });
     const byId = Object.fromEntries(changed.map((run) => [run.id, run]));
     expect(byId["domain-decided"]!.status).toBe("needs_decision");
@@ -514,7 +544,7 @@ describe("FirstMate domain transport", () => {
     const sent: string[] = [];
     const notify = async (_title: string, message: string) => { sent.push(message); };
 
-    const [settled] = await syncFirstmateDomainRuns({ transport, onChanged: (run) => notifyRun(run, notify) });
+    const [settled] = await syncFirstmateDomainRuns({ transport, onChanged: (run) => notifyWithTestDecision(run, notify) });
     expect(settled!.status).toBe("completed");
     expect(sent).toEqual(expected);
     expect(listDomainRuns().find((run) => run.id === "domain-test-1")?.notified).toBe(true);
@@ -540,7 +570,7 @@ describe("FirstMate domain transport", () => {
     const sent: string[] = [];
     const [settled] = await syncFirstmateDomainRuns({
       transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
-      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+      onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }),
     });
 
     expect(settled!.status).toBe("completed");
@@ -688,7 +718,7 @@ describe("FirstMate domain transport", () => {
     const [read] = await syncFirstmateDomainRuns({
       transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
       judge: async () => { throw new Error("no model"); },
-      onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+      onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }),
     });
     expect(read!.status).toBe("working");
     expect(sent).toEqual([]);
@@ -712,7 +742,7 @@ describe("FirstMate domain transport", () => {
     try {
       const [settled] = await syncFirstmateDomainRuns({
         transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }),
-        onChanged: (run) => notifyRun(run, async (_title, message) => { sent.push(message); }),
+        onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }),
       });
       expect(settled!.status).toBe("completed");
       expect(sent).toEqual([prose]);
