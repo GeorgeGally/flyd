@@ -5,6 +5,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { FLYD_DIR, PLANS_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
+import { syncFleetFollowups } from "../runtime/fleet-followups.js";
 import { readPlans, type Plan } from "../lib/plans.js";
 import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
 import type { ShowItem, ShowKind } from "./show.js";
@@ -976,6 +977,13 @@ export class ArtefactFeed {
       });
       const fleet = parseBearings(JSON.parse(out));
       if (fleet.unavailable) throw new Error(fleet.unavailable);
+      if (!process.env.VITEST) {
+        try {
+          syncFleetFollowups(fleet.held.flatMap((row) => row.task ? [{ id: row.task, task: row.label, status: row.status ?? "" }] : []));
+        } catch (error) {
+          console.warn(`[view] fleet follow-ups not filed: ${reason(error)}`);
+        }
+      }
       return fleet;
     } catch (error) {
       // A read that failed is Flyd's own hiccup: the reason goes to Flyd's log, never to George.

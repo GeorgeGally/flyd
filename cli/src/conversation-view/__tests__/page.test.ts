@@ -2313,8 +2313,8 @@ describe("header and artefact view", () => {
     await settle();
     const cards = [...document.querySelectorAll<HTMLElement>("#left-semantic .semantic-activity")];
     // A decision or review stays even when its own words mention routes and errors.
-    expect(cards.map((card) => card.dataset.semanticId)).toEqual(["task:review", "task:paused", "task:stale-decision", "task:route-decision", "task:route-review"]);
-    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 5");
+    expect(cards.map((card) => card.dataset.semanticId)).toEqual(["task:review", "task:stale-decision", "task:route-decision", "task:route-review"]);
+    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 4");
     // A review says so and opens the work; no status chip, icon or dot on any card.
     expect(cards[0]!.querySelector(".card-line")!.textContent).toBe("Review: task:review subject");
     const openLink = cards[0]!.querySelector<HTMLAnchorElement>(".card-link")!;
@@ -2345,47 +2345,16 @@ describe("header and artefact view", () => {
     expect(left.hidden).toBe(true);
   });
 
-  it("takes a held card to the main chat when he clicks it, and lets it go again", async () => {
+  it("keeps paused work out of George's left column", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
     const at = new Date(Date.now() - 4 * 60_000).toISOString();
     stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [{ id: "task:held", kind: "activity", lifecycle: "interrupted", subject: "The island rework is paused.", summary: "Paused for review.", detail: "Paused before merging; the diff is ready to read.", evidence: [], actions: [], source: { showItemId: "held:1", task: "held" }, activity: { phase: "paused", started: at } }] } });
-    const card = (): HTMLElement => document.querySelector("#left-semantic .left-card") as HTMLElement;
-    const about = (): HTMLElement => document.getElementById("about") as HTMLElement;
-    expect(about().hidden).toBe(true);
-    card().click();
-    // The card stays put and lit; the message box says what his next message is about, ready to type.
-    expect(document.querySelectorAll("#left-semantic .left-card")).toHaveLength(1);
-    expect(card().dataset.key).toBe("task:held|semantic|paused");
-    expect(card().classList.contains("is-open")).toBe(true);
-    expect((card().querySelector(".card-detail") as HTMLElement).hidden).toBe(true);
-    expect(card().querySelector<HTMLFormElement>(".art-chat")!.hidden).toBe(true);
-    expect(about().hidden).toBe(false);
-    expect(document.getElementById("about-title")!.textContent).toBe("The island rework is paused.");
-    const said = Array.from(document.querySelectorAll("#about-body .about-text")).map((p) => p.textContent);
-    expect(said).toEqual(["Paused for review.", "Paused before merging; the diff is ready to read."]);
-    expect(document.querySelector("#about-body .about-at")!.textContent).not.toBe("");
-    expect(document.activeElement).toBe(document.getElementById("input"));
-    // Clicking the card again lets it go.
-    card().click();
-    expect(about().hidden).toBe(true);
-    expect(card().classList.contains("is-open")).toBe(false);
-    // So does the ✕ on the message box.
-    card().click();
-    (document.getElementById("about-clear") as HTMLButtonElement).click();
-    expect(about().hidden).toBe(true);
-    // Escape lets it go first, and only then takes the column away.
-    document.getElementById("left-open")!.click();
-    card().click();
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-    expect(about().hidden).toBe(true);
-    expect(document.getElementById("left")!.hidden).toBe(false);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-    expect(document.getElementById("left")!.hidden).toBe(true);
+    expect(document.querySelectorAll("#left-semantic .left-card")).toHaveLength(0);
   });
 
-  it("makes every card in the left column clickable", async () => {
+  it("does not turn a paused job into an action card", async () => {
     const html = renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) });
     document.head.innerHTML = /<style>[\s\S]*?<\/style>/.exec(html)![0]!;
     load("", html);
@@ -2393,18 +2362,7 @@ describe("header and artefact view", () => {
     const stream = open("latest", []);
     const at = new Date(Date.now() - 3 * 3_600_000).toISOString();
     stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [{ id: "task:held", kind: "activity", lifecycle: "interrupted", subject: "The island rework is paused.", summary: "Paused for review.", detail: "Paused before merging; the diff is ready to read.", evidence: [], actions: [], source: { showItemId: "held:1", task: "held" }, activity: { phase: "paused", started: at } }] } });
-    const card = (): HTMLElement => document.querySelector("#left-semantic .left-card") as HTMLElement;
-    expect(card().classList.contains("is-expandable")).toBe(true);
-    expect(card().getAttribute("role")).toBe("button");
-    // The pointer says it can be opened, and a hover rule answers the mouse.
-    expect(getComputedStyle(card()).cursor).toBe("pointer");
-    const hover = Array.from(document.styleSheets).flatMap((sheet) => Array.from(sheet.cssRules))
-      .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText.endsWith(":hover"))
-      .find((rule) => card().matches(rule.selectorText.replace(/:hover$/, "")));
-    expect(hover).toBeDefined();
-    card().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    expect(document.getElementById("about")!.hidden).toBe(false);
-    expect(document.getElementById("about-title")!.textContent).toBe("The island rework is paused.");
+    expect(document.querySelectorAll("#left-semantic .left-card")).toHaveLength(0);
   });
 
   it("offers no left column when Core sends no activity", async () => {
@@ -2630,7 +2588,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(cards().map((card) => [card.dataset.semanticId, card.dataset.phase])).toEqual([["task:t1", "needs_you"]]);
     update({ ...base, lifecycle: "interrupted", activity: { phase: "paused" } });
     await settle();
-    expect(cards().map((card) => [card.dataset.semanticId, card.dataset.phase])).toEqual([["task:t1", "paused"]]);
+    expect(cards()).toHaveLength(0);
     update({ ...base, lifecycle: "resolved", activity: { phase: "finished" }, source: { showItemId: "landed:t1", task: "t1" }, updatedAt: "2026-10-18T10:00:00Z" });
     await settle();
     expect(cards()).toHaveLength(0);
@@ -2659,7 +2617,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     });
     await settle();
     const leftIds = [...document.querySelectorAll<HTMLElement>("#left-semantic .semantic-activity")].map((item) => item.dataset.semanticId);
-    expect(leftIds).toEqual(["task:held"]);
+      expect(leftIds).toEqual([]);
     expect(document.querySelector("#needs .needs-head")!.textContent).toBe("Choose the final layout.");
     const done = [...document.querySelectorAll<HTMLElement>("#done li")];
     expect(done.map((item) => item.dataset.key)).toEqual(["landed:done"]);
@@ -2755,8 +2713,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
     document.getElementById("left-hide")!.click();
     await settle();
     expect((await reload([held("task:held")])).hidden).toBe(true);
-    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 3");
-    expect((await reload([held("task:held"), held("task:new")])).hidden).toBe(false);
+    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 2");
+    expect((await reload([held("task:held"), held("task:new")])).hidden).toBe(true);
     expect(localStorage.getItem("flyd-left")).toBe("off");
   });
 

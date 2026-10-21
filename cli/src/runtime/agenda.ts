@@ -35,6 +35,8 @@ export interface InboxEntry {
   status: "ok" | "short" | "blocked" | "failed";
   result: string;
   read: boolean;
+  /** Flyd's own follow-up (stalled fleet work), never shown to George. */
+  internal?: boolean;
 }
 
 export interface AgendaPaths {
@@ -159,8 +161,13 @@ export function readInbox(paths = agendaPaths()): InboxEntry[] {
   });
 }
 
+/** What George may see: everything except Flyd's own internal follow-ups. */
+export function georgeInbox(paths = agendaPaths()): InboxEntry[] {
+  return readInbox(paths).filter((entry) => !entry.internal);
+}
+
 export function unreadInbox(paths = agendaPaths()): InboxEntry[] {
-  return readInbox(paths).filter((entry) => !entry.read);
+  return georgeInbox(paths).filter((entry) => !entry.read);
 }
 
 export function markInboxRead(paths = agendaPaths()): void {
