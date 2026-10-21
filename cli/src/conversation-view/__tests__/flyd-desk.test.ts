@@ -565,6 +565,33 @@ esac
     expect(messages).toContainEqual(expect.objectContaining({ text: "Sir, the settings screen still needs your decision.", aside: true }));
   });
 
+  it("shows one answer when a multi-line formal reply is repeated untagged in chat", async () => {
+    const { source, home } = setup("FIRSTMATE");
+    const id = "1791516064-MultiL";
+    const reply = "Captain, the island filter in the conversation view is fixed.\nI also tidied its tests and verified the whole page.";
+    const different = "Captain, the island filter in the conversation view is fixed for good.\nThe last edge case is covered too.";
+    mkdirSync(join(home, "state", "inbox", "handled"), { recursive: true });
+    mkdirSync(join(home, "state", "inbox", ".replies"), { recursive: true });
+    writeFileSync(join(home, "state", "inbox", "handled", `${id}.note`), `id=${id}\nat=2026-10-05T18:00:00Z\n--\nDid you fix the island filter in the conversation view?\n`);
+    writeFileSync(join(home, "state", "inbox", ".replies", id), `id=${id}\nat=2026-10-05T18:02:00Z\nseq=1\n--\n${reply}\n`);
+    const transcript = join(dir, "project", "s1.jsonl");
+    const lines = [
+      captain("status?", { timestamp: "2026-10-05T17:59:00Z" }),
+      assistantText(reply, "end_turn", { timestamp: "2026-10-05T18:03:00Z" }),
+    ];
+    writeFileSync(transcript, lines.join("\n") + "\n");
+
+    const voiced = "Sir, the island filter in the conversation view is fixed.\nI also tidied its tests and verified the whole page.";
+    const repeated = (await source.read("s1")).messages;
+    expect(repeated.filter((message) => message.text.includes("island filter in the conversation view is fixed")))
+      .toEqual([expect.objectContaining({ id: `note-reply:${id}`, answers: `note:${id}`, text: voiced })]);
+    expect(repeated.find((message) => message.id === `note:${id}`)?.waiting).toBeFalsy();
+
+    writeFileSync(transcript, [...lines, captain("any more?", { timestamp: "2026-10-05T18:03:30Z" }), assistantText(different, "end_turn", { timestamp: "2026-10-05T18:04:00Z" })].join("\n") + "\n");
+    const followed = (await source.read("s1")).messages;
+    expect(followed.find((message) => message.id === `note:${id}`)?.waiting).toMatch(/fixed for good/);
+  });
+
   it("shows each note followed by firstmate's own reply, written by fm-inbox.sh reply", async () => {
     const { source, home } = setup("FIRSTMATE");
     const answered = await source.send("s1", "push the island redesign");
