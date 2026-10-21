@@ -235,15 +235,25 @@ export function clampDepth(boxes: Box[], depth = 1): Box[] {
 /** Flyd's overview as boxes, most deserving first. Pure. */
 export function boxesOf(screen: ShowScreen, readings: BoxReadings = {}): Box[] {
   const boxes: Box[] = [];
-  const calls = screen.items.filter((item) => item.kind === "call").slice(0, MAX_CALLS);
+  // A call firstmate stopped reporting keeps its card where it was, with nothing to answer.
+  const settled = (item: ShowItem): boolean => item.kind === "clear" && item.id.startsWith("call:");
+  let open = 0;
+  const calls = screen.items.filter((item) => {
+    if (item.kind === "call") {
+      open += 1;
+      return open <= MAX_CALLS;
+    }
+    return settled(item);
+  });
   if (calls.length) {
+    const asking = calls.filter((item) => item.kind === "call").length;
     boxes.push({
       id: "calls",
       kind: "group",
       size: "lead",
-      tone: "call",
-      title: calls.length === 1 ? "One call only you can make" : `${calls.length} calls only you can make`,
-      why: "waiting on you",
+      tone: asking ? "call" : "clear",
+      title: asking === 0 ? "Nothing needs you" : asking === 1 ? "One call only you can make" : `${asking} calls only you can make`,
+      why: asking ? "waiting on you" : "settled",
       // The group already says it waits on him.
       children: calls.map((item) => ({ ...fromItem(item, "call", "lead"), why: "" })),
     });

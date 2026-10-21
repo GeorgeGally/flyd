@@ -43,7 +43,7 @@ export interface ArtefactRow {
   shotDir?: string;
   /** Flyd's own words for it, once its model has said them. */
   said?: Said;
-  /** The list still holds it but the latest read no longer reports it: internal only, never shown. */
+  /** The list still holds it but the latest read no longer reports it: a call shows as settled, never as asking him. */
   ledgerOnly?: boolean;
 }
 
@@ -120,11 +120,20 @@ interface LedgerEntry {
   field: FleetField;
   row: ArtefactRow;
   seenAt: number;
+  ledgerOnly?: boolean;
+  /** A call that was put to him as a decision: only such a call stays on as settled once it goes, in the words he last saw. */
+  asked?: boolean;
 }
 
 /** An artefact's stable name: its task, else its words, so the same work keeps the same place on screen. */
 function artefactKey(row: ArtefactRow): string | undefined {
   return row.task ? `task:${row.task}` : row.label ? `label:${row.label}` : undefined;
+}
+
+/** A row's place in the list: a call keeps its own, apart from the work it is about, so it stays on once the work moves on. */
+function ledgerKey(field: FleetField, row: ArtefactRow): string | undefined {
+  const key = artefactKey(row);
+  return key && field === "calls" ? `call:${key}` : key;
 }
 
 /** How many of each kind the artefact shows; the section says how many more there are. */
@@ -372,12 +381,17 @@ export function statusNote(line: string): string {
 /** Holds that ask him to read or remember something rather than to decide. */
 const NOT_A_DECISION = /\bready to read\b|\(report \+ artefact\)|(?:^|:\s)Read:|^Remind (?:the )?captain\b/i;
 
+/** Whether a hold asks him to read or remember something rather than to decide. Pure. */
+function notADecision(row: ArtefactRow): boolean {
+  return NOT_A_DECISION.test(row.label) || Boolean(row.detail && NOT_A_DECISION.test(row.detail));
+}
+
 /** A hold nobody has touched for this long, with nothing to answer, is no longer a call. */
 export const STALE_CALL_MS = 3 * 24 * 60 * 60 * 1000;
 
 /** Whether a hold is a decision still waiting on him: not a read-me or reminder, and not an old hold with no question to answer. Pure. */
 export function isCurrentDecision(row: ArtefactRow, now: number): boolean {
-  if (NOT_A_DECISION.test(row.label) || (row.detail && NOT_A_DECISION.test(row.detail))) return false;
+  if (notADecision(row)) return false;
   if (row.choices?.length) return true;
   const touched = row.at ? Date.parse(row.at) : Number.NaN;
   return !Number.isNaN(touched) && now - touched <= STALE_CALL_MS;
@@ -417,7 +431,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
   if (fleet.unavailable) return fleet;
   return {
     ...fleet,
-    calls: fleet.calls.map((row) => enrich(row, true)).filter((row) => isCurrentDecision(row, now)),
+    calls: fleet.calls.map((row) => (row.ledgerOnly ? row : enrich(row, true))).filter((row) => (row.ledgerOnly ? !notADecision(row) : isCurrentDecision(row, now))),
     live: fleet.live.map((row) => enrich(row)),
     ready: fleet.ready.map((row) => enrich(row)),
     landed: fleet.landed.map((row) => enrich(row)),
@@ -591,18 +605,24 @@ function rowMovedAt(row: ArtefactRow): number {
 
 /** The rows of one kind the artefact shows, this read's rows first and newest of them leading. Pure. */
 export function shownRows(list: ArtefactRow[] | undefined, limit: number): ArtefactRow[] {
-  return [...(list ?? [])].sort((a, b) =>
-    (a.ledgerOnly ? 1 : 0) - (b.ledgerOnly ? 1 : 0)
-    || rowMovedAt(b) - rowMovedAt(a)
-    || (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0),
-  ).slice(0, limit);
+  return [...(list ?? [])].sort((a, b) => (a.ledgerOnly ? 1 : 0) - (b.ledgerOnly ? 1 : 0) || newestFirst(a, b)).slice(0, limit);
+}
+
+function newestFirst(a: ArtefactRow, b: ArtefactRow): number {
+  return rowMovedAt(b) - rowMovedAt(a) || (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0);
+}
+
+/** The calls the artefact shows, newest first: up to its limit of open ones, and every settled one in its own place. Pure. */
+function shownCalls(list: ArtefactRow[] | undefined): ArtefactRow[] {
+  const open = new Set(shownRows(list?.filter((row) => !row.ledgerOnly), ARTEFACT_LIMITS.call));
+  return [...(list ?? [])].sort(newestFirst).filter((row) => row.ledgerOnly || open.has(row));
 }
 
 /** How many of each kind the fleet holds, before the artefact's limits. Pure. */
 export function fleetCounts(fleet: FleetArtefact | undefined): Partial<Record<ShowKind, number>> {
   if (!fleet || fleet.unavailable) return {};
   return {
-    call: fleet.calls.length,
+    call: fleet.calls.filter((row) => !row.ledgerOnly).length,
     live: fleet.live.length,
     ready: fleet.ready.filter((row) => row.status !== "report available").length,
     landed: fleet.landed.length,
@@ -669,7 +689,7 @@ function withLink(url: string | undefined): Partial<ShowItem> {
 /** Every call the fleet holds for him, past the panel's limit, each with its question. Pure. */
 export function callItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}): ShowItem[] {
   if (!fleet || fleet.unavailable) return [];
-  return fleet.calls.flatMap((row, index) => rowItem("call", `call-${row.task ?? index}`, row, options) ?? []);
+  return fleet.calls.filter((row) => !row.ledgerOnly).flatMap((row, index) => rowItem("call", `call-${row.task ?? index}`, row, options) ?? []);
 }
 
 /** Every job a worker is on right now, the longest running first. Pure. */
@@ -751,6 +771,9 @@ export function planArtefacts(plans: Plan[], now: number): PlanArtefact[] {
   });
 }
 
+/** A call the fleet no longer reports: its card stays where it was, with nothing left to do. */
+const SETTLED_CALL = "Settled, nothing needed.";
+
 /** Compose the panel's items from the inputs, in priority order. Pure. */
 export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions = {}): ShowItem[] {
   const items: ShowItem[] = [];
@@ -760,10 +783,16 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   };
   const fromRow = (kind: ShowKind, id: string, row: ArtefactRow): void => {
     const item = rowItem(kind, id, row, options);
-    if (item) items.push(item);
+    if (!item) return;
+    if (kind !== "call" || !row.ledgerOnly) {
+      items.push(item);
+      return;
+    }
+    const { decision: _decision, status: _status, ...settled } = item;
+    items.push({ ...settled, kind: "clear", detail: SETTLED_CALL });
   };
   const rowsOf = (kind: keyof typeof ARTEFACT_LIMITS, list: ArtefactRow[] | undefined): void => {
-    shownRows(list, ARTEFACT_LIMITS[kind]).forEach((row, index) => fromRow(row.status === "report available" ? "news" : kind, `${kind}-${row.task ?? index}`, row));
+    (kind === "call" ? shownCalls(list) : shownRows(list, ARTEFACT_LIMITS[kind])).forEach((row, index) => fromRow(row.status === "report available" ? "news" : kind, `${kind}-${row.task ?? index}`, row));
   };
 
   const fleet = inputs.fleet;
@@ -1006,12 +1035,12 @@ export class ArtefactFeed {
     try {
       const stored = JSON.parse(readFileSync(this.ledgerPath(), "utf8")) as { rows?: unknown };
       for (const raw of Array.isArray(stored.rows) ? stored.rows : []) {
-        const entry = raw as { field?: unknown; seenAt?: unknown; row?: unknown };
+        const entry = raw as { field?: unknown; seenAt?: unknown; row?: unknown; ledgerOnly?: unknown; asked?: unknown };
         const field = str(entry.field) as FleetField;
         const row = entry.row as ArtefactRow;
         if (!FLEET_FIELDS.includes(field) || !row || typeof row !== "object" || !row.label) continue;
-        const key = artefactKey(row);
-        if (key) this.ledger.set(key, { field, row, seenAt: Number(entry.seenAt) || 0 });
+        const key = ledgerKey(field, row);
+        if (key) this.ledger.set(key, { field, row, seenAt: Number(entry.seenAt) || 0, ledgerOnly: entry.ledgerOnly === true, asked: entry.asked === true });
       }
     } catch {
       // No list yet, or an unreadable one: start empty rather than fail the screen.
@@ -1036,23 +1065,29 @@ export class ArtefactFeed {
     // so a collision never drops a call; and this read's rows keep its own order, ahead of rows only
     // the list still holds, so a newly queued item is never pushed off by older entries.
     const merged = new Map<string, LedgerEntry>();
+    const reported = new Set<string>();
+    const reportedCall = (field: FleetField, row: ArtefactRow) => field !== "calls" && reported.has(ledgerKey("calls", row) ?? "");
     for (const field of FLEET_FIELDS) {
       for (const row of incoming[field]) {
-        const key = artefactKey(row);
-        if (key && !merged.has(key)) merged.set(key, { field, row, seenAt: now });
+        const key = ledgerKey(field, row);
+        if (key && !merged.has(key) && !reportedCall(field, row)) merged.set(key, { field, row, seenAt: now, ledgerOnly: false, asked: this.ledger.get(key)?.asked === true });
       }
+      if (field === "calls") for (const key of merged.keys()) reported.add(key);
     }
-    for (const [key, entry] of this.ledger) if (!merged.has(key)) merged.set(key, entry);
+    for (const [key, entry] of this.ledger) {
+      if (merged.has(key) || reportedCall(entry.field, entry.row) || (prune && entry.field === "calls" && !entry.asked)) continue;
+      merged.set(key, { ...entry, ...(prune ? { ledgerOnly: true } : {}) });
+    }
     if (prune) for (const [key, entry] of merged) if (now - entry.seenAt > LEDGER_KEEP_MS) merged.delete(key);
     this.ledger.clear();
     for (const [key, entry] of merged) this.ledger.set(key, entry);
-    return this.ledgerFleet(incoming.generated, now);
+    return this.ledgerFleet(incoming.generated);
   }
 
   /** The accumulated list as the fleet the screen reads, this read's rows first, ledger-only rows after. */
-  private ledgerFleet(generated: string | undefined, now: number): FleetArtefact {
+  private ledgerFleet(generated?: string): FleetArtefact {
     const fleet: FleetArtefact = { ...emptyFleet(), ...(generated ? { generated } : {}) };
-    for (const entry of this.ledger.values()) fleet[entry.field].push(entry.seenAt < now ? { ...entry.row, ledgerOnly: true } : entry.row);
+    for (const entry of this.ledger.values()) fleet[entry.field].push(entry.ledgerOnly ? { ...entry.row, ledgerOnly: true } : entry.row);
     return fleet;
   }
 
@@ -1146,9 +1181,13 @@ export class ArtefactFeed {
       // The screen is an accumulating list, persisted: a refresh adds or updates rows, and a read that fails drops nothing.
       this.loadLedger();
       const merged = this.mergeLedger(withRecent, Date.now(), !bearings.unavailable);
-      this.saveLedger();
       const content = bearings.unavailable && !FLEET_FIELDS.some((field) => merged[field].length) ? FLEET_UNAVAILABLE("unreadable") : merged;
       const enriched = await this.withoutOvertaken(enrichFleet(content, entries, extras), entries);
+      for (const row of enriched.calls) {
+        const entry = row.ledgerOnly ? undefined : this.ledger.get(ledgerKey("calls", row) ?? "");
+        if (entry) Object.assign(entry, { asked: true, row });
+      }
+      this.saveLedger();
       const voice = this.options.voice;
       const generation = ++this.generation;
       const { fleet, unsaid } = voice ? this.voiced(voice, enriched) : { fleet: enriched, unsaid: [] };
@@ -1169,14 +1208,14 @@ export class ArtefactFeed {
   }
 
   /**
-   * The fleet without the calls the work has moved past: George is never
+   * The fleet with the calls the work has moved past settled: George is never
    * asked a question the record already answers. Each is closed with the
    * staff once.
    */
   private async withoutOvertaken(fleet: FleetArtefact, entries: Map<string, BacklogEntry>): Promise<FleetArtefact> {
     const check = this.options.overtaken;
     if (!check || fleet.unavailable) return fleet;
-    const calls = fleet.calls.map((row) => ({ row, call: callId(row) }));
+    const calls = fleet.calls.filter((row) => !row.ledgerOnly).map((row) => ({ row, call: callId(row) }));
     for (const call of this.overtaken.keys()) if (!calls.some((item) => item.call === call)) this.overtaken.delete(call);
     const verdicts = await Promise.all(calls.map(async ({ row, call }) => {
       if (!row.task) return undefined;
@@ -1190,7 +1229,15 @@ export class ArtefactFeed {
       this.overtaken.set(call, why);
       return why;
     }));
-    return { ...fleet, calls: fleet.calls.filter((_row, index) => !verdicts[index]) };
+    const closed = new Set<ArtefactRow>();
+    calls.forEach(({ row }, index) => { if (verdicts[index]) closed.add(row); });
+    return {
+      ...fleet,
+      calls: fleet.calls.flatMap((row) => {
+        if (!closed.has(row)) return [row];
+        return this.ledger.get(ledgerKey("calls", row) ?? "")?.asked ? [{ ...row, ledgerOnly: true }] : [];
+      }),
+    };
   }
 
   /**

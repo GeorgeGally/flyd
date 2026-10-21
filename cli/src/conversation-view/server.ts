@@ -1063,7 +1063,7 @@ export class ConversationViewServer {
     // The same replies the window points here, each once, newest first.
     const reported = replyCards(snapshot.messages, this.summaries?.artefacts);
     const artefacts: RailArtefact[] = [...sites, ...reported, ...composeArtefact(this.artefactInputs(), { project })
-      .filter((item) => item.kind !== "call")
+      .filter((item) => !item.id.startsWith("call:"))
       .map((item) => ({
         id: item.id,
         title: item.headline,

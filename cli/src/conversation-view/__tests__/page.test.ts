@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { boxesOf } from "../boxes.js";
 import { RECEIVED } from "../living.js";
 import { renderPage } from "../page.js";
-import type { ShowScreen } from "../show.js";
+import type { ShowItem, ShowScreen } from "../show.js";
 
 // Runs the real page script against a fake server: EventSource streams and
 // fetch responses are scripted by each test.
@@ -1243,6 +1243,47 @@ describe("conversation page", () => {
 });
 
 describe("semantic main stage", () => {
+  // Reproduction (2026-10-21): a call George was watching settled on a background
+  // refresh, and its card vanished from the artefact view.
+  it("keeps a settled call's card on the artefact when the refresh moves the focus on", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const settled: ShowItem = { id: "call:call-x", kind: "clear", headline: "Choose a color", detail: "Settled, nothing needed.", why: "", task: "x", at: "2026-10-21T07:00:00.000Z" };
+    const show: ShowScreen = {
+      title: "Good news, sir.",
+      summary: "",
+      live: true,
+      counts: {},
+      items: [settled],
+      focus: { id: "show:live", kind: "activity", lifecycle: "active", subject: "Work is under way", summary: "Claude is on it now", evidence: [], actions: [], source: { showItemId: "live" } },
+    };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    await settle();
+    expect(document.getElementById("scene-head")!.textContent).toBe("Choose a color");
+    expect(document.getElementById("scene-line")!.textContent).toBe("Settled, nothing needed.");
+  });
+
+  it("leads with a call that needs him over a settled card", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const settled: ShowItem = { id: "call:call-x", kind: "clear", headline: "Choose a color", detail: "Settled, nothing needed.", why: "", task: "x" };
+    const show: ShowScreen = {
+      title: "Your move, sir.",
+      summary: "",
+      live: false,
+      counts: {},
+      items: [settled],
+      focus: { id: "task:build", kind: "activity", lifecycle: "interrupted", subject: "Pick the launch date", summary: "Friday fits.", evidence: [], actions: [], source: { showItemId: "decision:launch" } },
+    };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    await settle();
+    expect(document.getElementById("scene-head")!.textContent).toBe("Pick the launch date");
+  });
+
   it("renders semantic focus instead of a higher-ranked legacy box", async () => {
     load("");
     await settle();

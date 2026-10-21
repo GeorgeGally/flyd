@@ -4158,8 +4158,13 @@ ${LEFT_SCRIPT}
     var sourceBoxes = boxes && boxes.length ? boxes : [{ id: "situation", kind: "note", size: "wide", title: next.title, line: next.summary, why: "where things stand" }];
     var parts = split(sourceBoxes);
     showEl.classList.toggle("semantic-workspace", !!focusBox);
+    // Semantic focus owns the main stage unless a call that settled is standing in it: the
+    // list is accumulating, so a card he was looking at stays where it was and only work
+    // that needs him leads over it.
     if (focusBox) {
-      parts.stage = [focusBox];
+      var standing = parts.stage.filter(function (box) { return box.tone === "clear"; });
+      var needsHim = !!(next.focus && next.focus.lifecycle === "interrupted");
+      parts.stage = needsHim ? [focusBox].concat(standing) : standing.concat([focusBox]);
       parts.readouts = [];
       renderSemanticContext(next);
     } else {

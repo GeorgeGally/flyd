@@ -1,12 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
+import { semanticObjectFromShow } from "../semantic.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
-  doneItems, underwayItems, workerStarted, weekLandedRows,
+  callItems, doneItems, underwayItems, workerStarted, weekLandedRows,
 } from "../artefact.js";
 
 const BEARINGS = {
@@ -612,6 +613,161 @@ describe("ArtefactFeed", () => {
     try {
       await feed.refresh();
       expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a", "b"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps a call a background refresh no longer reports in place as settled, with nothing to act on", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-closed-call-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "x", summary: "Pick one" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), "- [ ] x - Pick one (hold: Choose a color: 1 Red, 2 Blue)\n");
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(feed.current().fleet!.calls).toMatchObject([{ label: "Pick one", task: "x" }]);
+    const before = composeArtefact(feed.current());
+    const asked = before.findIndex((item) => item.id === "call:call-x");
+    expect(before[asked]).toMatchObject({ kind: "call", decision: { task: "x" } });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [] }));
+    await feed.refresh();
+    const fleet = feed.current().fleet!;
+    expect(fleet.calls[0]).toMatchObject({ task: "x", ledgerOnly: true });
+    expect(fleetCounts(fleet).call).toBe(0);
+    expect(callItems(fleet)).toEqual([]);
+    const after = composeArtefact(feed.current());
+    expect(after.map((item) => item.id)).toEqual(before.map((item) => item.id));
+    expect(after[asked]).toMatchObject({ kind: "clear", headline: before[asked]!.headline, detail: "Settled, nothing needed." });
+    expect(after[asked]!.decision).toBeUndefined();
+    expect(after.some((item) => item.kind === "call")).toBe(false);
+  });
+
+  it("keeps a settled call on screen after its answered hold leaves the backlog", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-answered-call-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "x", summary: "Pick one" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), "- [ ] x - Pick one (hold: Choose a color: 1 Red, 2 Blue)\n");
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(composeArtefact(feed.current()).find((item) => item.id === "call:call-x")).toMatchObject({ kind: "call" });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [] }));
+    writeFileSync(join(home, "data", "backlog.md"), "- [ ] x - Pick one\n");
+    await feed.refresh();
+    const fleet = feed.current().fleet!;
+    expect(fleetCounts(fleet).call).toBe(0);
+    expect(composeArtefact(feed.current()).find((item) => item.id === "call:call-x")).toMatchObject({ kind: "clear", headline: "Choose a color", detail: "Settled, nothing needed." });
+  });
+
+  it("keeps a settled call in place, in the words he saw, while its task carries on under another section", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-moved-call-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    mkdirSync(join(home, "state"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "y", summary: "Older call" }, { id: "x", summary: "Pick one" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), [
+      "- [ ] y - Older call (hold: Choose a size: 1 Small, 2 Large)",
+      "- [ ] x - Pick one (hold: Choose a color: 1 Red, 2 Blue)",
+      "",
+    ].join("\n"));
+    const status = join(home, "state", "x.status");
+    writeFileSync(join(home, "state", "y.status"), "waiting\n");
+    writeFileSync(status, "waiting\n");
+    utimesSync(join(home, "state", "y.status"), new Date("2026-10-20T00:00:00Z"), new Date("2026-10-20T00:00:00Z"));
+    utimesSync(status, new Date("2026-10-19T00:00:00Z"), new Date("2026-10-19T00:00:00Z"));
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    const before = composeArtefact(feed.current());
+    expect(before.map((item) => [item.id, item.headline])).toEqual([["call:call-y", "Choose a size"], ["call:call-x", "Choose a color"]]);
+
+    // He answers x: firstmate drops the call and its hold, and the worker carries on and reports.
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "y", summary: "Older call" }], in_flight: [{ id: "x", state: "working", name: "Painting it red", doing: "harness busy" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), [
+      "- [ ] y - Older call (hold: Choose a size: 1 Small, 2 Large)",
+      "- [ ] x - Paint it red",
+      "",
+    ].join("\n"));
+    writeFileSync(status, "waiting\npainting\n");
+    await feed.refresh();
+    const after = composeArtefact(feed.current());
+    const calls = after.filter((item) => item.id.startsWith("call:"));
+    expect(calls.map((item) => [item.id, item.kind, item.headline])).toEqual([
+      ["call:call-y", "call", "Choose a size"],
+      ["call:call-x", "clear", "Choose a color"],
+    ]);
+    expect(after.find((item) => item.id === "live:live-x")).toMatchObject({ kind: "live", task: "x" });
+  });
+
+  it("never shows a settled card for a call that was not put to George", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-unasked-call-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "r", summary: "Read the auth report" }, { id: "s", summary: "Old question" }, { id: "x", summary: "Pick one" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), [
+      "- [ ] r - Read the auth report (hold: Read: the auth report (report + artefact))",
+      "- [ ] s - Old question",
+      "- [ ] x - Pick one (hold: Choose a color: 1 Red, 2 Blue)",
+      "",
+    ].join("\n"));
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(composeArtefact(feed.current()).map((item) => item.id)).toEqual(["call:call-x"]);
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [] }));
+    await feed.refresh();
+    expect(composeArtefact(feed.current()).map((item) => [item.id, item.kind])).toEqual([["call:call-x", "clear"]]);
+    const restarted = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await restarted.refresh();
+    expect(composeArtefact(restarted.current()).map((item) => [item.id, item.kind])).toEqual([["call:call-x", "clear"]]);
+  });
+
+  it("keeps a settled call in its place among open calls, past the open-call limit, as resolved work", () => {
+    const call = (task: string, at: string, ledgerOnly = false) => ({ label: `Call ${task}`, task, at, choices: ["Red", "Blue"], ...(ledgerOnly ? { ledgerOnly } : {}) });
+    const open = ["b", "c", "d"].map((task, index) => call(task, `2026-10-2${index}T00:00:00Z`));
+    const inputs = (calls: ReturnType<typeof call>[]) => ({ memories: [], news: [], taste: [], fleet: { calls, live: [], ready: [], landed: [], held: [], next: [] } });
+    const before = composeArtefact(inputs([...open, call("a", "2026-10-23T00:00:00Z")]));
+    const after = composeArtefact(inputs([...open, call("e", "2026-10-18T00:00:00Z"), call("a", "2026-10-23T00:00:00Z", true)]));
+    expect(before.map((item) => item.id)).toEqual(["call:call-a", "call:call-d", "call:call-c", "call:call-b"]);
+    expect(after.map((item) => item.id)).toEqual(["call:call-a", "call:call-d", "call:call-c", "call:call-b", "call:call-e"]);
+    const settled = after.find((item) => item.id === "call:call-a")!;
+    expect(settled).toMatchObject({ kind: "clear", detail: "Settled, nothing needed." });
+    expect(settled.decision).toBeUndefined();
+    expect(semanticObjectFromShow(settled)).toMatchObject({ lifecycle: "resolved", activity: { phase: "finished" }, actions: [] });
+  });
+
+  it("keeps an actionable call on screen after a failed read", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-failed-call-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "x", summary: "Pick one" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), "- [ ] x - Pick one (hold: Choose a color: 1 Red, 2 Blue)\n");
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(feed.current().fleet!.calls).toMatchObject([{ label: "Pick one", task: "x" }]);
+    writeFileSync(script, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await feed.refresh();
+      const fleet = feed.current().fleet!;
+      expect(fleet.calls[0]).toMatchObject({ task: "x" });
+      expect(fleet.calls[0]!.ledgerOnly).toBeUndefined();
+      expect(fleetCounts(fleet).call).toBe(1);
+      expect(callItems(fleet)).toHaveLength(1);
     } finally {
       warn.mockRestore();
     }

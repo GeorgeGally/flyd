@@ -1601,6 +1601,35 @@ describe("ConversationViewServer", () => {
     expect((await get(port, `/api/image?session=..%2Fx&id=${encodeURIComponent(id)}`)).status).toBe(404);
   });
 
+  it("keeps open and settled calls out of the column's Artefacts", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-view-server-"));
+    writeFileSync(join(dir, "s1.jsonl"), [captain("hello")].join("\n") + "\n");
+    const fleet = {
+      calls: [{ label: "Pick a color", task: "open", choices: ["Red", "Blue"] }, { label: "Pick a size", task: "settled", choices: ["S", "M"], ledgerOnly: true }],
+      live: [], ready: [], landed: [{ label: "Shipped the island", task: "done" }], held: [], next: [],
+    };
+    const feed = { start() {}, stop() {}, current: () => ({ memories: [], news: [], taste: [], fleet }), onRefresh: () => () => {}, shotPath: () => null };
+    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate" }), undefined, undefined, undefined, feed as unknown as ArtefactFeed);
+    const port = await server.listen(0);
+    const token = JSON.parse((await get(port, "/api/token")).body).token;
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port, path: `/api/stream?token=${encodeURIComponent(token)}`, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.includes("event: update")) { req.destroy(); resolve(text); }
+        });
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    const update = JSON.parse(body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    const ids = update.rail.artefacts.map((card: { id: string }) => card.id);
+    expect(ids).toContain("landed:landed-done");
+    expect(ids.filter((id: string) => id.startsWith("call:"))).toEqual([]);
+  });
+
   it("serves a fleet task's screenshot only with the token and only when the artefact listed it", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-view-server-"));
     writeFileSync(join(dir, "s1.jsonl"), [captain("hello")].join("\n") + "\n");

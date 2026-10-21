@@ -30,6 +30,20 @@ describe("boxesOf", () => {
     expect(boxes[0]!.children?.[0]).toMatchObject({ kind: "call", title: call.headline, ref: "m1" });
   });
 
+  it("keeps a settled call's card in the calls group, with nothing to answer", () => {
+    const settled: ShowItem = { id: "call:call-x", kind: "clear", headline: "Choose a color", detail: "Settled, nothing needed.", why: "" };
+    const boxes = boxesOf(screen([call, landed, settled]), { now: NOW });
+    expect(boxes[0]).toMatchObject({ id: "calls", title: "One call only you can make" });
+    expect(boxes[0]!.children?.map((box) => [box.title, box.tone])).toEqual([[call.headline, "call"], ["Choose a color", "clear"]]);
+  });
+
+  it("says nothing needs him when only settled cards are left", () => {
+    const settled: ShowItem = { id: "call:call-x", kind: "clear", headline: "Choose a color", detail: "Settled, nothing needed.", why: "" };
+    const boxes = boxesOf(screen([settled]), { now: NOW });
+    expect(boxes[0]).toMatchObject({ id: "calls", tone: "clear", title: "Nothing needs you", why: "settled" });
+    expect(boxes[0]!.children).toHaveLength(1);
+  });
+
   it("opens on the work itself when nothing waits on him, with no filler line", () => {
     const boxes = boxesOf(screen([landed]), { now: NOW });
     expect(boxes[0]).toMatchObject({ id: "stories" });

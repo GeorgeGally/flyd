@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { closeNote, OvertakenCalls, overtakenBy } from "../overtaken.js";
-import { ArtefactFeed, callId, parseBacklog, type ArtefactRow } from "../artefact.js";
+import { ArtefactFeed, callId, callItems, composeArtefact, fleetCounts, parseBacklog, type ArtefactRow } from "../artefact.js";
 
 // George, 2026-10-17: a pending "Pick a layout for the What do you sell? step"
 // stayed in Needs you after its task had finished; he had to say "this is old".
@@ -90,7 +90,11 @@ describe("Needs you, read against the record", () => {
     backlog(`${open.replace("- [ ]", "- [x]")} (merged: 2026-10-16)`);
     await feed.refresh();
     await feed.refresh();
-    expect(feed.current().fleet!.calls.map((row) => row.task)).toEqual(["cap5-hero"]);
+    const fleet = feed.current().fleet!;
+    expect(fleet.calls.map((row) => [row.task, row.ledgerOnly === true])).toEqual([["gnm-sell-step-pick", true], ["cap5-hero", false]]);
+    expect(callItems(fleet).map((item) => item.task)).toEqual(["cap5-hero"]);
+    expect(fleetCounts(fleet).call).toBe(1);
+    expect(composeArtefact(feed.current()).find((item) => item.task === "gnm-sell-step-pick")).toMatchObject({ kind: "clear", detail: "Settled, nothing needed." });
     expect(sent).toHaveLength(1);
     expect(sent[0]![0]).toMatch(/its task finished 2026-10-16/);
     expect(sent[0]![1]).toMatch(/^flyd-close-[0-9a-f]{12}-gnm-sell-step-pick$/);
