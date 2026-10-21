@@ -96,6 +96,18 @@ export function plainLine(text: string): string {
     .trim();
 }
 
+/** Flyd saying it failed at something itself: "I couldn't read …", "Command failed: …". */
+const OWN_FAILURE = /\bI (?:couldn['’]?t|could not|can['’]?t|cannot|failed to|was unable to|wasn['’]?t able to)\b|\bcould(?:n['’]?t| not) read\b|\bcommand failed\b/i;
+
+/**
+ * The kind of a post that came without one (Core's /notify, the model's
+ * notify tool): Flyd's own failure is a fault and kept from him; anything
+ * else is taken as finished work. Pure.
+ */
+export function untaggedKind(text: string): GeorgeKind {
+  return OWN_FAILURE.test(text) ? "fault" : "deliverable";
+}
+
 /**
  * The gate, on the kind its producer gave: the words never change what a
  * thing is. The five kinds on the whitelist reach him anywhere; where work

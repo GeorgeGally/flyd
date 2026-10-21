@@ -88,7 +88,7 @@ import { materializePresentFromWork } from "./cognition/present-materializer.js"
 import { rebuildKnowledgeProjections } from "./cognition/projections/store.js";
 import { runCuratorSweep } from "./cognition/curator/reconcile.js";
 import { isIdleNotice, notificationLine } from "./council/chief-of-staff.js";
-import { GEORGE_KINDS, reachesGeorge, type GeorgeKind } from "./lib/reaches-george.js";
+import { GEORGE_KINDS, reachesGeorge, untaggedKind, type GeorgeKind } from "./lib/reaches-george.js";
 import { recordKept } from "./council/reply-review.js";
 
 const PORT = 4815;
@@ -1301,7 +1301,7 @@ export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void
           // A coding session idle at its prompt ("Claude: waiting on your input") is never George's; one line, outcome first, for the rest.
           if (isIdleNotice(body.title, body.message)) { sendJson(res, 202, { delivered: 0, held: "idle session" }); return; }
           // Only what may reach him (lib/reaches-george.ts): a fault or staff silence is Flyd's own, whoever sent it.
-          const kind = typeof body.kind === "string" && GEORGE_KINDS.has(body.kind) ? body.kind as GeorgeKind : "deliverable";
+          const kind = typeof body.kind === "string" && GEORGE_KINDS.has(body.kind) ? body.kind as GeorgeKind : untaggedKind(body.message);
           const gated = reachesGeorge({ kind, text: body.message }, "notification");
           if (!gated.reach) {
             recordKept("notify", gated, body.message);

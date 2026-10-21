@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { plainLine, reachesGeorge, REACHES_HIM } from "../reaches-george.js";
+import { plainLine, reachesGeorge, REACHES_HIM, untaggedKind } from "../reaches-george.js";
 import { DEFAULT_SOUL } from "../soul.js";
 
 // What George saw on 2026-10-18, under "Good news, sir.".
@@ -50,6 +50,16 @@ describe("the gate", () => {
     expect(plainLine("Dark mode is merged (with a test).")).toBe("Dark mode is merged (with a test).");
     expect(plainLine("Fixed the /api/status 500 and the and/or check")).toBe("Fixed the /api/status 500 and the and/or check");
     expect(plainLine("Wrote /Users/george/notes/today and …/bin/fm-inbox.sh and /docs/product/plan.md")).toBe("Wrote today and fm-inbox.sh and plan.md");
+  });
+
+  it("holds an untagged post that reports Flyd's own failure, and takes any other untagged post as finished work", () => {
+    // The exact probe posted to Core's /notify with no kind.
+    const probe = "Good news, sir. I couldn't read firstmate's fleet just now (Command failed: …/fm-bearings-snapshot.sh --json)";
+    expect(reachesGeorge({ kind: untaggedKind(probe), text: probe }, "notification")).toEqual({ reach: false, kind: "fault", handle: "repair" });
+    expect(untaggedKind("Command failed: npm test")).toBe("fault");
+    expect(untaggedKind("I was unable to open the draft.")).toBe("fault");
+    const done = "The GNM page is live.";
+    expect(reachesGeorge({ kind: untaggedKind(done), text: done }, "notification")).toEqual({ reach: true, kind: "deliverable", line: done });
   });
 
   it("holds a line that is nothing but machinery as a fault", () => {
