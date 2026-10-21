@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import type { Shortfall } from "../council/chief-of-staff.js";
-import { firstBackstage, withoutLinkIds } from "../lib/backstage.js";
+import { CHAT_ANSWER_BACKSTAGE, firstBackstage, firstMatch, withoutLinkIds } from "../lib/backstage.js";
 import { isPlaceholderStatus } from "../conversation-view/status-text.js";
 
 // A last look before an answer reaches George: does it claim work that no
@@ -107,7 +107,7 @@ const SLOP = /\b(?:stings?|lonely|the silence|a verdict|in the room|into the (?:
 
 export function styleProblems(answer: string): string[] {
   const problems: string[] = [];
-  const backstage = firstBackstage(answer);
+  const backstage = firstMatch(answer, CHAT_ANSWER_BACKSTAGE);
   if (backstage) problems.push(`It names your own backstage ("${backstage}"). Speak as yourself: say what you're doing, not who inside you is doing it.`);
   const phrase = answer.match(SLOP);
   if (phrase) problems.push(`It uses stock phrasing ("${phrase[0]}"). Say the literal, specific thing instead, in plain words.`);
