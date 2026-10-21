@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
+import { semanticObjectFromShow } from "../semantic.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
@@ -643,6 +644,20 @@ describe("ArtefactFeed", () => {
     expect(after[asked]).toMatchObject({ kind: "clear", headline: before[asked]!.headline, detail: "Settled, nothing needed." });
     expect(after[asked]!.decision).toBeUndefined();
     expect(after.some((item) => item.kind === "call")).toBe(false);
+  });
+
+  it("keeps a settled call in its place among open calls, past the open-call limit, as resolved work", () => {
+    const call = (task: string, at: string, ledgerOnly = false) => ({ label: `Call ${task}`, task, at, choices: ["Red", "Blue"], ...(ledgerOnly ? { ledgerOnly } : {}) });
+    const open = ["b", "c", "d"].map((task, index) => call(task, `2026-10-2${index}T00:00:00Z`));
+    const inputs = (calls: ReturnType<typeof call>[]) => ({ memories: [], news: [], taste: [], fleet: { calls, live: [], ready: [], landed: [], held: [], next: [] } });
+    const before = composeArtefact(inputs([...open, call("a", "2026-10-23T00:00:00Z")]));
+    const after = composeArtefact(inputs([...open, call("e", "2026-10-18T00:00:00Z"), call("a", "2026-10-23T00:00:00Z", true)]));
+    expect(before.map((item) => item.id)).toEqual(["call:call-a", "call:call-d", "call:call-c", "call:call-b"]);
+    expect(after.map((item) => item.id)).toEqual(["call:call-a", "call:call-d", "call:call-c", "call:call-b", "call:call-e"]);
+    const settled = after.find((item) => item.id === "call:call-a")!;
+    expect(settled).toMatchObject({ kind: "clear", detail: "Settled, nothing needed." });
+    expect(settled.decision).toBeUndefined();
+    expect(semanticObjectFromShow(settled)).toMatchObject({ lifecycle: "resolved", activity: { phase: "finished" }, actions: [] });
   });
 
   it("keeps an actionable call on screen after a failed read", async () => {

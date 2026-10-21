@@ -143,7 +143,7 @@ function activityPhaseFor(item: ShowItem): SemanticObject["activity"] | undefine
     item.kind === "call" ? "needs_you"
     : item.kind === "waiting" ? "paused"
     : item.kind === "ready" ? "ready"
-    : item.kind === "landed" ? "finished"
+    : item.kind === "landed" || item.kind === "clear" ? "finished"
     : item.kind === "next" ? "queued"
     : "working";
   return { phase, ...(item.started ? { started: item.started } : {}) };

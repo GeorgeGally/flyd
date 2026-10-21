@@ -592,11 +592,17 @@ function rowMovedAt(row: ArtefactRow): number {
 
 /** The rows of one kind the artefact shows, this read's rows first and newest of them leading. Pure. */
 export function shownRows(list: ArtefactRow[] | undefined, limit: number): ArtefactRow[] {
-  return [...(list ?? [])].sort((a, b) =>
-    (a.ledgerOnly ? 1 : 0) - (b.ledgerOnly ? 1 : 0)
-    || rowMovedAt(b) - rowMovedAt(a)
-    || (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0),
-  ).slice(0, limit);
+  return [...(list ?? [])].sort((a, b) => (a.ledgerOnly ? 1 : 0) - (b.ledgerOnly ? 1 : 0) || newestFirst(a, b)).slice(0, limit);
+}
+
+function newestFirst(a: ArtefactRow, b: ArtefactRow): number {
+  return rowMovedAt(b) - rowMovedAt(a) || (b.shots?.length ? 1 : 0) - (a.shots?.length ? 1 : 0);
+}
+
+/** The calls the artefact shows, newest first: up to its limit of open ones, and every settled one in its own place. Pure. */
+function shownCalls(list: ArtefactRow[] | undefined): ArtefactRow[] {
+  const open = new Set(shownRows(list?.filter((row) => !row.ledgerOnly), ARTEFACT_LIMITS.call));
+  return [...(list ?? [])].sort(newestFirst).filter((row) => row.ledgerOnly || open.has(row));
 }
 
 /** How many of each kind the fleet holds, before the artefact's limits. Pure. */
@@ -773,7 +779,7 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
     items.push({ ...settled, kind: "clear", detail: SETTLED_CALL });
   };
   const rowsOf = (kind: keyof typeof ARTEFACT_LIMITS, list: ArtefactRow[] | undefined): void => {
-    shownRows(list, ARTEFACT_LIMITS[kind]).forEach((row, index) => fromRow(row.status === "report available" ? "news" : kind, `${kind}-${row.task ?? index}`, row));
+    (kind === "call" ? shownCalls(list) : shownRows(list, ARTEFACT_LIMITS[kind])).forEach((row, index) => fromRow(row.status === "report available" ? "news" : kind, `${kind}-${row.task ?? index}`, row));
   };
 
   const fleet = inputs.fleet;
