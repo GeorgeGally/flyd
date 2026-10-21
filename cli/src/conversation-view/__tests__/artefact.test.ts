@@ -329,9 +329,9 @@ describe("composeArtefact", () => {
     expect(withFleet.map((item) => item.why)).toContain("from your memory");
   });
 
-  it("keeps an unreadable fleet snapshot off his screen: the fault is Flyd's to repair", () => {
+  it("keeps an unreadable fleet snapshot off his screen without inventing a fallback card", () => {
     const items = composeArtefact({ fleet: { unavailable: "Command failed: /Users/george/Documents/firstmate/bin/fm-bearings-snapshot.sh --json", calls: [], live: [], ready: [], landed: [], held: [], next: [] }, memories: ["George wants Bloom finished."], news: [], taste: [] });
-    expect(items.map((item) => item.headline)).toEqual(["George wants Bloom finished."]);
+    expect(items).toEqual([]);
   });
 
   it("passes every item through the gate by its kind: his calls and paused work stay, failed and silent work go", () => {

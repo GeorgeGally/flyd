@@ -832,8 +832,6 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   const fleet = inputs.fleet;
   // Unlinked WhatsApp leads: it is one step only he can take, and it goes the moment it is done.
   if (inputs.whatsappLink) add("news", WHATSAPP_LINK.id, WHATSAPP_LINK.title, "only you can link it", { detail: WHATSAPP_LINK.line, links: [{ label: "Open the code", url: WHATSAPP_LINK.url }] });
-  // An unreadable snapshot is Flyd's to repair: the gate keeps it off his screen.
-  if (fleet?.unavailable) add("news", "fleet-unavailable", `Firstmate's fleet snapshot is unreadable: ${fleet.unavailable}.`, "fleet status unknown", {}, "fault");
   rowsOf("call", fleet?.calls);
   rowsOf("live", fleet?.live);
   rowsOf("ready", fleet?.ready);

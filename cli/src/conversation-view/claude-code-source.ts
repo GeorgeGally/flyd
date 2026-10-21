@@ -301,7 +301,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       const brief = command ? undefined : await this.desk.brief?.(text, this.latest.get(sessionId) ?? []).catch(() => undefined);
       try {
         const sent = await this.inbox.send(text, images, command?.name, files, brief);
-        this.desk.desk.routed(text, sessionId, sent.timestamp);
+        this.desk.desk.routed?.(text, sessionId, sent.timestamp);
         return { ...sent, waiting: handoffLine("queued", { text: ownWords(text), projects: projectNames() }) };
       } catch (error) {
         // Firstmate is backstage in Flyd's window: its refusal goes to the log, not to him.
