@@ -121,6 +121,8 @@ interface LedgerEntry {
   row: ArtefactRow;
   seenAt: number;
   ledgerOnly?: boolean;
+  /** A call that was put to him as a decision: only such a call stays on as settled once it goes. */
+  asked?: boolean;
 }
 
 /** An artefact's stable name: its task, else its words, so the same work keeps the same place on screen. */
@@ -373,12 +375,17 @@ export function statusNote(line: string): string {
 /** Holds that ask him to read or remember something rather than to decide. */
 const NOT_A_DECISION = /\bready to read\b|\(report \+ artefact\)|(?:^|:\s)Read:|^Remind (?:the )?captain\b/i;
 
+/** Whether a hold asks him to read or remember something rather than to decide. Pure. */
+function notADecision(row: ArtefactRow): boolean {
+  return NOT_A_DECISION.test(row.label) || Boolean(row.detail && NOT_A_DECISION.test(row.detail));
+}
+
 /** A hold nobody has touched for this long, with nothing to answer, is no longer a call. */
 export const STALE_CALL_MS = 3 * 24 * 60 * 60 * 1000;
 
 /** Whether a hold is a decision still waiting on him: not a read-me or reminder, and not an old hold with no question to answer. Pure. */
 export function isCurrentDecision(row: ArtefactRow, now: number): boolean {
-  if (NOT_A_DECISION.test(row.label) || (row.detail && NOT_A_DECISION.test(row.detail))) return false;
+  if (notADecision(row)) return false;
   if (row.choices?.length) return true;
   const touched = row.at ? Date.parse(row.at) : Number.NaN;
   return !Number.isNaN(touched) && now - touched <= STALE_CALL_MS;
@@ -418,7 +425,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
   if (fleet.unavailable) return fleet;
   return {
     ...fleet,
-    calls: fleet.calls.map((row) => enrich(row, true)).filter((row) => row.ledgerOnly || isCurrentDecision(row, now)),
+    calls: fleet.calls.map((row) => enrich(row, true)).filter((row) => (row.ledgerOnly ? !notADecision(row) : isCurrentDecision(row, now))),
     live: fleet.live.map((row) => enrich(row)),
     ready: fleet.ready.map((row) => enrich(row)),
     landed: fleet.landed.map((row) => enrich(row)),
@@ -1022,12 +1029,12 @@ export class ArtefactFeed {
     try {
       const stored = JSON.parse(readFileSync(this.ledgerPath(), "utf8")) as { rows?: unknown };
       for (const raw of Array.isArray(stored.rows) ? stored.rows : []) {
-        const entry = raw as { field?: unknown; seenAt?: unknown; row?: unknown; ledgerOnly?: unknown };
+        const entry = raw as { field?: unknown; seenAt?: unknown; row?: unknown; ledgerOnly?: unknown; asked?: unknown };
         const field = str(entry.field) as FleetField;
         const row = entry.row as ArtefactRow;
         if (!FLEET_FIELDS.includes(field) || !row || typeof row !== "object" || !row.label) continue;
         const key = artefactKey(row);
-        if (key) this.ledger.set(key, { field, row, seenAt: Number(entry.seenAt) || 0, ledgerOnly: entry.ledgerOnly === true });
+        if (key) this.ledger.set(key, { field, row, seenAt: Number(entry.seenAt) || 0, ledgerOnly: entry.ledgerOnly === true, asked: entry.asked === true });
       }
     } catch {
       // No list yet, or an unreadable one: start empty rather than fail the screen.
@@ -1055,11 +1062,11 @@ export class ArtefactFeed {
     for (const field of FLEET_FIELDS) {
       for (const row of incoming[field]) {
         const key = artefactKey(row);
-        if (key && !merged.has(key)) merged.set(key, { field, row, seenAt: now, ledgerOnly: false });
+        if (key && !merged.has(key)) merged.set(key, { field, row, seenAt: now, ledgerOnly: false, asked: this.ledger.get(key)?.asked === true });
       }
     }
     for (const [key, entry] of this.ledger) {
-      if (merged.has(key)) continue;
+      if (merged.has(key) || (prune && entry.field === "calls" && !entry.asked)) continue;
       merged.set(key, { ...entry, ...(prune ? { ledgerOnly: true } : {}) });
     }
     if (prune) for (const [key, entry] of merged) if (now - entry.seenAt > LEDGER_KEEP_MS) merged.delete(key);
@@ -1165,9 +1172,13 @@ export class ArtefactFeed {
       // The screen is an accumulating list, persisted: a refresh adds or updates rows, and a read that fails drops nothing.
       this.loadLedger();
       const merged = this.mergeLedger(withRecent, Date.now(), !bearings.unavailable);
-      this.saveLedger();
       const content = bearings.unavailable && !FLEET_FIELDS.some((field) => merged[field].length) ? FLEET_UNAVAILABLE("unreadable") : merged;
       const enriched = await this.withoutOvertaken(enrichFleet(content, entries, extras), entries);
+      for (const row of enriched.calls) {
+        const entry = row.ledgerOnly ? undefined : this.ledger.get(artefactKey(row) ?? "");
+        if (entry) entry.asked = true;
+      }
+      this.saveLedger();
       const voice = this.options.voice;
       const generation = ++this.generation;
       const { fleet, unsaid } = voice ? this.voiced(voice, enriched) : { fleet: enriched, unsaid: [] };
@@ -1211,7 +1222,13 @@ export class ArtefactFeed {
     }));
     const closed = new Set<ArtefactRow>();
     calls.forEach(({ row }, index) => { if (verdicts[index]) closed.add(row); });
-    return { ...fleet, calls: fleet.calls.map((row) => (closed.has(row) ? { ...row, ledgerOnly: true } : row)) };
+    return {
+      ...fleet,
+      calls: fleet.calls.flatMap((row) => {
+        if (!closed.has(row)) return [row];
+        return this.ledger.get(artefactKey(row) ?? "")?.asked ? [{ ...row, ledgerOnly: true }] : [];
+      }),
+    };
   }
 
   /**

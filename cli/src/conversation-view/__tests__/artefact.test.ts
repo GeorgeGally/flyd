@@ -666,6 +666,31 @@ describe("ArtefactFeed", () => {
     expect(composeArtefact(feed.current()).find((item) => item.id === "call:call-x")).toMatchObject({ kind: "clear", detail: "Settled, nothing needed." });
   });
 
+  it("never shows a settled card for a call that was not put to George", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-unasked-call-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "r", summary: "Read the auth report" }, { id: "s", summary: "Old question" }, { id: "x", summary: "Pick one" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), [
+      "- [ ] r - Read the auth report (hold: Read: the auth report (report + artefact))",
+      "- [ ] s - Old question",
+      "- [ ] x - Pick one (hold: Choose a color: 1 Red, 2 Blue)",
+      "",
+    ].join("\n"));
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(composeArtefact(feed.current()).map((item) => item.id)).toEqual(["call:call-x"]);
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [] }));
+    await feed.refresh();
+    expect(composeArtefact(feed.current()).map((item) => [item.id, item.kind])).toEqual([["call:call-x", "clear"]]);
+    const restarted = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await restarted.refresh();
+    expect(composeArtefact(restarted.current()).map((item) => [item.id, item.kind])).toEqual([["call:call-x", "clear"]]);
+  });
+
   it("keeps a settled call in its place among open calls, past the open-call limit, as resolved work", () => {
     const call = (task: string, at: string, ledgerOnly = false) => ({ label: `Call ${task}`, task, at, choices: ["Red", "Blue"], ...(ledgerOnly ? { ledgerOnly } : {}) });
     const open = ["b", "c", "d"].map((task, index) => call(task, `2026-10-2${index}T00:00:00Z`));
