@@ -283,7 +283,7 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
   const done: ActivityItem[] = [];
   for (const [key, record] of latest) {
     const stories = recordStories(record.stories);
-    if (stories.length && localDay(new Date(record.at)) !== localDay(new Date(now))) continue;
+    if (Array.isArray(record.stories) && record.stories.length && localDay(new Date(record.at)) !== localDay(new Date(now))) continue;
     const line = plainLine(record.line);
     const detail = stories.length ? undefined : detailBehind(record.line, line);
     const item: ActivityItem = { id: `record:${key}`, kind: record.kind, title: record.title.trim(), ...(line ? { line } : {}), ...(detail ? { detail } : {}), ...(stories.length ? { stories } : {}), at: record.at };

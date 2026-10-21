@@ -10,30 +10,30 @@ const sandbox = mkdtempSync(join(tmpdir(), "flyd-test-home-"));
 // projection stores, directives) follows FLYD_DIR. It is forced, not defaulted:
 // an inherited FLYD_DIR from a running Core must not point tests at live data.
 process.env.FLYD_DIR = join(sandbox, "flyd-home");
-process.env.FLYD_USER_PROFILE ??= join(sandbox, "USER.md");
-process.env.FLYD_MEMORY_DIR ??= join(sandbox, "memory-home");
-process.env.FLYD_JOURNAL_DIR ??= join(sandbox, "journal");
-process.env.FLYD_COUNCIL_DIR ??= join(sandbox, "council");
-process.env.FLYD_ADVISORIES_PATH ??= join(sandbox, "council", "advisories.jsonl");
-process.env.FLYD_LIBRARIAN_STATE ??= join(sandbox, "council", "librarian-state.json");
-process.env.FLYD_AGENDA_DIR ??= join(sandbox, "agenda");
+process.env.FLYD_USER_PROFILE = join(sandbox, "USER.md");
+process.env.FLYD_MEMORY_DIR = join(sandbox, "memory-home");
+process.env.FLYD_JOURNAL_DIR = join(sandbox, "journal");
+process.env.FLYD_COUNCIL_DIR = join(sandbox, "council");
+process.env.FLYD_ADVISORIES_PATH = join(sandbox, "council", "advisories.jsonl");
+process.env.FLYD_LIBRARIAN_STATE = join(sandbox, "council", "librarian-state.json");
+process.env.FLYD_AGENDA_DIR = join(sandbox, "agenda");
 process.env.FLYD_SCOUT_DIR = join(sandbox, "scout");
-process.env.FLYD_CREW_DIR ??= join(sandbox, "crew");
-process.env.FLYD_CREW_WORKTREES ??= join(sandbox, "worktrees");
-process.env.FLYD_SELF_IMPROVE_DIR ??= join(sandbox, "self-improve");
-process.env.FLYD_SELF_REVIEW_DIR ??= join(sandbox, "self-review");
-process.env.FLYD_COMMAND_DIR ??= join(sandbox, "command");
-process.env.FLYD_SOUL_PATH ??= join(sandbox, "SOUL.md");
-process.env.FLYD_INVESTIGATOR_DIR ??= join(sandbox, "investigator");
-process.env.FLYD_MORNING_PATH ??= join(sandbox, "morning.json");
-process.env.FLYD_PROJECTS_PATH ??= join(sandbox, "projects.json");
-process.env.FLYD_SKILLS_DIR ??= join(sandbox, "skills");
-process.env.FLYD_BACKGROUND_JOBS_DIR ??= join(sandbox, "jobs");
-process.env.FLYD_TASTE_FILE ??= join(sandbox, "TASTE.md");
-process.env.FLYD_TASTE_STATE ??= join(sandbox, "taste-state.json");
-process.env.FLYD_CLAUDE_PROJECTS ??= join(sandbox, "claude-projects");
+process.env.FLYD_CREW_DIR = join(sandbox, "crew");
+process.env.FLYD_CREW_WORKTREES = join(sandbox, "worktrees");
+process.env.FLYD_SELF_IMPROVE_DIR = join(sandbox, "self-improve");
+process.env.FLYD_SELF_REVIEW_DIR = join(sandbox, "self-review");
+process.env.FLYD_COMMAND_DIR = join(sandbox, "command");
+process.env.FLYD_SOUL_PATH = join(sandbox, "SOUL.md");
+process.env.FLYD_INVESTIGATOR_DIR = join(sandbox, "investigator");
+process.env.FLYD_MORNING_PATH = join(sandbox, "morning.json");
+process.env.FLYD_PROJECTS_PATH = join(sandbox, "projects.json");
+process.env.FLYD_SKILLS_DIR = join(sandbox, "skills");
+process.env.FLYD_BACKGROUND_JOBS_DIR = join(sandbox, "jobs");
+process.env.FLYD_TASTE_FILE = join(sandbox, "TASTE.md");
+process.env.FLYD_TASTE_STATE = join(sandbox, "taste-state.json");
+process.env.FLYD_CLAUDE_PROJECTS = join(sandbox, "claude-projects");
 process.env.FLYD_INVESTIGATOR ??= "0";
-process.env.FLYD_CLAUDE_SPEND_FILE ??= join(sandbox, "claude-spend.json");
+process.env.FLYD_CLAUDE_SPEND_FILE = join(sandbox, "claude-spend.json");
 // A developer's own Anthropic key must not turn hermetic tests into live Claude calls.
 process.env.FLYD_CLAUDE ??= "0";
 // Self-improvement dispatches real crew work; tests opt in explicitly.
@@ -43,7 +43,7 @@ process.env.FLYD_OPENCODE_PATH = "/usr/bin/false";
 // The firstmate bridge must never run George's real fm-inbox.sh from a test.
 process.env.FLYD_FIRSTMATE_HOME = join(sandbox, "firstmate");
 
-process.env.FLYD_CONNECTOR_DIR ??= join(sandbox, "connectors");
-process.env.FLYD_ROUTINES_DB ??= join(sandbox, "routines.sqlite");
+process.env.FLYD_CONNECTOR_DIR = join(sandbox, "connectors");
+process.env.FLYD_ROUTINES_DB = join(sandbox, "routines.sqlite");
 
-process.env.FLYD_INITIATIVE_DB ??= join(sandbox, "initiative.sqlite");
+process.env.FLYD_INITIATIVE_DB = join(sandbox, "initiative.sqlite");
