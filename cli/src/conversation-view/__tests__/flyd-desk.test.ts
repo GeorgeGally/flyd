@@ -536,6 +536,35 @@ esac
     expect(messages.map((message) => message.text).join("\n")).not.toMatch(/captain/i);
   });
 
+  it.each([
+    ["2026-10-05T18:01:00Z", false],
+    ["2026-10-05T18:03:00Z", false],
+    ["2026-10-05T18:01:00Z", true],
+    ["2026-10-05T18:03:00Z", true],
+  ])("shows one answer when the formal reply is repeated at %s with note association %s", async (chatAt, tagged) => {
+    const { source, home } = setup("FIRSTMATE");
+    const id = "1791516064-ZGKFlI";
+    const reply = "Captain, the conversation view is fixed and verified.";
+    const unrelated = "Captain, the settings screen still needs your decision.";
+    mkdirSync(join(home, "state", "inbox", "handled"), { recursive: true });
+    mkdirSync(join(home, "state", "inbox", ".replies"), { recursive: true });
+    writeFileSync(join(home, "state", "inbox", "handled", `${id}.note`), `id=${id}\nat=2026-10-05T18:00:00Z\n--\nDid you fix the conversation view?\n`);
+    writeFileSync(join(home, "state", "inbox", ".replies", id), `id=${id}\nat=2026-10-05T18:02:00Z\nseq=1\n--\n${reply}\n`);
+    const transcript = join(dir, "project", "s1.jsonl");
+    writeFileSync(transcript, [
+      captain("status?", { timestamp: "2026-10-05T17:59:00Z" }),
+      ...(tagged ? [toolUse("Bash", { command: `cat state/inbox/handled/${id}.note` })] : []),
+      assistantText(reply, "end_turn", { timestamp: chatAt }),
+      captain("and settings?", { timestamp: "2026-10-05T18:04:00Z" }),
+      assistantText(unrelated, "end_turn", { timestamp: "2026-10-05T18:05:00Z" }),
+    ].join("\n") + "\n");
+
+    const messages = (await source.read("s1")).messages;
+    expect(messages.filter((message) => message.text === "Sir, the conversation view is fixed and verified."))
+      .toEqual([expect.objectContaining({ id: `note-reply:${id}`, answers: `note:${id}` })]);
+    expect(messages).toContainEqual(expect.objectContaining({ text: "Sir, the settings screen still needs your decision.", aside: true }));
+  });
+
   it("shows each note followed by firstmate's own reply, written by fm-inbox.sh reply", async () => {
     const { source, home } = setup("FIRSTMATE");
     const answered = await source.send("s1", "push the island redesign");

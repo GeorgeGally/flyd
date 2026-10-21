@@ -239,6 +239,17 @@ describe("mergeNotes", () => {
     expect(merged.map((m) => m.id)).toEqual(["u1", "mid", "r1", "late"]);
   });
 
+  it("keeps matching text from before the question, another note, or a plain transcript", () => {
+    const text = "The conversation view fix is complete and verified.";
+    const question = { id: "note:current", role: "user" as const, text: "Fix the conversation view", timestamp: "2026-10-05T20:00:00Z" };
+    const answer = { id: "note-reply:current", role: "assistant" as const, text, answers: question.id, timestamp: "2026-10-05T20:02:00Z" };
+    const earlier = { id: "earlier", role: "assistant" as const, text, timestamp: "2026-10-05T19:59:00Z", aside: true };
+    const other = { ...earlier, id: "other", timestamp: "2026-10-05T20:01:00Z", notes: ["another-note"] };
+    const plain = { ...other, id: "plain", aside: false, notes: ["current"] };
+    expect(mergeNotes([earlier, other, plain], [{ question, answer, waiting: "" }], {}).map((message) => message.id))
+      .toEqual(["earlier", "note:current", "note-reply:current", "other", "plain"]);
+  });
+
   it("compares times, not strings of different precision", () => {
     expect(mergeNotes(messages, [note("same-second", "2026-10-05T20:00:00Z")], {}).map((m) => m.id)).toEqual(["same-second", "u1", "r1"]);
   });
