@@ -100,7 +100,11 @@ authoritative path. This change does not rewrite historical private entries.
     whole when it fits in 140 characters; a longer one keeps only its first
     sentence that says something, cut at 140 characters. One that only says work is
     happening is not shown. A coding session's own idle prompt ("Claude is
-    waiting for your input") is dropped unrecorded (`isIdleNotice`).
+    waiting for your input") is dropped unrecorded (`isIdleNotice`). One
+    that names backstage machinery (`relayShortfalls`) is not shown, and a
+    title that does becomes "Flyd"; when the held message asked him to
+    decide, he hears instead that his decision is needed on the named work
+    (`deliverNotification` in `cli/src/runtime/agenda.ts`).
   - A domain run that asks George for an implementation call goes back to its
     boss, marked as Flyd's own note (not George's wording, no new authority),
     to settle it and report the outcome. Only FirstMate, which replies, is
