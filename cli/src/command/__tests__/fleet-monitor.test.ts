@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  ESCALATE_MS,
   LiveStaffSession,
   RENUDGE_MS,
   STALE_HANDOFF_MS,
@@ -175,7 +174,7 @@ describe("Flyd's watch on its coding staff", () => {
     }
   });
 
-  it("chases every six hours, and after two days unanswered tells George once, plainly, then stops chasing it", async () => {
+  it("keeps chasing a stall every six hours however long it stays stuck, never telling George", async () => {
     saveDomainRun(run(), dir);
     let now = T0 + STALE_HANDOFF_MS + MIN;
     const told: Array<{ message: string; kind?: string }> = [];
@@ -184,24 +183,17 @@ describe("Flyd's watch on its coding staff", () => {
     const watch = monitor(() => now, { notify: async (_title, message, kind?: string) => { told.push({ message, kind }); }, sendRun });
 
     await watch.tick();
-    now += RENUDGE_MS - MIN;
-    await watch.tick();
     expect(nudges).toBe(1);
 
-    now = T0 + ESCALATE_MS + MIN;
-    const view = await watch.tick();
-    expect(told).toEqual([{
-      message: "\"The footer link opens the partners page\" is blocked: it has been stuck for 2 days and the staff hasn't answered my check-ins. Tell me whether to restart it or drop it.",
-      kind: "blocker",
-    }]);
-    expect(view!.concerns[0]!.toldAt).toBe(new Date(now).toISOString());
-    expect(view!.concerns[0]!.text).toBe(told[0]!.message);
-    const chased = nudges;
-
-    now += 3 * RENUDGE_MS;
-    await watch.tick();
-    expect(nudges).toBe(chased);
-    expect(told).toHaveLength(1);
+    // Well past two days of silence: the chase never stops, and George is told nothing.
+    for (let i = 0; i < 11; i++) {
+      now += RENUDGE_MS;
+      const view = await watch.tick();
+      expect(view!.concerns[0]!.toldAt).toBeUndefined();
+    }
+    expect(nudges).toBe(12);
+    expect(told).toEqual([]);
+    expect(readStaffView({ file: staffFile(dir), now })?.concerns[0]?.toldAt).toBeUndefined();
   });
 
   it("drops a wait George was told about under the old rule, so its notice leaves the window", async () => {
@@ -217,9 +209,9 @@ describe("Flyd's watch on its coding staff", () => {
     expect(told).toEqual([]);
   });
 
-  it("does not give up on a stall it has only just started chasing, however old the stall is", async () => {
+  it("chases a stall that is already days old when Flyd first sees it, and tells George nothing", async () => {
     saveDomainRun(run(), dir);
-    let now = T0 + ESCALATE_MS + MIN;
+    const now = T0 + 10 * 24 * 60 * 60_000;
     const told: Array<{ message: string; kind?: string }> = [];
     let nudges = 0;
     const sendRun: typeof sendRunMessage = async () => { nudges += 1; return { delivered: true }; };
@@ -228,16 +220,6 @@ describe("Flyd's watch on its coding staff", () => {
     await watch.tick();
     expect(nudges).toBe(1);
     expect(told).toEqual([]);
-
-    now += RENUDGE_MS - MIN;
-    await watch.tick();
-    expect(nudges).toBe(1);
-    expect(told).toEqual([]);
-
-    now += MIN;
-    await watch.tick();
-    expect(told).toHaveLength(1);
-    expect(told[0]!.kind).toBe("blocker");
   });
 
   it("forgets a stall once the staff answers", async () => {

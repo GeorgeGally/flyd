@@ -15,10 +15,9 @@ import type { DomainRun } from "./types.js";
 // workers, decisions waiting on George, the queue), each worker's status log,
 // and Flyd's own handoffs. Stuck work is Flyd's to chase: a note to the staff,
 // and another every few hours while one goes unanswered, never a word to
-// George. He is told only when nobody is there to chase, or when a chase has
-// gone unanswered for two days (lib/reaches-george.ts: a blocker Flyd has run
-// out of moves on), once, and that thing is chased no more. Nothing here
-// writes into the FirstMate home except notes through its inbox.
+// George. He is told only when nobody is there to take the chase at all
+// (lib/reaches-george.ts: a blocker Flyd has run out of moves on), once.
+// Nothing here writes into the FirstMate home except notes through its inbox.
 
 /** A handoff with no word back this long gets a note asking where it stands. */
 export const STALE_HANDOFF_MS = 2 * 60 * 60_000;
@@ -26,8 +25,6 @@ export const STALE_HANDOFF_MS = 2 * 60 * 60_000;
 export const WORKER_WAIT_MS = 30 * 60_000;
 /** While a handoff stays quiet or a worker stays waiting, Flyd asks the staff again this often. */
 export const RENUDGE_MS = 6 * 60 * 60_000;
-/** Stuck this long, chased and still unanswered, it is a blocker Flyd has run out of moves on: George hears it once. */
-export const ESCALATE_MS = 48 * 60 * 60_000;
 /** The staff unreachable this long, with work open, is told to George. */
 export const UNREACHABLE_MS = 30 * 60_000;
 /** How often Core reads the staff's state. */
@@ -252,14 +249,9 @@ export function assessStaff(snapshot: StaffSnapshot, unreachableSince: string | 
   return concerns;
 }
 
-/** What a stuck thing is to George: nobody there to chase, or a chase he was told Flyd ran out of moves on, is a blocker; the rest is staff silence, Flyd's to chase. */
-export function concernKind(concern: Pick<StaffConcern, "kind" | "toldAt">): GeorgeKind {
-  return concern.kind === "unreachable" || concern.toldAt ? "blocker" : "silence";
-}
-
-/** A chase gone unanswered too long, as George hears it: what is stuck, what Flyd tried, the one thing needed. */
-function outOfMovesLine(concern: StaffConcern, now: number): string {
-  return `"${concern.subject}" is blocked: it has been stuck for ${waited(now - Date.parse(concern.since))} and the staff hasn't answered my check-ins. Tell me whether to restart it or drop it.`;
+/** What a stuck thing is to George: nobody there to take the chase is a blocker; the rest is staff silence, Flyd's to chase. */
+export function concernKind(concern: Pick<StaffConcern, "kind">): GeorgeKind {
+  return concern.kind === "unreachable" ? "blocker" : "silence";
 }
 
 /** One line per thing, for chat: what is under way, what is stuck, what waits on George. */
@@ -421,18 +413,15 @@ export class StaffMonitor {
       // Forget what is no longer stuck, so the records stay small.
       const live = new Set(concerns.map((concern) => concern.key));
       state.nudged = Object.fromEntries(Object.entries(state.nudged).filter(([key]) => live.has(key)));
-      // Only an outage or a two-day stall is ever told; a wait told under an older rule is not.
+      // Only an outage is ever told; anything recorded under an older rule is not.
       const byKey = new Map(concerns.map((concern) => [concern.key, concern]));
-      state.told = Object.fromEntries(Object.entries(state.told).filter(([key, at]) => {
-        const concern = byKey.get(key);
-        return concern !== undefined && (concern.kind === "unreachable" || Date.parse(at) - Date.parse(concern.since) >= ESCALATE_MS);
-      }));
+      state.told = Object.fromEntries(Object.entries(state.told).filter(([key]) => byKey.get(key)?.kind === "unreachable"));
       const view: StaffView = {
         snapshot,
         concerns: concerns.map((concern) => ({
           ...concern,
           ...(state.nudged[concern.key] ? { nudgedAt: state.nudged[concern.key] } : {}),
-          ...(state.told[concern.key] ? { toldAt: state.told[concern.key], ...(concern.subject ? { text: outOfMovesLine(concern, now) } : {}) } : {}),
+          ...(state.told[concern.key] ? { toldAt: state.told[concern.key] } : {}),
         })),
       };
       writeJsonAtomic(this.stateFile(), state);
@@ -446,12 +435,7 @@ export class StaffMonitor {
   private async act(concern: StaffConcern, state: MonitorState, nobodyThere: boolean, now: number): Promise<void> {
     if (state.told[concern.key]) return;
     const nudgedAt = state.nudged[concern.key];
-    // Chased, unanswered for a whole grace, and stuck two days: Flyd is out of moves,
-    // so he hears it once, and it is chased no more.
-    const outOfMoves = !nobodyThere && concern.subject && nudgedAt && now - Date.parse(concern.since) > ESCALATE_MS && now - Date.parse(nudgedAt) >= RENUDGE_MS;
-    const gated = outOfMoves
-      ? reachesGeorge({ kind: "blocker", text: outOfMovesLine(concern, now) }, "notification")
-      : reachesGeorge({ kind: concernKind(concern), text: concern.text }, "notification");
+    const gated = reachesGeorge({ kind: concernKind(concern), text: concern.text }, "notification");
     if (gated.reach) {
       const notify = this.options.notify ?? (await import("../runtime/agenda.js")).notifyMac;
       await notify("Flyd", gated.line, gated.kind).catch(() => undefined);

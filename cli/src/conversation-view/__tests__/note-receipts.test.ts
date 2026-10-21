@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { UNREAD_AFTER_MS, UNREAD_CHASE_MS, UNREAD_GIVE_UP_MS, UnreadNoteWatcher, unreadNotes, waited } from "../note-receipts.js";
+import { UNREAD_AFTER_MS, UNREAD_CHASE_MS, UnreadNoteWatcher, unreadNotes, waited } from "../note-receipts.js";
 import { deliverNotification } from "../../runtime/agenda.js";
-import { ESCALATE_MS, RENUDGE_MS } from "../../command/fleet-monitor.js";
+import { RENUDGE_MS } from "../../command/fleet-monitor.js";
 import type { GeorgeKind } from "../../lib/reaches-george.js";
 import type { Exchange } from "../types.js";
 
@@ -59,9 +59,8 @@ describe("waited", () => {
 });
 
 describe("UnreadNoteWatcher", () => {
-  it("chases and gives up on the staff chase's own cadence", () => {
+  it("chases on the staff chase's own cadence", () => {
     expect(UNREAD_CHASE_MS).toBe(RENUDGE_MS);
-    expect(UNREAD_GIVE_UP_MS).toBe(ESCALATE_MS);
   });
 
   it("chases firstmate, quietly, when a note crosses into unread, and again for a newly unread one", async () => {
@@ -106,96 +105,72 @@ describe("UnreadNoteWatcher", () => {
     expect(chase).toHaveBeenCalledTimes(2);
   });
 
-  it("chases the staff first, then tells George once when the chase is two days unanswered, and no more", async () => {
-    let exchanges = [note("a", UNREAD_GIVE_UP_MS + 60 * 60_000, "sent")];
+  it("keeps chasing a note that stays unread for days, never giving up on it", async () => {
+    const exchanges = [note("a", 60 * 60_000, "sent")];
     const chase = vi.fn(async () => {});
-    const notify = vi.fn(async () => {});
     let now = NOW;
-    const watcher = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify);
-    // First sight of a note already two days unread: the staff is chased, not George.
+    const watcher = new UnreadNoteWatcher(() => exchanges, chase, () => now);
+
     expect(await watcher.check()).toBe(true);
     expect(chase).toHaveBeenCalledTimes(1);
-    expect(notify).not.toHaveBeenCalled();
 
-    // The grace has not passed: neither further chase nor word to George.
-    now += UNREAD_CHASE_MS - 1;
+    // However long it stays unread, well past any give-up window: chased again each grace.
+    for (let i = 0; i < 12; i++) {
+      now += UNREAD_CHASE_MS;
+      expect(await watcher.check()).toBe(true);
+    }
+    expect(chase).toHaveBeenCalledTimes(13);
+
+    // Read at last: the state clears, and nothing more is sent.
+    exchanges.length = 0;
+    exchanges.push(note("a", 80 * 60_000, "read"));
     expect(await watcher.check()).toBe(false);
-    expect(notify).not.toHaveBeenCalled();
-
-    // Grace passed, still unread: George hears it once, in plain words.
-    now += 1;
-    expect(await watcher.check()).toBe(true);
-    expect(notify).toHaveBeenCalledTimes(1);
-    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("sat unread for 2 days"), "blocker");
-    expect(chase).toHaveBeenCalledTimes(1);
-
-    // Nothing more, however long the note stays unread.
-    now += 10 * UNREAD_CHASE_MS;
-    expect(await watcher.check()).toBe(false);
-    expect(chase).toHaveBeenCalledTimes(1);
-    expect(notify).toHaveBeenCalledTimes(1);
-
-    // Read at last: the state clears, and a fresh note starts a fresh chase.
-    exchanges = [note("b", 5 * 60_000, "sent")];
-    expect(await watcher.check()).toBe(true);
-    expect(chase).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps chasing a later note once George has been told about an older one", async () => {
-    let exchanges = [note("a", UNREAD_GIVE_UP_MS + 60 * 60_000, "sent")];
+  it("chases a later note alongside an older one, each chase its own note", async () => {
+    const exchanges = [note("a", 60 * 60_000, "sent")];
     const chase = vi.fn(async (_note: string) => {});
-    const notify = vi.fn(async () => {});
     let now = NOW;
-    const watcher = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify);
+    const watcher = new UnreadNoteWatcher(() => exchanges, chase, () => now);
     expect(await watcher.check()).toBe(true);
     now += UNREAD_CHASE_MS;
-    expect(await watcher.check()).toBe(true);
-    expect(notify).toHaveBeenCalledTimes(1);
-
-    // A new note, still unread past the grace: it is chased, and the told note is not named again.
-    exchanges = [...exchanges, { ...note("b", 0, "sent"), question: { ...note("b", 0, "sent").question, timestamp: new Date(now - 10 * 60_000).toISOString() } }];
+    exchanges.push({ ...note("b", 0, "sent"), question: { ...note("b", 0, "sent").question, timestamp: new Date(now - 10 * 60_000).toISOString() } });
     expect(await watcher.check()).toBe(true);
     expect(chase).toHaveBeenCalledTimes(2);
+    expect(chase.mock.calls[1]![0]).toContain("note:a");
     expect(chase.mock.calls[1]![0]).toContain("note:b");
-    expect(chase.mock.calls[1]![0]).not.toContain("note:a");
-    expect(notify).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps its chase across a restart: no early chase, and George is told only once", async () => {
+  it("keeps its chase across a restart, and records only chases, never a word to George", async () => {
     const dir = mkdtempSync(join(tmpdir(), "flyd-unread-chase-"));
     const stateFile = join(dir, "view", "unread-chase.json");
     try {
-      const exchanges = [note("a", UNREAD_GIVE_UP_MS + 60 * 60_000, "sent")];
+      const exchanges = [note("a", 60 * 60_000, "sent")];
       const chase = vi.fn(async () => {});
-      const notify = vi.fn(async () => {});
       let now = NOW;
-      const first = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify, stateFile);
+      const first = new UnreadNoteWatcher(() => exchanges, chase, () => now, stateFile);
       expect(await first.check()).toBe(true);
       expect(chase).toHaveBeenCalledTimes(1);
 
       // Restarted inside the grace: the chase is not sent again early.
       now += UNREAD_CHASE_MS - 1;
-      const second = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify, stateFile);
+      const second = new UnreadNoteWatcher(() => exchanges, chase, () => now, stateFile);
       expect(await second.check()).toBe(false);
       expect(chase).toHaveBeenCalledTimes(1);
 
       now += 1;
       expect(await second.check()).toBe(true);
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(chase).toHaveBeenCalledTimes(2);
 
-      // Restarted after George was told: nothing more, chase or word.
-      now += UNREAD_CHASE_MS;
-      const third = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify, stateFile);
-      expect(await third.check()).toBe(false);
-      expect(chase).toHaveBeenCalledTimes(1);
-      expect(notify).toHaveBeenCalledTimes(1);
+      // Only chases are kept: there is no record of telling George anything.
+      expect(Object.keys(JSON.parse(readFileSync(stateFile, "utf8")) as Record<string, unknown>)).toEqual(["chased"]);
 
       // Read at last: the record clears, so a later restart starts afresh.
-      const cleared = new UnreadNoteWatcher(() => [note("a", 60_000, "read")], chase, () => now, notify, stateFile);
+      const cleared = new UnreadNoteWatcher(() => [note("a", 60_000, "read")], chase, () => now, stateFile);
       expect(await cleared.check()).toBe(false);
-      const fresh = new UnreadNoteWatcher(() => exchanges, chase, () => now, notify, stateFile);
+      const fresh = new UnreadNoteWatcher(() => exchanges, chase, () => now, stateFile);
       expect(await fresh.check()).toBe(true);
-      expect(chase).toHaveBeenCalledTimes(2);
+      expect(chase).toHaveBeenCalledTimes(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

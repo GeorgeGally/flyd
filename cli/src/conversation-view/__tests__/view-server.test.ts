@@ -1295,7 +1295,6 @@ describe("ConversationViewServer", () => {
     server!.staffView = () => ({
       snapshot: { at: new Date().toISOString(), available: true, readiness: { lock: "free", liveHarness: false, heartbeat: "unknown", canReceive: false }, workers: [], waitingOnHim: [], queued: 0, handoffs: [] },
       concerns: [
-        { kind: "handoff_stale", since, key: "a", subject: "the footer", text: "\"the footer\" is blocked: it has been stuck for 2 days and the staff hasn't answered my check-ins. Tell me whether to restart it or drop it.", toldAt: since },
         { kind: "handoff_stale", since, key: "b", text: "Still being asked about.", nudgedAt: since },
         { kind: "unreachable", since, key: "c", text: "Nobody has been looking after your coding work for 45 min.", toldAt: since },
       ],
@@ -1313,7 +1312,7 @@ describe("ConversationViewServer", () => {
       req.end();
     });
     expect(JSON.parse(body.split("event: staff\ndata: ")[1]!.split("\n")[0]!)).toEqual({
-      text: "\"the footer\" is blocked: it has been stuck for 2 days and the staff hasn't answered my check-ins. Tell me whether to restart it or drop it. Nobody has been looking after your coding work for 45 min.",
+      text: "Nobody has been looking after your coding work for 45 min.",
     });
   });
 
