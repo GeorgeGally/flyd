@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -663,7 +663,49 @@ describe("ArtefactFeed", () => {
     await feed.refresh();
     const fleet = feed.current().fleet!;
     expect(fleetCounts(fleet).call).toBe(0);
-    expect(composeArtefact(feed.current()).find((item) => item.id === "call:call-x")).toMatchObject({ kind: "clear", detail: "Settled, nothing needed." });
+    expect(composeArtefact(feed.current()).find((item) => item.id === "call:call-x")).toMatchObject({ kind: "clear", headline: "Choose a color", detail: "Settled, nothing needed." });
+  });
+
+  it("keeps a settled call in place, in the words he saw, while its task carries on under another section", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-moved-call-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    mkdirSync(join(home, "state"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "y", summary: "Older call" }, { id: "x", summary: "Pick one" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), [
+      "- [ ] y - Older call (hold: Choose a size: 1 Small, 2 Large)",
+      "- [ ] x - Pick one (hold: Choose a color: 1 Red, 2 Blue)",
+      "",
+    ].join("\n"));
+    const status = join(home, "state", "x.status");
+    writeFileSync(join(home, "state", "y.status"), "waiting\n");
+    writeFileSync(status, "waiting\n");
+    utimesSync(join(home, "state", "y.status"), new Date("2026-10-20T00:00:00Z"), new Date("2026-10-20T00:00:00Z"));
+    utimesSync(status, new Date("2026-10-19T00:00:00Z"), new Date("2026-10-19T00:00:00Z"));
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    const before = composeArtefact(feed.current());
+    expect(before.map((item) => [item.id, item.headline])).toEqual([["call:call-y", "Choose a size"], ["call:call-x", "Choose a color"]]);
+
+    // He answers x: firstmate drops the call and its hold, and the worker carries on and reports.
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "y", summary: "Older call" }], in_flight: [{ id: "x", state: "working", name: "Painting it red", doing: "harness busy" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), [
+      "- [ ] y - Older call (hold: Choose a size: 1 Small, 2 Large)",
+      "- [ ] x - Paint it red",
+      "",
+    ].join("\n"));
+    writeFileSync(status, "waiting\npainting\n");
+    await feed.refresh();
+    const after = composeArtefact(feed.current());
+    const calls = after.filter((item) => item.id.startsWith("call:"));
+    expect(calls.map((item) => [item.id, item.kind, item.headline])).toEqual([
+      ["call:call-y", "call", "Choose a size"],
+      ["call:call-x", "clear", "Choose a color"],
+    ]);
+    expect(after.find((item) => item.id === "live:live-x")).toMatchObject({ kind: "live", task: "x" });
   });
 
   it("never shows a settled card for a call that was not put to George", async () => {

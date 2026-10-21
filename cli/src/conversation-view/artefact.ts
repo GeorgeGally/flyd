@@ -121,13 +121,19 @@ interface LedgerEntry {
   row: ArtefactRow;
   seenAt: number;
   ledgerOnly?: boolean;
-  /** A call that was put to him as a decision: only such a call stays on as settled once it goes. */
+  /** A call that was put to him as a decision: only such a call stays on as settled once it goes, in the words he last saw. */
   asked?: boolean;
 }
 
 /** An artefact's stable name: its task, else its words, so the same work keeps the same place on screen. */
 function artefactKey(row: ArtefactRow): string | undefined {
   return row.task ? `task:${row.task}` : row.label ? `label:${row.label}` : undefined;
+}
+
+/** A row's place in the list: a call keeps its own, apart from the work it is about, so it stays on once the work moves on. */
+function ledgerKey(field: FleetField, row: ArtefactRow): string | undefined {
+  const key = artefactKey(row);
+  return key && field === "calls" ? `call:${key}` : key;
 }
 
 /** How many of each kind the artefact shows; the section says how many more there are. */
@@ -425,7 +431,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
   if (fleet.unavailable) return fleet;
   return {
     ...fleet,
-    calls: fleet.calls.map((row) => enrich(row, true)).filter((row) => (row.ledgerOnly ? !notADecision(row) : isCurrentDecision(row, now))),
+    calls: fleet.calls.map((row) => (row.ledgerOnly ? row : enrich(row, true))).filter((row) => (row.ledgerOnly ? !notADecision(row) : isCurrentDecision(row, now))),
     live: fleet.live.map((row) => enrich(row)),
     ready: fleet.ready.map((row) => enrich(row)),
     landed: fleet.landed.map((row) => enrich(row)),
@@ -1033,7 +1039,7 @@ export class ArtefactFeed {
         const field = str(entry.field) as FleetField;
         const row = entry.row as ArtefactRow;
         if (!FLEET_FIELDS.includes(field) || !row || typeof row !== "object" || !row.label) continue;
-        const key = artefactKey(row);
+        const key = ledgerKey(field, row);
         if (key) this.ledger.set(key, { field, row, seenAt: Number(entry.seenAt) || 0, ledgerOnly: entry.ledgerOnly === true, asked: entry.asked === true });
       }
     } catch {
@@ -1059,14 +1065,17 @@ export class ArtefactFeed {
     // so a collision never drops a call; and this read's rows keep its own order, ahead of rows only
     // the list still holds, so a newly queued item is never pushed off by older entries.
     const merged = new Map<string, LedgerEntry>();
+    const reported = new Set<string>();
+    const reportedCall = (field: FleetField, row: ArtefactRow) => field !== "calls" && reported.has(ledgerKey("calls", row) ?? "");
     for (const field of FLEET_FIELDS) {
       for (const row of incoming[field]) {
-        const key = artefactKey(row);
-        if (key && !merged.has(key)) merged.set(key, { field, row, seenAt: now, ledgerOnly: false, asked: this.ledger.get(key)?.asked === true });
+        const key = ledgerKey(field, row);
+        if (key && !merged.has(key) && !reportedCall(field, row)) merged.set(key, { field, row, seenAt: now, ledgerOnly: false, asked: this.ledger.get(key)?.asked === true });
       }
+      if (field === "calls") for (const key of merged.keys()) reported.add(key);
     }
     for (const [key, entry] of this.ledger) {
-      if (merged.has(key) || (prune && entry.field === "calls" && !entry.asked)) continue;
+      if (merged.has(key) || reportedCall(entry.field, entry.row) || (prune && entry.field === "calls" && !entry.asked)) continue;
       merged.set(key, { ...entry, ...(prune ? { ledgerOnly: true } : {}) });
     }
     if (prune) for (const [key, entry] of merged) if (now - entry.seenAt > LEDGER_KEEP_MS) merged.delete(key);
@@ -1175,8 +1184,8 @@ export class ArtefactFeed {
       const content = bearings.unavailable && !FLEET_FIELDS.some((field) => merged[field].length) ? FLEET_UNAVAILABLE("unreadable") : merged;
       const enriched = await this.withoutOvertaken(enrichFleet(content, entries, extras), entries);
       for (const row of enriched.calls) {
-        const entry = row.ledgerOnly ? undefined : this.ledger.get(artefactKey(row) ?? "");
-        if (entry) entry.asked = true;
+        const entry = row.ledgerOnly ? undefined : this.ledger.get(ledgerKey("calls", row) ?? "");
+        if (entry) Object.assign(entry, { asked: true, row });
       }
       this.saveLedger();
       const voice = this.options.voice;
@@ -1226,7 +1235,7 @@ export class ArtefactFeed {
       ...fleet,
       calls: fleet.calls.flatMap((row) => {
         if (!closed.has(row)) return [row];
-        return this.ledger.get(artefactKey(row) ?? "")?.asked ? [{ ...row, ledgerOnly: true }] : [];
+        return this.ledger.get(ledgerKey("calls", row) ?? "")?.asked ? [{ ...row, ledgerOnly: true }] : [];
       }),
     };
   }
