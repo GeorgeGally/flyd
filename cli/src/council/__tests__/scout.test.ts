@@ -1,11 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  evolveScout, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
-  runScout, scoutTick, SEED_TASTE, takeEvolutionNotes, watchScout, writeSources, type ScoutSource,
+  editionActivityRecord, evolveScout, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
+  runScout, scoutTick, SEED_TASTE, seedSources, takeEvolutionNotes, watchScout, writeSources, type Edition, type ScoutSource,
 } from "../scout.js";
+import { activityFromRecords } from "../../conversation-view/activity.js";
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "flyd-scout-")); });
@@ -24,7 +25,9 @@ function fakeFetch(byHost: Record<string, string>): typeof fetch {
 }
 
 function onlySources(list: Array<Partial<ScoutSource> & Pick<ScoutSource, "kind" | "name" | "target">>): void {
-  writeSources(list.map((source) => ({ id: `${source.kind}:${source.target.toLowerCase().replace(/^https?:\/\//, "")}`, status: "active", shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z", ...source } as ScoutSource)), dir);
+  const own = list.map((source) => ({ id: `${source.kind}:${source.target.toLowerCase().replace(/^https?:\/\//, "")}`, status: "active", shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z", ...source } as ScoutSource));
+  const ids = new Set(own.map((source) => source.id));
+  writeSources([...own, ...seedSources(at("2026-09-01T00:00:00Z")).filter((source) => !ids.has(source.id)).map((source) => ({ ...source, status: "paused" as const }))], dir);
 }
 
 describe("scout sources", () => {
@@ -35,6 +38,23 @@ describe("scout sources", () => {
     expect(sources.some((source) => source.status === "reserve")).toBe(true);
     expect(readTaste(dir)).toBe(SEED_TASTE);
     expect(SEED_TASTE).toContain("Avoid: generic world news, politics, crypto price speculation");
+  });
+
+  it("unions defaults added later into the managed population without disturbing it", () => {
+    writeSources([
+      { id: "rss:waxy.org/feed", kind: "rss", name: "Waxy.org", target: "https://waxy.org/feed/", status: "active", shown: 9, likes: 4, dislikes: 0, failures: 0, addedBy: "george", addedAt: "2026-09-01T00:00:00Z" },
+    ], dir);
+    const sources = readSources(dir, at("2026-10-18T08:00:00Z"));
+    expect(sources[0]).toMatchObject({ name: "Waxy.org", shown: 9, likes: 4, addedBy: "george" });
+    expect(sources.some((source) => source.name === "r/Bitcoin" && source.status === "active")).toBe(true);
+    expect(sources.some((source) => source.name === "FlowingData" && source.status === "reserve")).toBe(true);
+    expect(readSources(dir).filter((source) => source.name === "r/Bitcoin")).toHaveLength(1);
+  });
+
+  it("leaves an unreadable sources file untouched", () => {
+    writeFileSync(join(dir, "sources.json"), "[{ half-edited");
+    expect(readSources(dir)).toEqual([]);
+    expect(readFileSync(join(dir, "sources.json"), "utf8")).toBe("[{ half-edited");
   });
 
   it("scores fitness as a posterior that fades with unrewarded exposure", () => {
@@ -93,7 +113,27 @@ describe("edition, feedback, and watch", () => {
     const fetchFn = (async (input: string | URL | Request) => { hits.push(String(input)); return new Response("slow down", { status: 429 }); }) as typeof fetch;
     await runScout({ complete: vi.fn(async () => '{"picks": []}'), fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-27T07:00:00Z") });
     expect(hits).toHaveLength(1);
-    expect(readSources(dir).every((source) => source.failures === 0 && source.status === "active")).toBe(true);
+    expect(readSources(dir).slice(0, 2).every((source) => source.failures === 0 && source.status === "active")).toBe(true);
+  });
+
+  it("lets every source reach the ranker even when early feeds alone would fill the candidate cap", async () => {
+    const feeds = Array.from({ length: 14 }, (_, index) => ({ kind: "rss" as const, name: `Feed ${index}`, target: `https://feed${index}.test/rss` }));
+    onlySources([...feeds, { kind: "reddit", name: "r/ordinals", target: "ordinals" }]);
+    const fetchFn = fakeFetch({
+      ...Object.fromEntries(feeds.map((_, index) => [`feed${index}.test`, rss(Array.from({ length: 12 }, (_, item) => ({ title: `Feed ${index} story ${item}`, link: `https://feed${index}.test/${item}` })))])),
+      "reddit.com/r/ordinals": rss([{ title: "A new recursive inscription technique", link: "https://reddit.com/r/ordinals/xyz" }]),
+    });
+    const prompts: string[] = [];
+    const complete = vi.fn(async (prompt: string) => {
+      if (prompt.startsWith("Plan 4")) return '{"topics": []}';
+      prompts.push(prompt);
+      return '{"picks": []}';
+    });
+    await runScout({ complete, fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-27T07:00:00Z") });
+    const candidates = prompts[0]!.split("\n").filter((line) => /^\[\d+\]/.test(line));
+    expect(candidates).toHaveLength(150);
+    expect(prompts[0]).toContain("A new recursive inscription technique");
+    expect(feeds.every((_, index) => prompts[0]!.includes(`Feed ${index} story 0`))).toBe(true);
   });
 
   it("pauses a source after repeated fetch failures instead of dropping it", async () => {
@@ -125,6 +165,41 @@ describe("edition, feedback, and watch", () => {
     // Already examined: the next watch does not even call the model.
     expect(await watchScout({ complete, fetchFn, notify, dir, redditSpacingMs: 0, now: () => now })).toEqual([]);
     expect(complete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("edition brief", () => {
+  const edition: Edition = {
+    date: "2026-10-18",
+    generatedAt: "2026-10-18T06:00:00.000Z",
+    topics: ["Bitcoin & Crypto Art", "Creative Coding"],
+    items: [
+      { n: 1, title: "A new ordinal generative technique", url: "https://x.test/ordinal", source: "r/ordinals", topic: "Bitcoin & Crypto Art", why: "Direct precedent for your work", kind: "must" },
+      { n: 2, title: "Game of Life on a torus", url: "https://x.test/torus", source: "r/creativecoding", topic: "Creative Coding", why: "Creative coding you love", kind: "rabbit_hole" },
+    ],
+  };
+
+  it("keeps the whole brief as one record whose card opens to it", () => {
+    const record = editionActivityRecord(edition);
+    expect(record).toMatchObject({ key: "scout-edition", kind: "news", title: "Put together today's news", line: "2 stories from your sources.", state: "done", at: edition.generatedAt });
+    expect(record.stories).toEqual([
+      { title: "A new ordinal generative technique", url: "https://x.test/ordinal", kind: "must", gist: "Direct precedent for your work", source: "r/ordinals" },
+      { title: "Game of Life on a torus", url: "https://x.test/torus", kind: "rabbit_hole", gist: "Creative coding you love", source: "r/creativecoding" },
+    ]);
+    expect(record).not.toHaveProperty("detail");
+    expect(activityFromRecords([record], Date.parse(edition.generatedAt) + 60_000).done[0]!.stories!.map((story) => story.mark)).toEqual(["Hot", "Rabbit hole"]);
+  });
+
+  it("records the day's brief with the activity only when it has stories and is wired to", async () => {
+    onlySources([{ kind: "rss", name: "Waxy.org", target: "https://waxy.org/feed/" }]);
+    const fetchFn = fakeFetch({ "waxy.org": rss([{ title: "Story", link: "https://waxy.org/s" }]) });
+    const planning = '{"topics": []}';
+    const empty = vi.fn();
+    await runScout({ complete: vi.fn(async (prompt: string) => prompt.startsWith("Plan 4") ? planning : '{"picks": []}'), fetchFn, dir, record: empty, now: () => at("2026-09-26T07:00:00Z") });
+    expect(empty).not.toHaveBeenCalled();
+    const record = vi.fn();
+    await runScout({ complete: vi.fn(async (prompt: string) => prompt.startsWith("Plan 4") ? planning : '{"picks": [{"index": 0, "kind": "relevant", "why": "worth his time"}]}'), fetchFn, dir, record, force: true, now: () => at("2026-09-27T07:00:00Z") });
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ date: "2026-09-27" }));
   });
 });
 

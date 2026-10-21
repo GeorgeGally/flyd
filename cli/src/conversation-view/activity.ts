@@ -15,13 +15,18 @@ import { monitorObjectsFromSources, type SemanticObject } from "./semantic.js";
 
 export type ActivityKind = "watching" | "decided" | "reviewed" | "news" | "memory" | "routine" | "work" | "done" | "held" | "noted";
 
-/** One story behind a news card: its headline, a one-line gist, and where it came from. */
+/** One story behind a news card: its headline, how it was marked, a one-line gist, and where it came from. */
 export interface ActivityStory {
   title: string;
+  mark?: StoryMark;
   gist?: string;
   url: string;
   source?: string;
 }
+
+export type StoryMark = "Hot" | "Worth a look" | "Rabbit hole";
+
+const STORY_MARKS: Record<string, StoryMark> = { must: "Hot", relevant: "Worth a look", rabbit_hole: "Rabbit hole", wildcard: "Rabbit hole" };
 
 export interface ActivityItem {
   id: string;
@@ -61,6 +66,8 @@ export interface ActivityRecord {
   kind: ActivityKind;
   title: string;
   line?: string;
+  /** The actual stories behind a news card, each with its own link and the kind it was picked as, shown only when he opens it. */
+  stories?: Array<Omit<ActivityStory, "mark"> & { kind?: string }>;
   state?: "now" | "done";
   at?: string;
 }
@@ -275,9 +282,11 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
   const live: ActivityItem[] = [];
   const done: ActivityItem[] = [];
   for (const [key, record] of latest) {
+    const stories = recordStories(record.stories);
+    if (stories.length && localDay(new Date(record.at)) !== localDay(new Date(now))) continue;
     const line = plainLine(record.line);
-    const detail = detailBehind(record.line, line);
-    const item: ActivityItem = { id: `record:${key}`, kind: record.kind, title: record.title.trim(), ...(line ? { line } : {}), ...(detail ? { detail } : {}), at: record.at };
+    const detail = stories.length ? undefined : detailBehind(record.line, line);
+    const item: ActivityItem = { id: `record:${key}`, kind: record.kind, title: record.title.trim(), ...(line ? { line } : {}), ...(detail ? { detail } : {}), ...(stories.length ? { stories } : {}), at: record.at };
     if (record.state === "now") {
       if (now - Date.parse(record.at) <= NOW_MAX_AGE_MS) live.push(item);
     } else {
@@ -302,15 +311,22 @@ export interface NewsStories {
   watch?: { day: string; stories: ActivityStory[] };
 }
 
-/** One story from a scout edition item or a flash row, in the terms a news card shows it. Pure. */
+/** One story from a scout edition item, a flash row, or a stored record, in the terms a news card shows it. Pure. */
 function storyOf(raw: unknown): ActivityStory | null {
   const item = raw as Record<string, unknown> | null;
   const title = typeof item?.title === "string" ? item.title.replace(/\s+/g, " ").trim() : "";
   const url = typeof item?.url === "string" ? item.url.trim() : "";
   if (!title || !/^https?:\/\//i.test(url)) return null;
-  const gist = typeof item?.why === "string" ? item.why.replace(/\s+/g, " ").trim() : "";
+  const said = typeof item?.why === "string" ? item.why : typeof item?.gist === "string" ? item.gist : "";
+  const gist = said.replace(/\s+/g, " ").trim();
   const source = typeof item?.source === "string" ? item.source.trim() : "";
-  return { title, url, ...(gist ? { gist } : {}), ...(source ? { source } : {}) };
+  const mark = typeof item?.kind === "string" ? STORY_MARKS[item.kind] : undefined;
+  return { title, url, ...(mark ? { mark } : {}), ...(gist ? { gist } : {}), ...(source ? { source } : {}) };
+}
+
+/** The stories a record carries for its card, kept only when each has a headline and a real link. */
+function recordStories(raw: unknown): ActivityStory[] {
+  return Array.isArray(raw) ? raw.map(storyOf).filter((story): story is ActivityStory => story !== null) : [];
 }
 
 /** The stories in a scout edition file, or none when it is for another day. Pure. */
@@ -350,6 +366,9 @@ export function activityByDay(items: ActivityItem[], now: number): DayCount[] {
 export function composeActivity(inputs: ActivityInputs, now: number): ActivityPanel {
   const live: ActivityItem[] = [];
   const done: ActivityItem[] = [];
+  const written = activityFromRecords(inputs.records, now);
+  // A record's own word supersedes the log line that would otherwise repeat it (the news brief).
+  const covered = new Set([...written.now, ...written.done].map((item) => `${item.kind}|${item.title}`));
   // Upkeep that repeats every few minutes shows once, as its latest run.
   const seen = new Set<string>();
   // The stories behind a news run, only while the card is the day they belong to.
@@ -360,7 +379,7 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
   };
   for (const raw of [...inputs.log].reverse()) {
     const entry = activityFromLogLine(raw);
-    if (!entry || seen.has(entry.group)) continue;
+    if (!entry || seen.has(entry.group) || covered.has(`${entry.kind}|${entry.title}`)) continue;
     seen.add(entry.group);
     const stories = storiesOf(entry.group, entry.at);
     done.push({ id: `log:${entry.group}:${entry.at}`, kind: entry.kind, title: entry.title, ...(entry.line ? { line: entry.line } : {}), ...(stories.length ? { stories } : {}), at: entry.at });
@@ -373,7 +392,6 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
     const made = activityFromAdvice(entry);
     if (made) done.push(made);
   }
-  const written = activityFromRecords(inputs.records, now);
   live.push(...written.now);
   done.push(...written.done);
   const monitors = monitorsFromActivityRecords(inputs.records);

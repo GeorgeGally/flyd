@@ -553,6 +553,8 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 #done .card-text { min-width: 0; }
 #done .brief-card { padding: 0; background: transparent; }
 .brief-outcome { margin: 4px 0 0; font: 400 14px/1.45 var(--sans); color: var(--fg); overflow-wrap: anywhere; text-wrap: pretty; }
+.news .card-stories { margin-top: 14px; }
+.news .card-stories + .brief-top { margin-top: 28px; }
 .brief-open { margin-right: 10px; color: var(--link); text-decoration: none; }
 .brief-open:hover { text-decoration: underline; text-underline-offset: 2px; }
 .brief-more { margin: 22px 0 0; padding: 8px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
@@ -1622,6 +1624,7 @@ var __name = function (f) { return f; };
     notices = (update.rail && update.rail.notices) || [];
     renderBrief(update.show);
     renderActivity(update.leftColumn);
+    if (update.leftColumn) drawNews(update.leftColumn.recent);
   }
 
   // Done items are read from firstmate's own records on every update.
@@ -1631,6 +1634,7 @@ var __name = function (f) { return f; };
   var noticesEl = document.getElementById("notices");
   // Notices other tools sent instead of macOS notifications, newest first.
   var notices = [];
+  var newsEl = document.getElementById("news");
   var briefFilled = false;
   var lastBrief = null;
   var needsAt = Number(store("flyd-needs-at")) || 0;
@@ -1922,9 +1926,46 @@ var __name = function (f) { return f; };
     }), function (item) {
       return [item.kind === "attention" ? "Needs you" : "Done", item.count ? (item.count === 2 ? "twice" : item.count + " times") : "", item.at ? ago(item.at) : ""].filter(Boolean).join(" · ");
     });
-    briefFilled = !doneEl.hidden || !noticesEl.hidden;
+    fillBrief();
+  }
+  function fillBrief() {
+    briefFilled = !doneEl.hidden || !noticesEl.hidden || !newsEl.hidden;
     briefEl.hidden = !briefFilled;
     showRail();
+  }
+  // The stories behind a news card: how each was marked, the headline as a link, a line of gist, and where it came from.
+  function storiesNode(stories) {
+    var list = el("ul", "card-stories");
+    stories.forEach(function (story) {
+      var li = el("li", "");
+      if (story.mark) li.appendChild(el("p", "card-story-mark", story.mark));
+      var a = el("a", "card-story-head", story.title);
+      a.href = story.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      li.appendChild(a);
+      if (story.gist) li.appendChild(el("p", "card-story-line", story.gist));
+      if (story.source) li.appendChild(el("p", "card-story-src", story.source));
+      list.appendChild(li);
+    });
+    return list;
+  }
+  // The news: the newest card of each kind that carries its stories, every story a working link.
+  function drawNews(recent) {
+    var titles = {};
+    var cards = (recent || []).filter(function (item) {
+      if (item.kind !== "news" || !item.stories || !item.stories.length || titles[item.title]) return false;
+      titles[item.title] = true;
+      return true;
+    });
+    newsEl.textContent = "";
+    newsEl.hidden = !cards.length;
+    cards.forEach(function (item) {
+      newsEl.appendChild(briefTop(item.title));
+      if (item.line) newsEl.appendChild(el("p", "brief-outcome", item.line));
+      newsEl.appendChild(storiesNode(item.stories));
+    });
+    fillBrief();
   }
   // How long ago each piece of work was done moves on with the clock, not only with updates.
   setInterval(function () { if (lastBrief) renderBrief(lastBrief); }, 60000);
@@ -4400,6 +4441,7 @@ ${LEFT_HTML}
   <div class="brief" id="brief" hidden>
     <section class="brief-list" id="notices" hidden aria-label="Notices"></section>
     <section class="brief-list" id="done" hidden aria-label="Done"></section>
+    <section class="brief-list news" id="news" hidden aria-label="News"></section>
   </div>
   </div>
 </aside>

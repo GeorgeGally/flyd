@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { addAgendaItem, agendaPaths, parseLocalDateTime, runDueAgenda, unreadInbox, type AgendaPaths } from "../agenda.js";
+import { addAgendaItem, agendaPaths, formatLocalDateTime, parseLocalDateTime, runDueAgenda, unreadInbox, type AgendaPaths } from "../agenda.js";
+import type { Edition, EditionItem } from "../../council/scout.js";
 import { agendaPromptBlock, composeSessionBriefing, profileGaps } from "../session-briefing.js";
 
 const FULL_PROFILE = "## About me\n- Lives in Canggu\n## People\n- Partner: Maya\n## Routines\n- Runs at 6am\n## Goals\n- Ship Flyd";
@@ -82,6 +83,68 @@ describe("composeSessionBriefing", () => {
     expect(lines).toEqual(["I don't know much about you yet — type /onboard and I'll ask a few questions."]);
     const partial = await composeSessionBriefing({ paths, loadReminders: async () => [], readProfile: () => "## About me\n- x\n## Routines\n- y\n## Goals\n- z" });
     expect(partial).toEqual(["I don't know the people in your life yet — type /onboard and I'll ask a few questions."]);
+  });
+});
+
+describe("opening news briefing", () => {
+  let dir: string;
+  let previous: string | undefined;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-brief-news-"));
+    previous = process.env.FLYD_SCOUT_DIR;
+    process.env.FLYD_SCOUT_DIR = dir;
+  });
+  afterEach(() => {
+    if (previous === undefined) delete process.env.FLYD_SCOUT_DIR;
+    else process.env.FLYD_SCOUT_DIR = previous;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("opens with the whole edition, grouped by topic, Hot picks marked ❗ and the one rabbit hole 🐇", async () => {
+    const now = new Date("2026-09-28T09:00:00");
+    const date = formatLocalDateTime(now).slice(0, 10);
+    const items: EditionItem[] = [
+      { n: 1, title: "Ordinals auction closes", url: "https://ex.test/1", source: "r/ordinals", topic: "Bitcoin and crypto art", why: "the market finally moves", kind: "relevant" },
+      { n: 2, title: "Taproot upgrade lands", url: "https://ex.test/2", source: "r/Bitcoin", topic: "Bitcoin and crypto art", why: "protocol news, not price", kind: "must" },
+      { n: 3, title: "CryptoArt drop tonight", url: "https://ex.test/3", source: "r/CryptoArt", topic: "Bitcoin and crypto art", why: "a live generative release", kind: "relevant" },
+      { n: 4, title: "ComfyUI workflow", url: "https://ex.test/4", source: "r/comfyui", topic: "Creative tech and AI art", why: "a new node graph technique", kind: "relevant" },
+      { n: 5, title: "p5.js 2.0 ships", url: "https://ex.test/5", source: "r/p5js", topic: "Creative tech and AI art", why: "a creative coding milestone", kind: "must" },
+      { n: 6, title: "TouchDesigner tutorial", url: "https://ex.test/6", source: "r/touchdesigner", topic: "Creative tech and AI art", why: "a gpu patching walkthrough", kind: "relevant" },
+      { n: 7, title: "Diffusion era ends", url: "https://ex.test/7", source: "r/StableDiffusion", topic: "Creative tech and AI art", why: "what replaced it", kind: "relevant" },
+      { n: 8, title: "A data hoarder's vault", url: "https://ex.test/8", source: "r/DataHoarder", topic: "Everything else", why: "an archival approach worth copying", kind: "relevant" },
+      { n: 9, title: "Hardware hacking weekend", url: "https://ex.test/9", source: "r/hardwarehacking", topic: "Everything else", why: "a teardown that teaches", kind: "relevant" },
+      { n: 10, title: "ESP32 project roundup", url: "https://ex.test/10", source: "r/esp32", topic: "Everything else", why: "a dozen buildable ideas", kind: "relevant" },
+      { n: 11, title: "Indie SaaS pricing", url: "https://ex.test/11", source: "r/SaaS", topic: "Everything else", why: "how solo founders price", kind: "relevant" },
+      { n: 12, title: "A reverse-engineering tale", url: "https://ex.test/12", source: "r/ReverseEngineering", topic: "Everything else", why: "a well-told teardown", kind: "relevant" },
+      { n: 13, title: "Why old maps lie", url: "https://ex.test/13", source: "r/AskHistorians", topic: "Everything else", why: "a historian corrects a myth", kind: "relevant" },
+      { n: 14, title: "The paper that started it", url: "https://ex.test/14", source: "r/MachineLearning", topic: "Rabbit hole", why: "the origin story worth an hour", kind: "rabbit_hole" },
+    ];
+    const edition: Edition = { date, generatedAt: now.toISOString(), topics: ["Bitcoin and crypto art", "Creative tech and AI art", "Everything else", "Rabbit hole"], items };
+    writeFileSync(join(dir, "edition-latest.json"), JSON.stringify(edition));
+
+    const lines = await composeSessionBriefing({ now: () => now, loadReminders: async () => [], readProfile: () => FULL_PROFILE, loadCalendar: async () => [] });
+
+    expect(lines).toEqual([
+      "Today's news, not yet told him (/more N, /less N):",
+      "  Bitcoin and crypto art",
+      "    1. Ordinals auction closes — the market finally moves",
+      "    2. ❗ Taproot upgrade lands — protocol news, not price",
+      "    3. CryptoArt drop tonight — a live generative release",
+      "  Creative tech and AI art",
+      "    4. ComfyUI workflow — a new node graph technique",
+      "    5. ❗ p5.js 2.0 ships — a creative coding milestone",
+      "    6. TouchDesigner tutorial — a gpu patching walkthrough",
+      "    7. Diffusion era ends — what replaced it",
+      "  Everything else",
+      "    8. A data hoarder's vault — an archival approach worth copying",
+      "    9. Hardware hacking weekend — a teardown that teaches",
+      "    10. ESP32 project roundup — a dozen buildable ideas",
+      "    11. Indie SaaS pricing — how solo founders price",
+      "    12. A reverse-engineering tale — a well-told teardown",
+      "    13. Why old maps lie — a historian corrects a myth",
+      "  Rabbit hole",
+      "    14. 🐇 The paper that started it — the origin story worth an hour",
+    ]);
   });
 });
 

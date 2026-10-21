@@ -106,7 +106,13 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
       lines.push(heard
         ? `News he already heard at ${clock(toldAt!)} (bring up only if something is new or he asks):`
         : "Today's news, not yet told him (/more N, /less N):");
-      for (const item of edition.items.slice(0, heard ? 3 : 6)) lines.push(`  ${item.n}. ${item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : ""}${firstLine(item.title, 70)} — ${firstLine(item.why, 110)}`);
+      const shown = edition.items.slice(0, heard ? 4 : scout.BRIEF_MAX);
+      const sections = new Map<string, typeof shown>();
+      for (const item of shown) sections.set(item.topic, [...(sections.get(item.topic) ?? []), item]);
+      for (const [topic, items] of sections) {
+        lines.push(`  ${topic}`);
+        for (const item of items) lines.push(`    ${item.n}. ${item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : ""}${firstLine(item.title, 70)} — ${firstLine(item.why, 110)}`);
+      }
       if (!heard && !deps.peek) {
         mkdir(scout.scoutDir(), { recursive: true });
         write(markPath, now.toISOString());

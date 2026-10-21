@@ -115,10 +115,11 @@ export const CARD_STYLE = `
 .card-detail { margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--faint); }
 .card-detail[hidden] { display: none; }
 .card-detail-when { margin: 0; font: 500 12px/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); font-variant-numeric: tabular-nums; }
-.card-detail-text { margin: 6px 0 0; font: 400 14px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
+.card-detail-text { margin: 6px 0 0; font: 400 14px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; white-space: pre-line; overflow-wrap: break-word; }
 /* The actual stories behind a news card, each with its gist and where it came from. */
 .card-stories { margin: 8px 0 0; padding: 0; list-style: none; }
 .card-stories li + li { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--faint); }
+.card-story-mark { margin: 0 0 4px; font: 500 12px/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); }
 .card-story-head { margin: 0; font: 500 15px/1.4 var(--sans); color: var(--link); text-decoration: none; text-wrap: pretty; }
 .card-story-head:hover { color: var(--strong); }
 .card-story-line { margin: 5px 0 0; font: 400 14px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }

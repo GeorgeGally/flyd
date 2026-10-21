@@ -2635,6 +2635,37 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(done.map((item) => item.textContent).join(" ")).not.toContain("Still building the page");
   });
 
+  it("shows today's news in the Done column with every story a working link, and nothing when no card has stories", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const stories = Array.from({ length: 14 }, (_, i) => ({ title: `Story ${i + 1}`, url: `https://example.com/${i + 1}`, ...(i === 0 ? { mark: "Hot" } : i === 13 ? { mark: "Rabbit hole" } : {}), gist: `Why ${i + 1}`, source: "r/Bitcoin" }));
+    const update = (recent: unknown[]) => stream.emit("update", {
+      order: [], messages: [], working: false, boxes: [],
+      leftColumn: { now: [], recent, semantic: [] },
+    });
+    update([
+      { id: "record:scout-edition", kind: "news", title: "Put together today's news", line: "14 stories from your sources.", stories, at: "2026-10-21T06:00:00.000Z" },
+      { id: "record:scout-edition-old", kind: "news", title: "Put together today's news", line: "2 stories from your sources.", stories: stories.slice(0, 2), at: "2026-10-20T06:00:00.000Z" },
+      { id: "log:memory", kind: "memory", title: "Tidied memory", at: "2026-10-21T05:00:00.000Z" },
+    ]);
+    await settle();
+    expect(document.getElementById("rail")!.hidden).toBe(false);
+    const news = document.getElementById("news")!;
+    expect(news.hidden).toBe(false);
+    expect(news.querySelector(".brief-label")!.textContent).toBe("Put together today's news");
+    expect(news.textContent).toContain("14 stories from your sources.");
+    const links = Array.from(news.querySelectorAll<HTMLAnchorElement>("a.card-story-head"));
+    expect(links.map((a) => a.textContent)).toEqual(stories.map((story) => story.title));
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(stories.map((story) => story.url));
+    expect(links.every((a) => a.target === "_blank" && a.rel === "noopener noreferrer")).toBe(true);
+    expect(Array.from(news.querySelectorAll(".card-story-mark")).map((mark) => mark.textContent)).toEqual(["Hot", "Rabbit hole"]);
+    update([{ id: "log:memory", kind: "memory", title: "Tidied memory", at: "2026-10-21T05:00:00.000Z" }]);
+    await settle();
+    expect(news.hidden).toBe(true);
+    expect(document.getElementById("rail")!.hidden).toBe(true);
+  });
+
   it("counts what needs him on the header button and never forces the column open on a narrow window", async () => {
     localStorage.setItem("flyd-left", "off");
     load("");

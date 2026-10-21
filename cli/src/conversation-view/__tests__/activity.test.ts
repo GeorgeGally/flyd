@@ -109,6 +109,16 @@ describe("activity records", () => {
     ], NOW);
     expect(out.done.map((item) => item.title)).toEqual(["Chose the faster option for your staff", "Told your staff to carry on"]);
   });
+
+  it("shows the stories a record carries, each with its own working link", () => {
+    const stories = [
+      { title: "A real find", url: "https://x.test/a", kind: "relevant", gist: "why it matters", source: "r/ordinals" },
+      { title: "Not a story", url: "javascript:alert(1)" },
+    ];
+    const out = activityFromRecords([{ key: "scout-edition", kind: "news", title: "Put together today's news", stories, state: "done", at: minutesAgo(2) }], NOW);
+    expect(out.done[0]!.stories).toEqual([{ title: "A real find", url: "https://x.test/a", mark: "Worth a look", gist: "why it matters", source: "r/ordinals" }]);
+  });
+
 });
 
 describe("composeActivity", () => {
@@ -127,6 +137,15 @@ describe("composeActivity", () => {
     expect(panel.now.map((item) => item.title)).toEqual(["Working on a job for you"]);
     expect(panel.recent.map((item) => item.title)).toEqual(["Answered your staff's question", "Watched the news for you", "Read back its own answers"]);
     expect(panel.recent[2]!.line).toBe("10 recent answers checked; all held up.");
+  });
+
+  it("lets a news record supersede the log line that repeats it, keeping its story links", () => {
+    const stories = [{ title: "A new ordinal technique", url: "https://x.test/a", gist: "precedent for you", source: "r/ordinals" }];
+    const records = [{ key: "scout-edition", kind: "news", title: "Put together today's news", line: "12 stories from your sources.", stories, state: "done", at: minutesAgo(2) }];
+    const panel = composeActivity({ log: ["2026-10-17T11:58:00.000Z scout: edition: 12 items"], jobs: [], advice: [], records }, NOW);
+    expect(panel.recent.filter((item) => item.title === "Put together today's news")).toHaveLength(1);
+    expect(panel.recent[0]!.stories).toEqual(stories);
+    expect(panel.recent[0]!.detail).toBeUndefined();
   });
 
   it("drops what is older than a week and caps the list", () => {
@@ -196,6 +215,16 @@ describe("the stories behind a news card", () => {
     expect(today.recent[0]).toMatchObject({ title: "Put together today's news", stories: [story] });
     const other = composeActivity({ log, jobs: [], advice: [], records: [], news: { edition: { day: "2026-10-16", stories: [story] } } }, NOW);
     expect(other.recent[0]!.stories).toBeUndefined();
+  });
+
+  it("never shows yesterday's news record as today's, nor lets it hide today's news", () => {
+    const log = ["2026-10-17T11:00:00.000Z scout: edition: 1 items"];
+    const stale = { key: "scout-edition", kind: "news", title: "Put together today's news", line: "14 stories from your sources.", stories: [{ title: "Old story", url: "https://x.test/old" }], state: "done", at: minutesAgo(60 * 24) };
+    expect(activityFromRecords([stale], NOW).done).toEqual([]);
+    const panel = composeActivity({ log, jobs: [], advice: [], records: [stale], news: { edition: { day: "2026-10-17", stories: [story] } } }, NOW);
+    const news = panel.recent.filter((item) => item.title === "Put together today's news");
+    expect(news).toHaveLength(1);
+    expect(news[0]!.stories).toEqual([story]);
   });
 
   it("reads the edition and the watch's flashes already on disk", () => {

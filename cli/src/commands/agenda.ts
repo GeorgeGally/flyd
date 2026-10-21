@@ -160,10 +160,12 @@ export async function runAgendaCommand(
         notify: notifyMac,
       }).catch((error: unknown) => ({ status: `failed: ${error instanceof Error ? error.message : String(error)}` }));
       if (improved.status !== "not_due") process.stdout.write(`${new Date().toISOString()} self-improve: ${improved.status}\n`);
-      const { scoutTick } = await import("../council/scout.js");
+      const { scoutTick, editionActivityRecord } = await import("../council/scout.js");
+      const { recordActivity } = await import("../conversation-view/activity.js");
       const scoutLog = await scoutTick({
         complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
         notify: notifyMac,
+        record: (edition) => recordActivity(editionActivityRecord(edition)),
       }).catch((error: unknown) => [`failed: ${error instanceof Error ? error.message : String(error)}`]);
       if (scoutLog.length) process.stdout.write(`${new Date().toISOString()} scout: ${scoutLog.join("; ")}\n`);
       if (council && !council.skipped) {

@@ -78,8 +78,13 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
         await runDreamCycle().catch(() => undefined);
         const { runSelfImprovement } = await import("../crew/self-improve.js");
         await runSelfImprovement({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac }).catch(() => undefined);
-        const { scoutTick } = await import("../council/scout.js");
-        await scoutTick({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
+        const { scoutTick, editionActivityRecord } = await import("../council/scout.js");
+        const { recordActivity } = await import("../conversation-view/activity.js");
+        await scoutTick({
+          complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
+          notify: notifyMac,
+          record: (edition) => recordActivity(editionActivityRecord(edition)),
+        });
         // Have the morning ready before George is up (council/morning.ts).
         const [{ prepareMorning }, { composeSessionBriefing }, { museGreeting }, { readUserProfile }, scout, { localDay }] = await Promise.all([
           import("../council/morning.js"), import("./session-briefing.js"), import("../council/greeting.js"),
