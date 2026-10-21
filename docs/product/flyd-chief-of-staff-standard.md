@@ -89,7 +89,9 @@ authoritative path. This change does not rewrite historical private entries.
     shows only on a screen he opened. Every surface that speaks without a model (the panel
     and its situation line, the notices over the message box, notifications, the staff
     monitor, the line under his message) asks it first, by the kind its producer gives,
-    never by the words. Faults, stale readings and staff silence are kept and recorded in
+    never by the words. A post that comes without a kind (Core's `/notify`, the model's
+    notify tool) is taken as finished work unless it reports Flyd's own failure
+    (`untaggedKind`), which is held as a fault. Faults, stale readings and staff silence are kept and recorded in
     `~/.flyd/self-review/kept.jsonl`; unread notes and stuck staff work are chased with
     Flyd's own notes instead. Whatever reaches him is one line, without paths, flags or
     error text.
