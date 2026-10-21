@@ -31,6 +31,8 @@ export interface JobContract {
   doneWhen: string[];
   /** A file or folder the job must leave behind, checked on disk. */
   deliverable?: string;
+  /** Started by an unattended run, not by George: it never opens an app he has closed. */
+  background?: boolean;
 }
 
 export type JobCheck = AcceptanceCheck;
@@ -232,9 +234,9 @@ export function runJobShell(id: string, command: string, options: { cwd: string;
 }
 
 export interface JobDependencies {
-  run(message: string, id: string): Promise<string>;
+  run(message: string, id: string, background?: boolean): Promise<string>;
   /** The independent check; returns the checker's raw reply. Omitted, only deterministic checks run. */
-  verify?(message: string, id: string): Promise<string>;
+  verify?(message: string, id: string, background?: boolean): Promise<string>;
   deliver?(result: JobResult): Promise<void>;
   exists?(path: string): boolean;
   /** What the job started that is still running; defaults to its registered process groups. */
@@ -249,7 +251,7 @@ async function checkJob(contract: JobContract, report: string, id: string, deps:
   const judge = (verdicts?: JobCheck[]) => [...facts, ...evaluateDoneWhen({ criteria: contract.doneWhen, report, verdicts, leftovers })];
   if (facts.some((check) => !check.met) || !deps.verify) return { checks: judge(), repairable: true };
   try {
-    const verdicts = parseVerdicts(successClauses(contract.doneWhen), await deps.verify(verifyMessage(contract, report), id));
+    const verdicts = parseVerdicts(successClauses(contract.doneWhen), await deps.verify(verifyMessage(contract, report), id, contract.background));
     return { checks: judge(verdicts), repairable: true };
   } catch (error) {
     console.warn("[jobs] independent check failed:", error instanceof Error ? error.message : error);
@@ -263,7 +265,7 @@ async function runJob(job: JobRecord, deps: JobDependencies): Promise<JobOutcome
     Object.assign(job, update, { updatedAt: new Date().toISOString() });
     saveJob(job, deps.dir);
   };
-  let report = await deps.run(jobMessage(job.contract), job.id);
+  let report = await deps.run(jobMessage(job.contract), job.id, job.contract.background);
   for (;;) {
     // Nothing came back: that is a failed job, not a finished one to check.
     if (!report.trim()) throw new Error("the work came back empty");
@@ -273,7 +275,7 @@ async function runJob(job: JobRecord, deps: JobDependencies): Promise<JobOutcome
     const unmet = unmetChecks(checks);
     if (!unmet.length || !repairable || job.attempts >= MAX_JOB_ATTEMPTS) return jobOutcome(report, checks);
     save({ status: "running" });
-    report = await deps.run(repairMessage(job.contract, report, unmet), job.id);
+    report = await deps.run(repairMessage(job.contract, report, unmet), job.id, job.contract.background);
   }
 }
 
@@ -337,7 +339,7 @@ export function recoverInterruptedJobs(deps: Pick<JobDependencies, "deliver" | "
   return recovered;
 }
 
-async function unattendedTurn(message: string, sessionId: string, readOnly: boolean): Promise<string> {
+async function unattendedTurn(message: string, sessionId: string, readOnly: boolean, background = false): Promise<string> {
   const [{ respondToConversation }, { retrieveAgentMemory, loadAgentSituation }, { refreshRepoRegistry }] = await Promise.all([
     import("./conversation-responder.js"), import("../commands/code.js"), import("./repo-registry.js"),
   ]);
@@ -345,20 +347,20 @@ async function unattendedTurn(message: string, sessionId: string, readOnly: bool
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
   const memory = await retrieveAgentMemory(message).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
   return respondToConversation(
-    { sessionId, turnNumber: 1, message, history: [], memory, situation, crossRepo, onToken: () => {} },
+    { sessionId, turnNumber: 1, message, history: [], memory, situation, crossRepo, background, onToken: () => {} },
     // The checker must not act, and its verdict lines must reach us unrewritten.
     readOnly ? { readOnly: true, rewrite: async () => "" } : {},
   );
 }
 
 /** The real builder: an unattended Flyd turn with the job budget. */
-export async function runJobTurn(message: string, id: string): Promise<string> {
-  return unattendedTurn(message, `job-${id}`, false);
+export async function runJobTurn(message: string, id: string, background = false): Promise<string> {
+  return unattendedTurn(message, `job-${id}`, false, background);
 }
 
 /** The real checker: a separate, read-only turn that never saw the builder's reasoning. */
-export async function verifyJobTurn(message: string, id: string): Promise<string> {
-  return unattendedTurn(message, `job-${id}-check`, true);
+export async function verifyJobTurn(message: string, id: string, background = false): Promise<string> {
+  return unattendedTurn(message, `job-${id}-check`, true, background);
 }
 
 /** Inbox + notification, so a result is never lost if the chat has closed. */

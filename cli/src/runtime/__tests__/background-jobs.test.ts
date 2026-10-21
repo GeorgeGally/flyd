@@ -54,6 +54,15 @@ describe("done_when gate", () => {
     expect(verify.mock.calls[0][0]).not.toContain("if blocked");
   });
 
+  it("keeps a job an unattended run started unattended through its build and check turns", async () => {
+    const run = vi.fn(async (_message: string, _id: string, _background?: boolean) => "Imported the deck into Canva as design DAGk3x9QbZ1.");
+    const verify = vi.fn(async (_message: string, _id: string, _background?: boolean) => "MET 1: it's in Canva");
+    await finish({ ...canva, background: true }, { run, verify });
+    await finish(canva, { run, verify });
+    expect(run.mock.calls.map((call) => call[2])).toEqual([true, undefined]);
+    expect(verify.mock.calls.map((call) => call[2])).toEqual([true, undefined]);
+  });
+
   it("doesn't count a success claim for a Canva import without evidence", async () => {
     const { result, record } = await finish(canva, { run: async () => "Imported the deck into Canva, it's all set.", verify: async () => "MET 1: it's in Canva" });
     expect(result.status).not.toBe("ok");

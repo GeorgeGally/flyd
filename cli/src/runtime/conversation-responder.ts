@@ -62,6 +62,8 @@ interface ConversationInput {
   surface?: "mobile";
   mobileAccounts?: boolean;
   sessionId?: string;
+  /** Unattended work (an agenda run, or a job one started): never opens an app George has closed. */
+  background?: boolean;
   turnNumber?: number;
   message: string;
   history: ConversationTurn[];
@@ -857,9 +859,9 @@ export function describeToolActivity(name: string, input: Record<string, unknown
 }
 
 /** Evals read nothing of George's Mac: every AppleScript answers empty. */
-function unattendedPersonalTools(sessionId?: string): PersonalToolDependencies {
+function unattendedPersonalTools(sessionId?: string, background = false): PersonalToolDependencies {
   if (sessionId?.startsWith("eval-")) return { background: true, appRunning: async () => true, runOsascript: async () => "" };
-  return sessionId?.startsWith("agenda-") ? { background: true } : {};
+  return background || sessionId?.startsWith("agenda-") ? { background: true } : {};
 }
 
 const EVAL_SIMULATED_TOOLS = new Set(["todos", "work_model", "schedule", "start_coding_task", "start_knowledge_task", "background_task", "pass_on_question", "remember", "reminders", "speaking_style"]);
@@ -1210,13 +1212,15 @@ export async function respondToConversation(
   const prompt = `${facts ? facts : ""}${evidence}\n${request.prompt}`;
   const toolCalls: TurnToolCall[] = [];
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
+  const personalToolDeps = unattendedPersonalTools(input.sessionId, input.background);
   const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn, dependencies.readOnly, {
     presentHypothesis: input.presentHypothesis,
     situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
     userMessage: input.message,
     skill: skill ? { name: skill.name, body: skill.body } : null,
     onCodingHandoff: input.onCodingHandoff,
-  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction, unattendedPersonalTools(input.sessionId));
+    background: Boolean(personalToolDeps.background),
+  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction, personalToolDeps);
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
   const repeats = createRepeatGuard();

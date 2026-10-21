@@ -145,6 +145,8 @@ export interface AssistantToolContext {
   skill?: { name: string; body: string } | null;
   /** Called when the model hands a job to the coding runtime. */
   onCodingHandoff?: (outcome: string) => void;
+  /** This turn is unattended, so a job it starts is too. */
+  background?: boolean;
 }
 
 function lines(text: unknown): string[] {
@@ -342,7 +344,7 @@ export async function runAssistantTool(
         const jobs = await import("./background-jobs.js");
         const contract = jobs.normalizeContract(input);
         if (typeof contract === "string") return `Error: ${contract}`;
-        const id = jobs.startBackgroundJob(contract, { run: jobs.runJobTurn, verify: jobs.verifyJobTurn, deliver: jobs.deliverJob });
+        const id = jobs.startBackgroundJob(context.background ? { ...contract, background: true } : contract, { run: jobs.runJobTurn, verify: jobs.verifyJobTurn, deliver: jobs.deliverJob });
         return `Started in the background (job ${id}). The result will come back to George in the chat when it's done. Tell him in a few words what you're doing; don't mention job ids.`;
       }
       case "domain_work": {
