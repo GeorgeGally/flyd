@@ -79,7 +79,7 @@ describe("captain notices", () => {
 
   it("always surfaces decisions and failures", () => {
     expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Captain, merge PR 68 or hold it?" }))))
-      .toBe("I need your decision: Merge PR 68 or hold it?");
+      .toBe('I need your decision on "Fix the island".');
     expect(captainNotice(run(JSON.stringify({ status: "failed", brief: "Command failed: npm test exited with code 1" }))))
       .toBe("Fix the island is blocked: it couldn't be finished. Tell me whether to try another way or drop it.");
   });
@@ -119,6 +119,12 @@ describe("notices keep the one voice", () => {
     }
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Task id task-9 is stuck.", surface: "notification", held: true }));
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: "Firstmate merged fm/sidebar-default; the sidebar opens on Artefacts.", surface: "notification", held: true }));
+  });
+
+  it("replaces domain notices naming backstage and preserves clean wording exactly", () => {
+    expect(captainNotice(run("FirstMate finished the System-1 replay; the sidebar now opens on Artefacts.")))
+      .toBe('There is news on "Fix the island". Ask Flyd for the details.');
+    expect(captainNotice(run("The sidebar now opens on Artefacts."))).toBe("The sidebar now opens on Artefacts.");
   });
 
   it("keeps a completion that only carries a commit id, but rewrites branch mentions", () => {

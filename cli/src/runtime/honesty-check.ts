@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import type { Shortfall } from "../council/chief-of-staff.js";
-import { firstBackstage } from "../lib/backstage.js";
+import { CHAT_ANSWER_BACKSTAGE, firstBackstage, firstMatch, withoutLinkIds } from "../lib/backstage.js";
 import { isPlaceholderStatus } from "../conversation-view/status-text.js";
 
 // A last look before an answer reaches George: does it claim work that no
@@ -107,7 +107,7 @@ const SLOP = /\b(?:stings?|lonely|the silence|a verdict|in the room|into the (?:
 
 export function styleProblems(answer: string): string[] {
   const problems: string[] = [];
-  const backstage = firstBackstage(answer);
+  const backstage = firstMatch(answer, CHAT_ANSWER_BACKSTAGE);
   if (backstage) problems.push(`It names your own backstage ("${backstage}"). Speak as yourself: say what you're doing, not who inside you is doing it.`);
   const phrase = answer.match(SLOP);
   if (phrase) problems.push(`It uses stock phrasing ("${phrase[0]}"). Say the literal, specific thing instead, in plain words.`);
@@ -222,7 +222,7 @@ export function relayShortfalls(text: string): Shortfall[] {
   const said = text.replace(/\s+/g, " ").trim();
   if (!said) return [{ requirement: "real_status", reason: "It says nothing.", quote: "", by: "check" }];
   const shortfalls: Shortfall[] = [];
-  const backstage = firstBackstage(stripCommitIds(said).replace(/https?:\/\/\S+/g, (url) => url.replace(/[0-9a-f]{7,40}/gi, "")));
+  const backstage = firstBackstage(withoutLinkIds(stripCommitIds(said)));
   if (backstage) shortfalls.push({ requirement: "backstage_hidden", reason: `It names your own backstage ("${backstage}").`, quote: said.slice(0, 240), by: "check" });
   const retired = retiredPhrasesIn(said)[0];
   if (retired) shortfalls.push({ requirement: "his_voice", reason: `It uses a phrase George has ruled out ("${retired}").`, quote: said.slice(0, 240), by: "check" });

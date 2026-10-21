@@ -3,8 +3,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, s
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
-import { scrubBackstage } from "../lib/backstage.js";
 import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
+import { relayShortfalls, stripCommitIds } from "./honesty-check.js";
 
 // Flyd's own agenda: things George (or Flyd, on his behalf) asked to happen
 // later — follow-ups, recurring briefings, checks on something pending. A
@@ -217,33 +217,49 @@ function acquireLock(path: string): boolean {
 }
 
 /** A notification to George, as the kind of thing it is (lib/reaches-george.ts); finished work unless the caller knows better. */
-export async function notifyMac(title: string, message: string, kind: GeorgeKind = "deliverable"): Promise<void> {
-  await deliverNotification(title, message, kind);
+export async function notifyMac(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string): Promise<void> {
+  await deliverNotification(title, message, kind, work);
 }
 
-export async function deliverNotification(title: string, message: string, kind: GeorgeKind = "deliverable"): Promise<boolean> {
+/** What became of a notification: shown, kept as Flyd's own to handle, dropped as a coding session idle at its prompt, held for naming backstage or only saying work is under way, or not delivered. */
+export type NotificationOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "undelivered";
+
+/** `work` names what the notification is about, for the line he hears when a held decision or blocker still needs his call. */
+export async function deliverNotification(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string): Promise<NotificationOutcome> {
   // One line, outcome first: the rest of what was said is Flyd's to keep or show elsewhere.
   const { isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/chief-of-staff.js");
   // A coding session idle at its prompt is never George's to hear about.
-  if (isIdleNotice(title, message)) return false;
+  if (isIdleNotice(title, message)) return "idle";
   const { noteSaid, recordHeld, recordKept } = await import("../council/reply-review.js");
   // Only what may reach him: a fault, a stale reading or staff silence is Flyd's own, recorded and kept.
   const gated = reachesGeorge({ kind, text: message }, "notification");
   if (!gated.reach) {
     recordKept("notification", gated, message);
-    return false;
+    return "kept";
   }
-  title = scrubBackstage(title);
-  message = notificationLine(scrubBackstage(gated.line));
+  title = stripCommitIds(title);
+  message = stripCommitIds(gated.line);
+  // A title naming backstage machinery gives way to Flyd's own name. A
+  // message that does is held back whole; when it is a decision or a
+  // blocker, he still hears that his call is needed.
+  if (relayShortfalls(title).some((item) => item.requirement === "backstage_hidden")) title = "Flyd";
+  const backstage = relayShortfalls(message).filter((item) => item.requirement === "backstage_hidden");
+  if (backstage.length) {
+    recordHeld({ surface: "notification", source: "notification", text: message }, backstage);
+    if (kind !== "decision" && kind !== "blocker") return "backstage";
+    const { quotedWork } = await import("../command/notice.js");
+    message = `I need your decision on ${(work && quotedWork(work)) || "some of your work"}.`;
+  }
+  message = notificationLine(message);
   // A notification that only says work is happening carries nothing: kept
   // from George and recorded against the chief-of-staff standard instead.
   const screened = screenBeforeDisplay({ surface: "notification", text: message });
   const placeholder = screened.shortfalls.filter((item) => item.requirement === "real_status");
   if (placeholder.length) {
     recordHeld({ surface: "notification", source: "notification", text: message }, placeholder);
-    return false;
+    return "placeholder";
   }
-  if (process.platform !== "darwin") return false;
+  if (process.platform !== "darwin") return "undelivered";
   noteSaid({ surface: "notification", text: message });
   try {
     const token = readFileSync(join(homedir(), ".flyd", "overlay", "auth-token"), "utf8").trim();
@@ -253,11 +269,11 @@ export async function deliverNotification(title: string, message: string, kind: 
       body: JSON.stringify({ title, message: message.replace(/\s+/g, " ").slice(0, 220), kind: gated.kind }),
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return false;
+    if (!response.ok) return "undelivered";
     const { delivered } = await response.json() as { delivered?: number };
-    return (delivered ?? 0) > 0;
+    return (delivered ?? 0) > 0 ? "shown" : "undelivered";
   } catch {
-    return false;
+    return "undelivered";
   }
 }
 

@@ -10,6 +10,8 @@ import { parseDomainResult } from "../../command/result.js";
 import { HANDLE_IT_YOURSELF, notifyRun } from "../../command/scheduler.js";
 import { FirstmateDomainTransport, syncFirstmateDomainRuns, type FirstmateExec } from "../../command/firstmate.js";
 import { readDomainRun, saveDomainRun } from "../../command/store.js";
+import { BACKSTAGE_DENYLIST, BACKSTAGE_TELEMETRY, CHAT_BACKSTAGE, firstMatch, hasBackstage } from "../../lib/backstage.js";
+import { relayShortfalls } from "../../runtime/honesty-check.js";
 import type { DomainRun } from "../../command/types.js";
 
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
@@ -30,6 +32,40 @@ function jev(answers: Record<string, number>, sink: Array<{ state: Record<string
 }
 
 describe("the chief-of-staff checks", () => {
+  it("shares its backstage vocabulary with the display guards", () => {
+    for (const pattern of [...CHAT_BACKSTAGE, ...BACKSTAGE_TELEMETRY]) expect(BACKSTAGE_DENYLIST).toContain(pattern);
+    const samples = [
+      "FirstMate", "first mate", "System-1", "Scout", "crewmate", "worktree", "the Librarian", "no-mistakes", "jev",
+      "run id 9f1a2b3", "fm/sidebar", "job-abc123", "merged at a1b2c3d", "domain-0f8c2d4e-1a2b-4c3d-9e8f-0123456789ab",
+      "the crew", "a new branch", "a sales pipeline", "PR #200", "The film critics loved it.", "The sidebar now opens on Artefacts.",
+    ];
+    for (const text of samples) {
+      const chatFlags = checkSaid({ surface: "chat", text }).some((item) => item.requirement === "backstage_hidden");
+      expect(chatFlags, text).toBe(firstMatch(text, [...CHAT_BACKSTAGE, ...BACKSTAGE_TELEMETRY]) !== null);
+      if (chatFlags) expect(hasBackstage(text), text).toBe(true);
+    }
+    for (const text of ["the crew", "a new branch", "PR #200"]) expect(hasBackstage(text), text).toBe(true);
+  });
+
+  it("holds back the relayed lines Flyd itself reported", () => {
+    for (const text of [
+      "Closest match is the System-1 replay bench for the routing predicates.",
+      "I'm making sure FirstMate's answers land in the conversation view.",
+      "Firstmate's answers will now land under your note.",
+    ]) {
+      expect(relayShortfalls(text).map((item) => item.requirement), text).toContain("backstage_hidden");
+    }
+  });
+
+  it("leaves ordinary speech alone", () => {
+    for (const text of ["The film critics loved it.", "My muse is the sea.", "It is a domain-specific language."]) {
+      expect(hasBackstage(text), text).toBe(false);
+    }
+    for (const text of ["The film critics loved it.", "It is a domain-specific language.", "We built a sales pipeline for the shop."]) {
+      expect(checkSaid({ surface: "chat", text }).map((item) => item.requirement), text).not.toContain("backstage_hidden");
+    }
+  });
+
   let jevSetting: string | undefined;
 
   beforeEach(() => {
@@ -247,8 +283,13 @@ describe("before display", () => {
     expect(shown).toEqual(["I need your decision: The CapFive privacy page is ready; publish it to the live site now?"]);
   });
 
+  it("holds back a whole notification that names backstage and records it", async () => {
+    expect(await deliverNotification("Flyd", "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toBe("backstage");
+    expect(readVerdicts().filter((verdict) => verdict.held && verdict.text === "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toHaveLength(1);
+  });
+
   it("keeps a placeholder notification from George and records it", async () => {
-    expect(await deliverNotification("Flyd", "Working on it")).toBe(false);
+    expect(await deliverNotification("Flyd", "Working on it")).toBe("placeholder");
     expect(readVerdicts().filter((verdict) => verdict.held && verdict.text === "Working on it")).toHaveLength(1);
   });
 });
@@ -262,7 +303,7 @@ describe("notifications", () => {
     expect(isIdleNotice("Flyd", "The DreamHost invoice needs your attention")).toBe(false);
     expect(isIdleNotice("Agenda", "The crew is waiting for your input on the logo")).toBe(false);
     expect(isIdleNotice("Codex", "Codex needs your attention")).toBe(true);
-    expect(await deliverNotification("Claude", "Claude is waiting for your input")).toBe(false);
+    expect(await deliverNotification("Claude", "Claude is waiting for your input")).toBe("idle");
   });
 
 

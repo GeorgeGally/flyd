@@ -65,6 +65,7 @@ describe("style check", () => {
     expect(styleProblems("None of the sets are online yet. Put one on Mixcloud tonight.")).toEqual([]);
     expect(styleProblems("Started it: a crewmate is adding the clock in its own worktree.")[0]).toMatch(/backstage \("crewmate"\)/);
     expect(styleProblems("I'll build the clock and tell you when it's ready.")).toEqual([]);
+    expect(styleProblems("Yes, PR 68 merged this morning.")).toEqual([]);
   });
 
   it("shares one backstage denylist with the notification path", async () => {

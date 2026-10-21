@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  addAgendaItem, agendaPaths, cancelAgendaItem, markInboxRead, nextOccurrence, parseLocalDateTime,
+  addAgendaItem, agendaPaths, cancelAgendaItem, deliverNotification, markInboxRead, nextOccurrence, parseLocalDateTime,
   readAgenda, runDueAgenda, unreadInbox, upcomingAgenda, type AgendaPaths,
 } from "../agenda.js";
 
@@ -83,6 +83,37 @@ describe("agenda", () => {
       expect(bodies).toHaveLength(1);
       expect(bodies[0]!.title).not.toMatch(/firstmate|crew ?mates?|crewmember|Jev|Librarian|Critic|Strategist|Muse|Scout|council|task id|run id|branch|worktree|pipeline|fm\//i);
       expect(bodies[0]!.message).toBe("Dark mode is merged.");
+    } finally {
+      vi.unstubAllGlobals();
+      Object.defineProperty(process, "platform", { value: previousPlatform, configurable: true });
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("holds a notification naming backstage whole, telling him only that his call is needed when it is a decision or blocker", async () => {
+    const home = mkdtempSync(join(tmpdir(), "flyd-agenda-home-"));
+    mkdirSync(join(home, ".flyd", "overlay"), { recursive: true });
+    writeFileSync(join(home, ".flyd", "overlay", "auth-token"), "token\n");
+    const previousHome = process.env.HOME;
+    const previousPlatform = process.platform;
+    process.env.HOME = home;
+    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+    const bodies: Array<{ title: string; message: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body: string }) => {
+      bodies.push(JSON.parse(init.body) as { title: string; message: string });
+      return { ok: true, json: async () => ({ delivered: 1 }) };
+    }));
+    try {
+      expect(await deliverNotification("Flyd", "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toBe("backstage");
+      expect(await deliverNotification("Flyd", "Logo refresh: Firstmate will decide whether to merge the crew branch.", "deliverable", "Logo refresh")).toBe("backstage");
+      expect(await deliverNotification("Logo", "Firstmate needs your call on the logo.", "decision")).toBe("shown");
+      expect(await deliverNotification("Flyd", "Logo refresh: the crew branch is stuck.", "blocker", "Logo refresh")).toBe("shown");
+      expect(bodies).toEqual([
+        { title: "Logo", message: "I need your decision on some of your work.", kind: "decision" },
+        { title: "Flyd", message: 'I need your decision on "Logo refresh".', kind: "blocker" },
+      ]);
     } finally {
       vi.unstubAllGlobals();
       Object.defineProperty(process, "platform", { value: previousPlatform, configurable: true });
