@@ -61,8 +61,6 @@ export interface ActivityRecord {
   kind: ActivityKind;
   title: string;
   line?: string;
-  /** The fuller outcome behind the card — e.g. the whole brief — shown only when he opens it. */
-  detail?: string;
   /** The actual stories behind a news card, each with its own link, shown only when he opens it. */
   stories?: ActivityStory[];
   state?: "now" | "done";
@@ -77,8 +75,6 @@ export const MAX_RECENT = 14;
 const LINE_LIMIT = 140;
 /** How much of the outcome behind a card is kept for when he opens it. */
 const DETAIL_LIMIT = 240;
-/** A record's own detail may be long — a whole day's brief, up to a curator's dozen stories — so it gets a generous bound. */
-const RECORD_DETAIL_LIMIT = 10_000;
 
 export function activityRecordPath(dir = FLYD_DIR): string {
   return join(dir, "activity", "records.jsonl");
@@ -119,24 +115,6 @@ function detailBehind(text: string | undefined, line: string | undefined): strin
   const said = clip(sentences(inline(text ?? "")).filter((one) => !leaks(one)).join(" "), DETAIL_LIMIT).trim();
   const bare = (one: string): string => one.replace(/[.!?…\s]+$/, "").toLowerCase();
   return said && bare(said) !== bare(line) ? said : undefined;
-}
-
-/**
- * A record's own detail, kept as written so a brief can open whole. Only the
- * lines that name the machinery stay out, so one bad line never costs the brief;
- * the bound falls on line boundaries, so no story is cut in half.
- */
-function plainDetail(text: string | undefined): string | undefined {
-  const kept: string[] = [];
-  let size = 0;
-  for (const raw of (text ?? "").split("\n")) {
-    const lineText = raw.trimEnd();
-    if (!lineText.trim() || leaks(lineText)) continue;
-    if (size && size + lineText.length + 1 > RECORD_DETAIL_LIMIT) break;
-    kept.push(lineText);
-    size += lineText.length + 1;
-  }
-  return kept.length ? kept.join("\n") : undefined;
 }
 
 /** What a scheduled task is called: its words up to the colon ("Morning brief: …"), else its first sentence. */
@@ -301,7 +279,7 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
   for (const [key, record] of latest) {
     const line = plainLine(record.line);
     const stories = recordStories(record.stories);
-    const detail = stories.length ? undefined : plainDetail(record.detail) ?? detailBehind(record.line, line);
+    const detail = stories.length ? undefined : detailBehind(record.line, line);
     const item: ActivityItem = { id: `record:${key}`, kind: record.kind, title: record.title.trim(), ...(line ? { line } : {}), ...(detail ? { detail } : {}), ...(stories.length ? { stories } : {}), at: record.at };
     if (record.state === "now") {
       if (now - Date.parse(record.at) <= NOW_MAX_AGE_MS) live.push(item);

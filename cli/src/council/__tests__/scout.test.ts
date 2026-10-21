@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  editionActivityRecord, editionBrief, evolveScout, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
+  editionActivityRecord, evolveScout, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
   runScout, scoutTick, SEED_TASTE, seedSources, takeEvolutionNotes, watchScout, writeSources, type Edition, type ScoutSource,
 } from "../scout.js";
 
@@ -115,6 +115,26 @@ describe("edition, feedback, and watch", () => {
     expect(readSources(dir).slice(0, 2).every((source) => source.failures === 0 && source.status === "active")).toBe(true);
   });
 
+  it("lets every source reach the ranker even when early feeds alone would fill the candidate cap", async () => {
+    const feeds = Array.from({ length: 14 }, (_, index) => ({ kind: "rss" as const, name: `Feed ${index}`, target: `https://feed${index}.test/rss` }));
+    onlySources([...feeds, { kind: "reddit", name: "r/ordinals", target: "ordinals" }]);
+    const fetchFn = fakeFetch({
+      ...Object.fromEntries(feeds.map((_, index) => [`feed${index}.test`, rss(Array.from({ length: 12 }, (_, item) => ({ title: `Feed ${index} story ${item}`, link: `https://feed${index}.test/${item}` })))])),
+      "reddit.com/r/ordinals": rss([{ title: "A new recursive inscription technique", link: "https://reddit.com/r/ordinals/xyz" }]),
+    });
+    const prompts: string[] = [];
+    const complete = vi.fn(async (prompt: string) => {
+      if (prompt.startsWith("Plan 4")) return '{"topics": []}';
+      prompts.push(prompt);
+      return '{"picks": []}';
+    });
+    await runScout({ complete, fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-27T07:00:00Z") });
+    const candidates = prompts[0]!.split("\n").filter((line) => /^\[\d+\]/.test(line));
+    expect(candidates).toHaveLength(150);
+    expect(prompts[0]).toContain("A new recursive inscription technique");
+    expect(feeds.every((_, index) => prompts[0]!.includes(`Feed ${index} story 0`))).toBe(true);
+  });
+
   it("pauses a source after repeated fetch failures instead of dropping it", async () => {
     onlySources([{ kind: "rss", name: "Dead feed", target: "https://dead.test/feed" }]);
     const complete = vi.fn(async () => '{"picks": []}');
@@ -161,15 +181,11 @@ describe("edition brief", () => {
   it("keeps the whole brief as one record whose card opens to it", () => {
     const record = editionActivityRecord(edition);
     expect(record).toMatchObject({ key: "scout-edition", kind: "news", title: "Put together today's news", line: "2 stories from your sources.", state: "done", at: edition.generatedAt });
-    expect(record.detail).toContain("Bitcoin & Crypto Art");
-    expect(record.detail).toContain("1. ❗ A new ordinal generative technique — Direct precedent for your work (r/ordinals)");
-    expect(record.detail).toContain("https://x.test/ordinal");
-    expect(record.detail).toContain("2. 🐇 Game of Life on a torus");
     expect(record.stories).toEqual([
       { title: "A new ordinal generative technique", url: "https://x.test/ordinal", gist: "Direct precedent for your work", source: "r/ordinals" },
       { title: "Game of Life on a torus", url: "https://x.test/torus", gist: "Creative coding you love", source: "r/creativecoding" },
     ]);
-    expect(editionBrief(edition).indexOf("Bitcoin & Crypto Art")).toBeLessThan(editionBrief(edition).indexOf("Creative Coding"));
+    expect(record).not.toHaveProperty("detail");
   });
 
   it("records the day's brief with the activity only when it has stories and is wired to", async () => {

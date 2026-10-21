@@ -378,6 +378,15 @@ export function parsePicks(text: string, candidates: ScoutCandidate[], max = BRI
   return items;
 }
 
+/** Every source's first item, then every source's second, and so on, so a cap on candidates never starves the sources that arrive last. */
+export function interleaveBySource(candidates: ScoutCandidate[]): ScoutCandidate[] {
+  const bySource = new Map<string, ScoutCandidate[]>();
+  for (const candidate of candidates) bySource.set(candidate.sourceId, [...(bySource.get(candidate.sourceId) ?? []), candidate]);
+  const lists = [...bySource.values()];
+  const longest = Math.max(0, ...lists.map((list) => list.length));
+  return Array.from({ length: longest }, (_, round) => lists.flatMap((list) => (round < list.length ? [list[round]!] : []))).flat();
+}
+
 function seenUrls(dir: string): Set<string> {
   return new Set(readJsonl<{ url: string }>(join(dir, "seen.jsonl")).map((item) => item.url));
 }
@@ -462,7 +471,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   const { candidates, failed } = await gatherCandidates(sources, { fetchFn: deps.fetchFn, fetchTopicFn: deps.fetchTopicFn, includeTopics: true, now, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
   sources = recordFailures(sources, failed);
   const seen = seenUrls(dir);
-  const fresh = candidates.filter((candidate, index) => !seen.has(candidate.url) && candidates.findIndex((other) => other.url === candidate.url) === index).slice(0, 150);
+  const fresh = interleaveBySource(candidates.filter((candidate, index) => !seen.has(candidate.url) && candidates.findIndex((other) => other.url === candidate.url) === index)).slice(0, 150);
   const items = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh) : [];
 
   // Exposure counts toward fitness: a source that keeps being shown but never liked fades.
@@ -476,22 +485,6 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   return { edition, failedTopics: failed };
 }
 
-/** The whole brief as plain text: each story on its own line, under its section. */
-export function editionBrief(edition: Edition): string {
-  const sections = new Map<string, EditionItem[]>();
-  for (const item of edition.items) sections.set(item.topic, [...(sections.get(item.topic) ?? []), item]);
-  const lines: string[] = [];
-  for (const [topic, items] of sections) {
-    lines.push(topic);
-    for (const item of items) {
-      const mark = item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : "";
-      lines.push(`${item.n}. ${mark}${item.title} — ${item.why} (${item.source})`);
-      lines.push(`   ${item.url}`);
-    }
-  }
-  return lines.join("\n");
-}
-
 /** The day's edition as an activity record, so its card can open to the whole brief. */
 export function editionActivityRecord(edition: Edition): ActivityRecord {
   return {
@@ -499,7 +492,6 @@ export function editionActivityRecord(edition: Edition): ActivityRecord {
     kind: "news",
     title: "Put together today's news",
     line: `${edition.items.length} ${edition.items.length === 1 ? "story" : "stories"} from your sources.`,
-    detail: editionBrief(edition),
     stories: edition.items.map(({ title, url, why, source }) => ({ title, url, ...(why ? { gist: why } : {}), ...(source ? { source } : {}) })),
     state: "done",
     at: edition.generatedAt,
@@ -522,7 +514,7 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   writeSources(sources, dir);
   const seen = seenUrls(dir);
   const watched = new Set(readJsonl<{ url: string }>(join(dir, "watched.jsonl")).map((item) => item.url));
-  const fresh = candidates.filter((candidate, index) => !seen.has(candidate.url) && !watched.has(candidate.url) && candidates.findIndex((other) => other.url === candidate.url) === index).slice(0, 80);
+  const fresh = interleaveBySource(candidates.filter((candidate, index) => !seen.has(candidate.url) && !watched.has(candidate.url) && candidates.findIndex((other) => other.url === candidate.url) === index)).slice(0, 80);
   // Everything examined is remembered so the watch never re-reads the same item.
   appendJsonl(join(dir, "watched.jsonl"), fresh.map((candidate) => ({ url: candidate.url, date: today })));
   if (fresh.length === 0) return [];

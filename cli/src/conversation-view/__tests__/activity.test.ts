@@ -119,12 +119,6 @@ describe("activity records", () => {
     expect(out.done[0]!.stories).toEqual([{ title: "A real find", url: "https://x.test/a", gist: "why it matters", source: "r/ordinals" }]);
   });
 
-  it("shows a record's stories alone, not a second full-text copy beside them", () => {
-    const stories = [{ title: "A real find", url: "https://x.test/a", gist: "why it matters" }];
-    const out = activityFromRecords([{ key: "scout-edition", kind: "news", title: "Put together today's news", line: "1 story from your sources.", detail: "Bitcoin & Crypto Art\n1. A real find — why it matters (r/ordinals)\n   https://x.test/a", stories, state: "done", at: minutesAgo(2) }], NOW);
-    expect(out.done[0]!.stories).toEqual(stories);
-    expect(out.done[0]!.detail).toBeUndefined();
-  });
 });
 
 describe("composeActivity", () => {
@@ -145,39 +139,13 @@ describe("composeActivity", () => {
     expect(panel.recent[2]!.line).toBe("10 recent answers checked; all held up.");
   });
 
-  it("keeps a record's own detail for its card, and lets it supersede the log line that repeats it", () => {
-    const records = [{ key: "scout-edition", kind: "news", title: "Put together today's news", line: "12 stories from your sources.", detail: "Bitcoin & Crypto Art\n1. ❗ A new ordinal technique — precedent for you (r/ordinals)\n   https://x.test/a", state: "done", at: minutesAgo(2) }];
-    expect(activityFromRecords(records, NOW).done[0]!.detail).toContain("https://x.test/a");
-    // The log line for the same news does not make a second card.
+  it("lets a news record supersede the log line that repeats it, keeping its story links", () => {
+    const stories = [{ title: "A new ordinal technique", url: "https://x.test/a", gist: "precedent for you", source: "r/ordinals" }];
+    const records = [{ key: "scout-edition", kind: "news", title: "Put together today's news", line: "12 stories from your sources.", stories, state: "done", at: minutesAgo(2) }];
     const panel = composeActivity({ log: ["2026-10-17T11:58:00.000Z scout: edition: 12 items"], jobs: [], advice: [], records }, NOW);
     expect(panel.recent.filter((item) => item.title === "Put together today's news")).toHaveLength(1);
-    expect(panel.recent[0]!.detail).toContain("https://x.test/a");
-  });
-
-  it("keeps a whole day's brief, not a clipped one, so its last stories and links still open", () => {
-    const brief = Array.from({ length: 14 }, (_, index) => `Bitcoin & Crypto Art\n${index + 1}. ❗ A new ordinal generative technique worth your sight — direct precedent for the on-chain art you are building (r/ordinals)\n   https://x.test/story-${index}`).join("\n");
-    expect(brief.length).toBeGreaterThan(2000);
-    const records = [{ key: "scout-edition", kind: "news", title: "Put together today's news", detail: brief, state: "done", at: minutesAgo(2) }];
-    const kept = activityFromRecords(records, NOW).done[0]!.detail!;
-    expect(kept).toContain("https://x.test/story-0");
-    expect(kept).toContain("https://x.test/story-13");
-  });
-
-  it("keeps the brief when one story names the machinery, dropping only that story's line", () => {
-    const detail = [
-      "Bitcoin & Crypto Art",
-      "1. ❗ A real on-chain find — precedent for you (r/ordinals)",
-      "   https://x.test/good",
-      "2. Scout shipped the crewmates today — ignore (r/ai)",
-      "3. Another good one — worth a look (r/creativecoding)",
-      "   https://x.test/good2",
-    ].join("\n");
-    const records = [{ key: "scout-edition", kind: "news", title: "Put together today's news", detail, state: "done", at: minutesAgo(2) }];
-    const kept = activityFromRecords(records, NOW).done[0]!.detail!;
-    expect(kept).toContain("https://x.test/good");
-    expect(kept).toContain("https://x.test/good2");
-    expect(kept).not.toContain("Scout");
-    expect(kept).not.toContain("crewmates");
+    expect(panel.recent[0]!.stories).toEqual(stories);
+    expect(panel.recent[0]!.detail).toBeUndefined();
   });
 
   it("drops what is older than a week and caps the list", () => {
