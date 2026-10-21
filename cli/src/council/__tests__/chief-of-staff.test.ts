@@ -10,6 +10,7 @@ import { parseDomainResult } from "../../command/result.js";
 import { HANDLE_IT_YOURSELF, notifyRun } from "../../command/scheduler.js";
 import { FirstmateDomainTransport, syncFirstmateDomainRuns, type FirstmateExec } from "../../command/firstmate.js";
 import { readDomainRun, saveDomainRun } from "../../command/store.js";
+import { namesBackstageMachinery } from "../../lib/backstage.js";
 import type { DomainRun } from "../../command/types.js";
 
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
@@ -30,6 +31,14 @@ function jev(answers: Record<string, number>, sink: Array<{ state: Record<string
 }
 
 describe("the chief-of-staff checks", () => {
+  it("shares its backstage vocabulary with the display guards", () => {
+    for (const text of ["FirstMate", "System-1", "Scout", "crewmate", "worktree", "PR #200", "run id 9f1a2b3"]) {
+      expect(namesBackstageMachinery(text), text).toBe(true);
+      expect(checkSaid({ surface: "chat", text }).map((item) => item.requirement)).toContain("backstage_hidden");
+    }
+    expect(namesBackstageMachinery("The sidebar now opens on Artefacts.")).toBe(false);
+  });
+
   let jevSetting: string | undefined;
 
   beforeEach(() => {

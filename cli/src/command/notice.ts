@@ -1,6 +1,7 @@
 import { recordHeld } from "../council/reply-review.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { relayShortfalls, stripCommitIds, stripRetiredPhrases } from "../runtime/honesty-check.js";
+import { namesBackstageMachinery } from "../lib/backstage.js";
 import type { DomainRun } from "./types.js";
 
 // What of a finished domain run is worth a notification. A domain boss's
@@ -65,6 +66,9 @@ export function captainNotice(run: DomainRun): string | null {
   // backstage machinery gives way to a neutral line naming the work, and what
   // was held is recorded so a reviewer can see it.
   const held = relayShortfalls(brief);
+  if (namesBackstageMachinery(brief) && !held.some((shortfall) => shortfall.requirement === "backstage_hidden")) {
+    recordHeld({ surface: "notification", source: `domain:${run.id}`, text: brief }, [{ requirement: "backstage_hidden", reason: "It names backstage machinery.", quote: brief.slice(0, 240), by: "check" }]);
+  }
   if (!held.length) return brief;
   recordHeld({ surface: "notification", source: `domain:${run.id}`, text: brief }, held);
   if (held.some((shortfall) => shortfall.requirement !== "backstage_hidden")) return null;
