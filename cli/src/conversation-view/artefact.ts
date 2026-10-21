@@ -418,7 +418,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
   if (fleet.unavailable) return fleet;
   return {
     ...fleet,
-    calls: fleet.calls.map((row) => enrich(row, true)).filter((row) => isCurrentDecision(row, now)),
+    calls: fleet.calls.map((row) => enrich(row, true)).filter((row) => row.ledgerOnly || isCurrentDecision(row, now)),
     live: fleet.live.map((row) => enrich(row)),
     ready: fleet.ready.map((row) => enrich(row)),
     landed: fleet.landed.map((row) => enrich(row)),

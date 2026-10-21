@@ -646,6 +646,26 @@ describe("ArtefactFeed", () => {
     expect(after.some((item) => item.kind === "call")).toBe(false);
   });
 
+  it("keeps a settled call on screen after its answered hold leaves the backlog", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-answered-call-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "x", summary: "Pick one" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), "- [ ] x - Pick one (hold: Choose a color: 1 Red, 2 Blue)\n");
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(composeArtefact(feed.current()).find((item) => item.id === "call:call-x")).toMatchObject({ kind: "call" });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [] }));
+    writeFileSync(join(home, "data", "backlog.md"), "- [ ] x - Pick one\n");
+    await feed.refresh();
+    const fleet = feed.current().fleet!;
+    expect(fleetCounts(fleet).call).toBe(0);
+    expect(composeArtefact(feed.current()).find((item) => item.id === "call:call-x")).toMatchObject({ kind: "clear", detail: "Settled, nothing needed." });
+  });
+
   it("keeps a settled call in its place among open calls, past the open-call limit, as resolved work", () => {
     const call = (task: string, at: string, ledgerOnly = false) => ({ label: `Call ${task}`, task, at, choices: ["Red", "Blue"], ...(ledgerOnly ? { ledgerOnly } : {}) });
     const open = ["b", "c", "d"].map((task, index) => call(task, `2026-10-2${index}T00:00:00Z`));
