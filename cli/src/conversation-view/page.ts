@@ -180,6 +180,7 @@ const SHOW_STYLE = `
 .semantic-context .working { color: var(--k-live); }
 .semantic-context .landed { color: var(--k-landed); }
 .semantic-context .held { color: var(--k-waiting); }
+.semantic-context .failed { color: var(--k-call); }
 .semantic-context .watching { color: var(--muted); }
 .semantic-workspace .ticks { display: none !important; }
 
@@ -254,6 +255,42 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .devices.pair .phone { right: 0; bottom: 0; width: min(36cqh, 34cqw); height: min(78cqh, 73.7cqw); }
 /* A scene's foot: a question's options, one tap each, then the chat box every artefact has. */
 .scene-ask { display: grid; gap: 14px; margin-top: 28px; max-width: 640px; }
+/* The pattern's body: the question, the findings, the document itself, the operation. */
+.screen-body { display: grid; gap: 14px; margin-top: 22px; max-width: 640px; }
+.screen-body:empty { display: none; }
+.screen-question { margin: 0; font: 500 clamp(18px, 1.5vw, 22px)/1.35 var(--sans); color: var(--strong); }
+.screen-document { margin: 0; font: 400 17px/1.55 var(--sans); color: var(--fg); white-space: pre-wrap; }
+.screen-rec { margin: 0; font: 400 16px/1.5 var(--sans); color: var(--muted); }
+.screen-rec b, .screen-operation b { font-weight: 600; color: var(--strong); }
+.screen-operation { margin: 0; font: 400 17px/1.5 var(--sans); color: var(--fg); }
+.screen-findings { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.screen-findings h4 { margin: 0 0 2px; font: 600 16px/1.3 var(--sans); color: var(--strong); }
+.screen-findings p { margin: 0; font: 400 15px/1.5 var(--sans); color: var(--fg); }
+.screen-confidence { display: inline-block; margin-top: 4px; font: 500 12px/1 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.screen-comparison { border-collapse: collapse; width: 100%; font: 400 15px/1.45 var(--sans); }
+.screen-comparison th, .screen-comparison td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--faint); }
+.screen-comparison tr:first-child th { font-weight: 600; color: var(--muted); }
+.screen-metrics { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; }
+.screen-metrics dt { font: 500 12px/1.4 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.screen-metrics dd { margin: 0 0 0 6px; font: 400 15px/1.4 var(--sans); color: var(--fg); }
+.screen-evidence { font: 500 15px/1.4 var(--sans); color: var(--accent); text-decoration: none; }
+.screen-evidence:hover { text-decoration: underline; }
+/* The artefact in the conversation: the same pattern, drawn where he reads. */
+.inline-screen { margin: 28px 0 8px; }
+.inline-screen[hidden] { display: none; }
+.inline-card {
+  display: grid; gap: 12px; padding: 22px 24px; border: 1px solid var(--faint);
+  border-left: 3px solid var(--accent); border-radius: 12px; background: var(--tint);
+}
+.inline-card.k-landed { border-left-color: var(--k-landed); }
+.inline-card.k-call { border-left-color: var(--k-call); }
+.inline-kind { margin: 0; font: 500 12px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.inline-head { margin: 0; font: 600 clamp(19px, 1.7vw, 25px)/1.25 var(--sans); color: var(--strong); }
+.inline-head[role="button"] { cursor: pointer; }
+.inline-card .screen-body { margin-top: 4px; max-width: none; }
+.inline-shots { display: flex; flex-wrap: wrap; gap: 10px; }
+.inline-shots img { max-width: 220px; max-height: 150px; border-radius: 8px; border: 1px solid var(--faint); object-fit: cover; cursor: zoom-in; }
+.inline-card .scene-ask { margin-top: 10px; max-width: none; }
 .scene-ask .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: 8px; }
 .choice-pick {
   display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 52px;
@@ -1962,7 +1999,7 @@ var __name = function (f) { return f; };
     var artifacts = show && show.artifacts && show.artifacts.filter(function (artifact) { return !(artifact.artifact && artifact.artifact.type === "plan"); });
     if (decisions) drawSemanticDecisions(decisions);
     else drawNeeds(calls);
-    setNeeds((decisions || calls).map(function (item) { return item.id; }));
+    setNeeds(((show && show.needs) || decisions || calls).map(function (item) { return item.id; }));
     if (artifacts) drawSemanticArtifacts(artifacts);
     else drawList(doneEl, "Done", done, function (item) { return item.at ? ago(item.at) : ""; }, DONE_FEW);
     drawList(noticesEl, "Notices", notices.slice().reverse().map(function (notice) {
@@ -3867,35 +3904,134 @@ ${LEFT_SCRIPT}
     return (box.children || []).filter(function (child) { return child.kind === "shot" && child.shot; }).map(function (child) { return child.shot; });
   }
 
+  // The pattern's body, drawn from the reviewed blocks the Screen team owns.
+  // Anything already said in the headline or the line is not repeated.
+  function screenBody(box) {
+    var screen = box.screen;
+    if (!screen || !screen.blocks || !screen.blocks.length) return null;
+    var said = {};
+    [box.title, box.line].forEach(function (text) { if (text) said[String(text).trim().toLowerCase()] = true; });
+    var wrap = el("div", "screen-body");
+    var known = {};
+    (box.links || []).forEach(function (link) { known[link.url] = true; });
+    screen.blocks.forEach(function (block) {
+      if (block.kind === "choices") return;
+      if (block.kind === "question" || block.kind === "document" || block.kind === "recommendation" || block.kind === "operation") {
+        var text = String(block.text || "").trim();
+        if (!text) return;
+        if (block.kind !== "document") {
+          if (said[text.toLowerCase()]) return;
+          said[text.toLowerCase()] = true;
+        }
+        if (block.kind === "recommendation") {
+          var rec = el("p", "screen-rec");
+          rec.appendChild(el("b", "", "Recommended"));
+          rec.appendChild(document.createTextNode(" " + text));
+          wrap.appendChild(rec);
+          return;
+        }
+        if (block.kind === "operation") {
+          var op = el("p", "screen-operation");
+          op.appendChild(el("b", "", "Approve: "));
+          op.appendChild(document.createTextNode(text));
+          wrap.appendChild(op);
+          return;
+        }
+        wrap.appendChild(el("p", block.kind === "question" ? "screen-question" : "screen-document", text));
+        return;
+      }
+      if (block.kind === "findings") {
+        var list = el("ul", "screen-findings");
+        (block.items || []).forEach(function (finding) {
+          var item = el("li", "");
+          item.appendChild(el("h4", "", finding.heading));
+          if (finding.summary) item.appendChild(el("p", "", finding.summary));
+          if (finding.confidence) item.appendChild(el("span", "screen-confidence", finding.confidence + " confidence"));
+          list.appendChild(item);
+        });
+        if (list.childNodes.length) wrap.appendChild(list);
+        return;
+      }
+      if (block.kind === "comparison") {
+        var table = el("table", "screen-comparison");
+        var head = el("tr", "");
+        head.appendChild(el("th", "", ""));
+        (block.criteria || []).forEach(function (criterion) { head.appendChild(el("th", "", criterion)); });
+        table.appendChild(head);
+        (block.alternatives || []).forEach(function (alternative) {
+          var row = el("tr", "");
+          row.appendChild(el("th", "", alternative.name));
+          (alternative.values || []).forEach(function (value) { row.appendChild(el("td", "", value)); });
+          table.appendChild(row);
+        });
+        wrap.appendChild(table);
+        return;
+      }
+      if (block.kind === "metrics") {
+        var metrics = el("dl", "screen-metrics");
+        (block.items || []).forEach(function (metric) {
+          metrics.appendChild(el("dt", "", metric.label));
+          metrics.appendChild(el("dd", "", metric.value));
+        });
+        if (metrics.childNodes.length) wrap.appendChild(metrics);
+        return;
+      }
+      if (block.kind === "evidence") {
+        (block.items || []).forEach(function (work) {
+          if (work.closed || known[work.ref]) return;
+          known[work.ref] = true;
+          var a = el("a", "screen-evidence", (work.label || "Open") + " ↗");
+          a.href = work.ref;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          wrap.appendChild(a);
+        });
+        return;
+      }
+    });
+    return wrap.childNodes.length ? wrap : null;
+  }
+
   function fillScene(box) {
     filled = JSON.stringify(box);
     var shots = shotsOf(box);
-    sceneEl.className = "scene k-" + (box.kind === "alert" ? "warn" : box.tone || "news") + (shots.length ? " has-shot" : "") + (box.decision ? " has-ask" : "");
+    var screen = box.screen;
+    var below = !!(screen && screen.visual === "below");
+    sceneEl.className = "scene k-" + (box.kind === "alert" ? "warn" : box.tone || "news") + (shots.length && !below ? " has-shot" : "") + (box.decision || (screen && screen.action && screen.action !== "none") ? " has-ask" : "");
     sceneEl.dataset.semantic = box.semanticKind || "";
+    sceneEl.dataset.pattern = screen ? screen.pattern : "";
     if (sceneEl.dataset.id !== box.id) sceneEl.parentElement.scrollTop = 0;
     sceneEl.dataset.id = box.id;
     sceneHead.textContent = box.title;
     sceneHead.classList.toggle("long", box.title.length > 80);
-    if (box.ref) {
+    if (box.ref || box.semantic) {
       sceneHead.setAttribute("role", "button");
       sceneHead.tabIndex = 0;
-      sceneHead.dataset.ref = box.ref;
+      sceneHead.dataset.ref = box.ref || "";
+      sceneHead.dataset.inline = box.semantic ? "1" : "";
       sceneHead.title = "Open in the conversation";
     } else {
       sceneHead.removeAttribute("role");
       sceneHead.removeAttribute("tabindex");
       sceneHead.removeAttribute("title");
       sceneHead.dataset.ref = "";
+      sceneHead.dataset.inline = "";
     }
-    sceneLine.textContent = box.line ? sentence(capital(box.line)) : "";
+    var hasDocument = !!(screen && screen.blocks && screen.blocks.some(function (block) { return block.kind === "document"; }));
+    sceneLine.textContent = box.line && !hasDocument ? sentence(capital(box.line)) : "";
     var oldOpen = sceneEl.querySelector(".scene-open");
     if (oldOpen) oldOpen.remove();
     if (box.open) sceneLine.after(pageButton(box.open, "scene-open"));
+    // The body the pattern promises, under the headline: the question, what was
+    // found, the document itself, the operation being approved. The ask below
+    // owns the interactive part, so choices are never drawn twice.
+    var oldBody = sceneEl.querySelector(".screen-body");
+    if (oldBody) oldBody.remove();
+    var body = screenBody(box);
+    if (body) sceneLine.after(body);
     // Every scene takes his words about it at its foot; a question's options answer it in one tap.
     var oldAsk = sceneEl.querySelector(".scene-ask");
-    // Only a piece of work takes words about it; "Working on it" and the situation line are not one.
-    var aboutWork = box.decision || box.task || box.ref || box.open || (box.links && box.links.length) || shots.length;
-      var askKey = !VIEW_TOKEN || !aboutWork ? "" : box.decision ? "flyd-decision:" + (box.decision.decisionId || box.decision.task) + ":" + box.decision.question : "flyd-about:" + box.id;
+    var askKey = askKeyFor(box);
     if (oldAsk && oldAsk.dataset.key !== askKey) oldAsk.remove();
     if (askKey && !(oldAsk && oldAsk.isConnected)) sceneEl.querySelector(".scene-text").appendChild(sceneAsk(box, askKey));
     sceneMeta.textContent = "";
@@ -4105,10 +4241,13 @@ ${LEFT_SCRIPT}
   sceneEl.addEventListener("focusin", function () { hold(true); });
   sceneEl.addEventListener("focusout", function (event) { if (!sceneEl.contains(event.relatedTarget)) hold(false); });
   ticksEl.addEventListener("mouseleave", function () { hold(false); });
-  function openScene() { if (sceneHead.dataset.ref) openInTerminal(sceneHead.dataset.ref); }
+  function openScene() {
+    if (sceneHead.dataset.ref) { openInTerminal(sceneHead.dataset.ref); return; }
+    if (sceneHead.dataset.inline) openInlineCard();
+  }
   sceneHead.addEventListener("click", openScene);
   sceneHead.addEventListener("keydown", function (event) {
-    if (sceneHead.dataset.ref && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openScene(); }
+    if ((sceneHead.dataset.ref || sceneHead.dataset.inline) && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openScene(); }
   });
   function renderTicks() {
     ticksEl.textContent = "";
@@ -4209,32 +4348,57 @@ ${LEFT_SCRIPT}
   }
   function renderSemanticContext(screen) {
     var nav = document.getElementById("semantic-context");
+    // The edge is rebuilt on every screen update; the button he was on keeps the
+    // focus, and a rebuild that changed the counts is announced.
+    var held = document.activeElement && nav.contains(document.activeElement) ? document.activeElement.dataset.group : "";
+    var before = nav.dataset.counts || "";
     nav.textContent = "";
     var objects = (screen && screen.semantic) || [];
     var focus = screen && screen.focus;
+    // The focus object is on the stage, not in the edge; everything else lands in
+    // exactly one group, so nothing can vanish without being named.
     var rest = objects.filter(function (object) {
-      if (!focus || object.id === focus.id) return false;
-      if (object.kind === "monitor" && object.monitor && object.monitor.phase === "quiet") return true;
-      return object.lifecycle !== "resolved" || object.kind === "artifact";
+      return !(focus && object.id === focus.id);
     });
     semanticGroups = {};
     SEMANTIC_GROUPS.forEach(function (group) { semanticGroups[group.cls] = { group: group, items: [] }; });
-    rest.forEach(function (object) { semanticGroups[semanticGroup(object)].items.push(object); });
+    // The needs group is the one list the corner and the headline count also read,
+    // so the three can never name different numbers.
+    var needs = (screen && screen.needs) || [];
+    var needIds = {};
+    needs.forEach(function (object) { needIds[object.id] = true; });
+    semanticGroups.needs.items = needs.slice();
+    rest.forEach(function (object) {
+      if (needIds[object.id]) return;
+      semanticGroups[semanticGroup(object)].items.push(object);
+    });
+    var counts = [];
     SEMANTIC_GROUPS.forEach(function (group) {
       var items = semanticGroups[group.cls].items;
       if (!items.length) return;
+      counts.push(items.length + " " + group.label);
       var button = el("button", group.cls, items.length + " " + group.label);
       button.type = "button";
+      button.dataset.group = group.cls;
+      button.setAttribute("aria-label", items.length + " " + group.label);
       button.title = items.map(function (object) { return object.subject; }).join("\\n");
       button.addEventListener("click", function () { openSemanticGroup(group, button); });
       nav.appendChild(button);
     });
+    nav.dataset.counts = counts.join(", ");
+    if (held) {
+      var back = nav.querySelector('[data-group="' + held + '"]');
+      if (back) back.focus();
+    }
+    // Meaningful changes are announced; an unchanged edge stays quiet.
+    nav.setAttribute("aria-live", before !== nav.dataset.counts ? "polite" : "off");
   }
 
   // Every object lands in exactly one group: the edge can never hold work it does not name.
   function semanticGroup(object) {
     if (object.kind === "monitor") return object.monitor && object.monitor.phase === "changed" ? "needs" : "watching";
-    if (object.lifecycle === "failed") return "held";
+    if (object.lifecycle === "failed") return "failed";
+    if (object.lifecycle === "resolved") return "landed";
     if (object.lifecycle === "interrupted") return "needs";
     if (object.kind === "artifact") return "landed";
     if (object.lifecycle === "active") return object.activity && object.activity.phase === "needs_you" ? "needs" : "working";
@@ -4244,6 +4408,7 @@ ${LEFT_SCRIPT}
     { cls: "needs", label: "needs you", tone: "call" },
     { cls: "working", label: "working", tone: "live" },
     { cls: "held", label: "held up", tone: "waiting" },
+    { cls: "failed", label: "failed", tone: "warn" },
     { cls: "landed", label: "landed", tone: "landed" },
     { cls: "watching", label: "watching", tone: "live" },
   ];
@@ -4307,7 +4472,70 @@ ${LEFT_SCRIPT}
       children: children,
       semantic: true,
       semanticKind: object.kind,
+      screen: object.screen,
     };
+  }
+
+  function askKeyFor(box) {
+    var shots = shotsOf(box);
+    var aboutWork = box.decision || box.task || box.ref || box.open || (box.links && box.links.length) || shots.length;
+    if (!VIEW_TOKEN || !aboutWork) return "";
+    return box.decision ? "flyd-decision:" + (box.decision.decisionId || box.decision.task) + ":" + box.decision.question : "flyd-about:" + box.id;
+  }
+
+  // The artefact lives in the conversation: the same reviewed pattern, drawn
+  // where he reads, with its own visual beside the words when one exists.
+  var inlineEl = document.getElementById("inline-screen");
+  var inlineDrawn = "";
+  var INLINE_KIND = { decision: "Needs you", ask: "Needs you", artefact: "Landed", result: "Result", status: "Under way", comparison: "Comparison", briefing: "Briefing", answer: "Answer" };
+  function renderInlineScreen(show) {
+    var object = show && show.focus;
+    var box = object ? semanticBox(object) : null;
+    var usable = box && box.screen && (box.screen.blocks.length || box.decision);
+    var key = usable ? JSON.stringify([box.id, box.screen, box.title, box.line, box.decision, box.children]) : "";
+    if (!usable) { inlineEl.hidden = true; inlineEl.textContent = ""; inlineDrawn = ""; return; }
+    if (key === inlineDrawn) return;
+    inlineDrawn = key;
+    inlineEl.hidden = false;
+    inlineEl.textContent = "";
+    var card = el("div", "inline-card k-" + (box.tone || "news"));
+    card.appendChild(el("p", "inline-kind", INLINE_KIND[box.screen.meaning] || "Flyd"));
+    var head = el("h2", "inline-head", box.title);
+    var main = el("div", "inline-main");
+    var text = el("div", "inline-text");
+    text.appendChild(head);
+    var body = screenBody(box);
+    if (body) text.appendChild(body);
+    var askKey = askKeyFor(box);
+    if (askKey) text.appendChild(sceneAsk(box, askKey));
+    main.appendChild(text);
+    var shots = (box.children || []).filter(function (child) { return child.kind === "shot" && child.shot; });
+    if (shots.length) {
+      var gallery = el("div", "inline-shots");
+      shots.slice(0, 3).forEach(function (child) {
+        var src = withToken(child.shot.src);
+        var img = el("img");
+        img.src = src;
+        img.alt = "Screenshot: " + box.title;
+        img.loading = "lazy";
+        img.addEventListener("click", function () { openImage(src); });
+        gallery.appendChild(img);
+      });
+      main.appendChild(gallery);
+      main.classList.add("has-shot");
+    }
+    card.appendChild(main);
+    inlineEl.appendChild(card);
+  }
+  function openInlineCard() {
+    setScreen("terminal");
+    if (inlineEl.hidden) return;
+    inlineEl.scrollIntoView({ block: "center" });
+    var head = inlineEl.querySelector(".inline-head");
+    if (!head) return;
+    head.classList.remove("spot");
+    void head.offsetWidth;
+    head.classList.add("spot");
   }
 
   function renderShow(next, boxes) {
@@ -4346,6 +4574,9 @@ ${LEFT_SCRIPT}
     if (scenes.length && JSON.stringify(scenes[at]) !== filled) fillScene(scenes[at]);
     renderReadouts(parts.readouts);
     renderDoing();
+    renderInlineScreen(next);
+    // The artefact sits at the foot of the conversation, above the working dots.
+    if (inlineEl.parentElement === main) main.insertBefore(inlineEl, working);
     if (!callsEl.hidden) drawCalls();
     if (!drillEl.hidden) drawDrill();
   }
@@ -4639,6 +4870,7 @@ ${LEFT_HTML}
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>
   <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span></div>
+  <section class="inline-screen" id="inline-screen" hidden aria-label="The artefact"></section>
 </main>
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><button class="lightbox-nav lightbox-prev" type="button" aria-label="Previous image">‹</button><img id="lightbox-img" alt=""><button class="lightbox-nav lightbox-next" type="button" aria-label="Next image">›</button></div>

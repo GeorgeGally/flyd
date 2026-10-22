@@ -7,6 +7,7 @@ import { answerBody, answerHtml } from "../answer-form.js";
 import { boxesOf } from "../boxes.js";
 import { RECEIVED } from "../living.js";
 import { renderPage } from "../page.js";
+import { fillScreen } from "../screen/patterns.js";
 import type { ShowItem, ShowScreen } from "../show.js";
 
 // Runs the real page script against a fake server: EventSource streams and
@@ -1668,10 +1669,11 @@ describe("semantic main stage", () => {
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: [] });
 
     const edge = document.getElementById("semantic-context")!;
-    // Interrupted and failed work is named, not silently dropped.
+    // Interrupted and failed work is named, not silently dropped: failed work has
+    // its own group, so it is visible in exactly one place.
     expect(edge.textContent).toContain("1 needs you");
     expect(edge.textContent).toContain("2 working");
-    expect(edge.textContent).toContain("1 held up");
+    expect(edge.textContent).toContain("1 failed");
     expect(edge.textContent).toContain("1 landed");
     expect(edge.textContent).toContain("1 watching");
 
@@ -1685,8 +1687,8 @@ describe("semantic main stage", () => {
     button("working").click();
     expect((document.getElementById("drill") as HTMLElement).hidden).toBe(true);
 
-    button("held").click();
-    expect(document.getElementById("drill-title")!.textContent).toBe("Held up");
+    button("failed").click();
+    expect(document.getElementById("drill-title")!.textContent).toBe("Failed");
     const rows = document.querySelectorAll("#drill-list .drill-card");
     expect(rows).toHaveLength(1);
     expect(rows[0]!.textContent).toContain("Import the CSV");
@@ -3220,5 +3222,118 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(seen["landed:still"]).toBe(old["landed:still"]);
     expect(seen["landed:new"]).toBeDefined();
     expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["New today."]);
+  });
+});
+
+describe("screen gates", () => {
+  const object = (id: string, kind: string, lifecycle: string, subject: string, extra: Record<string, unknown> = {}): any => ({
+    id, kind, lifecycle, subject, summary: subject + ".", evidence: [], actions: [], source: { showItemId: id }, ...extra,
+  });
+  const screened = (value: any): any => ({ ...value, screen: fillScreen(value) });
+
+  it("gives the headline, the corner and the edge one number, and opens exactly that set", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const a = object("task:a", "decision", "interrupted", "Choose A", { decision: { target: "a", question: "A?", alternatives: ["Yes", "No"] } });
+    const b = object("task:b", "decision", "interrupted", "Choose B", { decision: { target: "b", question: "B?", alternatives: ["Yes", "No"] } });
+    const c = object("task:c", "activity", "interrupted", "Review C", { activity: { phase: "ready" } });
+    const focus = object("task:focus", "activity", "active", "Building the page", { activity: { phase: "working" } });
+    const show = { title: "Work", summary: "", live: false, counts: { call: 3 }, items: [], focus, semantic: [focus, a, b, c], needs: [a, b, c] } as unknown as ShowScreen;
+    const boxes = boxesOf(show);
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes });
+    await settle();
+    // The headline the lead group names.
+    expect(boxes[0]!.title).toBe("3 need you");
+    // The corner.
+    expect(document.getElementById("left-open")!.textContent).toBe("Needs you · 3");
+    // The edge, and the sheet it opens: exactly those three.
+    const edge = document.getElementById("semantic-context")!;
+    expect(edge.textContent).toContain("3 needs you");
+    edge.querySelector<HTMLButtonElement>(".needs")!.click();
+    expect(document.querySelectorAll("#drill-list .drill-card")).toHaveLength(3);
+  });
+
+  it("keeps the keyboard focus on the edge through a screen update, and announces the change", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const first = object("task:a", "activity", "active", "Build A", { activity: { phase: "working" } });
+    const focus = object("task:focus", "activity", "active", "Building the page", { activity: { phase: "working" } });
+    const show = (extra: unknown[]) => ({ title: "", summary: "", live: false, counts: {}, items: [], focus, semantic: [focus, first, ...extra], needs: [] }) as unknown as ShowScreen;
+    stream.emit("update", { order: [], messages: [], working: false, show: show([]), boxes: [] });
+    await settle();
+    const button = document.querySelector<HTMLButtonElement>("#semantic-context .working")!;
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    const second = object("task:b", "activity", "active", "Build B", { activity: { phase: "working" } });
+    stream.emit("update", { order: [], messages: [], working: false, show: show([second]), boxes: [] });
+    await settle();
+    const after = document.querySelector<HTMLButtonElement>("#semantic-context .working")!;
+    expect(after).not.toBe(button);
+    expect(document.activeElement).toBe(after);
+    expect(document.getElementById("semantic-context")!.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("draws a decision's question and its choices, not a headline over empty space", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const focus = screened(object("task:launch", "decision", "interrupted", "Choose the launch date", {
+      summary: "Friday has the strongest evidence.",
+      detail: "The sponsor is away Thursday.",
+      decision: { target: "launch", question: "Launch Friday or Saturday?", alternatives: ["Friday", "Saturday"], recommended: "Friday" },
+    }));
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus, semantic: [focus] } as unknown as ShowScreen, boxes: [] });
+    await settle();
+    const scene = document.getElementById("scene")!;
+    expect(scene.querySelector(".screen-question")!.textContent).toBe("Launch Friday or Saturday?");
+    expect([...scene.querySelectorAll(".scene-ask .choice-pick")].map((button) => button.textContent)).toEqual(["Fridayrecommended", "Saturday"]);
+    expect(scene.dataset.pattern).toBe("decision-choice");
+  });
+
+  it("draws an investigation's findings and an approval's operation and its action", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const findings = screened(object("task:audit", "investigation", "active", "Audit the checkout copy", {
+      summary: "Three claims are unsupported.",
+      investigation: { question: "Does the copy overclaim?", findings: [{ heading: "Delivery time", summary: "The carrier does not promise next day.", confidence: "high", evidenceIds: ["e1"] }], uncertainties: [], conflicts: [], sourceCount: 1 },
+    }));
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus: findings, semantic: [findings] } as unknown as ShowScreen, boxes: [] });
+    await settle();
+    expect(document.querySelectorAll("#scene .screen-findings li")).toHaveLength(1);
+    expect(document.querySelector("#scene .screen-findings h4")!.textContent).toBe("Delivery time");
+
+    const approval = screened(object("action:send", "action", "interrupted", "Send the reply to Gareth", {
+      summary: "The draft is ready to send.",
+      action: { phase: "proposed", operation: "Send the drafted WhatsApp reply", category: "outward", requiresApproval: true },
+    }));
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus: approval, semantic: [approval] } as unknown as ShowScreen, boxes: [] });
+    await settle();
+    expect(document.querySelector("#scene .screen-operation")!.textContent).toContain("Send the drafted WhatsApp reply");
+    expect([...document.querySelectorAll("#scene .scene-ask .choice-pick")].map((button) => button.textContent)).toEqual(["Approve", "Revise"]);
+  });
+
+  it("puts the artefact in the conversation, with its visual beside the words", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const focus = screened(object("artifact:deck", "artifact", "resolved", "Sponsor deck", {
+      summary: "The final deck is ready.",
+      detail: "The final deck is ready.",
+      artifact: { type: "document", phase: "ready" },
+      evidence: [{ kind: "image", ref: "/api/artefact-shot?task=deck&file=shot.png", label: "deck.png" }, { kind: "web", ref: "https://example.com/deck", label: "Open the deck" }],
+    }));
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus, semantic: [focus] } as unknown as ShowScreen, boxes: [] });
+    await settle();
+    const card = document.querySelector<HTMLElement>("#inline-screen .inline-card")!;
+    expect(card).not.toBeNull();
+    expect(card.querySelector(".inline-head")!.textContent).toBe("Sponsor deck");
+    expect(card.querySelectorAll(".inline-shots img")).toHaveLength(1);
+    expect(card.querySelector(".screen-document")!.textContent).toContain("The final deck is ready");
+    // The scene's own headline opens it in the conversation, never a side view.
+    expect((document.getElementById("scene-head") as HTMLElement).dataset.inline).toBe("1");
+    expect((document.getElementById("inline-screen") as HTMLElement).hidden).toBe(false);
   });
 });
