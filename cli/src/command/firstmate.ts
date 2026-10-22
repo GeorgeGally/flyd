@@ -191,8 +191,12 @@ const LAUNCH_RETRY_BASE_MS = 2 * 60_000;
 const LAUNCH_RETRY_MAX_MS = 30 * 60_000;
 const SESSION_OUTPUT_LIMIT = 8 * 1024;
 const LAUNCH_COOLDOWN_MS = 5 * 60_000;
+const UNREAD_TOO_LONG_MS = 3 * 60_000;
+const SESSION_IDLE_MS = 15 * 60_000;
 const launchingHomes = new Set<string>();
 const launchCooldownUntil = new Map<string, number>();
+const unreadSignals = new Set<string>();
+const liveSessions = new Map<string, { child: ReturnType<typeof spawn>; lastOutputAt: number }>();
 
 function sessionRuntimes(env = process.env): SessionRuntime[] {
   const configured = env.FLYD_FIRSTMATE_RUNTIMES?.split(",").map((item) => item.trim()).filter(Boolean);
@@ -287,8 +291,13 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
       let output = "";
       let settled = false;
       const child = spawn(sessionExecutable(runtime), sessionArgs(runtime), { cwd: home, env: sessionChildEnv({ ...process.env, FM_HOME: home }), detached: true, stdio: ["ignore", "pipe", "pipe"] });
-      child.stdout?.on("data", (chunk: Buffer | string) => { output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT); });
-      child.stderr?.on("data", (chunk: Buffer | string) => { output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT); });
+      const activity = (chunk: Buffer | string) => {
+        const session = liveSessions.get(home);
+        if (session?.child === child) session.lastOutputAt = Date.now();
+        output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT);
+      };
+      child.stdout?.on("data", activity);
+      child.stderr?.on("data", activity);
       child.once("error", (error) => {
         if (settled) return;
         settled = true;
@@ -297,11 +306,13 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
       });
       child.once("spawn", () => {
         handedOff = true;
+        liveSessions.set(home, { child, lastOutputAt: Date.now() });
         child.unref();
         record({ runtime, outcome: "started" });
         resolve({ started: true });
       });
       child.once("close", (code) => {
+        if (liveSessions.get(home)?.child === child) liveSessions.delete(home);
         const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
         if (limited || code !== 0) {
           record({ runtime, outcome: limited ? "usage_limited" : "failed", detail: output.slice(-500) });
@@ -423,6 +434,7 @@ export async function syncFirstmateDomainRuns(options: {
   onChanged?: (run: DomainRun) => Promise<void> | void;
   /** Reads a prose reply's outcome; without one Flyd's model reads it, and only words when no model can run. */
   judge?: ProseJudge;
+  onUnreadTooLong?: (notes: FirstmateNote[]) => void;
 } = {}): Promise<DomainRun[]> {
   const transport = options.transport ?? new FirstmateDomainTransport();
   if (!transport.available()) return [];
@@ -437,9 +449,26 @@ export async function syncFirstmateDomainRuns(options: {
     return [];
   }
   const nowMs = (options.now ?? (() => new Date()))().getTime();
-  const oldUnread = (receipts.pending ?? []).some((note) => note.at && nowMs - Date.parse(note.at) > 3 * 60_000);
+  const oldPending = (receipts.pending ?? []).filter((note) => note.at && nowMs - Date.parse(note.at) > UNREAD_TOO_LONG_MS);
+  if (oldPending.length) {
+    const newlyUnread = oldPending.filter((note) => !unreadSignals.has(`${transport.home}:${note.id}`));
+    for (const note of newlyUnread) unreadSignals.add(`${transport.home}:${note.id}`);
+    if (newlyUnread.length) {
+      options.onUnreadTooLong?.(newlyUnread);
+      recordSessionAttempt({ outcome: "unread_too_long", home: transport.home, notes: newlyUnread.map((note) => note.id) });
+    }
+  } else {
+    for (const key of unreadSignals) if (key.startsWith(`${transport.home}:`)) unreadSignals.delete(key);
+  }
+  const oldUnread = oldPending.length > 0;
   if (oldUnread) {
     const readiness = await transport.ready();
+    const session = liveSessions.get(transport.home);
+    if (readiness.liveHarness && session && nowMs - session.lastOutputAt > SESSION_IDLE_MS) {
+      session.child.kill("SIGTERM");
+      liveSessions.delete(transport.home);
+      return [];
+    }
     if (readiness.canReceive === false && !readiness.liveHarness) {
       const pending = receipts.pending ?? [];
       const waitingRun = runs.find((run) => pending.some((note) => note.id === run.transport.externalId || note.request_id === run.transport.requestId));

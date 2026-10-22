@@ -620,6 +620,36 @@ describe("FirstMate domain transport", () => {
     expect(started).toEqual(["claude"]);
   });
 
+  it("surfaces each unread-too-long note once to Flyd's internal callback", async () => {
+    saveDomainRun(queuedRun());
+    const note = { id: "note-1", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" };
+    const exec: FirstmateExec = async (_script, args) => args[0] === "receipts"
+      ? { stdout: JSON.stringify({ pending: [note] }), stderr: "" }
+      : { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: true } }), stderr: "" };
+    const onUnreadTooLong = vi.fn();
+    const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec });
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z"), onUnreadTooLong });
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:01:00.000Z"), onUnreadTooLong });
+    expect(onUnreadTooLong).toHaveBeenCalledTimes(1);
+    expect(onUnreadTooLong).toHaveBeenCalledWith([note]);
+  });
+
+  it("does not restart a live helper when it still owns the inbox", async () => {
+    saveDomainRun(queuedRun());
+    const started: string[] = [];
+    const exec: FirstmateExec = async (_script, args) => args[0] === "receipts"
+      ? { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" }
+      : { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: true } }), stderr: "" };
+    await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec: async (script, args, options) => {
+        if (args[0] !== "receipts" && args[0] !== "ready") started.push(script);
+        return exec(script, args, options);
+      } }),
+      now: () => new Date("2026-10-09T01:00:00.000Z"),
+    });
+    expect(started).toEqual([]);
+  });
+
   it("does not start a session while the unread note is still fresh", async () => {
     saveDomainRun(queuedRun());
     const started: string[] = [];
