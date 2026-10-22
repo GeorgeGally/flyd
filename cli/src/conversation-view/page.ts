@@ -4669,7 +4669,7 @@ ${LEFT_HTML}
       <ul class="drill-list" id="drill-list"></ul>
     </div>
   </div>
-  <div class="foot"><p class="doing" id="show-doing">Standby</p><span class="hint">type to talk · tab for the conversation</span><span id="show-nav" hidden><button class="show-nav" id="show-prev" type="button" aria-label="Previous card">←</button><button class="show-nav" id="show-next" type="button" aria-label="Next card">→</button></span></div>
+  <div class="foot"><p class="doing" id="show-doing">Standby</p><span id="show-nav" hidden><button class="show-nav" id="show-prev" type="button" aria-label="Previous card">←</button><button class="show-nav" id="show-next" type="button" aria-label="Next card">→</button></span></div>
 </section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
