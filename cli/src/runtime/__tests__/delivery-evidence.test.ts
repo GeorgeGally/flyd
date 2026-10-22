@@ -32,7 +32,15 @@ function makeRepo(root: string): string {
 describe("delivery evidence", () => {
   it("keeps an unmerged pull request unknown even when the running build has its commit", () => {
     const sha = "a".repeat(40);
-    expect(assessDelivery({ merged: false, mergeCommitSha: sha }, { buildCommit: sha }, () => true))
+    expect(assessDelivery({ merged: false, mergeCommitSha: sha, changedPaths: ["cli/src/server.ts"] }, { buildCommit: sha }, () => true))
+      .toEqual({ attribution: "unknown", completed: false });
+  });
+
+  it("keeps a merged adapter change unknown because the Core build does not prove the app binary", () => {
+    const sha = "a".repeat(40);
+    expect(assessDelivery({ merged: true, mergeCommitSha: sha, changedPaths: ["cli/src/server.ts"] }, { buildCommit: sha }, () => true))
+      .toEqual({ attribution: "direct_verified", completed: true });
+    expect(assessDelivery({ merged: true, mergeCommitSha: sha, changedPaths: ["mac-adapter/Sources/main.swift"] }, { buildCommit: sha }, () => true))
       .toEqual({ attribution: "unknown", completed: false });
   });
 
@@ -80,19 +88,19 @@ describe("delivery evidence against the running Core", () => {
   it("assesses a merged Flyd PR as missed/unknown while the running build lacks its commit", async () => {
     const laterMerge = commit(repo, "merged after Core started");
     await expect(fetch(`${CORE_URL}/health`).then((res) => res.json())).resolves.toMatchObject({ buildCommit: runningBuild });
-    await expect(assessLiveDelivery({ merged: true, mergeCommitSha: laterMerge }, CORE_URL, gitContainsCommit(repo)))
+    await expect(assessLiveDelivery({ merged: true, mergeCommitSha: laterMerge, changedPaths: ["cli/src/server.ts"] }, CORE_URL, gitContainsCommit(repo)))
       .resolves.toEqual({ attribution: "unknown", completed: false });
   });
 
   it("assesses a merged PR completed once the running build contains its commit", async () => {
-    await expect(assessLiveDelivery({ merged: true, mergeCommitSha: earlierMerge }, CORE_URL, gitContainsCommit(repo)))
+    await expect(assessLiveDelivery({ merged: true, mergeCommitSha: earlierMerge, changedPaths: ["cli/src/server.ts"] }, CORE_URL, gitContainsCommit(repo)))
       .resolves.toEqual({ attribution: "direct_verified", completed: true });
-    await expect(assessLiveDelivery({ merged: true, mergeCommitSha: runningBuild }, CORE_URL, gitContainsCommit(repo)))
+    await expect(assessLiveDelivery({ merged: true, mergeCommitSha: runningBuild, changedPaths: ["cli/src/server.ts"] }, CORE_URL, gitContainsCommit(repo)))
       .resolves.toEqual({ attribution: "direct_verified", completed: true });
   });
 
   it("assesses unknown when the running Core cannot be reached", async () => {
-    await expect(assessLiveDelivery({ merged: true, mergeCommitSha: earlierMerge }, "http://127.0.0.1:1", gitContainsCommit(repo)))
+    await expect(assessLiveDelivery({ merged: true, mergeCommitSha: earlierMerge, changedPaths: ["cli/src/server.ts"] }, "http://127.0.0.1:1", gitContainsCommit(repo)))
       .resolves.toEqual({ attribution: "unknown", completed: false });
   });
 });

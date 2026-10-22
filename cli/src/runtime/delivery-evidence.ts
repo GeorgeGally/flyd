@@ -27,13 +27,16 @@ export function gitContainsCommit(repoDir: string): ContainsCommit {
   };
 }
 
+export type MergedPullRequest = { merged: boolean; mergeCommitSha: string | null; changedPaths: string[] };
+
 export function assessDelivery(
-  pullRequest: { merged: boolean; mergeCommitSha: string | null },
+  pullRequest: MergedPullRequest,
   runningHealth: { buildCommit: string | null },
   contains: ContainsCommit,
 ): { attribution: AttributionState; completed: boolean } {
   const completed = pullRequest.merged
     && pullRequest.mergeCommitSha !== null
+    && !pullRequest.changedPaths.some((path) => path.startsWith("mac-adapter/"))
     && runningHealth.buildCommit !== null
     && contains(pullRequest.mergeCommitSha, runningHealth.buildCommit);
   return { attribution: completed ? "direct_verified" : "unknown", completed };
@@ -49,7 +52,7 @@ export async function observeRunningBuild(coreUrl: string): Promise<{ buildCommi
 }
 
 export async function assessLiveDelivery(
-  pullRequest: { merged: boolean; mergeCommitSha: string | null },
+  pullRequest: MergedPullRequest,
   coreUrl: string,
   contains: ContainsCommit,
 ): Promise<{ attribution: AttributionState; completed: boolean }> {

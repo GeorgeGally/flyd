@@ -42,7 +42,9 @@ assessment is needed; there is no need for a seventh evidence-kind set.
    startup from its checkout's HEAD (null when tracked source is dirty). Assess
    delivery as unknown unless the observed running build contains the merged PR
    commit (git ancestry). A merged PR whose commit is absent from that
-   build is missed/unknown, never completed.
+   build is missed/unknown, never completed. Core's stamp does not prove the
+   Swift app binary, so a PR touching `mac-adapter/` stays unknown until the
+   app reports its own build commit.
 5. Add focused tests, including an end-to-end merged-PR/stale-running-build
    case. Preserve private payload minimization.
 
