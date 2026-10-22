@@ -34,8 +34,9 @@ assessment is needed; there is no need for a seventh evidence-kind set.
    existing transition and semantic-action contracts.
 2. Persist them through the existing correlated transition action/next-state
    events; do not create storage or change event kinds.
-3. At high-value conversation tool boundaries, attach deterministic
-   expectations and observations from tool/verifier results. Tool success or a
+3. At high-value conversation tool boundaries, attach the expectation declared
+   before the action (the turn plan's route and cover points; absent when there
+   is no plan) and observations from tool/verifier results. Tool success or a
    worker report without independent evidence cannot mean verified completion.
 4. Expose the running Core build commit through `/health`, stamped at Core
    startup from its checkout's HEAD (null when tracked source is dirty). Assess
