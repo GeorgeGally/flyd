@@ -446,8 +446,14 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
       });
       child.once("close", (code) => {
         const output = existsSync(log) ? readFileSync(log, "utf8").slice(-SESSION_OUTPUT_LIMIT) : "";
+        const stopped = readHelpers().some((helper) => helper.home === home && helper.pid === child.pid && helper.stoppingAt);
         if (child.pid) forgetHelpers((helper) => helper.home === home && helper.pid === child.pid);
         removeLog(log);
+        if (stopped) {
+          settled = true;
+          release();
+          return;
+        }
         const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
         if (limited || code !== 0) {
           record({ runtime, outcome: limited ? "usage_limited" : "failed", detail: output.slice(-500) });
@@ -595,8 +601,6 @@ export async function syncFirstmateDomainRuns(options: {
     return [];
   }
   const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !["completed", "failed", "cancelled"].includes(run.status));
-  if (!runs.length) return [];
-  const judge = options.judge ?? await defaultProseJudge();
   if (readiness) {
     if (readiness.canReceive === false && !readiness.liveHarness) {
       const pending = receipts.pending ?? [];
@@ -614,6 +618,8 @@ export async function syncFirstmateDomainRuns(options: {
       }
     }
   }
+  if (!runs.length) return [];
+  const judge = options.judge ?? await defaultProseJudge();
   const notes = [...(receipts.pending ?? []), ...(receipts.handled ?? [])];
   const changed: DomainRun[] = [];
   for (const run of runs) {

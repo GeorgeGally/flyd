@@ -693,14 +693,78 @@ describe("FirstMate domain transport", () => {
     const home = join(dir, "firstmate-view-note");
     const { child, startedAt } = sleeper();
     const exited = exitSignal(child);
+    const started: string[] = [];
+    let live = true;
+    const exec: FirstmateExec = async (script, args) => {
+      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "view-note", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: live } }), stderr: "" };
+      started.push(script);
+      return { stdout: "started", stderr: "" };
+    };
     try {
       helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
-      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: liveHelperExec([{ id: "view-note", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }]) });
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
       await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
       expect(await exited).toBe("SIGTERM");
+      expect(started).toEqual([]);
       expect(unreadNoteSignals(home)).toEqual([["view-note"]]);
+      live = false;
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:15.000Z") });
+      expect(started).toEqual(["claude"]);
     } finally {
       child.kill("SIGKILL");
+    }
+  });
+
+  it("treats Flyd's own stop of an idle helper it launched as neither a launch failure nor a reason to try another runtime", async () => {
+    const home = join(dir, "firstmate-launched");
+    const bin = join(dir, "bin");
+    mkdirSync(join(home, "bin"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    const script = join(home, "bin", "fm-inbox.sh");
+    writeFileSync(script, [
+      "#!/bin/sh",
+      'case "$1" in',
+      '  receipts) echo \'{"pending":[{"id":"view-note","acknowledged":false,"at":"2026-10-09T00:00:00.000Z"}]}\' ;;',
+      '  ready) if [ -f "$FM_HOME/state/.lock" ]; then echo \'{"can_receive":false,"lock":{"live_harness":true}}\'; else echo \'{"can_receive":false,"lock":{"live_harness":false}}\'; fi ;;',
+      "esac",
+    ].join("\n"), { mode: 0o755 });
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
+    writeFileSync(join(bin, "codex"), `#!/bin/sh\ntouch ${JSON.stringify(join(dir, "codex-ran"))}\n`, { mode: 0o755 });
+    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_RUNTIMES: process.env.FLYD_FIRSTMATE_RUNTIMES };
+    process.env.PATH = `${bin}:${process.env.PATH}`;
+    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude,codex";
+    let helperPid: number | undefined;
+    const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
+    const before = existsSync(path) ? readFileSync(path, "utf8").length : 0;
+    try {
+      const transport = new FirstmateDomainTransport({ home, script });
+      expect(await transport.startSession()).toEqual({ started: true });
+      const [helper] = recordedHelpers() as Array<{ pid: number; log: string }>;
+      helperPid = helper!.pid;
+      mkdirSync(join(home, "state"), { recursive: true });
+      writeFileSync(join(home, "state", ".lock"), `${helperPid}\n`);
+      utimesSync(helper!.log, new Date("2026-10-09T00:00:00.000Z"), new Date("2026-10-09T00:00:00.000Z"));
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      for (let waited = 0; existsSync(helper!.log) && waited < 50; waited++) await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(recordedHelpers()).toEqual([]);
+      expect(existsSync(join(dir, "codex-ran"))).toBe(false);
+      const failures = readFileSync(path, "utf8").slice(before).trim().split("\n").map((line) => JSON.parse(line) as { runtime?: string; outcome?: string })
+        .filter((entry) => entry.outcome && entry.outcome !== "started");
+      expect(failures).toEqual([]);
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      if (helperPid) {
+        try {
+          process.kill(-helperPid, "SIGKILL");
+        } catch {
+          helperPid = undefined;
+        }
+      }
     }
   });
 
