@@ -196,6 +196,7 @@ const SESSION_IDLE_MS = 15 * 60_000;
 const launchingHomes = new Set<string>();
 const launchCooldownUntil = new Map<string, number>();
 const unreadSignals = new Set<string>();
+const runlessRetry = new Map<string, { attempts: number; nextAt: number; capped: boolean }>();
 const HELPER_START_TOLERANCE_MS = 5_000;
 
 /** A helper session Flyd launched, kept in `<command dir>/firstmate-helpers.json` so a restarted Core or another Flyd process can still recognise it; its output goes to `log`, whose last write is its last sign of work. */
@@ -593,6 +594,7 @@ export async function syncFirstmateDomainRuns(options: {
     if (newlyUnread.length) recordSessionAttempt({ kind: "unread_note", home: transport.home, notes: newlyUnread.map((note) => note.id) });
   } else {
     for (const key of unreadSignals) if (key.startsWith(`${transport.home}:`)) unreadSignals.delete(key);
+    runlessRetry.delete(transport.home);
   }
   const readiness = oldPending.length ? await transport.ready() : undefined;
   const idle = readiness?.liveHarness ? idleHelper(helpers, transport.home, nowMs) : undefined;
@@ -605,10 +607,20 @@ export async function syncFirstmateDomainRuns(options: {
     if (readiness.canReceive === false && !readiness.liveHarness) {
       const pending = receipts.pending ?? [];
       const waitingRun = runs.find((run) => pending.some((note) => note.id === run.transport.externalId || note.request_id === run.transport.requestId));
-      const due = !waitingRun?.launchRetry || Date.parse(waitingRun.launchRetry.nextAt) <= nowMs;
+      const retry = runlessRetry.get(transport.home);
+      const due = waitingRun
+        ? !waitingRun.launchRetry || Date.parse(waitingRun.launchRetry.nextAt) <= nowMs
+        : (retry?.nextAt ?? 0) <= nowMs;
       const cooling = (launchCooldownUntil.get(transport.home) ?? 0) > nowMs;
       if (due && !cooling) {
         launchCooldownUntil.set(transport.home, nowMs + LAUNCH_COOLDOWN_MS);
+        if (!waitingRun) {
+          const attempts = (retry?.attempts ?? 0) + 1;
+          const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
+          const capped = delay === LAUNCH_RETRY_MAX_MS;
+          if (capped && !retry?.capped) recordSessionAttempt({ kind: "unread_note", home: transport.home, notes: oldPending.map((note) => note.id), launchRetryCapped: true });
+          runlessRetry.set(transport.home, { attempts, nextAt: nowMs + delay, capped });
+        }
         const session = await transport.startSession(readiness, waitingRun ? (failure) => suspendFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined }));
         if (session.started && waitingRun?.launchRetry) {
           saveDomainRun({ ...waitingRun, failure: undefined, updatedAt: new Date(nowMs).toISOString() });

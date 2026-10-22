@@ -716,6 +716,38 @@ describe("FirstMate domain transport", () => {
     }
   });
 
+  it("backs off relaunching for a note with no domain run and says so once when the backoff tops out", async () => {
+    const home = join(dir, "firstmate-runless-backoff");
+    const launches: number[] = [];
+    let pending = [{ id: "view-note", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }];
+    let minute = 0;
+    const exec: FirstmateExec = async (_script, args) => {
+      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending }), stderr: "" };
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      launches.push(minute);
+      return { stdout: "started", stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
+    const tick = (at: number) => {
+      minute = at;
+      return syncFirstmateDomainRuns({ transport, now: () => new Date(Date.parse("2026-10-09T01:00:00.000Z") + at * 60_000) });
+    };
+    for (let at = 0; at <= 70; at++) await tick(at);
+    expect(launches).toEqual([0, 5, 10, 18, 34, 64]);
+    const capped = () => {
+      const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
+      return readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { home?: string; launchRetryCapped?: boolean })
+        .filter((entry) => entry.home === home && entry.launchRetryCapped);
+    };
+    expect(capped()).toHaveLength(1);
+
+    pending = [];
+    await tick(71);
+    pending = [{ id: "view-note-2", acknowledged: false, at: "2026-10-09T02:00:00.000Z" }];
+    await tick(72);
+    expect(launches).toEqual([0, 5, 10, 18, 34, 64, 72]);
+  });
+
   it("treats Flyd's own stop of an idle helper it launched as neither a launch failure nor a reason to try another runtime", async () => {
     const home = join(dir, "firstmate-launched");
     const bin = join(dir, "bin");
