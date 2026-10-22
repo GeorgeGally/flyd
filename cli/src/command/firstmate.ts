@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { firstmateHome } from "../lib/firstmate-home.js";
@@ -196,13 +196,14 @@ const SESSION_IDLE_MS = 15 * 60_000;
 const launchingHomes = new Set<string>();
 const launchCooldownUntil = new Map<string, number>();
 const unreadSignals = new Set<string>();
-const helperOutputAt = new Map<string, number>();
+const HELPER_START_TOLERANCE_MS = 5_000;
 
-/** A helper session Flyd launched, kept in `<command dir>/firstmate-helpers.json` so a restarted Core or another Flyd process can still recognise it. */
+/** A helper session Flyd launched, kept in `<command dir>/firstmate-helpers.json` so a restarted Core or another Flyd process can still recognise it; its output goes to `log`, whose last write is its last sign of work. */
 interface FirstmateHelper {
   pid: number;
   startedAt: string;
   home: string;
+  log: string;
 }
 
 function helpersPath(): string {
@@ -212,7 +213,7 @@ function helpersPath(): string {
 function readHelpers(): FirstmateHelper[] {
   try {
     const parsed = JSON.parse(readFileSync(helpersPath(), "utf8")) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((item): item is FirstmateHelper => Number.isInteger(item?.pid) && typeof item?.startedAt === "string" && typeof item?.home === "string") : [];
+    return Array.isArray(parsed) ? parsed.filter((item): item is FirstmateHelper => Number.isInteger(item?.pid) && typeof item?.startedAt === "string" && typeof item?.home === "string" && typeof item?.log === "string") : [];
   } catch {
     return [];
   }
@@ -236,6 +237,25 @@ function forgetHelper(home: string, pid: number): void {
   if (kept.length !== helpers.length) writeHelpers(kept);
 }
 
+function removeLog(log: string): void {
+  try {
+    unlinkSync(log);
+  } catch {
+    return;
+  }
+}
+
+/** When the process now holding `pid` started, from `ps`; null when there is no such process. */
+async function processStartedAt(pid: number): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000 });
+    const started = Date.parse(String(stdout).trim());
+    return Number.isFinite(started) ? started : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Line 1 of firstmate's state/.lock is the pid of the session holding the fleet lock. */
 function lockHolderPid(home: string): number | null {
   try {
@@ -246,13 +266,23 @@ function lockHolderPid(home: string): number | null {
   }
 }
 
-/** Flyd's own helper when it still holds the lock but has said nothing for too long; a helper Flyd did not launch is never one. */
-function idleHelper(home: string, nowMs: number): FirstmateHelper | undefined {
+/** Flyd's own helper, the very process it launched, when it still holds the lock but has written nothing for too long; a helper Flyd did not launch is never one. */
+async function idleHelper(home: string, nowMs: number): Promise<FirstmateHelper | undefined> {
   const holder = lockHolderPid(home);
   const helper = holder === null ? undefined : readHelpers().find((item) => item.home === home && item.pid === holder);
   if (!helper) return undefined;
-  const lastSign = Math.max(helperOutputAt.get(`${home}:${helper.pid}`) ?? 0, Date.parse(helper.startedAt) || 0);
-  return nowMs - lastSign > SESSION_IDLE_MS ? helper : undefined;
+  const started = await processStartedAt(helper.pid);
+  if (started === null || Math.abs(started - Date.parse(helper.startedAt)) > HELPER_START_TOLERANCE_MS) {
+    forgetHelper(helper.home, helper.pid);
+    return undefined;
+  }
+  let lastWrite: number;
+  try {
+    lastWrite = statSync(helper.log).mtimeMs;
+  } catch {
+    return undefined;
+  }
+  return nowMs - lastWrite > SESSION_IDLE_MS ? helper : undefined;
 }
 
 function sessionRuntimes(env = process.env): SessionRuntime[] {
@@ -271,7 +301,7 @@ function sessionExecutable(runtime: SessionRuntime): string {
 function sessionArgs(runtime: SessionRuntime): string[] {
   // Nobody is there to approve a prompt: without a mode, every firstmate script is refused and his notes go unanswered.
   // "auto" runs routine commands and still blocks risky ones, as codex's --full-auto does. George chose this on 2026-10-18.
-  if (runtime === "claude") return ["-p", "--permission-mode", "auto", SESSION_PROMPT];
+  if (runtime === "claude") return ["-p", "--permission-mode", "auto", "--output-format", "stream-json", "--verbose", SESSION_PROMPT];
   if (runtime === "codex") return ["exec", "--full-auto", SESSION_PROMPT];
   return ["run", SESSION_PROMPT];
 }
@@ -345,33 +375,40 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
         else resolve({ started: false, failure: SESSION_LAUNCH_FAILURE });
         return;
       }
-      let output = "";
       let settled = false;
-      const child = spawn(sessionExecutable(runtime), sessionArgs(runtime), { cwd: home, env: sessionChildEnv({ ...process.env, FM_HOME: home }), detached: true, stdio: ["ignore", "pipe", "pipe"] });
-      const activity = (chunk: Buffer | string) => {
-        if (child.pid) helperOutputAt.set(`${home}:${child.pid}`, Date.now());
-        output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT);
-      };
-      child.stdout?.on("data", activity);
-      child.stderr?.on("data", activity);
+      const log = join(commandDir(), "firstmate-helpers", `${process.pid}-${Date.now()}-${runtime}.log`);
+      let child: ReturnType<typeof spawn>;
+      try {
+        mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
+        const fd = openSync(log, "a", 0o600);
+        try {
+          child = spawn(sessionExecutable(runtime), sessionArgs(runtime), { cwd: home, env: sessionChildEnv({ ...process.env, FM_HOME: home }), detached: true, stdio: ["ignore", fd, fd] });
+        } finally {
+          closeSync(fd);
+        }
+      } catch (error) {
+        record({ runtime, outcome: "failed", detail: (error instanceof Error ? error.message : String(error)).slice(0, 500) });
+        attempt(index + 1);
+        return;
+      }
       child.once("error", (error) => {
         if (settled) return;
         settled = true;
+        removeLog(log);
         record({ runtime, outcome: "failed", detail: error.message.slice(0, 500) });
         attempt(index + 1);
       });
       child.once("spawn", () => {
         handedOff = true;
-        if (child.pid) writeHelpers([...readHelpers().filter((helper) => helper.home !== home), { pid: child.pid, startedAt: new Date().toISOString(), home }]);
+        if (child.pid) writeHelpers([...readHelpers().filter((helper) => helper.home !== home), { pid: child.pid, startedAt: new Date().toISOString(), home, log }]);
         child.unref();
         record({ runtime, outcome: "started" });
         resolve({ started: true });
       });
       child.once("close", (code) => {
-        if (child.pid) {
-          helperOutputAt.delete(`${home}:${child.pid}`);
-          forgetHelper(home, child.pid);
-        }
+        if (child.pid) forgetHelper(home, child.pid);
+        const output = existsSync(log) ? readFileSync(log, "utf8").slice(-SESSION_OUTPUT_LIMIT) : "";
+        removeLog(log);
         const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
         if (limited || code !== 0) {
           record({ runtime, outcome: limited ? "usage_limited" : "failed", detail: output.slice(-500) });
@@ -518,7 +555,7 @@ export async function syncFirstmateDomainRuns(options: {
   const oldUnread = oldPending.length > 0;
   if (oldUnread) {
     const readiness = await transport.ready();
-    const idle = readiness.liveHarness ? idleHelper(transport.home, nowMs) : undefined;
+    const idle = readiness.liveHarness ? await idleHelper(transport.home, nowMs) : undefined;
     if (idle) {
       forgetHelper(idle.home, idle.pid);
       try {

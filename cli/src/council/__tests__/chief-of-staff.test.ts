@@ -478,13 +478,14 @@ describe("the review pass", () => {
     writeFileSync(join(reviewDir, "firstmate-session.jsonl"), [
       { at: "2026-10-14T08:10:00.000Z", kind: "unread_note", home: "/fm", notes: ["note-1"] },
       { at: "2026-10-14T08:20:00.000Z", kind: "unread_note", home: "/fm", notes: ["note-2", "note-3"] },
+      { at: "2026-10-14T08:25:00.000Z", kind: "unread_note", home: "/fm", notes: ["note-1", "note-2"] },
     ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
     const evidence = reviewEvidence("2026-10-01T00:00:00.000Z", reviewDir);
     expect(evidence.filter((item) => item.id.startsWith("firstmate-session:"))).toEqual([]);
     expect(evidence).toContainEqual({
-      id: "firstmate-unread:2026-10-14T08:20:00.000Z",
+      id: "firstmate-unread:2026-10-14T08:25:00.000Z",
       kind: "domain",
-      at: "2026-10-14T08:20:00.000Z",
+      at: "2026-10-14T08:25:00.000Z",
       text: "FirstMate left 3 of Flyd's notes unread for over 3 minutes.",
     });
   });

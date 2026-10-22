@@ -310,11 +310,11 @@ export function reviewEvidence(since: string, dir = selfReviewDir()): Evidence[]
     };
   });
   const bySessionOutcome = new Map<string, Array<{ at: string; runtime?: string; outcome: string }>>();
-  const unreadNotes: Array<{ at: string; notes: number }> = [];
+  const unreadNotes: Array<{ at: string; notes: string[] }> = [];
   for (const attempt of readJsonl<{ at?: string; runtime?: string; outcome?: string; kind?: string; notes?: unknown[] }>(join(dir, "firstmate-session.jsonl"))) {
     if (!attempt.at || attempt.at < since) continue;
     if (attempt.kind === "unread_note") {
-      unreadNotes.push({ at: attempt.at, notes: attempt.notes?.length ?? 1 });
+      unreadNotes.push({ at: attempt.at, notes: (attempt.notes ?? []).map(String) });
       continue;
     }
     if (!attempt.outcome || attempt.outcome === "started") continue;
@@ -336,7 +336,7 @@ export function reviewEvidence(since: string, dir = selfReviewDir()): Evidence[]
   const unreadEvidence = unreadNotes.length ? (() => {
     unreadNotes.sort((a, b) => b.at.localeCompare(a.at));
     const newest = unreadNotes[0]!;
-    const notes = unreadNotes.reduce((sum, item) => sum + item.notes, 0);
+    const notes = Math.max(new Set(unreadNotes.flatMap((item) => item.notes)).size, 1);
     return [{
       id: `firstmate-unread:${newest.at}`,
       kind: "domain" as const,
