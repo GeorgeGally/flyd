@@ -231,10 +231,12 @@ function writeHelpers(helpers: FirstmateHelper[]): void {
   }
 }
 
-function forgetHelper(home: string, pid: number): void {
+function forgetHelpers(gone: (helper: FirstmateHelper) => boolean): void {
   const helpers = readHelpers();
-  const kept = helpers.filter((helper) => !(helper.home === home && helper.pid === pid));
-  if (kept.length !== helpers.length) writeHelpers(kept);
+  const kept = helpers.filter((helper) => !gone(helper));
+  if (kept.length === helpers.length) return;
+  writeHelpers(kept);
+  for (const helper of helpers) if (!kept.includes(helper)) removeLog(helper.log);
 }
 
 function removeLog(log: string): void {
@@ -248,7 +250,7 @@ function removeLog(log: string): void {
 /** When the process now holding `pid` started, from `ps`; null when there is no such process. */
 async function processStartedAt(pid: number): Promise<number | null> {
   try {
-    const { stdout } = await execFileAsync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000 });
+    const { stdout } = await execFileAsync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000, env: { ...process.env, LC_ALL: "C" } });
     const started = Date.parse(String(stdout).trim());
     return Number.isFinite(started) ? started : null;
   } catch {
@@ -266,16 +268,23 @@ function lockHolderPid(home: string): number | null {
   }
 }
 
-/** Flyd's own helper, the very process it launched, when it still holds the lock but has written nothing for too long; a helper Flyd did not launch is never one. */
-async function idleHelper(home: string, nowMs: number): Promise<FirstmateHelper | undefined> {
-  const holder = lockHolderPid(home);
-  const helper = holder === null ? undefined : readHelpers().find((item) => item.home === home && item.pid === holder);
-  if (!helper) return undefined;
-  const started = await processStartedAt(helper.pid);
-  if (started === null || Math.abs(started - Date.parse(helper.startedAt)) > HELPER_START_TOLERANCE_MS) {
-    forgetHelper(helper.home, helper.pid);
-    return undefined;
+/** Recorded helpers whose very process is still running; a record whose process ended, or whose pid now belongs to another process, is dropped with its log. */
+async function liveHelpers(): Promise<FirstmateHelper[]> {
+  const helpers = readHelpers();
+  const ended = new Set<FirstmateHelper>();
+  for (const helper of helpers) {
+    const started = await processStartedAt(helper.pid);
+    if (started === null || Math.abs(started - Date.parse(helper.startedAt)) > HELPER_START_TOLERANCE_MS) ended.add(helper);
   }
+  if (ended.size) forgetHelpers((helper) => [...ended].some((item) => item.pid === helper.pid && item.startedAt === helper.startedAt && item.home === helper.home));
+  return helpers.filter((helper) => !ended.has(helper));
+}
+
+/** Flyd's own helper, the very process it launched, when it still holds the lock but has written nothing for too long; a helper Flyd did not launch is never one. */
+function idleHelper(helpers: FirstmateHelper[], home: string, nowMs: number): FirstmateHelper | undefined {
+  const holder = lockHolderPid(home);
+  const helper = holder === null ? undefined : helpers.find((item) => item.home === home && item.pid === holder);
+  if (!helper) return undefined;
   let lastWrite: number;
   try {
     lastWrite = statSync(helper.log).mtimeMs;
@@ -400,14 +409,17 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
       });
       child.once("spawn", () => {
         handedOff = true;
-        if (child.pid) writeHelpers([...readHelpers().filter((helper) => helper.home !== home), { pid: child.pid, startedAt: new Date().toISOString(), home, log }]);
+        if (child.pid) {
+          forgetHelpers((helper) => helper.home === home);
+          writeHelpers([...readHelpers(), { pid: child.pid, startedAt: new Date().toISOString(), home, log }]);
+        }
         child.unref();
         record({ runtime, outcome: "started" });
         resolve({ started: true });
       });
       child.once("close", (code) => {
-        if (child.pid) forgetHelper(home, child.pid);
         const output = existsSync(log) ? readFileSync(log, "utf8").slice(-SESSION_OUTPUT_LIMIT) : "";
+        if (child.pid) forgetHelpers((helper) => helper.home === home && helper.pid === child.pid);
         removeLog(log);
         const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
         if (limited || code !== 0) {
@@ -533,6 +545,7 @@ export async function syncFirstmateDomainRuns(options: {
 } = {}): Promise<DomainRun[]> {
   const transport = options.transport ?? new FirstmateDomainTransport();
   if (!transport.available()) return [];
+  const helpers = await liveHelpers();
   const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !["completed", "failed", "cancelled"].includes(run.status));
   if (!runs.length) return [];
   const judge = options.judge ?? await defaultProseJudge();
@@ -555,9 +568,9 @@ export async function syncFirstmateDomainRuns(options: {
   const oldUnread = oldPending.length > 0;
   if (oldUnread) {
     const readiness = await transport.ready();
-    const idle = readiness.liveHarness ? await idleHelper(transport.home, nowMs) : undefined;
+    const idle = readiness.liveHarness ? idleHelper(helpers, transport.home, nowMs) : undefined;
     if (idle) {
-      forgetHelper(idle.home, idle.pid);
+      forgetHelpers((helper) => helper.home === idle.home && helper.pid === idle.pid);
       try {
         process.kill(idle.pid, "SIGTERM");
       } catch {
