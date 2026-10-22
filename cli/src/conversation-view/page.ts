@@ -468,6 +468,8 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 
 @media (max-width: 900px) {
   .scene.has-shot { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  /* A decision with a picture and an ask stacks too: the scene is the phone's width. */
+  .scene.has-shot.has-ask { grid-template-columns: minmax(0, 1fr); }
   .scene-shot { order: -1; }
   .devices { height: 44vh; }
 }

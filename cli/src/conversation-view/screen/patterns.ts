@@ -49,7 +49,7 @@ export const SCREEN_PATTERNS: Record<ScreenMeaning, ScreenPattern> = {
   decision: {
     id: "decision-choice",
     meaning: "decision",
-    body: ["operation", "question", "choices", "recommendation", "evidence"],
+    body: ["operation", "question", "choices", "recommendation", "metrics", "evidence"],
     action: "choose",
     visual: "beside",
     about: "A choice only George can make, with its alternatives and the recommended one.",
@@ -97,7 +97,7 @@ export const SCREEN_PATTERNS: Record<ScreenMeaning, ScreenPattern> = {
   ask: {
     id: "ask-question",
     meaning: "ask",
-    body: ["question", "recommendation"],
+    body: ["question", "recommendation", "metrics"],
     action: "answer",
     visual: "beside",
     about: "A question with no alternatives yet; George answers in his own words.",
