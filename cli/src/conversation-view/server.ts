@@ -28,7 +28,8 @@ import type { AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
 import type { SemanticJudge } from "./semantic-judge.js";
 import type { ImportanceJudge } from "./importance-judge.js";
-import { activityObjectsFromShow, artifactObjectsFromShow, decisionObjectsFromShow, composeSemanticSnapshot, semanticEvents, semanticFocus, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
+import { activityObjectsFromShow, artifactObjectsFromShow, decisionObjectsFromShow, composeSemanticSnapshot, needsGeorge, semanticEvents, semanticFocus, semanticObjectsFromShow, type SemanticObject } from "./semantic.js";
+import { fillScreen } from "./screen/patterns.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
@@ -618,8 +619,15 @@ export class SnapshotDiffer {
       monitors: show.monitors,
     });
     show.events = semanticEvents(this.semantic, semantic);
-    show.semantic = semantic;
-    show.focus = semanticFocus(semantic);
+    // The Screen team owns the shape: every object carries the reviewed pattern
+    // its meaning selects, filled with its own words. The page renders it.
+    const screens = semantic.map((object) => ({ ...object, screen: fillScreen(object) }));
+    show.semantic = screens;
+    const focus = semanticFocus(screens);
+    show.focus = focus;
+    // One list of what needs him: the headline count, the corner count and the
+    // sheet that opens it all read this, so they can never disagree.
+    show.needs = screens.filter((object) => object.id !== focus?.id && needsGeorge(object));
     this.semantic = semantic;
     const found = currentPage(snapshot.messages);
     // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.

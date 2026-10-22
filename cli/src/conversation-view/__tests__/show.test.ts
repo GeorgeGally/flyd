@@ -141,7 +141,8 @@ describe("showOf", () => {
     const calls = Array.from({ length: 7 }, (_, index) => ({ label: `Call ${index}`, task: `t${index}`, detail: `Question ${index}?`, choices: ["Yes", "No"] }));
     const read = showOf(snapshot([]), { now: NOW, artefact: { fleet: { calls, live: [], ready: [], landed: [], held: [], next: [] }, memories: [], news: [], taste: [] } });
     expect(read.counts.call).toBe(7);
-    expect(read.items.filter((item) => item.kind === "call").length).toBeLessThan(7);
+    // The count names the list it opens: every call the figure counts is on screen.
+    expect(read.items.filter((item) => item.kind === "call")).toHaveLength(7);
     expect(read.calls).toHaveLength(7);
     expect(read.calls![6]).toMatchObject({ kind: "call", headline: "Question 6?", detail: "Call 6", decision: { task: "t6", question: "Question 6?", choices: ["Yes", "No"] } });
     expect(showOf(snapshot([]), { now: NOW }).calls).toBeUndefined();

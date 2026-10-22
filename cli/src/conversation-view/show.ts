@@ -91,6 +91,8 @@ export interface ShowScreen {
   events?: SemanticEvent[];
   /** Meaning-driven foreground object; physical layout remains renderer-owned. */
   focus?: SemanticObject;
+  /** One list of everything that needs George: the count, the corner and the drill all read it. */
+  needs?: SemanticObject[];
   /** How many of each kind exist, including those past the screen's limits. */
   counts: Partial<Record<ShowKind, number>>;
   /** Every call that needs him, as many as counts.call says, each with its question to answer. */
@@ -433,6 +435,11 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const chosen = [...asked, ...siteItems, ...artefact, ...items.filter((item) => item.kind !== "call")]
     .slice(0, artefact.length ? MAX_ARTEFACT_ITEMS : MAX_SHOW_ITEMS + siteItems.length);
   const fleet = inputs.artefact?.fleet;
+  // The figure "N need you" opens: the fleet's every call when it has a snapshot, else the one just asked.
+  const calls = fleet && !fleet.unavailable ? callItems(fleet, { project: projectOfRepo }) : asked;
+  // A call is never dropped by the screen's item budget: the count, the group and
+  // the sheet that opens it stay one set.
+  for (const call of calls) if (!chosen.some((item) => item.id === call.id)) chosen.push(call);
   // Without a reading of the fleet, nothing may claim that nothing waits on him.
   const known = Boolean(fleet && !fleet.unavailable) || !inputs.artefact;
   if (chosen.every((item) => item.kind === "next" || item.kind === "plan")) {
@@ -444,8 +451,6 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   if (!fleet || fleet.unavailable) {
     for (const item of items) if (item.kind !== "waiting") counts[item.kind] = (counts[item.kind] ?? 0) + 1;
   }
-  // The figure "N need you" opens: the fleet's every call when it has a snapshot, else the one just asked.
-  const calls = fleet && !fleet.unavailable ? callItems(fleet, { project: projectOfRepo }) : asked;
   // "N need you" is exactly the calls it opens: a call the sheet cannot show is not counted.
   if (fleet && !fleet.unavailable) {
     if (calls.length) counts.call = calls.length;

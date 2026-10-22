@@ -1,4 +1,6 @@
 import type { PlanUsage } from "./plan-usage.js";
+import type { FilledScreen } from "./screen/patterns.js";
+import type { SemanticObject } from "./semantic.js";
 import type { ShowItem, ShowKind, ShowLink, ShowScreen, ShowShot } from "./show.js";
 import type { WeatherReading } from "./weather.js";
 
@@ -63,6 +65,10 @@ export interface Box {
   ref?: string;
   /** Firstmate's task id, named in what he says about it. */
   task?: string;
+  /** The reviewed pattern its meaning selected, when this box is a semantic object. */
+  screen?: FilledScreen;
+  /** The semantic kind, so the renderer can say what kind of scene this is. */
+  semanticKind?: string;
 }
 
 export interface BoxReadings {
@@ -73,7 +79,6 @@ export interface BoxReadings {
 
 /** The screen's groups, what is in them, and one level inside that. */
 export const MAX_DEPTH = 3;
-const MAX_CALLS = 3;
 /** Stories with pictures of the work; the screen is for showing it. */
 const MAX_PICTURED = 8;
 /** Stories that are words only: a couple, so the cycle never becomes a list. */
@@ -232,20 +237,79 @@ export function clampDepth(boxes: Box[], depth = 1): Box[] {
   });
 }
 
+/** A semantic object with the reviewed pattern its meaning selected. */
+export type ScreenedObject = SemanticObject & { screen?: FilledScreen };
+
+/** The needs list as stage cards: the same objects the corner and the edge count. Pure. */
+export function semanticBoxes(objects: readonly ScreenedObject[]): Box[] {
+  return objects.map((object) => {
+    const shots = (object.evidence ?? [])
+      .filter((work) => work.kind === "image")
+      .map((work) => ({ src: work.ref, label: work.label || object.subject }));
+    const web = (object.evidence ?? []).find((work) => work.kind === "web" && !work.closed);
+    const at = object.updatedAt || object.createdAt;
+    return {
+      id: object.id,
+      kind: object.kind === "decision" ? "call" as const : "story" as const,
+      size: "lead" as const,
+      title: object.subject,
+      line: object.detail || object.summary,
+      why: object.kind === "decision" ? "waiting on you" : "waiting for your look",
+      tone: object.kind === "decision" ? "call" as const : object.lifecycle === "failed" ? "waiting" as const : "ready" as const,
+      ...(object.decision ? {
+        decision: {
+          task: object.decision.target,
+          ...(object.decision.decisionId ? { decisionId: object.decision.decisionId } : {}),
+          question: object.decision.question,
+          choices: object.decision.alternatives ?? [],
+          ...(object.decision.recommended ? { recommended: object.decision.recommended } : {}),
+          ...(object.decision.replyTo ? { replyTo: object.decision.replyTo } : {}),
+        },
+      } : {}),
+      ...(shots.length ? {
+        children: shots.slice(0, SHOTS_PER_STORY).map((shot, index) => ({
+          id: `${object.id}:shot:${index}`,
+          kind: "shot" as const,
+          size: "small" as const,
+          title: shot.label,
+          why: "what the work looks like",
+          shot,
+        })),
+      } : {}),
+      ...(web ? { open: { label: web.label || "Open", url: web.ref } } : {}),
+      ...(object.project ? { project: object.project } : {}),
+      ...(object.status ? { status: object.status } : {}),
+      ...(at ? { at } : {}),
+      ...(object.source?.ref ? { ref: object.source.ref } : {}),
+      ...(object.source?.task ? { task: object.source.task } : {}),
+      ...(object.screen ? { screen: object.screen as FilledScreen } : {}),
+      semanticKind: object.kind,
+    };
+  });
+}
+
 /** Flyd's overview as boxes, most deserving first. Pure. */
 export function boxesOf(screen: ShowScreen, readings: BoxReadings = {}): Box[] {
   const boxes: Box[] = [];
+  // The lead group is exactly the list the corner count and the edge count read,
+  // so the headline number, the corner number and what opens are one thing.
+  const needs = screen.needs && screen.needs.length ? semanticBoxes(screen.needs) : undefined;
+  if (needs) {
+    boxes.push({
+      id: "needs",
+      kind: "group",
+      size: "lead",
+      tone: "call",
+      title: needs.length === 1 ? "One call only you can make" : `${needs.length} need you`,
+      why: "waiting on you",
+      children: needs,
+    });
+  }
   // A call firstmate stopped reporting keeps its card where it was, with nothing to answer.
   const settled = (item: ShowItem): boolean => item.kind === "clear" && item.id.startsWith("call:");
-  let open = 0;
-  const calls = screen.items.filter((item) => {
-    if (item.kind === "call") {
-      open += 1;
-      return open <= MAX_CALLS;
-    }
-    return settled(item);
-  });
-  if (calls.length) {
+  // Every call is in the group: the count names the set it opens, with nothing cut off it.
+  const calls = screen.items.filter((item) => item.kind === "call" || settled(item));
+  if (!needs && calls.length) {
     const asking = calls.filter((item) => item.kind === "call").length;
     boxes.push({
       id: "calls",
@@ -276,7 +340,7 @@ export function boxesOf(screen: ShowScreen, readings: BoxReadings = {}): Box[] {
     });
   }
   // A bare "where things stand" line only when there is nothing real to open on; it is filler beside the work.
-  if (!calls.length && !stories.length) {
+  if (!needs && !calls.length && !stories.length) {
     boxes.unshift({ id: "situation", kind: "note", size: "wide", title: screen.title, line: screen.summary, why: "where things stand" });
   }
   // The side column: what Flyd sees coming first, then the numbers.

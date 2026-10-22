@@ -499,8 +499,7 @@ const FOCUS_PRIORITY: Record<SemanticKind, number> = {
  * Semantic focus is meaning-driven, not card-order-driven. Interrupted work
  * wins; quiet Monitors deliberately sink until they change or need George.
  */
-export function semanticFocus(objects: readonly SemanticObject[]): SemanticObject | undefined {
-  return [...objects].sort((a, b) => {
+export function semanticFocus(objects: readonly SemanticObject[]): SemanticObject | undefined {  return [...objects].sort((a, b) => {
     const interrupted = Number(b.lifecycle === "interrupted") - Number(a.lifecycle === "interrupted");
     if (interrupted) return interrupted;
     const monitorA = a.monitor?.phase === "quiet" ? -25 : 0;
@@ -510,3 +509,17 @@ export function semanticFocus(objects: readonly SemanticObject[]): SemanticObjec
     return (Date.parse(b.updatedAt ?? b.createdAt ?? "") || 0) - (Date.parse(a.updatedAt ?? a.createdAt ?? "") || 0);
   })[0];
 }
+
+/**
+ * One definition of "needs George", so the headline count, the corner count and
+ * the drill-down are always the same set: a choice of his, interrupted work, a
+ * watch that changed, or finished work waiting for his look.
+ */
+export function needsGeorge(object: SemanticObject): boolean {
+  if (object.kind === "decision") return true;
+  if (object.lifecycle === "interrupted") return true;
+  if (object.monitor?.phase === "changed") return true;
+  const phase = object.activity?.phase;
+  return phase === "needs_you" || phase === "ready";
+}
+
