@@ -11,6 +11,7 @@ import {
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import { EXPERIENCE_SOURCE_ID } from "../experience-trace.js";
 import { loadLatestTurnReceipt, persistTurnReceipt } from "../turn-receipt.js";
+import { configureTransitionStore } from "../../transitions/writer.js";
 
 // These suites exercise the prompt and the tool loop, not routing: turns run
 // unplanned, as with the room reading switched off. Routing tests inject
@@ -37,6 +38,45 @@ describe("buildConversationPrompt", () => {
       });
       expect(capture).not.toHaveBeenCalled();
     } finally { capture.mockRestore(); }
+  });
+  it("records a conversation turn's planned expectation and the observed tool results on its correlated transition", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-turn-transition-"));
+    const dbPath = join(root, "intelligence.sqlite");
+    configureTransitionStore({ dbPath, registryPath: join(root, "transition-registry.json") });
+    vi.stubEnv("FLYD_TRANSITIONS_DISABLED", "");
+    const capture = vi.spyOn(CognitiveCurator.prototype, "recordConversationTurn").mockImplementation(() => undefined as never);
+    try {
+      await respondToConversation({
+        message: "what files are here?",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] }, situation: null,
+        onToken: () => undefined,
+      }, {
+        routeTurn: async () => null,
+        readRoom: async () => ({ need: "ask", mode: "operator", route: "answer", cover: ["which files are in this folder"], stance: "Look.", avoid: "", length: "short", use: [], raise: null, act: null }),
+        runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+          await onToolCall("list_files", { path: "." });
+          await onToolCall("no_such_tool", {});
+          return "<final>Some files.</final>";
+        },
+      });
+      configureTransitionStore({});
+      const store = new IntelligenceEventStore({ path: dbPath });
+      try {
+        const events = store.readFrom(0, 100).filter((event) => event.sourceId === "transition.cli-chat");
+        expect(new Set(events.map((event) => event.correlationId)).size).toBe(1);
+        const action = events.find((event) => event.idempotencyKey.startsWith("action:"));
+        const next = events.find((event) => event.idempotencyKey.startsWith("next:"));
+        expect((action?.payload as { action: { expectedEffect?: string } }).action.expectedEffect)
+          .toBe("answer: which files are in this folder");
+        expect((next?.payload as { nextState: { signal: string; observedEffect?: string } }).nextState)
+          .toMatchObject({ signal: "succeeded", observedEffect: "1/2 tool calls succeeded" });
+      } finally { store.close(); }
+    } finally {
+      capture.mockRestore();
+      configureTransitionStore({});
+      rmSync(root, { recursive: true, force: true });
+    }
   });
   it("persists a conversation-view turn's receipt and experience trace, and a failed persist never fails the answer", async () => {
     const flydDir = mkdtempSync(join(tmpdir(), "flyd-view-turn-"));

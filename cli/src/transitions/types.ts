@@ -13,6 +13,7 @@ export interface TransitionActionInput {
   invocationId: string;
   surface: TransitionSurface;
   intent: string;
+  expectedEffect?: string;
   routeKind?: string;
   resolutionMode?: string;
   model?: string;
@@ -53,6 +54,7 @@ export interface TransitionNextStateInput {
   stateAfterId?: string;
   /** Structured exit-signal fields (exit codes, timeouts); never raw output text. */
   detail?: Record<string, unknown>;
+  observedEffect?: string;
 }
 
 export interface JudgmentInput {

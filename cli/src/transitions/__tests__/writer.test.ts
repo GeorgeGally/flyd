@@ -40,6 +40,7 @@ describe("transition spine writer", () => {
       invocationId: "inv-1",
       surface: "overlay",
       intent: "fix the failing test",
+      expectedEffect: "the focused test passes",
       routeKind: "native",
       resolutionMode: "fast",
       model: "gpt-5.2-mini",
@@ -50,6 +51,7 @@ describe("transition spine writer", () => {
       invocationId: "inv-1",
       origin: "user",
       signal: "succeeded",
+      observedEffect: "vitest exited with status 0",
     });
     expect(outcome.ok).toBe(true);
 
@@ -62,6 +64,10 @@ describe("transition spine writer", () => {
     expect(events[1].kind).toBe("verified_outcome");
     expect(events[1].correlationId).toBe("inv-1");
     expect(events.every((e) => e.correlationId === "inv-1")).toBe(true);
+    expect((events[0].payload as { action: { expectedEffect: string } }).action.expectedEffect)
+      .toBe("the focused test passes");
+    expect((events[1].payload as { nextState: { observedEffect: string } }).nextState.observedEffect)
+      .toBe("vitest exited with status 0");
     store.close();
   });
 

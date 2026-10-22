@@ -993,8 +993,10 @@ export async function respondToConversation(
   ): Promise<void> => {
     if (!dependencies.readOnly) captureTransition(() => {
       const failed = status === "failed";
-      recordAction({ sessionId: txSession, invocationId: txInvocation, surface: "cli_chat", intent: input.message.trim().slice(0, 200), resolutionMode: connection.providerIdentity, model: connection.model });
-      recordNextState({ sessionId: txSession, invocationId: txInvocation, surface: "cli_chat", origin: failed ? "tool" : "user", signal: failed ? "error" : "succeeded" });
+      const expectedEffect = turnPlan?.cover.length ? `${turnPlan.route}: ${turnPlan.cover.join("; ")}` : null;
+      const succeededTools = toolCalls.filter((call) => call.succeeded).length;
+      recordAction({ sessionId: txSession, invocationId: txInvocation, surface: "cli_chat", intent: input.message.trim().slice(0, 200), ...(expectedEffect ? { expectedEffect } : {}), resolutionMode: connection.providerIdentity, model: connection.model });
+      recordNextState({ sessionId: txSession, invocationId: txInvocation, surface: "cli_chat", origin: failed ? "tool" : "user", signal: failed ? "error" : "succeeded", ...(toolCalls.length ? { observedEffect: `${succeededTools}/${toolCalls.length} tool calls succeeded` } : {}) });
     });
     if (!dependencies.readOnly && status === "succeeded" && answer.trim()) {
       try {
