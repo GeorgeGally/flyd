@@ -853,6 +853,35 @@ describe("ConversationViewServer", () => {
     }
   });
 
+  it("runs a reply or passage skill exactly as typed, without Flyd's brief, when Flyd's desk is on", async () => {
+    const inbox = new MemoryInbox();
+    const briefs: Array<string | undefined> = [];
+    const send = inbox.send.bind(inbox);
+    inbox.send = async (text, images, command, files, brief?: string) => (briefs.push(brief), send(text, images, command, files));
+    await inbox.send("Make the island smaller.");
+    dir = mkdtempSync(join(tmpdir(), "flyd-view-server-"));
+    writeFileSync(join(dir, "s1.jsonl"), [captain("hello"), assistantText("Hi, **Captain**.")].join("\n") + "\n");
+    const claude = join(dir, "claude");
+    mkdirSync(join(claude, "skills", "design-review"), { recursive: true });
+    writeFileSync(join(claude, "skills", "design-review", "SKILL.md"), "---\nname: design-review\ndescription: Review the design\n---\n");
+    const desk = { ask: async () => ({ id: "ask:9", timestamp: "x" }), exchanges: () => [], image: () => null, project: () => undefined };
+    const briefed: string[] = [];
+    const source = new ClaudeCodeTranscriptSource({
+      projectDir: dir, inbox, commandRoots: { claudeHome: claude },
+      desk: { desk: desk as never, complete: async () => "FIRSTMATE", brief: async (text) => (briefed.push(text), `Flyd on: ${text}`) },
+    });
+    server = new ConversationViewServer(source, undefined, undefined, undefined, undefined, undefined, undefined, new ComposerDrafts({ root: join(dir, "drafts") }));
+    const port = await server.listen(0);
+    viewToken = JSON.parse((await get(port, "/api/token")).body).token;
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    expect((await post(port, JSON.stringify({ session: "s1", text: "/design-review and this", replyTo: "note:1" }), headers)).status).toBe(200);
+    expect((await post(port, JSON.stringify({ session: "s1", passage: { quote: "Hi, Captain.", from: "assistant" }, text: "/design-review too loud" }), headers)).status).toBe(200);
+    expect((await post(port, JSON.stringify({ session: "s1", text: "and the footer", replyTo: "note:1" }), headers)).status).toBe(200);
+    expect(briefs.slice(1)).toEqual([undefined, undefined, expect.stringContaining("Flyd on:")]);
+    expect(briefed).toHaveLength(1);
+    expect(inbox.sent[1]!.text.split("\n\n").at(-1)).toBe("[Captain ran /design-review from Flyd: run it exactly as if he had typed it in Claude Code.]");
+  });
+
   it("lets the page frame a loopback preview for the right column, and no other origin", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-csp-"));
     const source = {

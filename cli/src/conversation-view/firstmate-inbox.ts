@@ -36,6 +36,9 @@ export function withCommandMarker(text: string, name: string | undefined): strin
   return name ? `${text}\n\n${commandMarker(name)}` : text;
 }
 const COMMAND_MARKER = /^\[Captain ran \/[\w:.-]+ from Flyd:[^\]\n]*\]$/gm;
+export function carriesCommand(text: string): boolean {
+  return new RegExp(COMMAND_MARKER.source, "m").test(text);
+}
 
 /**
  * Flyd's own brief under his words (flyd-brief.ts), marked so firstmate never

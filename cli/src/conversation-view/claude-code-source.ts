@@ -2,7 +2,7 @@ import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { discoverCommands, matchCommand, type SlashCommand } from "./commands.js";
-import { mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
+import { carriesCommand, mergeNotes, relayed, type CaptainInbox } from "./firstmate-inbox.js";
 import { routeMessage, type Complete, type FlydDesk } from "./flyd-desk.js";
 import { followUps, inlineOutcomes, withFollowUps } from "./follow-ups.js";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -298,7 +298,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       );
       if (route === "flyd") return this.desk.desk.ask(text, images, sessionId);
       // Firstmate is one of Flyd's staff: his words go with Flyd's own brief. A slash command runs exactly as he typed it.
-      const brief = command ? undefined : await this.desk.brief?.(text, this.latest.get(sessionId) ?? []).catch(() => undefined);
+      const brief = command || carriesCommand(text) ? undefined : await this.desk.brief?.(text, this.latest.get(sessionId) ?? []).catch(() => undefined);
       try {
         const sent = await this.inbox.send(text, images, command?.name, files, brief);
         this.desk.desk.routed?.(text, sessionId, sent.timestamp);
