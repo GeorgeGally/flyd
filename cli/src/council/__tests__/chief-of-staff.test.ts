@@ -473,6 +473,22 @@ describe("the review pass", () => {
     }]);
   });
 
+  it("labels notes FirstMate left unread as an unread-note delay, not a launch", () => {
+    mkdirSync(reviewDir, { recursive: true });
+    writeFileSync(join(reviewDir, "firstmate-session.jsonl"), [
+      { at: "2026-10-14T08:10:00.000Z", kind: "unread_note", home: "/fm", notes: ["note-1"] },
+      { at: "2026-10-14T08:20:00.000Z", kind: "unread_note", home: "/fm", notes: ["note-2", "note-3"] },
+    ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    const evidence = reviewEvidence("2026-10-01T00:00:00.000Z", reviewDir);
+    expect(evidence.filter((item) => item.id.startsWith("firstmate-session:"))).toEqual([]);
+    expect(evidence).toContainEqual({
+      id: "firstmate-unread:2026-10-14T08:20:00.000Z",
+      kind: "domain",
+      at: "2026-10-14T08:20:00.000Z",
+      text: "FirstMate left 3 of Flyd's notes unread for over 3 minutes.",
+    });
+  });
+
   it("reviews each thing George was shown once and feeds the improver", async () => {
     const now = () => new Date("2026-10-14T09:00:00.000Z");
     const review = async (said: Parameters<typeof checkSaid>[0]) => checkSaid(said);

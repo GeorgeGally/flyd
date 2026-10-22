@@ -310,8 +310,14 @@ export function reviewEvidence(since: string, dir = selfReviewDir()): Evidence[]
     };
   });
   const bySessionOutcome = new Map<string, Array<{ at: string; runtime?: string; outcome: string }>>();
-  for (const attempt of readJsonl<{ at?: string; runtime?: string; outcome?: string }>(join(dir, "firstmate-session.jsonl"))) {
-    if (!attempt.at || attempt.at < since || !attempt.outcome || attempt.outcome === "started") continue;
+  const unreadNotes: Array<{ at: string; notes: number }> = [];
+  for (const attempt of readJsonl<{ at?: string; runtime?: string; outcome?: string; kind?: string; notes?: unknown[] }>(join(dir, "firstmate-session.jsonl"))) {
+    if (!attempt.at || attempt.at < since) continue;
+    if (attempt.kind === "unread_note") {
+      unreadNotes.push({ at: attempt.at, notes: attempt.notes?.length ?? 1 });
+      continue;
+    }
+    if (!attempt.outcome || attempt.outcome === "started") continue;
     const key = `${attempt.runtime ?? "unknown"}:${attempt.outcome}`;
     const hits = bySessionOutcome.get(key) ?? [];
     hits.push({ at: attempt.at, ...(attempt.runtime ? { runtime: attempt.runtime } : {}), outcome: attempt.outcome });
@@ -327,7 +333,18 @@ export function reviewEvidence(since: string, dir = selfReviewDir()): Evidence[]
       text: `FirstMate session launch via ${newest.runtime ?? "unknown runtime"}: ${newest.outcome}${hits.length > 1 ? ` (${hits.length} attempts)` : ""}.`,
     };
   });
-  return [...verdictEvidence, ...sessionEvidence];
+  const unreadEvidence = unreadNotes.length ? (() => {
+    unreadNotes.sort((a, b) => b.at.localeCompare(a.at));
+    const newest = unreadNotes[0]!;
+    const notes = unreadNotes.reduce((sum, item) => sum + item.notes, 0);
+    return [{
+      id: `firstmate-unread:${newest.at}`,
+      kind: "domain" as const,
+      at: newest.at,
+      text: `FirstMate left ${notes} of Flyd's note${notes === 1 ? "" : "s"} unread for over 3 minutes.`,
+    }];
+  })() : [];
+  return [...verdictEvidence, ...sessionEvidence, ...unreadEvidence];
 }
 
 const SURFACE_WORDS: Record<Surface, string> = { chat: "answer", status: "status line", notification: "notification", relay: "update" };

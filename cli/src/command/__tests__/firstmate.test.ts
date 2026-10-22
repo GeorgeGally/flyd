@@ -1,5 +1,6 @@
 import { parseExecutiveDecision } from "../../intelligence/executive/decision-step.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -620,18 +621,67 @@ describe("FirstMate domain transport", () => {
     expect(started).toEqual(["claude"]);
   });
 
-  it("surfaces each unread-too-long note once to Flyd's internal callback", async () => {
+  const unreadNoteSignals = (home: string): unknown[] => {
+    const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
+    if (!existsSync(path)) return [];
+    return readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { kind?: string; home?: string; notes?: string[] })
+      .filter((entry) => entry.kind === "unread_note" && entry.home === home).map((entry) => entry.notes);
+  };
+
+  const liveHelperExec = (pending: unknown[]): FirstmateExec => async (_script, args) => args[0] === "receipts"
+    ? { stdout: JSON.stringify({ pending }), stderr: "" }
+    : { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: true } }), stderr: "" };
+
+  function idleHelperAfterRestart(home: string, lockPid: number, helperPid: number): void {
+    mkdirSync(join(home, "state"), { recursive: true });
+    writeFileSync(join(home, "state", ".lock"), `${lockPid}\n`);
+    writeFileSync(join(dir, "firstmate-helpers.json"), JSON.stringify([{ pid: helperPid, startedAt: "2026-10-09T00:00:00.000Z", home }]));
+  }
+
+  function sleeper(): ChildProcess {
+    return spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], { stdio: "ignore" });
+  }
+
+  it("records each note left unread too long once on Flyd's backstage evidence", async () => {
     saveDomainRun(queuedRun());
-    const note = { id: "note-1", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" };
-    const exec: FirstmateExec = async (_script, args) => args[0] === "receipts"
-      ? { stdout: JSON.stringify({ pending: [note] }), stderr: "" }
-      : { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: true } }), stderr: "" };
-    const onUnreadTooLong = vi.fn();
-    const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec });
-    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z"), onUnreadTooLong });
-    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:01:00.000Z"), onUnreadTooLong });
-    expect(onUnreadTooLong).toHaveBeenCalledTimes(1);
-    expect(onUnreadTooLong).toHaveBeenCalledWith([note]);
+    const home = join(dir, "firstmate-unread");
+    const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: liveHelperExec([{ id: "note-1", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }]) });
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:01:00.000Z") });
+    expect(unreadNoteSignals(home)).toEqual([["note-1"]]);
+  });
+
+  it("replaces an idle helper a previous Core launched once it is the fleet lock holder", async () => {
+    saveDomainRun(queuedRun());
+    const home = join(dir, "firstmate-restart");
+    const helper = sleeper();
+    const exited = new Promise<NodeJS.Signals | null>((resolve) => helper.once("exit", (_code, signal) => resolve(signal)));
+    try {
+      idleHelperAfterRestart(home, helper.pid!, helper.pid!);
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: liveHelperExec([{ id: "note-1", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }]) });
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      expect(await exited).toBe("SIGTERM");
+      expect(JSON.parse(readFileSync(join(dir, "firstmate-helpers.json"), "utf8"))).toEqual([]);
+    } finally {
+      helper.kill("SIGKILL");
+    }
+  });
+
+  it("leaves a recorded helper alone when another session holds the fleet lock, and still raises the unread signal", async () => {
+    saveDomainRun(queuedRun());
+    const home = join(dir, "firstmate-other-holder");
+    const helper = sleeper();
+    try {
+      idleHelperAfterRestart(home, helper.pid! + 100_000, helper.pid!);
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: liveHelperExec([{ id: "note-2", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }]) });
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      expect(helper.exitCode).toBeNull();
+      expect(helper.signalCode).toBeNull();
+      expect(JSON.parse(readFileSync(join(dir, "firstmate-helpers.json"), "utf8"))).toEqual([{ pid: helper.pid, startedAt: "2026-10-09T00:00:00.000Z", home }]);
+      expect(unreadNoteSignals(home)).toEqual([["note-2"]]);
+    } finally {
+      helper.kill("SIGKILL");
+    }
   });
 
   it("does not restart a live helper when it still owns the inbox", async () => {

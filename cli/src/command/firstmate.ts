@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { firstmateHome } from "../lib/firstmate-home.js";
@@ -7,7 +7,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { codexPathCandidates } from "../runtime/codex-adapter.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
-import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
+import { commandDir, listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -196,7 +196,64 @@ const SESSION_IDLE_MS = 15 * 60_000;
 const launchingHomes = new Set<string>();
 const launchCooldownUntil = new Map<string, number>();
 const unreadSignals = new Set<string>();
-const liveSessions = new Map<string, { child: ReturnType<typeof spawn>; lastOutputAt: number }>();
+const helperOutputAt = new Map<string, number>();
+
+/** A helper session Flyd launched, kept in `<command dir>/firstmate-helpers.json` so a restarted Core or another Flyd process can still recognise it. */
+interface FirstmateHelper {
+  pid: number;
+  startedAt: string;
+  home: string;
+}
+
+function helpersPath(): string {
+  return join(commandDir(), "firstmate-helpers.json");
+}
+
+function readHelpers(): FirstmateHelper[] {
+  try {
+    const parsed = JSON.parse(readFileSync(helpersPath(), "utf8")) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is FirstmateHelper => Number.isInteger(item?.pid) && typeof item?.startedAt === "string" && typeof item?.home === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeHelpers(helpers: FirstmateHelper[]): void {
+  try {
+    const path = helpersPath();
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    const temporary = `${path}.${process.pid}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(helpers, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(temporary, path);
+  } catch {
+    return;
+  }
+}
+
+function forgetHelper(home: string, pid: number): void {
+  const helpers = readHelpers();
+  const kept = helpers.filter((helper) => !(helper.home === home && helper.pid === pid));
+  if (kept.length !== helpers.length) writeHelpers(kept);
+}
+
+/** Line 1 of firstmate's state/.lock is the pid of the session holding the fleet lock. */
+function lockHolderPid(home: string): number | null {
+  try {
+    const pid = Number(readFileSync(join(home, "state", ".lock"), "utf8").split("\n")[0]?.trim());
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Flyd's own helper when it still holds the lock but has said nothing for too long; a helper Flyd did not launch is never one. */
+function idleHelper(home: string, nowMs: number): FirstmateHelper | undefined {
+  const holder = lockHolderPid(home);
+  const helper = holder === null ? undefined : readHelpers().find((item) => item.home === home && item.pid === holder);
+  if (!helper) return undefined;
+  const lastSign = Math.max(helperOutputAt.get(`${home}:${helper.pid}`) ?? 0, Date.parse(helper.startedAt) || 0);
+  return nowMs - lastSign > SESSION_IDLE_MS ? helper : undefined;
+}
 
 function sessionRuntimes(env = process.env): SessionRuntime[] {
   const configured = env.FLYD_FIRSTMATE_RUNTIMES?.split(",").map((item) => item.trim()).filter(Boolean);
@@ -226,7 +283,7 @@ function sessionChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return childEnv;
 }
 
-/** Appends one JSONL line per FirstMate session launch attempt to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): `{ at, runtime, outcome: "started" | "usage_limited" | "failed", detail? }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
+/** Appends one JSONL line to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): a launch attempt `{ at, runtime, outcome: "started" | "usage_limited" | "failed", detail? }` or a note left unread too long `{ at, kind: "unread_note", home, notes }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
 function recordSessionAttempt(entry: Record<string, unknown>): void {
   try {
     const path = join(process.env.FLYD_SELF_REVIEW_DIR?.trim() || join(FLYD_DIR, "self-review"), "firstmate-session.jsonl");
@@ -292,8 +349,7 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
       let settled = false;
       const child = spawn(sessionExecutable(runtime), sessionArgs(runtime), { cwd: home, env: sessionChildEnv({ ...process.env, FM_HOME: home }), detached: true, stdio: ["ignore", "pipe", "pipe"] });
       const activity = (chunk: Buffer | string) => {
-        const session = liveSessions.get(home);
-        if (session?.child === child) session.lastOutputAt = Date.now();
+        if (child.pid) helperOutputAt.set(`${home}:${child.pid}`, Date.now());
         output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT);
       };
       child.stdout?.on("data", activity);
@@ -306,13 +362,16 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
       });
       child.once("spawn", () => {
         handedOff = true;
-        liveSessions.set(home, { child, lastOutputAt: Date.now() });
+        if (child.pid) writeHelpers([...readHelpers().filter((helper) => helper.home !== home), { pid: child.pid, startedAt: new Date().toISOString(), home }]);
         child.unref();
         record({ runtime, outcome: "started" });
         resolve({ started: true });
       });
       child.once("close", (code) => {
-        if (liveSessions.get(home)?.child === child) liveSessions.delete(home);
+        if (child.pid) {
+          helperOutputAt.delete(`${home}:${child.pid}`);
+          forgetHelper(home, child.pid);
+        }
         const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
         if (limited || code !== 0) {
           record({ runtime, outcome: limited ? "usage_limited" : "failed", detail: output.slice(-500) });
@@ -434,7 +493,6 @@ export async function syncFirstmateDomainRuns(options: {
   onChanged?: (run: DomainRun) => Promise<void> | void;
   /** Reads a prose reply's outcome; without one Flyd's model reads it, and only words when no model can run. */
   judge?: ProseJudge;
-  onUnreadTooLong?: (notes: FirstmateNote[]) => void;
 } = {}): Promise<DomainRun[]> {
   const transport = options.transport ?? new FirstmateDomainTransport();
   if (!transport.available()) return [];
@@ -453,20 +511,21 @@ export async function syncFirstmateDomainRuns(options: {
   if (oldPending.length) {
     const newlyUnread = oldPending.filter((note) => !unreadSignals.has(`${transport.home}:${note.id}`));
     for (const note of newlyUnread) unreadSignals.add(`${transport.home}:${note.id}`);
-    if (newlyUnread.length) {
-      options.onUnreadTooLong?.(newlyUnread);
-      recordSessionAttempt({ outcome: "unread_too_long", home: transport.home, notes: newlyUnread.map((note) => note.id) });
-    }
+    if (newlyUnread.length) recordSessionAttempt({ kind: "unread_note", home: transport.home, notes: newlyUnread.map((note) => note.id) });
   } else {
     for (const key of unreadSignals) if (key.startsWith(`${transport.home}:`)) unreadSignals.delete(key);
   }
   const oldUnread = oldPending.length > 0;
   if (oldUnread) {
     const readiness = await transport.ready();
-    const session = liveSessions.get(transport.home);
-    if (readiness.liveHarness && session && nowMs - session.lastOutputAt > SESSION_IDLE_MS) {
-      session.child.kill("SIGTERM");
-      liveSessions.delete(transport.home);
+    const idle = readiness.liveHarness ? idleHelper(transport.home, nowMs) : undefined;
+    if (idle) {
+      forgetHelper(idle.home, idle.pid);
+      try {
+        process.kill(idle.pid, "SIGTERM");
+      } catch {
+        return [];
+      }
       return [];
     }
     if (readiness.canReceive === false && !readiness.liveHarness) {
