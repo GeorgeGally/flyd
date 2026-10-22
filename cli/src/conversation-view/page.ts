@@ -41,6 +41,7 @@ export const BASE_STYLE = `
   --sel-fg: #1a1206;
   color-scheme: light;
 }
+:root { --head-h: 52px; }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); }
 body {
@@ -55,7 +56,7 @@ body {
 header {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; gap: 16px;
-  height: 52px; padding: 0 24px;
+  height: var(--head-h); padding: 0 24px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   font: 500 14px/1 var(--sans); color: var(--muted);
@@ -150,7 +151,7 @@ const SHOW_STYLE = `
 .show {
   position: fixed; inset: 0; z-index: 6; overflow: hidden;
   display: flex; flex-direction: column;
-  padding: 52px clamp(28px, 6vw, 104px) 0;
+  padding: var(--head-h) clamp(28px, 6vw, 104px) 0;
   color: var(--fg); background: var(--screen);
 }
 .show[hidden] { display: none; }
@@ -287,9 +288,13 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .inline-kind { margin: 0; font: 500 12px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .inline-head { margin: 0; font: 600 clamp(19px, 1.7vw, 25px)/1.25 var(--sans); color: var(--strong); }
 .inline-head[role="button"] { cursor: pointer; }
+.inline-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.inline-main.has-shot { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
+.inline-text { min-width: 0; }
+@media (max-width: 720px) { .inline-main.has-shot { grid-template-columns: minmax(0, 1fr); } }
 .inline-card .screen-body { margin-top: 4px; max-width: none; }
-.inline-shots { display: flex; flex-wrap: wrap; gap: 10px; }
-.inline-shots img { max-width: 220px; max-height: 150px; border-radius: 8px; border: 1px solid var(--faint); object-fit: cover; cursor: zoom-in; }
+.inline-shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+.inline-shots img { display: block; width: 100%; max-height: 150px; border-radius: 8px; border: 1px solid var(--faint); object-fit: cover; cursor: zoom-in; }
 .inline-card .scene-ask { margin-top: 10px; max-width: none; }
 .scene-ask .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: 8px; }
 .choice-pick {
@@ -474,7 +479,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
   .devices { height: 38vh; }
 }
 @media (max-width: 720px) {
-  .show { overflow-x: hidden; overflow-y: auto; padding: 52px 16px 0; }
+  .show { overflow-x: hidden; overflow-y: auto; padding: var(--head-h) 16px 0; }
   .tv { flex: none; min-height: calc(100vh - 220px); padding: 28px 0 36px; }
   .scene-head, .scene.has-shot .scene-head { font-size: 34px; }
   .scene-head.long, .scene.has-shot .scene-head.long { font-size: 27px; }
@@ -538,7 +543,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 
 /* The right column: his conversations with their answers, and artefacts beside them. */
 .rail {
-  position: fixed; top: 52px; right: 0; bottom: 0; width: min(430px, 34vw); z-index: 6;
+  position: fixed; top: var(--head-h); right: 0; bottom: 0; width: min(430px, 34vw); z-index: 6;
   display: flex; flex-direction: column; background: var(--bg);
   font-size: 0.62em;
 }
@@ -1063,13 +1068,16 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 
 @media (max-width: 720px) {
   body { font-size: 20px; }
-  main { padding: 1em 1em 12vh; }
+  main { padding: var(--head-h) 1em 12vh; }
   .composer .row { padding: 0 1.25em; }
   .composer .hint { display: none; }
   .time { display: none; }
   header .when { display: none; }
-  header { gap: 10px; padding: 0 16px; }
-  header .controls { margin-left: 0; gap: 0; }
+  /* On a phone the controls take their own row rather than running off the edge. */
+  :root { --head-h: 92px; }
+  header { gap: 8px 10px; padding: 0 16px; flex-wrap: wrap; align-content: center; row-gap: 4px; }
+  header .controls { flex: 1 1 100%; justify-content: flex-end; margin-left: 0; gap: 2px; min-width: 0; }
+  header .controls #left-open { white-space: nowrap; }
   header button { padding: 0 6px; }
   header button[role="switch"] { gap: 5px; }
   /* A phone keeps the light of "on air", not its words. */
@@ -4018,7 +4026,8 @@ ${LEFT_SCRIPT}
       sceneHead.dataset.inline = "";
     }
     var hasDocument = !!(screen && screen.blocks && screen.blocks.some(function (block) { return block.kind === "document"; }));
-    sceneLine.textContent = box.line && !hasDocument ? sentence(capital(box.line)) : "";
+    var line = box.line && box.line !== box.title ? box.line : "";
+    sceneLine.textContent = line && !hasDocument ? sentence(capital(line)) : "";
     var oldOpen = sceneEl.querySelector(".scene-open");
     if (oldOpen) oldOpen.remove();
     if (box.open) sceneLine.after(pageButton(box.open, "scene-open"));
@@ -4517,7 +4526,6 @@ ${LEFT_SCRIPT}
         var img = el("img");
         img.src = src;
         img.alt = "Screenshot: " + box.title;
-        img.loading = "lazy";
         img.addEventListener("click", function () { openImage(src); });
         gallery.appendChild(img);
       });
@@ -4552,7 +4560,9 @@ ${LEFT_SCRIPT}
     // list is accumulating, so a card he was looking at stays where it was and only work
     // that needs him leads over it.
     if (focusBox) {
-      var standing = parts.stage.filter(function (box) { return box.tone === "clear"; });
+      // The focus leads when it needs him; the rest of the semantic work and any
+      // settled call follows it. Legacy presentation cards stay out of its way.
+      var standing = parts.stage.filter(function (box) { return box.tone === "clear" || box.semanticKind; });
       var needsHim = !!(next.focus && next.focus.lifecycle === "interrupted");
       parts.stage = needsHim ? [focusBox].concat(standing) : standing.concat([focusBox]);
       // The plan gauge is the one instrument worth keeping beside the counts: the

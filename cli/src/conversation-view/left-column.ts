@@ -11,7 +11,7 @@ export const LEFT_STYLE = `
 /* The left column: what needs him, in the same cards as the rest of the product. Open by default only where it fits beside the chat, and always while something needs him. */
 :root { --left-w: min(320px, 23vw); }
 .left {
-  position: fixed; top: 52px; left: 0; bottom: 0; width: var(--left-w); z-index: 6;
+  position: fixed; top: var(--head-h, 52px); left: 0; bottom: 0; width: var(--left-w); z-index: 6;
   display: flex; flex-direction: column; background: var(--bg);
 }
 .left[hidden] { display: none; }

@@ -117,6 +117,15 @@ describe("the decision-backed fleet projection", () => {
     expect(asked.held).toEqual([]);
   });
 
+  it("keeps a row's own parsed choices when the executive decision grounds none, and never shows a placeholder as a recommendation", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "gnm-9", state: "unknown", name: "Release gate", doing: "ship it today, or hold it for review?" }] });
+    const withChoices = { ...fleet, calls: [{ label: "Release gate", task: "gnm-9", status: "needs attention", choices: ["ship it today", "hold it for review"] }] };
+    const asked = projectFleetDecisions(withChoices, [decision({ taskId: "gnm-9", disposition: "ask_george", question: "Ship it today, or hold it for review?", options: [], recommendation: { rationale: "I recommend clarifying the alternatives before acting." }, show: true, notify: true })]);
+    expect(asked.calls).toEqual([expect.objectContaining({ task: "gnm-9", choices: ["ship it today", "hold it for review"] })]);
+    expect(asked.calls[0]!.recommendation).toBeUndefined();
+    expect(asked.calls[0]!.detail).toBeUndefined();
+  });
+
   it("projects only George decisions and independently verified results", () => {
     const fleet = parseBearings({
       decisions_open: [{ id: "choice", summary: "Review options" }],

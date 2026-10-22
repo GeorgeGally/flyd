@@ -554,9 +554,11 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
       status: "Needs your choice",
       label: decision.question,
       question: decision.question,
-      choices: decision.options ?? [],
-      ...(decision.recommendation ? { recommendation: decision.recommendation } : {}),
-      detail: recommendationText(decision.recommendation),
+      // The executive decision's own grounded options win; a row that already
+      // parsed its choices from the hold keeps them rather than losing them to
+      // an empty list. A recommendation that names no option is not shown as one.
+      choices: decision.options?.length ? decision.options : (row.choices ?? []),
+      ...(decision.recommendation?.option ? { recommendation: decision.recommendation, detail: recommendationText(decision.recommendation) } : {}),
     }];
   });
   const verified = [...fleet.ready, ...fleet.landed].flatMap((row) => {
@@ -834,7 +836,7 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
     headline,
     why: "",
     ...(kind === "call" && row.task ? { decision: { task: row.task, ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}) } } : {}),
-    ...(asked ? { detail: row.recommendation ? recommendationText(row.recommendation) : row.said?.line || sourceHeadline } : detail ? { detail } : {}),
+    ...(asked ? { detail: row.recommendation?.option ? recommendationText(row.recommendation) : row.said?.line || sourceHeadline } : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
     ...(row.started ? { started: row.started } : {}),
     ...((row.shotDir ?? row.task) && row.shots?.length

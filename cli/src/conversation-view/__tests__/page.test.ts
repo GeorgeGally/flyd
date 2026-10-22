@@ -3226,6 +3226,12 @@ describe("what Flyd shows of its staff, at a glance", () => {
 });
 
 describe("screen gates", () => {
+  it("never puts the type-to-talk hint back in the foot", () => {
+    const html = renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) });
+    expect(html).not.toContain("type to talk");
+    expect(html).not.toContain("tab for the conversation");
+  });
+
   const object = (id: string, kind: string, lifecycle: string, subject: string, extra: Record<string, unknown> = {}): any => ({
     id, kind, lifecycle, subject, summary: subject + ".", evidence: [], actions: [], source: { showItemId: id }, ...extra,
   });
