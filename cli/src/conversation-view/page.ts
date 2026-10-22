@@ -1006,6 +1006,7 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .commands .name { font: 500 0.82em var(--mono); color: var(--fg); white-space: nowrap; }
 .commands .about { font-size: 0.66em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .commands .none { font: 0.72em var(--mono); color: var(--muted); cursor: default; }
+.commands.in-box { position: static; max-height: 14em; margin: 6px 0 0; padding: 0; font-size: 16px; background: transparent; border-radius: 0; box-shadow: none; }
 .composer .hint { margin-top: 0.45em; min-height: 1em; font: 12.5px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 @media (max-width: 720px) {
@@ -2033,6 +2034,105 @@ var __name = function (f) { return f; };
     if (!replies.has(key)) replies.set(key, { open: false, note: "", draft: "", sending: false });
     return replies.get(key);
   }
+  var commandList = null;
+  function loadCommands() {
+    if (commandList) return Promise.resolve(commandList);
+    return fetch("/api/commands").then(function (r) { return r.json(); }).then(function (data) {
+      commandList = data.commands || [];
+      return commandList;
+    }).catch(function () { return []; });
+  }
+  function commandMenu(input, menu, chosen) {
+    var matches = [];
+    var index = 0;
+    var revision = 0;
+    function close() {
+      revision += 1;
+      menu.hidden = true;
+      matches = [];
+    }
+    function render() {
+      menu.textContent = "";
+      if (!matches.length) {
+        var none = document.createElement("li");
+        none.className = "none";
+        none.textContent = "No skill or command matches " + input.value;
+        menu.appendChild(none);
+        return;
+      }
+      matches.forEach(function (command, at) {
+        var item = document.createElement("li");
+        item.setAttribute("role", "option");
+        item.className = at === index ? "selected" : "";
+        var name = document.createElement("span");
+        name.className = "name";
+        name.textContent = "/" + command.name;
+        var about = document.createElement("span");
+        about.className = "about";
+        about.textContent = command.description;
+        item.appendChild(name);
+        item.appendChild(about);
+        item.addEventListener("mousedown", function (event) { event.preventDefault(); choose(at); });
+        menu.appendChild(item);
+      });
+      var selected = menu.children[index];
+      if (selected && selected.scrollIntoView) selected.scrollIntoView({ block: "nearest" });
+    }
+    function update() {
+      var typed = /^\\/([\\w:.-]*)$/.exec(input.value);
+      if (!typed) { close(); return; }
+      var request = ++revision;
+      var query = typed[1].toLowerCase();
+      loadCommands().then(function (list) {
+        if (request !== revision || !input.isConnected) return;
+        if (!/^\\/([\\w:.-]*)$/.test(input.value)) return;
+        var starts = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) === 0; });
+        var contains = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) > 0; });
+        matches = starts.concat(contains).slice(0, 50);
+        index = 0;
+        menu.hidden = false;
+        render();
+      });
+    }
+    function choose(at) {
+      var command = matches[at];
+      if (!command) return;
+      input.value = "/" + command.name + " ";
+      close();
+      if (chosen) chosen();
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+    input.addEventListener("input", update);
+    input.addEventListener("blur", close);
+    input.addEventListener("keydown", function (event) {
+      if (event.isComposing || menu.hidden) return;
+      var taken = true;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        if (matches.length) {
+          index = (index + (event.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length;
+          render();
+        }
+      } else if ((event.key === "Enter" || event.key === "Tab") && matches.length) {
+        choose(index);
+      } else if (event.key === "Escape") {
+        close();
+      } else {
+        taken = false;
+      }
+      if (!taken) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    });
+  }
+  function boxCommands(input, chosen) {
+    var menu = el("ul", "commands in-box");
+    menu.setAttribute("role", "listbox");
+    menu.setAttribute("aria-label", "Skills and commands");
+    menu.hidden = true;
+    commandMenu(input, menu, chosen);
+    return menu;
+  }
   // The column and the window each keep their own box for the same answer.
   function replyBox(id, place) {
     var state = replyState(place + ":" + id);
@@ -2052,6 +2152,7 @@ var __name = function (f) { return f; };
     input.placeholder = "Reply to this…";
     input.value = state.draft;
     input.setAttribute("aria-label", "Reply to this answer");
+    var commands = boxCommands(input, function () { state.draft = input.value; });
     var head = el("div", "reply-head");
     head.appendChild(el("span", "reply-kicker", "Reply"));
     var close = el("button", "reply-close", "Close");
@@ -2064,6 +2165,7 @@ var __name = function (f) { return f; };
     row.appendChild(send);
     form.appendChild(head);
     form.appendChild(row);
+    form.appendChild(commands);
     box.appendChild(form);
     var note = el("span", "reply-note", state.note);
     note.setAttribute("role", "status");
@@ -2120,6 +2222,7 @@ var __name = function (f) { return f; };
     input.maxLength = 4000;
     input.placeholder = "What about it?";
     input.setAttribute("aria-label", "Your comment on the selected words");
+    var commands = boxCommands(input, function () { place(); });
     var send = el("button", "reply-send", "Send");
     send.type = "submit";
     var row = el("div", "reply-row");
@@ -2131,6 +2234,7 @@ var __name = function (f) { return f; };
     form.appendChild(head);
     form.appendChild(quote);
     form.appendChild(row);
+    form.appendChild(commands);
     form.appendChild(note);
     pop.appendChild(opener);
     pop.appendChild(form);
@@ -2586,6 +2690,7 @@ ${LEFT_SCRIPT}
     input.placeholder = label;
     input.setAttribute("aria-label", label);
     input.value = state.text || "";
+    var commands = boxCommands(input, function () { state.text = input.value; state.error = ""; save(); paint(); });
     var send = el("button", "art-chat-send", "Send");
     send.type = "submit";
     // Pressing Send leaves the caret in the box, so nothing in the row moves under the click.
@@ -2779,6 +2884,7 @@ ${LEFT_SCRIPT}
     row.appendChild(send);
     field.appendChild(thumbs);
     field.appendChild(row);
+    field.appendChild(commands);
     form.appendChild(thread);
     form.appendChild(field);
     form.appendChild(receipt);
@@ -3273,94 +3379,10 @@ ${LEFT_SCRIPT}
     grow();
     input.setSelectionRange(text.length, text.length);
   }
-  // "/" at the start of the box: the assistant's skills and commands.
-  var commandsEl = document.getElementById("commands");
-  var commandList = null;
-  var commandMatches = [];
-  var commandIndex = 0;
-  function loadCommands() {
-    if (commandList) return Promise.resolve(commandList);
-    return fetch("/api/commands").then(function (r) { return r.json(); }).then(function (data) {
-      commandList = data.commands || [];
-      return commandList;
-    }).catch(function () { return []; });
-  }
-  function closeCommands() {
-    commandsEl.hidden = true;
-    commandMatches = [];
-  }
-  function renderCommands() {
-    commandsEl.textContent = "";
-    if (!commandMatches.length) {
-      var none = document.createElement("li");
-      none.className = "none";
-      none.textContent = "No skill or command matches " + input.value;
-      commandsEl.appendChild(none);
-      return;
-    }
-    commandMatches.forEach(function (command, index) {
-      var item = document.createElement("li");
-      item.setAttribute("role", "option");
-      item.className = index === commandIndex ? "selected" : "";
-      var name = document.createElement("span");
-      name.className = "name";
-      name.textContent = "/" + command.name;
-      var about = document.createElement("span");
-      about.className = "about";
-      about.textContent = command.description;
-      item.appendChild(name);
-      item.appendChild(about);
-      item.addEventListener("mousedown", function (event) { event.preventDefault(); chooseCommand(index); });
-      commandsEl.appendChild(item);
-    });
-    var selected = commandsEl.children[commandIndex];
-    if (selected && selected.scrollIntoView) selected.scrollIntoView({ block: "nearest" });
-  }
-  function updateCommands() {
-    var typed = /^\\/([\\w:.-]*)$/.exec(input.value);
-    if (!typed) { closeCommands(); return; }
-    var query = typed[1].toLowerCase();
-    loadCommands().then(function (list) {
-      if (!/^\\/([\\w:.-]*)$/.test(input.value)) return;
-      var starts = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) === 0; });
-      var contains = list.filter(function (c) { return c.name.toLowerCase().indexOf(query) > 0; });
-      commandMatches = starts.concat(contains).slice(0, 50);
-      commandIndex = 0;
-      commandsEl.hidden = false;
-      renderCommands();
-    });
-  }
-  function chooseCommand(index) {
-    var command = commandMatches[index];
-    if (!command) return;
-    typingPredictions.reset();
-    input.value = "/" + command.name + " ";
-    closeCommands();
-    grow();
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-  }
-  input.addEventListener("input", updateCommands);
-  input.addEventListener("blur", function () { setTimeout(closeCommands, 150); });
+  commandMenu(input, document.getElementById("commands"), function () { typingPredictions.reset(); grow(); });
 
   input.addEventListener("keydown", function (event) {
     if (event.isComposing) return;
-    if (!commandsEl.hidden) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        if (commandMatches.length) {
-          commandIndex = (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length;
-          renderCommands();
-        }
-        return;
-      }
-      if ((event.key === "Enter" || event.key === "Tab") && commandMatches.length) {
-        event.preventDefault();
-        chooseCommand(commandIndex);
-        return;
-      }
-      if (event.key === "Escape") { event.preventDefault(); closeCommands(); return; }
-    }
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); return; }
     if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
     var value = input.value;
@@ -4276,7 +4298,7 @@ ${LEFT_SCRIPT}
   document.getElementById("calls-close").addEventListener("click", function () { showCalls(false); });
   callsEl.addEventListener("click", function (event) { if (event.target === callsEl) showCalls(false); });
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && !callsEl.hidden) { event.preventDefault(); showCalls(false); }
+    if (callsEl.isConnected && !event.defaultPrevented && event.key === "Escape" && !callsEl.hidden) { event.preventDefault(); showCalls(false); }
   });
 
   // A figure's own group, opened: every piece of work behind the number, one
@@ -4360,10 +4382,10 @@ ${LEFT_SCRIPT}
   }
   document.getElementById("drill-close").addEventListener("click", closeDrill);
   drillEl.addEventListener("click", function (event) { if (event.target === drillEl) closeDrill(); });
-  // On the way down: Escape closes the sheet before the column behind it hears the key.
+  // A nested skill picker handles Escape before its sheet does.
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && !drillEl.hidden) { event.preventDefault(); event.stopPropagation(); closeDrill(); }
-  }, true);
+    if (drillEl.isConnected && !event.defaultPrevented && event.key === "Escape" && !drillEl.hidden) { event.preventDefault(); event.stopPropagation(); closeDrill(); }
+  });
   setInterval(function () {
     sceneMeta.querySelectorAll(".ago").forEach(function (node) { node.textContent = ago(node.dataset.at); });
     renderDoing();
@@ -4386,11 +4408,18 @@ ${LEFT_SCRIPT}
       }
       flip.setAttribute("aria-checked", "true");
     } else {
+      var leavingArtefact = onShow();
+      if (leavingArtefact) {
+        showCalls(false);
+        closeDrill();
+        lightbox.hidden = true;
+      }
       root.setAttribute("data-screen", "terminal");
       showEl.hidden = true;
       showEl.classList.remove("power", "off");
       if (terminalAt.pinned) { toBottom(); jump.hidden = true; } else { pinned = false; restore(terminalAt.anchor); }
       flip.setAttribute("aria-checked", "false");
+      if (leavingArtefact && !composer.hidden) input.focus();
     }
   }
   function setScreen(next) {
@@ -4406,8 +4435,8 @@ ${LEFT_SCRIPT}
     setScreen(onShow() ? "terminal" : "show");
   });
   document.addEventListener("keydown", function (event) {
-    if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
-    if (event.target instanceof Element && event.target.closest(".scene-ask, .art-chat, .prefs, .calls, .rail-phone-say")) return;
+    if (!showEl.isConnected || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+    if (event.target instanceof Element && event.target.closest(".scene-ask, .art-chat, .reply, .passage, .prefs, .calls, .rail-phone-say")) return;
     // Tab swaps between the conversation and the artefact, from anywhere. Left
     // alone while the "/" list or a typing suggestion has claimed the key.
     if (event.key === "Tab") {

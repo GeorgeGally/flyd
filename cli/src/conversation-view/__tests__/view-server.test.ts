@@ -820,6 +820,39 @@ describe("ConversationViewServer", () => {
     expect(inbox.sent).toHaveLength(1);
   });
 
+  it("preserves slash skills from artefact, reply and selected-passage textboxes", async () => {
+    const inbox = new MemoryInbox();
+    await inbox.send("Make the island smaller.");
+    dir = mkdtempSync(join(tmpdir(), "flyd-view-server-"));
+    writeFileSync(join(dir, "s1.jsonl"), [captain("hello"), assistantText("Hi, **Captain**.")].join("\n") + "\n");
+    const claude = join(dir, "claude");
+    mkdirSync(join(claude, "skills", "design-review"), { recursive: true });
+    writeFileSync(join(claude, "skills", "design-review", "SKILL.md"), "---\nname: design-review\ndescription: Review the design\n---\n");
+    const source = new ClaudeCodeTranscriptSource({ projectDir: dir, inbox, commandRoots: { claudeHome: claude } });
+    const send = vi.spyOn(source, "send");
+    server = new ConversationViewServer(source, undefined, undefined, undefined, undefined, undefined, undefined, new ComposerDrafts({ root: join(dir, "drafts") }));
+    const port = await server.listen(0);
+    viewToken = JSON.parse((await get(port, "/api/token")).body).token;
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const marker = "[Captain ran /design-review from Flyd: run it exactly as if he had typed it in Claude Code.]";
+    const payloads = [
+      { about: { title: "The island", task: "island", url: "https://github.com/GeorgeGally/flyd/pull/144" }, text: "/design-review review it" },
+      { session: "s1", text: "/design-review and this", replyTo: "note:1" },
+      { session: "s1", passage: { quote: "Hi, Captain.", from: "assistant" }, text: "/design-review too loud" },
+      { session: "s1", text: "/design-review review this answer", replyTo: "ask:1", questionText: "Which design?" },
+    ];
+    for (const payload of payloads) expect((await post(port, JSON.stringify(payload), headers)).status).toBe(200);
+    expect(inbox.sent.slice(1).map((message) => message.text.split("\n\n").at(-1))).toEqual([marker, marker, marker, marker]);
+    expect(inbox.sent[1]!.text).toContain('About the artefact "The island"\nTask: island\nPage: https://github.com/GeorgeGally/flyd/pull/144\n\n/design-review review it');
+    expect(inbox.sent[2]!.text).toContain("[Captain is replying from Flyd to note:1");
+    expect(inbox.sent[3]!.text).toContain("> Hi, Captain.\n\n/design-review too loud");
+    expect(send.mock.calls.at(-1)?.[4]).toBe("firstmate");
+    for (const text of ["/not-a-skill review it", "Please /design-review this"]) {
+      await post(port, JSON.stringify({ about: { title: "The island" }, text }), headers);
+      expect(inbox.sent.at(-1)!.text).not.toContain("[Captain ran");
+    }
+  });
+
   it("lets the page frame a loopback preview for the right column, and no other origin", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-csp-"));
     const source = {
