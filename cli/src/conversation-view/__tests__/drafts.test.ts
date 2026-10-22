@@ -28,6 +28,15 @@ describe("ComposerDrafts", () => {
     expect(new ComposerDrafts({ root: dir }).load("older")).toBeNull();
   });
 
+  it("keeps a native recording's removable bundle pointer with its image after restart", () => {
+    const dir = fresh();
+    const drafts = new ComposerDrafts({ root: dir });
+    const image = drafts.attach({ mediaType: "image/png", data: PNG })!;
+    const scrawlPointer = "[scrawl: /tmp/native.scrawl]";
+    expect(drafts.save("latest", { text: scrawlPointer, attachments: [{ ...image, scrawlPointer }] })).toBe(true);
+    expect(new ComposerDrafts({ root: dir }).load("latest")?.attachments).toEqual([{ ...image, scrawlPointer, data: PNG }]);
+  });
+
   it("forgets the draft once the box is empty, and the attachments no draft names once they are old", () => {
     const dir = fresh();
     const drafts = new ComposerDrafts({ root: dir });

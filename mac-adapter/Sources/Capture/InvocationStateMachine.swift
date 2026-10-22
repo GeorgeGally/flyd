@@ -69,6 +69,7 @@ final class InvocationStateMachine {
     var onDictationStart: (() -> Void)?
     var onDictationStop: (() -> Void)?
     var onDictationCancel: (() -> Void)?
+    var onScrawlToggle: (() -> Bool)?
     var onLiveToggle: (() -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
     var onCancelled: (() -> Void)?
@@ -373,7 +374,8 @@ private struct KeyboardMonitorSnapshot: Encodable {
 }
 
 private extension InvocationStateMachine {
-    func dispatch(_ routeEvent: ShortcutRouteEvent) {
+    /// Returns false when the event was not acted on, so its key passes through.
+    func dispatch(_ routeEvent: ShortcutRouteEvent) -> Bool {
         ShortcutLog.record("event \(routeEvent)")
         switch routeEvent {
         case .textTapped:
@@ -397,10 +399,13 @@ private extension InvocationStateMachine {
             DispatchQueue.main.async { self.onDictationStop?() }
         case .dictationCancel:
             DispatchQueue.main.async { self.onDictationCancel?() }
+        case .scrawlToggle:
+            return onScrawlToggle?() ?? false
         case .liveToggle:
-            guard FlydState.shared.mode != .invoked else { return }
+            guard FlydState.shared.mode != .invoked else { return true }
             DispatchQueue.main.async { self.onLiveToggle?() }
         }
+        return true
     }
 }
 
@@ -417,7 +422,7 @@ private func stateMachineEventCallback(
     case .tapDisabledByTimeout, .tapDisabledByUserInput:
         machine.reenableEventTap()
 
-    case .keyDown, .flagsChanged:
+    case .keyDown, .keyUp, .flagsChanged:
         let flags = event.flags
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         if type == .flagsChanged {
@@ -431,17 +436,8 @@ private func stateMachineEventCallback(
             flags: flags,
             keyCode: keyCode,
             state: &machine.shortcutRoutingState
-        )
-        for routeEvent in routeEvents {
-            machine.dispatch(routeEvent)
-        }
+        ).filter { machine.dispatch($0) }
         if machine.keyEventFilter.shouldDrop(eventType: type, keyCode: keyCode, flags: flags, routed: routeEvents) {
-            return nil
-        }
-
-    case .keyUp:
-        let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-        if machine.keyEventFilter.shouldDrop(eventType: type, keyCode: keyCode, flags: event.flags, routed: []) {
             return nil
         }
 

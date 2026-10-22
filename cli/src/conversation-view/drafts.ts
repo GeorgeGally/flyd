@@ -16,6 +16,7 @@ export interface DraftAttachment {
   name?: string;
   /** A picture's media type. */
   mediaType?: string;
+  scrawlPointer?: string;
 }
 
 export interface Draft {
@@ -138,10 +139,10 @@ function parseDraft(value: unknown): Draft | null {
   const parsed: DraftAttachment[] = [];
   for (const attachment of attachments) {
     if (typeof attachment !== "object" || attachment === null) return null;
-    const { id, name, mediaType } = attachment as Record<string, unknown>;
+    const { id, name, mediaType, scrawlPointer } = attachment as Record<string, unknown>;
     if (typeof id !== "string" || !ID.test(id)) return null;
     if (typeof name === "string") parsed.push({ id, name });
-    else if (typeof mediaType === "string" && IMAGE_TYPES.includes(mediaType)) parsed.push({ id, mediaType });
+    else if (typeof mediaType === "string" && IMAGE_TYPES.includes(mediaType)) parsed.push({ id, mediaType, ...(typeof scrawlPointer === "string" && scrawlPointer.length <= 4096 && /^\[scrawl: \/[^\r\n]+\.scrawl\]$/.test(scrawlPointer) ? { scrawlPointer } : {}) });
     else return null;
   }
   const at = (n: unknown) => (typeof n === "number" && Number.isInteger(n) ? Math.max(0, Math.min(n, text.length)) : text.length);

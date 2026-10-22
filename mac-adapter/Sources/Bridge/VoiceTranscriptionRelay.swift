@@ -23,6 +23,13 @@ final class VoiceTranscriptionRelay {
     private var sessionToken: Int = 0
     private var startFields: () -> [String: Any] = { [:] }
 
+    /// Separate explicit capture sessions can reuse the relay without taking the invocation slot.
+    var sessionIsCurrent: ((Int) -> Bool)?
+
+    private func accepts(_ id: Int) -> Bool {
+        id >= 0 && (sessionIsCurrent?(id) ?? (id == InvocationStateMachine.shared.transcriptionSessionId))
+    }
+
     var onTranscriptDelta: ((String) -> Void)?
     var onRawTranscript: ((String) -> Void)?
     var onComplete: ((String) -> Void)?
@@ -207,8 +214,7 @@ final class VoiceTranscriptionRelay {
             if let deltaText = json["text"] as? String {
                 transcriptBuffer += deltaText
                 DispatchQueue.main.async { [weak self] in
-                    guard capturedSessionId >= 0,
-                          capturedSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
+                    guard self?.accepts(capturedSessionId) == true else { return }
                     self?.onTranscriptDelta?(deltaText)
                 }
             }
@@ -216,16 +222,14 @@ final class VoiceTranscriptionRelay {
             let fullText = json["text"] as? String ?? transcriptBuffer
             let finalText = fullText.isEmpty ? transcriptBuffer : fullText
             DispatchQueue.main.async { [weak self] in
-                guard let self, capturedSessionId >= 0,
-                      capturedSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
+                guard let self, self.accepts(capturedSessionId) else { return }
                 self.onRawTranscript?(json["rawText"] as? String ?? finalText)
                 self.onComplete?(finalText)
             }
         case "error":
             let msg = json["message"] as? String ?? "Unknown transcription error"
             DispatchQueue.main.async { [weak self] in
-                guard capturedSessionId >= 0,
-                      capturedSessionId == InvocationStateMachine.shared.transcriptionSessionId else { return }
+                guard self?.accepts(capturedSessionId) == true else { return }
                 self?.onError?(msg)
             }
         default:

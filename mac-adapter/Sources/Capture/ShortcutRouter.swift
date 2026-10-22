@@ -9,6 +9,7 @@ enum ShortcutRouteEvent: Equatable {
     case dictationStop
     case dictationCancel
     case liveToggle
+    case scrawlToggle
 }
 
 /// fn alone: tap starts hands-free dictation and the next tap stops it, a hold is
@@ -28,6 +29,7 @@ fileprivate enum FnGesture: Equatable {
 
 struct ShortcutRoutingState {
     fileprivate var gesture: FnGesture = .idle
+    fileprivate var scrawlDown = false
     fileprivate var ctrlWasDown = false
     fileprivate var ctrlPressCount = 0
     fileprivate var lastCtrlDownAt: TimeInterval?
@@ -42,6 +44,7 @@ enum ShortcutRouter {
     /// Maximum gap between the first tap's release and the second press to count as a double-tap.
     static let doubleTapWindow: TimeInterval = 0.4
     static let escapeKeyCode: CGKeyCode = 53
+    static let scrawlKeyCode: CGKeyCode = 1
 
     static let ctrlPressWindow: TimeInterval = 0.4
     static let ctrlSequenceTimeout: TimeInterval = 0.8
@@ -54,6 +57,14 @@ enum ShortcutRouter {
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) -> [ShortcutRouteEvent] {
         switch eventType {
+        case .keyUp where keyCode == scrawlKeyCode:
+            state.scrawlDown = false
+            return []
+        case .keyDown where keyCode == scrawlKeyCode && flags.intersection(gestureFlags) == [.maskControl, .maskAlternate]:
+            state.ctrlPressCount = 0
+            guard !state.scrawlDown else { return [] }
+            state.scrawlDown = true
+            return [.scrawlToggle]
         case .keyDown:
             return routeKeyDown(keyCode: keyCode, state: &state)
         case .flagsChanged:
@@ -171,7 +182,7 @@ enum ShortcutRouter {
             && !flags.contains(.maskShift)
             && !flags.contains(.maskSecondaryFn)
             && !flags.contains(.maskAlternate)
-        defer { state.ctrlWasDown = ctrlDown }
+        defer { state.ctrlWasDown = flags.contains(.maskControl) }
 
         if ctrlDown && !state.ctrlWasDown {
             if let lastCtrl = state.lastCtrlDownAt, now - lastCtrl <= ctrlPressWindow {
@@ -202,6 +213,7 @@ struct KeyEventFilter {
 
     private var fnPressDropped = false
     private var escapeDownDropped = false
+    private var scrawlDownDropped = false
 
     mutating func shouldDrop(
         eventType: CGEventType,
@@ -222,6 +234,12 @@ struct KeyEventFilter {
             }
             fnPressDropped = false
             return false
+        case .keyDown where keyCode == ShortcutRouter.scrawlKeyCode:
+            if routed.contains(.scrawlToggle) { scrawlDownDropped = true }
+            return scrawlDownDropped
+        case .keyUp where keyCode == ShortcutRouter.scrawlKeyCode:
+            defer { scrawlDownDropped = false }
+            return scrawlDownDropped
         case .keyDown where keyCode == ShortcutRouter.escapeKeyCode:
             escapeDownDropped = routed.contains(.dictationCancel)
             return escapeDownDropped

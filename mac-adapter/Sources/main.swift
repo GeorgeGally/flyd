@@ -137,6 +137,7 @@ let conversationHotKey = GlobalHotKey(
     ConversationWindow.shared.toggle()
 }
 NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+    MainActor.assumeIsolated { ScrawlRecorder.shared.cancel() }
     conversationServer.stop()
 }
 /// Opening Flyd again (Dock, Spotlight, `open -a Flyd`) shows the conversation.
@@ -253,7 +254,9 @@ func startFlyd(closeSetup: Bool = true) {
     stateMachine.onDictationCancel = {
         dictation.cancel()
     }
+    stateMachine.onScrawlToggle = { MainActor.assumeIsolated { ScrawlRecorder.shared.toggle() } }
     stateMachine.onLiveToggle = {
+        guard !ScrawlRecorder.blocksInvocation else { return }
         LiveSessionController.shared.handleToggle()
     }
 
@@ -356,6 +359,7 @@ func repoRoot() -> String {
 }
 
 func handleVoiceInvocation() {
+    guard !ScrawlRecorder.blocksInvocation else { return }
     ShortcutLog.record("handler: talk to Flyd (Fn+Control)")
     if state.mode == .live {
         LiveSessionController.shared.stop()
@@ -379,6 +383,7 @@ func handleVoiceInvocation() {
 }
 
 func startDictation() {
+    guard !ScrawlRecorder.blocksInvocation else { return }
     ShortcutLog.record("handler: dictation")
     guard state.mode != .live, state.phase == .idle else { return }
 
@@ -465,6 +470,7 @@ func beginVoiceInvocation() {
 }
 
 func handleVoiceRelease() {
+    guard !ScrawlRecorder.blocksInvocation else { return }
     let action = VoiceStartupPolicy.actionOnShortcutRelease(phase: state.phase)
 
     switch action {
@@ -541,6 +547,7 @@ func cleanupVoiceInvocation(message: String? = nil) {
 }
 
 func handleShortcutPress() {
+    guard !ScrawlRecorder.blocksInvocation else { return }
     guard state.phase != .idle else { return }
 
     dictation.cancel()
@@ -570,6 +577,7 @@ func resetVoiceCaptureCallbacks() {
 }
 
 func handleInvocation() {
+    guard !ScrawlRecorder.blocksInvocation else { return }
     ShortcutLog.record("handler: text bar (Ask Flyd)")
     if state.mode == .live {
         LiveSessionController.shared.stop()

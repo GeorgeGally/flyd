@@ -58,9 +58,10 @@ export async function fileScrawl(bundle: ScrawlBundle): Promise<void> {
   const target = bundle.manifest.target;
   const app = typeof target === "object" && target !== null && typeof (target as Record<string, unknown>).app === "string"
     ? (target as Record<string, unknown>).app : "Unknown app";
-  const window = typeof target === "object" && target !== null && typeof (target as Record<string, unknown>).window_title === "string"
-    ? (target as Record<string, unknown>).window_title : "Unknown window";
-  const duration = typeof bundle.manifest.duration_ms === "number" ? `${Math.round(bundle.manifest.duration_ms / 1000)}s` : "unknown duration";
+  const window = typeof target === "object" && target !== null && typeof ((target as Record<string, unknown>).windowTitle ?? (target as Record<string, unknown>).window_title) === "string"
+    ? ((target as Record<string, unknown>).windowTitle ?? (target as Record<string, unknown>).window_title) : "Unknown window";
+  const durationMs = bundle.manifest.durationMs ?? bundle.manifest.duration_ms;
+  const duration = typeof durationMs === "number" ? `${Math.round(durationMs / 1000)}s` : "unknown duration";
   try {
     await runCapture(`[scrawl ${app} · ${window} · ${duration} · ${bundle.dir}]\n\n${bundle.summary}`, { deferIndex: true, quiet: true });
   } catch (error) {

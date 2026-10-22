@@ -1160,6 +1160,38 @@ describe("conversation page", () => {
     expect(send.getAttribute("aria-label")).toBe("Send to firstmate");
   });
 
+  it("attaches a native Scrawl to the unsent composer and removes its context with the thumbnail", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.value = "Please fix this";
+    const attach = (window as unknown as { flydScrawl: (path: string, data: string) => boolean }).flydScrawl;
+    expect(attach("/tmp/native.scrawl", "cG5n")).toBe(true);
+    expect(attach("/tmp/second.scrawl", "cG5n")).toBe(false);
+    await settle();
+    expect(input.value).toBe("Please fix this\n\n[scrawl: /tmp/native.scrawl]");
+    expect(document.querySelector("#attachments img")?.getAttribute("src")).toBe("data:image/png;base64,cG5n");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+    document.querySelector<HTMLButtonElement>("#attachments button")!.click();
+    expect(input.value).toBe("Please fix this");
+    expect(document.querySelectorAll("#attachments img")).toHaveLength(0);
+  });
+
+  it("sends native Scrawl through the ordinary send action with the sheet attached", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    const attach = (window as unknown as { flydScrawl: (path: string, data: string) => void }).flydScrawl;
+    attach("/tmp/native.scrawl", "cG5n");
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({
+      text: "[scrawl: /tmp/native.scrawl]", images: [{ mediaType: "image/png", data: "cG5n" }],
+    });
+  });
+
   it("takes push-to-talk: shows the words as they are heard and sends them on release", async () => {
     load("");
     await settle();
