@@ -312,13 +312,13 @@ function idleHelper(helpers: FirstmateHelper[], home: string, nowMs: number): Fi
 
 /** Stops an idle helper's whole process group: politely first, then for good if it is still there on a later tick. Its record goes once the process is gone. */
 function stopHelper(helper: FirstmateHelper, nowMs: number): void {
+  if (!helper.stoppingAt) {
+    writeHelpers(readHelpers().map((item) => item.home === helper.home && item.pid === helper.pid && item.startedAt === helper.startedAt ? { ...item, stoppingAt: new Date(nowMs).toISOString() } : item));
+  }
   try {
     process.kill(-helper.pid, helper.stoppingAt ? "SIGKILL" : "SIGTERM");
   } catch {
     return;
-  }
-  if (!helper.stoppingAt) {
-    writeHelpers(readHelpers().map((item) => item.home === helper.home && item.pid === helper.pid && item.startedAt === helper.startedAt ? { ...item, stoppingAt: new Date(nowMs).toISOString() } : item));
   }
 }
 
