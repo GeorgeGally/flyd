@@ -1015,3 +1015,24 @@ it('threads an exact finalized turn identity and renders checked preparation wit
   store.erase('view:test-session');
   expect(desk.exchanges()[0].answer?.text).not.toContain('Hello, following up');
 });
+
+describe("FlydDesk structured answers", () => {
+  it("keeps a diagnosis body beside its plain reading, and leaves string answers as prose", async () => {
+    const desk = new FlydDesk({ dir, answer: async () => ({
+      lead: "The island filter is paused.",
+      form: "diagnosis" as const,
+      parts: [{ label: "Cause", text: "Paused on 14 Oct." }],
+      next: "Turn it back on?",
+    }) });
+    const sent = desk.ask("why is the island filter off?");
+    const [exchange] = await until(() => (desk.exchanges()[0]?.answer ? desk.exchanges() : undefined));
+    expect(exchange!.answer).toMatchObject({ answers: sent.id, text: "The island filter is paused.\n\nCause\nPaused on 14 Oct.\n\nTurn it back on?" });
+    expect(exchange!.answer!.form).toMatchObject({ form: "diagnosis", parts: [{ label: "Cause", text: "Paused on 14 Oct." }] });
+
+    const prose = new FlydDesk({ dir: join(dir, "prose"), answer: async () => "Merged." });
+    prose.ask("status?");
+    const [plain] = await until(() => (prose.exchanges()[0]?.answer ? prose.exchanges() : undefined));
+    expect(plain!.answer).toMatchObject({ text: "Merged." });
+    expect(plain!.answer!.form).toBeUndefined();
+  });
+});

@@ -30,6 +30,29 @@ export interface SemanticWorkObject {
   closed?: boolean;
 }
 
+/** One labelled piece of a shaped answer: what it is about, and what it says. */
+export interface ManifestationPart {
+  label: string;
+  text: string;
+}
+
+export interface ManifestationEvidence {
+  text: string;
+  url?: string;
+}
+
+/** The shape an answer takes when Flyd chooses one; prose is the shape it always had. */
+export type ManifestationPlan =
+  | { form: "prose"; lead: string }
+  | { form: "diagnosis"; lead: string; parts: ManifestationPart[]; evidence?: ManifestationEvidence[]; next?: string }
+  | {
+    form: "comparison";
+    lead: string;
+    criteria: string[];
+    alternatives: Array<{ name: string; values: string[] }>;
+    next?: string;
+  };
+
 export interface SemanticObject {
   /** Stable identity of the real thing, independent of how it is currently manifested. */
   id: string;

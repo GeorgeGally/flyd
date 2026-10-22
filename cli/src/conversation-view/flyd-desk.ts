@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { clipKeepingLinks } from "./line-links.js";
+import { answerBody, plainAnswer, type AnswerBody } from "./answer-form.js";
 import { answeringLine } from "./living.js";
 import { MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
 import { isPlaceholderStatus, relayStatus, type InFlightTool } from "./status-text.js";
@@ -164,6 +165,8 @@ interface AskRecord {
   /** What those screenshots show, read once and kept for the answer and every follow-up. */
   seen?: string;
   answer?: string;
+  /** The answer's shape, when the answerer gave one rather than a string. */
+  form?: AnswerBody;
   /** The answer's full list or table, kept for the Artefacts column while the answer carries only its summary. */
   artefact?: string;
   answeredAt?: string;
@@ -174,7 +177,7 @@ interface AskRecord {
 }
 
 /** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void }) => Promise<string>;
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void }) => Promise<string | AnswerBody>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
 export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string, tool?: InFlightTool) => void) => Promise<string>;
@@ -343,7 +346,7 @@ export class FlydDesk {
       onPreparation: (preparationId: string) => { record = { ...record, preparationId }; this.write(record); },
       onArtefact: (artefact: string) => { record = { ...record, artefact }; this.write(record); },
     };
-    const answering = images.length && this.see
+    const answering: Promise<string | AnswerBody> = images.length && this.see
       ? this.see(record.text, images, onStep).then((seen) => {
         if (seen.trim()) {
           record = { ...record, seen: seen.trim() };
@@ -354,9 +357,11 @@ export class FlydDesk {
       : this.answerer(record.text, history, onStep, turn);
     void answering
       .then((answer) => {
-        if (!answer.trim()) throw new Error("no answer came back");
-        this.write({ ...record, answer: answer.trim(), answeredAt: new Date().toISOString() });
-        void Promise.resolve(this.afterTurn?.({ sessionId, user: record.text, assistant: answer.trim() })).catch(() => undefined);
+        const body = typeof answer === "string" ? null : answerBody(answer);
+        const text = (typeof answer === "string" ? answer : plainAnswer(body!)).trim();
+        if (!text) throw new Error("no answer came back");
+        this.write({ ...record, answer: text, ...(body ? { form: body } : {}), answeredAt: new Date().toISOString() });
+        void Promise.resolve(this.afterTurn?.({ sessionId, user: record.text, assistant: text })).catch(() => undefined);
       })
       .catch((error: unknown) => {
         this.write({ ...record, error: (error instanceof Error ? error.message : String(error)).slice(0, MAX_ERROR_CHARS) });
@@ -418,7 +423,7 @@ export class FlydDesk {
           ? "\n\nI could not finish checking the draft. Nothing was sent." : preparation?.status === "cancelled" ? "\n\nThis preparation was stopped." : "";
         return {
           question,
-          answer: { id: `answer:${record.id}`, role: "assistant", text: inFlydsVoice(record.answer) + prepared + failure, timestamp: record.answeredAt ?? record.at, answers: question.id, ...(record.artefact ? { artefact: record.artefact } : {}) },
+          answer: { id: `answer:${record.id}`, role: "assistant", text: inFlydsVoice(record.answer) + prepared + failure, timestamp: record.answeredAt ?? record.at, answers: question.id, ...(record.artefact ? { artefact: record.artefact } : {}), ...(record.form && !prepared && !failure ? { form: record.form } : {}) },
           waiting: "",
         };
       }

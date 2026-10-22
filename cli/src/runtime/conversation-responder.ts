@@ -89,6 +89,8 @@ interface ConversationInput {
   onUnderstanding?: (turn: TurnUnderstanding) => void;
   /** The surface's artefact path: a long list or table goes here whole, and chat carries only its summary. */
   onArtefact?: (body: string) => void;
+  /** A shape this surface's answers may take, said to the model for this turn only. */
+  formPrompt?: string;
 }
 
 interface ConversationResponderDependencies {
@@ -299,6 +301,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         options.plan ?? "",
         decisionPolicyBlock(),
         speakingStyleSystemRule(),
+        input.formPrompt ?? "",
       ].filter(Boolean).join("\n\n"),
       prompt: lean,
     };
@@ -344,6 +347,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
       decisionPolicyBlock(),
       speakingStyleSystemRule(),
+      input.formPrompt ?? "",
     ].filter(Boolean).join("\n\n"),
     prompt: promptBody,
   };

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { answerBody, answerHtml } from "../answer-form.js";
 import { boxesOf } from "../boxes.js";
 import { RECEIVED } from "../living.js";
 import { renderPage } from "../page.js";
@@ -121,6 +122,49 @@ afterEach(() => {
 });
 
 describe("conversation page", () => {
+  it("reads a shaped answer whole: every label once, and no run long enough to skim past", async () => {
+    load("");
+    await settle();
+    const parts = [
+      { label: "What #200 changed", text: "It rebuilt the screen and left the draw path alone." },
+      { label: "Why nothing drew", text: "The renderer was never wired to the new surface." },
+      { label: "What the tests proved", text: "They exercised the screen markup, not the drawing." },
+      { label: "Where the gap opened", text: "Between the screen and the renderer call." },
+      { label: "What closes it", text: "One call from the screen to the renderer." },
+    ];
+    open("latest", [
+      { id: "u1", role: "user", html: "<p>Why didn't PR #200 fix generative UI?</p>" },
+      { id: "a1", role: "assistant", html: answerHtml(answerBody({ lead: "It fixed the screen, not the reason nothing drew.", form: "diagnosis", parts, next: "Ship the missing call?" })) },
+    ]);
+    const form = document.querySelector(".msg.assistant [data-form=diagnosis]")!;
+    expect(form.querySelectorAll(".answer-part")).toHaveLength(5);
+    expect(Array.from(form.querySelectorAll("dt")).map((dt) => dt.textContent)).toEqual(parts.map((part) => part.label));
+    const runs = [form.querySelector(".answer-lead")!, ...Array.from(form.querySelectorAll(".answer-part dd"))].map((node) => node.textContent!.length);
+    expect(Math.max(...runs)).toBeLessThan(420);
+    expect(form.textContent).toContain("Ship the missing call?");
+    expect(document.querySelector(".msg.assistant .summary")).toBeNull();
+  });
+
+  it("shows a comparison as one table, every option a column and every criterion a row", async () => {
+    load("");
+    await settle();
+    open("latest", [
+      { id: "u1", role: "user", html: "<p>Pink or blue for the ruler?</p>" },
+      { id: "a1", role: "assistant", html: answerHtml(answerBody({
+        lead: "Pink for reading, blue for counting.",
+        form: "comparison",
+        criteria: ["Warmth", "Legibility"],
+        alternatives: [{ name: "Pink", values: ["high", "soft"] }, { name: "Blue", values: ["low", "sharp"] }],
+        next: "Pink for the page?",
+      })) },
+    ]);
+    const table = document.querySelector(".msg.assistant .answer-compare")!;
+    expect(Array.from(table.querySelectorAll("thead th")).map((node) => node.textContent)).toEqual(["Pink", "Blue"]);
+    expect(Array.from(table.querySelectorAll("tbody th")).map((node) => node.textContent)).toEqual(["Warmth", "Legibility"]);
+    expect(table.querySelectorAll("tbody tr")[0]!.querySelectorAll("td")).toHaveLength(2);
+    expect(document.querySelector(".msg.assistant .summary")).toBeNull();
+  });
+
   it("shows, changes and clears the resolved project badge", async () => {
     load("");
     await settle();
@@ -1341,15 +1385,76 @@ describe("semantic main stage", () => {
       monitor: { phase: "quiet" as const, condition: "Surface a meaningful response change" },
     };
     const show: ShowScreen = { title: "Work", summary: "", live: true, counts: { call: 1, live: 1, landed: 1 }, items: [], focus: decision, semantic: [decision, activity, artifact, monitor] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "legacy", kind: "story", title: "Legacy card", line: "Old UI", tone: "landed" }] });
+    stream.emit("update", {
+      order: [], messages: [], working: false, show,
+      boxes: [
+        { id: "legacy", kind: "story", title: "Legacy card", line: "Old UI", tone: "landed" },
+        { id: "plan", kind: "gauge", size: "small", title: "Claude plan", gauges: [{ label: "weekly", used: 90 }] },
+        { id: "work-state", kind: "bars", size: "small", title: "Where the work stands", bars: [{ label: "under way", value: 1, tone: "live" }] },
+      ],
+    });
     expect(document.getElementById("show")!.classList.contains("semantic-workspace")).toBe(true);
     expect(document.getElementById("scene")!.dataset.semantic).toBe("decision");
     expect((document.getElementById("ticks") as HTMLElement).hidden).toBe(true);
-    expect(document.getElementById("readouts")!.children).toHaveLength(0);
+    // The plan gauge is the only instrument left beside the counts; the old stage's
+    // cards and figures that repeat the counts are not shown.
+    expect(document.getElementById("readouts")!.textContent).toBe("Claude weekly 90% used");
     expect(document.getElementById("semantic-context")!.textContent).toContain("1 working");
     expect(document.getElementById("semantic-context")!.textContent).toContain("1 landed");
     expect(document.getElementById("semantic-context")!.textContent).toContain("1 watching");
     expect(document.getElementById("semantic-context")!.textContent).not.toContain("Legacy");
+    expect(document.getElementById("semantic-context")!.textContent).not.toContain("Where the work stands");
+    // Counts come first, the gauge reads under them.
+    const edge = document.querySelector(".semantic-context")!;
+    expect(edge.nextElementSibling!.id).toBe("readouts");
+  });
+
+  it("keeps interrupted and failed work in the edge, and each count opens exactly its own rows", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const object = (id: string, kind: string, lifecycle: string, subject: string, extra: Record<string, unknown> = {}): any => ({
+      id, kind, lifecycle, subject, summary: subject + ".", evidence: [], actions: [], source: { showItemId: id }, ...extra,
+    });
+    const decision = object("decision:launch", "decision", "interrupted", "Choose the launch date", { decision: { target: "launch", question: "Launch Friday?", alternatives: ["Friday", "Saturday"] } });
+    const working = object("task:site", "activity", "active", "Building launch page", { activity: { phase: "working" } });
+    const review = object("task:copy", "investigation", "active", "Audit the copy");
+    const stuck = object("task:export", "activity", "interrupted", "Fix the export", { activity: { phase: "needs_you" } });
+    const broken = object("task:import", "activity", "failed", "Import the CSV", { activity: { phase: "paused" } });
+    const deck = object("artifact:deck", "artifact", "resolved", "Launch deck", { artifact: { type: "document", phase: "ready" } });
+    const monitor = object("monitor:response", "monitor", "active", "Watch launch response", { monitor: { phase: "quiet", condition: "Surface a change" } });
+    const show: ShowScreen = {
+      title: "Work", summary: "", live: true, counts: { call: 1, live: 2, landed: 1 }, items: [],
+      focus: decision, semantic: [decision, working, review, stuck, broken, deck, monitor] as never,
+    };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [] });
+
+    const edge = document.getElementById("semantic-context")!;
+    // Interrupted and failed work is named, not silently dropped.
+    expect(edge.textContent).toContain("1 needs you");
+    expect(edge.textContent).toContain("2 working");
+    expect(edge.textContent).toContain("1 held up");
+    expect(edge.textContent).toContain("1 landed");
+    expect(edge.textContent).toContain("1 watching");
+
+    // Every count opens a sheet with exactly that many rows.
+    const button = (cls: string) => edge.querySelector<HTMLButtonElement>("." + cls)!;
+    button("working").click();
+    expect((document.getElementById("drill") as HTMLElement).hidden).toBe(false);
+    expect(document.getElementById("drill-title")!.textContent).toBe("Working");
+    expect(document.querySelectorAll("#drill-list .drill-card")).toHaveLength(2);
+    // Clicking the figure it already shows closes it.
+    button("working").click();
+    expect((document.getElementById("drill") as HTMLElement).hidden).toBe(true);
+
+    button("held").click();
+    expect(document.getElementById("drill-title")!.textContent).toBe("Held up");
+    const rows = document.querySelectorAll("#drill-list .drill-card");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.textContent).toContain("Import the CSV");
+    // Leave nothing open: a sheet left up eats Escape for the next screen.
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect((document.getElementById("drill") as HTMLElement).hidden).toBe(true);
   });
 
   it("manifests focused Artifact evidence as the work itself", async () => {

@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { extname, join, sep } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
+import { answerHtml } from "./answer-form.js";
 import { renderCaptainMarkdown, renderMarkdown } from "./markdown.js";
 import { renderPage } from "./page.js";
 import { currentPage, type CurrentPage } from "./site-changes.js";
@@ -481,7 +482,7 @@ export class SnapshotDiffer {
       const relay = message.role === "assistant" && message.aside ? staffLine(message.text, handled) : undefined;
       // An answer to his own question is never muted as routine: firstmate's is told by Flyd, Flyd's own
       // shows whole when it fits a glance and else leads with its first few lines.
-      const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.role !== "assistant" ? { body: message.text }
+      const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.form ? { body: message.text } : message.role !== "assistant" ? { body: message.text }
         : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
           : relay && relay.kind !== "absorbed" ? { body: message.text, summary: { html: renderMarkdown(georgeMarkdown(relay)), source: "flyd" } }
             : !message.answers ? this.summarize(message, fresh)
@@ -504,21 +505,21 @@ export class SnapshotDiffer {
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
       const card: RenderedMessage["card"] = relay && relay.kind !== "absorbed"
         ? { kind: relay.kind, line: inFlydsVoice(relay.line).replace(/[:;,]$/, ""), ...(relay.kind === "landed" && relay.url ? { url: relay.url } : {}) }
-        : message.role === "assistant" && !routine && !message.answers?.startsWith("ask:") && (message.aside || message.answers) ? this.answerCard(message) : undefined;
+        : message.role === "assistant" && !message.form && !routine && !message.answers?.startsWith("ask:") && (message.aside || message.answers) ? this.answerCard(message) : undefined;
       // The card is his glance: the reply as written waits behind it, never shown twice.
       if (card && !parts.summary) parts.summary = briefOf(message.text);
       // What he has to act on stays open under the card, never folded behind "as written".
       const expanded = parts.expanded === true || (card !== undefined && !artifact && isActionable(message.text));
       // Several pieces of work read as a card each, not as paragraphs; Flyd's own answers stay as written.
-      const outcomes = message.role === "assistant" && !routine && !message.answers?.startsWith("ask:") ? outcomesOf(message.text, handled) ?? undefined : undefined;
-      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, card, outcomes, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, undone.has(message.id)]);
+      const outcomes = message.role === "assistant" && !message.form && !routine && !message.answers?.startsWith("ask:") ? outcomesOf(message.text, handled) ?? undefined : undefined;
+      const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, card, outcomes, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, message.form, undone.has(message.id)]);
       if (this.sent.get(message.id) === key) continue;
       this.sent.set(message.id, key);
       changed.push({
         id: message.id,
         role: message.role,
         // His first read is Flyd's briefing; firstmate's own words, links and all, wait behind "more".
-        html: message.role === "user" ? renderCaptainMarkdown(parts.body) : parts.summary ? renderMarkdown(parts.body) : renderBriefing(parts.body, {}, handled),
+        html: message.form ? answerHtml(message.form) : message.role === "user" ? renderCaptainMarkdown(parts.body) : parts.summary ? renderMarkdown(parts.body) : renderBriefing(parts.body, {}, handled),
         ...(message.images?.length ? { images: message.images } : {}),
         ...(message.files?.length ? { files: message.files } : {}),
         ...(shots.length ? { shots } : {}),

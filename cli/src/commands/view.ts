@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { join } from "node:path";
+import { diagnosisFromText } from "../conversation-view/answer-form.js";
+import { answerForm, reshapeAnswer } from "../conversation-view/answer-shape.js";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
 import { artefactJudgeFromEnv } from "../conversation-view/artefact-judge.js";
 import { semanticJudgeFromEnv } from "../conversation-view/semantic-judge.js";
@@ -58,10 +60,16 @@ async function listenNear(server: ConversationViewServer, port: number, explicit
 }
 
 /**
+ * The shape Flyd's own answers may take in the view, said to the model on
+ * these turns only; one it does not choose is prose.
+ */
+const DIAGNOSIS_PROMPT = "This answer is in the Flyd conversation view. When it explains why something did or did not work, it MUST use the diagnosis form, even though your usual style is connected prose: open with `**Diagnosis: <the outcome in one line>**`, then exactly one line each for `**Expected:**`, `**Observed:**`, `**Cause:**`, `**Evidence:**` and `**Next:**` (Evidence names the mechanism, spec or source — a file, a log, or the documented behaviour — and need not be something you read this turn). Every other answer is prose. Never force the shape onto an answer that is not explaining a cause.";
+
+/**
  * Flyd's own assistant turn, as agenda items and background jobs run one: nobody is there to approve actions.
  * Each step it takes is said under his question as it happens.
  */
-const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
+export const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
   const [{ respondToConversation }, { retrieveAgentMemory, loadAgentSituation }, { refreshRepoRegistry }] = await Promise.all([
     import("../runtime/conversation-responder.js"), import("./code.js"), import("../runtime/repo-registry.js"),
   ]);
@@ -69,7 +77,13 @@ const answerAsFlyd: Answerer = async (question, history, onStep, turn) => {
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
   onStep?.("Remembering what I know about this", memoryLookup(question));
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
-  return respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}) });
+  const text = await respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: DIAGNOSIS_PROMPT });
+  const declared = diagnosisFromText(text);
+  if (declared) return declared;
+  const form = await answerForm(question, text);
+  if (!form) return text;
+  const { quickQuery } = await import("../lib/llm.js");
+  return (await reshapeAnswer(question, text, form, (prompt) => quickQuery(prompt, { json: true }))) ?? text;
 };
 
 function runCouncilAfterTurn(turn: { sessionId: string; user: string; assistant: string; recordInCognition?: boolean }): void {

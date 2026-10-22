@@ -178,9 +178,9 @@ const SHOW_STYLE = `
 .semantic-context .needs { color: var(--k-call); }
 .semantic-context .working { color: var(--k-live); }
 .semantic-context .landed { color: var(--k-landed); }
+.semantic-context .held { color: var(--k-waiting); }
 .semantic-context .watching { color: var(--muted); }
 .semantic-workspace .ticks { display: none !important; }
-.semantic-workspace .readouts { display: none; }
 
 /* The stage: one scene, centred, the same room above and below it. */
 .tv { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: safe center; padding: clamp(20px, 5vh, 64px) 0; }
@@ -622,6 +622,19 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .msg.fresh { animation: rise 320ms cubic-bezier(.2,.7,.2,1); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+/* A shaped answer: the lead, then each labelled part, what backs it, and what comes next. */
+.answer-form { display: block; }
+.answer-form .answer-lead { margin: 0 0 0.9em; font: 500 1.08em/1.55 var(--sans); color: var(--strong); }
+.answer-form .answer-parts { display: grid; gap: 0.85em; margin: 0; }
+.answer-form dt { margin: 0 0 0.2em; font: 600 11px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.answer-form dd { margin: 0; }
+.answer-form .answer-evidence { margin: 0.9em 0 0; padding-left: 1.1em; color: var(--muted); }
+.answer-form .answer-evidence a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.answer-form .answer-next { margin: 0.9em 0 0; font-weight: 600; color: var(--strong); }
+.answer-form .answer-compare { width: 100%; border-collapse: collapse; font: 0.95em/1.5 var(--sans); }
+.answer-form .answer-compare th, .answer-form .answer-compare td { padding: 0.5em 0.7em 0.5em 0; text-align: left; vertical-align: top; border-top: 1px solid var(--faint); }
+.answer-form .answer-compare th { font-weight: 600; color: var(--strong); }
+.answer-form .answer-compare thead th, .answer-form .answer-compare thead td { border-top: 0; font: 600 11px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .body > :first-child { margin-top: 0; }
 .body > :last-child { margin-bottom: 0; }
 .body p { margin: 0 0 0.85em; }
@@ -3682,6 +3695,7 @@ ${LEFT_SCRIPT}
   var holding = false;
   var filled = "";
   var drawnReadouts = "";
+  var semanticGroups = {};
   var lastScreen = null;
   // Where the conversation was: the latest message unless he had scrolled up.
   var terminalAt = { pinned: true, anchor: null };
@@ -4082,25 +4096,50 @@ ${LEFT_SCRIPT}
       if (object.kind === "monitor" && object.monitor && object.monitor.phase === "quiet") return true;
       return object.lifecycle !== "resolved" || object.kind === "artifact";
     });
-    var groups = [
-      { cls: "needs", label: "needs you", kinds: ["decision", "action"], match: function (o) { return o.lifecycle === "interrupted"; } },
-      { cls: "working", label: "working", kinds: ["activity", "investigation"], match: function (o) { return o.lifecycle === "active"; } },
-      { cls: "landed", label: "landed", kinds: ["artifact"], match: function () { return true; } },
-      { cls: "watching", label: "watching", kinds: ["monitor"], match: function (o) { return !o.monitor || o.monitor.phase === "quiet"; } },
-    ];
-    groups.forEach(function (group) {
-      var matches = rest.filter(function (object) { return group.kinds.indexOf(object.kind) >= 0 && group.match(object); });
-      if (!matches.length) return;
-      var button = el("button", group.cls, matches.length + " " + group.label);
+    semanticGroups = {};
+    SEMANTIC_GROUPS.forEach(function (group) { semanticGroups[group.cls] = { group: group, items: [] }; });
+    rest.forEach(function (object) { semanticGroups[semanticGroup(object)].items.push(object); });
+    SEMANTIC_GROUPS.forEach(function (group) {
+      var items = semanticGroups[group.cls].items;
+      if (!items.length) return;
+      var button = el("button", group.cls, items.length + " " + group.label);
       button.type = "button";
-      button.title = matches.map(function (object) { return object.subject; }).join("\\n");
-      button.addEventListener("click", function () {
-        if (group.cls === "needs") showCalls(true, button);
-        else if (group.cls === "landed") openDrill("landed", button);
-        else if (group.cls === "working") openDrill("live", button);
-      });
+      button.title = items.map(function (object) { return object.subject; }).join("\\n");
+      button.addEventListener("click", function () { openSemanticGroup(group, button); });
       nav.appendChild(button);
     });
+  }
+
+  // Every object lands in exactly one group: the edge can never hold work it does not name.
+  function semanticGroup(object) {
+    if (object.kind === "monitor") return object.monitor && object.monitor.phase === "changed" ? "needs" : "watching";
+    if (object.lifecycle === "failed") return "held";
+    if (object.lifecycle === "interrupted") return "needs";
+    if (object.kind === "artifact") return "landed";
+    if (object.lifecycle === "active") return object.activity && object.activity.phase === "needs_you" ? "needs" : "working";
+    return "held";
+  }
+  var SEMANTIC_GROUPS = [
+    { cls: "needs", label: "needs you", tone: "call" },
+    { cls: "working", label: "working", tone: "live" },
+    { cls: "held", label: "held up", tone: "waiting" },
+    { cls: "landed", label: "landed", tone: "landed" },
+    { cls: "watching", label: "watching", tone: "live" },
+  ];
+  var CARD_KIND = {
+    decision: "call", action: "call", activity: "live", investigation: "live",
+    artifact: "landed", monitor: "watching", conversation: "noted",
+  };
+  function semanticRow(object) {
+    return {
+      id: object.id,
+      kind: CARD_KIND[object.kind] || "noted",
+      title: object.subject,
+      line: object.summary,
+      project: object.project || "",
+      status: object.status || "",
+      detail: object.detail || object.summary,
+    };
   }
 
   function semanticBox(object) {
@@ -4167,7 +4206,9 @@ ${LEFT_SCRIPT}
       var standing = parts.stage.filter(function (box) { return box.tone === "clear"; });
       var needsHim = !!(next.focus && next.focus.lifecycle === "interrupted");
       parts.stage = needsHim ? [focusBox].concat(standing) : standing.concat([focusBox]);
-      parts.readouts = [];
+      // The plan gauge is the one instrument worth keeping beside the counts: the
+      // rest either repeat them (work-state, landed-week) or belong to the old stage.
+      parts.readouts = parts.readouts.filter(function (box) { return box.id === "plan"; });
       renderSemanticContext(next);
     } else {
       document.getElementById("semantic-context").textContent = "";
@@ -4246,6 +4287,7 @@ ${LEFT_SCRIPT}
   var drillTitle = document.getElementById("drill-title");
   var drillFrom = null;
   var drillKind = "";
+  var drillSpec = null;
   var drawnDrill = "";
   var drillOpen = {};
   var DRILL = {
@@ -4275,9 +4317,9 @@ ${LEFT_SCRIPT}
     });
   }
   function drawDrill() {
-    var group = DRILL[drillKind];
+    var group = drillSpec || DRILL[drillKind];
     if (!group || !lastScreen) return;
-    var items = group.pick(lastScreen).slice().sort(function (a, b) { return drillWhen(b) - drillWhen(a); });
+    var items = (group.rows ? group.rows() : group.pick(lastScreen)).slice().sort(function (a, b) { return drillWhen(b) - drillWhen(a); });
     var key = drillKind + "|" + JSON.stringify(items);
     if (key === drawnDrill) return;
     drawnDrill = key;
@@ -4292,17 +4334,29 @@ ${LEFT_SCRIPT}
     if (drillFrom && drillFrom.isConnected) drillFrom.focus();
     drillFrom = null;
   }
-  function openDrill(kind, from) {
-    if (!DRILL[kind]) return;
+  function openDrill(kind, from, spec) {
+    if (!spec && !DRILL[kind]) return;
     // Clicking the figure it is already showing closes it again.
     if (!drillEl.hidden && drillKind === kind) { closeDrill(); return; }
     drillKind = kind;
+    drillSpec = spec || null;
     drillFrom = from || null;
     drillOpen = {};
     drawnDrill = "";
     drawDrill();
     drillEl.hidden = false;
     drillSheet.focus();
+  }
+  // The edge's own sheet: exactly the objects its number counted, newest first.
+  function openSemanticGroup(group, from) {
+    openDrill("semantic:" + group.cls, from, {
+      title: capital(group.label),
+      tone: group.tone,
+      rows: function () {
+        var held = semanticGroups[group.cls];
+        return (held ? held.items : []).map(semanticRow);
+      },
+    });
   }
   document.getElementById("drill-close").addEventListener("click", closeDrill);
   drillEl.addEventListener("click", function (event) { if (event.target === drillEl) closeDrill(); });
@@ -4471,8 +4525,8 @@ ${LEFT_HTML}
     </div>
   </div>
   <div class="ticks" id="ticks" aria-label="Flyd's scenes" hidden></div>
-  <div class="readouts" id="readouts" aria-label="Readouts"></div>
   <nav class="semantic-context" id="semantic-context" aria-label="Other work"></nav>
+  <div class="readouts" id="readouts" aria-label="Readouts"></div>
   <div class="calls" id="calls" hidden role="dialog" aria-modal="true" aria-labelledby="calls-title">
     <div class="calls-sheet" tabindex="-1">
       <div class="calls-top"><h2 id="calls-title">Your decisions</h2><button id="calls-close" type="button" aria-label="Close">✕</button></div>

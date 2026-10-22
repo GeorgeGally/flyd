@@ -6,6 +6,7 @@
 // Code transcripts); Flyd's own chat is meant to plug in as another source
 // without the server or page changing.
 
+import type { AnswerBody } from "./answer-form.js";
 import type { SiteHints, SitePage } from "./site-changes.js";
 
 export type ConversationRole = "user" | "assistant";
@@ -16,6 +17,8 @@ export interface ConversationMessage {
   role: ConversationRole;
   /** Markdown. The view renders it; sources never produce HTML. */
   text: string;
+  /** An answer with a shape Flyd chose; when set, it decides the reply's HTML and `text` is its plain reading. */
+  form?: AnswerBody;
   /** Opaque ids of images in the message; fetch them with ConversationSource.image. */
   images?: string[];
   /** Names of documents attached to the message (a PDF, a Word file, notes). */

@@ -32,9 +32,16 @@ import { editableEnvironment, nonEditableEnvironment } from "./helpers.js";
 // answers as the next recordings.
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "system-one");
-const SUITES = ["front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl", "skill-match.jsonl", "note-relevance.jsonl", "self-review.jsonl", "reply-artefact.jsonl"];
 const RECORDINGS = join(FIXTURES, "recordings.jsonl");
 const LIVE = process.env.FLYD_JEV_EVAL === "1" && Boolean(process.env.TYPESAFE_API_KEY);
+const RECORDED = existsSync(RECORDINGS) ? loadJudgmentTraces(RECORDINGS) : [];
+// A suite joins the bench once its predicate has recordings (or on the live
+// run that makes them): recorded mode must never report missing traces.
+const SUITES = [
+  "front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl",
+  "skill-match.jsonl", "note-relevance.jsonl", "self-review.jsonl", "reply-artefact.jsonl",
+  ...(LIVE || RECORDED.some((trace) => trace.predicateId === "answer_form") ? ["answer-form.jsonl"] : []),
+];
 
 const text = (inputs: Record<string, unknown>, field: string) => String(inputs[field] ?? "");
 
@@ -78,6 +85,8 @@ const BASELINES: Record<string, BaselineFn> = {
   }).length > 0,
   // Without the judge, only steps the rule calls clear become an artefact.
   reply_artefact_kind: (inputs) => replyArtefact(text(inputs, "reply"))?.clear ? "steps" : "text",
+  // Today every desk answer is flat prose.
+  answer_form: () => "prose",
   // Every invocation that reaches a model uses the main model today.
   needs_reasoning_model: () => true,
   // outcome_supported: the incumbent is an LLM judge (transitions/judge.ts); no deterministic baseline.
@@ -105,7 +114,7 @@ async function runReplay(): Promise<ReplayReport> {
   }
   return replayPredicates(cases, {
     mode: "recorded",
-    recordings: existsSync(RECORDINGS) ? loadJudgmentTraces(RECORDINGS) : [],
+    recordings: RECORDED,
     baselines: BASELINES,
   });
 }
@@ -198,6 +207,14 @@ describe("System-1 replay bench", () => {
     // done-reports, causes and findings stay text.
     const artefact = predicateReport(report, "reply_artefact_kind").rows;
     expect(artefact.filter((r) => r.jev !== r.label)).toEqual([]);
+    // answer_form: once recorded, the shape Jev picks must beat always-prose
+    // and never reshape a decided answer into the wrong one.
+    if (report.predicates.some((p) => p.predicateId === "answer_form")) {
+      const form = predicateReport(report, "answer_form");
+      expect(form.jev.correct).toBeGreaterThan(form.baseline.correct);
+      expect(form.rows.filter((r) => r.jev !== "abstain" && r.jev !== r.label)).toEqual([]);
+    }
+
     // ...and Jev proposes no false lifecycle closure on the curator set, where
     // today's regex closes projects from questions.
     expect(predicateReport(report, "marks_completed").jev.wrong).toBe(0);
