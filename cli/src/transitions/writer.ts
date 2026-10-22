@@ -142,6 +142,7 @@ export function recordAction(input: TransitionActionInput): TransitionWriteResul
       actor: { surface: input.surface },
       action: {
         intent: input.intent,
+        ...(input.expectedEffect ? { expectedEffect: input.expectedEffect.slice(0, 500) } : {}),
         routeKind: input.routeKind,
         resolutionMode: input.resolutionMode,
         model: input.model,
@@ -177,6 +178,7 @@ export function recordNextState(input: TransitionNextStateInput): TransitionWrit
       nextState: {
         origin: input.origin,
         signal: input.signal,
+        ...(input.observedEffect ? { observedEffect: input.observedEffect.slice(0, 500) } : {}),
         correction: input.correction,
         causalComplete: input.causalComplete,
         ...(input.detail ? { detail: input.detail } : {}),

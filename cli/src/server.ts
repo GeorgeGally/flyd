@@ -1208,7 +1208,11 @@ function handleDelegationCompletions(req: IncomingMessage, res: ServerResponse) 
 
 function handleHealth(_req: IncomingMessage, res: ServerResponse) {
   // Counters only — privacy invariant #9 forbids string fields in telemetry.
-  sendJson(res, 200, { status: "ok", version: "1.0", metrics: overlayMetricsSnapshot() });
+  let buildCommit: string | null = null;
+  try {
+    buildCommit = JSON.parse(readFileSync(new URL("./build-info.json", import.meta.url), "utf8")).buildCommit ?? null;
+  } catch {}
+  sendJson(res, 200, { status: "ok", version: "1.0", buildCommit, metrics: overlayMetricsSnapshot() });
 }
 
 async function handleVoiceStatus(_req: IncomingMessage, res: ServerResponse) {
