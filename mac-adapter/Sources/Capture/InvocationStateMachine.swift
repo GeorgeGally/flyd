@@ -69,6 +69,7 @@ final class InvocationStateMachine {
     var onDictationStart: (() -> Void)?
     var onDictationStop: (() -> Void)?
     var onDictationCancel: (() -> Void)?
+    var onScrawlToggle: (() -> Void)?
     var onLiveToggle: (() -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
     var onCancelled: (() -> Void)?
@@ -397,6 +398,8 @@ private extension InvocationStateMachine {
             DispatchQueue.main.async { self.onDictationStop?() }
         case .dictationCancel:
             DispatchQueue.main.async { self.onDictationCancel?() }
+        case .scrawlToggle:
+            DispatchQueue.main.async { self.onScrawlToggle?() }
         case .liveToggle:
             guard FlydState.shared.mode != .invoked else { return }
             DispatchQueue.main.async { self.onLiveToggle?() }
@@ -417,7 +420,7 @@ private func stateMachineEventCallback(
     case .tapDisabledByTimeout, .tapDisabledByUserInput:
         machine.reenableEventTap()
 
-    case .keyDown, .flagsChanged:
+    case .keyDown, .keyUp, .flagsChanged:
         let flags = event.flags
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         if type == .flagsChanged {
@@ -436,12 +439,6 @@ private func stateMachineEventCallback(
             machine.dispatch(routeEvent)
         }
         if machine.keyEventFilter.shouldDrop(eventType: type, keyCode: keyCode, flags: flags, routed: routeEvents) {
-            return nil
-        }
-
-    case .keyUp:
-        let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-        if machine.keyEventFilter.shouldDrop(eventType: type, keyCode: keyCode, flags: event.flags, routed: []) {
             return nil
         }
 

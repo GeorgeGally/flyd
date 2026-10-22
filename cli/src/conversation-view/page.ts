@@ -3059,7 +3059,7 @@ ${LEFT_SCRIPT}
       selectionStart: recalling ? text.length : input.selectionStart,
       selectionEnd: recalling ? text.length : input.selectionEnd,
       attachments: attachments.filter(function (a) { return a.draftId; }).map(function (a) {
-        return a.name ? { id: a.draftId, name: a.name } : { id: a.draftId, mediaType: a.mediaType };
+        return a.name ? { id: a.draftId, name: a.name } : { id: a.draftId, mediaType: a.mediaType, scrawlPointer: a.scrawlPointer };
       }),
       savedAt: Date.now(),
     };
@@ -3152,7 +3152,7 @@ ${LEFT_SCRIPT}
         var restored = (kept ? kept.attachments : []).filter(function (a) { return ids.indexOf(a.id) !== -1; }).map(function (a) {
           return a.name
             ? { name: a.name, data: a.data, draftId: a.id }
-            : { url: "data:" + a.mediaType + ";base64," + a.data, mediaType: a.mediaType, data: a.data, draftId: a.id };
+            : { url: "data:" + a.mediaType + ";base64," + a.data, mediaType: a.mediaType, data: a.data, draftId: a.id, scrawlPointer: a.scrawlPointer };
         }).slice(0, MAX_ATTACHMENTS);
         if (!newer.text && !restored.length) return;
         // The words that just went never come back; an older, different draft does.
@@ -3197,13 +3197,30 @@ ${LEFT_SCRIPT}
       remove.type = "button";
       remove.textContent = "×";
       remove.setAttribute("aria-label", attachment.name ? "Remove " + attachment.name : "Remove image");
-      remove.addEventListener("click", function () { attachments.splice(index, 1); renderAttachments(); });
+      remove.addEventListener("click", function () {
+        if (attachment.scrawlPointer) input.value = input.value.replace(attachment.scrawlPointer, "").trimEnd();
+        attachments.splice(index, 1); renderAttachments();
+      });
       item.appendChild(remove);
       attachmentsEl.appendChild(item);
     });
     attachmentsEl.hidden = attachments.length === 0;
     grow();
   }
+  // The native recorder prepares a draft. Only the existing Send action files it.
+  window.flydScrawl = function (path, data) {
+    var pointer = "[scrawl: " + path + "]";
+    if (input.value.indexOf(pointer) !== -1) return;
+    if (attachments.length >= MAX_ATTACHMENTS || attachments.some(function (a) { return a.scrawlPointer; })) {
+      problem.textContent = "Send or remove an attachment to add the recording. Saved at " + path;
+      return;
+    }
+    input.value += (input.value.trim() ? "\\n\\n" : "") + pointer;
+    var attachment = { url: "data:image/png;base64," + data, mediaType: "image/png", data: data, scrawlPointer: pointer };
+    attachments.push(attachment);
+    renderAttachments();
+    keepAttachment(attachment);
+  };
   // Screenshots go as images; documents (a PDF, a Word file, notes) as files under their own names.
   var DOCUMENTS = ${JSON.stringify(DOCUMENT_EXTENSIONS)};
   var MAX_IMAGE_BYTES = ${MAX_IMAGE_BYTES};

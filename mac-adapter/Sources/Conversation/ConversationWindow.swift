@@ -182,6 +182,13 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         }
     }
 
+    func attachScrawl(path: String, sheet: Data) {
+        _ = window ?? makeWindow()
+        if webView?.url?.path != "/" { load() }
+        run("window.flydScrawl && window.flydScrawl(\(Self.jsString(path)), \(Self.jsString(sheet.base64EncodedString())))")
+        show()
+    }
+
     /// A Swift string as a JavaScript string literal.
     static func jsString(_ text: String) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: [text])) ?? Data("[\"\"]".utf8)

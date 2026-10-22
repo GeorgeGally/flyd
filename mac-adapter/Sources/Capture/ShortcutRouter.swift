@@ -9,6 +9,7 @@ enum ShortcutRouteEvent: Equatable {
     case dictationStop
     case dictationCancel
     case liveToggle
+    case scrawlToggle
 }
 
 /// fn alone: tap starts hands-free dictation and the next tap stops it, a hold is
@@ -28,6 +29,7 @@ fileprivate enum FnGesture: Equatable {
 
 struct ShortcutRoutingState {
     fileprivate var gesture: FnGesture = .idle
+    fileprivate var scrawlDown = false
     fileprivate var ctrlWasDown = false
     fileprivate var ctrlPressCount = 0
     fileprivate var lastCtrlDownAt: TimeInterval?
@@ -54,6 +56,13 @@ enum ShortcutRouter {
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) -> [ShortcutRouteEvent] {
         switch eventType {
+        case .keyUp where keyCode == 1:
+            state.scrawlDown = false
+            return []
+        case .keyDown where keyCode == 1 && flags.intersection(gestureFlags) == [.maskAlternate, .maskShift]:
+            guard !state.scrawlDown else { return [] }
+            state.scrawlDown = true
+            return [.scrawlToggle]
         case .keyDown:
             return routeKeyDown(keyCode: keyCode, state: &state)
         case .flagsChanged:
@@ -202,6 +211,7 @@ struct KeyEventFilter {
 
     private var fnPressDropped = false
     private var escapeDownDropped = false
+    private var scrawlDownDropped = false
 
     mutating func shouldDrop(
         eventType: CGEventType,
@@ -222,6 +232,12 @@ struct KeyEventFilter {
             }
             fnPressDropped = false
             return false
+        case .keyDown where keyCode == 1:
+            if routed.contains(.scrawlToggle) { scrawlDownDropped = true }
+            return scrawlDownDropped
+        case .keyUp where keyCode == 1:
+            defer { scrawlDownDropped = false }
+            return scrawlDownDropped
         case .keyDown where keyCode == ShortcutRouter.escapeKeyCode:
             escapeDownDropped = routed.contains(.dictationCancel)
             return escapeDownDropped

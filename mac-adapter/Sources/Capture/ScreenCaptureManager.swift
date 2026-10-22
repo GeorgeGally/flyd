@@ -69,9 +69,43 @@ final class ScreenCaptureManager {
         }
     }
 
+    /// Explicit recording only. The selected display stays fixed for the session.
+    func startRecording(displayID: CGDirectDisplayID, onFrame: @escaping (CGImage) -> Void) async throws {
+        guard PermissionGate.shared.hasScreenRecording else {
+            throw NSError(domain: "Flyd.Scrawl", code: 1, userInfo: [NSLocalizedDescriptionKey: "Screen Recording permission required"])
+        }
+        guard stream == nil else {
+            throw NSError(domain: "Flyd.Scrawl", code: 2, userInfo: [NSLocalizedDescriptionKey: "Screen capture is already in use"])
+        }
+        let content = try await SCShareableContent.current
+        guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+            throw NSError(domain: "Flyd.Scrawl", code: 3, userInfo: [NSLocalizedDescriptionKey: "The recording display is unavailable"])
+        }
+        // Exclude the whole app, including overlay windows created after this filter.
+        let excluded = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+        let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
+        let config = SCStreamConfiguration()
+        config.width = min(1600, display.width)
+        config.height = Int(Double(config.width) * Double(display.height) / Double(display.width))
+        config.pixelFormat = kCVPixelFormatType_32BGRA
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 4)
+        config.queueDepth = 2
+        config.showsCursor = false
+        let output = CaptureOutput { image in if let image { onFrame(image) } }
+        let recording = SCStream(filter: filter, configuration: config, delegate: nil)
+        try recording.addStreamOutput(output, type: .screen, sampleHandlerQueue: .main)
+        stream = recording
+        streamOutput = output
+        capturedDisplayID = "\(displayID)"
+        capturedDisplayBounds = CGDisplayBounds(displayID)
+        do { try await recording.startCapture() }
+        catch { stop(); throw error }
+    }
+
     func stop() {
         if let stream, let streamOutput {
             try? stream.removeStreamOutput(streamOutput, type: .screen)
+            stream.stopCapture { _ in }
         }
         stream = nil
         streamOutput = nil

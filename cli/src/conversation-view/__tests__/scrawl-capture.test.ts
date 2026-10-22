@@ -1,4 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -88,6 +90,24 @@ describe("Scrawl capture", () => {
     expect(readFileSync(join(rawDir, files[0]!), "utf8")).toContain(`[scrawl App · Window · 12s · ${resolve(bundleDir)}]`);
     expect(readFileSync(join(rawDir, files[0]!), "utf8")).toContain("first frame");
   });
+
+  it.skipIf(process.platform !== "darwin")("imports an actual Swift-generated native bundle and attaches its contact sheet", async () => {
+    const native = fileURLToPath(new URL("../../../../mac-adapter/", import.meta.url));
+    const binary = join(root, "scrawl-sample");
+    execFileSync("swiftc", [join(native, "Sources/Scrawl/ScrawlBundle.swift"), join(native, "Sources/Scrawl/ScrawlOverlay.swift"), join(native, "Tools/ScrawlSample.swift"), "-o", binary], { timeout: 60_000 });
+    execFileSync(binary, [captures], { timeout: 20_000 });
+    const generated = join(captures, "flyd-native-sample.scrawl");
+    const { expandScrawl, fileScrawl, resolveBundle } = await import("../scrawl-capture.js");
+    const sheet = readFileSync(join(generated, "contact-sheet.png")).toString("base64");
+    const imported = await expandScrawl({ text: `[scrawl: ${generated}]`, images: [{ mediaType: "image/png", data: sheet }] });
+    expect(imported.images).toEqual([{ mediaType: "image/png", data: sheet }]);
+    expect(imported.text).toContain("[0:00–0:04] Mark this line, then click here.");
+    expect(imported.text).toContain("[0:03] left click");
+    expect(imported.text).toContain("Mark m1");
+    expect(readdirSync(rawDir)).toHaveLength(0);
+    await fileScrawl(resolveBundle(generated));
+    expect(readFileSync(join(rawDir, readdirSync(rawDir)[0]!), "utf8")).toContain("4s");
+  }, 90_000);
 
   it("leaves a message unchanged when latest scrawl finds no captures", async () => {
     const { expandScrawl } = await import("../scrawl-capture.js");

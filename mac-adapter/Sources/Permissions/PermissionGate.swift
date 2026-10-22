@@ -31,9 +31,9 @@ final class PermissionGate {
             case .keyboardShortcut:
                 return "Lets Flyd hear its keyboard shortcuts from any app. Flyd does not record what you type."
             case .screenRecording:
-                return "Lets Flyd look once when app context is not enough. Never in the background."
+                return "Lets Flyd look when invoked, or record your screen when you start a Scrawl."
             case .microphone:
-                return "Lets Flyd hear your request while you hold the shortcut."
+                return "Lets Flyd hear dictation, voice requests, and recordings you start."
             }
         }
 
