@@ -32,7 +32,13 @@ import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload,
 export function commandMarker(name: string): string {
   return `[Captain ran /${name} from Flyd: run it exactly as if he had typed it in Claude Code.]`;
 }
+export function withCommandMarker(text: string, name: string | undefined): string {
+  return name ? `${text}\n\n${commandMarker(name)}` : text;
+}
 const COMMAND_MARKER = /^\[Captain ran \/[\w:.-]+ from Flyd:[^\]\n]*\]$/gm;
+export function carriesCommand(text: string): boolean {
+  return new RegExp(COMMAND_MARKER.source, "m").test(text);
+}
 
 /**
  * Flyd's own brief under his words (flyd-brief.ts), marked so firstmate never

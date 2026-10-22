@@ -1284,6 +1284,117 @@ describe("conversation page", () => {
     input.dispatchEvent(esc);
     expect(menu.hidden).toBe(true);
   });
+
+  it("completes a skill in a reply without sending or switching views", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: ["a1"], messages: [{ id: "a1", role: "assistant", html: "<p>The island is smaller.</p>", answers: "note:1" }], working: false });
+    document.querySelector<HTMLButtonElement>(".msg.assistant .reply-open")!.click();
+    const input = document.querySelector<HTMLTextAreaElement>(".reply-input")!;
+    input.value = "/des";
+    input.dispatchEvent(new Event("input"));
+    await settle();
+    const menu = input.closest("form")!.querySelector<HTMLElement>(".commands")!;
+    expect(menu?.hidden).toBe(false);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(input.value).toBe("/design-shotgun ");
+    expect(menu.hidden).toBe(true);
+    expect(document.documentElement.getAttribute("data-screen")).toBe("terminal");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+  });
+
+  it.each(["calls", "drill"])("returns to a usable main textbox after leaving an artefact with its %s sheet open", async (kind) => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show = {
+      title: "Work", summary: "", live: true, counts: { call: 1, live: 1 }, items: [],
+      calls: [{ id: "call:a", kind: "call", headline: "Choose a layout", why: "", decision: { task: "a", question: "Which layout?", choices: ["A", "B"] } }],
+      underway: [{ id: "live:a", kind: "live", headline: "Building the layout", why: "" }],
+    };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "need you", value: 1, tone: "call" }, { label: "under way", value: 1, tone: "live" }] }] });
+    document.getElementById("flip")!.click();
+    const figure = document.querySelector<HTMLButtonElement>(kind === "calls" ? "#readouts button.k-call" : "#readouts button.k-live")!;
+    figure.click();
+    const sheet = document.getElementById(kind)!;
+    expect(sheet.hidden).toBe(false);
+    if (kind === "drill") document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    else document.getElementById("flip")!.click();
+    await new Promise((resolve) => setTimeout(resolve, 190));
+    expect(document.documentElement.getAttribute("data-screen")).toBe("terminal");
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(input);
+    expect(sheet.hidden).toBe(true);
+    input.value = "Continue with the layout";
+    input.dispatchEvent(new Event("input"));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await settle();
+    const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send");
+    expect(sends).toHaveLength(1);
+    expect(JSON.parse(String(sends[0]![1]!.body))).toMatchObject({ text: "Continue with the layout" });
+  });
+
+  it("uses the shared skill picker in an artefact and dismisses it before closing the decision sheet", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", {
+      order: [], messages: [], working: false,
+      show: { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [], calls: [{ id: "call:a", kind: "call", headline: "Choose a layout", why: "", decision: { task: "a", question: "Which layout?", choices: ["A", "B"] } }] },
+      boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "need you", value: 1, tone: "call" }] }],
+    });
+    document.getElementById("flip")!.click();
+    document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
+    const sheet = document.getElementById("calls")!;
+    const input = sheet.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+    input.focus();
+    input.value = "/des";
+    input.dispatchEvent(new Event("input"));
+    await settle();
+    const menu = sheet.querySelector<HTMLElement>(".commands")!;
+    expect(menu.hidden).toBe(false);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(menu.hidden).toBe(true);
+    expect(sheet.hidden).toBe(false);
+    input.dispatchEvent(new Event("input"));
+    await settle();
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(input.value).toBe("/design-review ");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await settle();
+    const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String(sent[1]!.body))).toEqual({ decision: "a", text: "/design-review" });
+  });
+
+  it("completes a skill in a selected-passage comment and keeps its quote", async () => {
+    load("");
+    await settle();
+    open("latest", [{ id: "a1", role: "assistant", html: "<p>The island is smaller.</p>" }]);
+    const range = document.createRange();
+    const words = document.querySelector(".msg.assistant .body p")!.firstChild!;
+    range.setStart(words, 4);
+    range.setEnd(words, 10);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    document.querySelector<HTMLButtonElement>(".passage-open")!.click();
+    const input = document.querySelector<HTMLTextAreaElement>(".passage-input")!;
+    input.value = "/des";
+    input.dispatchEvent(new Event("input"));
+    await settle();
+    document.querySelector<HTMLElement>(".passage .commands li")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(input.value).toBe("/design-review ");
+    expect(document.querySelector<HTMLElement>(".passage-card")!.hidden).toBe(false);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await settle();
+    const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String(sent[1]!.body))).toEqual({ session: "latest", text: "/design-review", passage: { quote: "island", from: "assistant" } });
+    window.getSelection()!.removeAllRanges();
+  });
 });
 
 describe("semantic main stage", () => {

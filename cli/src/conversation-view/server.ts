@@ -43,6 +43,8 @@ import type { ActivityPanel, ActivityReader } from "./activity.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
 import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote, undoNote } from "./replies.js";
+import { matchCommand } from "./commands.js";
+import { withCommandMarker } from "./firstmate-inbox.js";
 import { answered, answeredForHim, choiceOf, choiceTarget, labelOf, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
@@ -1424,7 +1426,7 @@ export class ConversationViewServer {
       try {
         const executive = Boolean(call.executiveDecisionId);
         const answer = executive ? payload.text.trim() : `Answer to pending decision ${call.task}: ${call.label}\nQuestion: ${call.detail ?? call.label}\n\n${payload.text.trim()}`;
-        const sent = await this.source.sendDecision(answer, images as ImageUpload[], executive ? {
+        const sent = await this.source.sendDecision(executive ? answer : withCommandMarker(answer, await this.commandIn(payload.text)), images as ImageUpload[], executive ? {
           decisionId: call.executiveDecisionId!,
           taskId: call.task ?? "",
         } : undefined);
@@ -1519,7 +1521,7 @@ export class ConversationViewServer {
     try {
       const title = (await this.source.listSessions()).find((summary) => summary.id === session)?.title;
       const note = passageNote({ quote: passage.quote, from: passage.from, assistant: this.source.assistantLabel, conversation: { id: session, ...(title ? { title } : {}) } }, text);
-      sendJson(res, 200, await this.source.send(session, note, [], [], "firstmate"));
+      sendJson(res, 200, await this.source.send(session, withCommandMarker(note, await this.commandIn(text)), [], [], "firstmate"));
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }
@@ -1556,10 +1558,15 @@ export class ConversationViewServer {
     const named = [`About the artefact "${title.replace(/\s+/g, " ")}"`, ...(task ? [`Task: ${task}`] : []), ...(url ? [`Page: ${url}`] : []), ...(line ? [`Line: ${line}`] : []), ...(detail ? [`Detail: ${detail}`] : [])].join("\n");
     try {
       const words = text.trim();
-      sendJson(res, 200, { ...await this.source.sendDecision(words ? `${named}\n\n${words}` : named, images), waiting: "Sent to firstmate" });
+      const note = words ? withCommandMarker(`${named}\n\n${words}`, await this.commandIn(words)) : named;
+      sendJson(res, 200, { ...await this.source.sendDecision(note, images), waiting: "Sent to firstmate" });
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }
+  }
+
+  private async commandIn(words: string): Promise<string | undefined> {
+    return matchCommand(words, await this.source.commands())?.name;
   }
 
   /** His reply to one answer: back to whoever gave it, saying what it answers. */
@@ -1579,8 +1586,9 @@ export class ConversationViewServer {
         sendJson(res, 409, { error: "That answer is no longer here; send it as a new message" });
         return;
       }
-      const note = parent ? replyNote(parent, text) : answerNote(asked ?? { id: replyTo, role: "assistant", text: "" }, question!, text);
-      const sent = await this.source.send(session, note, [], [], replyTo.startsWith("ask:") ? "flyd" : "firstmate");
+      const command = await this.commandIn(text);
+      const note = withCommandMarker(parent ? replyNote(parent, text) : answerNote(asked ?? { id: replyTo, role: "assistant", text: "" }, question!, text), command);
+      const sent = await this.source.send(session, note, [], [], replyTo.startsWith("ask:") && !command ? "flyd" : "firstmate");
       this.predictions.remember(text);
       sendJson(res, 200, sent);
     } catch (error) {
