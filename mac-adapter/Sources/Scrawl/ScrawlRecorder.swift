@@ -279,6 +279,7 @@ final class ScrawlRecorder {
             let directory = try ScrawlBundleWriter.write(manifest: manifest, frames: frames)
             let sheet = try Data(contentsOf: directory.appendingPathComponent("contact-sheet.png"))
             teardown()
+            DictationPill.shared.show(.notice("Recording saved."))
             ConversationWindow.shared.attachScrawl(path: directory.path, sheet: sheet) { attached in
                 DictationPill.shared.show(.notice(attached ? "Recording attached. Ready when you are." : "Recording saved. Send or remove an attachment to add it."))
             }
