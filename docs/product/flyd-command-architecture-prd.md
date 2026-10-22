@@ -145,6 +145,8 @@ The request id is Flyd's DomainRun id, giving idempotent restart-safe correlatio
 
 Flyd does not depend on a session being open for a note to be read. When an inbox note has gone unread, Flyd starts a FirstMate session itself (FirstMate's `bin/fm-session-start.sh`) through the first available coding runtime (`FLYD_FIRSTMATE_RUNTIMES`, default `claude,codex,opencode`), retrying with backoff when a runtime is unavailable or hits a usage limit. The session child's environment is stripped of the paid Anthropic API variables (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`), so the claude CLI runs on the Claude plan rather than the paid API.
 
+This covers every unread inbox note, including notes from the conversation view that belong to no DomainRun. A note unread for over 3 minutes is recorded backstage for the council self-review, and so is a relaunch for a runless note that has backed off to its 30-minute cap. Flyd remembers the helper sessions it launched (`firstmate-helpers.json` in the command dir). When one of them holds FirstMate's fleet lock but has written no output for 15 minutes while a note waits, Flyd stops that session's process group and launches a fresh one. Flyd never stops a session it did not launch.
+
 FirstMate remains authoritative for:
 
 - project choice within its registered fleet;

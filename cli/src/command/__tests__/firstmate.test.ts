@@ -1,5 +1,6 @@
 import { parseExecutiveDecision } from "../../intelligence/executive/decision-step.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -618,6 +619,284 @@ describe("FirstMate domain transport", () => {
       now: () => new Date("2026-10-09T01:00:00.000Z"),
     });
     expect(started).toEqual(["claude"]);
+  });
+
+  const unreadNoteSignals = (home: string): unknown[] => {
+    const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
+    if (!existsSync(path)) return [];
+    return readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { kind?: string; home?: string; notes?: string[] })
+      .filter((entry) => entry.kind === "unread_note" && entry.home === home).map((entry) => entry.notes);
+  };
+
+  const liveHelperExec = (pending: unknown[]): FirstmateExec => async (_script, args) => args[0] === "receipts"
+    ? { stdout: JSON.stringify({ pending }), stderr: "" }
+    : { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: true } }), stderr: "" };
+
+  function helperAfterRestart(home: string, options: { lockPid: number; helperPid: number; startedAt: string; lastWrite: string }): { pid: number; startedAt: string; home: string; log: string } {
+    mkdirSync(join(home, "state"), { recursive: true });
+    writeFileSync(join(home, "state", ".lock"), `${options.lockPid}\n`);
+    const log = join(dir, `${options.helperPid}.log`);
+    writeFileSync(log, "{\"type\":\"system\"}\n");
+    utimesSync(log, new Date(options.lastWrite), new Date(options.lastWrite));
+    const helper = { pid: options.helperPid, startedAt: options.startedAt, home, log };
+    writeFileSync(join(dir, "firstmate-helpers.json"), JSON.stringify([helper]));
+    return helper;
+  }
+
+  function sleeper(script = "setTimeout(() => {}, 60_000)"): { child: ChildProcess; startedAt: string } {
+    const startedAt = new Date().toISOString();
+    return { child: spawn(process.execPath, ["-e", script], { stdio: ["ignore", "pipe", "ignore"], detached: true }), startedAt };
+  }
+
+  const exitSignal = (child: ChildProcess) => new Promise<NodeJS.Signals | null>((resolve) => child.once("exit", (_code, signal) => resolve(signal)));
+
+  const recordedHelpers = (): unknown => JSON.parse(readFileSync(join(dir, "firstmate-helpers.json"), "utf8"));
+  const stillRunning = (child: ChildProcess): boolean => child.exitCode === null && child.signalCode === null;
+
+  it("records each note left unread too long once on Flyd's backstage evidence", async () => {
+    saveDomainRun(queuedRun());
+    const home = join(dir, "firstmate-unread");
+    const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: liveHelperExec([{ id: "note-1", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }]) });
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:01:00.000Z") });
+    expect(unreadNoteSignals(home)).toEqual([["note-1"]]);
+  });
+
+  const unreadNote = (id: string) => liveHelperExec([{ id, request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }]);
+
+  it("replaces an idle helper a previous Core launched once it is the fleet lock holder, under any locale", async () => {
+    saveDomainRun(queuedRun());
+    const home = join(dir, "firstmate-restart");
+    const { child, startedAt } = sleeper();
+    const exited = exitSignal(child);
+    const locale = { LC_ALL: process.env.LC_ALL, LANG: process.env.LANG };
+    process.env.LC_ALL = "de_DE.UTF-8";
+    process.env.LANG = "de_DE.UTF-8";
+    try {
+      const helper = helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-1") });
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      expect(await exited).toBe("SIGTERM");
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:15.000Z") });
+      expect(recordedHelpers()).toEqual([]);
+      expect(existsSync(helper.log)).toBe(false);
+    } finally {
+      for (const [name, value] of Object.entries(locale)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("replaces an idle helper holding back a note that belongs to no domain run", async () => {
+    const home = join(dir, "firstmate-view-note");
+    const { child, startedAt } = sleeper();
+    const exited = exitSignal(child);
+    const started: string[] = [];
+    let live = true;
+    const exec: FirstmateExec = async (script, args) => {
+      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "view-note", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: live } }), stderr: "" };
+      started.push(script);
+      return { stdout: "started", stderr: "" };
+    };
+    try {
+      helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      expect(await exited).toBe("SIGTERM");
+      expect(started).toEqual([]);
+      expect(unreadNoteSignals(home)).toEqual([["view-note"]]);
+      live = false;
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:15.000Z") });
+      expect(started).toEqual(["claude"]);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("backs off relaunching for a note with no domain run and says so once when the backoff tops out", async () => {
+    const home = join(dir, "firstmate-runless-backoff");
+    const launches: number[] = [];
+    let pending = [{ id: "view-note", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }];
+    let minute = 0;
+    const exec: FirstmateExec = async (_script, args) => {
+      if (args[0] === "receipts") return { stdout: JSON.stringify({ pending }), stderr: "" };
+      if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+      launches.push(minute);
+      return { stdout: "started", stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
+    const tick = (at: number) => {
+      minute = at;
+      return syncFirstmateDomainRuns({ transport, now: () => new Date(Date.parse("2026-10-09T01:00:00.000Z") + at * 60_000) });
+    };
+    for (let at = 0; at <= 70; at++) await tick(at);
+    expect(launches).toEqual([0, 5, 10, 18, 34, 64]);
+    const capped = () => {
+      const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
+      return readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { home?: string; kind?: string })
+        .filter((entry) => entry.home === home && entry.kind === "unread_relaunch_capped");
+    };
+    expect(capped()).toHaveLength(1);
+
+    pending = [];
+    await tick(71);
+    pending = [{ id: "view-note-2", acknowledged: false, at: "2026-10-09T02:00:00.000Z" }];
+    await tick(72);
+    expect(launches).toEqual([0, 5, 10, 18, 34, 64, 72]);
+  });
+
+  it("treats Flyd's own stop of an idle helper it launched as neither a launch failure nor a reason to try another runtime", async () => {
+    const home = join(dir, "firstmate-launched");
+    const bin = join(dir, "bin");
+    mkdirSync(join(home, "bin"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    const script = join(home, "bin", "fm-inbox.sh");
+    writeFileSync(script, [
+      "#!/bin/sh",
+      'case "$1" in',
+      '  receipts) echo \'{"pending":[{"id":"view-note","acknowledged":false,"at":"2026-10-09T00:00:00.000Z"}]}\' ;;',
+      '  ready) if [ -f "$FM_HOME/state/.lock" ]; then echo \'{"can_receive":false,"lock":{"live_harness":true}}\'; else echo \'{"can_receive":false,"lock":{"live_harness":false}}\'; fi ;;',
+      "esac",
+    ].join("\n"), { mode: 0o755 });
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
+    writeFileSync(join(bin, "codex"), `#!/bin/sh\ntouch ${JSON.stringify(join(dir, "codex-ran"))}\n`, { mode: 0o755 });
+    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_RUNTIMES: process.env.FLYD_FIRSTMATE_RUNTIMES, FLYD_CODEX_PATH: process.env.FLYD_CODEX_PATH };
+    process.env.PATH = `${bin}:${process.env.PATH}`;
+    process.env.FLYD_CODEX_PATH = join(bin, "codex");
+    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude,codex";
+    let helperPid: number | undefined;
+    const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
+    const before = existsSync(path) ? readFileSync(path, "utf8").length : 0;
+    try {
+      const transport = new FirstmateDomainTransport({ home, script });
+      expect(await transport.startSession()).toEqual({ started: true });
+      const [helper] = recordedHelpers() as Array<{ pid: number; log: string }>;
+      helperPid = helper!.pid;
+      mkdirSync(join(home, "state"), { recursive: true });
+      writeFileSync(join(home, "state", ".lock"), `${helperPid}\n`);
+      utimesSync(helper!.log, new Date("2026-10-09T00:00:00.000Z"), new Date("2026-10-09T00:00:00.000Z"));
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      for (let waited = 0; existsSync(helper!.log) && waited < 50; waited++) await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(recordedHelpers()).toEqual([]);
+      expect(existsSync(join(dir, "codex-ran"))).toBe(false);
+      const failures = readFileSync(path, "utf8").slice(before).trim().split("\n").map((line) => JSON.parse(line) as { runtime?: string; outcome?: string })
+        .filter((entry) => entry.outcome && entry.outcome !== "started");
+      expect(failures).toEqual([]);
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      if (helperPid) {
+        try {
+          process.kill(-helperPid, "SIGKILL");
+        } catch {
+          helperPid = undefined;
+        }
+      }
+    }
+  });
+
+  it("stops an idle helper that ignores SIGTERM for good on a later tick", async () => {
+    saveDomainRun(queuedRun());
+    const home = join(dir, "firstmate-stubborn");
+    const { child, startedAt } = sleeper("process.on('SIGTERM', () => {}); console.log('ready'); setTimeout(() => {}, 60_000)");
+    await new Promise((resolve) => child.stdout!.once("data", resolve));
+    const exited = exitSignal(child);
+    try {
+      helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-5") });
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(stillRunning(child)).toBe(true);
+      expect(recordedHelpers()).toEqual([expect.objectContaining({ pid: child.pid, stoppingAt: "2026-10-09T01:00:00.000Z" })]);
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:15.000Z") });
+      expect(await exited).toBe("SIGKILL");
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("drops an ended helper's record and transcript on the next sync", async () => {
+    saveDomainRun(queuedRun());
+    const home = join(dir, "firstmate-ended");
+    const { child, startedAt } = sleeper();
+    const helper = helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
+    await new Promise((resolve) => { child.once("exit", resolve); child.kill("SIGKILL"); });
+    const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: liveHelperExec([]) });
+    await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+    expect(recordedHelpers()).toEqual([]);
+    expect(existsSync(helper.log)).toBe(false);
+  });
+
+  it("leaves a silent-but-recently-writing helper working", async () => {
+    saveDomainRun(queuedRun());
+    const home = join(dir, "firstmate-working");
+    const { child, startedAt } = sleeper();
+    try {
+      const helper = helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:55:00.000Z" });
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-3") });
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      expect(stillRunning(child)).toBe(true);
+      expect(recordedHelpers()).toEqual([helper]);
+      expect(readFileSync(helper.log, "utf8")).toBe("");
+      expect(statSync(helper.log).mtime.toISOString()).toBe("2026-10-09T00:55:00.000Z");
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("never signals a reused pid whose process started after the recorded helper", async () => {
+    saveDomainRun(queuedRun());
+    const home = join(dir, "firstmate-reused-pid");
+    const { child } = sleeper();
+    try {
+      const helper = helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt: "2026-10-09T00:00:00.000Z", lastWrite: "2026-10-09T00:00:00.000Z" });
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-4") });
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      expect(stillRunning(child)).toBe(true);
+      expect(recordedHelpers()).toEqual([]);
+      expect(existsSync(helper.log)).toBe(false);
+      expect(unreadNoteSignals(home)).toEqual([["note-4"]]);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("leaves a recorded helper alone when another session holds the fleet lock, and still raises the unread signal", async () => {
+    saveDomainRun(queuedRun());
+    const home = join(dir, "firstmate-other-holder");
+    const { child, startedAt } = sleeper();
+    try {
+      const helper = helperAfterRestart(home, { lockPid: child.pid! + 100_000, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-2") });
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      expect(stillRunning(child)).toBe(true);
+      expect(recordedHelpers()).toEqual([helper]);
+      expect(unreadNoteSignals(home)).toEqual([["note-2"]]);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("does not restart a live helper when it still owns the inbox", async () => {
+    saveDomainRun(queuedRun());
+    const started: string[] = [];
+    const exec: FirstmateExec = async (_script, args) => args[0] === "receipts"
+      ? { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" }
+      : { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: true } }), stderr: "" };
+    await syncFirstmateDomainRuns({
+      transport: new FirstmateDomainTransport({ home: join(dir, "firstmate"), script: "/fake/fm-inbox.sh", exec: async (script, args, options) => {
+        if (args[0] !== "receipts" && args[0] !== "ready") started.push(script);
+        return exec(script, args, options);
+      } }),
+      now: () => new Date("2026-10-09T01:00:00.000Z"),
+    });
+    expect(started).toEqual([]);
   });
 
   it("does not start a session while the unread note is still fresh", async () => {

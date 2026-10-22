@@ -310,8 +310,15 @@ export function reviewEvidence(since: string, dir = selfReviewDir()): Evidence[]
     };
   });
   const bySessionOutcome = new Map<string, Array<{ at: string; runtime?: string; outcome: string }>>();
-  for (const attempt of readJsonl<{ at?: string; runtime?: string; outcome?: string }>(join(dir, "firstmate-session.jsonl"))) {
-    if (!attempt.at || attempt.at < since || !attempt.outcome || attempt.outcome === "started") continue;
+  const unreadNotes: Array<{ at: string; notes: string[] }> = [];
+  const cappedRelaunches: Array<{ at: string; notes: string[] }> = [];
+  for (const attempt of readJsonl<{ at?: string; runtime?: string; outcome?: string; kind?: string; notes?: unknown[] }>(join(dir, "firstmate-session.jsonl"))) {
+    if (!attempt.at || attempt.at < since) continue;
+    if (attempt.kind === "unread_note" || attempt.kind === "unread_relaunch_capped") {
+      (attempt.kind === "unread_note" ? unreadNotes : cappedRelaunches).push({ at: attempt.at, notes: (attempt.notes ?? []).map(String) });
+      continue;
+    }
+    if (!attempt.outcome || attempt.outcome === "started") continue;
     const key = `${attempt.runtime ?? "unknown"}:${attempt.outcome}`;
     const hits = bySessionOutcome.get(key) ?? [];
     hits.push({ at: attempt.at, ...(attempt.runtime ? { runtime: attempt.runtime } : {}), outcome: attempt.outcome });
@@ -327,7 +334,20 @@ export function reviewEvidence(since: string, dir = selfReviewDir()): Evidence[]
       text: `FirstMate session launch via ${newest.runtime ?? "unknown runtime"}: ${newest.outcome}${hits.length > 1 ? ` (${hits.length} attempts)` : ""}.`,
     };
   });
-  return [...verdictEvidence, ...sessionEvidence];
+  const noteEvidence = (entries: Array<{ at: string; notes: string[] }>, id: string, text: (notes: number) => string) => {
+    if (!entries.length) return [];
+    entries.sort((a, b) => b.at.localeCompare(a.at));
+    const newest = entries[0]!;
+    const notes = Math.max(new Set(entries.flatMap((item) => item.notes)).size, 1);
+    return [{ id: `${id}:${newest.at}`, kind: "domain" as const, at: newest.at, text: text(notes) }];
+  };
+  const plural = (notes: number) => `${notes} of Flyd's note${notes === 1 ? "" : "s"}`;
+  return [
+    ...verdictEvidence,
+    ...sessionEvidence,
+    ...noteEvidence(unreadNotes, "firstmate-unread", (notes) => `FirstMate left ${plural(notes)} unread for over 3 minutes.`),
+    ...noteEvidence(cappedRelaunches, "firstmate-relaunch-capped", (notes) => `Relaunching FirstMate for ${plural(notes)} still unread has backed off to once every 30 minutes.`),
+  ];
 }
 
 const SURFACE_WORDS: Record<Surface, string> = { chat: "answer", status: "status line", notification: "notification", relay: "update" };

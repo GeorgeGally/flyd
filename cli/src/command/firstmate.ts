@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, truncateSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { firstmateHome } from "../lib/firstmate-home.js";
@@ -7,7 +7,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { codexPathCandidates } from "../runtime/codex-adapter.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
-import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
+import { commandDir, listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -191,8 +191,136 @@ const LAUNCH_RETRY_BASE_MS = 2 * 60_000;
 const LAUNCH_RETRY_MAX_MS = 30 * 60_000;
 const SESSION_OUTPUT_LIMIT = 8 * 1024;
 const LAUNCH_COOLDOWN_MS = 5 * 60_000;
+const UNREAD_TOO_LONG_MS = 3 * 60_000;
+const SESSION_IDLE_MS = 15 * 60_000;
 const launchingHomes = new Set<string>();
 const launchCooldownUntil = new Map<string, number>();
+const unreadSignals = new Set<string>();
+const runlessRetry = new Map<string, { attempts: number; nextAt: number; capped: boolean }>();
+const HELPER_START_TOLERANCE_MS = 5_000;
+
+/** A helper session Flyd launched, kept in `<command dir>/firstmate-helpers.json` so a restarted Core or another Flyd process can still recognise it; its output goes to `log`, whose last write is its last sign of work. */
+interface FirstmateHelper {
+  pid: number;
+  startedAt: string;
+  home: string;
+  log: string;
+  stoppingAt?: string;
+}
+
+function helpersPath(): string {
+  return join(commandDir(), "firstmate-helpers.json");
+}
+
+function readHelpers(): FirstmateHelper[] {
+  try {
+    const parsed = JSON.parse(readFileSync(helpersPath(), "utf8")) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is FirstmateHelper => Number.isInteger(item?.pid) && typeof item?.startedAt === "string" && typeof item?.home === "string" && typeof item?.log === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeHelpers(helpers: FirstmateHelper[]): void {
+  try {
+    const path = helpersPath();
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    const temporary = `${path}.${process.pid}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(helpers, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(temporary, path);
+  } catch {
+    return;
+  }
+}
+
+function forgetHelpers(gone: (helper: FirstmateHelper) => boolean): void {
+  const helpers = readHelpers();
+  const kept = helpers.filter((helper) => !gone(helper));
+  if (kept.length === helpers.length) return;
+  writeHelpers(kept);
+  for (const helper of helpers) if (!kept.includes(helper)) removeLog(helper.log);
+}
+
+/** Empties a running helper's log so its words are not kept, leaving its last write time as the sign of work. */
+function scrubLog(log: string): void {
+  try {
+    const { atime, mtime, size } = statSync(log);
+    if (!size) return;
+    truncateSync(log, 0);
+    utimesSync(log, atime, mtime);
+  } catch {
+    return;
+  }
+}
+
+function removeLog(log: string): void {
+  try {
+    unlinkSync(log);
+  } catch {
+    return;
+  }
+}
+
+/** When the process now holding `pid` started, from `ps`; null when there is no such process. */
+async function processStartedAt(pid: number): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000, env: { ...process.env, LC_ALL: "C" } });
+    const started = Date.parse(String(stdout).trim());
+    return Number.isFinite(started) ? started : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Line 1 of firstmate's state/.lock is the pid of the session holding the fleet lock. */
+function lockHolderPid(home: string): number | null {
+  try {
+    const pid = Number(readFileSync(join(home, "state", ".lock"), "utf8").split("\n")[0]?.trim());
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Recorded helpers whose very process is still running; a record whose process ended, or whose pid now belongs to another process, is dropped with its log. */
+async function liveHelpers(): Promise<FirstmateHelper[]> {
+  const helpers = readHelpers();
+  const ended = new Set<FirstmateHelper>();
+  for (const helper of helpers) {
+    const started = await processStartedAt(helper.pid);
+    if (started === null || Math.abs(started - Date.parse(helper.startedAt)) > HELPER_START_TOLERANCE_MS) ended.add(helper);
+  }
+  if (ended.size) forgetHelpers((helper) => [...ended].some((item) => item.pid === helper.pid && item.startedAt === helper.startedAt && item.home === helper.home));
+  const live = helpers.filter((helper) => !ended.has(helper));
+  for (const helper of live) scrubLog(helper.log);
+  return live;
+}
+
+/** Flyd's own helper, the very process it launched, when it still holds the lock but has written nothing for too long; a helper Flyd did not launch is never one. */
+function idleHelper(helpers: FirstmateHelper[], home: string, nowMs: number): FirstmateHelper | undefined {
+  const holder = lockHolderPid(home);
+  const helper = holder === null ? undefined : helpers.find((item) => item.home === home && item.pid === holder);
+  if (!helper) return undefined;
+  let lastWrite: number;
+  try {
+    lastWrite = statSync(helper.log).mtimeMs;
+  } catch {
+    return undefined;
+  }
+  return nowMs - lastWrite > SESSION_IDLE_MS ? helper : undefined;
+}
+
+/** Stops an idle helper's whole process group: politely first, then for good if it is still there on a later tick. Its record goes once the process is gone. */
+function stopHelper(helper: FirstmateHelper, nowMs: number): void {
+  if (!helper.stoppingAt) {
+    writeHelpers(readHelpers().map((item) => item.home === helper.home && item.pid === helper.pid && item.startedAt === helper.startedAt ? { ...item, stoppingAt: new Date(nowMs).toISOString() } : item));
+  }
+  try {
+    process.kill(-helper.pid, helper.stoppingAt ? "SIGKILL" : "SIGTERM");
+  } catch {
+    return;
+  }
+}
 
 function sessionRuntimes(env = process.env): SessionRuntime[] {
   const configured = env.FLYD_FIRSTMATE_RUNTIMES?.split(",").map((item) => item.trim()).filter(Boolean);
@@ -210,7 +338,7 @@ function sessionExecutable(runtime: SessionRuntime): string {
 function sessionArgs(runtime: SessionRuntime): string[] {
   // Nobody is there to approve a prompt: without a mode, every firstmate script is refused and his notes go unanswered.
   // "auto" runs routine commands and still blocks risky ones, as codex's --full-auto does. George chose this on 2026-10-18.
-  if (runtime === "claude") return ["-p", "--permission-mode", "auto", SESSION_PROMPT];
+  if (runtime === "claude") return ["-p", "--permission-mode", "auto", "--output-format", "stream-json", "--verbose", SESSION_PROMPT];
   if (runtime === "codex") return ["exec", "--full-auto", SESSION_PROMPT];
   return ["run", SESSION_PROMPT];
 }
@@ -222,7 +350,7 @@ function sessionChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return childEnv;
 }
 
-/** Appends one JSONL line per FirstMate session launch attempt to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): `{ at, runtime, outcome: "started" | "usage_limited" | "failed", detail? }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
+/** Appends one JSONL line to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): a launch attempt `{ at, runtime, outcome: "started" | "usage_limited" | "failed", detail? }` or a note left unread too long `{ at, kind: "unread_note", home, notes }`, or relaunches for notes outside any domain run backing off to their cap `{ at, kind: "unread_relaunch_capped", home, notes }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
 function recordSessionAttempt(entry: Record<string, unknown>): void {
   try {
     const path = join(process.env.FLYD_SELF_REVIEW_DIR?.trim() || join(FLYD_DIR, "self-review"), "firstmate-session.jsonl");
@@ -284,24 +412,49 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
         else resolve({ started: false, failure: SESSION_LAUNCH_FAILURE });
         return;
       }
-      let output = "";
       let settled = false;
-      const child = spawn(sessionExecutable(runtime), sessionArgs(runtime), { cwd: home, env: sessionChildEnv({ ...process.env, FM_HOME: home }), detached: true, stdio: ["ignore", "pipe", "pipe"] });
-      child.stdout?.on("data", (chunk: Buffer | string) => { output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT); });
-      child.stderr?.on("data", (chunk: Buffer | string) => { output = (output + chunk.toString()).slice(-SESSION_OUTPUT_LIMIT); });
+      const log = join(commandDir(), "firstmate-helpers", `${process.pid}-${Date.now()}-${runtime}.log`);
+      let child: ReturnType<typeof spawn>;
+      try {
+        mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
+        const fd = openSync(log, "a", 0o600);
+        try {
+          child = spawn(sessionExecutable(runtime), sessionArgs(runtime), { cwd: home, env: sessionChildEnv({ ...process.env, FM_HOME: home }), detached: true, stdio: ["ignore", fd, fd] });
+        } finally {
+          closeSync(fd);
+        }
+      } catch (error) {
+        record({ runtime, outcome: "failed", detail: (error instanceof Error ? error.message : String(error)).slice(0, 500) });
+        attempt(index + 1);
+        return;
+      }
       child.once("error", (error) => {
         if (settled) return;
         settled = true;
+        removeLog(log);
         record({ runtime, outcome: "failed", detail: error.message.slice(0, 500) });
         attempt(index + 1);
       });
       child.once("spawn", () => {
         handedOff = true;
+        if (child.pid) {
+          forgetHelpers((helper) => helper.home === home);
+          writeHelpers([...readHelpers(), { pid: child.pid, startedAt: new Date().toISOString(), home, log }]);
+        }
         child.unref();
         record({ runtime, outcome: "started" });
         resolve({ started: true });
       });
       child.once("close", (code) => {
+        const output = existsSync(log) ? readFileSync(log, "utf8").slice(-SESSION_OUTPUT_LIMIT) : "";
+        const stopped = readHelpers().some((helper) => helper.home === home && helper.pid === child.pid && helper.stoppingAt);
+        if (child.pid) forgetHelpers((helper) => helper.home === home && helper.pid === child.pid);
+        removeLog(log);
+        if (stopped) {
+          settled = true;
+          release();
+          return;
+        }
         const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
         if (limited || code !== 0) {
           record({ runtime, outcome: limited ? "usage_limited" : "failed", detail: output.slice(-500) });
@@ -426,10 +579,7 @@ export async function syncFirstmateDomainRuns(options: {
 } = {}): Promise<DomainRun[]> {
   const transport = options.transport ?? new FirstmateDomainTransport();
   if (!transport.available()) return [];
-  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !["completed", "failed", "cancelled"].includes(run.status));
-  if (!runs.length) return [];
-  const judge = options.judge ?? await defaultProseJudge();
-
+  const helpers = await liveHelpers();
   let receipts: FirstmateReceipts;
   try {
     receipts = await transport.receipts();
@@ -437,16 +587,40 @@ export async function syncFirstmateDomainRuns(options: {
     return [];
   }
   const nowMs = (options.now ?? (() => new Date()))().getTime();
-  const oldUnread = (receipts.pending ?? []).some((note) => note.at && nowMs - Date.parse(note.at) > 3 * 60_000);
-  if (oldUnread) {
-    const readiness = await transport.ready();
+  const oldPending = (receipts.pending ?? []).filter((note) => note.at && nowMs - Date.parse(note.at) > UNREAD_TOO_LONG_MS);
+  if (oldPending.length) {
+    const newlyUnread = oldPending.filter((note) => !unreadSignals.has(`${transport.home}:${note.id}`));
+    for (const note of newlyUnread) unreadSignals.add(`${transport.home}:${note.id}`);
+    if (newlyUnread.length) recordSessionAttempt({ kind: "unread_note", home: transport.home, notes: newlyUnread.map((note) => note.id) });
+  } else {
+    for (const key of unreadSignals) if (key.startsWith(`${transport.home}:`)) unreadSignals.delete(key);
+    runlessRetry.delete(transport.home);
+  }
+  const readiness = oldPending.length ? await transport.ready() : undefined;
+  const idle = readiness?.liveHarness ? idleHelper(helpers, transport.home, nowMs) : undefined;
+  if (idle) {
+    stopHelper(idle, nowMs);
+    return [];
+  }
+  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !["completed", "failed", "cancelled"].includes(run.status));
+  if (readiness) {
     if (readiness.canReceive === false && !readiness.liveHarness) {
       const pending = receipts.pending ?? [];
       const waitingRun = runs.find((run) => pending.some((note) => note.id === run.transport.externalId || note.request_id === run.transport.requestId));
-      const due = !waitingRun?.launchRetry || Date.parse(waitingRun.launchRetry.nextAt) <= nowMs;
+      const retry = runlessRetry.get(transport.home);
+      const due = waitingRun
+        ? !waitingRun.launchRetry || Date.parse(waitingRun.launchRetry.nextAt) <= nowMs
+        : (retry?.nextAt ?? 0) <= nowMs;
       const cooling = (launchCooldownUntil.get(transport.home) ?? 0) > nowMs;
       if (due && !cooling) {
         launchCooldownUntil.set(transport.home, nowMs + LAUNCH_COOLDOWN_MS);
+        if (!waitingRun) {
+          const attempts = (retry?.attempts ?? 0) + 1;
+          const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
+          const capped = delay === LAUNCH_RETRY_MAX_MS;
+          if (capped && !retry?.capped) recordSessionAttempt({ kind: "unread_relaunch_capped", home: transport.home, notes: oldPending.map((note) => note.id) });
+          runlessRetry.set(transport.home, { attempts, nextAt: nowMs + delay, capped });
+        }
         const session = await transport.startSession(readiness, waitingRun ? (failure) => suspendFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined }));
         if (session.started && waitingRun?.launchRetry) {
           saveDomainRun({ ...waitingRun, failure: undefined, updatedAt: new Date(nowMs).toISOString() });
@@ -456,6 +630,8 @@ export async function syncFirstmateDomainRuns(options: {
       }
     }
   }
+  if (!runs.length) return [];
+  const judge = options.judge ?? await defaultProseJudge();
   const notes = [...(receipts.pending ?? []), ...(receipts.handled ?? [])];
   const changed: DomainRun[] = [];
   for (const run of runs) {
