@@ -3210,16 +3210,17 @@ ${LEFT_SCRIPT}
   // The native recorder prepares a draft. Only the existing Send action files it.
   window.flydScrawl = function (path, data) {
     var pointer = "[scrawl: " + path + "]";
-    if (input.value.indexOf(pointer) !== -1) return;
+    if (input.value.indexOf(pointer) !== -1) return true;
     if (attachments.length >= MAX_ATTACHMENTS || attachments.some(function (a) { return a.scrawlPointer; })) {
       problem.textContent = "Send or remove an attachment to add the recording. Saved at " + path;
-      return;
+      return false;
     }
     input.value += (input.value.trim() ? "\\n\\n" : "") + pointer;
     var attachment = { url: "data:image/png;base64," + data, mediaType: "image/png", data: data, scrawlPointer: pointer };
     attachments.push(attachment);
     renderAttachments();
     keepAttachment(attachment);
+    return true;
   };
   // Screenshots go as images; documents (a PDF, a Word file, notes) as files under their own names.
   var DOCUMENTS = ${JSON.stringify(DOCUMENT_EXTENSIONS)};

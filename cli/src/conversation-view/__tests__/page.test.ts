@@ -1166,8 +1166,9 @@ describe("conversation page", () => {
     open("latest", []);
     const input = document.getElementById("input") as HTMLTextAreaElement;
     input.value = "Please fix this";
-    const attach = (window as unknown as { flydScrawl: (path: string, data: string) => void }).flydScrawl;
-    attach("/tmp/native.scrawl", "cG5n");
+    const attach = (window as unknown as { flydScrawl: (path: string, data: string) => boolean }).flydScrawl;
+    expect(attach("/tmp/native.scrawl", "cG5n")).toBe(true);
+    expect(attach("/tmp/second.scrawl", "cG5n")).toBe(false);
     await settle();
     expect(input.value).toBe("Please fix this\n\n[scrawl: /tmp/native.scrawl]");
     expect(document.querySelector("#attachments img")?.getAttribute("src")).toBe("data:image/png;base64,cG5n");

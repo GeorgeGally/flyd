@@ -16,6 +16,7 @@ final class ScreenCaptureManager {
     private var streamOutput: CaptureOutput?
     private var recordingDelegate: RecordingStreamDelegate?
     private var recordingRequest: UUID?
+    private static let recordingQueue = DispatchQueue(label: "flyd.scrawl.frames", qos: .userInitiated)
 
     func captureScreenshot() async -> CGImage? {
         guard PermissionGate.shared.hasScreenRecording else { return nil }
@@ -100,14 +101,14 @@ final class ScreenCaptureManager {
         config.minimumFrameInterval = CMTime(value: 1, timescale: 4)
         config.queueDepth = 2
         config.showsCursor = false
-        let output = CaptureOutput { image in if let image { onFrame(image) } }
+        let output = CaptureOutput { image in if let image { DispatchQueue.main.async { onFrame(image) } } }
         let delegate = RecordingStreamDelegate { [weak self] failedStream, error in
             guard let self, self.stream === failedStream else { return }
             self.stop()
             onError(error.localizedDescription)
         }
         let recording = SCStream(filter: filter, configuration: config, delegate: delegate)
-        try recording.addStreamOutput(output, type: .screen, sampleHandlerQueue: .main)
+        try recording.addStreamOutput(output, type: .screen, sampleHandlerQueue: Self.recordingQueue)
         stream = recording
         streamOutput = output
         recordingDelegate = delegate
@@ -141,6 +142,7 @@ private final class RecordingStreamDelegate: NSObject, SCStreamDelegate {
 }
 
 private final class CaptureOutput: NSObject, SCStreamOutput, @unchecked Sendable {
+    private static let context = CIContext()
     private(set) var lastImage: CGImage?
     private let onFrame: (CGImage?) -> Void
 
@@ -151,8 +153,7 @@ private final class CaptureOutput: NSObject, SCStreamOutput, @unchecked Sendable
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, let imageBuffer = sampleBuffer.imageBuffer else { return }
         let ciImage = CIImage(cvPixelBuffer: imageBuffer)
-        let context = CIContext()
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
+        guard let cgImage = Self.context.createCGImage(ciImage, from: ciImage.extent) else { return }
         lastImage = cgImage
         onFrame(cgImage)
     }

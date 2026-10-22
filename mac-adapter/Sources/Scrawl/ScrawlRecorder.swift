@@ -32,37 +32,60 @@ final class ScrawlRecorder {
     private var targetContext: DictationContextCapture?
     private var segmentBytes = 0
 
+    /// Core answers shorter audio with "No speech detected" instead of a transcript.
+    private static let minimumSegmentBytes = 1600
+
     private var elapsed: Int { max(0, Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) }
 
-    /// Returns whether the press started or stopped a recording.
+    /// Decides at once whether the press starts or stops a recording; the work runs after the key event returns.
     func toggle() -> Bool {
         switch phase {
-        case .idle: return start()
-        case .recording: stop(); return true
+        case .idle:
+            let ready = startBlocker == nil
+            DispatchQueue.main.async { self.start() }
+            return ready
+        case .recording:
+            DispatchQueue.main.async { self.stop() }
+            return true
         case .starting, .finishing: return false
         }
     }
 
-    private func start() -> Bool {
+    private enum StartBlocker { case busy, screenRecording, microphone, accessibility, noDisplay }
+
+    private var startBlocker: StartBlocker? {
         guard !isActive, FlydState.shared.mode == .present, FlydState.shared.phase == .idle,
-              !VoiceCapture.shared.isActive, DictationController.shared.isIdle else {
-            DictationPill.shared.show(.notice("Finish the current voice session first")); return false
-        }
+              !VoiceCapture.shared.isActive, DictationController.shared.isIdle else { return .busy }
         let permissions = PermissionGate.shared
-        guard permissions.hasScreenRecording else {
-            permissions.requestScreenCapturePermission()
-            DictationPill.shared.show(.failed("Allow Screen Recording, then press ⌃⌥S again")); return false
-        }
-        guard permissions.hasMicrophone else {
-            permissions.requestMicrophonePermission()
-            DictationPill.shared.show(.failed("Allow Microphone, then press ⌃⌥S again")); return false
-        }
-        guard permissions.hasAccessibility else {
-            DictationPill.shared.show(.failed("Allow Accessibility to log recording clicks")); return false
-        }
+        guard permissions.hasScreenRecording else { return .screenRecording }
+        guard permissions.hasMicrophone else { return .microphone }
+        guard permissions.hasAccessibility else { return .accessibility }
+        return pointerScreen == nil ? .noDisplay : nil
+    }
+
+    private var pointerScreen: (screen: NSScreen, display: UInt32)? {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }),
-              let display = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32,
-              let token = lifecycle.begin() else { return false }
+              let display = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 else { return nil }
+        return (screen, display)
+    }
+
+    private func start() {
+        switch startBlocker {
+        case .busy?:
+            DictationPill.shared.show(.notice("Finish the current voice session first")); return
+        case .screenRecording?:
+            PermissionGate.shared.requestScreenCapturePermission()
+            DictationPill.shared.show(.failed("Allow Screen Recording, then press ⌃⌥S again")); return
+        case .microphone?:
+            PermissionGate.shared.requestMicrophonePermission()
+            DictationPill.shared.show(.failed("Allow Microphone, then press ⌃⌥S again")); return
+        case .accessibility?:
+            DictationPill.shared.show(.failed("Allow Accessibility to log recording clicks")); return
+        case .noDisplay?: return
+        case nil: break
+        }
+        guard let pointer = pointerScreen, let token = lifecycle.begin() else { return }
+        let screen = pointer.screen, display = pointer.display
         startedAt = ProcessInfo.processInfo.systemUptime
         createdAt = Date()
         _ = FlydState.shared.startInvocation()
@@ -73,7 +96,6 @@ final class ScrawlRecorder {
                        frame: .init(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bounds.height, scale: screen.backingScaleFactor))
         targetContext = DictationContextCapture(pid: app?.processIdentifier ?? 0, bundleId: app?.bundleIdentifier ?? "unknown")
         Task { await record(token: token, display: display, screen: screen) }
-        return true
     }
 
     private func record(token: UUID, display: UInt32, screen: NSScreen) async {
@@ -148,7 +170,7 @@ final class ScrawlRecorder {
 
     private func commitSegment() {
         segmentEnds[segmentIndex] = elapsed
-        if segmentBytes == 0 {
+        if segmentBytes < Self.minimumSegmentBytes {
             relays.removeValue(forKey: segmentIndex)?.disconnect()
             return
         }
@@ -231,7 +253,7 @@ final class ScrawlRecorder {
         guard case .recording = phase else { return }
         overlay?.ink.finishStroke()
         duration = elapsed
-        if let latest { select(latest, reason: "scene_change") }
+        if let latest { select(latest, reason: "final") }
         commitSegment()
         guard lifecycle.stop() else { return }
         stopCapture()
@@ -256,9 +278,10 @@ final class ScrawlRecorder {
         do {
             let directory = try ScrawlBundleWriter.write(manifest: manifest, frames: frames)
             let sheet = try Data(contentsOf: directory.appendingPathComponent("contact-sheet.png"))
-            ConversationWindow.shared.attachScrawl(path: directory.path, sheet: sheet)
             teardown()
-            DictationPill.shared.show(.notice("Recording attached. Ready when you are."))
+            ConversationWindow.shared.attachScrawl(path: directory.path, sheet: sheet) { attached in
+                DictationPill.shared.show(.notice(attached ? "Recording attached. Ready when you are." : "Recording saved. Send or remove an attachment to add it."))
+            }
         } catch { fail("Could not save recording: \(error.localizedDescription)") }
     }
 

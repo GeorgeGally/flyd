@@ -43,7 +43,7 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
     private var failure: String?
     /// The page has loaded the view; scripts queued before then run on load.
     private var pageReady = false
-    private var pendingScripts: [String] = []
+    private var pendingScripts: [(script: String, completion: ((Any?) -> Void)?)] = []
     private var voiceActive = false
 
     /// Push-to-talk (Fn+Control) as the page sees it.
@@ -182,10 +182,12 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         }
     }
 
-    func attachScrawl(path: String, sheet: Data) {
+    func attachScrawl(path: String, sheet: Data, completion: @escaping (Bool) -> Void) {
         _ = window ?? makeWindow()
         if webView?.url?.path != "/" { load() }
-        run("window.flydScrawl && window.flydScrawl(\(Self.jsString(path)), \(Self.jsString(sheet.base64EncodedString())))")
+        run("window.flydScrawl ? window.flydScrawl(\(Self.jsString(path)), \(Self.jsString(sheet.base64EncodedString()))) : false") { result in
+            completion(result as? Bool == true)
+        }
         show()
     }
 
@@ -196,12 +198,12 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         return String(array.dropFirst().dropLast())
     }
 
-    private func run(_ script: String) {
+    private func run(_ script: String, completion: ((Any?) -> Void)? = nil) {
         guard let webView, pageReady else {
-            pendingScripts.append(script)
+            pendingScripts.append((script, completion))
             return
         }
-        webView.evaluateJavaScript(script, completionHandler: nil)
+        webView.evaluateJavaScript(script) { result, _ in completion?(result) }
     }
 
     private func load() {
@@ -443,7 +445,7 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         pendingScripts = []
         // Give the page's own script a moment to connect before replaying.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            scripts.forEach { webView.evaluateJavaScript($0, completionHandler: nil) }
+            scripts.forEach { pending in webView.evaluateJavaScript(pending.script) { result, _ in pending.completion?(result) } }
         }
     }
 
