@@ -8,6 +8,8 @@ config({ path: resolvePath(join(process.cwd(), ".env")) });
 
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { resolveBuildCommit } from "./runtime/delivery-evidence.js";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { memoryGate, gateLearningCandidate } from "./memory-gate.js";
@@ -1209,10 +1211,6 @@ function handleDelegationCompletions(req: IncomingMessage, res: ServerResponse) 
 function handleHealth(_req: IncomingMessage, res: ServerResponse) {
   // `metrics` is counters only — privacy invariant #9 forbids string fields in telemetry.
   // `buildCommit` is build identity, not telemetry: it carries no user-derived content.
-  let buildCommit: string | null = null;
-  try {
-    buildCommit = JSON.parse(readFileSync(new URL("./build-info.json", import.meta.url), "utf8")).buildCommit ?? null;
-  } catch {}
   sendJson(res, 200, { status: "ok", version: "1.0", buildCommit, metrics: overlayMetricsSnapshot() });
 }
 
@@ -1262,13 +1260,15 @@ async function handleTts(req: IncomingMessage, res: ServerResponse) {
 }
 
 let serverInstance: ReturnType<typeof createServer> | null = null;
+let buildCommit: string | null = null;
 let releaseDesktopOwner: (() => void) | undefined;
 
-export async function startServer(port = 4815, host = "127.0.0.1"): Promise<void> {
+export async function startServer(port = 4815, host = "127.0.0.1", options: { sourceDir?: string } = {}): Promise<void> {
   const { acquireDesktopOwner } = await import("./mobile/owner.js");
   if (serverInstance || releaseDesktopOwner) {
     throw new Error("Server is already running");
   }
+  buildCommit = resolveBuildCommit(options.sourceDir ?? fileURLToPath(new URL("..", import.meta.url)));
 
   releaseDesktopOwner = acquireDesktopOwner(process.env.FLYD_DIR || join(homedir(), ".flyd"));
 

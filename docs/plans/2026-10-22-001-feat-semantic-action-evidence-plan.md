@@ -37,9 +37,10 @@ assessment is needed; there is no need for a seventh evidence-kind set.
 3. At high-value conversation tool boundaries, attach deterministic
    expectations and observations from tool/verifier results. Tool success or a
    worker report without independent evidence cannot mean verified completion.
-4. Expose the running Core build commit through `/health`, stamped into the
-   built artifact. Assess delivery as unknown unless the observed running build
-   contains the merged PR commit. A merged PR whose commit is absent from that
+4. Expose the running Core build commit through `/health`, stamped at Core
+   startup from its checkout's HEAD (null when tracked source is dirty). Assess
+   delivery as unknown unless the observed running build contains the merged PR
+   commit (git ancestry). A merged PR whose commit is absent from that
    build is missed/unknown, never completed.
 5. Add focused tests, including an end-to-end merged-PR/stale-running-build
    case. Preserve private payload minimization.
