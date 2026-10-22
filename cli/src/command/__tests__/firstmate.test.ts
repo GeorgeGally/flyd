@@ -1,6 +1,6 @@
 import { parseExecutiveDecision } from "../../intelligence/executive/decision-step.js";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -643,10 +643,12 @@ describe("FirstMate domain transport", () => {
     return helper;
   }
 
-  function sleeper(): { child: ChildProcess; startedAt: string } {
+  function sleeper(script = "setTimeout(() => {}, 60_000)"): { child: ChildProcess; startedAt: string } {
     const startedAt = new Date().toISOString();
-    return { child: spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], { stdio: "ignore" }), startedAt };
+    return { child: spawn(process.execPath, ["-e", script], { stdio: ["ignore", "pipe", "ignore"], detached: true }), startedAt };
   }
+
+  const exitSignal = (child: ChildProcess) => new Promise<NodeJS.Signals | null>((resolve) => child.once("exit", (_code, signal) => resolve(signal)));
 
   const recordedHelpers = (): unknown => JSON.parse(readFileSync(join(dir, "firstmate-helpers.json"), "utf8"));
   const stillRunning = (child: ChildProcess): boolean => child.exitCode === null && child.signalCode === null;
@@ -666,7 +668,7 @@ describe("FirstMate domain transport", () => {
     saveDomainRun(queuedRun());
     const home = join(dir, "firstmate-restart");
     const { child, startedAt } = sleeper();
-    const exited = new Promise<NodeJS.Signals | null>((resolve) => child.once("exit", (_code, signal) => resolve(signal)));
+    const exited = exitSignal(child);
     const locale = { LC_ALL: process.env.LC_ALL, LANG: process.env.LANG };
     process.env.LC_ALL = "de_DE.UTF-8";
     process.env.LANG = "de_DE.UTF-8";
@@ -675,6 +677,7 @@ describe("FirstMate domain transport", () => {
       const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-1") });
       await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
       expect(await exited).toBe("SIGTERM");
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:15.000Z") });
       expect(recordedHelpers()).toEqual([]);
       expect(existsSync(helper.log)).toBe(false);
     } finally {
@@ -682,6 +685,41 @@ describe("FirstMate domain transport", () => {
         if (value === undefined) delete process.env[name];
         else process.env[name] = value;
       }
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("replaces an idle helper holding back a note that belongs to no domain run", async () => {
+    const home = join(dir, "firstmate-view-note");
+    const { child, startedAt } = sleeper();
+    const exited = exitSignal(child);
+    try {
+      helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: liveHelperExec([{ id: "view-note", acknowledged: false, at: "2026-10-09T00:00:00.000Z" }]) });
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      expect(await exited).toBe("SIGTERM");
+      expect(unreadNoteSignals(home)).toEqual([["view-note"]]);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("stops an idle helper that ignores SIGTERM for good on a later tick", async () => {
+    saveDomainRun(queuedRun());
+    const home = join(dir, "firstmate-stubborn");
+    const { child, startedAt } = sleeper("process.on('SIGTERM', () => {}); console.log('ready'); setTimeout(() => {}, 60_000)");
+    await new Promise((resolve) => child.stdout!.once("data", resolve));
+    const exited = exitSignal(child);
+    try {
+      helperAfterRestart(home, { lockPid: child.pid!, helperPid: child.pid!, startedAt, lastWrite: "2026-10-09T00:00:00.000Z" });
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec: unreadNote("note-5") });
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(stillRunning(child)).toBe(true);
+      expect(recordedHelpers()).toEqual([expect.objectContaining({ pid: child.pid, stoppingAt: "2026-10-09T01:00:00.000Z" })]);
+      await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:15.000Z") });
+      expect(await exited).toBe("SIGKILL");
+    } finally {
       child.kill("SIGKILL");
     }
   });
@@ -708,6 +746,8 @@ describe("FirstMate domain transport", () => {
       await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:00:00.000Z") });
       expect(stillRunning(child)).toBe(true);
       expect(recordedHelpers()).toEqual([helper]);
+      expect(readFileSync(helper.log, "utf8")).toBe("");
+      expect(statSync(helper.log).mtime.toISOString()).toBe("2026-10-09T00:55:00.000Z");
     } finally {
       child.kill("SIGKILL");
     }

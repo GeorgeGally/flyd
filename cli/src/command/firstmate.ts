@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, truncateSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { firstmateHome } from "../lib/firstmate-home.js";
@@ -204,6 +204,7 @@ interface FirstmateHelper {
   startedAt: string;
   home: string;
   log: string;
+  stoppingAt?: string;
 }
 
 function helpersPath(): string {
@@ -237,6 +238,18 @@ function forgetHelpers(gone: (helper: FirstmateHelper) => boolean): void {
   if (kept.length === helpers.length) return;
   writeHelpers(kept);
   for (const helper of helpers) if (!kept.includes(helper)) removeLog(helper.log);
+}
+
+/** Empties a running helper's log so its words are not kept, leaving its last write time as the sign of work. */
+function scrubLog(log: string): void {
+  try {
+    const { atime, mtime, size } = statSync(log);
+    if (!size) return;
+    truncateSync(log, 0);
+    utimesSync(log, atime, mtime);
+  } catch {
+    return;
+  }
 }
 
 function removeLog(log: string): void {
@@ -277,7 +290,9 @@ async function liveHelpers(): Promise<FirstmateHelper[]> {
     if (started === null || Math.abs(started - Date.parse(helper.startedAt)) > HELPER_START_TOLERANCE_MS) ended.add(helper);
   }
   if (ended.size) forgetHelpers((helper) => [...ended].some((item) => item.pid === helper.pid && item.startedAt === helper.startedAt && item.home === helper.home));
-  return helpers.filter((helper) => !ended.has(helper));
+  const live = helpers.filter((helper) => !ended.has(helper));
+  for (const helper of live) scrubLog(helper.log);
+  return live;
 }
 
 /** Flyd's own helper, the very process it launched, when it still holds the lock but has written nothing for too long; a helper Flyd did not launch is never one. */
@@ -292,6 +307,18 @@ function idleHelper(helpers: FirstmateHelper[], home: string, nowMs: number): Fi
     return undefined;
   }
   return nowMs - lastWrite > SESSION_IDLE_MS ? helper : undefined;
+}
+
+/** Stops an idle helper's whole process group: politely first, then for good if it is still there on a later tick. Its record goes once the process is gone. */
+function stopHelper(helper: FirstmateHelper, nowMs: number): void {
+  try {
+    process.kill(-helper.pid, helper.stoppingAt ? "SIGKILL" : "SIGTERM");
+  } catch {
+    return;
+  }
+  if (!helper.stoppingAt) {
+    writeHelpers(readHelpers().map((item) => item.home === helper.home && item.pid === helper.pid && item.startedAt === helper.startedAt ? { ...item, stoppingAt: new Date(nowMs).toISOString() } : item));
+  }
 }
 
 function sessionRuntimes(env = process.env): SessionRuntime[] {
@@ -546,10 +573,6 @@ export async function syncFirstmateDomainRuns(options: {
   const transport = options.transport ?? new FirstmateDomainTransport();
   if (!transport.available()) return [];
   const helpers = await liveHelpers();
-  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !["completed", "failed", "cancelled"].includes(run.status));
-  if (!runs.length) return [];
-  const judge = options.judge ?? await defaultProseJudge();
-
   let receipts: FirstmateReceipts;
   try {
     receipts = await transport.receipts();
@@ -565,19 +588,16 @@ export async function syncFirstmateDomainRuns(options: {
   } else {
     for (const key of unreadSignals) if (key.startsWith(`${transport.home}:`)) unreadSignals.delete(key);
   }
-  const oldUnread = oldPending.length > 0;
-  if (oldUnread) {
-    const readiness = await transport.ready();
-    const idle = readiness.liveHarness ? idleHelper(helpers, transport.home, nowMs) : undefined;
-    if (idle) {
-      forgetHelpers((helper) => helper.home === idle.home && helper.pid === idle.pid);
-      try {
-        process.kill(idle.pid, "SIGTERM");
-      } catch {
-        return [];
-      }
-      return [];
-    }
+  const readiness = oldPending.length ? await transport.ready() : undefined;
+  const idle = readiness?.liveHarness ? idleHelper(helpers, transport.home, nowMs) : undefined;
+  if (idle) {
+    stopHelper(idle, nowMs);
+    return [];
+  }
+  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !["completed", "failed", "cancelled"].includes(run.status));
+  if (!runs.length) return [];
+  const judge = options.judge ?? await defaultProseJudge();
+  if (readiness) {
     if (readiness.canReceive === false && !readiness.liveHarness) {
       const pending = receipts.pending ?? [];
       const waitingRun = runs.find((run) => pending.some((note) => note.id === run.transport.externalId || note.request_id === run.transport.requestId));
