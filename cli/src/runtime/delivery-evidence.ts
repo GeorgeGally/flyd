@@ -10,3 +10,19 @@ export function assessDelivery(
     && runningHealth.buildCommit === pullRequest.mergeCommitSha;
   return { attribution: completed ? "direct_verified" : "unknown", completed };
 }
+
+export async function observeRunningBuild(coreUrl: string): Promise<{ buildCommit: string | null }> {
+  try {
+    const body = await (await fetch(`${coreUrl}/health`)).json() as { buildCommit?: unknown };
+    return { buildCommit: typeof body.buildCommit === "string" ? body.buildCommit : null };
+  } catch {
+    return { buildCommit: null };
+  }
+}
+
+export async function assessLiveDelivery(
+  pullRequest: { merged: boolean; mergeCommitSha: string | null },
+  coreUrl: string,
+): Promise<{ attribution: AttributionState; completed: boolean }> {
+  return assessDelivery(pullRequest, await observeRunningBuild(coreUrl));
+}

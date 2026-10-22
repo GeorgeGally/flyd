@@ -1207,7 +1207,8 @@ function handleDelegationCompletions(req: IncomingMessage, res: ServerResponse) 
 }
 
 function handleHealth(_req: IncomingMessage, res: ServerResponse) {
-  // Counters only — privacy invariant #9 forbids string fields in telemetry.
+  // `metrics` is counters only — privacy invariant #9 forbids string fields in telemetry.
+  // `buildCommit` is build identity, not telemetry: it carries no user-derived content.
   let buildCommit: string | null = null;
   try {
     buildCommit = JSON.parse(readFileSync(new URL("./build-info.json", import.meta.url), "utf8")).buildCommit ?? null;
