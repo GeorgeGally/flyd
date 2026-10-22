@@ -39,7 +39,7 @@ describe("buildConversationPrompt", () => {
       expect(capture).not.toHaveBeenCalled();
     } finally { capture.mockRestore(); }
   });
-  it("records a conversation turn's tool expectation and the observed tool results on its correlated transition", async () => {
+  it("records a conversation turn's planned expectation and the observed tool results on its correlated transition", async () => {
     const root = mkdtempSync(join(tmpdir(), "flyd-turn-transition-"));
     const dbPath = join(root, "intelligence.sqlite");
     configureTransitionStore({ dbPath, registryPath: join(root, "transition-registry.json") });
@@ -53,6 +53,7 @@ describe("buildConversationPrompt", () => {
         onToken: () => undefined,
       }, {
         routeTurn: async () => null,
+        readRoom: async () => ({ need: "ask", mode: "operator", route: "answer", cover: ["which files are in this folder"], stance: "Look.", avoid: "", length: "short", use: [], raise: null, act: null }),
         runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
           await onToolCall("list_files", { path: "." });
           await onToolCall("no_such_tool", {});
@@ -67,7 +68,7 @@ describe("buildConversationPrompt", () => {
         const action = events.find((event) => event.idempotencyKey.startsWith("action:"));
         const next = events.find((event) => event.idempotencyKey.startsWith("next:"));
         expect((action?.payload as { action: { expectedEffect?: string } }).action.expectedEffect)
-          .toBe("tool calls succeed: list_files, no_such_tool");
+          .toBe("answer: which files are in this folder");
         expect((next?.payload as { nextState: { signal: string; observedEffect?: string } }).nextState)
           .toMatchObject({ signal: "succeeded", observedEffect: "1/2 tool calls succeeded" });
       } finally { store.close(); }
