@@ -6,10 +6,10 @@ final class ScrawlRecorder {
     static let shared = ScrawlRecorder()
     // Legacy invocation entry points run on the main dispatch queue.
     nonisolated static var blocksInvocation: Bool { MainActor.assumeIsolated { shared.isActive } }
-    private enum Phase { case idle, starting, recording, finishing }
-    private var phase: Phase = .idle
-    var isActive: Bool { if case .idle = phase { return false }; return true }
-    private var generation = UUID()
+    private var lifecycle = ScrawlLifecycle()
+    private var phase: ScrawlLifecycle.Phase { lifecycle.phase }
+    var isActive: Bool { lifecycle.isActive }
+    private var generation: UUID? { lifecycle.token }
     private var startedAt = 0.0
     private var duration = 0
     private var createdAt = Date()
@@ -61,9 +61,7 @@ final class ScrawlRecorder {
         }
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }),
               let display = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 else { return }
-        phase = .starting
-        generation = UUID()
-        let token = generation
+        guard let token = lifecycle.begin() else { return }
         startedAt = ProcessInfo.processInfo.systemUptime
         createdAt = Date()
         _ = FlydState.shared.startInvocation()
@@ -74,11 +72,14 @@ final class ScrawlRecorder {
                        frame: .init(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bounds.height, scale: screen.backingScaleFactor))
         targetContext = DictationContextCapture(pid: app?.processIdentifier ?? 0, bundleId: app?.bundleIdentifier ?? "unknown")
         do {
-            try await ScreenCaptureManager.shared.startRecording(displayID: display) { [weak self] image in
-                guard let self, self.generation == token else { return }
+            try await ScreenCaptureManager.shared.startRecording(displayID: display, onFrame: { [weak self] image in
+                guard let self, self.lifecycle.acceptsFrame(token) else { return }
                 self.receive(image)
-            }
-            guard generation == token, case .starting = phase else { ScreenCaptureManager.shared.stop(); return }
+            }, onError: { [weak self] message in
+                guard let self, self.lifecycle.accepts(token) else { return }
+                self.fail("Screen recording stopped: \(message)")
+            })
+            guard lifecycle.didStart(token) else { return }
             let overlay = ScrawlOverlay(screen: screen)
             overlay.ink.now = { [weak self] in self?.elapsed ?? 0 }
             overlay.ink.onStroke = { [weak self] stroke in self?.marked(stroke) }
@@ -86,7 +87,6 @@ final class ScrawlRecorder {
             overlay.onCancel = { [weak self] in self?.cancel() }
             self.overlay = overlay
             overlay.show()
-            phase = .recording
             openSegment()
             VoiceCapture.shared.onAudioChunk = { [weak self] data in
                 DispatchQueue.main.async {
@@ -114,12 +114,15 @@ final class ScrawlRecorder {
                     if self.elapsed >= 300_000 { self.stop() }
                 }
             }
-        } catch { fail(error.localizedDescription) }
+        } catch {
+            guard lifecycle.accepts(token) else { return }
+            fail(error.localizedDescription)
+        }
     }
 
     private func openSegment() {
         let index = segmentIndex
-        let token = generation
+        guard let token = generation else { return }
         segmentBytes = 0
         segments[index] = .init(t0: elapsed, t1: elapsed, text: "")
         let relay = VoiceTranscriptionRelay()
@@ -224,7 +227,7 @@ final class ScrawlRecorder {
         duration = elapsed
         if let latest { select(latest, reason: "scene_change") }
         commitSegment()
-        phase = .finishing
+        guard lifecycle.stop() else { return }
         stopCapture()
         DictationPill.shared.show(.notice("Preparing recording…"))
         if relays.isEmpty { finish(); return }
@@ -265,14 +268,13 @@ final class ScrawlRecorder {
         VoiceCapture.shared.onError = nil
     }
     private func teardown() {
-        generation = UUID()
+        lifecycle.end()
         stopCapture()
         finishTimeout?.cancel(); finishTimeout = nil
         for relay in relays.values { relay.disconnect() }
         relays = [:]; segments = [:]; segmentEnds = [:]
         frames = []; strokes = []; marks = []; clicks = []; latest = nil; previousThumbnail = []
         targetContext = nil; target = nil; transcriptionFailure = nil; segmentIndex = 0
-        phase = .idle
         InvocationStateMachine.shared.endDictationGesture()
         FlydState.shared.cancelInvocation()
     }

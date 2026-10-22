@@ -3,6 +3,59 @@ import Testing
 @testable import FlydMacAdapter
 
 struct ScrawlTests {
+    @Test func stopWaitsForTranscriptAndRevokesFramesUntilCompletion() throws {
+        var lifecycle = ScrawlLifecycle()
+        let begun = lifecycle.begin()
+        let token = try #require(begun)
+        #expect(lifecycle.phase == .starting)
+        let refusedBegin = lifecycle.begin()
+        #expect(refusedBegin == nil)
+        let started = lifecycle.didStart(token)
+        #expect(started)
+        #expect(lifecycle.acceptsFrame(token))
+        let stopped = lifecycle.stop()
+        #expect(stopped)
+        #expect(lifecycle.phase == .finishing)
+        #expect(!lifecycle.acceptsFrame(token))
+        #expect(lifecycle.accepts(token))
+        let duplicateStop = lifecycle.stop()
+        #expect(!duplicateStop)
+        let refusedDuringFinish = lifecycle.begin()
+        #expect(refusedDuringFinish == nil)
+        lifecycle.end()
+        #expect(!lifecycle.accepts(token))
+        #expect(!lifecycle.isActive)
+    }
+
+    @Test func cancelledStartupCannotReviveOrStopANewerRecording() throws {
+        var lifecycle = ScrawlLifecycle()
+        let first = lifecycle.begin()
+        let cancelled = try #require(first)
+        lifecycle.end()
+        let second = lifecycle.begin()
+        let current = try #require(second)
+        let lateStartup = lifecycle.didStart(cancelled)
+        #expect(!lateStartup)
+        #expect(!lifecycle.accepts(cancelled))
+        #expect(!lifecycle.acceptsFrame(cancelled))
+        #expect(lifecycle.phase == .starting)
+        let started = lifecycle.didStart(current)
+        #expect(started)
+        #expect(lifecycle.acceptsFrame(current))
+        lifecycle.end()
+        #expect(!lifecycle.accepts(current))
+        #expect(lifecycle.phase == .idle)
+    }
+
+    @Test @MainActor func cancellingAnIdleRecorderDoesNotCancelAnotherInvocation() {
+        let state = FlydState.shared
+        let invocation = state.startInvocation().invocationId
+        defer { state.cancelInvocation() }
+        ScrawlRecorder.shared.cancel()
+        #expect(state.invocationId == invocation)
+        #expect(state.mode == .invoked)
+    }
+
     @Test func shortcutTogglesOncePerPressAndDoesNotMatchOtherChords() {
         var state = ShortcutRoutingState()
         let chord: CGEventFlags = [.maskAlternate, .maskShift]

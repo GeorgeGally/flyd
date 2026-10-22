@@ -14,6 +14,8 @@ final class ScreenCaptureManager {
 
     private var stream: SCStream?
     private var streamOutput: CaptureOutput?
+    private var recordingDelegate: RecordingStreamDelegate?
+    private var recordingRequest: UUID?
 
     func captureScreenshot() async -> CGImage? {
         guard PermissionGate.shared.hasScreenRecording else { return nil }
@@ -70,14 +72,21 @@ final class ScreenCaptureManager {
     }
 
     /// Explicit recording only. The selected display stays fixed for the session.
-    func startRecording(displayID: CGDirectDisplayID, onFrame: @escaping (CGImage) -> Void) async throws {
+    @MainActor
+    func startRecording(displayID: CGDirectDisplayID, onFrame: @escaping (CGImage) -> Void, onError: @escaping (String) -> Void) async throws {
         guard PermissionGate.shared.hasScreenRecording else {
             throw NSError(domain: "Flyd.Scrawl", code: 1, userInfo: [NSLocalizedDescriptionKey: "Screen Recording permission required"])
         }
-        guard stream == nil else {
+        guard stream == nil, recordingRequest == nil else {
             throw NSError(domain: "Flyd.Scrawl", code: 2, userInfo: [NSLocalizedDescriptionKey: "Screen capture is already in use"])
         }
+        let request = UUID()
+        recordingRequest = request
+        defer {
+            if stream == nil, recordingRequest == request { recordingRequest = nil }
+        }
         let content = try await SCShareableContent.current
+        guard recordingRequest == request else { throw CancellationError() }
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
             throw NSError(domain: "Flyd.Scrawl", code: 3, userInfo: [NSLocalizedDescriptionKey: "The recording display is unavailable"])
         }
@@ -92,14 +101,23 @@ final class ScreenCaptureManager {
         config.queueDepth = 2
         config.showsCursor = false
         let output = CaptureOutput { image in if let image { onFrame(image) } }
-        let recording = SCStream(filter: filter, configuration: config, delegate: nil)
+        let delegate = RecordingStreamDelegate { [weak self] failedStream, error in
+            guard let self, self.stream === failedStream else { return }
+            self.stop()
+            onError(error.localizedDescription)
+        }
+        let recording = SCStream(filter: filter, configuration: config, delegate: delegate)
         try recording.addStreamOutput(output, type: .screen, sampleHandlerQueue: .main)
         stream = recording
         streamOutput = output
+        recordingDelegate = delegate
         capturedDisplayID = "\(displayID)"
         capturedDisplayBounds = CGDisplayBounds(displayID)
         do { try await recording.startCapture() }
-        catch { stop(); throw error }
+        catch {
+            if stream === recording { stop() }
+            throw error
+        }
     }
 
     func stop() {
@@ -109,6 +127,16 @@ final class ScreenCaptureManager {
         }
         stream = nil
         streamOutput = nil
+        recordingDelegate = nil
+        recordingRequest = nil
+    }
+}
+
+private final class RecordingStreamDelegate: NSObject, SCStreamDelegate {
+    private let onError: (SCStream, Error) -> Void
+    init(onError: @escaping (SCStream, Error) -> Void) { self.onError = onError }
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        DispatchQueue.main.async { self.onError(stream, error) }
     }
 }
 
