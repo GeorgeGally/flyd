@@ -44,6 +44,7 @@ enum ShortcutRouter {
     /// Maximum gap between the first tap's release and the second press to count as a double-tap.
     static let doubleTapWindow: TimeInterval = 0.4
     static let escapeKeyCode: CGKeyCode = 53
+    static let scrawlKeyCode: CGKeyCode = 1
 
     static let ctrlPressWindow: TimeInterval = 0.4
     static let ctrlSequenceTimeout: TimeInterval = 0.8
@@ -56,10 +57,11 @@ enum ShortcutRouter {
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) -> [ShortcutRouteEvent] {
         switch eventType {
-        case .keyUp where keyCode == 1:
+        case .keyUp where keyCode == scrawlKeyCode:
             state.scrawlDown = false
             return []
-        case .keyDown where keyCode == 1 && flags.intersection(gestureFlags) == [.maskAlternate, .maskShift]:
+        case .keyDown where keyCode == scrawlKeyCode && flags.intersection(gestureFlags) == [.maskControl, .maskAlternate]:
+            state.ctrlPressCount = 0
             guard !state.scrawlDown else { return [] }
             state.scrawlDown = true
             return [.scrawlToggle]
@@ -180,7 +182,7 @@ enum ShortcutRouter {
             && !flags.contains(.maskShift)
             && !flags.contains(.maskSecondaryFn)
             && !flags.contains(.maskAlternate)
-        defer { state.ctrlWasDown = ctrlDown }
+        defer { state.ctrlWasDown = flags.contains(.maskControl) }
 
         if ctrlDown && !state.ctrlWasDown {
             if let lastCtrl = state.lastCtrlDownAt, now - lastCtrl <= ctrlPressWindow {
@@ -232,10 +234,10 @@ struct KeyEventFilter {
             }
             fnPressDropped = false
             return false
-        case .keyDown where keyCode == 1:
+        case .keyDown where keyCode == ShortcutRouter.scrawlKeyCode:
             if routed.contains(.scrawlToggle) { scrawlDownDropped = true }
             return scrawlDownDropped
-        case .keyUp where keyCode == 1:
+        case .keyUp where keyCode == ShortcutRouter.scrawlKeyCode:
             defer { scrawlDownDropped = false }
             return scrawlDownDropped
         case .keyDown where keyCode == ShortcutRouter.escapeKeyCode:

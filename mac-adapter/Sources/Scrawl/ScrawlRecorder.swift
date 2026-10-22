@@ -34,34 +34,35 @@ final class ScrawlRecorder {
 
     private var elapsed: Int { max(0, Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) }
 
-    func toggle() {
+    /// Returns whether the press started or stopped a recording.
+    func toggle() -> Bool {
         switch phase {
-        case .idle: Task { @MainActor in await start() }
-        case .recording: stop()
-        case .starting, .finishing: break
+        case .idle: return start()
+        case .recording: stop(); return true
+        case .starting, .finishing: return false
         }
     }
 
-    private func start() async {
+    private func start() -> Bool {
         guard !isActive, FlydState.shared.mode == .present, FlydState.shared.phase == .idle,
               !VoiceCapture.shared.isActive, DictationController.shared.isIdle else {
-            DictationPill.shared.show(.notice("Finish the current voice session first")); return
+            DictationPill.shared.show(.notice("Finish the current voice session first")); return false
         }
         let permissions = PermissionGate.shared
         guard permissions.hasScreenRecording else {
             permissions.requestScreenCapturePermission()
-            DictationPill.shared.show(.failed("Allow Screen Recording, then press ⌥⇧S again")); return
+            DictationPill.shared.show(.failed("Allow Screen Recording, then press ⌃⌥S again")); return false
         }
         guard permissions.hasMicrophone else {
             permissions.requestMicrophonePermission()
-            DictationPill.shared.show(.failed("Allow Microphone, then press ⌥⇧S again")); return
+            DictationPill.shared.show(.failed("Allow Microphone, then press ⌃⌥S again")); return false
         }
         guard permissions.hasAccessibility else {
-            DictationPill.shared.show(.failed("Allow Accessibility to log recording clicks")); return
+            DictationPill.shared.show(.failed("Allow Accessibility to log recording clicks")); return false
         }
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }),
-              let display = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 else { return }
-        guard let token = lifecycle.begin() else { return }
+              let display = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32,
+              let token = lifecycle.begin() else { return false }
         startedAt = ProcessInfo.processInfo.systemUptime
         createdAt = Date()
         _ = FlydState.shared.startInvocation()
@@ -71,6 +72,11 @@ final class ScrawlRecorder {
         target = .init(app: app?.localizedName ?? "Screen", bundleId: app?.bundleIdentifier ?? "unknown", displayId: display,
                        frame: .init(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bounds.height, scale: screen.backingScaleFactor))
         targetContext = DictationContextCapture(pid: app?.processIdentifier ?? 0, bundleId: app?.bundleIdentifier ?? "unknown")
+        Task { await record(token: token, display: display, screen: screen) }
+        return true
+    }
+
+    private func record(token: UUID, display: UInt32, screen: NSScreen) async {
         do {
             try await ScreenCaptureManager.shared.startRecording(displayID: display, onFrame: { [weak self] image in
                 guard let self, self.lifecycle.acceptsFrame(token) else { return }

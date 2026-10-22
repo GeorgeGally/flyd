@@ -254,7 +254,7 @@ func startFlyd(closeSetup: Bool = true) {
     stateMachine.onDictationCancel = {
         dictation.cancel()
     }
-    stateMachine.onScrawlToggle = { Task { @MainActor in ScrawlRecorder.shared.toggle() } }
+    stateMachine.onScrawlToggle = { MainActor.assumeIsolated { ScrawlRecorder.shared.toggle() } }
     stateMachine.onLiveToggle = {
         guard !ScrawlRecorder.blocksInvocation else { return }
         LiveSessionController.shared.handleToggle()

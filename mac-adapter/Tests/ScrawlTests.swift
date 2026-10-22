@@ -58,12 +58,13 @@ struct ScrawlTests {
 
     @Test func shortcutTogglesOncePerPressAndDoesNotMatchOtherChords() {
         var state = ShortcutRoutingState()
-        let chord: CGEventFlags = [.maskAlternate, .maskShift]
+        let chord: CGEventFlags = [.maskControl, .maskAlternate]
         #expect(ShortcutRouter.route(eventType: .keyDown, flags: chord, keyCode: 1, state: &state) == [.scrawlToggle])
         #expect(ShortcutRouter.route(eventType: .keyDown, flags: chord, keyCode: 1, state: &state).isEmpty)
         #expect(ShortcutRouter.route(eventType: .keyUp, flags: [], keyCode: 1, state: &state).isEmpty)
         #expect(ShortcutRouter.route(eventType: .keyDown, flags: chord, keyCode: 1, state: &state) == [.scrawlToggle])
         #expect(ShortcutRouter.route(eventType: .keyDown, flags: chord.union(.maskCommand), keyCode: 1, state: &state).isEmpty)
+        #expect(ShortcutRouter.route(eventType: .keyDown, flags: [.maskAlternate, .maskShift], keyCode: 1, state: &state).isEmpty)
         var filter = KeyEventFilter()
         let dropped1 = filter.shouldDrop(eventType: .keyDown, keyCode: 1, flags: chord, routed: [.scrawlToggle])
         #expect(dropped1)
@@ -71,6 +72,25 @@ struct ScrawlTests {
         #expect(dropped2)
         let dropped3 = !filter.shouldDrop(eventType: .keyDown, keyCode: 1, flags: [], routed: [])
         #expect(dropped3)
+        let ignoredPress = filter.shouldDrop(eventType: .keyDown, keyCode: 1, flags: chord, routed: [])
+        let ignoredRelease = filter.shouldDrop(eventType: .keyUp, keyCode: 1, flags: chord, routed: [])
+        #expect(!ignoredPress && !ignoredRelease)
+    }
+
+    @Test func shortcutPressesDoNotCountTowardControlTriple() {
+        var state = ShortcutRoutingState()
+        var events: [ShortcutRouteEvent] = []
+        for start in [0.0, 0.2] {
+            events += ShortcutRouter.route(eventType: .flagsChanged, flags: [.maskControl], state: &state, now: start)
+            events += ShortcutRouter.route(eventType: .flagsChanged, flags: [.maskControl, .maskAlternate], state: &state, now: start + 0.02)
+            events += ShortcutRouter.route(eventType: .keyDown, flags: [.maskControl, .maskAlternate], keyCode: 1, state: &state, now: start + 0.04)
+            events += ShortcutRouter.route(eventType: .keyUp, flags: [.maskControl, .maskAlternate], keyCode: 1, state: &state, now: start + 0.06)
+            events += ShortcutRouter.route(eventType: .flagsChanged, flags: [.maskControl], state: &state, now: start + 0.08)
+            events += ShortcutRouter.route(eventType: .flagsChanged, flags: [], state: &state, now: start + 0.1)
+        }
+        events += ShortcutRouter.route(eventType: .flagsChanged, flags: [.maskControl], state: &state, now: 0.35)
+        events += ShortcutRouter.route(eventType: .flagsChanged, flags: [], state: &state, now: 0.37)
+        #expect(events == [.scrawlToggle, .scrawlToggle])
     }
 
     @Test func sceneChangesIgnoreIdenticalFramesAndCatchLocalizedChanges() {

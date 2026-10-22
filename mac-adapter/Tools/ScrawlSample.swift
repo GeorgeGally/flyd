@@ -14,7 +14,7 @@ struct ScrawlSample {
         window.title = "Flyd Scrawl · native capture check"
         window.center()
         let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 980, height: 620))
-        text.string = "Flyd's own Scrawl\n\nScreen, voice and ink in one recording.\n\nOption-Shift-S starts and stops.\nDraw marks what needs attention.\nClicks stay on the timeline.\n\nThe recording waits in the message box.\nSend files it when you're ready."
+        text.string = "Flyd's own Scrawl\n\nScreen, voice and ink in one recording.\n\nControl-Option-S starts and stops.\nDraw marks what needs attention.\nClicks stay on the timeline.\n\nThe recording waits in the message box.\nSend files it when you're ready."
         text.font = .systemFont(ofSize: 27)
         text.textColor = .textColor
         text.textContainerInset = NSSize(width: 64, height: 56)

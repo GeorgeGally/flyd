@@ -69,7 +69,7 @@ final class InvocationStateMachine {
     var onDictationStart: (() -> Void)?
     var onDictationStop: (() -> Void)?
     var onDictationCancel: (() -> Void)?
-    var onScrawlToggle: (() -> Void)?
+    var onScrawlToggle: (() -> Bool)?
     var onLiveToggle: (() -> Void)?
     var onIntentReady: ((String, EnvironmentState, InvocationFingerprint) -> Void)?
     var onCancelled: (() -> Void)?
@@ -374,7 +374,8 @@ private struct KeyboardMonitorSnapshot: Encodable {
 }
 
 private extension InvocationStateMachine {
-    func dispatch(_ routeEvent: ShortcutRouteEvent) {
+    /// Returns false when the event was not acted on, so its key passes through.
+    func dispatch(_ routeEvent: ShortcutRouteEvent) -> Bool {
         ShortcutLog.record("event \(routeEvent)")
         switch routeEvent {
         case .textTapped:
@@ -399,11 +400,12 @@ private extension InvocationStateMachine {
         case .dictationCancel:
             DispatchQueue.main.async { self.onDictationCancel?() }
         case .scrawlToggle:
-            DispatchQueue.main.async { self.onScrawlToggle?() }
+            return onScrawlToggle?() ?? false
         case .liveToggle:
-            guard FlydState.shared.mode != .invoked else { return }
+            guard FlydState.shared.mode != .invoked else { return true }
             DispatchQueue.main.async { self.onLiveToggle?() }
         }
+        return true
     }
 }
 
@@ -434,10 +436,7 @@ private func stateMachineEventCallback(
             flags: flags,
             keyCode: keyCode,
             state: &machine.shortcutRoutingState
-        )
-        for routeEvent in routeEvents {
-            machine.dispatch(routeEvent)
-        }
+        ).filter { machine.dispatch($0) }
         if machine.keyEventFilter.shouldDrop(eventType: type, keyCode: keyCode, flags: flags, routed: routeEvents) {
             return nil
         }

@@ -78,7 +78,7 @@ final class ScrawlOverlay {
         timeLabel.textColor = .systemRed
         timeLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         drawButton = NSButton(title: "Draw", target: nil, action: nil)
-        let stop = NSButton(title: "Stop ⌥⇧S", target: nil, action: nil)
+        let stop = NSButton(title: "Stop ⌃⌥S", target: nil, action: nil)
         let cancel = NSButton(title: "Cancel", target: nil, action: nil)
         let stack = NSStackView(views: [timeLabel, drawButton, stop, cancel])
         stack.spacing = 16
