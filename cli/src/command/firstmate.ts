@@ -350,7 +350,7 @@ function sessionChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return childEnv;
 }
 
-/** Appends one JSONL line to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): a launch attempt `{ at, runtime, outcome: "started" | "usage_limited" | "failed", detail? }` or a note left unread too long `{ at, kind: "unread_note", home, notes }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
+/** Appends one JSONL line to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): a launch attempt `{ at, runtime, outcome: "started" | "usage_limited" | "failed", detail? }` or a note left unread too long `{ at, kind: "unread_note", home, notes }`, or relaunches for notes outside any domain run backing off to their cap `{ at, kind: "unread_relaunch_capped", home, notes }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
 function recordSessionAttempt(entry: Record<string, unknown>): void {
   try {
     const path = join(process.env.FLYD_SELF_REVIEW_DIR?.trim() || join(FLYD_DIR, "self-review"), "firstmate-session.jsonl");
@@ -618,7 +618,7 @@ export async function syncFirstmateDomainRuns(options: {
           const attempts = (retry?.attempts ?? 0) + 1;
           const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
           const capped = delay === LAUNCH_RETRY_MAX_MS;
-          if (capped && !retry?.capped) recordSessionAttempt({ kind: "unread_note", home: transport.home, notes: oldPending.map((note) => note.id), launchRetryCapped: true });
+          if (capped && !retry?.capped) recordSessionAttempt({ kind: "unread_relaunch_capped", home: transport.home, notes: oldPending.map((note) => note.id) });
           runlessRetry.set(transport.home, { attempts, nextAt: nowMs + delay, capped });
         }
         const session = await transport.startSession(readiness, waitingRun ? (failure) => suspendFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined }));

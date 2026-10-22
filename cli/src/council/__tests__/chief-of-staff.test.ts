@@ -490,6 +490,19 @@ describe("the review pass", () => {
     });
   });
 
+  it("says apart that relaunching for unread notes has backed off to its cap, without recounting them as unread", () => {
+    mkdirSync(reviewDir, { recursive: true });
+    writeFileSync(join(reviewDir, "firstmate-session.jsonl"), [
+      { at: "2026-10-14T08:10:00.000Z", kind: "unread_note", home: "/fm", notes: ["view-note"] },
+      { at: "2026-10-14T09:00:00.000Z", kind: "unread_relaunch_capped", home: "/fm", notes: ["view-note", "view-note-2"] },
+    ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    const evidence = reviewEvidence("2026-10-01T00:00:00.000Z", reviewDir).filter((item) => item.id.startsWith("firstmate-"));
+    expect(evidence).toEqual([
+      { id: "firstmate-unread:2026-10-14T08:10:00.000Z", kind: "domain", at: "2026-10-14T08:10:00.000Z", text: "FirstMate left 1 of Flyd's note unread for over 3 minutes." },
+      { id: "firstmate-relaunch-capped:2026-10-14T09:00:00.000Z", kind: "domain", at: "2026-10-14T09:00:00.000Z", text: "Relaunching FirstMate for 2 of Flyd's notes still unread has backed off to once every 30 minutes." },
+    ]);
+  });
+
   it("reviews each thing George was shown once and feeds the improver", async () => {
     const now = () => new Date("2026-10-14T09:00:00.000Z");
     const review = async (said: Parameters<typeof checkSaid>[0]) => checkSaid(said);

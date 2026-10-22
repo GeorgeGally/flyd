@@ -736,8 +736,8 @@ describe("FirstMate domain transport", () => {
     expect(launches).toEqual([0, 5, 10, 18, 34, 64]);
     const capped = () => {
       const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
-      return readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { home?: string; launchRetryCapped?: boolean })
-        .filter((entry) => entry.home === home && entry.launchRetryCapped);
+      return readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { home?: string; kind?: string })
+        .filter((entry) => entry.home === home && entry.kind === "unread_relaunch_capped");
     };
     expect(capped()).toHaveLength(1);
 
