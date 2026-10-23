@@ -6,12 +6,13 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renam
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { shortConversationTitle } from "./session-title.js";
 import { clipKeepingLinks } from "./line-links.js";
 import { answerBody, plainAnswer, type AnswerBody } from "./answer-form.js";
 import { answeringLine } from "./living.js";
 import { MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
 import { isPlaceholderStatus, relayStatus, type InFlightTool } from "./status-text.js";
-import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage } from "./types.js";
+import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
 import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
 import type { RouteReading } from "../runtime/turn-plan.js";
 import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
@@ -53,6 +54,7 @@ async function defaultDeskPrediction(text: string, recent: ConversationMessage[]
 const ROUTE_TIMEOUT_MS = 8_000;
 const RECENT_FOR_ROUTE = 4;
 const HISTORY_EXCHANGES = 4;
+const DAY_PREFIX = "day:";
 const MAX_ERROR_CHARS = 160;
 const MAX_STEP_CHARS = 90;
 
@@ -195,6 +197,17 @@ export function defaultAsksDir(): string {
   return join(homedir(), ".flyd", "view", "asks");
 }
 
+/** The conversation a record belongs to: its own session, or for the old single thread, the calendar day it was asked on. */
+function conversationOf(record: AskRecord): string {
+  if (record.sessionId && record.sessionId !== "conversation") return record.sessionId;
+  const at = new Date(record.at);
+  return `${DAY_PREFIX}${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+}
+
+function dayLabel(at: string): string {
+  return new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export class FlydDesk {
   private readonly dir: string;
   private readonly answerer: Answerer;
@@ -213,11 +226,31 @@ export class FlydDesk {
   /** The project of the newest turn in the session that has one: his asks to Flyd and his messages passed to firstmate alike. */
   project(sessionId: string): string | undefined {
     const turns = [
-      ...this.records().filter((record) => (record.sessionId ?? "conversation") === sessionId && record.understanding?.project)
+      ...this.recordsForSession(sessionId).filter((record) => record.understanding?.project)
         .map((record) => ({ at: record.at, project: record.understanding!.project! })),
       ...this.routedTurns().filter((turn) => turn.sessionId === sessionId),
     ];
     return turns.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1)?.project;
+  }
+
+  /** Every conversation he has had with Flyd, newest first: one per session, and the old single thread one per calendar day. */
+  historySessions(): SessionSummary[] {
+    const threads = new Map<string, AskRecord[]>();
+    for (const record of this.records()) {
+      const id = conversationOf(record);
+      threads.set(id, [...(threads.get(id) ?? []), record]);
+    }
+    return [...threads].map(([id, thread]) => this.summary(id, thread))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  }
+
+  private summary(id: string, thread: AskRecord[]): SessionSummary {
+    const first = thread[0]!;
+    const opening = shortConversationTitle(first.text);
+    const title = id.startsWith(DAY_PREFIX) ? `${opening} · ${dayLabel(first.at)}` : opening;
+    const latest = thread.reduce((newest, record) => Date.parse(record.answeredAt ?? record.at) > Date.parse(newest.answeredAt ?? newest.at) ? record : newest, first);
+    const project = [...thread].reverse().map((record) => record.understanding?.project).find((name): name is string => Boolean(name));
+    return { id, title, updatedAt: latest.answeredAt ?? latest.at, ...(project ? { project } : {}) };
   }
 
   /** Keeps the project a message passed to firstmate names, beside the asks, so the badge follows it across restarts. */
@@ -284,6 +317,10 @@ export class FlydDesk {
     return records.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   }
 
+  private recordsForSession(sessionId: string): AskRecord[] {
+    return this.records().filter((record) => conversationOf(record) === sessionId);
+  }
+
   private read(name: string): AskRecord | null {
     const path = join(this.dir, name);
     let stamp: string;
@@ -311,8 +348,9 @@ export class FlydDesk {
     const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
     const kept = this.keepImages(id, images);
     let record: AskRecord = { id, sessionId, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}) };
-    const history = this.records()
-      .filter((earlier) => earlier.answer && (earlier.sessionId ?? "conversation") === sessionId)
+    const conversation = conversationOf(record);
+    const history = this.recordsForSession(conversation)
+      .filter((earlier) => earlier.answer)
       .slice(-HISTORY_EXCHANGES)
       .flatMap((earlier) => [
         { role: "user" as const, content: asAsked(earlier) },
@@ -337,10 +375,10 @@ export class FlydDesk {
     };
     const turn = {
       source: { turnId: `ask:${id}`, sessionId: `view:${sessionId}`, surface: "view" as const, text: record.text,
-        context: this.records().filter(earlier => (earlier.sessionId ?? "conversation") === sessionId && earlier.id !== id)
+        context: this.recordsForSession(conversation).filter(earlier => earlier.id !== id)
           .slice(-4).map(earlier => ({ ref: `ask:${earlier.id}`, text: earlier.text.slice(0, 350) })),
         revision: 1, consentRef: `conversation:view:${sessionId}`, final: true as const, retention: "local_default" as const },
-      turnNumber: this.records().filter((earlier) => (earlier.sessionId ?? "conversation") === sessionId && earlier.id !== id).length + 1,
+      turnNumber: this.recordsForSession(conversation).filter((earlier) => earlier.id !== id).length + 1,
       onInteraction: (interactionClass: "conversation" | "work_status" | "decision" | "deliverable") => { record = { ...record, interactionClass }; this.write(record); },
       onUnderstanding: (understanding: TurnUnderstanding) => { record = { ...record, understanding }; this.write(record); },
       onPreparation: (preparationId: string) => { record = { ...record, preparationId }; this.write(record); },
@@ -413,7 +451,7 @@ export class FlydDesk {
   }
 
   exchanges(sessionId?: string): Exchange[] {
-    return this.records().filter((record) => sessionId === undefined || (record.sessionId ?? "conversation") === sessionId).map((record) => {
+    return (sessionId === undefined ? this.records() : this.recordsForSession(sessionId)).map((record) => {
       const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}) };
       if (record.answer) {
         const preparation = record.preparationId ? this.preparations.read(record.preparationId) : undefined;

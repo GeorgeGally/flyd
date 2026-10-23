@@ -15,6 +15,7 @@ import { ownWords, threaded } from "./replies.js";
 import { ElementShots } from "./element-shots.js";
 import { isHisImage, ReplyShots } from "./reply-shots.js";
 import { pictured, PICTURE_WITHIN_MS, siteChangeOf } from "./site-changes.js";
+import { isRepositoryStatusTitle, shortConversationTitle } from "./session-title.js";
 import { captainImageAt, toolImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
   ConversationFollower,
@@ -113,11 +114,26 @@ function sessionTitle(path: string, size: number): string {
   const tail = readRange(path, Math.max(0, size - TITLE_SCAN_BYTES), Math.min(size, TITLE_SCAN_BYTES));
   const head = size > TITLE_SCAN_BYTES ? readRange(path, 0, TITLE_SCAN_BYTES) : "";
   const title = lastTitleIn(tail) ?? lastTitleIn(head);
-  if (title) return title;
+  if (title && !isRepositoryStatusTitle(title)) return title;
   const conversation = new TranscriptConversation();
   for (const line of (head || tail).split("\n")) if (line) conversation.pushLine(line);
   const first = conversation.snapshot().messages.find((message) => message.role === "user");
-  return first ? first.text.replace(/\s+/g, " ").slice(0, 80) : "Untitled session";
+  return shortConversationTitle(first?.text ?? "");
+}
+
+function sessionProject(path: string, size: number, fallback: string): string {
+  const head = readRange(path, 0, Math.min(size, START_SCAN_BYTES));
+  for (const line of head.split("\n")) {
+    if (!line) continue;
+    try {
+      const entry: unknown = JSON.parse(line);
+      if (typeof entry === "object" && entry !== null && "cwd" in entry
+        && typeof entry.cwd === "string" && entry.cwd.trim()) return basename(entry.cwd.trim());
+    } catch {
+      // A partial first line is ignored; later complete entries may still identify the project.
+    }
+  }
+  return fallback;
 }
 
 /** The whole line that starts at byte `offset`, or null past the size cap. */
@@ -229,7 +245,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly heard = new Set<string>();
   /** The newest snapshot followed per session: what the router sees as recent conversation. */
   private readonly latest = new Map<string, ConversationMessage[]>();
-  private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
+  private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string; project: string }>();
   private readonly heads = new Map<string, { start?: string; entrypoint?: string; settled: boolean }>();
   private readonly noteAnswers = new Map<string, { key: string; answer?: ConversationMessage }>();
 
@@ -582,18 +598,18 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     for (const path of this.titles.keys()) if (!listed.has(path)) this.titles.delete(path);
     return sessions.map((session) => ({
       id: session.id,
-      title: this.cachedTitle(session.path, session.size, session.mtime.getTime()),
+      ...this.cachedLabels(session.path, session.size, session.mtime.getTime()),
       updatedAt: session.mtime.toISOString(),
     }));
   }
 
-  /** Titles are rescanned only when a transcript's size or mtime changed. */
-  private cachedTitle(path: string, size: number, mtimeMs: number): string {
+  /** Titles and projects are rescanned only when a transcript's size or mtime changed. */
+  private cachedLabels(path: string, size: number, mtimeMs: number): { title: string; project: string } {
     const cached = this.titles.get(path);
-    if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return cached.title;
-    const title = sessionTitle(path, size);
-    this.titles.set(path, { size, mtimeMs, title });
-    return title;
+    if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return { title: cached.title, project: cached.project };
+    const labels = { title: sessionTitle(path, size), project: sessionProject(path, size, basename(this.projectDir)) };
+    this.titles.set(path, { size, mtimeMs, ...labels });
+    return labels;
   }
 
   async read(sessionId: string): Promise<ConversationSnapshot> {

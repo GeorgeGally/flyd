@@ -90,8 +90,9 @@ header .air { display: none; flex: 1; align-items: center; gap: 9px; min-width: 
 header .air::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
 header .air.on { color: var(--k-live, var(--accent)); }
 header .air.on::before { background: currentColor; opacity: 1; }
-/* The session picker doubles as the title. */
+/* The current conversation title stays in the header; past sessions live in the right column. */
 header .picker { flex: 1; min-width: 0; display: flex; }
+#conversation-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 header select {
   font: inherit; color: var(--fg); background: transparent; border: 0; border-radius: 6px;
   height: 30px; padding: 0 20px 0 6px; margin-left: -6px; cursor: pointer; max-width: 100%;
@@ -519,6 +520,20 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-hide:hover { color: var(--fg); }
 .rail-hide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rail-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
+.history { flex: 0 0 min(420px, 48%); min-height: 0; max-height: 52%; overflow-y: auto; padding: 18px 20px 12px; border-bottom: 1px solid var(--faint); }
+.history[hidden] { display: none; }
+.history-top { display: flex; align-items: baseline; margin: 0 0 10px; }
+.history-title { margin: 0; font: 600 14px/1.2 var(--sans); color: var(--muted); }
+.history-group { margin: 0; }
+.history-group + .history-group { margin-top: 2px; }
+.history-group summary { padding: 8px 0; color: var(--fg); font: 500 14px/1.3 var(--sans); cursor: pointer; }
+.history-items { margin: 0; padding: 0 0 4px 14px; list-style: none; }
+.history-item { display: flex; width: 100%; align-items: baseline; gap: 8px; padding: 7px 0; border: 0; color: var(--fg); background: transparent; text-align: left; font: 400 13px/1.35 var(--sans); cursor: pointer; }
+.history-item:hover { color: var(--strong); }
+.history-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.history-item-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-item-age { flex: none; color: var(--muted); font: 400 12px/1.3 var(--sans); }
+.history-empty { margin: 0; color: var(--muted); font: 400 13px/1.4 var(--sans); }
 /* The column: what got done, one card each. */
 .brief { flex: none; padding: 20px 20px 10px; border-bottom: 1px solid var(--faint); }
 .brief[hidden], .brief > [hidden] { display: none; }
@@ -1041,19 +1056,33 @@ var __name = function (f) { return f; };
   var working = document.getElementById("working");
   var jump = document.getElementById("jump");
   var whenEl = document.getElementById("when");
-  var picker = document.getElementById("picker");
+  var conversationTitle = document.getElementById("conversation-title");
+  var historyEl = document.getElementById("history");
+  var historyList = document.getElementById("history-list");
   var themeBtn = document.getElementById("theme");
   var problem = document.getElementById("problem");
   var nodes = new Map();
   var source = null;
   var current = null;
   var drawnFrom = null;
-  var explicit = new URLSearchParams(location.search).get("session");
+  var explicit = new URLSearchParams(location.search).get("session") || (function () {
+    var fresh = document.body.dataset.newSession;
+    if (!fresh) return null;
+    try {
+      var kept = sessionStorage.getItem("flyd-window-session");
+      if (kept) return kept;
+      sessionStorage.setItem("flyd-window-session", fresh);
+    } catch (_) {}
+    return fresh;
+  })();
+  var railMobileDismissed = !!(window.matchMedia && window.matchMedia("(max-width: 720px)").matches);
+  var historyDrawn = "";
   var lastActivity = null;
   var isWorking = false;
   var first = true;
   var awaiting = new Set();
   var latestSession = null;
+  var answersInSession = false;
   var warnings = new Map();
   var SEND_TOKEN = document.body.dataset.sendToken || "";
   var VIEW_TOKEN = SEND_TOKEN;
@@ -2635,18 +2664,22 @@ var __name = function (f) { return f; };
   }
   // The column shows when there is done work, unless he hid it.
   function showRail() {
-    railEl.hidden = railHidden || !briefFilled;
+    railEl.hidden = railHidden || railMobileDismissed || (!briefFilled && historyEl.hidden);
+    if (railToggle) railToggle.setAttribute("aria-checked", String(!railHidden && !railMobileDismissed));
     setRail(railOn());
   }
+  window.addEventListener("resize", function () {
+    if (window.innerWidth > 720 && railMobileDismissed) { railMobileDismissed = false; showRail(); }
+  });
   function hideRail(hidden) {
     railHidden = hidden;
+    if (!hidden) railMobileDismissed = false;
     store("flyd-rail", hidden ? "off" : "on");
-    railToggle.setAttribute("aria-checked", String(!hidden));
     showRail();
   }
   var railToggle = document.getElementById("rail-toggle");
-  railToggle.setAttribute("aria-checked", String(!railHidden));
-  railToggle.addEventListener("click", function () { hideRail(!railHidden); });
+  railToggle.setAttribute("aria-checked", String(!railHidden && !railMobileDismissed));
+  railToggle.addEventListener("click", function () { hideRail(!railHidden && !railMobileDismissed); });
   document.getElementById("rail-hide").addEventListener("click", function () { hideRail(true); });
 ${CARD_SCRIPT}
 ${LEFT_SCRIPT}
@@ -2842,7 +2875,7 @@ ${LEFT_SCRIPT}
       paintThread();
       paint();
       var sending = takesImages ? images.slice() : [];
-      var body = Object.assign({ text: text }, target);
+      var body = Object.assign({ text: text, session: current }, target);
       if (sending.length) body.images = sending.map(function (image) { return { mediaType: image.mediaType, data: image.data }; });
       authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, true)
         .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
@@ -3052,8 +3085,9 @@ ${LEFT_SCRIPT}
       }
       current = session.id;
       assistant = session.assistantLabel;
-      document.title = session.title + " · " + session.assistantLabel;
-      if (picker.value !== session.id) loadSessions();
+      answersInSession = session.answersInSession === true;
+      showTitle(session);
+      loadSessions();
     });
     source.addEventListener("update", function (event) { problem.textContent = ""; apply(JSON.parse(event.data)); });
     source.addEventListener("problem", function (event) { problem.textContent = JSON.parse(event.data).error; });
@@ -3089,32 +3123,79 @@ ${LEFT_SCRIPT}
 
   function loadSessions() {
     return fetch("/api/sessions").then(function (r) { return r.json(); }).then(function (data) {
-      var sessions = data.sessions || [];
+      var sessions = (data.sessions || []).slice();
       latestSession = sessions.length ? sessions[0].id : null;
-      picker.textContent = "";
-      sessions.forEach(function (session, index) {
-        var option = document.createElement("option");
-        option.value = session.id;
-        option.textContent = session.title + (index === 0 ? "" : "  ·  " + dayOf(session.updatedAt));
-        picker.appendChild(option);
-      });
-      if (current) picker.value = current;
+      var shown = sessions.find(function (session) { return session.id === current; });
+      if (shown) showTitle(shown);
+      renderHistory(sessions);
       return sessions;
     });
   }
 
-  picker.addEventListener("change", function () {
-    explicit = picker.value;
-    history.replaceState(null, "", "?session=" + encodeURIComponent(explicit));
-    connect(explicit);
-  });
+  function showTitle(session) {
+    conversationTitle.textContent = session.title || "Conversation";
+    document.title = session.title + " · " + assistant;
+  }
+
+  function renderHistory(sessions) {
+    var past = sessions.filter(function (session) { return session.id !== current; });
+    var drawn = JSON.stringify([current, past.map(function (session) { return [session.id, session.title, session.project, ago(session.updatedAt)]; })]);
+    if (drawn === historyDrawn) return;
+    historyDrawn = drawn;
+    var expanded = new Map(Array.from(historyList.querySelectorAll("details")).map(function (details) {
+      return [details.querySelector("summary").textContent, details.open];
+    }));
+    var groups = new Map();
+    past.forEach(function (session) {
+      var name = session.project && String(session.project).trim() || "General";
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(session);
+    });
+    var ordered = Array.from(groups.entries()).map(function (entry) {
+      entry[1].sort(function (a, b) { return Date.parse(b.updatedAt) - Date.parse(a.updatedAt); });
+      return { name: entry[0], sessions: entry[1], newest: Date.parse(entry[1][0].updatedAt) || 0 };
+    }).sort(function (a, b) { return b.newest - a.newest; });
+    historyList.textContent = "";
+    historyEl.hidden = !current || ordered.length === 0;
+    ordered.forEach(function (group, index) {
+      var details = document.createElement("details");
+      details.className = "history-group";
+      var summary = document.createElement("summary");
+      summary.textContent = group.name;
+      details.open = expanded.has(group.name) ? expanded.get(group.name) : index === 0;
+      details.appendChild(summary);
+      var list = document.createElement("ul");
+      list.className = "history-items";
+      group.sessions.forEach(function (session) {
+        var item = document.createElement("li");
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "history-item";
+        button.appendChild(el("span", "history-item-title", session.title || "Untitled conversation"));
+        button.appendChild(el("span", "history-item-age", ago(session.updatedAt)));
+        button.addEventListener("click", function () {
+          explicit = session.id;
+          window.history.replaceState(null, "", "?session=" + encodeURIComponent(explicit));
+          if (window.matchMedia && window.matchMedia("(max-width: 720px)").matches) {
+            railMobileDismissed = true;
+            showRail();
+          }
+          connect(explicit);
+        });
+        item.appendChild(button);
+        list.appendChild(item);
+      });
+      details.appendChild(list);
+      historyList.appendChild(details);
+    });
+    showRail();
+  }
 
   // Without an explicit pick, follow whichever session is newest (a /clear
   // in Claude Code starts a new transcript file).
   setInterval(function () {
-    if (explicit) return;
     loadSessions().then(function (sessions) {
-      if (sessions.length && current && sessions[0].id !== current) connect(null);
+      if (!explicit && sessions.length && current && sessions[0].id !== current) connect(null);
     }).catch(function () {});
   }, 5000);
 
@@ -3148,7 +3229,7 @@ ${LEFT_SCRIPT}
   // change, in this page's storage and in Core, and come back when the window
   // does (an update, a reinstall, a restarted view). Only sending it or
   // emptying the box clears it.
-  var DRAFT_KEY = explicit || "latest";
+  var DRAFT_KEY = new URLSearchParams(location.search).get("session") || "latest";
   var DRAFT_STORE = "flyd-view-draft:" + DRAFT_KEY;
   var draftTimer = null;
   var restoring = false;
@@ -3682,7 +3763,7 @@ ${LEFT_SCRIPT}
           return;
         }
         var state = el.querySelector(".state");
-        if (latestSession && current !== latestSession) {
+        if (!answersInSession && latestSession && current !== latestSession) {
           // Firstmate answers in its live session; the note is shown there.
           state.classList.add("still");
           living(state, "Sent. It shows in the latest session");
@@ -4508,9 +4589,10 @@ ${LEFT_SCRIPT}
 })();
 `;
 
-export function renderPage(options: { assistantLabel: string; sendToken?: string }): string {
+export function renderPage(options: { assistantLabel: string; sendToken?: string; newSession?: string }): string {
   const label = escapeHtml(options.assistantLabel);
-  const token = options.sendToken ? ` data-send-token="${escapeHtml(options.sendToken)}"` : "";
+  const token = (options.sendToken ? ` data-send-token="${escapeHtml(options.sendToken)}"` : "")
+    + (options.newSession ? ` data-new-session="${escapeHtml(options.newSession)}"` : "");
   return `<!doctype html>
 <html lang="en" data-theme="dark">
 <head>
@@ -4523,7 +4605,7 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
 <header>
   <span class="who">${label}</span>
   <span class="project-badge" id="project-badge" hidden></span>
-  <span class="picker"><select id="picker" aria-label="Session"></select></span>
+  <span class="picker" id="conversation-title" aria-label="Current conversation"></span>
   <span class="air" id="air">standby</span>
   <a class="site" id="site" hidden target="_blank" rel="noopener noreferrer"><span class="site-kind" id="site-kind"></span><span class="site-host" id="site-host"></span><span class="site-path" id="site-path"></span></a>
   <span class="when" id="when"></span>
@@ -4536,16 +4618,17 @@ export function renderPage(options: { assistantLabel: string; sendToken?: string
   <p class="prefs-title">Preferences</p>
   <button id="mode" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Full replies</span><span class="prefs-about">Every reply as written, not Flyd's reading</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
-  <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Done column</span><span class="prefs-about">Finished work and delivered artefacts</span></span><span class="track" aria-hidden="true"></span></button>
+  <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Right column</span><span class="prefs-about">Past conversations and finished work</span></span><span class="track" aria-hidden="true"></span></button>
   ${LEFT_PREFERENCE}
   <button id="preparation-link" type="button"><span class="prefs-words"><span class="prefs-name">Local preparation</span><span class="prefs-about">Review drafts and stop preparation</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="routines-link" type="button"><span class="prefs-words"><span class="prefs-name">Routines</span><span class="prefs-about">Useful requests, ready to use again</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
   <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
 </div>
 ${LEFT_HTML}
-<aside class="rail" id="rail" hidden aria-label="Done">
+<aside class="rail" id="rail" hidden aria-label="Conversation history and done work">
   <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
   <div class="rail-pane">
+  <section class="history" id="history" hidden aria-label="Past conversations"><div class="history-top"><h2 class="history-title">History</h2></div><div id="history-list"></div></section>
   <div class="brief" id="brief" hidden>
     <section class="brief-list" id="notices" hidden aria-label="Notices"></section>
     <section class="brief-list" id="done" hidden aria-label="Done"></section>

@@ -71,13 +71,13 @@ export function executiveConversationSource(
       return { close: () => { closed = true; follower.close(); } };
     },
     send: (...args) => source.send(...args),
-    ...(source.sendDecision ? { sendDecision: async (text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }): Promise<SentMessage> => {
+    ...(source.sendDecision ? { sendDecision: async (text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }, sessionId?: string): Promise<SentMessage> => {
       if (decision && resolveDecision) {
         if (images.length) throw new Error("Images cannot be attached to a fixed executive decision");
         await resolveDecision(decision.decisionId, decision.taskId, text);
         return { id: `decision:${decision.decisionId}`, timestamp: new Date().toISOString() };
       }
-      return source.sendDecision!(text, images, decision);
+      return source.sendDecision!(text, images, decision, sessionId);
     } } : {}),
     commands: () => source.commands(),
     image: (...args) => source.image(...args),

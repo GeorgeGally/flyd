@@ -55,7 +55,7 @@ Frontmatter records the plan's identity: `project`, `repo_path`, `status`, `crea
 
 ## Phase 3 — Surfacing
 
-**What it does.** A saved plan appears as an artefact in the conversation sidebar, and its checkable `done_when` points ride on it. The plan is emitted as a `plan` item through the existing artefact producer (`composeArtefact`), the sidebar maps it through the same non-call path every other artefact uses, and the artefact view renders it through the existing story card. The sidebar's right column now lists only finished work (Done), so it leaves unrun plans out; the plan item and its artefact view are unchanged.
+**What it does.** A saved plan appears as an artefact in the conversation sidebar, and its checkable `done_when` points ride on it. The plan is emitted as a `plan` item through the existing artefact producer (`composeArtefact`), the sidebar maps it through the same non-call path every other artefact uses, and the artefact view renders it through the existing story card. The sidebar's right column now lists only finished work (Done) and past conversations (History), so it leaves unrun plans out; the plan item and its artefact view are unchanged.
 
 **Reuse.** The plan kind is added to `ShowKind`, the story kinds, and the on-screen word list; the card itself is untouched. The points travel in the card's existing line field, so no new card is built.
 

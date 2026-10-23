@@ -173,6 +173,20 @@ describe("ClaudeCodeTranscriptSource", () => {
     expect(readFileSync(join(dir, "older.jsonl"), "utf8")).toBe(older);
   });
 
+  it("uses the opening message when a transcript title is a branch or its dirty status", async () => {
+    for (const [index, statusTitle] of ["main ?2", "feature/old-sidebar"].entries()) {
+      writeFileSync(join(dir, `status-${index}.jsonl`), [title(statusTitle), captain("Fix the history labels")].join("\n") + "\n");
+    }
+    const sessions = await new ClaudeCodeTranscriptSource({ projectDir: dir }).listSessions();
+    expect(sessions.map((session) => session.title)).toEqual(["Fix the history labels", "Fix the history labels"]);
+  });
+
+  it("labels a transcript with its project directory", async () => {
+    writeFileSync(join(dir, "project.jsonl"), [captain("Open the project", { cwd: "/Users/george/Documents/flyd" })].join("\n") + "\n");
+    const sessions = await new ClaudeCodeTranscriptSource({ projectDir: dir }).listSessions();
+    expect(sessions[0]?.project).toBe("flyd");
+  });
+
   it("rescans a session title only when the transcript's size or mtime changes", async () => {
     const path = join(dir, "s1.jsonl");
     const stamp = new Date(Date.now() - 60_000);

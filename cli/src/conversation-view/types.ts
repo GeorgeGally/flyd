@@ -109,6 +109,8 @@ export interface SessionSummary {
   title: string;
   /** ISO timestamp of the last change. */
   updatedAt: string;
+  /** Human project name for the history column; absent conversations appear under General. */
+  project?: string;
 }
 
 /** An image the captain attaches in the view: base64 bytes and their type. */
@@ -160,13 +162,17 @@ export interface ConversationSource {
   follow(sessionId: string, onUpdate: (snapshot: ConversationSnapshot) => void, onError?: (error: Error) => void): ConversationFollower;
   /** Whether this source can take the captain's words; the page shows a composer only then. */
   readonly canSend: boolean;
+  /** A message sent to any session is answered in that session, not only in the newest one. */
+  readonly answersInSession?: boolean;
+  /** The empty session a newly opened window starts, before anything is said in it; undefined for an id it does not own. */
+  newSession?(sessionId: string): SessionSummary | undefined;
   /**
    * Delivers the captain's message. The returned id appears in a later
    * snapshot once the source can read the message back, so the page can
    * swap its optimistic copy for the real one.
    */
   send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[], to?: Recipient): Promise<SentMessage>;
-  sendDecision?(text: string, images?: ImageUpload[], decision?: { decisionId: string; taskId: string }): Promise<SentMessage>;
+  sendDecision?(text: string, images?: ImageUpload[], decision?: { decisionId: string; taskId: string }, sessionId?: string): Promise<SentMessage>;
   /** Skills and slash commands the captain can run by typing "/" (empty when the source has none). */
   commands(): Promise<Array<{ name: string; description: string }>>;
   /** Bytes of an image named in a message's `images`, or null when unknown. */
