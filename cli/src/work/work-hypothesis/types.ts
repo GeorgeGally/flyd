@@ -88,7 +88,7 @@ export interface PresentInsights {
   nextTodo?: string;
   nextDueAt?: string;
   nextLeverage?: string;
-  /** Open items whose date has passed — history, spoken last and never as the next thing. */
+  /** Open items whose date has passed — history, shown only in list views and never spoken in the brief. */
   pastTodos?: { name: string; dueAt: string }[];
 }
 
