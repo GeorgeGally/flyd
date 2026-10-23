@@ -1,4 +1,4 @@
-import { dispatchCodingDomain } from "./coding.js";
+import { dispatchCodingDomain, type CodingDomainDispatch } from "./coding.js";
 import { dispatchKnowledgeDomain } from "./librarian.js";
 import { readDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
@@ -18,7 +18,7 @@ export async function dispatchDomainFollowup(input: {
   parentRunId: string;
   question: string;
   background?: boolean;
-}): Promise<DomainRun> {
+}): Promise<DomainRun | Extract<CodingDomainDispatch, { status: "refused" }>> {
   const parent = readDomainRun(input.parentRunId);
   if (!parent) throw new Error(`Unknown domain run ${input.parentRunId}`);
   const question = input.question.trim();
@@ -36,7 +36,7 @@ export async function dispatchDomainFollowup(input: {
   ];
 
   if (parent.request.domain === "coding") {
-    return dispatchCodingDomain({
+    const dispatched = await dispatchCodingDomain({
       originalMessage: question,
       intendedOutcome,
       doneWhen,
@@ -46,6 +46,7 @@ export async function dispatchDomainFollowup(input: {
       ...(parent.request.project ? { project: parent.request.project } : {}),
       ...(parent.request.skill ? { skill: parent.request.skill } : {}),
     });
+    return dispatched.status === "accepted" ? dispatched.run : dispatched;
   }
   if (parent.request.domain === "knowledge") {
     return dispatchKnowledgeDomain({

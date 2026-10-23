@@ -3,7 +3,7 @@ import { join } from "path";
 import { PLANS_DIR } from "../lib/config.js";
 import { parse } from "../lib/frontmatter.js";
 import { findPlan as findPlanFile, planHandoff } from "../lib/plans.js";
-import { dispatchCodingDomain, type CodingDispatchInput } from "../command/coding.js";
+import { dispatchCodingDomain, type CodingDispatchInput, type CodingDomainDispatch } from "../command/coding.js";
 
 function listPlans(): { filename: string; topic: string; status: string; timestamp: string }[] {
   if (!existsSync(PLANS_DIR)) return [];
@@ -81,7 +81,7 @@ export interface WorkOptions {
   /** Hand the named plan to a fresh coding session; it never lands anything by itself. */
   start?: boolean;
   /** How a plan is handed over; injected in tests. */
-  dispatch?: (input: CodingDispatchInput) => Promise<unknown>;
+  dispatch?: (input: CodingDispatchInput) => Promise<CodingDomainDispatch>;
 }
 
 export async function runWork(query?: string, options: WorkOptions = {}): Promise<void> {
@@ -131,7 +131,7 @@ export async function runWork(query?: string, options: WorkOptions = {}): Promis
  * folder. Only this explicit command starts work; creating a plan never does.
  * Landing still needs George's /land.
  */
-async function startPlan(query: string | undefined, dispatch: (input: CodingDispatchInput) => Promise<unknown>): Promise<void> {
+async function startPlan(query: string | undefined, dispatch: (input: CodingDispatchInput) => Promise<CodingDomainDispatch>): Promise<void> {
   if (!query) {
     console.log("name a plan to start — 'flyd work --start <topic>'");
     return;
@@ -144,6 +144,10 @@ async function startPlan(query: string | undefined, dispatch: (input: CodingDisp
   }
   const handoff = planHandoff(plan);
   console.log(`starting "${plan.topic}" in ${handoff.project.root}\n`);
-  await dispatch(handoff);
+  const dispatched = await dispatch(handoff);
+  if (dispatched.status === "refused") {
+    console.log(dispatched.reason === "project_not_found" ? `not started — ${handoff.project.root} doesn't exist` : "not started — coding work can't be dispatched from a test process");
+    return;
+  }
   console.log("\nhanded to a fresh coding session — landing still needs your /land");
 }

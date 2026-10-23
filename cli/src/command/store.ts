@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import type { DomainRun } from "./types.js";
@@ -18,6 +18,12 @@ export function saveDomainRun(run: DomainRun, dir = commandDir()): void {
   const temporary = `${path}.${process.pid}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(run, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   renameSync(temporary, path);
+}
+
+export function recordDomainRunRefusal(refusal: { at: string; origin: string; reason: string; projectRoot?: string }, dir = commandDir()): void {
+  const path = join(dir, "refusals.jsonl");
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  appendFileSync(path, `${JSON.stringify(refusal)}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
 export function readDomainRun(id: string, dir = commandDir()): DomainRun | null {

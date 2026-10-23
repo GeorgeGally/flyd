@@ -285,9 +285,10 @@ export async function runAssistantTool(
             project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo },
             transport: firstmate,
           });
-          if (run.failure) return run.failure;
+          if (run.status === "refused") return `Coding request refused: ${run.reason}`;
+          if (run.run.failure) return run.run.failure;
           context.onCodingHandoff?.(outcome);
-          return `Coding work accepted (run ${run.id}). Flyd remains your point of contact; the coding boss will route, supervise and return a detailed retained report. Tell George only what started, not the internal mechanics or id.`;
+          return `Coding work accepted (run ${run.run.id}). Flyd remains your point of contact; the coding boss will route, supervise and return a detailed retained report. Tell George only what started, not the internal mechanics or id.`;
         }
 
         const { dispatchCrewTask, AFTER_LAND_STEPS, deployCommand } = await import("../crew/crew.js");
@@ -334,8 +335,9 @@ export async function runAssistantTool(
             ...(context.skill ? { skill: context.skill } : {}),
             transport: firstmate,
           });
-          if (run.failure) return run.failure;
-          return `Passed on (run ${run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
+          if (run.status === "refused") return `Coding request refused: ${run.reason}`;
+          if (run.run.failure) return run.run.failure;
+          return `Passed on (run ${run.run.id}); the answer comes back to George here when it's ready. Tell him in a line that it's being looked into; don't say who has it or mention the id.`;
         }
         const { dispatchKnowledgeDomain } = await import("../command/librarian.js");
         const run = dispatchKnowledgeDomain({ originalMessage, intendedOutcome: `Answer George's question and change nothing: ${question}`, doneWhen: answerOnly, background: context.background });
@@ -377,6 +379,7 @@ export async function runAssistantTool(
           const { dispatchDomainFollowup } = await import("../command/followup.js");
           try {
             const followup = await dispatchDomainFollowup({ parentRunId: id, question, background: context.background });
+            if ("reason" in followup) return `Coding follow-up refused: ${followup.reason}`;
             if (followup.failure) return followup.failure;
             return `Follow-up accepted as domain run ${followup.id}. Flyd will retain the detailed answer when the domain boss returns.`;
           } catch (error) {
