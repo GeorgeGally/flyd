@@ -54,7 +54,6 @@ async function defaultDeskPrediction(text: string, recent: ConversationMessage[]
 const ROUTE_TIMEOUT_MS = 8_000;
 const RECENT_FOR_ROUTE = 4;
 const HISTORY_EXCHANGES = 4;
-const CONVERSATION_GAP_MS = 3 * 60 * 60_000;
 const MAX_ERROR_CHARS = 160;
 const MAX_STEP_CHARS = 90;
 
@@ -222,29 +221,23 @@ export class FlydDesk {
     return turns.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1)?.project;
   }
 
-  /** The current conversation first, then each earlier one: a pause of a few hours between asks starts a new conversation. */
+  /** The current conversation first, then every other session he has had with Flyd, newest first. */
   historySessions(): SessionSummary[] {
-    const records = this.records();
-    const conversations = this.conversations(records);
-    const current = conversations.at(-1);
-    const sessions: SessionSummary[] = current
-      ? [this.summary("conversation", current[0]!, current)]
-      : [{ id: "conversation", title: "Conversation with Flyd", updatedAt: new Date(0).toISOString() }];
-    for (const conversation of conversations.slice(0, -1)) {
-      const id = `turn:${conversation[0]!.id}`;
-      sessions.push(this.summary(id, conversation[0]!, [...conversation, ...records.filter((record) => record.sessionId === id)]));
+    const threads = new Map<string, AskRecord[]>();
+    for (const record of this.records()) {
+      const id = record.sessionId ?? "conversation";
+      threads.set(id, [...(threads.get(id) ?? []), record]);
     }
-    const otherIds = new Set(records.map((record) => record.sessionId ?? "conversation")
-      .filter((id) => id !== "conversation" && !id.startsWith("turn:")));
-    for (const id of otherIds) {
-      const thread = records.filter((record) => (record.sessionId ?? "conversation") === id);
-      const first = thread[0];
-      if (first) sessions.push(this.summary(id, first, thread));
-    }
-    return sessions.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    const current = threads.get("conversation");
+    const past = [...threads].filter(([id]) => id !== "conversation").map(([id, thread]) => this.summary(id, thread));
+    return [
+      current ? this.summary("conversation", current) : { id: "conversation", title: "Conversation with Flyd", updatedAt: new Date(0).toISOString() },
+      ...past.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+    ];
   }
 
-  private summary(id: string, first: AskRecord, thread: AskRecord[]): SessionSummary {
+  private summary(id: string, thread: AskRecord[]): SessionSummary {
+    const first = thread[0]!;
     const title = shortConversationTitle(first.text);
     const latest = thread.reduce((newest, record) => Date.parse(record.answeredAt ?? record.at) > Date.parse(newest.answeredAt ?? newest.at) ? record : newest, first);
     const project = [...thread].reverse().map((record) => record.understanding?.project).find((name): name is string => Boolean(name));
@@ -316,23 +309,7 @@ export class FlydDesk {
   }
 
   private recordsForSession(sessionId: string): AskRecord[] {
-    const records = this.records();
-    const conversations = this.conversations(records);
-    if (sessionId === "conversation") return conversations.at(-1) ?? [];
-    const seedId = /^turn:(.+)$/.exec(sessionId)?.[1];
-    const seeded = new Set(conversations.find((conversation) => conversation[0]!.id === seedId)?.map((record) => record.id));
-    return records.filter((record) => record.sessionId === sessionId || seeded.has(record.id));
-  }
-
-  private conversations(records: AskRecord[]): AskRecord[][] {
-    const conversations: AskRecord[][] = [];
-    for (const record of records.filter((item) => (item.sessionId ?? "conversation") === "conversation")) {
-      const conversation = conversations.at(-1);
-      const last = conversation?.at(-1);
-      if (conversation && last && Date.parse(record.at) - Date.parse(last.answeredAt ?? last.at) <= CONVERSATION_GAP_MS) conversation.push(record);
-      else conversations.push([record]);
-    }
-    return conversations;
+    return this.records().filter((record) => (record.sessionId ?? "conversation") === sessionId);
   }
 
   private read(name: string): AskRecord | null {

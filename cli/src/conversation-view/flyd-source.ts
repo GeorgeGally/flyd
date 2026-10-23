@@ -6,6 +6,7 @@ export const FLYD_CONVERSATION_ID = "conversation";
 export class FlydConversationSource implements ConversationSource {
   readonly assistantLabel = "Flyd";
   readonly canSend = true;
+  readonly answersInSession = true;
   private readonly pollMs: number;
   private knownSessions = new Set([FLYD_CONVERSATION_ID]);
 

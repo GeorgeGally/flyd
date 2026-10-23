@@ -1723,7 +1723,7 @@ export class ConversationViewServer {
       "cache-control": "no-store",
       connection: "keep-alive",
     });
-    sseEvent(res, "session", { ...session, assistantLabel: this.source.assistantLabel });
+    sseEvent(res, "session", { ...session, assistantLabel: this.source.assistantLabel, answersInSession: this.source.answersInSession === true });
 
     let latest: ConversationSnapshot | null = null;
     let closed = false;

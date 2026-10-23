@@ -1072,6 +1072,7 @@ var __name = function (f) { return f; };
   var first = true;
   var awaiting = new Set();
   var latestSession = null;
+  var answersInSession = false;
   var warnings = new Map();
   var SEND_TOKEN = document.body.dataset.sendToken || "";
   var VIEW_TOKEN = SEND_TOKEN;
@@ -3074,8 +3075,8 @@ ${LEFT_SCRIPT}
       }
       current = session.id;
       assistant = session.assistantLabel;
-      conversationTitle.textContent = session.title || "Conversation";
-      document.title = session.title + " · " + session.assistantLabel;
+      answersInSession = session.answersInSession === true;
+      showTitle(session);
       loadSessions();
     });
     source.addEventListener("update", function (event) { problem.textContent = ""; apply(JSON.parse(event.data)); });
@@ -3114,9 +3115,16 @@ ${LEFT_SCRIPT}
     return fetch("/api/sessions").then(function (r) { return r.json(); }).then(function (data) {
       var sessions = (data.sessions || []).slice();
       latestSession = sessions.length ? sessions[0].id : null;
+      var shown = sessions.find(function (session) { return session.id === current; });
+      if (shown) showTitle(shown);
       renderHistory(sessions);
       return sessions;
     });
+  }
+
+  function showTitle(session) {
+    conversationTitle.textContent = session.title || "Conversation";
+    document.title = session.title + " · " + assistant;
   }
 
   function renderHistory(sessions) {
@@ -3174,9 +3182,8 @@ ${LEFT_SCRIPT}
   // Without an explicit pick, follow whichever session is newest (a /clear
   // in Claude Code starts a new transcript file).
   setInterval(function () {
-    if (explicit) return;
     loadSessions().then(function (sessions) {
-      if (sessions.length && current && sessions[0].id !== current) connect(null);
+      if (!explicit && sessions.length && current && sessions[0].id !== current) connect(null);
     }).catch(function () {});
   }, 5000);
 
@@ -3744,7 +3751,7 @@ ${LEFT_SCRIPT}
           return;
         }
         var state = el.querySelector(".state");
-        if (latestSession && current !== latestSession) {
+        if (!answersInSession && latestSession && current !== latestSession) {
           // Firstmate answers in its live session; the note is shown there.
           state.classList.add("still");
           living(state, "Sent. It shows in the latest session");

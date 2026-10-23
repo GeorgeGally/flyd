@@ -162,6 +162,8 @@ export interface ConversationSource {
   follow(sessionId: string, onUpdate: (snapshot: ConversationSnapshot) => void, onError?: (error: Error) => void): ConversationFollower;
   /** Whether this source can take the captain's words; the page shows a composer only then. */
   readonly canSend: boolean;
+  /** A message sent to any session is answered in that session, not only in the newest one. */
+  readonly answersInSession?: boolean;
   /**
    * Delivers the captain's message. The returned id appears in a later
    * snapshot once the source can read the message back, so the page can

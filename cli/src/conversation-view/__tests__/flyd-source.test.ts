@@ -7,15 +7,12 @@ import { FlydDesk } from "../flyd-desk.js";
 
 let dir: string | undefined;
 afterEach(() => {
-  vi.useRealTimers();
   if (dir) rmSync(dir, { recursive: true, force: true });
   dir = undefined;
 });
 
 describe("Flyd's standalone conversation source", () => {
-  it("keeps the whole current conversation in the main pane and moves earlier conversations to history", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-20T09:00:00Z"));
+  it("keeps the whole current session in the main pane and lists earlier sessions behind it by their own identity", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-history-"));
     const contexts: Array<{ question: string; history: Array<{ role: string; content: string }> }> = [];
     const desk = new FlydDesk({
@@ -27,35 +24,28 @@ describe("Flyd's standalone conversation source", () => {
       },
     });
     const source = new FlydConversationSource({ desk });
-    await source.send("conversation", "First Flyd question");
+    desk.ask("First Flyd question", [], "earlier");
+    await vi.waitFor(() => expect(desk.exchanges("earlier").at(-1)?.answer).toBeDefined());
+    await source.send("conversation", "A general question");
     await vi.waitFor(async () => expect((await source.read("conversation")).messages.at(-1)?.role).toBe("assistant"));
     await source.send("conversation", "And the second part?");
     await vi.waitFor(async () => expect((await source.read("conversation")).messages.at(-1)?.role).toBe("assistant"));
-    expect((await source.listSessions()).map((session) => session.id)).toEqual(["conversation"]);
-
-    vi.setSystemTime(new Date("2026-10-21T09:00:00Z"));
-    await source.send("conversation", "A general question");
-    await vi.waitFor(async () => expect((await source.read("conversation")).messages.at(-1)?.role).toBe("assistant"));
 
     const sessions = await source.listSessions();
-    const first = sessions.find((session) => session.title === "First Flyd question")!;
-    expect(first.project).toBe("Flyd");
-    expect(first.id).toMatch(/^turn:/);
-    expect(first.updatedAt).toBeTruthy();
-    expect((await source.read("conversation")).messages.map((message) => message.text)).toEqual([
-      "A general question", "Answer: A general question",
+    expect(sessions.map((session) => [session.id, session.title, session.project])).toEqual([
+      ["conversation", "A general question", undefined],
+      ["earlier", "First Flyd question", "Flyd"],
     ]);
-    expect(sessions.map((session) => session.id)).toEqual(["conversation", first.id]);
-    expect((await source.read(first.id)).messages.map((message) => message.text)).toEqual([
-      "First Flyd question", "Answer: First Flyd question", "And the second part?", "Answer: And the second part?",
+    expect((await source.read("conversation")).messages.map((message) => message.text)).toEqual([
+      "A general question", "Answer: A general question", "And the second part?", "Answer: And the second part?",
     ]);
 
-    await source.send(first.id, "Continue that Flyd question");
-    await vi.waitFor(async () => expect((await source.read(first.id)).messages.at(-1)?.text).toBe("Answer: Continue that Flyd question"));
+    await source.send("earlier", "Continue that Flyd question");
+    await vi.waitFor(async () => expect((await source.read("earlier")).messages.at(-1)?.text).toBe("Answer: Continue that Flyd question"));
     expect(contexts.at(-1)?.history).toContainEqual({ role: "user", content: "First Flyd question" });
-    expect((await source.read(first.id)).messages.map((message) => message.text)).toEqual([
-      "First Flyd question", "Answer: First Flyd question", "And the second part?", "Answer: And the second part?",
-      "Continue that Flyd question", "Answer: Continue that Flyd question",
+    expect((await source.listSessions())[0]?.id).toBe("conversation");
+    expect((await source.read("earlier")).messages.map((message) => message.text)).toEqual([
+      "First Flyd question", "Answer: First Flyd question", "Continue that Flyd question", "Answer: Continue that Flyd question",
     ]);
   });
 

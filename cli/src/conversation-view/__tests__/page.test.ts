@@ -587,6 +587,20 @@ describe("conversation page", () => {
     expect(pending()[0]).toContain("shows in the latest session");
   });
 
+  it("waits in place for the answer when the source answers in the session it was sent to", async () => {
+    sendResponse = { id: "ask:older-1", timestamp: "2026-10-05T20:01:00.000Z", waiting: "Thinking it over" };
+    load("?session=older");
+    await settle();
+    const stream = FakeEventSource.instances.at(-1)!;
+    stream.emit("session", { id: "older", title: "older", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "Flyd", answersInSession: true });
+    stream.emit("update", { order: [], messages: [], working: false });
+    await type("carry on from here");
+    expect(pending()[0]).not.toContain("shows in the latest session");
+    stream.emit("update", { order: ["ask:older-1"], messages: [{ id: "ask:older-1", role: "user", html: "<p>carry on from here</p>" }], working: true });
+    await settle();
+    expect(pending()).toEqual([]);
+  });
+
   it("keeps a saved-but-not-woken warning on the delivered note instead of reporting it unsent", async () => {
     sendResponse = { id: "note:1", timestamp: "2026-10-05T20:01:00.000Z", warning: "fm-inbox: firstmate was NOT woken" };
     load("");

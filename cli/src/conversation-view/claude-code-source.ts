@@ -245,7 +245,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly heard = new Set<string>();
   /** The newest snapshot followed per session: what the router sees as recent conversation. */
   private readonly latest = new Map<string, ConversationMessage[]>();
-  private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string }>();
+  private readonly titles = new Map<string, { size: number; mtimeMs: number; title: string; project: string }>();
   private readonly heads = new Map<string, { start?: string; entrypoint?: string; settled: boolean }>();
   private readonly noteAnswers = new Map<string, { key: string; answer?: ConversationMessage }>();
 
@@ -598,19 +598,18 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     for (const path of this.titles.keys()) if (!listed.has(path)) this.titles.delete(path);
     return sessions.map((session) => ({
       id: session.id,
-      title: this.cachedTitle(session.path, session.size, session.mtime.getTime()),
+      ...this.cachedLabels(session.path, session.size, session.mtime.getTime()),
       updatedAt: session.mtime.toISOString(),
-      project: sessionProject(session.path, session.size, basename(this.projectDir)),
     }));
   }
 
-  /** Titles are rescanned only when a transcript's size or mtime changed. */
-  private cachedTitle(path: string, size: number, mtimeMs: number): string {
+  /** Titles and projects are rescanned only when a transcript's size or mtime changed. */
+  private cachedLabels(path: string, size: number, mtimeMs: number): { title: string; project: string } {
     const cached = this.titles.get(path);
-    if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return cached.title;
-    const title = sessionTitle(path, size);
-    this.titles.set(path, { size, mtimeMs, title });
-    return title;
+    if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return { title: cached.title, project: cached.project };
+    const labels = { title: sessionTitle(path, size), project: sessionProject(path, size, basename(this.projectDir)) };
+    this.titles.set(path, { size, mtimeMs, ...labels });
+    return labels;
   }
 
   async read(sessionId: string): Promise<ConversationSnapshot> {
