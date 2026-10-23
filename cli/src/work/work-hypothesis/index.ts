@@ -20,6 +20,10 @@ export {
   handleConfirmedTodoUtterance,
   listOpenConfirmedTodos,
   formatTodoList,
+  formatTodoLines,
+  splitTodos,
+  isPassedTodo,
+  PASSED_TODOS_HEADING,
   isTodoListQuestion,
   parseDueDate,
   appendConfirmedTodos,
@@ -28,13 +32,11 @@ export {
 export { derivePresentInsights, formatPresentModelText, isConcreteMove } from "./insights.js";
 export {
   dueStatus,
-  isExpired,
-  isOverdue,
+  isPassed,
   formatDaySpoken,
   formatDueLabel,
   formatDueNote,
   formatDueSpoken,
-  overdueDaysPhrase,
   resolveDueYear,
   todayLine,
 } from "./due-dates.js";

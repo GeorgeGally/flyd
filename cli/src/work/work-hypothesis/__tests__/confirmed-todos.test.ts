@@ -19,6 +19,11 @@ import {
 import { writePresentModel } from "../store.js";
 import { recallMemoryForTodoItems } from "../../../runtime/todo-memory-recall.js";
 
+/** A date that stays ahead of the real clock, so a live-dated item reads as live. */
+function nextYearIso(monthDay: string): string {
+  return `${new Date().getFullYear() + 1}-${monthDay}`;
+}
+
 describe("confirmed todos", () => {
   let dir: string;
 
@@ -194,7 +199,8 @@ describe("confirmed todos", () => {
   });
 
   it("closes the stale todo and promotes the replacement, preserving the due date", () => {
-    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving 2026-09-05");
+    const eventDate = nextYearIso("09-05");
+    handleConfirmedTodoUtterance(`- Get GNM sponsor outreach moving ${eventDate}`);
     handleConfirmedTodoUtterance("- Apply for jobs and fix resume");
     handleConfirmedTodoUtterance("- Add DIR to portfolio");
 
@@ -206,14 +212,14 @@ describe("confirmed todos", () => {
     expect(result?.closed.status).toBe("done");
     expect(result?.added.description).toBe("Get visitors to GNM event");
     expect(result?.added.status).toBe("open");
-    expect(result?.added.dueAt).toBe("2026-09-05");
+    expect(result?.added.dueAt).toBe(eventDate);
 
     const open = listOpenConfirmedTodos().map((t) => t.description);
     expect(open).toEqual(["Get visitors to GNM event", "Apply for jobs and fix resume", "Add DIR to portfolio"]);
   });
 
   it("routes a priority correction through the utterance handler without the LLM", () => {
-    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving 2026-09-05");
+    handleConfirmedTodoUtterance(`- Get GNM sponsor outreach moving ${nextYearIso("09-05")}`);
     handleConfirmedTodoUtterance("- Apply for jobs and fix resume");
 
     const reply = handleConfirmedTodoUtterance(
@@ -283,7 +289,7 @@ describe("confirmed todos", () => {
     expect(result?.added.description).toBe("Get visitors to the event");
   });
 
-  it("keeps a missed deadline in the past so it reads as overdue", () => {
+  it("keeps a missed deadline in the past so it reads as passed", () => {
     const now = new Date(2026, 8, 15, 12, 0, 0, 0); // 15 September 2026
     expect(parseDueDate("by 5 September", now)).toBe("2026-09-05");
     expect(parseDueDate("due 5 Sep", now)).toBe("2026-09-05");
@@ -291,16 +297,61 @@ describe("confirmed todos", () => {
     expect(parseDueDate("by 2 January", new Date(2026, 11, 30, 12, 0, 0, 0))).toBe("2027-01-02");
   });
 
-  it("marks an overdue item in the spoken list, and an expired one separately", () => {
-    handleConfirmedTodoUtterance("- Get visitors to GNM event 2026-09-13");
-    handleConfirmedTodoUtterance("- Chase the printer 2026-09-05");
+  it("sorts passed items after live ones and labels them as past", () => {
+    handleConfirmedTodoUtterance("- Get visitors to GNM event 2026-09-05");
+    handleConfirmedTodoUtterance("- Chase the printer 2026-09-13");
     handleConfirmedTodoUtterance("- Add DIR to portfolio");
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving 2026-09-20");
 
-    const list = formatTodoList(listOpenConfirmedTodos(), new Date(2026, 8, 15, 12, 0, 0, 0));
-    expect(list).toContain("Get visitors to GNM event (due 13 Sep, 2 days overdue)");
-    expect(list).toContain("Chase the printer (expired — was due 5 Sep)");
-    expect(list).not.toMatch(/Chase the printer \(due 5 Sep, /);
-    expect(list).toContain("Add DIR to portfolio");
-    expect(list).not.toContain("Add DIR to portfolio (");
+    const now = new Date(2026, 8, 15, 12, 0, 0, 0); // 15 September 2026
+    const open = listOpenConfirmedTodos(now);
+    expect(open.map((t) => t.description)).toEqual([
+      "Get GNM sponsor outreach moving",
+      "Add DIR to portfolio",
+      "Get visitors to GNM event",
+      "Chase the printer",
+    ]);
+
+    const list = formatTodoList(open, now);
+    expect(list).toBe(
+      [
+        "Confirmed to-dos:",
+        "1. Get GNM sponsor outreach moving (due 20 Sep)",
+        "2. Add DIR to portfolio",
+        "Past (date passed, still on record):",
+        "- Get visitors to GNM event (was due 5 Sep)",
+        "- Chase the printer (was due 13 Sep)",
+      ].join("\n"),
+    );
+    expect(list).not.toMatch(/overdue|expired/);
+  });
+
+  it("keeps a passed item open and retrievable rather than closing it", () => {
+    handleConfirmedTodoUtterance("- Get visitors to GNM event 2026-09-05");
+    const now = new Date(2026, 8, 15, 12, 0, 0, 0);
+
+    const list = formatTodoList(listOpenConfirmedTodos(now), now);
+    expect(list).toBe(
+      "No live to-dos.\nPast (date passed, still on record):\n- Get visitors to GNM event (was due 5 Sep)",
+    );
+
+    const open = listOpenConfirmedTodos(now);
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ status: "open", dueAt: "2026-09-05" });
+
+    const done = handleConfirmedTodoUtterance("GNM event is done");
+    expect(done?.reply).toMatch(/Marked complete and persisted: Get visitors to GNM event/);
+    expect(listOpenConfirmedTodos(now)).toHaveLength(0);
+  });
+
+  it("leaves a future-dated or undated item untouched by the passed ordering", () => {
+    handleConfirmedTodoUtterance("- Add DIR to portfolio");
+    handleConfirmedTodoUtterance("- Get GNM sponsor outreach moving 2026-09-20");
+
+    const now = new Date(2026, 8, 15, 12, 0, 0, 0);
+    const list = formatTodoList(listOpenConfirmedTodos(now), now);
+    expect(list).toBe(
+      "Confirmed to-dos:\n1. Get GNM sponsor outreach moving (due 20 Sep)\n2. Add DIR to portfolio",
+    );
   });
 });

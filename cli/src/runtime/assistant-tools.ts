@@ -162,8 +162,9 @@ export async function runAssistantTool(
     switch (name) {
       case "todos": {
         const todos = await import("../work/work-hypothesis/confirmed-todos.js");
-        const describe = (items: Array<{ description: string; dueDate?: string | null }>) =>
-          items.length ? items.map((item) => `- ${item.description}${item.dueDate ? ` (due ${item.dueDate})` : ""}`).join("\n") : "(no open to-dos)";
+        // Live items first; a passed date follows under its own heading as history, never as current work.
+        const describe = (items: Parameters<typeof todos.formatTodoLines>[0]) =>
+          items.length ? todos.formatTodoLines(items) : "(no open to-dos)";
         if (input.action === "list") return describe(todos.listOpenConfirmedTodos());
         if (input.action === "add") {
           const added = todos.appendConfirmedTodos(lines(input.items));

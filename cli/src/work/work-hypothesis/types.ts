@@ -88,6 +88,8 @@ export interface PresentInsights {
   nextTodo?: string;
   nextDueAt?: string;
   nextLeverage?: string;
+  /** Open items whose date has passed — history, spoken last and never as the next thing. */
+  pastTodos?: { name: string; dueAt: string }[];
 }
 
 export interface HypothesisCorrection {
