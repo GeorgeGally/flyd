@@ -4,9 +4,7 @@ import {
   formatDueLabel,
   formatDueNote,
   formatDueSpoken,
-  isExpired,
-  isOverdue,
-  overdueDaysPhrase,
+  isPassed,
   resolveDueYear,
 } from "../due-dates.js";
 
@@ -16,43 +14,41 @@ function localNoon(year: number, monthIndex: number, day: number): Date {
 }
 
 describe("due dates", () => {
-  it("chases a just-missed date as overdue with the day count", () => {
+  it("treats a date that passed yesterday as history, not overdue work", () => {
     const now = localNoon(2026, 8, 15);
-    expect(dueStatus("2026-09-13", now)).toEqual({ state: "overdue", daysPastDue: 2 });
-    expect(isOverdue("2026-09-13", now)).toBe(true);
-    expect(overdueDaysPhrase(10)).toBe("10 days overdue");
-    expect(overdueDaysPhrase(1)).toBe("1 day overdue");
-    expect(formatDueNote("2026-09-13", now)).toBe("was due 13 September, 2 days overdue");
+    expect(dueStatus("2026-09-14", now)).toEqual({ state: "passed", daysPastDue: 1 });
+    expect(isPassed("2026-09-14", now)).toBe(true);
+    expect(formatDueNote("2026-09-14", now)).toBe("was due 14 September");
+    expect(formatDueNote("2026-09-14", now)).not.toMatch(/overdue/);
   });
 
-  it("expires a date that passed long ago instead of counting it overdue forever", () => {
+  it("treats a date that passed long ago the same way, with no day count", () => {
     const now = localNoon(2026, 8, 15);
-    expect(dueStatus("2026-09-05", now)).toEqual({ state: "expired", daysPastDue: 10 });
-    expect(isExpired("2026-09-05", now)).toBe(true);
-    expect(isOverdue("2026-09-05", now)).toBe(false);
-    expect(formatDueNote("2026-09-05", now)).toBe("was due 5 September, and that date has passed");
+    expect(dueStatus("2026-09-05", now)).toEqual({ state: "passed", daysPastDue: 10 });
+    expect(isPassed("2026-09-05", now)).toBe(true);
+    expect(formatDueNote("2026-09-05", now)).toBe("was due 5 September");
   });
 
   it("separates today from upcoming", () => {
     const now = localNoon(2026, 8, 15);
     expect(dueStatus("2026-09-15", now)?.state).toBe("today");
-    expect(isOverdue("2026-09-15", now)).toBe(false);
+    expect(isPassed("2026-09-15", now)).toBe(false);
     expect(formatDueNote("2026-09-15", now)).toBe("due today");
     expect(dueStatus("2026-09-20", now)).toEqual({ state: "upcoming", daysPastDue: -5 });
     expect(formatDueNote("2026-09-20", now)).toBe("due 20 September");
   });
 
-  it("stays overdue late in the day", () => {
+  it("keeps today as today late in the evening, and yesterday as passed", () => {
     const lateEvening = new Date(2026, 8, 15, 23, 30, 0, 0);
     expect(dueStatus("2026-09-15", lateEvening)?.state).toBe("today");
-    expect(dueStatus("2026-09-14", lateEvening)).toEqual({ state: "overdue", daysPastDue: 1 });
+    expect(dueStatus("2026-09-14", lateEvening)).toEqual({ state: "passed", daysPastDue: 1 });
   });
 
   it("returns no status for a missing or unparsable date", () => {
     expect(dueStatus(undefined)).toBeUndefined();
     expect(dueStatus("")).toBeUndefined();
     expect(dueStatus("not-a-date")).toBeUndefined();
-    expect(isOverdue(undefined)).toBe(false);
+    expect(isPassed(undefined)).toBe(false);
     expect(formatDueNote("not-a-date")).toBe("due not-a-date");
   });
 

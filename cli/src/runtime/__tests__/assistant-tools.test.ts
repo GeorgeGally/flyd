@@ -54,6 +54,14 @@ describe("assistant tools", () => {
     expect(await runAssistantTool("todos", { action: "done", query: "dentist" })).toMatch(/^Error: no open to-do matches/);
   });
 
+  it("lists a passed obligation after live ones, as history with its date", async () => {
+    await runAssistantTool("todos", { action: "add", items: "- chase the printer 2020-01-01\n- renew passport\n- file the return 2099-12-31" });
+    expect(await runAssistantTool("todos", { action: "list" })).toBe(
+      "- file the return (due 31 Dec 2099)\n- renew passport\nPast (date passed, still on record):\n- chase the printer (was due 1 Jan 2020)",
+    );
+    expect(await runAssistantTool("todos", { action: "done", query: "printer" })).toBe("Completed: chase the printer");
+  });
+
   it("never launches a real crewmate from tests, and needs an outcome", async () => {
     expect(await runAssistantTool("start_coding_task", { outcome: "" })).toBe("Error: start_coding_task needs an outcome");
     expect(await runAssistantTool("start_coding_task", { outcome: "Dark mode, verified" }))

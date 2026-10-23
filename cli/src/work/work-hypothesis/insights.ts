@@ -1,11 +1,10 @@
-import { getDb } from "../database.js";
 import { displayName, hasDisplayAlias } from "./candidates.js";
+import { listOpenConfirmedTodos, splitTodos } from "./confirmed-todos.js";
 import {
   dueStatus,
   formatDueNote,
   formatDueSpoken,
-  isExpired,
-  overdueDaysPhrase,
+  isPassed,
   todayLine,
 } from "./due-dates.js";
 import type { PresentInsights, WorkThread } from "./types.js";
@@ -16,6 +15,8 @@ const STALL_DAYS = 7;
 const MOVE_DAYS = 3;
 // Undated tasks need a recent human confirmation before they can steer a brief.
 const UNDATED_TODO_FRESH_DAYS = 21;
+// A brief names at most this many live to-dos as workstreams.
+const LIVE_TODO_LIMIT = 8;
 
 function uniqueNames(names: string[]): string[] {
   const seen = new Set<string>();
@@ -42,37 +43,40 @@ function daysAgo(iso: string | undefined, now: Date): number {
   return (now.getTime() - t) / (1000 * 60 * 60 * 24);
 }
 
-function openTodoRows(): Array<{ description: string; dueAt?: string; updatedAt?: string }> {
-  try {
-    const rows = getDb()
-      .prepare(
-        `SELECT description, due_at, updated_at FROM confirmed_todos WHERE status = 'open'
-         ORDER BY CASE WHEN due_at IS NULL OR due_at = '' THEN 1 ELSE 0 END ASC,
-                  due_at ASC, sort_order ASC, created_at ASC LIMIT 8`,
-      )
-      .all() as Array<{ description: string; due_at?: string; updated_at?: string }>;
-    return rows
-      .map((r) => ({ description: r.description, dueAt: r.due_at || undefined, updatedAt: r.updated_at || undefined }))
-      .filter((r) => r.description);
-  } catch {
-    return [];
-  }
-}
-
-function isCurrentTodo(row: { dueAt?: string; updatedAt?: string }, now: Date): boolean {
-  if (row.dueAt) return !isExpired(row.dueAt, now);
-  return daysAgo(row.updatedAt, now) <= UNDATED_TODO_FRESH_DAYS;
+interface TodoRow {
+  description: string;
+  dueAt?: string;
+  updatedAt?: string;
 }
 
 /**
- * One spoken line for a dated commitment. A passed date is reported as passed —
- * never restated as if it were still ahead.
+ * Open to-dos split the way a brief reads them: live items (undated, due today
+ * or ahead) that may steer the day, and passed items that are history. A passed
+ * item is still open and still recorded — it just never leads.
  */
+function openTodos(now: Date): { live: TodoRow[]; passed: Array<TodoRow & { dueAt: string }> } {
+  const { live, passed } = splitTodos(listOpenConfirmedTodos(now), now);
+  const row = (t: { description: string; dueAt?: string; updatedAt?: string }): TodoRow => ({
+    description: t.description,
+    dueAt: t.dueAt || undefined,
+    updatedAt: t.updatedAt || undefined,
+  });
+  return {
+    live: live.map(row).filter((r) => r.description).slice(0, LIVE_TODO_LIMIT),
+    passed: passed
+      .map(row)
+      .filter((r): r is TodoRow & { dueAt: string } => Boolean(r.description && r.dueAt)),
+  };
+}
+
+function isCurrentTodo(row: TodoRow, now: Date): boolean {
+  if (row.dueAt) return !isPassed(row.dueAt, now);
+  return daysAgo(row.updatedAt, now) <= UNDATED_TODO_FRESH_DAYS;
+}
+
+/** One spoken line for a live dated commitment. */
 function formatCommitmentLine(name: string, dueAt: string, now: Date): string {
   const status = dueStatus(dueAt, now);
-  if (status?.state === "overdue") {
-    return `${name} was due ${formatDueSpoken(dueAt, now)} (${overdueDaysPhrase(status.daysPastDue)}).`;
-  }
   if (status?.state === "today") return `${name} is due today.`;
   return `${name} is due ${formatDueSpoken(dueAt, now)}.`;
 }
@@ -102,6 +106,7 @@ export function derivePresentInsights(
   const now = options.now ?? new Date();
   const preferCoreHome = Boolean(options.preferCoreHome);
   const all = [...primary, ...secondary];
+  const { live: todoRows, passed: passedRows } = openTodos(now);
 
   const fromRepos = all
     .filter((t) => !t.demoted && !/flyd/i.test(t.name))
@@ -109,7 +114,7 @@ export function derivePresentInsights(
 
   const fromMemory = [
     ...(options.extraWorkstreams ?? []),
-    ...openTodoRows()
+    ...todoRows
       .filter((row) => isCurrentTodo(row, now))
       .map((row) => row.description)
       .filter((d) => hasDisplayAlias(d))
@@ -160,8 +165,7 @@ export function derivePresentInsights(
     ...finishedFromDemotions,
   ]).filter((n) => !workstreams.some((w) => w.toLowerCase() === n.toLowerCase()));
 
-  const todoRows = openTodoRows();
-  // Expired dates never lead: the window they belonged to has closed, so the
+  // A passed date never leads: the window it belonged to has closed, so the
   // earliest open item that is still live is the one worth naming.
   const nextRow = todoRows.find((r) => isCurrentTodo(r, now));
   const nextTodo = nextRow ? displayNameForStream(nextRow.description) : undefined;
@@ -178,6 +182,11 @@ export function derivePresentInsights(
     nextLeverage = `Re-enter ${workstreams[0]}.`;
   }
 
+  const pastTodos = passedRows.map((r) => ({
+    name: displayNameForStream(r.description),
+    dueAt: r.dueAt,
+  }));
+
   return {
     epistemicClass: "inference",
     workstreams,
@@ -188,6 +197,7 @@ export function derivePresentInsights(
     nextTodo,
     nextLeverage,
     nextDueAt: nextRow?.dueAt,
+    pastTodos,
   };
 }
 
@@ -202,7 +212,7 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
 }
 
-/** Spoken morning brief — the day, then risk, then what's stuck, then forward deadline. No recaps. */
+/** Spoken morning brief — the day, then risk, then what's stuck, then forward deadline. Passed items stay out. No recaps. */
 export function formatPresentModelText(
   insights: PresentInsights,
   _options: { preferCoreHome?: boolean; demotedNames?: string[]; now?: Date } = {},
@@ -221,7 +231,7 @@ export function formatPresentModelText(
   if (stalled.length === 1) parts.push(`${stalled[0]} still hasn't moved.`);
   else if (stalled.length > 1) parts.push(`${joinNames(stalled)} still haven't moved.`);
 
-  if (today && insights.nextDueAt && !isExpired(insights.nextDueAt, now)) {
+  if (today && insights.nextDueAt && !isPassed(insights.nextDueAt, now)) {
     parts.push(formatCommitmentLine(today, insights.nextDueAt, now));
   } else if (today) {
     parts.push(`Next: ${today}.`);

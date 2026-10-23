@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLYD_DIR } from "../../lib/config.js";
 import { getDb } from "../database.js";
-import { dueStatus, formatDueLabel, overdueDaysPhrase, resolveDueYear } from "./due-dates.js";
+import { dueStatus, formatDueLabel, isPassed, resolveDueYear } from "./due-dates.js";
 import { appendCorrection, activeDemotions, readPresentModel, enforceDemotionConstraints } from "./store.js";
 
 export interface ConfirmedTodo {
@@ -119,17 +119,53 @@ export function parseTodoDraft(raw: string, now = new Date()): TodoDraft {
   return { description: description || raw.trim(), dueAt };
 }
 
-export function listOpenConfirmedTodos(): ConfirmedTodo[] {
+/** A dated item whose date is behind us. It stays open and on record, as history. */
+export function isPassedTodo(todo: Pick<ConfirmedTodo, "dueAt">, now: Date = new Date()): boolean {
+  return isPassed(todo.dueAt, now);
+}
+
+/**
+ * Presentation order: live dated items by date, then undated items in list
+ * order, then passed items by date. A passed date never leads — the window it
+ * belonged to has closed, so it follows the live work, marked as past.
+ */
+export function orderTodos<T extends Pick<ConfirmedTodo, "dueAt" | "sortOrder" | "createdAt">>(
+  todos: T[],
+  now: Date = new Date(),
+): T[] {
+  const rank = (t: T): number => (isPassedTodo(t, now) ? 2 : t.dueAt ? 0 : 1);
+  return [...todos].sort((a, b) => {
+    const byRank = rank(a) - rank(b);
+    if (byRank !== 0) return byRank;
+    if (a.dueAt && b.dueAt && a.dueAt !== b.dueAt) return a.dueAt < b.dueAt ? -1 : 1;
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+    return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
+  });
+}
+
+/** Live (undated, due today or ahead) versus passed, each in presentation order. */
+export function splitTodos<T extends Pick<ConfirmedTodo, "dueAt" | "sortOrder" | "createdAt">>(
+  todos: T[],
+  now: Date = new Date(),
+): { live: T[]; passed: T[] } {
+  const ordered = orderTodos(todos, now);
+  return {
+    live: ordered.filter((t) => !isPassedTodo(t, now)),
+    passed: ordered.filter((t) => isPassedTodo(t, now)),
+  };
+}
+
+/** Every open item, live first and passed last. A passed item is still open and still here. */
+export function listOpenConfirmedTodos(now: Date = new Date()): ConfirmedTodo[] {
   try {
     const db = getDb();
     const rows = db
       .prepare(
         `SELECT * FROM confirmed_todos WHERE status = 'open'
-         ORDER BY CASE WHEN due_at IS NULL OR due_at = '' THEN 1 ELSE 0 END ASC,
-                  due_at ASC, sort_order ASC, created_at ASC`,
+         ORDER BY sort_order ASC, created_at ASC`,
       )
       .all() as Array<Record<string, unknown>>;
-    return rows.map(mapRow);
+    return orderTodos(rows.map(mapRow), now);
   } catch {
     return [];
   }
@@ -276,24 +312,47 @@ export function applyTodoPriorityCorrection(message: string): { closed: Confirme
   }
 }
 
+/** Heading over passed items wherever a list is shown: history, still on record. */
+export const PASSED_TODOS_HEADING = "Past (date passed, still on record):";
+
 export function formatTodoList(todos: ConfirmedTodo[], now: Date = new Date()): string {
   if (!todos.length) {
     return "No confirmed to-dos yet. Paste the list (one `- item` per line) and I'll record it.";
   }
-  const lines = todos.map((t, i) => `${i + 1}. ${t.description}${dueSuffix(t.dueAt, now)}`);
-  return `Confirmed to-dos:\n${lines.join("\n")}`;
+  const { live, passed } = splitTodos(todos, now);
+  const parts: string[] = [];
+  if (live.length) {
+    const lines = live.map((t, i) => `${i + 1}. ${t.description}${dueSuffix(t.dueAt, now)}`);
+    parts.push(`Confirmed to-dos:\n${lines.join("\n")}`);
+  } else {
+    parts.push("No live to-dos.");
+  }
+  if (passed.length) parts.push(formatPassedTodos(passed, now));
+  return parts.join("\n");
 }
 
-/** "(due 20 Sep)", "(due today)" or "(expired — was due 5 Sep)". */
+/**
+ * Bullet form for tool answers: live items, then passed items under their own
+ * heading. Empty input gives an empty string so the caller can say so itself.
+ */
+export function formatTodoLines(todos: ConfirmedTodo[], now: Date = new Date()): string {
+  const { live, passed } = splitTodos(todos, now);
+  const parts: string[] = [];
+  if (live.length) parts.push(live.map((t) => `- ${t.description}${dueSuffix(t.dueAt, now)}`).join("\n"));
+  if (passed.length) parts.push(formatPassedTodos(passed, now));
+  return parts.join("\n");
+}
+
+function formatPassedTodos(passed: ConfirmedTodo[], now: Date): string {
+  const lines = passed.map((t) => `- ${t.description}${dueSuffix(t.dueAt, now)}`);
+  return `${PASSED_TODOS_HEADING}\n${lines.join("\n")}`;
+}
+
+/** "(due 20 Sep)", "(due today)" or "(was due 5 Sep)". */
 function dueSuffix(dueAt: string | undefined, now: Date = new Date()): string {
   if (!dueAt) return "";
   const status = dueStatus(dueAt, now);
-  if (status?.state === "expired") {
-    return ` (expired — was due ${formatDueLabel(dueAt, now)})`;
-  }
-  if (status?.state === "overdue") {
-    return ` (due ${formatDueLabel(dueAt, now)}, ${overdueDaysPhrase(status.daysPastDue)})`;
-  }
+  if (status?.state === "passed") return ` (was due ${formatDueLabel(dueAt, now)})`;
   if (status?.state === "today") return " (due today)";
   return ` (due ${formatDueLabel(dueAt, now)})`;
 }

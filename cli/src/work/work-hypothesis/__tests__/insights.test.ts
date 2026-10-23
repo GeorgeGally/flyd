@@ -156,22 +156,46 @@ describe("present insights", () => {
     expect(formatPresentModelText(insights, { now: NOW })).toMatch(/is due 5 September/);
   });
 
-  it("reports a passed deadline as overdue instead of upcoming", async () => {
+  it("never lets a passed date lead, even when it is the only dated item", async () => {
+    const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
+    replaceConfirmedTodos([
+      "Get visitors to GNM event 2026-09-05",
+      "Apply for jobs and fix resume",
+    ]);
+
+    const now = new Date(2026, 8, 15, 12, 0, 0, 0); // 15 September 2026, event ten days gone
+    const insights = derivePresentInsights([], [], { preferCoreHome: true, now });
+
+    expect(insights.nextTodo).toMatch(/Apply for jobs/);
+    expect(insights.nextDueAt).toBeUndefined();
+    expect(insights.nextLeverage).toBe("Next confirmed to-do: Apply for jobs and fix resume.");
+    expect(insights.pastTodos).toEqual([{ name: "Get visitors to GNM event", dueAt: "2026-09-05" }]);
+
+    const text = formatPresentModelText(insights, { now });
+    expect(text).not.toMatch(/overdue/);
+    expect(text).not.toMatch(/Get visitors to GNM event is due/);
+    expect(text).toContain("Next: Apply for jobs and fix resume.");
+    expect(text).not.toMatch(/Get visitors to GNM event/);
+    expect(text).not.toMatch(/was due/);
+  });
+
+  it("treats a date that passed two days ago as history too, not overdue work", async () => {
     const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
     replaceConfirmedTodos(["Get visitors to GNM event 2026-09-13"]);
 
     const now = new Date(2026, 8, 15, 12, 0, 0, 0); // 15 September 2026
     const insights = derivePresentInsights([], [], { preferCoreHome: true, now });
 
-    expect(insights.nextTodo).toMatch(/Get visitors to GNM event/);
-    expect(insights.nextLeverage).toMatch(/was due 13 September, 2 days overdue/);
+    expect(insights.nextTodo).toBeUndefined();
+    expect(insights.nextDueAt).toBeUndefined();
+    expect(insights.nextLeverage).toBeUndefined();
+    expect(insights.pastTodos).toEqual([{ name: "Get visitors to GNM event", dueAt: "2026-09-13" }]);
 
     const text = formatPresentModelText(insights, { now });
-    expect(text).toContain("was due 13 September (2 days overdue)");
-    expect(text).not.toMatch(/is due 13 September/);
+    expect(text).toBe("Today is Tuesday 15 September 2026. Nothing urgent on the board.");
   });
 
-  it("stops naming a date that expired, and never calls it due", async () => {
+  it("leaves a future-dated item in the lead and marks the passed one as past", async () => {
     const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
     replaceConfirmedTodos([
       "Get visitors to GNM event 2026-09-05",
@@ -182,11 +206,43 @@ describe("present insights", () => {
     const insights = derivePresentInsights([], [], { preferCoreHome: true, now });
 
     expect(insights.nextTodo).toMatch(/sponsor outreach/i);
+    expect(insights.nextDueAt).toBe("2026-09-20");
     expect(insights.nextLeverage).toMatch(/due 20 September/);
 
     const text = formatPresentModelText(insights, { now });
-    expect(text).not.toContain("Get visitors to GNM event");
+    expect(text).toContain("is due 20 September.");
+    expect(text).not.toMatch(/Get visitors to GNM event/);
+    expect(text).not.toMatch(/was due/);
     expect(text).not.toMatch(/overdue/);
+  });
+
+  it("keeps the spoken brief free of passed items when they are all that is open", async () => {
+    const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
+    replaceConfirmedTodos([
+      "Chase the printer 2026-09-01",
+      "Book the van 2026-09-02",
+      "Send the invoice 2026-09-03",
+      "Return the keys 2026-09-04",
+    ]);
+
+    const now = new Date(2026, 8, 15, 12, 0, 0, 0);
+    const insights = derivePresentInsights([], [], { now });
+    expect(insights.nextTodo).toBeUndefined();
+    expect(insights.nextDueAt).toBeUndefined();
+    expect(insights.nextLeverage).toBeUndefined();
+    expect(insights.pastTodos?.map((p) => p.name)).toEqual([
+      "Chase the printer",
+      "Book the van",
+      "Send the invoice",
+      "Return the keys",
+    ]);
+
+    const text = formatPresentModelText(insights, { now });
+    expect(text).toBe("Today is Tuesday 15 September 2026. Nothing urgent on the board.");
+    for (const name of ["Chase the printer", "Book the van", "Send the invoice", "Return the keys"]) {
+      expect(text).not.toContain(name);
+    }
+    expect(text).not.toMatch(/was due/);
   });
 
   it("names a deadline that falls today without a date", async () => {
@@ -199,7 +255,7 @@ describe("present insights", () => {
     expect(text).toContain("is due today");
   });
 
-  it("states today's date first, so relative counts can be checked", async () => {
+  it("states today's date first, so relative claims can be checked", async () => {
     const { replaceConfirmedTodos } = await import("../confirmed-todos.js");
     replaceConfirmedTodos(["Get visitors to GNM event 2026-09-13"]);
 
@@ -208,7 +264,6 @@ describe("present insights", () => {
     const text = formatPresentModelText(insights, { now });
 
     expect(text.startsWith("Today is Tuesday 15 September 2026.")).toBe(true);
-    expect(text).toContain("was due 13 September (2 days overdue)");
   });
 
   it("keeps the day line on an empty board", () => {
