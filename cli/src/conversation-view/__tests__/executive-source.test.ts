@@ -75,6 +75,6 @@ it("carries an answer to a Core-owned decision through the decision record, not 
   expect(resolveDecision).toHaveBeenCalledWith("decision-1", "review", "close it");
   expect(sendDecision).not.toHaveBeenCalled();
 
-  await projected.sendDecision!("Answer to pending decision review", []);
-  expect(sendDecision).toHaveBeenCalledWith("Answer to pending decision review", [], undefined);
+  await projected.sendDecision!("Answer to pending decision review", [], undefined, "session-1");
+  expect(sendDecision).toHaveBeenCalledWith("Answer to pending decision review", [], undefined, "session-1");
 });

@@ -106,6 +106,23 @@ describe("Flyd's standalone conversation source", () => {
     follower.close();
   });
 
+  it("keeps decision answers and artefact notes in the window's own conversation", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-decision-window-"));
+    const source = new FlydConversationSource({
+      desk: new FlydDesk({ dir, answer: async (question) => `Answer: ${question}` }),
+      resolveDecision: async () => undefined,
+    });
+    await source.sendDecision("bring in the missing tools", [], { decisionId: "decision-1", taskId: "run-1" }, "window:decision-window");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await source.sendDecision("About the artefact \"Deals page\"", [], undefined, "window:decision-window");
+    await vi.waitFor(async () => expect((await source.read("window:decision-window")).messages.at(-1)?.text).toBe("Answer: About the artefact \"Deals page\""));
+    expect((await source.read("window:decision-window")).messages.map((message) => message.text)).toEqual([
+      "bring in the missing tools", "I've passed your choice to the work it answers.",
+      "About the artefact \"Deals page\"", "Answer: About the artefact \"Deals page\"",
+    ]);
+    expect((await source.listSessions()).map((session) => session.id)).toEqual(["window:decision-window"]);
+  });
+
   it("records a chosen executive decision only after its internal handoff succeeds", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-decision-answer-"));
     const resolveDecision = vi.fn(async () => undefined);

@@ -67,13 +67,14 @@ export class FlydConversationSource implements ConversationSource {
     return this.options.desk.ask(text, images, sessionId);
   }
 
-  async sendDecision(text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }): Promise<SentMessage> {
+  async sendDecision(text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }, sessionId?: string): Promise<SentMessage> {
+    const session = sessionId && this.isConversationSession(sessionId) ? sessionId : (await this.listSessions())[0]?.id ?? FLYD_CONVERSATION_ID;
     if (decision && this.options.resolveDecision) {
       if (images.length) throw new Error("Images cannot be attached to a fixed executive decision");
       await this.options.resolveDecision(decision.decisionId, decision.taskId, text);
-      return this.options.desk.recordDecisionAnswer(text, FLYD_CONVERSATION_ID);
+      return this.options.desk.recordDecisionAnswer(text, session);
     }
-    return this.options.desk.ask(text, images, FLYD_CONVERSATION_ID);
+    return this.options.desk.ask(text, images, session);
   }
 
   async commands(): Promise<Array<{ name: string; description: string }>> {

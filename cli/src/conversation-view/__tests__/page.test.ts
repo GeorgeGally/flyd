@@ -1484,7 +1484,7 @@ describe("conversation page", () => {
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     await settle();
     const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
-    expect(JSON.parse(String(sent[1]!.body))).toEqual({ decision: "a", text: "/design-review" });
+    expect(JSON.parse(String(sent[1]!.body))).toEqual({ session: "latest", decision: "a", text: "/design-review" });
   });
 
   it("completes a skill in a selected-passage comment and keeps its quote", async () => {
@@ -1806,8 +1806,8 @@ describe("header and artefact view", () => {
       picks[0]!.click();
       await settle();
       expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
-        { decision: "visuals", text: "A mix of the two" },
-        { decision: "visuals", text: "Evergreen luxe" },
+        { session: "latest", decision: "visuals", text: "A mix of the two" },
+        { session: "latest", decision: "visuals", text: "Evergreen luxe" },
       ]);
       const receipt = document.querySelector(".scene-ask .art-chat-receipt")!;
       expect(receipt.textContent).toBe("Sent to Flyd");
@@ -1967,7 +1967,7 @@ describe("header and artefact view", () => {
     document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
-      { text: "Make the pins bigger", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://github.com/o/flyd/pull/9" } },
+      { session: "latest", text: "Make the pins bigger", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://github.com/o/flyd/pull/9" } },
     ]);
   });
 
@@ -2005,7 +2005,7 @@ describe("header and artefact view", () => {
     document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
-      { text: "Like this", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map" }, images: [{ mediaType: "image/png", data }] },
+      { session: "latest", text: "Like this", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map" }, images: [{ mediaType: "image/png", data }] },
     ]);
     // Once it went, the box is empty again.
     expect(images.hidden).toBe(true);
@@ -2125,7 +2125,7 @@ describe("header and artefact view", () => {
     items[1]!.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
     const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
-    expect(sent).toEqual([{ decision: "b", text: "Merge it" }]);
+    expect(sent).toEqual([{ session: "latest", decision: "b", text: "Merge it" }]);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(sheet.hidden).toBe(true);
   });

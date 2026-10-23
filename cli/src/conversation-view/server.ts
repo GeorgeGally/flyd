@@ -1430,7 +1430,7 @@ export class ConversationViewServer {
         const sent = await this.source.sendDecision(executive ? answer : withCommandMarker(answer, await this.commandIn(payload.text)), images as ImageUpload[], executive ? {
           decisionId: call.executiveDecisionId!,
           taskId: call.task ?? "",
-        } : undefined);
+        } : undefined, typeof payload.session === "string" ? payload.session : undefined);
         if (executive) await this.feed.refresh();
         sendJson(res, 200, { ...sent, waiting: executive ? "Flyd is carrying your decision into the work" : "Sent to firstmate" });
       } catch (error) {
@@ -1447,7 +1447,7 @@ export class ConversationViewServer {
         sendJson(res, 400, { error: "expected images as [{ mediaType, data }]" });
         return;
       }
-      await this.sendAbout(res, payload.about, payload.text, images as ImageUpload[]);
+      await this.sendAbout(res, payload.about, payload.text, images as ImageUpload[], typeof payload.session === "string" ? payload.session : undefined);
       return;
     }
     if (payload.passage !== undefined) {
@@ -1534,7 +1534,7 @@ export class ConversationViewServer {
    * firstmate knows what "this" is without the screen. Images he pasted into
    * the box go with it.
    */
-  private async sendAbout(res: ServerResponse, about: unknown, text: unknown, images: ImageUpload[] = []): Promise<void> {
+  private async sendAbout(res: ServerResponse, about: unknown, text: unknown, images: ImageUpload[] = [], session?: string): Promise<void> {
     const card = typeof about === "object" && about !== null ? about as { title?: unknown; task?: unknown; url?: unknown; line?: unknown; detail?: unknown } : {};
     const field = (value: unknown) => (typeof value === "string" && value.trim() && value.length <= 2000 ? value.trim() : undefined);
     const content = (value: unknown) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 2000) : undefined);
@@ -1560,7 +1560,7 @@ export class ConversationViewServer {
     try {
       const words = text.trim();
       const note = words ? withCommandMarker(`${named}\n\n${words}`, await this.commandIn(words)) : named;
-      sendJson(res, 200, { ...await this.source.sendDecision(note, images), waiting: "Sent to firstmate" });
+      sendJson(res, 200, { ...await this.source.sendDecision(note, images, undefined, session), waiting: "Sent to firstmate" });
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
     }

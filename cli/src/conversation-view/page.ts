@@ -2875,7 +2875,7 @@ ${LEFT_SCRIPT}
       paintThread();
       paint();
       var sending = takesImages ? images.slice() : [];
-      var body = Object.assign({ text: text }, target);
+      var body = Object.assign({ text: text, session: current }, target);
       if (sending.length) body.images = sending.map(function (image) { return { mediaType: image.mediaType, data: image.data }; });
       authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, true)
         .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
