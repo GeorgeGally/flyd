@@ -17,11 +17,10 @@ describe("coding domain guard", () => {
     dir = undefined;
   });
 
-  it("refuses a missing project without creating a run, submitting, or notifying", async () => {
+  it("refuses a missing project without creating a run, or submitting", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-coding-guard-"));
     process.env.FLYD_COMMAND_DIR = dir;
     const exec = vi.fn(async () => ({ stdout: JSON.stringify({ id: "note-1", saved: true }), stderr: "" }));
-    const notify = vi.fn();
     const result = await dispatchCodingDomain({
       originalMessage: "Fix it", intendedOutcome: "Fix it", doneWhen: ["it is fixed"], source: "chat",
       project: { root: join(dir, "missing") }, transport: new FirstmateDomainTransport({ exec }),
@@ -29,7 +28,6 @@ describe("coding domain guard", () => {
     expect(result).toEqual({ status: "refused", reason: "project_not_found" });
     expect(listDomainRuns()).toEqual([]);
     expect(exec).not.toHaveBeenCalled();
-    expect(notify).not.toHaveBeenCalled();
     expect(readFileSync(join(dir, "refusals.jsonl"), "utf8")).toContain('"origin":"chat","reason":"project_not_found"');
   });
 

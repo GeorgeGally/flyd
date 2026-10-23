@@ -418,7 +418,10 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
         project: { name: "Flyd", root: repo },
         transport: firstmate,
       });
-      if (dispatched.status === "refused") return { status: "not_started", improvement, evidence: fresh.length };
+      if (dispatched.status === "refused") {
+        writeState({ ...state, lastRunAt: now.toISOString() }, dir);
+        return { status: "not_started", improvement, evidence: fresh.length };
+      }
       task = dispatched.run;
     } else {
       task = await dispatchCrewTask({ repo, outcome, doneWhen, source: "self-improvement" });

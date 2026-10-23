@@ -115,7 +115,7 @@ describe("runWork --start", () => {
   it("hands the plan's task, files and repo folder to a fresh coding session", async () => {
     writeShapedPlan("2026-10-17-auth-plan.md", "user auth");
     const { runWork } = await import("../work.js");
-    const dispatch = vi.fn().mockResolvedValue(undefined);
+    const dispatch = vi.fn().mockResolvedValue({ status: "accepted", run: {} });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     await runWork("auth", { start: true, dispatch });
     expect(dispatch).toHaveBeenCalledTimes(1);
@@ -125,6 +125,17 @@ describe("runWork --start", () => {
     expect(input.intendedOutcome).toContain("- src/middleware/auth.ts");
     expect(input.project.root).toBe("/Users/x/flyd");
     expect(input.doneWhen).toEqual(["a test covers a round trip"]);
+    log.mockRestore();
+  });
+
+  it("says the plan was not started when its repo folder is missing", async () => {
+    writeShapedPlan("2026-10-17-auth-plan.md", "user auth");
+    const { runWork } = await import("../work.js");
+    const dispatch = vi.fn().mockResolvedValue({ status: "refused", reason: "project_not_found" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await runWork("auth", { start: true, dispatch });
+    expect(log).toHaveBeenCalledWith("not started — /Users/x/flyd doesn't exist");
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining("handed to a fresh coding session"));
     log.mockRestore();
   });
 
