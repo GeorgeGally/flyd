@@ -17,8 +17,6 @@ const MOVE_DAYS = 3;
 const UNDATED_TODO_FRESH_DAYS = 21;
 // A brief names at most this many live to-dos as workstreams.
 const LIVE_TODO_LIMIT = 8;
-// And at most this many passed ones, so history never crowds out the day.
-const PAST_TODO_SPOKEN_LIMIT = 3;
 
 function uniqueNames(names: string[]): string[] {
   const seen = new Set<string>();
@@ -214,22 +212,7 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
 }
 
-/**
- * Passed obligations, spoken last and marked as past. They are still open, so
- * George hears that they linger — but after the live work, never as today's.
- */
-function formatPastTodosLine(pastTodos: PresentInsights["pastTodos"], now: Date): string | undefined {
-  const items = (pastTodos ?? []).filter((p) => p.name && p.dueAt);
-  if (!items.length) return undefined;
-  const named = items
-    .slice(0, PAST_TODO_SPOKEN_LIMIT)
-    .map((p) => `${spokenName(p.name)} (${formatDueNote(p.dueAt, now)})`);
-  const more = items.length - named.length;
-  const tail = more > 0 ? `, and ${more} more` : "";
-  return `Past and still open: ${joinNames(named)}${tail}.`;
-}
-
-/** Spoken morning brief — the day, then risk, then what's stuck, then forward deadline, then what has passed. No recaps. */
+/** Spoken morning brief — the day, then risk, then what's stuck, then forward deadline. Passed items stay out. No recaps. */
 export function formatPresentModelText(
   insights: PresentInsights,
   _options: { preferCoreHome?: boolean; demotedNames?: string[]; now?: Date } = {},
@@ -263,6 +246,5 @@ export function formatPresentModelText(
         ? `${active[0]} is in motion.`
         : `${joinNames(active)} are in motion.`;
 
-  const past = formatPastTodosLine(insights.pastTodos, now);
-  return `${todayLine(now)} ${body}${past ? ` ${past}` : ""}`;
+  return `${todayLine(now)} ${body}`;
 }
