@@ -3420,12 +3420,9 @@ ${LEFT_SCRIPT}
   // A refusal has to outlive the next stream update: say it in the box, not in
   // the corner line the view clears whenever Core sends something.
   var noticeEl = document.getElementById("notice");
-  var noticeTimer = null;
   function noteRefusal(text) {
-    clearTimeout(noticeTimer);
     noticeEl.textContent = text;
     noticeEl.hidden = !text;
-    if (text) noticeTimer = setTimeout(function () { noticeEl.textContent = ""; noticeEl.hidden = true; }, 15000);
   }
   function megabytes(bytes) {
     return Math.round(bytes / 1048576);

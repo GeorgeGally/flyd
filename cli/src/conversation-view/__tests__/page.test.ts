@@ -741,7 +741,13 @@ describe("conversation page", () => {
     };
     const deck = new File(["%PDF-1.7 deck"], "GNM Sponsor Deck.pdf", { type: "application/pdf" });
     Object.defineProperty(deck, "size", { value: 40 * 1024 * 1024 });
-    drop([deck, new File(["PK"], "assets.zip", { type: "application/zip" })]);
+    vi.useFakeTimers();
+    try {
+      drop([deck, new File(["PK"], "assets.zip", { type: "application/zip" })]);
+      vi.advanceTimersByTime(60_000);
+    } finally {
+      vi.useRealTimers();
+    }
     const notice = document.getElementById("notice")!;
     expect(notice.hidden).toBe(false);
     expect(notice.textContent).toContain("GNM Sponsor Deck.pdf is 40MB; documents can be up to 32MB");
