@@ -710,7 +710,7 @@ describe("conversation page", () => {
     drop([pdf, new File(["MZ"], "setup.exe", { type: "application/x-msdownload" })]);
     for (let i = 0; i < 20 && !document.querySelector(".attachment.file"); i += 1) await settle();
     expect(Array.from(document.querySelectorAll(".attachment.file .name")).map((n) => n.textContent)).toEqual(["Q3 report.pdf"]);
-    expect(document.getElementById("problem")!.textContent).toContain("setup.exe");
+    expect(document.getElementById("notice")!.textContent).toContain("setup.exe");
     expect((document.getElementById("send") as HTMLButtonElement).disabled).toBe(false);
 
     (document.querySelector(".attachment.file button") as HTMLButtonElement).click();
@@ -728,6 +728,72 @@ describe("conversation page", () => {
       files: [{ name: "Q3 report.pdf", data: btoa("%PDF-1.3 hello") }, { name: "notes.md", data: btoa("# notes") }],
     });
     expect(Array.from(document.querySelectorAll(".msg.pending .doc .name")).map((n) => n.textContent)).toEqual(["Q3 report.pdf", "notes.md"]);
+  });
+
+  it("says in the box why a dropped file was not attached, instead of looking ignored", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const drop = (files: File[]): void => {
+      const event = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: { files } });
+      document.body.dispatchEvent(event);
+    };
+    const deck = new File(["%PDF-1.7 deck"], "GNM Sponsor Deck.pdf", { type: "application/pdf" });
+    Object.defineProperty(deck, "size", { value: 40 * 1024 * 1024 });
+    drop([deck, new File(["PK"], "assets.zip", { type: "application/zip" })]);
+    const notice = document.getElementById("notice")!;
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toContain("GNM Sponsor Deck.pdf is 40MB; documents can be up to 32MB");
+    expect(notice.textContent).toContain("assets.zip can't be attached");
+    expect(document.querySelectorAll(".attachment")).toHaveLength(0);
+    // A later stream update never wipes it; only the next file, typing or a send does.
+    stream.emit("update", { order: [], messages: [], working: true });
+    expect(notice.textContent).toContain("GNM Sponsor Deck.pdf");
+
+    drop([new File(["%PDF-1.3 small"], "brief.pdf", { type: "application/pdf" })]);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment.file"); i += 1) await settle();
+    expect(notice.hidden).toBe(true);
+    expect(document.querySelectorAll(".attachment.file")).toHaveLength(1);
+  });
+
+  it("brings the message box back when a file lands on the artefact screen", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "Work", summary: "", live: false, counts: {}, items: [] } });
+    document.getElementById("flip")!.click();
+    expect(document.documentElement.getAttribute("data-screen")).toBe("show");
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: { files: [new File(["%PDF-1.3"], "deck.pdf", { type: "application/pdf" })] } });
+    document.body.dispatchEvent(event);
+    expect(document.documentElement.getAttribute("data-screen")).toBe("terminal");
+    expect((document.getElementById("show") as HTMLElement).hidden).toBe(true);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment.file"); i += 1) await settle();
+    expect(document.querySelector(".attachment.file .name")!.textContent).toBe("deck.pdf");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+  });
+
+  it("keeps a file dropped while a reply is streaming in the box, unsent, until he sends it", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: ["u1"], messages: [{ id: "u1", role: "user", html: "<p>look at the deck</p>" }], working: true, activity: "Reading the deck" });
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: { files: [new File(["%PDF-1.3"], "deck.pdf", { type: "application/pdf" })] } });
+    document.body.dispatchEvent(event);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment.file"); i += 1) await settle();
+    expect(document.querySelector(".attachment.file .name")!.textContent).toBe("deck.pdf");
+    expect((document.getElementById("send") as HTMLButtonElement).disabled).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+    // The reply streaming on does not take the chip with it.
+    stream.emit("update", { order: ["u1", "a1"], messages: [{ id: "u1", role: "user", html: "<p>look at the deck</p>" }, { id: "a1", role: "assistant", html: "<p>Read it.</p>" }], working: true });
+    await settle();
+    expect(document.querySelectorAll(".attachment.file")).toHaveLength(1);
+    await type("summarise it");
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({ text: "summarise it", files: [{ name: "deck.pdf" }] });
+    expect(document.querySelectorAll(".attachment")).toHaveLength(0);
   });
 
   it("keeps what he was typing and attaching through a restart, caret and chips included, until it is sent", async () => {

@@ -145,6 +145,16 @@ echo "queued $3"
     expect(questions(inbox)[1]).toMatchObject({ text: "", files: ["brief.docx"] });
   });
 
+  it("takes a design-deck PDF well past the old 12MB wall", async () => {
+    const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
+    // 13MB of a real deck: past 12MB, inside the 32MB documents it takes.
+    const deck = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(13 * 1024 * 1024, 0x20)]);
+    await inbox.send("read the deck", [], undefined, [{ name: "GNM Sponsor Deck.pdf", data: deck.toString("base64") }]);
+    const path = join(home, "data", "inbox-files", readdirSync(join(home, "data", "inbox-files"))[0]!, "GNM Sponsor Deck.pdf");
+    expect(readFileSync(path).equals(deck)).toBe(true);
+    expect(questions(inbox)[0]).toMatchObject({ text: "read the deck", files: ["GNM Sponsor Deck.pdf"] });
+  });
+
   it("refuses documents it cannot pass on, and file names outside its folder", async () => {
     const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
     const doc = (name: string, body: string) => ({ name, data: Buffer.from(body).toString("base64") });
