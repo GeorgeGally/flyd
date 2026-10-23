@@ -86,7 +86,7 @@ export function buildOpenCodeArgs(input: OpenCodeArgsInput): string[] {
   const args = ["run", input.assignment];
   if (input.externalSessionId) args.push("--session", input.externalSessionId);
   else if (input.contextPath) args.push("-f", input.contextPath);
-  args.push("--format", "json", "--dir", input.projectRoot);
+  args.push("--format", "json");
   if (!input.externalSessionId) args.push("--title", `flyd:${input.taskKey}`);
   args.push("--auto");
   return args;

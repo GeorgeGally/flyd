@@ -227,7 +227,7 @@ export function launchOpenCode(task: CrewTask, brief: string): number | undefine
     throw new Error("refusing to launch a real OpenCode crewmate under tests");
   }
   const out = openSync(task.log, "a");
-  const args = ["run", "--format", "json", "--dir", task.worktree, "--title", `flyd:${task.id}`, "--auto"];
+  const args = ["run", "--format", "json", "--title", `flyd:${task.id}`, "--auto"];
   const model = task.model ?? crewModel();
   if (model) args.push("--model", model);
   args.push(brief);

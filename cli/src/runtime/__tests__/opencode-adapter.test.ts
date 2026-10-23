@@ -26,13 +26,13 @@ describe("OpenCode adapter", () => {
 
   it("builds a structured approved command for a new task", () => {
     expect(buildOpenCodeArgs({ assignment: "Implement continuity", contextPath: "/tmp/context.md", projectRoot: "/work/flyd", taskKey: "task-1" })).toEqual([
-      "run", "Implement continuity", "-f", "/tmp/context.md", "--format", "json", "--dir", "/work/flyd", "--title", "flyd:task-1", "--auto",
+      "run", "Implement continuity", "-f", "/tmp/context.md", "--format", "json", "--title", "flyd:task-1", "--auto",
     ]);
   });
 
   it("builds a session resume command without replaying the full context", () => {
     expect(buildOpenCodeArgs({ assignment: "Continue from the failing test", projectRoot: "/work/flyd", taskKey: "task-1", externalSessionId: "ses_1" })).toEqual([
-      "run", "Continue from the failing test", "--session", "ses_1", "--format", "json", "--dir", "/work/flyd", "--auto",
+      "run", "Continue from the failing test", "--session", "ses_1", "--format", "json", "--auto",
     ]);
   });
 
