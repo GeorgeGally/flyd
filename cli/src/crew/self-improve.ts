@@ -410,7 +410,7 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
     const firstmate = new FirstmateDomainTransport();
     if (process.env.FLYD_FIRSTMATE !== "0" && firstmate.available()) {
       const { dispatchCodingDomain } = await import("../command/coding.js");
-      task = await dispatchCodingDomain({
+      const dispatched = await dispatchCodingDomain({
         originalMessage: `Flyd self-improvement: ${improvement.title}`,
         intendedOutcome: outcome,
         doneWhen,
@@ -418,6 +418,8 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
         project: { name: "Flyd", root: repo },
         transport: firstmate,
       });
+      if (dispatched.status === "refused") return { status: "not_started", improvement, evidence: fresh.length };
+      task = dispatched.run;
     } else {
       task = await dispatchCrewTask({ repo, outcome, doneWhen, source: "self-improvement" });
     }
