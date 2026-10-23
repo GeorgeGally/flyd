@@ -592,6 +592,14 @@ describe("conversation page", () => {
     await settle();
     expect(document.querySelectorAll(".history-item").length).toBeGreaterThan(0);
     expect(document.getElementById("rail")!.hidden).toBe(true);
+    const toggle = document.getElementById("rail-toggle")!;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+    document.getElementById("prefs-open")!.click();
+    toggle.click();
+    expect(document.getElementById("rail")!.hidden).toBe(false);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem("flyd-rail")).toBe("on");
   });
 
   it("starts a newly opened window on its own conversation and keeps it across a reload", async () => {
@@ -615,9 +623,10 @@ describe("conversation page", () => {
 
     document.getElementById("prefs-open")!.click();
     const toggle = document.getElementById("rail-toggle")!;
-    toggle.click();
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
     toggle.click();
     expect(document.getElementById("rail")!.hidden).toBe(false);
+    expect(localStorage.getItem("flyd-rail")).toBe("on");
   });
 
   it("says where a message sent from an older session will show", async () => {

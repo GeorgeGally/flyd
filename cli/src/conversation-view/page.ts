@@ -2665,6 +2665,7 @@ var __name = function (f) { return f; };
   // The column shows when there is done work, unless he hid it.
   function showRail() {
     railEl.hidden = railHidden || railMobileDismissed || (!briefFilled && historyEl.hidden);
+    if (railToggle) railToggle.setAttribute("aria-checked", String(!railHidden && !railMobileDismissed));
     setRail(railOn());
   }
   window.addEventListener("resize", function () {
@@ -2674,12 +2675,11 @@ var __name = function (f) { return f; };
     railHidden = hidden;
     if (!hidden) railMobileDismissed = false;
     store("flyd-rail", hidden ? "off" : "on");
-    railToggle.setAttribute("aria-checked", String(!hidden));
     showRail();
   }
   var railToggle = document.getElementById("rail-toggle");
-  railToggle.setAttribute("aria-checked", String(!railHidden));
-  railToggle.addEventListener("click", function () { hideRail(!railHidden); });
+  railToggle.setAttribute("aria-checked", String(!railHidden && !railMobileDismissed));
+  railToggle.addEventListener("click", function () { hideRail(!railHidden && !railMobileDismissed); });
   document.getElementById("rail-hide").addEventListener("click", function () { hideRail(true); });
 ${CARD_SCRIPT}
 ${LEFT_SCRIPT}
