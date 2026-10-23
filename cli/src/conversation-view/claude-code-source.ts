@@ -15,6 +15,7 @@ import { ownWords, threaded } from "./replies.js";
 import { ElementShots } from "./element-shots.js";
 import { isHisImage, ReplyShots } from "./reply-shots.js";
 import { pictured, PICTURE_WITHIN_MS, siteChangeOf } from "./site-changes.js";
+import { isRepositoryStatusTitle, shortConversationTitle } from "./session-title.js";
 import { captainImageAt, toolImageAt, TranscriptConversation } from "./transcript-filter.js";
 import type {
   ConversationFollower,
@@ -113,11 +114,26 @@ function sessionTitle(path: string, size: number): string {
   const tail = readRange(path, Math.max(0, size - TITLE_SCAN_BYTES), Math.min(size, TITLE_SCAN_BYTES));
   const head = size > TITLE_SCAN_BYTES ? readRange(path, 0, TITLE_SCAN_BYTES) : "";
   const title = lastTitleIn(tail) ?? lastTitleIn(head);
-  if (title) return title;
+  if (title && !isRepositoryStatusTitle(title)) return title;
   const conversation = new TranscriptConversation();
   for (const line of (head || tail).split("\n")) if (line) conversation.pushLine(line);
   const first = conversation.snapshot().messages.find((message) => message.role === "user");
-  return first ? first.text.replace(/\s+/g, " ").slice(0, 80) : "Untitled session";
+  return shortConversationTitle(first?.text ?? "");
+}
+
+function sessionProject(path: string, size: number, fallback: string): string {
+  const head = readRange(path, 0, Math.min(size, START_SCAN_BYTES));
+  for (const line of head.split("\n")) {
+    if (!line) continue;
+    try {
+      const entry: unknown = JSON.parse(line);
+      if (typeof entry === "object" && entry !== null && "cwd" in entry
+        && typeof entry.cwd === "string" && entry.cwd.trim()) return basename(entry.cwd.trim());
+    } catch {
+      // A partial first line is ignored; later complete entries may still identify the project.
+    }
+  }
+  return fallback;
 }
 
 /** The whole line that starts at byte `offset`, or null past the size cap. */
@@ -584,6 +600,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       id: session.id,
       title: this.cachedTitle(session.path, session.size, session.mtime.getTime()),
       updatedAt: session.mtime.toISOString(),
+      project: sessionProject(session.path, session.size, basename(this.projectDir)),
     }));
   }
 

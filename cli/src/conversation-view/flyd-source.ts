@@ -7,6 +7,7 @@ export class FlydConversationSource implements ConversationSource {
   readonly assistantLabel = "Flyd";
   readonly canSend = true;
   private readonly pollMs: number;
+  private knownSessions = new Set([FLYD_CONVERSATION_ID]);
 
   constructor(private readonly options: {
     desk: FlydDesk;
@@ -17,28 +18,32 @@ export class FlydConversationSource implements ConversationSource {
   }
 
   async listSessions(): Promise<SessionSummary[]> {
-    const exchange = this.exchanges().at(-1);
-    return [{
-      id: FLYD_CONVERSATION_ID,
-      title: "Conversation with Flyd",
-      updatedAt: exchange?.answer?.timestamp ?? exchange?.question.timestamp ?? new Date(0).toISOString(),
-    }];
+    const sessions = this.options.desk.historySessions();
+    this.knownSessions = new Set(sessions.map((session) => session.id));
+    return sessions;
   }
 
   async read(sessionId: string): Promise<ConversationSnapshot> {
-    if (sessionId !== FLYD_CONVERSATION_ID) throw new Error(`No such Flyd conversation: ${sessionId}`);
-    const exchanges = this.exchanges();
-    const messages = messagesForFlyd(exchanges);
-    const active = exchanges.filter((exchange) => !exchange.answer && !exchange.waitingFailed).at(-1);
+    if (!this.isConversationSession(sessionId)) throw new Error(`No such Flyd conversation: ${sessionId}`);
+    const exchanges = this.options.desk.exchanges(sessionId);
+    const thread = sessionId === FLYD_CONVERSATION_ID ? exchanges.slice(-1) : exchanges;
+    const messages = messagesForFlyd(thread);
+    const active = thread.filter((exchange) => !exchange.answer && !exchange.waitingFailed).at(-1);
+    const latest = thread.at(-1);
+    const turnId = latest?.question.id.replace(/^ask:/, "");
+    const project = sessionId === FLYD_CONVERSATION_ID && turnId
+      ? this.options.desk.projectForTurn(turnId)
+      : this.options.desk.project(sessionId);
     return {
       messages,
       working: active !== undefined,
+      ...(project ? { project } : {}),
       ...(active?.question.timestamp ? { lastActivity: active.question.timestamp } : {}),
     };
   }
 
   follow(sessionId: string, onUpdate: (snapshot: ConversationSnapshot) => void, onError?: (error: Error) => void): ConversationFollower {
-    if (sessionId !== FLYD_CONVERSATION_ID) throw new Error(`No such Flyd conversation: ${sessionId}`);
+    if (!this.isConversationSession(sessionId)) throw new Error(`No such Flyd conversation: ${sessionId}`);
     let closed = false;
     let previous = "";
     const update = async () => {
@@ -60,7 +65,7 @@ export class FlydConversationSource implements ConversationSource {
   }
 
   async send(sessionId: string, text: string, images: ImageUpload[] = [], files: FileUpload[] = []): Promise<SentMessage> {
-    if (sessionId !== FLYD_CONVERSATION_ID) throw new Error(`No such Flyd conversation: ${sessionId}`);
+    if (!this.isConversationSession(sessionId)) throw new Error(`No such Flyd conversation: ${sessionId}`);
     if (files.length) throw new Error("File attachments need an active coding or document tool");
     return this.options.desk.ask(text, images, sessionId);
   }
@@ -84,6 +89,10 @@ export class FlydConversationSource implements ConversationSource {
 
   exchanges(): Exchange[] {
     return this.options.desk.exchanges(FLYD_CONVERSATION_ID);
+  }
+
+  private isConversationSession(sessionId: string): boolean {
+    return this.knownSessions.has(sessionId);
   }
 }
 

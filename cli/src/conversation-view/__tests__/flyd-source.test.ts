@@ -12,6 +12,43 @@ afterEach(() => {
 });
 
 describe("Flyd's standalone conversation source", () => {
+  it("keeps the latest exchange in the current thread and opens earlier exchanges by project", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-history-"));
+    const contexts: Array<{ question: string; history: Array<{ role: string; content: string }> }> = [];
+    const desk = new FlydDesk({
+      dir,
+      answer: async (question, history, _onStep, turn) => {
+        contexts.push({ question, history });
+        turn?.onUnderstanding({ version: "conversational-presence.v1", route: "answer", source: "room", project: question.includes("Flyd") ? "Flyd" : null });
+        return `Answer: ${question}`;
+      },
+    });
+    const source = new FlydConversationSource({ desk });
+    await source.send("conversation", "First Flyd question");
+    await vi.waitFor(async () => expect((await source.read("conversation")).messages.at(-1)?.role).toBe("assistant"));
+    await source.send("conversation", "A general question");
+    await vi.waitFor(async () => expect((await source.read("conversation")).messages.at(-1)?.role).toBe("assistant"));
+
+    const sessions = await source.listSessions();
+    const first = sessions.find((session) => session.title === "First Flyd question")!;
+    expect(first.project).toBe("Flyd");
+    expect(first.id).toMatch(/^turn:/);
+    expect(first.updatedAt).toBeTruthy();
+    expect((await source.read("conversation")).messages.map((message) => message.text)).toEqual([
+      "A general question", "Answer: A general question",
+    ]);
+    expect((await source.read(first.id)).messages.map((message) => message.text)).toEqual([
+      "First Flyd question", "Answer: First Flyd question",
+    ]);
+
+    await source.send(first.id, "Continue that Flyd question");
+    await vi.waitFor(async () => expect((await source.read(first.id)).messages.at(-1)?.text).toBe("Answer: Continue that Flyd question"));
+    expect(contexts.at(-1)?.history).toContainEqual({ role: "user", content: "First Flyd question" });
+    expect((await source.read(first.id)).messages.map((message) => message.text)).toEqual([
+      "First Flyd question", "Answer: First Flyd question", "Continue that Flyd question", "Answer: Continue that Flyd question",
+    ]);
+  });
+
   it("keeps a Flyd question and its own answer in a live session", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-source-"));
     let finishAnswer: (answer: string) => void = () => undefined;

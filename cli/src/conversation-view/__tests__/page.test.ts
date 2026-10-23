@@ -505,16 +505,16 @@ describe("conversation page", () => {
     expect(document.querySelectorAll(".msg.user .hl")).toHaveLength(2);
   });
 
-  it("drops a pending copy when the reader switches session", async () => {
+  it("drops a pending copy when the reader opens a past session from history", async () => {
     load("?session=latest");
     await settle();
     open("latest", []);
     await type("a message that has not shown up yet");
     expect(pending()).toHaveLength(1);
 
-    const picker = document.getElementById("picker") as HTMLSelectElement;
-    picker.value = "older";
-    picker.dispatchEvent(new Event("change"));
+    await settle();
+    document.querySelector<HTMLButtonElement>('.history-item-title')?.closest("button")?.click();
+    expect(FakeEventSource.instances.at(-1)?.url).toContain("session=older");
     open("older", [{ id: "o1", role: "assistant", html: "<p>old reply</p>" }]);
     expect(pending()).toEqual([]);
     expect(document.querySelectorAll(".msg")).toHaveLength(1);
@@ -535,17 +535,48 @@ describe("conversation page", () => {
     expect(document.querySelectorAll(".msg.fresh")).toHaveLength(0);
   });
 
-  it("names the conversation by its topic in the picker and the window title", async () => {
-    vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/sessions" ? json({ sessions: [{ id: "latest", title: "Compund engineering skill review", updatedAt: "2026-10-05T20:00:00.000Z" }, SESSIONS[1]] }) : json({})));
+  it("groups past conversations by project with their title and age", async () => {
+    vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/sessions" ? json({ sessions: [
+      { id: "latest", title: "Current thread", updatedAt: "2026-10-05T20:00:00.000Z", project: "Flyd" },
+      { id: "older", title: "Fix the history labels", updatedAt: "2026-10-04T20:00:00.000Z", project: "Flyd" },
+      { id: "oldest", title: "Older Flyd session", updatedAt: "2026-10-02T20:00:00.000Z", project: "Flyd" },
+      { id: "general", title: "Weekend plans", updatedAt: "2026-10-03T20:00:00.000Z" },
+    ] }) : json({})));
     load("");
     await settle();
     const stream = FakeEventSource.instances.at(-1)!;
-    stream.emit("session", { id: "latest", title: "Compund engineering skill review", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "Flyd" });
+    stream.emit("session", { id: "latest", title: "Current thread", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "Flyd" });
     await settle();
-    const options = [...(document.getElementById("picker") as HTMLSelectElement).options].map((option) => option.textContent);
-    expect(options[0]).toBe("Compund engineering skill review");
-    expect(options[1]).toMatch(/^Older {2}·/);
-    expect(document.title).toBe("Compund engineering skill review · Flyd");
+    const groups = [...document.querySelectorAll(".history-group")];
+    expect(groups.map((group) => group.querySelector("summary")?.textContent)).toEqual(["Flyd", "General"]);
+    expect([...groups[0]!.querySelectorAll(".history-item-title")].map((title) => title.textContent)).toEqual(["Fix the history labels", "Older Flyd session"]);
+    expect(groups.map((group) => (group as HTMLDetailsElement).open)).toEqual([true, false]);
+    const item = document.querySelector(".history-item")!;
+    expect(item.textContent).toContain("Fix the history labels");
+    expect(item.textContent).toMatch(/ago/);
+    expect(document.querySelector("#conversation-title")?.textContent).toBe("Current thread");
+    expect(document.title).toBe("Current thread · Flyd");
+    expect(document.body.textContent).not.toContain("main ?2");
+    groups[0]!.removeAttribute("open");
+    stream.emit("session", { id: "latest", title: "Current thread", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "Flyd" });
+    await settle();
+    expect((document.querySelector(".history-group") as HTMLDetailsElement).open).toBe(false);
+  });
+
+  it("reopens the history column from Preferences on phone width", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    load("?session=latest");
+    await settle();
+    open("latest", []);
+    await settle();
+    document.querySelector<HTMLButtonElement>(".history-item")!.click();
+    expect(document.getElementById("rail")!.hidden).toBe(true);
+
+    document.getElementById("prefs-open")!.click();
+    const toggle = document.getElementById("rail-toggle")!;
+    toggle.click();
+    toggle.click();
+    expect(document.getElementById("rail")!.hidden).toBe(false);
   });
 
   it("says where a message sent from an older session will show", async () => {
@@ -2372,7 +2403,7 @@ describe("header and artefact view", () => {
     opener.click();
     expect(prefs.hidden).toBe(false);
     expect(opener.getAttribute("aria-expanded")).toBe("true");
-    expect([...prefs.querySelectorAll(".prefs-name")].map((node) => node.textContent)).toEqual(["Full replies", "Light theme", "Done column", "Needs you", "Local preparation", "Routines", "Taste"]);
+    expect([...prefs.querySelectorAll(".prefs-name")].map((node) => node.textContent)).toEqual(["Full replies", "Light theme", "Right column", "Needs you", "Local preparation", "Routines", "Taste"]);
     // A switch inside keeps it open; Escape or a click elsewhere closes it.
     document.getElementById("theme")!.click();
     expect(prefs.hidden).toBe(false);
@@ -2451,10 +2482,11 @@ describe("header and artefact view", () => {
     expect(doneRow.querySelector(".brief-meta")!.textContent).toBe("open25m ago");
     document.querySelector<HTMLButtonElement>("#done .brief-more")!.click();
     expect(document.querySelectorAll("#done li")).toHaveLength(4);
-    // Nothing waiting or done: both columns go.
+    // Nothing waiting or done: the history column remains for earlier sessions.
     update({});
     expect(document.getElementById("brief")!.hidden).toBe(true);
-    expect(rail.hidden).toBe(true);
+    expect(rail.hidden).toBe(false);
+    expect(document.getElementById("history")!.hidden).toBe(false);
     expect(document.getElementById("left")!.hidden).toBe(true);
   });
 
@@ -2952,7 +2984,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
     update([{ id: "log:memory", kind: "memory", title: "Tidied memory", at: "2026-10-21T05:00:00.000Z" }]);
     await settle();
     expect(news.hidden).toBe(true);
-    expect(document.getElementById("rail")!.hidden).toBe(true);
+    expect(document.getElementById("rail")!.hidden).toBe(false);
+    expect(document.getElementById("history")!.hidden).toBe(false);
   });
 
   it("counts what needs him on the header button and never forces the column open on a narrow window", async () => {
@@ -3051,7 +3084,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
     update([artifact("artifact:plan", "plan", "Plan the gallery rework.")]);
     await settle();
     expect(document.getElementById("done")!.hidden).toBe(true);
-    expect(document.getElementById("rail")!.hidden).toBe(true);
+    expect(document.getElementById("rail")!.hidden).toBe(false);
+    expect(document.getElementById("history")!.hidden).toBe(false);
   });
 
   it("puts a column card away when he hides it, and keeps it away after a reload", async () => {
@@ -3090,7 +3124,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["New today."]);
   });
 
-  it("keeps the right column shut when every Done card has faded or been put away", async () => {
+  it("keeps history visible when every Done card has faded or been put away", async () => {
     localStorage.setItem("flyd-done-seen", JSON.stringify({ "landed:old": Date.now() - 2 * 24 * 60 * 60 * 1000 }));
     load("");
     await settle();
@@ -3098,8 +3132,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
     open("latest", []).emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [] });
     await settle();
     expect(document.getElementById("done")!.hidden).toBe(true);
-    expect(document.getElementById("rail")!.hidden).toBe(true);
-    expect(document.documentElement.getAttribute("data-rail")).toBe("off");
+    expect(document.getElementById("rail")!.hidden).toBe(false);
+    expect(document.getElementById("history")!.hidden).toBe(false);
+    expect(document.documentElement.getAttribute("data-rail")).toBe("on");
   });
 
   it("forgets Done cards it saw that have long left the column, and keeps at most 300", async () => {

@@ -109,6 +109,8 @@ export interface SessionSummary {
   title: string;
   /** ISO timestamp of the last change. */
   updatedAt: string;
+  /** Human project name for the history column; absent conversations appear under General. */
+  project?: string;
 }
 
 /** An image the captain attaches in the view: base64 bytes and their type. */
