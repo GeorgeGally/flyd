@@ -26,14 +26,9 @@ export class FlydConversationSource implements ConversationSource {
   async read(sessionId: string): Promise<ConversationSnapshot> {
     if (!this.isConversationSession(sessionId)) throw new Error(`No such Flyd conversation: ${sessionId}`);
     const exchanges = this.options.desk.exchanges(sessionId);
-    const thread = sessionId === FLYD_CONVERSATION_ID ? exchanges.slice(-1) : exchanges;
-    const messages = messagesForFlyd(thread);
-    const active = thread.filter((exchange) => !exchange.answer && !exchange.waitingFailed).at(-1);
-    const latest = thread.at(-1);
-    const turnId = latest?.question.id.replace(/^ask:/, "");
-    const project = sessionId === FLYD_CONVERSATION_ID && turnId
-      ? this.options.desk.projectForTurn(turnId)
-      : this.options.desk.project(sessionId);
+    const messages = messagesForFlyd(exchanges);
+    const active = exchanges.filter((exchange) => !exchange.answer && !exchange.waitingFailed).at(-1);
+    const project = this.options.desk.project(sessionId);
     return {
       messages,
       working: active !== undefined,
