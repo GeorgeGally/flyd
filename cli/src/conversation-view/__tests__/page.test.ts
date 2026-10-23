@@ -73,6 +73,9 @@ function load(search: string, html = renderPage({ assistantLabel: "firstmate", s
   window.history.replaceState(null, "", `/${search}`);
   const body = /<body([^>]*)>([\s\S]*)<\/body>/.exec(html)!;
   document.body.setAttribute("data-send-token", /data-send-token="([^"]+)"/.exec(body[1]!)![1]!);
+  const fresh = /data-new-session="([^"]+)"/.exec(body[1]!)?.[1];
+  if (fresh) document.body.setAttribute("data-new-session", fresh);
+  else document.body.removeAttribute("data-new-session");
   document.body.innerHTML = body[2]!.replace(/<script>[\s\S]*<\/script>/, "");
   const script = /<script>([\s\S]*)<\/script>/.exec(html)![1]!;
   new Function(script)();
@@ -561,6 +564,44 @@ describe("conversation page", () => {
     stream.emit("session", { id: "latest", title: "Current thread", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "Flyd" });
     await settle();
     expect((document.querySelector(".history-group") as HTMLDetailsElement).open).toBe(false);
+  });
+
+  it("keeps the history list in place while nothing in it has changed", async () => {
+    vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/sessions" ? json({ sessions: [
+      { id: "latest", title: "Current thread", updatedAt: "2026-10-05T20:00:00.000Z" },
+      { id: "older", title: "Fix the history labels", updatedAt: "2026-10-04T20:00:00.000Z" },
+    ] }) : json({})));
+    load("");
+    await settle();
+    const stream = FakeEventSource.instances.at(-1)!;
+    stream.emit("session", { id: "latest", title: "Current thread", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "Flyd" });
+    await settle();
+    const item = document.querySelector<HTMLButtonElement>(".history-item")!;
+    item.focus();
+    stream.emit("session", { id: "latest", title: "Current thread", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "Flyd" });
+    await settle();
+    expect(document.querySelector(".history-item")).toBe(item);
+    expect(document.activeElement).toBe(item);
+  });
+
+  it("does not open history over the thread on load at phone width", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    load("?session=latest");
+    await settle();
+    open("latest", []);
+    await settle();
+    expect(document.querySelectorAll(".history-item").length).toBeGreaterThan(0);
+    expect(document.getElementById("rail")!.hidden).toBe(true);
+  });
+
+  it("starts a newly opened window on its own conversation and keeps it across a reload", async () => {
+    const html = renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48), newSession: "window:fresh-one" });
+    load("", html);
+    await settle();
+    expect(FakeEventSource.instances.at(-1)!.url).toContain("session=window%3Afresh-one");
+    load("", renderPage({ assistantLabel: "Flyd", sendToken: "a".repeat(48), newSession: "window:fresh-two" }));
+    await settle();
+    expect(FakeEventSource.instances.at(-1)!.url).toContain("session=window%3Afresh-one");
   });
 
   it("reopens the history column from Preferences on phone width", async () => {

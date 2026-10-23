@@ -1065,8 +1065,18 @@ var __name = function (f) { return f; };
   var source = null;
   var current = null;
   var drawnFrom = null;
-  var explicit = new URLSearchParams(location.search).get("session");
-  var railMobileDismissed = false;
+  var explicit = new URLSearchParams(location.search).get("session") || (function () {
+    var fresh = document.body.dataset.newSession;
+    if (!fresh) return null;
+    try {
+      var kept = sessionStorage.getItem("flyd-window-session");
+      if (kept) return kept;
+      sessionStorage.setItem("flyd-window-session", fresh);
+    } catch (_) {}
+    return fresh;
+  })();
+  var railMobileDismissed = !!(window.matchMedia && window.matchMedia("(max-width: 720px)").matches);
+  var historyDrawn = "";
   var lastActivity = null;
   var isWorking = false;
   var first = true;
@@ -3129,6 +3139,9 @@ ${LEFT_SCRIPT}
 
   function renderHistory(sessions) {
     var past = sessions.filter(function (session) { return session.id !== current; });
+    var drawn = JSON.stringify([current, past.map(function (session) { return [session.id, session.title, session.project, ago(session.updatedAt)]; })]);
+    if (drawn === historyDrawn) return;
+    historyDrawn = drawn;
     var expanded = new Map(Array.from(historyList.querySelectorAll("details")).map(function (details) {
       return [details.querySelector("summary").textContent, details.open];
     }));
@@ -3158,7 +3171,6 @@ ${LEFT_SCRIPT}
         var button = document.createElement("button");
         button.type = "button";
         button.className = "history-item";
-        button.setAttribute("aria-current", session.id === current ? "page" : "false");
         button.appendChild(el("span", "history-item-title", session.title || "Untitled conversation"));
         button.appendChild(el("span", "history-item-age", ago(session.updatedAt)));
         button.addEventListener("click", function () {
@@ -3217,7 +3229,7 @@ ${LEFT_SCRIPT}
   // change, in this page's storage and in Core, and come back when the window
   // does (an update, a reinstall, a restarted view). Only sending it or
   // emptying the box clears it.
-  var DRAFT_KEY = explicit || "latest";
+  var DRAFT_KEY = new URLSearchParams(location.search).get("session") || "latest";
   var DRAFT_STORE = "flyd-view-draft:" + DRAFT_KEY;
   var draftTimer = null;
   var restoring = false;
@@ -4577,9 +4589,10 @@ ${LEFT_SCRIPT}
 })();
 `;
 
-export function renderPage(options: { assistantLabel: string; sendToken?: string }): string {
+export function renderPage(options: { assistantLabel: string; sendToken?: string; newSession?: string }): string {
   const label = escapeHtml(options.assistantLabel);
-  const token = options.sendToken ? ` data-send-token="${escapeHtml(options.sendToken)}"` : "";
+  const token = (options.sendToken ? ` data-send-token="${escapeHtml(options.sendToken)}"` : "")
+    + (options.newSession ? ` data-new-session="${escapeHtml(options.newSession)}"` : "");
   return `<!doctype html>
 <html lang="en" data-theme="dark">
 <head>

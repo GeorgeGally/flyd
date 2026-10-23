@@ -847,6 +847,7 @@ export class ConversationViewServer {
       res.end(renderPage({
         assistantLabel: this.source.assistantLabel,
         ...(this.source.canSend ? { sendToken: this.token } : {}),
+        ...(this.source.newSession ? { newSession: `window:${randomBytes(16).toString("hex")}` } : {}),
       }));
       return;
     }
@@ -1713,7 +1714,7 @@ export class ConversationViewServer {
     // A session he chose by hand stays; no choice (or "latest") follows whichever holds the lock now.
     const chosen = requested && requested !== "latest" ? requested : null;
     const sessions = await this.source.listSessions();
-    const session = chosen ? sessions.find((candidate) => candidate.id === chosen) : sessions[0];
+    const session = chosen ? sessions.find((candidate) => candidate.id === chosen) ?? this.source.newSession?.(chosen) : sessions[0];
     if (!session) {
       sendJson(res, 404, { error: chosen ? `No such session: ${chosen}` : "No sessions found" });
       return;

@@ -2,13 +2,14 @@ import type { FlydDesk } from "./flyd-desk.js";
 import type { ConversationFollower, ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
 
 export const FLYD_CONVERSATION_ID = "conversation";
+const WINDOW_SESSION = /^window:[A-Za-z0-9-]{8,64}$/;
 
 export class FlydConversationSource implements ConversationSource {
   readonly assistantLabel = "Flyd";
   readonly canSend = true;
   readonly answersInSession = true;
   private readonly pollMs: number;
-  private knownSessions = new Set([FLYD_CONVERSATION_ID]);
+  private knownSessions = new Set<string>();
 
   constructor(private readonly options: {
     desk: FlydDesk;
@@ -72,7 +73,7 @@ export class FlydConversationSource implements ConversationSource {
       await this.options.resolveDecision(decision.decisionId, decision.taskId, text);
       return this.options.desk.recordDecisionAnswer(text, FLYD_CONVERSATION_ID);
     }
-    return this.send(FLYD_CONVERSATION_ID, text, images);
+    return this.options.desk.ask(text, images, FLYD_CONVERSATION_ID);
   }
 
   async commands(): Promise<Array<{ name: string; description: string }>> {
@@ -83,12 +84,16 @@ export class FlydConversationSource implements ConversationSource {
     return this.options.desk.image(imageId);
   }
 
+  newSession(sessionId: string): SessionSummary | undefined {
+    return WINDOW_SESSION.test(sessionId) ? { id: sessionId, title: "New conversation", updatedAt: new Date().toISOString() } : undefined;
+  }
+
   exchanges(): Exchange[] {
-    return this.options.desk.exchanges(FLYD_CONVERSATION_ID);
+    return this.options.desk.exchanges();
   }
 
   private isConversationSession(sessionId: string): boolean {
-    return this.knownSessions.has(sessionId);
+    return this.knownSessions.has(sessionId) || WINDOW_SESSION.test(sessionId);
   }
 }
 

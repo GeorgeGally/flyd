@@ -54,6 +54,7 @@ async function defaultDeskPrediction(text: string, recent: ConversationMessage[]
 const ROUTE_TIMEOUT_MS = 8_000;
 const RECENT_FOR_ROUTE = 4;
 const HISTORY_EXCHANGES = 4;
+const DAY_PREFIX = "day:";
 const MAX_ERROR_CHARS = 160;
 const MAX_STEP_CHARS = 90;
 
@@ -196,6 +197,17 @@ export function defaultAsksDir(): string {
   return join(homedir(), ".flyd", "view", "asks");
 }
 
+/** The conversation a record belongs to: its own session, or for the old single thread, the calendar day it was asked on. */
+function conversationOf(record: AskRecord): string {
+  if (record.sessionId && record.sessionId !== "conversation") return record.sessionId;
+  const at = new Date(record.at);
+  return `${DAY_PREFIX}${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+}
+
+function dayLabel(at: string): string {
+  return new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export class FlydDesk {
   private readonly dir: string;
   private readonly answerer: Answerer;
@@ -221,24 +233,21 @@ export class FlydDesk {
     return turns.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1)?.project;
   }
 
-  /** The current conversation first, then every other session he has had with Flyd, newest first. */
+  /** Every conversation he has had with Flyd, newest first: one per session, and the old single thread one per calendar day. */
   historySessions(): SessionSummary[] {
     const threads = new Map<string, AskRecord[]>();
     for (const record of this.records()) {
-      const id = record.sessionId ?? "conversation";
+      const id = conversationOf(record);
       threads.set(id, [...(threads.get(id) ?? []), record]);
     }
-    const current = threads.get("conversation");
-    const past = [...threads].filter(([id]) => id !== "conversation").map(([id, thread]) => this.summary(id, thread));
-    return [
-      current ? this.summary("conversation", current) : { id: "conversation", title: "Conversation with Flyd", updatedAt: new Date(0).toISOString() },
-      ...past.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-    ];
+    return [...threads].map(([id, thread]) => this.summary(id, thread))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
 
   private summary(id: string, thread: AskRecord[]): SessionSummary {
     const first = thread[0]!;
-    const title = shortConversationTitle(first.text);
+    const opening = shortConversationTitle(first.text);
+    const title = id.startsWith(DAY_PREFIX) ? `${opening} · ${dayLabel(first.at)}` : opening;
     const latest = thread.reduce((newest, record) => Date.parse(record.answeredAt ?? record.at) > Date.parse(newest.answeredAt ?? newest.at) ? record : newest, first);
     const project = [...thread].reverse().map((record) => record.understanding?.project).find((name): name is string => Boolean(name));
     return { id, title, updatedAt: latest.answeredAt ?? latest.at, ...(project ? { project } : {}) };
@@ -309,7 +318,7 @@ export class FlydDesk {
   }
 
   private recordsForSession(sessionId: string): AskRecord[] {
-    return this.records().filter((record) => (record.sessionId ?? "conversation") === sessionId);
+    return this.records().filter((record) => conversationOf(record) === sessionId);
   }
 
   private read(name: string): AskRecord | null {
@@ -339,7 +348,8 @@ export class FlydDesk {
     const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
     const kept = this.keepImages(id, images);
     let record: AskRecord = { id, sessionId, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}) };
-    const history = this.recordsForSession(sessionId)
+    const conversation = conversationOf(record);
+    const history = this.recordsForSession(conversation)
       .filter((earlier) => earlier.answer)
       .slice(-HISTORY_EXCHANGES)
       .flatMap((earlier) => [
@@ -365,10 +375,10 @@ export class FlydDesk {
     };
     const turn = {
       source: { turnId: `ask:${id}`, sessionId: `view:${sessionId}`, surface: "view" as const, text: record.text,
-        context: this.recordsForSession(sessionId).filter(earlier => earlier.id !== id)
+        context: this.recordsForSession(conversation).filter(earlier => earlier.id !== id)
           .slice(-4).map(earlier => ({ ref: `ask:${earlier.id}`, text: earlier.text.slice(0, 350) })),
         revision: 1, consentRef: `conversation:view:${sessionId}`, final: true as const, retention: "local_default" as const },
-      turnNumber: this.recordsForSession(sessionId).filter((earlier) => earlier.id !== id).length + 1,
+      turnNumber: this.recordsForSession(conversation).filter((earlier) => earlier.id !== id).length + 1,
       onInteraction: (interactionClass: "conversation" | "work_status" | "decision" | "deliverable") => { record = { ...record, interactionClass }; this.write(record); },
       onUnderstanding: (understanding: TurnUnderstanding) => { record = { ...record, understanding }; this.write(record); },
       onPreparation: (preparationId: string) => { record = { ...record, preparationId }; this.write(record); },

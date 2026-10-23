@@ -164,6 +164,8 @@ export interface ConversationSource {
   readonly canSend: boolean;
   /** A message sent to any session is answered in that session, not only in the newest one. */
   readonly answersInSession?: boolean;
+  /** The empty session a newly opened window starts, before anything is said in it; undefined for an id it does not own. */
+  newSession?(sessionId: string): SessionSummary | undefined;
   /**
    * Delivers the captain's message. The returned id appears in a later
    * snapshot once the source can read the message back, so the page can
