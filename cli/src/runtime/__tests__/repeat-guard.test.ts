@@ -43,6 +43,11 @@ describe("repeat guard", () => {
     expect(guard.blocked("firstmate-session-launch", launch)).toMatch(/already failed 3 times/);
     expect(guard.blocked("firstmate-session-launch", { ...launch, runtimes: "codex" })).toBeNull();
 
+    const session = { home: "/fake/firstmate", runtimes: "claude", request: "run-a" };
+    guard.record("firstmate-session-launch", session, '{"type":"result","is_error":true,"session_id":"3f2a9c1e-7b4d-4e8a-9c0f-a1b2c3d4e5f6"}');
+    guard.record("firstmate-session-launch", session, '{"type":"result","is_error":true,"session_id":"c0ffee12-ab34-4cde-8f90-fedcba987654"}');
+    expect(guard.attempts("firstmate-session-launch", session)).toBe(2);
+
     const terminal = new RepeatedLoopError("stopped after 3 identical attempts", 3);
     expect(terminal.retryable).toBe(false);
     expect(terminal.attempts).toBe(3);

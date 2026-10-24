@@ -32,9 +32,9 @@ function stable(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-/** Failures differ by wording that matters, not by timestamps, pids or durations. */
+/** Failures differ by wording that matters, not by timestamps, pids, session ids or durations. */
 function errorShape(error: string): string {
-  return error.replace(/\d+/g, "#").replace(/\s+/g, " ").trim().slice(0, 240);
+  return error.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "#").replace(/\d+/g, "#").replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 export interface RepeatGuard {

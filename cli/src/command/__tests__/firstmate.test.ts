@@ -988,9 +988,9 @@ describe("FirstMate domain transport", () => {
     }
   });
 
-  it("stops a detached launch whose spawned session keeps failing after three identical failures", async () => {
-    const home = join(dir, "firstmate-detached");
-    const bin = join(dir, "bin-detached");
+  async function driveDetachedLaunches(name: string, claude: string, ticks: number) {
+    const home = join(dir, name);
+    const bin = join(dir, `bin-${name}`);
     mkdirSync(join(home, "bin"), { recursive: true });
     mkdirSync(bin, { recursive: true });
     const script = join(home, "bin", "fm-inbox.sh");
@@ -1001,8 +1001,8 @@ describe("FirstMate domain transport", () => {
       '  ready) echo \'{"can_receive":false,"lock":{"live_harness":false}}\' ;;',
       "esac",
     ].join("\n"), { mode: 0o755 });
-    const launchLog = join(dir, "detached-launches");
-    writeFileSync(join(bin, "claude"), `#!/bin/sh\necho launched >> ${JSON.stringify(launchLog)}\necho "session crashed"\nexit 1\n`, { mode: 0o755 });
+    const launchLog = join(dir, `${name}-launches`);
+    writeFileSync(join(bin, "claude"), `#!/bin/sh\necho launched >> ${JSON.stringify(launchLog)}\nLAUNCHES=$(wc -l < ${JSON.stringify(launchLog)} | tr -d ' ')\n${claude}\nexit 1\n`, { mode: 0o755 });
     const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_RUNTIMES: process.env.FLYD_FIRSTMATE_RUNTIMES };
     process.env.PATH = `${bin}:${process.env.PATH}`;
     process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
@@ -1010,31 +1010,55 @@ describe("FirstMate domain transport", () => {
     const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
     const before = existsSync(path) ? readFileSync(path, "utf8").length : 0;
     const outcomes = () => (existsSync(path) ? readFileSync(path, "utf8").slice(before) : "").trim().split("\n").filter(Boolean)
-      .map((line) => JSON.parse(line) as { outcome?: string; home?: string }).filter((entry) => entry.outcome);
+      .map((line) => JSON.parse(line) as { outcome?: string; home?: string; detail?: string }).filter((entry) => entry.outcome);
     try {
       const transport = new FirstmateDomainTransport({ home, script });
       const start = Date.now();
-      for (let tick = 0; tick < 21; tick += 1) {
+      for (let tick = 0; tick < ticks; tick += 1) {
         await syncFirstmateDomainRuns({ transport, now: () => new Date(start + tick * 60 * 60_000) });
         await vi.waitFor(() => {
           const seen = outcomes();
-          expect(seen.filter((entry) => entry.outcome === "failed")).toHaveLength(seen.filter((entry) => entry.outcome === "started").length);
+          expect(seen.filter((entry) => entry.outcome === "failed" || entry.outcome === "usage_limited")).toHaveLength(seen.filter((entry) => entry.outcome === "started").length);
           if (seen.some((entry) => entry.outcome === "started")) expect(listDomainRuns()[0]!.failure).toBeDefined();
         }, { timeout: 5_000 });
       }
-
-      expect(readFileSync(launchLog, "utf8").trim().split("\n")).toHaveLength(3);
-      const [run] = listDomainRuns();
-      expect(run!.status).toBe("failed");
-      expect(run!.launchRetry).toBeUndefined();
-      expect(run!.failure).toMatch(/3 identical launch attempts/);
-      expect(outcomes().filter((entry) => entry.outcome === "repeated_loop" && entry.home === home)).toHaveLength(1);
+      return {
+        launches: readFileSync(launchLog, "utf8").trim().split("\n").length,
+        run: listDomainRuns()[0]!,
+        repeated: outcomes().filter((entry) => entry.outcome === "repeated_loop" && entry.home === home),
+      };
     } finally {
-      for (const [name, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
       }
     }
+  }
+
+  it("stops a detached launch whose spawned session keeps failing after three identical failures", async () => {
+    const { launches, run, repeated } = await driveDetachedLaunches("firstmate-detached", 'echo "session crashed"', 21);
+
+    expect(launches).toBe(3);
+    expect(run.status).toBe("failed");
+    expect(run.launchRetry).toBeUndefined();
+    expect(run.failure).toMatch(/3 identical launch attempts/);
+    expect(repeated).toHaveLength(1);
+    expect(repeated[0]!.detail).toMatch(/session crashed/);
+  });
+
+  it("keeps retrying a detached launch whose spawned sessions fail in different ways", async () => {
+    const { launches, run, repeated } = await driveDetachedLaunches("firstmate-detached-varied", [
+      'case "$LAUNCHES" in',
+      '  1) echo "claude usage limit reached" ;;',
+      '  2) echo "auth error: not logged in" ;;',
+      '  *) echo "session crashed" ;;',
+      "esac",
+    ].join("\n"), 3);
+
+    expect(launches).toBe(3);
+    expect(run.status).toBe("queued");
+    expect(run.launchRetry?.attempts).toBe(3);
+    expect(repeated).toEqual([]);
   });
 
   it("counts identical launch failures per request, so a new run still gets its own attempts", async () => {

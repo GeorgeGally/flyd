@@ -419,12 +419,15 @@ export async function startFirstmateSession(options: {
   if (options.exec === defaultExec) {
     if (launchingHomes.has(options.home)) return { started: false };
     launchingHomes.add(options.home);
-    const handedOffFailure = (failure: string): void => {
+    const handedOffFailure = (failure: string, cause?: string): void => {
+      detail = cause;
       const stopped = fail(failure);
       options.onFailure?.(stopped.failure!, stopped.terminal);
     };
     const result = await launchDetachedFirstmateSession(options.home, runtimes, record, handedOffFailure, () => launchingHomes.delete(options.home), succeeded);
-    return result.failure ? fail(result.failure) : result;
+    if (!result.failure) return result;
+    detail = result.detail;
+    return fail(result.failure);
   }
   for (const candidate of runtimes) {
     runtime = candidate;
@@ -447,15 +450,16 @@ export async function startFirstmateSession(options: {
   return fail(SESSION_LAUNCH_FAILURE);
 }
 
-function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[], record: (entry: Record<string, unknown>) => void, onFailure: (failure: string) => void, release: () => void, succeeded: () => void): Promise<{ started: boolean; failure?: string }> {
+function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[], record: (entry: Record<string, unknown>) => void, onFailure: (failure: string, detail?: string) => void, release: () => void, succeeded: () => void): Promise<{ started: boolean; failure?: string; detail?: string }> {
   return new Promise((resolve) => {
     let handedOff = false;
+    let detail: string | undefined;
     const attempt = (index: number): void => {
       const runtime = runtimes[index];
       if (!runtime) {
         release();
-        if (handedOff) onFailure(SESSION_LAUNCH_FAILURE);
-        else resolve({ started: false, failure: SESSION_LAUNCH_FAILURE });
+        if (handedOff) onFailure(SESSION_LAUNCH_FAILURE, detail);
+        else resolve({ started: false, failure: SESSION_LAUNCH_FAILURE, detail });
         return;
       }
       let settled = false;
@@ -470,7 +474,8 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
           closeSync(fd);
         }
       } catch (error) {
-        record({ runtime, outcome: "failed", detail: (error instanceof Error ? error.message : String(error)).slice(0, 500) });
+        detail = (error instanceof Error ? error.message : String(error)).slice(0, 500);
+        record({ runtime, outcome: "failed", detail });
         attempt(index + 1);
         return;
       }
@@ -478,7 +483,8 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
         if (settled) return;
         settled = true;
         removeLog(log);
-        record({ runtime, outcome: "failed", detail: error.message.slice(0, 500) });
+        detail = error.message.slice(0, 500);
+        record({ runtime, outcome: "failed", detail });
         attempt(index + 1);
       });
       child.once("spawn", () => {
@@ -503,7 +509,8 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
         }
         const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
         if (limited || code !== 0) {
-          record({ runtime, outcome: limited ? "usage_limited" : "failed", detail: output.slice(-500) });
+          detail = output.slice(-500);
+          record({ runtime, outcome: limited ? "usage_limited" : "failed", detail });
           if (!settled) {
             settled = true;
             attempt(index + 1);
