@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { FLYD_APPLICATION_ROOT, FLYD_DIR } from "../lib/config.js";
 import {
   addAgendaItem, cancelAgendaItem, describeAgendaItem, formatLocalDateTime, georgeInbox, markInboxRead,
-  runDueAgenda, upcomingAgenda, type AgendaRepeat,
+  upcomingAgenda, type AgendaRepeat,
 } from "../runtime/agenda.js";
 
 const LABEL = "com.flyd.agenda";
@@ -118,59 +118,9 @@ export async function runAgendaCommand(
       return;
     }
     case "run-due": {
-      const { runAgendaTask } = await import("../runtime/agenda-runner.js");
-      const result = await runDueAgenda({ runTask: runAgendaTask });
-      if (result.skipped) process.stdout.write("Another agenda run is in progress.\n");
-      for (const ran of result.ran) process.stdout.write(`${new Date().toISOString()} ${ran.status} ${ran.id} ${ran.task}\n`);
-      // The council curates and advises on the same tick when there is something new.
-      const { runCouncilPass } = await import("../council/council.js");
-      const { query } = await import("../lib/llm.js");
-      const { notifyMac } = await import("../runtime/agenda.js");
-      const council = await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac }).catch((error: unknown) => {
-        process.stderr.write(`council pass failed: ${error instanceof Error ? error.message : String(error)}\n`);
-        return null;
-      });
-      const { superviseCrew } = await import("../crew/crew.js");
-      for (const task of await superviseCrew({ notify: notifyMac }).catch(() => [])) {
-        process.stdout.write(`${new Date().toISOString()} crew: ${task.id} ${task.status}\n`);
-      }
-      const { investigate } = await import("../council/investigator.js");
-      const { runPersonalTool } = await import("../runtime/personal-tools.js");
-      const learned = await investigate({
-        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
-        calendar: (from, days) => runPersonalTool("calendar_events", { from, days }, { background: true }),
-        reminders: () => runPersonalTool("reminders", { action: "list" }, { background: true }),
-        recall: (text) => runPersonalTool("recall", { query: text }),
-        otherAssistants: async () => {
-          const { readFileSync } = await import("node:fs");
-          const { homedir } = await import("node:os");
-          const files = [".hermes/memories/USER.md", ".hermes/memories/MEMORY.md", ".openclaw/workspace/USER.md", ".openclaw/workspace/MEMORY.md"];
-          return files.map((file) => { try { return readFileSync(`${homedir()}/${file}`, "utf8"); } catch { return ""; } }).join("\n\n");
-        },
-      }).catch((error: unknown) => ({ status: `failed: ${error instanceof Error ? error.message : String(error)}` }));
-      const { backfillArchive } = await import("../council/investigator.js");
-      await backfillArchive({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) }).catch(() => undefined);
-      if (learned.status !== "not_due") process.stdout.write(`${new Date().toISOString()} investigator: ${learned.status}\n`);
-      const { runReplyReview } = await import("../council/reply-review.js");
-      const review = await runReplyReview().catch((error: unknown) => ({ status: `failed: ${error instanceof Error ? error.message : String(error)}`, reviewed: 0, shortfalls: 0 }));
-      if (review.reviewed || review.status !== "reviewed") process.stdout.write(`${new Date().toISOString()} self-review: ${review.status}, ${review.reviewed} reviewed, ${review.shortfalls} short\n`);
-      const { runSelfImprovement } = await import("../crew/self-improve.js");
-      const improved = await runSelfImprovement({
-        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
-        notify: notifyMac,
-      }).catch((error: unknown) => ({ status: `failed: ${error instanceof Error ? error.message : String(error)}` }));
-      if (improved.status !== "not_due") process.stdout.write(`${new Date().toISOString()} self-improve: ${improved.status}\n`);
-      const { scoutTick, editionActivityRecord } = await import("../council/scout.js");
-      const { recordActivity } = await import("../conversation-view/activity.js");
-      const scoutLog = await scoutTick({
-        complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
-        notify: notifyMac,
-        record: (edition) => recordActivity(editionActivityRecord(edition)),
-      }).catch((error: unknown) => [`failed: ${error instanceof Error ? error.message : String(error)}`]);
-      if (scoutLog.length) process.stdout.write(`${new Date().toISOString()} scout: ${scoutLog.join("; ")}\n`);
-      if (council && !council.skipped) {
-        process.stdout.write(`${new Date().toISOString()} council: ${council.librarian?.turns ?? 0} turns, ${council.librarian?.captures ?? 0} captures, ${council.advisories.length} advisories\n`);
-      }
+      // Same tick as Core (runtime/agenda-tick.ts); the shared locks keep the two from racing.
+      const { runAgendaTick } = await import("../runtime/agenda-tick.js");
+      await runAgendaTick({ log: (line) => process.stdout.write(`${new Date().toISOString()} ${line}\n`) });
       return;
     }
     case "inbox": {
