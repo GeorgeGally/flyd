@@ -83,10 +83,10 @@ const RAIL_FILE_TYPES: Record<string, string> = {
 const HEARTBEAT_MS = 15_000;
 /** How often the island's status stream checks that it still follows the live session. */
 const STATUS_SESSION_CHECK_MS = 5_000;
-/** Text plus up to four attachments (screenshots or documents), base64-encoded. */
-const MAX_SEND_BODY_BYTES = 72 * 1024 * 1024;
+/** Text plus up to four attachments (screenshots or documents), base64-encoded; a 32MB document is ~43MB encoded. */
+const MAX_SEND_BODY_BYTES = 192 * 1024 * 1024;
 /** One attachment, base64-encoded, as it is added to the box. */
-const MAX_DRAFT_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+const MAX_DRAFT_ATTACHMENT_BYTES = 48 * 1024 * 1024;
 /** Reply steps kept in the column's Artefacts: the newest few. */
 const MAX_REPLY_ARTEFACTS = 3;
 /** A note older than this is not chased for a missing artefact: opening the window never replays the backlog. */
