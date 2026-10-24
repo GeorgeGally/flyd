@@ -26,6 +26,7 @@ import { ActivityReader } from "../conversation-view/activity.js";
 import { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { MemoryReader } from "../conversation-view/memory.js";
 import { OvertakenCalls } from "../conversation-view/overtaken.js";
+import { StaleCallJudge } from "../conversation-view/stale-calls.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 import { LiveStaffSession } from "../command/fleet-monitor.js";
 import { listDomainRuns } from "../command/store.js";
@@ -215,7 +216,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       contextRefs: [`task:${task}`],
       // The call's own run, when one of Flyd's handoffs raised it.
       ...(listDomainRuns().some((run) => run.id === task) ? { parentRequestId: task } : {}),
-    }) })
+    }),
+    // An old call the staff never closed is weighed against the repo and his project list (FLYD_STALE_CALLS=0 off).
+    ...(process.env.FLYD_STALE_CALLS !== "0" ? { stale: new StaleCallJudge({ complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }) }) } : {}),
+    })
     : undefined;
   const decideChanges = async (changes: import("../intelligence/executive/firstmate-decision.js").FirstmateChange[]) => {
     const runs = listDomainRuns();

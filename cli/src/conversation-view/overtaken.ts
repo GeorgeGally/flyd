@@ -1,4 +1,5 @@
 import { callId, type ArtefactRow, type BacklogEntry, type OvertakenCheck } from "./artefact.js";
+import type { StaleCallJudge } from "./stale-calls.js";
 
 // A decision waiting on George that the work has already moved past. Flyd is
 // his chief of staff: before it shows him a pending call, it reads the staff's
@@ -6,9 +7,9 @@ import { callId, type ArtefactRow, type BacklogEntry, type OvertakenCheck } from
 // task was finished or merged, or the hold was answered or released) the call
 // leaves Needs you and the staff are told to close it. George is never asked.
 //
-// Only that explicit record counts. What other work shipped, or which files a
-// commit touched, never hides a call: a live decision kept from him is worse
-// than a stale one shown. Pure.
+// The explicit record settles a call first. Past that, an old call the staff
+// never closed is weighed against what George's own work has done since
+// (stale-calls.ts): only a confident judgment that it was overtaken settles it.
 
 /** The last resolution firstmate recorded on a task: "answered", "released" and the like. */
 function resolution(entry: BacklogEntry): string | undefined {
@@ -42,10 +43,12 @@ export class OvertakenCalls implements OvertakenCheck {
   constructor(private readonly options: {
     /** Tells the staff to close an overtaken call on `task`, as Flyd's own note. */
     send: (note: string, requestId: string, task: string) => Promise<unknown>;
+    /** Weighs old calls the record leaves open against what has happened since. */
+    stale?: Pick<StaleCallJudge, "judge">;
   }) {}
 
-  check(entry: BacklogEntry | undefined): string | undefined {
-    return overtakenBy(entry);
+  async check(entry: BacklogEntry | undefined, row: ArtefactRow, entries: Map<string, BacklogEntry>): Promise<string | undefined> {
+    return overtakenBy(entry) ?? await this.options.stale?.judge(row, entry, entries).catch(() => undefined);
   }
 
   async close(row: ArtefactRow, why: string): Promise<void> {

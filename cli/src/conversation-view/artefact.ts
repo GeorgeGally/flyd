@@ -1083,7 +1083,7 @@ const LEDGER_KEEP_MS = RECENT_DAYS * 86_400_000;
  */
 export interface OvertakenCheck {
   /** What overtook the call, or undefined while it may still be live. */
-  check(entry: BacklogEntry | undefined): string | undefined;
+  check(entry: BacklogEntry | undefined, row: ArtefactRow, entries: Map<string, BacklogEntry>): string | undefined | Promise<string | undefined>;
   /** Tells the staff to close it; rejects when they did not take the note. */
   close(row: ArtefactRow, why: string): Promise<void>;
 }
@@ -1373,7 +1373,7 @@ export class ArtefactFeed {
       const merged = this.mergeLedger(withRecent, Date.now(), !bearings.unavailable);
       const content = bearings.unavailable && !FLEET_FIELDS.some((field) => merged[field].length) ? FLEET_UNAVAILABLE("unreadable") : merged;
       const allQuestions = enrichFleet(content, entries, extras, Date.now(), { includeUnclassifiedCalls: Boolean(this.options.decideChanges) });
-      const enriched = this.options.decideChanges ? allQuestions : await this.withoutOvertaken(allQuestions, entries);
+      const enriched = await this.withoutOvertaken(allQuestions, entries);
       const decided = this.options.decideChanges
         ? projectFleetDecisions(enriched, await this.options.decideChanges(firstmateChangesFromFleet(enriched)).catch((error: unknown) => {
           console.warn(`[view] executive decision step failed: ${reason(error)}`);
@@ -1418,7 +1418,7 @@ export class ArtefactFeed {
       if (!row.task) return undefined;
       const known = this.overtaken.get(call);
       if (known) return known;
-      const why = check.check(entries.get(row.task));
+      const why = await check.check(entries.get(row.task), row, entries);
       if (!why) return undefined;
       // A call the staff were not told to close stays in front of him.
       const closed = await check.close(row, why).then(() => true, () => false);
@@ -1428,8 +1428,11 @@ export class ArtefactFeed {
     }));
     const closed = new Set<ArtefactRow>();
     calls.forEach(({ row }, index) => { if (verdicts[index]) closed.add(row); });
+    const closedTasks = new Set([...closed].map((row) => row.task));
     return {
       ...fleet,
+      // The staff's own decision change for a settled call never reaches Core either.
+      ...(fleet.changes ? { changes: fleet.changes.filter((change) => !(change.kind === "decision" && closedTasks.has(change.taskId))) } : {}),
       calls: fleet.calls.flatMap((row) => {
         if (!closed.has(row)) return [row];
         return this.ledger.get(ledgerKey("calls", row) ?? "")?.asked ? [{ ...row, ledgerOnly: true }] : [];

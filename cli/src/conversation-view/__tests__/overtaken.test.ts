@@ -109,6 +109,29 @@ describe("Needs you, read against the record", () => {
     expect(refused.current().fleet!.calls.map((row) => row.task)).toEqual(["gnm-sell-step-pick", "cap5-hero"]);
   });
 
+  // 2026-10-24: with Core deciding fleet changes (the shipped setup), the check
+  // never ran, so a call the staff had moved past kept ringing.
+  it("settles overtaken calls before Core decides the rest", async () => {
+    const home = mkdtempSync(join(tmpdir(), "overtaken-executive-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "data"));
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: [{ id: "gnm-sell-step-pick", summary: "Pick a layout for the What do you sell? step" }] }));
+    writeFileSync(join(home, "data", "backlog.md"), `- [x] gnm-sell-step-pick - ${SELL_STEP.label} (repo: good_neighbours) (merged: 2026-10-16)\n`);
+    const sent: string[] = [];
+    const decided: string[][] = [];
+    const feed = new ArtefactFeed({
+      home,
+      overtaken: new OvertakenCalls({ send: async (note) => { sent.push(note); } }),
+      decideChanges: async (changes) => { decided.push(changes.filter((change) => change.kind === "decision").map((change) => change.taskId ?? "")); return []; },
+      memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none"),
+    });
+    await feed.refresh();
+    expect(sent).toHaveLength(1);
+    expect(decided.flat()).not.toContain("gnm-sell-step-pick");
+  });
+
   it("names one raising of a call: a status line keeps it, the call reopened with what changed does not", () => {
     const raised = { ...SELL_STEP, raised: "2026-10-12" };
     expect(callId({ ...raised, at: "2026-10-14T08:00:00Z" })).toBe(callId(raised));
