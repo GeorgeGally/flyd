@@ -9,7 +9,15 @@ export function ensureContinuousSupervisionStarted(): void {
   pool = createRuntimePool(undefined, { connectionTimeoutMillis: 500 });
   supervisor = startContinuousSupervisor(pool, {
     onError: (error) => {
-      console.warn("[Flyd Core] Operational supervision sweep failed:", error instanceof Error ? error.message : error);
+      const message = error instanceof Error ? error.message : String(error);
+      // No runtime database on this machine: say so once and stop polling,
+      // rather than logging the same failure every few seconds forever.
+      if (/database "[^"]+" does not exist|ECONNREFUSED/.test(message)) {
+        console.warn(`[Flyd Core] Operational supervision off: ${message}`);
+        void stopContinuousSupervision();
+        return;
+      }
+      console.warn("[Flyd Core] Operational supervision sweep failed:", message);
     },
   });
 }

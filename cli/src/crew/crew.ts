@@ -441,9 +441,18 @@ async function reviewDiff(task: CrewTask): Promise<string> {
 
 const MAX_RUNTIME_MS = 2 * 60 * 60 * 1000;
 
+/**
+ * Checks run under the Node that runs Core. A login shell otherwise finds
+ * whatever node sits first on the profile's PATH (an old /usr/local/bin one
+ * here), and vitest dies on import before a single test runs.
+ */
+export function checkCommand(command: string, nodeBin = dirname(process.execPath)): string {
+  return `export PATH=${JSON.stringify(nodeBin)}:"$PATH"; ${command}`;
+}
+
 async function defaultRunCommand(command: string, cwd: string): Promise<{ ok: boolean; output: string }> {
   try {
-    const { stdout, stderr } = await execFileAsync("/bin/bash", ["-lc", command], { cwd, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024 });
+    const { stdout, stderr } = await execFileAsync("/bin/bash", ["-lc", checkCommand(command)], { cwd, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024 });
     return { ok: true, output: `${stdout}${stderr}` };
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; message?: string };

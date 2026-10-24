@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, cleanupCrewWorktree, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, providerFailure, readTask, superviseCrew } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, checkCommand, cleanupCrewWorktree, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, providerFailure, readTask, superviseCrew } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -97,6 +97,12 @@ describe("crew", () => {
     const [broken] = await superviseCrew({ alive: () => false, runCommand: async (command, cwd) => command === "git diff --check" ? { ok: true, output: "" } : { ok: false, output: suite(cwd, added) } });
     expect(broken.status).toBe("failed");
     expect(broken.failure).toMatch(/^verification failed: /);
+  });
+
+  it("runs checks under Core's own node, ahead of whatever the login shell would find", () => {
+    const line = checkCommand("npm test", "/opt/node 22/bin");
+    expect(line).toBe('export PATH="/opt/node 22/bin":"$PATH"; npm test');
+    expect(execFileSync("/bin/bash", ["-c", checkCommand("command -v node")], { encoding: "utf8" }).trim()).toBe(process.execPath);
   });
 
   it("reads vitest and tsc failures as stable signatures and never treats unreadable output as clean", () => {
