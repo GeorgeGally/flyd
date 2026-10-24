@@ -207,6 +207,12 @@ export class IntelligenceEventStore {
     return rows.map((row) => this.mapRow(row));
   }
 
+  /** Changes whenever a source is erased; with headSequence it identifies one replayable log state. */
+  erasureMark(): number {
+    const row = this.db.prepare(`SELECT MAX(rowid) AS mark FROM erasure_tombstones`).get() as { mark: number | null };
+    return row.mark ?? 0;
+  }
+
   headSequence(): number {
     const row = this.db.prepare(`SELECT MAX(sequence) AS head FROM personal_events`).get() as {
       head: number | null;

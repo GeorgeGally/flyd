@@ -78,4 +78,38 @@ describe("budget eviction", () => {
     expect(entries.some((entry) => entry.text.startsWith("Has ADHD"))).toBe(true);
     expect(entries.filter((entry) => entry.section === "Projects").length).toBeLessThan(filler.length);
   });
+
+  it("does not archive what this pass just wrote when the file is at budget", async () => {
+    const { applyMemoryOps, readMemoryEntries, memoryPaths, MEMORY_BUDGET_CHARS } = await import("../memory-store.js");
+    const paths = memoryPaths(mkdtempSync(join(tmpdir(), "flyd-shipped-")));
+    const filler = Array.from({ length: Math.ceil(MEMORY_BUDGET_CHARS / 90) + 5 }, (_, index) => ({
+      op: "add" as const, section: "Facts", text: `Standing fact number ${index} about something that was true once and still sits here.`,
+    }));
+    applyMemoryOps(filler, { now: new Date("2026-09-01T10:00:00"), paths });
+    applyMemoryOps([{ op: "add", section: "Shipped", text: "Shipped the island filter fix" }], { now: new Date("2026-09-10T10:00:00"), paths });
+    expect(readMemoryEntries(paths).some((entry) => entry.text === "Shipped the island filter fix")).toBe(true);
+  });
+});
+
+describe("memory in the prompt", () => {
+  it("keeps every section of a full MEMORY.md and trims oldest entries within sections", async () => {
+    const { MEMORY_SECTIONS, MEMORY_PROMPT_MAX_CHARS, memoryPromptText, memoryPaths } = await import("../memory-store.js");
+    const paths = memoryPaths(mkdtempSync(join(tmpdir(), "flyd-prompt-")));
+    const lines = ["# Flyd memory", ""];
+    for (const section of MEMORY_SECTIONS) {
+      lines.push(`## ${section}`);
+      for (let index = 0; index < 40; index += 1) {
+        lines.push(`- ${section} entry ${index} with enough words to matter for the prompt budget here <!--a:2026-09-${String((index % 28) + 1).padStart(2, "0")}-->`);
+      }
+      lines.push("");
+    }
+    writeFileSync(paths.memory, lines.join("\n"));
+    const text = memoryPromptText(paths, new Date("2026-09-30T12:00:00"))!;
+    expect(text.length).toBeLessThanOrEqual(MEMORY_PROMPT_MAX_CHARS);
+    for (const section of MEMORY_SECTIONS) expect(text).toContain(`## ${section}\n`);
+    expect(text).toContain("older entries in MEMORY.md");
+    // Newest-confirmed entries survive; the oldest go first.
+    expect(text).toContain("Facts entry 27 ");
+    expect(text).not.toContain("Facts entry 0 ");
+  });
 });

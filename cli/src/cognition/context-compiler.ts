@@ -23,6 +23,20 @@ export interface CompileContextInput {
   jev?: JevOptions;
 }
 
+/**
+ * George's profile and curated memory as prompt blocks. Both are budgeted by
+ * their own readers (readUserProfile, memoryPromptText), which keep every
+ * section; nothing is cut here.
+ */
+export function personalPromptBlocks(ownProfile: string | null, curated: string | null): string {
+  return [
+    ownProfile
+      ? `## George's profile (USER.md; explicit current instructions outrank stored preferences. Older versions may contain automatically learned entries; those are observations, not proof of confirmation.)\n${ownProfile}`
+      : "",
+    curated ? `## Flyd memory (curated by the Librarian: standing facts, decisions, commitments)\n${curated}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
 export async function compileContext(input: CompileContextInput): Promise<CompiledContext> {
   const started = Date.now();
   const timings: Record<string,number> = {};
@@ -95,13 +109,9 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   let ownProfile: string | null = null;
   try { ownProfile = readUserProfile(); } catch { omissions.push("user_profile_unreadable"); }
   if (ownProfile) sources.push("USER.md");
-  const ownProfileBlock = ownProfile
-    ? `## George's profile (USER.md; explicit current instructions outrank stored preferences. Older versions may contain automatically learned entries; those are observations, not proof of confirmation.)\n${ownProfile}`
-    : "";
   let curated: string | null = null;
   try { curated = memoryPromptText(); } catch { omissions.push("curated_memory_unreadable"); }
   if (curated) sources.push("MEMORY.md");
-  const curatedBlock = curated ? `## Flyd memory (curated by the Librarian: standing facts, decisions, commitments)\n${curated}` : "";
   // His taste, learned from his corrections: personal rules plus the rules of
   // the projects in play, so Flyd never makes him correct the same thing twice.
   let taste: string | null = null;
@@ -113,9 +123,10 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   } catch { omissions.push("taste_unreadable"); }
   if (taste) sources.push("TASTE.md");
   // Each block gets its own share so one long file cannot crowd the rest out.
+  // USER.md and MEMORY.md arrive already fitted section by section, so they
+  // are never cut here by a plain prefix clamp.
   const profileCombined = [
-    clampText(ownProfileBlock, 12000),
-    clampText(curatedBlock, 5000),
+    personalPromptBlocks(ownProfile, curated),
     clampText(profile, 1500),
     clampText(legacyProfile, 1500),
   ].filter(Boolean).join("\n\n");

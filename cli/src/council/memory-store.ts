@@ -231,7 +231,10 @@ export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: M
   }
 
   // Budget: retire the least essential, oldest-confirmed entries until MEMORY.md fits.
-  const rank = (entry: MemoryEntry) => { const index = EVICTION_ORDER.indexOf(entry.section); return index === -1 ? 0 : index; };
+  // What this pass just wrote or confirmed is evicted last, so a full file
+  // cannot archive a new entry (say, a fresh "Shipped" note) the moment it lands.
+  const touched = new Set(entries.filter((entry) => entry.date === today).map((entry) => entry.id));
+  const rank = (entry: MemoryEntry) => { const index = EVICTION_ORDER.indexOf(entry.section); return (index === -1 ? 0 : index) + (touched.has(entry.id) ? EVICTION_ORDER.length : 0); };
   while (renderMemory(entries).length > MEMORY_BUDGET_CHARS && entries.length > 0) {
     const oldest = entries.reduce((a, b) => (rank(b) < rank(a) || (rank(b) === rank(a) && b.date < a.date) ? b : a));
     entries.splice(entries.indexOf(oldest), 1);
@@ -256,17 +259,45 @@ export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: M
   return receipt;
 }
 
-/** Keep authority, date and source identity in every surface's compiled context. */
-export function memoryPromptText(paths = memoryPaths(), now = new Date()): string | null {
+/**
+ * Prompt ceiling for MEMORY.md. A file at MEMORY_BUDGET_CHARS renders about a
+ * quarter longer once every entry carries its authority prefix, so a
+ * within-budget file reaches the prompt whole.
+ */
+export const MEMORY_PROMPT_MAX_CHARS = Math.round(MEMORY_BUDGET_CHARS * 1.25);
+
+function promptLine(entry: MemoryEntry, now: Date): string {
+  return `- [curated_memory; ${entry.date}; ${entry.tier}${memoryEntryIsStale(entry, now) ? "; possibly stale" : ""}; MEMORY.md:${entry.id}] ${entry.text}`;
+}
+
+/**
+ * Keep authority, date and source identity in every surface's compiled
+ * context. Over `maxChars`, the largest section drops its oldest-confirmed
+ * entry one at a time; every section keeps at least its newest entry.
+ */
+export function memoryPromptText(paths = memoryPaths(), now = new Date(), maxChars = MEMORY_PROMPT_MAX_CHARS): string | null {
   const entries = readMemoryEntries(paths);
   if (entries.length === 0) return null;
-  return MEMORY_SECTIONS
-    .map((section) => {
-      const inSection = entries.filter((entry) => entry.section === section);
-      return inSection.length ? `## ${section}\n${inSection.map((entry) => `- [curated_memory; ${entry.date}; ${entry.tier}${memoryEntryIsStale(entry, now) ? "; possibly stale" : ""}; MEMORY.md:${entry.id}] ${entry.text}`).join("\n")}` : "";
-    })
-    .filter(Boolean)
-    .join("\n\n");
+  const groups = MEMORY_SECTIONS
+    .map((section) => ({ section, kept: entries.filter((entry) => entry.section === section), omitted: 0 }))
+    .filter((group) => group.kept.length > 0);
+  const renderGroup = (group: (typeof groups)[number]) => [
+    `## ${group.section}`,
+    ...group.kept.map((entry) => promptLine(entry, now)),
+    ...(group.omitted ? [`- …(${group.omitted} older entr${group.omitted === 1 ? "y" : "ies"} in MEMORY.md)`] : []),
+  ].join("\n");
+  const render = () => groups.map(renderGroup).join("\n\n");
+  let text = render();
+  while (text.length > maxChars) {
+    const pool = groups.filter((group) => group.kept.length > 1);
+    if (pool.length === 0) break;
+    const target = pool.reduce((a, b) => (renderGroup(b).length > renderGroup(a).length ? b : a));
+    const oldest = target.kept.reduce((a, b) => (b.date < a.date ? b : a));
+    target.kept.splice(target.kept.indexOf(oldest), 1);
+    target.omitted += 1;
+    text = render();
+  }
+  return text;
 }
 
 /** Daily notes matching any query term, newest first — on-demand recall, never injected. */

@@ -1,6 +1,6 @@
-import { IntelligenceEventStore } from "../intelligence/event-store.js";
+import { defaultIntelligenceDbPath, IntelligenceEventStore } from "../intelligence/event-store.js";
 import { ProjectionEngine } from "../intelligence/projections.js";
-import { deriveWorldState, worldModelProjector } from "../intelligence/world/world-model.js";
+import { deriveWorldState, worldModelProjector, type WorldModelState } from "../intelligence/world/world-model.js";
 import { retrieveResilientLexicalBrainEvidence } from "../lib/brain-retrieval.js";
 import { evaluatePredicates } from "./system-one/jev.js";
 import { familyEgress, questionFor } from "./system-one/registry.js";
@@ -21,12 +21,30 @@ export interface MemoryQuery {
   jev?: JevOptions;
 }
 
+/**
+ * One chat turn queries memory more than once (agent memory retrieval and the
+ * context compiler). Replaying the whole event log is the expensive part, so
+ * the replayed world state is reused while the log is unchanged: same file,
+ * same head sequence, no new erasure, and only briefly.
+ */
+const WORLD_STATE_TTL_MS = 15_000;
+let worldStateCache: { key: string; at: number; state: WorldModelState } | null = null;
+
+function replayWorldState(store: IntelligenceEventStore): WorldModelState {
+  const key = `${defaultIntelligenceDbPath()}#${store.headSequence()}#${store.erasureMark()}`;
+  const now = Date.now();
+  if (worldStateCache && worldStateCache.key === key && now - worldStateCache.at < WORLD_STATE_TTL_MS) return worldStateCache.state;
+  const state = new ProjectionEngine(store, worldModelProjector).rebuild(0).state;
+  worldStateCache = { key, at: now, state };
+  return state;
+}
+
 export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResult> {
   const store = new IntelligenceEventStore();
   let derived;
   let conversations: Array<{ id: string; content: string; source: string; relevance: number; epistemicStatus: string; freshness: number; temporalStatus: string }> = [];
   try {
-    derived = deriveWorldState(new ProjectionEngine(store, worldModelProjector).rebuild(0).state);
+    derived = deriveWorldState(replayWorldState(store));
     const terms = input.text.match(/[\p{L}\p{N}_-]+/gu)?.filter(t => !/^(?:what|where|when|why|how|the|this|that|did|was|were|with|from|have|about|working)$/i.test(t)) ?? [];
     conversations = store.searchConversations(terms, input.projectIds, input.limit ?? 8).map(event => {
       const turn = event.payload!.conversation as { user: string; assistant?: string };
