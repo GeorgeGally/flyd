@@ -6,6 +6,7 @@ import { firstmateHome } from "../lib/firstmate-home.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { codexPathCandidates } from "../runtime/codex-adapter.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
+import { createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } from "../runtime/repeat-guard.js";
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
 import { commandDir, listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
@@ -137,7 +138,7 @@ export class FirstmateDomainTransport {
     saveDomainRun(run);
     if (!receipt.acknowledged) {
       const session = await this.startSession(readiness, (failure) => suspendFirstmateRun(run, failure));
-      if (session.failure) return suspendFirstmateRun(run, session.failure);
+      if (session.failure) return suspendFirstmateRun(run, session.failure, Date.now(), session.terminal);
     }
     return run;
   }
@@ -178,7 +179,7 @@ export class FirstmateDomainTransport {
     return JSON.parse(stdout) as FirstmateReceipts;
   }
 
-  startSession(readiness?: FirstmateReadiness, onFailure?: (failure: string) => void): Promise<{ started: boolean; failure?: string }> {
+  startSession(readiness?: FirstmateReadiness, onFailure?: (failure: string) => void): Promise<FirstmateLaunch> {
     return startFirstmateSession({ home: this.home, script: this.script, exec: this.exec, readiness, onFailure });
   }
 }
@@ -187,6 +188,8 @@ type SessionRuntime = "claude" | "codex" | "opencode";
 
 const SESSION_PROMPT = "Run bin/fm-session-start.sh exactly once in this home. Then handle the unread inbox notes, verify the requested work, and publish each stable outcome or genuine decision with bin/fm-inbox.sh reply. Do not send messages to George; Flyd relays replies.";
 const SESSION_LAUNCH_FAILURE = "I couldn't start the work right now. I'll keep it safe and try again when I can.";
+const SESSION_LAUNCH_OPERATION = "firstmate-session-launch";
+const launchRepeats = createRepeatGuard(MAX_IDENTICAL_LAUNCH_FAILURES);
 const LAUNCH_RETRY_BASE_MS = 2 * 60_000;
 const LAUNCH_RETRY_MAX_MS = 30 * 60_000;
 const SESSION_OUTPUT_LIMIT = 8 * 1024;
@@ -350,7 +353,7 @@ function sessionChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return childEnv;
 }
 
-/** Appends one JSONL line to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): a launch attempt `{ at, runtime, outcome: "started" | "usage_limited" | "failed", detail? }` or a note left unread too long `{ at, kind: "unread_note", home, notes }`, or relaunches for notes outside any domain run backing off to their cap `{ at, kind: "unread_relaunch_capped", home, notes }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
+/** Appends one JSONL line to `~/.flyd/self-review/firstmate-session.jsonl` (`FLYD_SELF_REVIEW_DIR` overrides the directory): a launch attempt `{ at, runtime, outcome: "started" | "usage_limited" | "failed" | "repeated_loop", detail? }` or a note left unread too long `{ at, kind: "unread_note", home, notes }`, or relaunches for notes outside any domain run backing off to their cap `{ at, kind: "unread_relaunch_capped", home, notes }`. The council self-review reads the non-"started" lines in cli/src/council/reply-review.ts. */
 function recordSessionAttempt(entry: Record<string, unknown>): void {
   try {
     const path = join(process.env.FLYD_SELF_REVIEW_DIR?.trim() || join(FLYD_DIR, "self-review"), "firstmate-session.jsonl");
@@ -361,6 +364,22 @@ function recordSessionAttempt(entry: Record<string, unknown>): void {
   }
 }
 
+export interface FirstmateLaunch {
+  started: boolean;
+  failure?: string;
+  /** Set when identical launch failures hit the cap: no caller may retry this launch. */
+  terminal?: RepeatedLoopError;
+}
+
+/** The launch an attempt repeats: the same home asking the same runtimes to start. */
+function launchInput(home: string, runtimes: SessionRuntime[]): Record<string, unknown> {
+  return { home, runtimes: runtimes.join(",") };
+}
+
+function repeatedLaunchFailure(attempts: number): string {
+  return `I stopped starting the work: ${attempts} identical launch attempts failed the same way, so another one won't change that.`;
+}
+
 export async function startFirstmateSession(options: {
   home: string;
   script: string;
@@ -369,7 +388,7 @@ export async function startFirstmateSession(options: {
   env?: NodeJS.ProcessEnv;
   recordAttempt?: (entry: Record<string, unknown>) => void;
   onFailure?: (failure: string) => void;
-}): Promise<{ started: boolean; failure?: string }> {
+}): Promise<FirstmateLaunch> {
   const record = options.recordAttempt ?? recordSessionAttempt;
   const ready = options.readiness ?? await (async () => {
     const { stdout } = await options.exec(options.script, ["ready"], { env: { ...process.env, FM_HOME: options.home }, timeout: 5_000 });
@@ -378,27 +397,46 @@ export async function startFirstmateSession(options: {
   })().catch(() => ({ available: true, canReceive: "unknown" as const }));
   if (ready.canReceive !== false || ready.liveHarness) return { started: false };
   const runtimes = sessionRuntimes(options.env);
+  const launch = launchInput(options.home, runtimes);
+  const stopped = launchRepeats.blocked(SESSION_LAUNCH_OPERATION, launch);
+  if (stopped) {
+    return { started: false, failure: stopped, terminal: new RepeatedLoopError(stopped, launchRepeats.attempts(SESSION_LAUNCH_OPERATION, launch)) };
+  }
+  let runtime: SessionRuntime | undefined;
+  let detail: string | undefined;
+  const settle = (result: FirstmateLaunch): FirstmateLaunch => {
+    if (result.started) { launchRepeats.changed(); return result; }
+    if (!result.failure) return result;
+    launchRepeats.record(SESSION_LAUNCH_OPERATION, launch, detail ?? result.failure);
+    const attempts = launchRepeats.attempts(SESSION_LAUNCH_OPERATION, launch);
+    if (attempts < MAX_IDENTICAL_LAUNCH_FAILURES) return result;
+    const terminal = new RepeatedLoopError(repeatedLaunchFailure(attempts), attempts);
+    record({ runtime: runtime ?? runtimes[0], outcome: "repeated_loop", home: options.home, attempts, detail: (detail ?? result.failure).slice(0, 500) });
+    return { started: false, failure: terminal.message, terminal };
+  };
   if (options.exec === defaultExec) {
     if (launchingHomes.has(options.home)) return { started: false };
     launchingHomes.add(options.home);
-    return launchDetachedFirstmateSession(options.home, runtimes, record, options.onFailure, () => launchingHomes.delete(options.home));
+    return settle(await launchDetachedFirstmateSession(options.home, runtimes, record, options.onFailure, () => launchingHomes.delete(options.home)));
   }
-  for (const runtime of runtimes) {
+  for (const candidate of runtimes) {
+    runtime = candidate;
     try {
-      const result = await options.exec(runtime, sessionArgs(runtime), { env: sessionChildEnv({ ...process.env, ...options.env }), timeout: 30_000 });
+      const result = await options.exec(candidate, sessionArgs(candidate), { env: sessionChildEnv({ ...process.env, ...options.env }), timeout: 30_000 });
       const output = `${result.stdout}\n${result.stderr}`;
       if (/usage limit|rate limit|quota exceeded|overloaded/i.test(output)) {
-        record({ runtime, outcome: "usage_limited", detail: output.slice(-500) });
+        detail = output.slice(-500);
+        record({ runtime: candidate, outcome: "usage_limited", detail });
         continue;
       }
-      record({ runtime, outcome: "started" });
-      return { started: true };
+      record({ runtime: candidate, outcome: "started" });
+      return settle({ started: true });
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      record({ runtime, outcome: /usage limit|rate limit|quota/i.test(detail) ? "usage_limited" : "failed", detail: detail.slice(0, 500) });
+      detail = error instanceof Error ? error.message : String(error);
+      record({ runtime: candidate, outcome: /usage limit|rate limit|quota/i.test(detail) ? "usage_limited" : "failed", detail: detail.slice(0, 500) });
     }
   }
-  return { started: false, failure: SESSION_LAUNCH_FAILURE };
+  return settle({ started: false, failure: SESSION_LAUNCH_FAILURE });
 }
 
 function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[], record: (entry: Record<string, unknown>) => void, onFailure: ((failure: string) => void) | undefined, release: () => void): Promise<{ started: boolean; failure?: string }> {
@@ -471,9 +509,15 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
   });
 }
 
-function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now()): DomainRun {
+function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now(), terminal?: RepeatedLoopError): DomainRun {
   const current = readDomainRun(run.id) ?? run;
   if (["completed", "failed", "cancelled"].includes(current.status)) return current;
+  if (terminal) {
+    const { launchRetry: _retry, ...rest } = current;
+    const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, updatedAt: new Date(nowMs).toISOString() };
+    saveDomainRun(stopped);
+    return stopped;
+  }
   const attempts = (current.launchRetry?.attempts ?? 0) + 1;
   const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
   const suspended: DomainRun = {
@@ -621,11 +665,11 @@ export async function syncFirstmateDomainRuns(options: {
           if (capped && !retry?.capped) recordSessionAttempt({ kind: "unread_relaunch_capped", home: transport.home, notes: oldPending.map((note) => note.id) });
           runlessRetry.set(transport.home, { attempts, nextAt: nowMs + delay, capped });
         }
-        const session = await transport.startSession(readiness, waitingRun ? (failure) => suspendFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined }));
+        const session = await transport.startSession(readiness, waitingRun ? (failure) => suspendFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined, terminal: undefined }));
         if (session.started && waitingRun?.launchRetry) {
           saveDomainRun({ ...waitingRun, failure: undefined, updatedAt: new Date(nowMs).toISOString() });
         } else if (session.failure && waitingRun) {
-          suspendFirstmateRun(waitingRun, session.failure);
+          suspendFirstmateRun(waitingRun, session.failure, nowMs, session.terminal);
         }
       }
     }

@@ -954,6 +954,40 @@ describe("FirstMate domain transport", () => {
     expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(3);
   });
 
+  it("stops an unchanged launch after three identical failures instead of retrying 21 times", async () => {
+    const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
+    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
+    try {
+      const home = join(dir, "firstmate-repeated");
+      saveDomainRun(queuedRun());
+      let launches = 0;
+      const exec: FirstmateExec = async (_script, args) => {
+        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+        if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+        launches += 1;
+        throw new Error("claude: usage limit reached");
+      };
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
+      const start = Date.parse("2026-10-09T01:00:00.000Z");
+      for (let tick = 0; tick < 21; tick += 1) {
+        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + tick * 60 * 60_000) });
+      }
+
+      expect(launches).toBe(3);
+      const [run] = listDomainRuns();
+      expect(run!.status).toBe("failed");
+      expect(run!.launchRetry).toBeUndefined();
+      expect(run!.failure).toMatch(/3 identical launch attempts/);
+      const recorded = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl"), "utf8")
+        .trim().split("\n").map((line) => JSON.parse(line) as { outcome?: string; home?: string })
+        .filter((entry) => entry.home === home && entry.outcome);
+      expect(recorded.map((entry) => entry.outcome)).toEqual(["repeated_loop"]);
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
+      else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
+    }
+  });
+
   it("cools the home down instead of relaunching every tick for an unconsumed note", async () => {
     saveDomainRun({ ...queuedRun(), id: "domain-test-2", transport: { kind: "firstmate", requestId: "domain-test-2", externalId: "note-2" } });
     const started: string[] = [];

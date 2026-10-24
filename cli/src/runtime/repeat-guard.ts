@@ -8,6 +8,21 @@
 
 export const MAX_IDENTICAL_FAILURES = 2;
 
+/** A session launch that fails the same way this many times is broken, not flaky: a fourth try buys nothing. */
+export const MAX_IDENTICAL_LAUNCH_FAILURES = 3;
+
+/** The loop was stopped by the guard: a repeated identical failure no caller may retry. */
+export class RepeatedLoopError extends Error {
+  readonly attempts: number;
+  readonly retryable = false;
+
+  constructor(message: string, attempts: number) {
+    super(message);
+    this.name = "RepeatedLoopError";
+    this.attempts = attempts;
+  }
+}
+
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
   if (value && typeof value === "object") {
@@ -26,6 +41,8 @@ export interface RepeatGuard {
   /** A reason to skip the call, or null to run it. */
   blocked(name: string, input: Record<string, unknown>): string | null;
   record(name: string, input: Record<string, unknown>, failure: string | null): void;
+  /** Identical failures on record for this call. */
+  attempts(name: string, input: Record<string, unknown>): number;
   /** Something changed since those failures; they no longer predict the next run. */
   changed(): void;
 }
@@ -44,6 +61,9 @@ export function createRepeatGuard(limit = MAX_IDENTICAL_FAILURES): RepeatGuard {
       const shape = errorShape(failure);
       const seen = failures.get(key);
       failures.set(key, { shape, error: failure, count: seen?.shape === shape ? seen.count + 1 : 1 });
+    },
+    attempts(name, input) {
+      return failures.get(`${name}:${stable(input)}`)?.count ?? 0;
     },
     changed() {
       failures.clear();
