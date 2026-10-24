@@ -99,6 +99,20 @@ describe("crew", () => {
     expect(broken.failure).toMatch(/^verification failed: /);
   });
 
+  it("never deletes a branch with commits because its worktree went missing, and re-checks it from a restored worktree", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
+    git(repo, "worktree", "remove", "--force", task.worktree);
+    const [checked] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }) });
+    expect(checked).toMatchObject({ status: "ready", commits: 1 });
+    expect(existsSync(join(task.worktree, "feature.txt"))).toBe(true);
+
+    const second = await dispatchCrewTask({ repo, outcome: "Break it", launch: fakeCrewmate() });
+    git(repo, "worktree", "remove", "--force", second.worktree);
+    const [broken] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: false, output: "boom" }) });
+    expect(broken.status).toBe("failed");
+    expect(git(repo, "branch", "--list", second.branch)).not.toBe("");
+  });
+
   it("runs checks under Core's own node, ahead of whatever the login shell would find", () => {
     const line = checkCommand("npm test", "/opt/node 22/bin");
     expect(line).toBe('export PATH="/opt/node 22/bin":"$PATH"; npm test');

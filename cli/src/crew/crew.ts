@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -511,6 +511,24 @@ async function baselineOutput(task: CrewTask, command: string, run: (command: st
   }
 }
 
+/**
+ * Re-create a removed worktree from its branch so its checks can run again.
+ * Dependencies are linked from the repository rather than reinstalled.
+ */
+async function restoreWorktree(task: CrewTask): Promise<void> {
+  try {
+    await git(task.repo, ["worktree", "prune"]);
+    await git(task.repo, ["worktree", "add", task.worktree, task.branch]);
+    for (const sub of ["", "cli"]) {
+      const from = join(task.repo, sub, "node_modules");
+      const to = join(task.worktree, sub, "node_modules");
+      if (existsSync(from) && existsSync(dirname(to)) && !existsSync(to)) symlinkSync(from, to);
+    }
+  } catch (error) {
+    console.warn("[crew] could not restore worktree:", error instanceof Error ? error.message : error);
+  }
+}
+
 /** Advance every running crewmate: finished ones are verified and reported; stuck ones are stopped. */
 export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<CrewTask[]> {
   const now = (deps.now ?? (() => new Date()))();
@@ -533,12 +551,18 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
     }
     saveTask({ ...task, status: "verifying" }, dir);
     const summary = lastSummary(task.log);
+    // Count the branch's commits from the repository, never from the worktree:
+    // a missing worktree must not read as "nothing was committed", or the
+    // cleanup below deletes a branch that holds real work.
     let commits = 0;
     let diffStat = "";
+    let counted = false;
     try {
-      commits = Number(await git(task.worktree, ["rev-list", "--count", `${task.baseCommit}..HEAD`])) || 0;
-      diffStat = await git(task.worktree, ["diff", "--shortstat", `${task.baseCommit}..HEAD`]);
-    } catch { /* worktree gone */ }
+      commits = Number(await git(task.repo, ["rev-list", "--count", `${task.baseCommit}..${task.branch}`])) || 0;
+      diffStat = await git(task.repo, ["diff", "--shortstat", `${task.baseCommit}..${task.branch}`]);
+      counted = true;
+    } catch { /* branch gone */ }
+    if (commits > 0 && !existsSync(task.worktree)) await restoreWorktree(task);
     const dirty = await git(task.worktree, ["status", "--porcelain"]).catch(() => "");
     const verification: CrewTask["verification"] = [];
     if (commits > 0) {
@@ -610,7 +634,7 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
       }),
     };
     // A failed task's worktree goes; its branch stays while it holds commits, and uncommitted work is never thrown away.
-    const cleaned = !verified && await cleanupCrewWorktree(done, { deleteBranch: commits === 0 });
+    const cleaned = !verified && await cleanupCrewWorktree(done, { deleteBranch: counted && commits === 0 });
     const recorded: CrewTask = cleaned ? { ...done, worktreeRemoved: true } : done;
     saveTask(recorded, dir);
     changed.push(recorded);
