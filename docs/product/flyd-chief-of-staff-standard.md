@@ -116,7 +116,10 @@ authoritative path. This change does not rewrite historical private entries.
   - A relayed update in the window and a domain-run notification pass the
     same checks a chat answer does (`relayShortfalls` in
     `cli/src/runtime/honesty-check.ts`): backstage machinery, a ruled-out
-    phrase or a placeholder holds it. A held relay is not shown at all. A
+    phrase or a placeholder holds it. A relayed update in the window also
+    passes the chief-of-staff screen (`screenOutgoing` in
+    `cli/src/council/reply-review.ts`), so one that hands him an internal
+    implementation call is held too. A held relay is not shown at all. A
     completion notice held only for backstage machinery becomes a neutral
     line naming the work ("There is news on …"), with no claim of success
     or failure; held for anything else, it is not shown. A decision or

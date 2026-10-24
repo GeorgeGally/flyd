@@ -139,9 +139,11 @@ const PLACEHOLDER = /^(?:(?:ok(?:ay)?|sure|right|alright|sir)[,!.]?\s+)?(?:(?:i'
 const PREAMBLE = /^(?:(?:sure|certainly|of course|absolutely|great question|good question|happy to help|okay so|alright so)\b|let me\b|i'?ll (?:start|begin|take a look|look|check|go|dig)\b|first,? i'?ll\b|i'?m going to\b|sir, done\b)/i;
 
 /** He is being asked to choose. */
-const ASKS_HIM = /\b(needs? your (?:call|decision|ok|okay|approval|sign-?off|input)|your call\b|up to you\b|do you want (?:me|us|it|them) to\b|should (?:i|we)\b|shall (?:i|we)\b|which (?:do you|would you|one)\b|want me to\b[^.?!]*\bor\b|(?:please )?(?:approve|decide)\b)/i;
+const ASKS_HIM = /\b(needs? your (?:call|decision|ok|okay|approval|sign-?off|input)|(?:it'?s|that'?s) your (?:call|decision)\b|,\s*your (?:call|decision)[.!?]*$|up to you\b|do you want (?:me|us|it|them) to\b|should (?:i|we)\b|shall (?:i|we)\b|which (?:do you|would you|one)\b|want me to\b[^.?!]*\bor\b|(?:please )?(?:approve|decide)\b|(?:i|we) need you to (?:decide|choose|pick|say|tell|confirm)\b|(?:tell|let) me (?:know )?(?:whether (?:to|(?:i|we) should)|if (?:(?:i|we) should|you want me to|you'?d rather)|which (?:way|one|approach|option))\b|waiting (?:on|for) you to (?:decide|choose|pick|say|tell|confirm)\b|waiting (?:on|for) your (?:call|decision)\b)/i;
+/** Flyd promising to bring him his decisions ("I'll flag anything that needs your call") is not asking him one. */
+const PROMISES_HIM = /\b(?:i|we)(?:'ll| will| would)?\s+(?:only |always )?(?:flag|bring|tell|raise|surface|report|hand|pass on|escalate)\b[^.?!]*\b(?:needs? your|your (?:call|decision)|you (?:need|have) to decide|you to decide)/i;
 /** …about how the work is built or run, which is not his to decide. */
-const INTERNAL_MATTER = /\b(config|commit|push|sync|feature flag|flag|guard|gate|refactor|tests?|lint|ci|pipeline|branch|rebase|retry|push back|implementation|schema|migration|timeout|threshold|regex|prompt|turn-end|hooks?|endpoint|dependency|worktree|supervisor|daemon|inbox)\b/i;
+const INTERNAL_MATTER = /\b(config|commit|push|sync|feature flag|flag|guard|gate|refactor|tests?|lint|ci|pipeline|branch|rebase|retry|retries|retried|re-?run (?:it|the (?:run|job|task))|requeue|revert the (?:change|fix|commit|patch)|roll ?back the (?:change|fix|commit|patch)|restart the (?:run|job|daemon|service|pipeline)|drop the (?:run|job|task|fix|change|patch)|push back|implementation|schema|migration|timeout|threshold|regex|prompt|turn-end|hooks?|endpoint|dependency|worktree|supervisor|daemon|inbox)\b/i;
 /** Outward or irreversible: these stay his even when they sound technical. */
 const HIS_DECISION = /\b(merge|land|ship|publish|deploy|release|send|email|post|delete|buy|spend|price|cost|budget|client|pay\w*|charg\w*|refund\w*|subscri\w*|renew\w*|cancel\w*|invoice\w*|contract\w*|sign\w*)\b/i;
 
@@ -156,13 +158,14 @@ function backstageWord(text: string): string | undefined {
  * An implementation or process call handed to George, by wording alone: one
  * sentence both asks him and is about how the work is built or run. Sentence
  * by sentence, so "I'll bring you only what needs your decision" after a
- * paragraph about a guard is not read as asking him about the guard. Anything
+ * paragraph about a guard is not read as asking him about the guard, and
+ * "I'll flag anything that needs your call" is a promise, not an ask. Anything
  * that touches his money, his name or an outward step stays his.
  */
 export function handsHimInternalDecision(text: string): boolean {
   const plain = prose(text);
   if (HIS_DECISION.test(plain)) return false;
-  return plain.split(/(?<=[.!?])\s+|\n+/).some((sentence) => ASKS_HIM.test(sentence) && INTERNAL_MATTER.test(sentence));
+  return plain.split(/(?<=[.!?])\s+|\n+/).some((sentence) => ASKS_HIM.test(sentence) && INTERNAL_MATTER.test(sentence) && !PROMISES_HIM.test(sentence));
 }
 
 /** Only says something is happening: "Working on it", "Remembering what I know about this". */

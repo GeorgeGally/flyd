@@ -5,8 +5,9 @@ import { FLYD_DIR } from "../lib/config.js";
 import type { GeorgeKind, Handling } from "../lib/reaches-george.js";
 import type { Evidence } from "../crew/self-improve.js";
 import { journalDir, readJournalSince } from "./journal.js";
-import { requirement, reviewSaid, voiceRules, type RequirementId, type Said, type Shortfall, type Surface, type VoiceRules } from "./chief-of-staff.js";
+import { requirement, reviewSaid, screenBeforeDisplay, voiceRules, type RequirementId, type Said, type Shortfall, type Surface, type VoiceRules } from "./chief-of-staff.js";
 import { isInteractionClass } from "../runtime/conversation-presence.js";
+import { relayShortfalls } from "../runtime/honesty-check.js";
 
 // Flyd reading its own words back against the chief-of-staff standard
 // (council/chief-of-staff.ts). Everything George was shown — chat answers,
@@ -111,6 +112,31 @@ export function recordHeld(said: Said & { source: string }, shortfalls: Shortfal
       text: said.text.slice(0, TEXT_CHARS), ...(said.asked ? { asked: said.asked.slice(0, 200) } : {}), shortfalls, held: true, ...reviewContext(said),
     } satisfies Verdict]);
   } catch { /* review is best effort */ }
+}
+
+export interface Screened {
+  /** May it go to George as written? */
+  send: boolean;
+  shortfalls: Shortfall[];
+}
+
+/**
+ * The outgoing review of one text about to reach George: the pre-send checks
+ * a relay already passes (runtime/honesty-check.ts relayShortfalls: backstage
+ * machinery, a phrase he ruled out, a placeholder) plus the chief-of-staff
+ * screen, which also catches an internal implementation call handed to him
+ * (retry or drop a run, gate it behind config, which test approach). Held
+ * text is recorded as its verdict straight away, so the improver sees it;
+ * the caller shows nothing, and Flyd makes the call and reports the outcome
+ * instead. A text that passes is sent unchanged. Never throws.
+ */
+export function screenOutgoing(said: Said & { source: string }, dir = selfReviewDir(), now = new Date()): Screened {
+  const shortfalls = relayShortfalls(said.text);
+  for (const shortfall of screenBeforeDisplay(said).shortfalls) {
+    if (!shortfalls.some((item) => item.requirement === shortfall.requirement)) shortfalls.push(shortfall);
+  }
+  if (shortfalls.length) recordHeld(said, shortfalls, dir, now);
+  return { send: shortfalls.length === 0, shortfalls };
 }
 
 const kept = new Set<string>();
