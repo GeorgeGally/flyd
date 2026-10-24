@@ -604,7 +604,9 @@ describe("ConversationViewServer", () => {
     mkdirSync(join(dir, "data"));
     writeFileSync(join(dir, "data", "backlog.md"), `- [ ] visuals - Pick a Christmas look (repo: good_neighbours) (since ${new Date().toISOString().slice(0, 10)}) (hold: Choose Evergreen or a mix)\n`);
     writeFileSync(join(dir, "bin", "fm-bearings-snapshot.sh"), '#!/bin/sh\nprintf \'%s\' \'{"decisions_open":[{"id":"visuals","summary":"Pick a look"}]}\'\n', { mode: 0o755 });
-    writeFileSync(join(dir, "bin", "fm-inbox.sh"), '#!/bin/sh\nmkdir -p "$FM_HOME/state/inbox"\ncat > "$FM_HOME/state/inbox/decision-note"\nprintf "queued decision-note\\n"\n', { mode: 0o755 });
+    writeFileSync(join(dir, "bin", "fm-inbox.sh"), '#!/bin/sh\n[ "$1" = "note" ] || exit 2\nmkdir -p "$FM_HOME/state/inbox"\ncat > "$FM_HOME/state/inbox/decision-note"\necho \'{"id":"decision-note","saved":true}\'\n', { mode: 0o755 });
+    // His words as the note carries them, without the return contract Flyd puts under them.
+    const noteWords = (): string => readFileSync(join(dir!, "state", "inbox", "decision-note"), "utf8").replace(/\n\n--- Flyd's return contract [\s\S]*--- end of Flyd's return contract ---$/, "");
     const feed = new ArtefactFeed({ home: dir, memoryFile: join(dir, "none"), newsFile: join(dir, "none"), tasteFile: join(dir, "none") });
     await feed.refresh();
     server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, inbox: new FirstmateInbox({ home: dir }) }), undefined, undefined, undefined, feed);
@@ -617,28 +619,28 @@ describe("ConversationViewServer", () => {
     const sent = await post(port, body, headers);
     expect(sent.status).toBe(200);
     expect(JSON.parse(sent.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent to firstmate" });
-    expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toBe("Answer to pending decision visuals: Pick a Christmas look\nQuestion: Choose Evergreen or a mix\n\nEvergreen luxe");
+    expect(noteWords()).toBe("Answer to pending decision visuals: Pick a Christmas look\nQuestion: Choose Evergreen or a mix\n\nEvergreen luxe");
     expect(feed.current().fleet!.calls).toHaveLength(1);
     expect((await post(port, JSON.stringify({ decision: "unknown", text: "Yes" }), headers)).status).toBe(409);
     expect((await post(port, JSON.stringify({ decision: "visuals", text: " " }), headers)).status).toBe(400);
     // Any artefact: his words go to firstmate naming what they are about.
     const about = await post(port, JSON.stringify({ about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://example.com/map" }, text: "Make the pins bigger" }), headers);
     expect(JSON.parse(about.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent to firstmate" });
-    expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toBe('About the artefact "Christmas Nuanu map"\nTask: gnm-xmas-map\nPage: https://example.com/map\n\nMake the pins bigger');
+    expect(noteWords()).toBe('About the artefact "Christmas Nuanu map"\nTask: gnm-xmas-map\nPage: https://example.com/map\n\nMake the pins bigger');
     // A sidebar card's own words go with it, on one line each, so firstmate knows what it says.
     await post(port, JSON.stringify({ about: { title: "Finished a job for you", line: "gnm notes", detail: "The file is at\n~/Documents/Flyd/gnm.md" }, text: "Open it" }), headers);
-    expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toBe('About the artefact "Finished a job for you"\nLine: gnm notes\nDetail: The file is at ~/Documents/Flyd/gnm.md\n\nOpen it');
+    expect(noteWords()).toBe('About the artefact "Finished a job for you"\nLine: gnm notes\nDetail: The file is at ~/Documents/Flyd/gnm.md\n\nOpen it');
     expect((await post(port, JSON.stringify({ about: { title: "Map", detail: 3 }, text: "Hi" }), headers)).status).toBe(400);
     await post(port, JSON.stringify({ about: { title: 'He prefers "calm"\nUI', detail: "Quiet colours" }, text: "why?" }), headers);
-    expect(plainNote(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8"))).toEqual({ words: "why?", about: { title: 'He prefers "calm" UI' } });
+    expect(plainNote(noteWords())).toEqual({ words: "why?", about: { title: 'He prefers "calm" UI' } });
     // A screenshot he pasted into the box goes with his words, saved where firstmate reads images.
     await post(port, JSON.stringify({ about: { title: "Christmas Nuanu map" }, text: "Like this", images: [{ mediaType: "image/png", data: PNG }] }), headers);
-    const withImage = readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8");
+    const withImage = noteWords();
     expect(withImage).toMatch(/^About the artefact "Christmas Nuanu map"\n\nLike this\n\n\[image: (.+\.png)\]$/);
     expect(existsSync(/\[image: (.+)\]/.exec(withImage)![1]!)).toBe(true);
     // A picture alone says enough about an artefact; an answer to a decision still needs words.
     expect((await post(port, JSON.stringify({ about: { title: "Map" }, text: "", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
-    expect(readFileSync(join(dir, "state", "inbox", "decision-note"), "utf8")).toMatch(/^About the artefact "Map"\n\n\[image: .+\.png\]$/);
+    expect(noteWords()).toMatch(/^About the artefact "Map"\n\n\[image: .+\.png\]$/);
     expect((await post(port, JSON.stringify({ decision: "visuals", text: "", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(400);
     expect((await post(port, JSON.stringify({ about: { title: "Map" }, text: "Hi", images: "nope" }), headers)).status).toBe(400);
     expect((await post(port, JSON.stringify({ about: { task: "x" }, text: "Hi" }), headers)).status).toBe(400);

@@ -314,12 +314,12 @@ describe("ClaudeCodeTranscriptSource as Flyd's window", () => {
 set -euo pipefail
 case "\${1:-}" in
   note)
-    [ "\${2:-}" = "-" ] || { echo "usage" >&2; exit 2; }
+    [ "\${2:-}" = "--request-id" ] && [ "\${4:-}" = "--json" ] && [ "\${5:-}" = "-" ] || { echo "usage" >&2; exit 2; }
     body=$(cat)
     mkdir -p "$FM_HOME/state/inbox"
     id="$(date +%s)-$(printf '%06d' "$RANDOM")"
-    printf 'id=%s\\nat=%s\\nsource=text\\n--\\n%s\\n' "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$body" > "$FM_HOME/state/inbox/$id.note"
-    printf 'queued %s\\n' "$id"
+    printf 'id=%s\\nat=%s\\nsource=text\\nrequest_id=%s\\n--\\n%s\\n' "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$3" "$body" > "$FM_HOME/state/inbox/$id.note"
+    printf '{"id":"%s","saved":true,"acknowledged":false}\\n' "$id"
     ;;
   reply)
     id="\${2:?reply needs a note id}"

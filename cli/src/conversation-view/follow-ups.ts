@@ -225,7 +225,9 @@ export function withFollowUps(exchanges: Exchange[], found: Record<string, Conve
     const chat = found[exchange.question.id];
     if (!chat) return exchange;
     const formal = exchange.answer ? Date.parse(exchange.answer.timestamp ?? "") : Number.NaN;
-    if (!exchange.answer || (Date.parse(chat.timestamp ?? "") > formal && chat.text.trim() !== exchange.answer.text.trim())) return { ...exchange, answer: chat, waiting: "" };
+    // A note that opened a domain run is answered by its run's own reply; chat matched by topic words is only the fallback.
+    const runReply = Boolean(exchange.question.run && exchange.answer?.id.startsWith("note-reply:"));
+    if (!exchange.answer || (!runReply && Date.parse(chat.timestamp ?? "") > formal && chat.text.trim() !== exchange.answer.text.trim())) return { ...exchange, answer: chat, waiting: "" };
     // A formal reply keeps its words; the screenshot firstmate looked at for the note, and the page it changed, still lead it.
     const shots = chat.shots?.length && !exchange.answer.shots?.length ? { shots: chat.shots } : {};
     const page = chat.page && !exchange.answer.page ? { page: chat.page } : {};

@@ -1,8 +1,10 @@
-import { execFile } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
+// Type-only: the page bundle imports this module, and the command layer is loaded when a message is sent.
+import type { FirstmateDomainTransport, FirstmateExec } from "../command/firstmate.js";
+import type { DomainRequest, DomainRun } from "../command/types.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handoffLine } from "./living.js";
 import { forCaptain, pullRequestsIn } from "./status.js";
@@ -23,6 +25,12 @@ import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload,
 // Firstmate answers a note with `fm-inbox.sh reply <id>`, which records the
 // answer as state/inbox/.replies/<id>. That reply, and nothing else firstmate
 // says, is shown as the answer to the note, in Flyd's voice.
+//
+// Each message is also a Flyd domain run (command/firstmate.ts), handed over
+// through the same transport as chat's coding requests: his words whole, the
+// request id (`desk-…`) on the note, what done means and the return contract
+// under them. The command scheduler settles the run from firstmate's receipts
+// and reply, and the staff watch chases it if it goes quiet.
 
 /**
  * Appended to a note that starts with a slash command the captain picked,
@@ -48,6 +56,52 @@ export function briefBlock(brief: string): string {
   return `--- Flyd's brief (Flyd's own judgement, not George's words) ---\n${brief.trim()}\n--- end of Flyd's brief ---`;
 }
 const BRIEF_BLOCK = /\n*^--- Flyd's brief \(Flyd's own judgement, not George's words\) ---$[\s\S]*?^--- end of Flyd's brief ---$/m;
+
+/** A desk message's request id: its own prefix, so his window still shows the note as his words (`domain-`/`flyd-` notes are Flyd's). */
+const DESK_REQUEST = /^desk-[A-Za-z0-9-]{8,80}$/;
+
+/** What done means for a message he sent from the window, when Flyd has nothing more specific. Pure. */
+export function deskDoneWhen(command?: string): string[] {
+  return command
+    ? [`/${command} has run exactly as George typed it`, "its outcome, or what blocked it, is reported back"]
+    : [
+      "George's message is answered, or the work it asks for is done and verified",
+      "anything only George can decide comes back as a decision with your recommendation",
+    ];
+}
+
+/** The domain request one desk message opens: his words whole as the original, under the request's own id. */
+export function deskRequest(input: { text: string; command?: string; attachments?: string[]; now?: Date }): DomainRequest {
+  const words = input.text.trim();
+  const first = words.split("\n").find((line) => line.trim())?.trim() ?? "";
+  const outcome = input.command
+    ? `Run /${input.command} as George typed it`
+    : first
+      ? (first.length > 200 ? `${first.slice(0, 199).trimEnd()}…` : first)
+      : "Read what George attached and act on it";
+  return {
+    id: `desk-${randomUUID()}`,
+    domain: "coding",
+    originalMessage: words || outcome,
+    intendedOutcome: outcome,
+    doneWhen: deskDoneWhen(input.command),
+    createdAt: (input.now ?? new Date()).toISOString(),
+    source: "view",
+    ...(input.attachments?.length ? { contextRefs: input.attachments } : {}),
+  };
+}
+
+/** The return contract under his words: Flyd's, marked so it is never read as his wording, and hidden from his window. */
+export function contractBlock(request: DomainRequest): string {
+  return [
+    `--- Flyd's return contract (request ${request.id}; Flyd's own, not George's words) ---`,
+    "DONE WHEN:",
+    ...request.doneWhen.map((point, index) => `${index + 1}. ${point}`),
+    "When this reaches a stable outcome or needs his decision, reply to this note (fm-inbox.sh reply). Plain prose is fine: say plainly whether it is done (and what changed), needs his decision (with your recommendation), failed (and why), or still under way (and what is next). Flyd shows your reply under his message and settles the request from it.",
+    "--- end of Flyd's return contract ---",
+  ].join("\n");
+}
+const CONTRACT_BLOCK = /\n*^--- Flyd's return contract \(request [^)\n]*\) ---$[\s\S]*?^--- end of Flyd's return contract ---$/m;
 
 export interface CaptainInbox {
   /** His words to firstmate, with Flyd's own brief under them when it has one. */
@@ -132,12 +186,15 @@ function parseNote(file: string, imagesDir: string, filesDir: string): Conversat
   // the same inbox, under request ids its runs own (`domain-…`), and Flyd's
   // own notes go under `flyd-…`. They are Flyd talking to firstmate, never
   // something he typed.
-  if (/^(?:domain|flyd)-/.test(record.header.get("request_id") ?? "")) return null;
+  const requestId = record.header.get("request_id") ?? "";
+  if (/^(?:domain|flyd)-/.test(requestId)) return null;
+  const run = DESK_REQUEST.test(requestId) ? requestId : undefined;
   const id = record.header.get("id");
   const at = record.header.get("at");
   const images: string[] = [];
   const files: string[] = [];
   const text = record.body
+    .replace(CONTRACT_BLOCK, "")
     .replace(BRIEF_BLOCK, "")
     .replace(COMMAND_MARKER, "")
     .replace(/^\[image: (.+)\]$/gm, (line, path: string) => {
@@ -154,7 +211,7 @@ function parseNote(file: string, imagesDir: string, filesDir: string): Conversat
     })
     .trim();
   if (!id || !at || (!text && images.length === 0 && files.length === 0)) return null;
-  return { id: `note:${id}`, role: "user", text, timestamp: at, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) };
+  return { id: `note:${id}`, role: "user", text, timestamp: at, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}), ...(run ? { run } : {}) };
 }
 
 function parseReply(file: string): ConversationMessage | null {
@@ -177,10 +234,21 @@ export class FirstmateInbox implements CaptainInbox {
   private readonly parsedReplies = new Map<string, ConversationMessage | null>();
   private sorted: Exchange[] = [];
   private listingKey = "";
+  private readonly exec?: FirstmateExec;
+  /** The one client for firstmate's inbox (the command layer's transport): his messages go through it as domain runs. */
+  private readonly transport?: FirstmateDomainTransport;
 
-  constructor(options: { home?: string; script?: string } = {}) {
+  constructor(options: { home?: string; script?: string; exec?: FirstmateExec; transport?: FirstmateDomainTransport } = {}) {
     this.home = options.home ?? firstmateHome();
     this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
+    this.exec = options.exec;
+    this.transport = options.transport;
+  }
+
+  /** The command layer, loaded on first send; the same exec runs Flyd's own notes and the transport. */
+  private async client(): Promise<{ exec: FirstmateExec; Transport: typeof FirstmateDomainTransport; stdoutOf: (error: unknown) => string }> {
+    const command = await import("../command/firstmate.js");
+    return { exec: this.exec ?? command.defaultFirstmateExec, Transport: command.FirstmateDomainTransport, stdoutOf: command.firstmateStdout };
   }
 
   available(): boolean {
@@ -254,22 +322,20 @@ export class FirstmateInbox implements CaptainInbox {
   }
 
   /** Whether firstmate replayed a note it already held under this request id rather than taking a new one. */
-  private deliverOwn(text: string, requestId: string): Promise<{ replayed: boolean }> {
-    if (!/^flyd-[A-Za-z0-9._:-]{1,120}$/.test(requestId)) return Promise.reject(new Error("Flyd's own notes need a flyd- request id"));
-    return new Promise((resolve, reject) => {
-      const child = execFile(
-        this.script,
-        ["note", "--request-id", requestId, "-"],
-        { env: { ...process.env, FM_HOME: this.home }, timeout: SEND_TIMEOUT_MS, maxBuffer: 1 << 20 },
-        (error, stdout, stderr) => {
-          // Saved (or replayed) is delivered: a failed wake after that is firstmate's to repair.
-          if (/^(?:queued|replay)\b/m.test(String(stdout))) resolve({ replayed: /^replay\b/m.test(String(stdout)) });
-          else reject(new Error(`firstmate did not take Flyd's note: ${`${stderr}`.trim().split("\n").pop() || error?.message || "no note id returned"}`));
-        },
-      );
-      child.stdin?.on("error", () => {});
-      child.stdin?.end(text.trim().slice(0, MAX_NOTE_CHARS));
-    });
+  private async deliverOwn(text: string, requestId: string): Promise<{ replayed: boolean }> {
+    if (!/^flyd-[A-Za-z0-9._:-]{1,120}$/.test(requestId)) throw new Error("Flyd's own notes need a flyd- request id");
+    const { exec, stdoutOf } = await this.client();
+    let stdout: string;
+    let detail = "";
+    try {
+      ({ stdout } = await exec(this.script, ["note", "--request-id", requestId, "-"], { env: { ...process.env, FM_HOME: this.home }, input: text.trim().slice(0, MAX_NOTE_CHARS), timeout: SEND_TIMEOUT_MS }));
+    } catch (error) {
+      stdout = stdoutOf(error);
+      detail = error instanceof Error ? error.message : String(error);
+    }
+    // Saved (or replayed) is delivered: a failed wake after that is firstmate's to repair.
+    if (/^(?:queued|replay)\b/m.test(stdout)) return { replayed: /^replay\b/m.test(stdout) };
+    throw new Error(`firstmate did not take Flyd's note: ${detail.trim().split("\n").pop() || "no note id returned"}`);
   }
 
   /** Flyd's note about one task, keyed on the task and the note so the inbox takes each note at most once per task. */
@@ -280,45 +346,34 @@ export class FirstmateInbox implements CaptainInbox {
     return { requestId, replayed };
   }
 
-  /** Runs `fm-inbox.sh note -` with the text on stdin: no shell, no interpolation. */
-  send(text: string, images: ImageUpload[] = [], command?: string, files: FileUpload[] = [], brief?: string): Promise<SentMessage> {
+  /**
+   * His message to firstmate as a domain run: `fm-inbox.sh note --request-id desk-… --json -`
+   * through the command layer's transport, with the text on stdin (no shell, no interpolation).
+   */
+  async send(text: string, images: ImageUpload[] = [], command?: string, files: FileUpload[] = [], brief?: string): Promise<SentMessage> {
     const typed = text.trim();
-    if (!typed && images.length === 0 && files.length === 0) return Promise.reject(new Error("Nothing to send"));
-    if (typed.length > MAX_NOTE_CHARS) return Promise.reject(new Error(`Message is longer than ${MAX_NOTE_CHARS} characters`));
-    let paths: string[];
-    let filePaths: string[];
-    try {
-      paths = this.saveImages(images);
-      filePaths = this.saveFiles(files);
-    } catch (error) {
-      return Promise.reject(error);
-    }
+    if (!typed && images.length === 0 && files.length === 0) throw new Error("Nothing to send");
+    if (typed.length > MAX_NOTE_CHARS) throw new Error(`Message is longer than ${MAX_NOTE_CHARS} characters`);
+    const paths = this.saveImages(images);
+    const filePaths = this.saveFiles(files);
     const attached = [...paths.map((path) => `[image: ${path}]`), ...filePaths.map((path) => `[file: ${path}]`)].join("\n");
-    const body = [typed, attached, brief?.trim() ? briefBlock(brief) : "", command ? commandMarker(command) : ""]
+    const request = deskRequest({ text: typed, ...(command ? { command } : {}), attachments: [...paths, ...filePaths] });
+    const body = [typed, attached, brief?.trim() ? briefBlock(brief) : "", command ? commandMarker(command) : "", contractBlock(request)]
       .filter(Boolean)
       .join("\n\n");
-    return new Promise((resolve, reject) => {
-      const child = execFile(
-        this.script,
-        ["note", "-"],
-        { env: { ...process.env, FM_HOME: this.home }, timeout: SEND_TIMEOUT_MS, maxBuffer: 1 << 20 },
-        (error, stdout, stderr) => {
-          const id = /^queued (\S+)/m.exec(stdout)?.[1];
-          const detail = `${stderr}`.trim().split("\n").pop() || (error ? error.message : "no note id returned");
-          if (!id) {
-            reject(new Error(`firstmate did not take the message: ${detail}`));
-            return;
-          }
-          // `queued <id>` means the note is saved; a failure after that (the
-          // wake) must not read as "not sent", or a resend would duplicate it.
-          resolve({ id: `note:${id}`, timestamp: new Date().toISOString(), ...(error ? { warning: detail } : {}) });
-        },
-      );
-      // A script that refuses before reading its input closes the pipe; its
-      // exit status and stderr report why, so the write error is not the news.
-      child.stdin?.on("error", () => {});
-      child.stdin?.end(body);
-    });
+    const client = await this.client();
+    // Saved is sent: a wake that failed after the note was saved must not read as "not sent", or a resend would duplicate it.
+    let warning = "";
+    const transport = this.transport ?? new client.Transport({ home: this.home, script: this.script, exec: client.exec });
+    let run: DomainRun;
+    try {
+      run = await transport.submit(request, "FirstMate", { body, onSavedDespite: (detail) => { warning = detail; } });
+    } catch (error) {
+      const detail = (error instanceof Error ? error.message : String(error)).trim().split("\n").pop() || "no note id returned";
+      throw new Error(`firstmate did not take the message: ${detail}`);
+    }
+    const said = warning || run.failure;
+    return { id: `note:${run.transport.externalId}`, timestamp: new Date().toISOString(), ...(said ? { warning: said } : {}) };
   }
 
   notes(): Exchange[] {

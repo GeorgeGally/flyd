@@ -87,6 +87,11 @@ export async function notifyRun(
   decide: RunDecisionStep = decideRun,
 ): Promise<void> {
   if (!run.result || run.notified || !["completed", "failed", "needs_decision"].includes(run.status)) return;
+  // His own message from the conversation window: the reply is shown under it there, so a notice would say it twice.
+  if (run.request.source === "view") {
+    saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
+    return;
+  }
   try {
     const decision = await decide(run, send);
     // Work sent back to its boss stays open: the boss's next reply is decided afresh.

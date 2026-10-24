@@ -115,6 +115,19 @@ describe("withFollowUps", () => {
     expect(withFollowUps([formal], { "note:b": chat("2026-10-10T19:45:00Z", "note:b") })[0]!.answer!.text).toBe("chat");
   });
 
+  it("keeps a domain run's own reply under its note: chat matched by topic words is only the fallback", () => {
+    const formal: Exchange = {
+      question: { id: "note:b", role: "user", text: "fix the footer link", timestamp: "2026-10-10T19:00:00Z", run: "desk-0b5e7c1d-1111-2222-3333-444455556666" },
+      answer: { id: "note-reply:b", role: "assistant", text: "Done: the footer link opens the partners page.", timestamp: "2026-10-10T19:30:00Z", answers: "note:b" },
+      waiting: "",
+    };
+    const later: ConversationMessage = { id: "c-b", role: "assistant", text: "The footer link is fixed and the partners page is live.", timestamp: "2026-10-10T19:45:00Z", answers: "note:b" };
+    expect(withFollowUps([formal], { "note:b": later })[0]!.answer!.text).toBe("Done: the footer link opens the partners page.");
+    // With no reply yet, the chat fallback still answers it.
+    const { answer: _none, ...unanswered } = formal;
+    expect(withFollowUps([{ ...unanswered, waiting: "Working on it" }], { "note:b": later })[0]!.answer!.text).toBe(later.text);
+  });
+
   it("calls a taken note with no words answered, except the newest while firstmate is mid-turn", () => {
     const older = note("a", "q", "2026-10-10T19:00:00Z");
     const newest = note("b", "q", "2026-10-10T19:05:00Z");
