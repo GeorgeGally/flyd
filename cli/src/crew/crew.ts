@@ -35,7 +35,7 @@ export interface CrewTask {
   log: string;
   createdAt: string;
   finishedAt?: string;
-  verification?: Array<{ command: string; ok: boolean; tail: string }>;
+  verification?: Array<{ command: string; ok: boolean; tail: string; preExisting?: boolean }>;
   diffStat?: string;
   commits?: number;
   summary?: string;
@@ -451,6 +451,57 @@ async function defaultRunCommand(command: string, cwd: string): Promise<{ ok: bo
   }
 }
 
+const ANSI = /\u001b\[[0-9;]*m/g;
+
+/**
+ * The failures a check reports, as stable signatures: vitest's FAIL lines and
+ * tsc errors without their line/column (an edit above shifts them). An empty
+ * set means the output could not be read, never "nothing failed".
+ */
+export function failureSignatures(output: string): Set<string> {
+  const found = new Set<string>();
+  for (const raw of output.replace(ANSI, "").split("\n")) {
+    const line = raw.trim();
+    const failed = /^FAIL\s+(.+?)(?:\s+\[[^\]]*\])?$/.exec(line);
+    if (failed) { found.add(`FAIL ${failed[1]}`); continue; }
+    const tsc = /^(\S+?)\(\d+,\d+\): error (TS\d+): (.*)$/.exec(line);
+    if (tsc) found.add(`${tsc[1]} ${tsc[2]} ${tsc[3]}`);
+  }
+  return found;
+}
+
+/** True when every failure in `after` was already failing on the base commit. */
+export function onlyPreExistingFailures(after: string, base: string): boolean {
+  const now = failureSignatures(after);
+  if (!now.size) return false;
+  const before = failureSignatures(base);
+  return [...now].every((signature) => before.has(signature));
+}
+
+/**
+ * Run a failing check again on the task's unmodified base commit, in the same
+ * worktree (its installed dependencies stay), then return to the branch.
+ * Cached per base commit and command: the suite is slow and the base never changes.
+ */
+async function baselineOutput(task: CrewTask, command: string, run: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>, dir: string): Promise<string | null> {
+  const cacheDir = join(dir, "baselines");
+  const key = `${task.baseCommit}-${Buffer.from(command).toString("base64url")}`.slice(0, 200);
+  const cached = join(cacheDir, `${key}.txt`);
+  if (existsSync(cached)) return readFileSync(cached, "utf8");
+  if ((await git(task.worktree, ["status", "--porcelain"]).catch(() => "x")).trim()) return null;
+  try {
+    await git(task.worktree, ["checkout", "--quiet", "--detach", task.baseCommit]);
+    const result = await run(command, task.worktree);
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(cached, result.output);
+    return result.output;
+  } catch {
+    return null;
+  } finally {
+    await git(task.worktree, ["checkout", "--quiet", task.branch]).catch(() => undefined);
+  }
+}
+
 /** Advance every running crewmate: finished ones are verified and reported; stuck ones are stopped. */
 export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<CrewTask[]> {
   const now = (deps.now ?? (() => new Date()))();
@@ -484,7 +535,17 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
     if (commits > 0) {
       for (const command of await verificationCommandsForRepository(task.worktree).catch(() => [])) {
         const result = await run(command, task.worktree);
-        verification.push({ command, ok: result.ok, tail: result.output.trim().split("\n").slice(-8).join("\n").slice(-800) });
+        const tail = result.output.trim().split("\n").slice(-8).join("\n").slice(-800);
+        // A suite that was already red on the base commit must not fail every
+        // task: pass the check when the crewmate added no failure of its own.
+        if (!result.ok) {
+          const base = await baselineOutput(task, command, run, dir);
+          if (base !== null && onlyPreExistingFailures(result.output, base)) {
+            verification.push({ command, ok: true, preExisting: true, tail });
+            continue;
+          }
+        }
+        verification.push({ command, ok: result.ok, tail });
         if (!result.ok) break;
       }
     }

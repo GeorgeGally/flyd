@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, cleanupCrewWorktree, crewBrief, discardCrewTask, dispatchCrewTask, landCrewTask, lastSummary, listTasks, providerFailure, readTask, superviseCrew } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, cleanupCrewWorktree, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, providerFailure, readTask, superviseCrew } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -77,6 +77,33 @@ describe("crew", () => {
     await dispatchCrewTask({ repo, outcome: "Break the tests", launch: fakeCrewmate() });
     const [broken] = await superviseCrew({ alive: () => false, runCommand: async (command) => ({ ok: command !== "git diff --check", output: "boom" }) });
     expect(broken.failure).toBe("verification failed: git diff --check");
+  });
+
+  it("passes a check whose only failures were already failing on the base commit, and still fails a new one", async () => {
+    const old = " FAIL  src/db.integration.test.ts > PostgresRunStore > parks\n";
+    const added = " FAIL  src/feature.test.ts > feature > works\n";
+    // On the base commit the suite is already red; the branch adds feature.txt.
+    const suite = (cwd: string, extra: string) => existsSync(join(cwd, "feature.txt")) ? old + extra : old;
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { test: "vitest run" } }));
+    git(repo, "add", ".");
+    git(repo, "commit", "-qm", "suite");
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
+    const [clean] = await superviseCrew({ alive: () => false, runCommand: async (command, cwd) => command === "git diff --check" ? { ok: true, output: "" } : { ok: false, output: suite(cwd, "") } });
+    expect(clean.status).toBe("ready");
+    expect(clean.verification?.some((step) => step.preExisting)).toBe(true);
+    expect(git(clean.worktree, "rev-parse", "--abbrev-ref", "HEAD")).toBe(clean.branch);
+
+    await dispatchCrewTask({ repo, outcome: "Break a test", launch: fakeCrewmate() });
+    const [broken] = await superviseCrew({ alive: () => false, runCommand: async (command, cwd) => command === "git diff --check" ? { ok: true, output: "" } : { ok: false, output: suite(cwd, added) } });
+    expect(broken.status).toBe("failed");
+    expect(broken.failure).toMatch(/^verification failed: /);
+  });
+
+  it("reads vitest and tsc failures as stable signatures and never treats unreadable output as clean", () => {
+    expect([...failureSignatures("\u001b[31m FAIL \u001b[39m src/a.test.ts > A > b\nsrc/x.ts(12,5): error TS2554: Expected 1 arguments.")])
+      .toEqual(["FAIL src/a.test.ts > A > b", "src/x.ts TS2554 Expected 1 arguments."]);
+    expect(onlyPreExistingFailures("src/x.ts(40,1): error TS2554: Expected 1 arguments.", "src/x.ts(12,5): error TS2554: Expected 1 arguments.")).toBe(true);
+    expect(onlyPreExistingFailures("Segmentation fault", "Segmentation fault")).toBe(false);
   });
 
   it("records a provider refusal as the failure, says it plainly to George, and clears the empty worktree", async () => {
