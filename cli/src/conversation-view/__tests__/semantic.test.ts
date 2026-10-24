@@ -289,6 +289,14 @@ describe("semantic runtime unification", () => {
       composeSemanticSnapshot({ monitors: [monitor] }),
     ];
     expect(snapshots.flatMap((snapshot) => snapshot.map((object) => object.kind))).toEqual(["investigation", "decision", "action", "activity", "artifact", "monitor"]);
-    expect(snapshots.map((snapshot) => semanticFocus(snapshot)?.kind)).toEqual(["investigation", "decision", "action", "activity", "artifact", "monitor"]);
+    // A finished artefact belongs in the right column, never the focus slot.
+    expect(snapshots.map((snapshot) => semanticFocus(snapshot)?.kind)).toEqual(["investigation", "decision", "action", "activity", undefined, "monitor"]);
+  });
+
+  it("never gives the focus slot to an artefact, even an interrupted one", () => {
+    const artifact: SemanticObject = { ...artifactObjectFromShow(item({ kind: "landed", headline: "Lab page" })), lifecycle: "interrupted", updatedAt: "2026-10-24T05:00:00Z" };
+    const activity = semanticObjectFromShow(item({ kind: "live", headline: "Building the page" }));
+    expect(semanticFocus([artifact, activity])?.kind).toBe("activity");
+    expect(semanticFocus([artifact])).toBeUndefined();
   });
 });
