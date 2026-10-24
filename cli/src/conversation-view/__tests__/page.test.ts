@@ -2512,7 +2512,7 @@ describe("header and artefact view", () => {
     const underway = [{ id: "live:x", kind: "live", headline: "A worker is shrinking the island.", why: "", project: "Flyd", started }];
     const done = [
       { id: "landed:1", kind: "landed", headline: "The Block42 logo is on the homepage.", why: "", detail: "Visitors see it above the fold.", at: started, project: "GNM (Good Neighbours Market)", open: { label: "Open", url: "https://example.com/pr/1" } },
-      ...[2, 3, 4].map((n) => ({ id: `landed:${n}`, kind: "landed", headline: `Landed ${n}.`, why: "", at: started })),
+      ...[2, 3, 4, 5, 6, 7].map((n) => ({ id: `landed:${n}`, kind: "landed", headline: `Landed ${n}.`, why: "", at: started })),
     ];
     const update = (show: Record<string, unknown>) => stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], ...show }, boxes: [] });
     update({ calls, underway, done });
@@ -2540,14 +2540,14 @@ describe("header and artefact view", () => {
     const rail = document.getElementById("rail")!;
     expect(rail.hidden).toBe(false);
     expect(rail.textContent).not.toMatch(/shrinking the island|Jev rule|vendor step/);
-    expect(document.querySelectorAll("#done li")).toHaveLength(3);
+    expect(document.querySelectorAll("#done li")).toHaveLength(6);
     const doneRow = document.querySelector("#done li")!;
     expect(doneRow.querySelector(".brief-line")!.textContent).toBe("The Block42 logo is on the homepage.");
     expect(doneRow.querySelector(".brief-outcome")!.textContent).toBe("Visitors see it above the fold.");
     expect(doneRow.querySelector(".brief-meta a")!.getAttribute("href")).toBe("https://example.com/pr/1");
     expect(doneRow.querySelector(".brief-meta")!.textContent).toBe("open25m ago");
     document.querySelector<HTMLButtonElement>("#done .brief-more")!.click();
-    expect(document.querySelectorAll("#done li")).toHaveLength(4);
+    expect(document.querySelectorAll("#done li")).toHaveLength(7);
     // Nothing waiting or done: the history column remains for earlier sessions.
     update({});
     expect(document.getElementById("brief")!.hidden).toBe(true);
@@ -2824,7 +2824,7 @@ describe("the side column's type", () => {
 
   it("gives the column one container style: no bordered boxes", async () => {
     await drawColumn();
-    for (const selector of [".brief-list li"]) {
+    for (const selector of ["#done li"]) {
       const cs = style(selector);
       const border = parseFloat(cs.borderTopWidth);
       expect(Number.isNaN(border) || border === 0, `${selector} border`).toBe(true);
@@ -3017,7 +3017,14 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(done[0]!.querySelector(".card-icon, .card-meta")).toBeNull();
     expect(done[0]!.textContent).not.toMatch(/GNM|merged|Preview|live preview|Under way|Still building|conversation-only/i);
     expect(document.getElementById("rail")!.hidden).toBe(false);
-    expect(document.querySelectorAll("#rail .rail-talk, #rail .rail-card, #rail .rail-mem, #rail iframe")).toHaveLength(0);
+    expect(document.querySelectorAll("#rail .rail-talk, #rail .rail-card, #rail .rail-mem")).toHaveLength(0);
+    // The artefact beside the work is drawn in its own section: the page framed as its picture, its title, and "open".
+    const artefacts = document.getElementById("artefacts")!;
+    expect(artefacts.hidden).toBe(false);
+    expect(artefacts.querySelector(".brief-label")!.textContent).toBe("Artefacts");
+    expect(artefacts.querySelector<HTMLIFrameElement>(".art-frame iframe")!.getAttribute("src")).toBe("http://127.0.0.1:8097/");
+    expect(artefacts.querySelector(".brief-line")!.textContent).toBe("Live preview");
+    expect(artefacts.querySelector<HTMLAnchorElement>(".brief-meta a")!.getAttribute("href")).toBe("http://127.0.0.1:8097/");
     expect(leftIds).not.toContain(done[0]!.dataset.key);
     expect(done.map((item) => item.textContent).join(" ")).not.toContain("Still building the page");
   });
@@ -3052,6 +3059,31 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(news.hidden).toBe(true);
     expect(document.getElementById("rail")!.hidden).toBe(false);
     expect(document.getElementById("history")!.hidden).toBe(false);
+  });
+
+  it("lets him ask for more or less like an edition story, and says so once told", async () => {
+    load("");
+    await settle();
+    const posted: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/scout-feedback") posted.push({ url, body: JSON.parse(String(init!.body)) });
+      return new Response(JSON.stringify({ ok: true, sessions: SESSIONS }), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    const stream = open("latest", []);
+    const stories = [
+      { title: "Edition story", url: "https://www.reddit.com/r/Bitcoin/comments/a/one/", source: "r/Bitcoin", n: 4 },
+      { title: "Watch story", url: "https://www.reddit.com/r/Bitcoin/comments/b/two/", source: "r/Bitcoin" },
+    ];
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories, at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    const items = [...document.querySelectorAll("#news .card-stories > li")];
+    expect(items[1]!.querySelector(".story-rate")).toBeNull();
+    const buttons = [...items[0]!.querySelectorAll<HTMLButtonElement>(".story-rate button")];
+    expect(buttons.map((button) => button.textContent)).toEqual(["more", "less"]);
+    buttons[1]!.click();
+    await settle();
+    expect(posted).toEqual([{ url: "/api/scout-feedback", body: { n: 4, url: stories[0]!.url, verdict: "less" } }]);
+    expect(document.querySelector("#news .story-told")!.textContent).toBe("Less like this");
   });
 
   it("counts what needs him on the header button and never forces the column open on a narrow window", async () => {
@@ -3177,8 +3209,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["The island text is readable again."]);
   });
 
-  it("lets a Done card he has already seen fade from the column after a day", async () => {
+  it("keeps a Done card he has already seen, and marks only what came since he last looked as new", async () => {
     localStorage.setItem("flyd-done-seen", JSON.stringify({ "landed:old": Date.now() - 25 * 60 * 60 * 1000 }));
+    localStorage.setItem("flyd-done-looked", String(Date.now() - 60 * 60 * 1000));
     load("");
     await settle();
     const done = [
@@ -3187,20 +3220,40 @@ describe("what Flyd shows of its staff, at a glance", () => {
     ];
     open("latest", []).emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [], rail: { conversations: [], artefacts: [] } });
     await settle();
-    expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["New today."]);
+    expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["Seen yesterday.", "New today."]);
+    expect([...document.querySelectorAll<HTMLElement>("#done li.is-new")].map((li) => li.dataset.key)).toEqual(["landed:new"]);
+    expect(document.querySelector("#done li.is-new .brief-new")!.textContent).toBe("New");
   });
 
-  it("keeps history visible when every Done card has faded or been put away", async () => {
-    localStorage.setItem("flyd-done-seen", JSON.stringify({ "landed:old": Date.now() - 2 * 24 * 60 * 60 * 1000 }));
+  it("marks nothing new on the very first visit", async () => {
     load("");
     await settle();
-    const done = [{ id: "landed:old", task: "old", kind: "landed", headline: "Seen two days ago.", why: "", at: new Date().toISOString() }];
+    const done = [{ id: "landed:a", task: "a", kind: "landed", headline: "Landed.", why: "", at: new Date().toISOString() }];
     open("latest", []).emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], done }, boxes: [] });
     await settle();
-    expect(document.getElementById("done")!.hidden).toBe(true);
+    expect(document.querySelectorAll("#done li")).toHaveLength(1);
+    expect(document.querySelectorAll("#done li.is-new")).toHaveLength(0);
+    expect(Number(localStorage.getItem("flyd-done-looked"))).toBeGreaterThan(0);
+  });
+
+  it("keeps the column open for artefacts alone", async () => {
+    load("");
+    await settle();
+    open("latest", []).emit("update", {
+      order: [], messages: [], working: false, boxes: [],
+      rail: { conversations: [], artefacts: [
+        { id: "file:deck", title: "The launch deck", line: "gnm · HTML + PDF", url: "/rail-file/x/deck.pdf", image: "/api/rail-image?path=%2Ftmp%2Fdeck.png", at: new Date(Date.now() - 5 * 60_000).toISOString() },
+        { id: "reply:r1", title: "Steps to follow", steps: ["Open the page", "Pick a photo", "Save", "Publish"] },
+      ] },
+    });
+    await settle();
     expect(document.getElementById("rail")!.hidden).toBe(false);
-    expect(document.getElementById("history")!.hidden).toBe(false);
-    expect(document.documentElement.getAttribute("data-rail")).toBe("on");
+    expect(document.getElementById("brief")!.hidden).toBe(false);
+    const cards = [...document.querySelectorAll<HTMLElement>("#artefacts .art-card")];
+    expect(cards.map((card) => card.dataset.key)).toEqual(["file:deck", "reply:r1"]);
+    expect(cards[0]!.querySelector("img")!.getAttribute("src")).toMatch(/^\/api\/rail-image\?path=%2Ftmp%2Fdeck\.png&token=/);
+    expect(cards[0]!.querySelector(".brief-meta")!.textContent).toBe("open5m ago");
+    expect([...cards[1]!.querySelectorAll(".art-steps li")].map((li) => li.textContent)).toEqual(["Open the page", "Pick a photo", "Save", "1 more"]);
   });
 
   it("forgets Done cards it saw that have long left the column, and keeps at most 300", async () => {
@@ -3221,7 +3274,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(seen["landed:gone"]).toBeUndefined();
     expect(seen["landed:still"]).toBe(old["landed:still"]);
     expect(seen["landed:new"]).toBeDefined();
-    expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["New today."]);
+    expect([...document.querySelectorAll("#done .brief-line")].map((line) => line.textContent)).toEqual(["Seen days ago.", "New today."]);
   });
 });
 

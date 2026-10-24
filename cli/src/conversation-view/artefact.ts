@@ -136,6 +136,8 @@ interface LedgerEntry {
   field: FleetField;
   row: ArtefactRow;
   seenAt: number;
+  /** When Flyd first saw it: a landed row firstmate gave no time of its own is dated by this. */
+  firstSeen?: number;
   ledgerOnly?: boolean;
   /** A call that was put to him as a decision: only such a call stays on as settled once it goes, in the words he last saw. */
   asked?: boolean;
@@ -1213,12 +1215,13 @@ export class ArtefactFeed {
     try {
       const stored = JSON.parse(readFileSync(this.ledgerPath(), "utf8")) as { rows?: unknown };
       for (const raw of Array.isArray(stored.rows) ? stored.rows : []) {
-        const entry = raw as { field?: unknown; seenAt?: unknown; row?: unknown; ledgerOnly?: unknown; asked?: unknown };
+        const entry = raw as { field?: unknown; seenAt?: unknown; firstSeen?: unknown; row?: unknown; ledgerOnly?: unknown; asked?: unknown };
         const field = str(entry.field) as FleetField;
         const row = entry.row as ArtefactRow;
         if (!FLEET_FIELDS.includes(field) || !row || typeof row !== "object" || !row.label) continue;
         const key = ledgerKey(field, row);
-        if (key) this.ledger.set(key, { field, row, seenAt: Number(entry.seenAt) || 0, ledgerOnly: entry.ledgerOnly === true, asked: entry.asked === true });
+        const seenAt = Number(entry.seenAt) || 0;
+        if (key) this.ledger.set(key, { field, row, seenAt, firstSeen: Number(entry.firstSeen) || seenAt, ledgerOnly: entry.ledgerOnly === true, asked: entry.asked === true });
       }
     } catch {
       // No list yet, or an unreadable one: start empty rather than fail the screen.
@@ -1248,7 +1251,8 @@ export class ArtefactFeed {
     for (const field of FLEET_FIELDS) {
       for (const row of incoming[field]) {
         const key = ledgerKey(field, row);
-        if (key && !merged.has(key) && !reportedCall(field, row)) merged.set(key, { field, row, seenAt: now, ledgerOnly: false, asked: this.ledger.get(key)?.asked === true });
+        const known = key ? this.ledger.get(key) : undefined;
+        if (key && !merged.has(key) && !reportedCall(field, row)) merged.set(key, { field, row, seenAt: now, firstSeen: known?.firstSeen || known?.seenAt || now, ledgerOnly: false, asked: known?.asked === true });
       }
       if (field === "calls") for (const key of merged.keys()) reported.add(key);
     }
@@ -1265,7 +1269,11 @@ export class ArtefactFeed {
   /** The accumulated list as the fleet the screen reads, this read's rows first, ledger-only rows after. */
   private ledgerFleet(generated?: string): FleetArtefact {
     const fleet: FleetArtefact = { ...emptyFleet(), ...(generated ? { generated } : {}) };
-    for (const entry of this.ledger.values()) fleet[entry.field].push(entry.ledgerOnly ? { ...entry.row, ledgerOnly: true } : entry.row);
+    for (const entry of this.ledger.values()) {
+      // A landed row with no time of its own is dated by when Flyd first saw it, so it sorts and ages honestly.
+      const dated = entry.field === "landed" && !entry.row.at && entry.firstSeen ? { ...entry.row, at: new Date(entry.firstSeen).toISOString() } : entry.row;
+      fleet[entry.field].push(entry.ledgerOnly ? { ...dated, ledgerOnly: true } : dated);
+    }
     return fleet;
   }
 

@@ -204,6 +204,11 @@ describe("the stories behind a news card", () => {
     expect(editionStories(null, "2026-10-17")).toBeUndefined();
   });
 
+  it("keeps an edition story's number, so he can ask for more or less like it", () => {
+    expect(editionStories({ date: "2026-10-17", items: [{ ...raw, n: 3 }] }, "2026-10-17")?.stories).toEqual([{ ...story, n: 3 }]);
+    expect(flashStories([{ ...raw, n: 3, date: "2026-10-17" }], "2026-10-17")?.stories).toEqual([story]);
+  });
+
   it("drops placeholder example.com links while keeping the edition's Reddit URL", () => {
     const redditUrl = "https://www.reddit.com/r/AskHistorians/comments/abc123/why_did_this_happen/";
     const data = { date: "2026-10-17", items: [{ ...raw, title: "A historian answers", url: "https://example.com/r-AskHistorians/0" }, { ...raw, url: redditUrl }] };

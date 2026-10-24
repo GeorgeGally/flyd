@@ -619,6 +619,30 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .brief-more { margin: 22px 0 0; padding: 8px 0; border: 0; background: none; cursor: pointer; font: 500 13px/1.3 var(--sans); color: var(--muted); transition: color 140ms ease; }
 .brief-more:hover { color: var(--fg); }
 .brief-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+/* What came since he last looked: one quiet word in the accent, nothing moves. */
+.brief-new { color: var(--accent); }
+/* Artefacts: the picture leads, full column width, then its title, a line, and "open". */
+.brief-list .art-list { gap: 28px; }
+.art-card { display: block; min-width: 0; }
+.art-pic { position: relative; display: block; width: 100%; margin: 0 0 12px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--tint); cursor: pointer; }
+.art-pic img { display: block; width: 100%; max-height: 240px; object-fit: cover; object-position: top; }
+.art-pic:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.art-frame { aspect-ratio: 1280 / 800; cursor: default; }
+.art-frame iframe { position: absolute; top: 0; left: 0; border: 0; display: block; background: transparent; transform: scale(var(--fit, 0.3)); transform-origin: 0 0; pointer-events: none; }
+.art-phone { width: min(180px, 50%); aspect-ratio: 390 / 844; border-radius: 18px; }
+.art-frame-open { position: absolute; inset: 0; }
+.art-frame-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.art-steps { margin: 8px 0 0; padding: 0 0 0 18px; font: 400 14px/1.5 var(--sans); color: var(--fg); }
+.art-steps li + li { margin-top: 2px; }
+.art-steps .art-steps-more { list-style: none; margin-left: -18px; color: var(--muted); }
+.art-goto { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
+/* More or less like a story: two small words beside where it came from. */
+.story-rate { display: inline-flex; gap: 2px; margin-left: 10px; }
+.story-rate button { padding: 2px 6px; border: 0; border-radius: 6px; background: none; font: inherit; color: var(--muted); cursor: pointer; transition: color 140ms ease; }
+.story-rate button:hover { color: var(--fg); }
+.story-rate button:disabled { opacity: 0.5; cursor: default; }
+.story-rate button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.story-told { color: var(--accent); }
 :root[data-screen="show"] .rail { display: none; }
 
 .msg { position: relative; overflow-wrap: anywhere; }
@@ -1712,6 +1736,7 @@ var __name = function (f) { return f; };
     if (update.show) renderShow(update.show, update.boxes);
     renderSite(update.page);
     notices = (update.rail && update.rail.notices) || [];
+    if (update.rail) renderArtefacts(update.rail.artefacts || []);
     renderBrief(update.show);
     renderActivity(update.leftColumn);
     if (update.leftColumn) drawNews(update.leftColumn.recent);
@@ -1722,6 +1747,7 @@ var __name = function (f) { return f; };
   var needsEl = document.getElementById("needs");
   var doneEl = document.getElementById("done");
   var noticesEl = document.getElementById("notices");
+  var artefactsEl = document.getElementById("artefacts");
   // Notices other tools sent instead of macOS notifications, newest first.
   var notices = [];
   var newsEl = document.getElementById("news");
@@ -1731,7 +1757,7 @@ var __name = function (f) { return f; };
   var needsShown = "";
   var needsDrawn = "";
   var doneAll = false;
-  var DONE_FEW = 3;
+  var DONE_FEW = 6;
   // "GNM (Good Neighbours Market)" is GNM on a line this small.
   function shortName(project) { return project ? String(project).replace(/\\s*\\([^)]*\\)\\s*$/, "") : ""; }
   function briefTop(label, extra) {
@@ -1740,12 +1766,22 @@ var __name = function (f) { return f; };
     if (extra) top.appendChild(extra);
     return top;
   }
-  // What he has put away is kept by the shared cards (cardGone); a Done item he has seen fades on its own after a day.
-  var SEEN_FOR_MS = 24 * 60 * 60 * 1000;
+  // What he has put away is kept by the shared cards (cardGone). Nothing else leaves the column on its own:
+  // what came since he last looked is marked new instead.
+  var DAY_MS = 24 * 60 * 60 * 1000;
   // A card with no task of its own is named only by its place in the list, so it is kept by its words instead.
   function itemKey(item) { return item.task ? item.id : item.headline; }
   /** A Done item no longer listed is forgotten once it is this old. */
-  var SEEN_KEPT_MS = 3 * SEEN_FOR_MS;
+  var SEEN_KEPT_MS = 3 * DAY_MS;
+  // When he last looked at the window: what Flyd first saw after that is new to him. A first visit marks nothing.
+  var doneLooked = Number(store("flyd-done-looked")) || 0;
+  if (!doneLooked) { store("flyd-done-looked", String(Date.now())); doneLooked = Number.MAX_SAFE_INTEGER; }
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") { store("flyd-done-looked", String(Date.now())); return; }
+    doneLooked = Number(store("flyd-done-looked")) || doneLooked;
+    if (lastBrief) renderBrief(lastBrief);
+  });
+  window.addEventListener("pagehide", function () { store("flyd-done-looked", String(Date.now())); });
   // Only the newest few hundred are kept; old ones have long left the column anyway.
   function newest(times, first) {
     var kept = {};
@@ -1767,13 +1803,17 @@ var __name = function (f) { return f; };
     store("flyd-done-seen", JSON.stringify(seen));
     return seen;
   }
-  function stillShown(item, seen) {
-    if (item.task && cardGone(item.id)) return false;
-    return !seen || Date.now() - seen[itemKey(item)] < SEEN_FOR_MS;
+  function stillShown(item) {
+    return !(item.task && cardGone(item.id));
+  }
+  /** Whether Flyd first saw it after he last looked. */
+  function isNew(item, seen) {
+    var first = seen && seen[itemKey(item)];
+    return !!first && first > doneLooked;
   }
   // One piece of finished work: its picture, its title, one short line on the outcome, then "open" and how long ago.
-  function briefItem(item, meta) {
-    var li = el("li", "card brief-card");
+  function briefItem(item, meta, fresh) {
+    var li = el("li", "card brief-card" + (fresh ? " is-new" : ""));
     li.dataset.key = item.id || item.headline;
     // Its picture, when the work has one: the small thumbnail says what changed, and opens full size on click.
     if (item.shots && item.shots.length) {
@@ -1803,7 +1843,8 @@ var __name = function (f) { return f; };
       a.rel = "noopener noreferrer";
       foot.appendChild(a);
     }
-    if (meta) foot.appendChild(document.createTextNode(meta));
+    if (fresh) foot.appendChild(el("span", "brief-new", "New"));
+    if (meta) foot.appendChild(document.createTextNode(fresh && meta ? " · " + meta : meta));
     if (foot.firstChild) text.appendChild(foot);
     li.appendChild(text);
     if (item.task) {
@@ -1950,9 +1991,9 @@ var __name = function (f) { return f; };
   }
   function drawSemanticArtifacts(artifacts) {
     var seen = artifacts.length ? seenDone(artifacts.map(function (artifact) {
-      return { id: artifact.id, at: artifact.updatedAt || artifact.createdAt || "" };
+      return { id: artifact.id, task: artifact.id, at: artifact.updatedAt || artifact.createdAt || "" };
     })) : null;
-    var items = artifacts.filter(function (artifact) { return stillShown({ id: artifact.id }, seen); });
+    var items = artifacts.filter(function (artifact) { return stillShown({ id: artifact.id }); });
     doneEl.textContent = "";
     doneEl.hidden = !items.length;
     if (!items.length) return;
@@ -1973,7 +2014,7 @@ var __name = function (f) { return f; };
         shots: image ? [{ src: image.ref, label: image.label || artifact.subject }] : [],
         open: open ? { url: open.ref, label: open.label || "Open" } : undefined,
       };
-      list.appendChild(briefItem(visual, visual.at ? ago(visual.at) : ""));
+      list.appendChild(briefItem(visual, visual.at ? ago(visual.at) : "", isNew({ id: artifact.id, task: artifact.id }, seen)));
     });
     doneEl.appendChild(list);
     if (items.length > DONE_FEW) {
@@ -1985,14 +2026,14 @@ var __name = function (f) { return f; };
   }
   function drawList(section, label, items, meta, few) {
     var seen = label === "Done" && items.length ? seenDone(items) : null;
-    items = items.filter(function (item) { return stillShown(item, seen); });
+    items = items.filter(stillShown);
     section.textContent = "";
     section.hidden = !items.length;
     if (!items.length) return;
     section.appendChild(briefTop(label));
     var list = el("ul");
     var shown = few && !doneAll ? items.slice(0, few) : items;
-    shown.forEach(function (item) { list.appendChild(briefItem(item, meta(item))); });
+    shown.forEach(function (item) { list.appendChild(briefItem(item, meta(item), isNew(item, seen))); });
     section.appendChild(list);
     if (few && items.length > few) {
       var more = el("button", "brief-more", doneAll ? "Show fewer" : "Show all " + items.length);
@@ -2020,7 +2061,7 @@ var __name = function (f) { return f; };
     fillBrief();
   }
   function fillBrief() {
-    briefFilled = !doneEl.hidden || !noticesEl.hidden || !newsEl.hidden;
+    briefFilled = !doneEl.hidden || !noticesEl.hidden || !newsEl.hidden || !artefactsEl.hidden;
     briefEl.hidden = !briefFilled;
     showRail();
   }
@@ -2036,10 +2077,42 @@ var __name = function (f) { return f; };
       a.rel = "noopener noreferrer";
       li.appendChild(a);
       if (story.gist) li.appendChild(el("p", "card-story-line", story.gist));
-      if (story.source) li.appendChild(el("p", "card-story-src", story.source));
+      var rate = story.n && SEND_TOKEN ? storyRate(story) : null;
+      if (story.source || rate) {
+        var src = el("p", "card-story-src", story.source || "");
+        if (rate) src.appendChild(rate);
+        li.appendChild(src);
+      }
       list.appendChild(li);
     });
     return list;
+  }
+  // "more" or "less" like a story teaches the news what he wants; once told, the story says so instead.
+  var storyTold = {};
+  function storyRate(story) {
+    var wrap = el("span", "story-rate");
+    if (storyTold[story.url]) {
+      wrap.appendChild(el("span", "story-told", storyTold[story.url] === "more" ? "More like this" : "Less like this"));
+      return wrap;
+    }
+    ["more", "less"].forEach(function (verdict) {
+      var button = el("button", "", verdict);
+      button.type = "button";
+      button.setAttribute("aria-label", (verdict === "more" ? "More" : "Less") + " like " + story.title);
+      button.addEventListener("click", function () {
+        wrap.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+        tokenFetch("/api/scout-feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ n: story.n, url: story.url, verdict: verdict }) }, true).then(function (response) {
+          if (!response.ok) throw new Error(String(response.status));
+          storyTold[story.url] = verdict;
+          wrap.textContent = "";
+          wrap.appendChild(el("span", "story-told", verdict === "more" ? "More like this" : "Less like this"));
+        }).catch(function () {
+          wrap.querySelectorAll("button").forEach(function (b) { b.disabled = false; });
+        });
+      });
+      wrap.appendChild(button);
+    });
+    return wrap;
   }
   // The news: the newest card of each kind that carries its stories, every story a working link.
   function drawNews(recent) {
@@ -2056,6 +2129,119 @@ var __name = function (f) { return f; };
       if (item.line) newsEl.appendChild(el("p", "brief-outcome", item.line));
       newsEl.appendChild(storiesNode(item.stories));
     });
+    fillBrief();
+  }
+  // What Flyd made or was shown: each artefact with its picture when it has one, its title in plain words,
+  // a short line, and "open". Redrawn only when it changes, so a framed page never reloads under him.
+  var ARTEFACTS_FEW = 4;
+  var artefactsAll = false;
+  var artefactsDrawn = "";
+  var lastArtefacts = [];
+  var fitFrames = window.ResizeObserver ? new ResizeObserver(function (entries) {
+    entries.forEach(function (entry) { entry.target.style.setProperty("--fit", String(entry.contentRect.width / Number(entry.target.dataset.base || 1280))); });
+  }) : null;
+  // A same-origin picture or file carries the view's token; a page elsewhere is linked as it is.
+  function ownSrc(src) { return /^\\/api\\//.test(src) ? withToken(src) : src; }
+  function artefactPicture(card) {
+    if (card.image) {
+      var src = ownSrc(card.image);
+      var shot = el("button", "art-pic");
+      shot.type = "button";
+      shot.setAttribute("aria-label", "Open image");
+      var img = el("img", "");
+      img.src = src;
+      img.alt = "";
+      img.loading = "lazy";
+      shot.appendChild(img);
+      shot.addEventListener("click", function () { openImage(src); });
+      return shot;
+    }
+    if (!card.preview || card.down || card.checking || card.blocked) return null;
+    // A page is laid out at its own width and scaled down whole, like a screenshot of it.
+    var base = card.phone ? 390 : 1280;
+    var box = el("div", "art-pic art-frame" + (card.phone ? " art-phone" : ""));
+    box.dataset.base = String(base);
+    box.style.setProperty("--fit", String(card.phone ? 0.4 : 0.3));
+    var frame = el("iframe", "");
+    frame.src = card.preview;
+    frame.loading = "lazy";
+    frame.tabIndex = -1;
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.setAttribute("title", card.title);
+    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
+    frame.style.width = base + "px";
+    frame.style.height = (card.phone ? 844 : 800) + "px";
+    box.appendChild(frame);
+    if (card.url) {
+      var full = el("a", "art-frame-open");
+      full.href = ownSrc(card.url);
+      full.target = "_blank";
+      full.rel = "noopener noreferrer";
+      full.setAttribute("aria-label", "Open " + card.title);
+      box.appendChild(full);
+    }
+    if (fitFrames) fitFrames.observe(box);
+    return box;
+  }
+  function artefactItem(card) {
+    var li = el("li", "art-card");
+    li.dataset.key = card.id;
+    var picture = artefactPicture(card);
+    if (picture) li.appendChild(picture);
+    li.appendChild(el("p", "brief-line", card.title));
+    var line = String(card.line || "").replace(/\\s+/g, " ").trim();
+    if (card.down) line = "Not running" + (line ? " · " + line : "");
+    if (line.length > 110) line = line.slice(0, 109).replace(/\\s+\\S*$/, "") + "…";
+    if (line) li.appendChild(el("p", "brief-outcome", line));
+    var steps = card.steps || (card.choice && card.choice.options) || [];
+    if (steps.length) {
+      var list = el(card.choice ? "ul" : "ol", "art-steps");
+      steps.slice(0, 3).forEach(function (step) { list.appendChild(el("li", "", String(step))); });
+      if (steps.length > 3) list.appendChild(el("li", "art-steps-more", (steps.length - 3) + " more"));
+      li.appendChild(list);
+    }
+    var foot = el("p", "brief-meta");
+    var reply = /^reply:/.test(card.id) ? nodes.get(card.id.slice(6)) : null;
+    if (card.url && !card.down) {
+      var a = el("a", "brief-open", "open");
+      a.href = ownSrc(card.url);
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      foot.appendChild(a);
+    } else if (reply) {
+      // A reply's artefact opens at the reply it came from.
+      var go = el("button", "brief-open art-goto", "open");
+      go.type = "button";
+      go.addEventListener("click", function () {
+        var target = nodes.get(card.id.slice(6));
+        if (target) target.scrollIntoView({ block: "center" });
+      });
+      foot.appendChild(go);
+    }
+    if (card.at) foot.appendChild(document.createTextNode(ago(card.at)));
+    if (foot.firstChild) li.appendChild(foot);
+    return li;
+  }
+  function renderArtefacts(cards) {
+    lastArtefacts = cards;
+    var key = JSON.stringify([cards, artefactsAll]);
+    if (key === artefactsDrawn) { fillBrief(); return; }
+    artefactsDrawn = key;
+    if (fitFrames) artefactsEl.querySelectorAll(".art-frame").forEach(function (box) { fitFrames.unobserve(box); });
+    artefactsEl.textContent = "";
+    artefactsEl.hidden = !cards.length;
+    if (cards.length) {
+      artefactsEl.appendChild(briefTop("Artefacts"));
+      var list = el("ul", "art-list");
+      (artefactsAll ? cards : cards.slice(0, ARTEFACTS_FEW)).forEach(function (card) { list.appendChild(artefactItem(card)); });
+      artefactsEl.appendChild(list);
+      if (cards.length > ARTEFACTS_FEW) {
+        var more = el("button", "brief-more", artefactsAll ? "Show fewer" : "Show all " + cards.length);
+        more.type = "button";
+        more.addEventListener("click", function () { artefactsAll = !artefactsAll; renderArtefacts(lastArtefacts); });
+        artefactsEl.appendChild(more);
+      }
+    }
     fillBrief();
   }
   // How long ago each piece of work was done moves on with the clock, not only with updates.
@@ -4874,6 +5060,7 @@ ${LEFT_HTML}
   <section class="history" id="history" hidden aria-label="Past conversations"><div class="history-top"><h2 class="history-title">History</h2></div><div id="history-list"></div></section>
   <div class="brief" id="brief" hidden>
     <section class="brief-list" id="notices" hidden aria-label="Notices"></section>
+    <section class="brief-list artefacts" id="artefacts" hidden aria-label="Artefacts"></section>
     <section class="brief-list" id="done" hidden aria-label="Done"></section>
     <section class="brief-list news" id="news" hidden aria-label="News"></section>
   </div>

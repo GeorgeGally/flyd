@@ -22,6 +22,8 @@ export interface ActivityStory {
   gist?: string;
   url: string;
   source?: string;
+  /** Its number in the latest edition: only an edition story can be told "more" or "less" like it. */
+  n?: number;
 }
 
 export type StoryMark = "Hot" | "Worth a look" | "Rabbit hole";
@@ -335,7 +337,12 @@ function recordStories(raw: unknown): ActivityStory[] {
 export function editionStories(raw: unknown, day: string): { day: string; stories: ActivityStory[] } | undefined {
   const data = raw as { date?: unknown; items?: unknown } | null;
   if (!data || typeof data !== "object" || data.date !== day || !Array.isArray(data.items)) return undefined;
-  const stories = data.items.map(storyOf).filter((item): item is ActivityStory => item !== null);
+  const stories = data.items.flatMap((raw): ActivityStory[] => {
+    const story = storyOf(raw);
+    if (!story) return [];
+    const n = (raw as { n?: unknown } | null)?.n;
+    return [typeof n === "number" && Number.isInteger(n) && n > 0 ? { ...story, n } : story];
+  });
   return stories.length ? { day, stories } : undefined;
 }
 
