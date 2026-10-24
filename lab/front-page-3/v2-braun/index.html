@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd · Braun</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* V2 · Braun. Every card is an object face; the centre is the instrument. */
+:root{
+  --room:#d6d3cc;        /* the shelf the objects stand on */
+  --face:#efede8;        /* Braun off-white */
+  --face-2:#e0ddd5;      /* warm grey well */
+  --well:#dcd8d0;
+  --graphite:#262523;
+  --glass:#1c1b1a;
+  --ink:#1d1c1a;
+  --ink-2:#57544e;
+  --ink-3:#7f7b74;
+  --line:rgba(40,32,22,.10);
+  --orange:#e2591d;
+  --green:#4c8a3e;
+  --r-card:14px;          /* seed 0e */
+  --r-unit:22px;
+  --r-glass:8px;
+  --lift:0 1px 0 rgba(255,255,255,.75) inset, 0 0 0 1px rgba(60,48,32,.07), 0 1px 1px rgba(60,48,32,.08), 0 6px 14px -6px rgba(60,48,32,.22);
+  --press:0 1px 2px rgba(60,48,32,.16) inset, 0 0 0 1px rgba(60,48,32,.10);
+  --gut:24px;
+  --gap:20px;
+  font-family:"Hanken Grotesk", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--room);color:var(--ink);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1}
+button,input{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+img{display:block}
+
+/* ---------- frame ---------- */
+.top{height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 var(--gut)}
+.mark{display:flex;align-items:baseline;gap:14px}
+.mark b{font-weight:600;font-size:19px;letter-spacing:-.01em}
+.lbl{font-size:12px;color:var(--ink-2);letter-spacing:.01em}
+.top .lbl span{display:inline-flex;align-items:center;gap:6px;margin-left:18px}
+.led{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 1px rgba(0,0,0,.08) inset;display:inline-block}
+.led.o{background:var(--orange)}
+.led.g{background:#b9b5ad}
+
+.desk{display:grid;grid-template-columns:304px minmax(0,1fr) 372px;gap:var(--gap);padding:0 var(--gut) var(--gut);height:calc(100vh - 56px);min-height:720px}
+.col{min-height:0;overflow-y:auto;scrollbar-width:none;padding:2px 2px 12px;margin:-2px}
+.col::-webkit-scrollbar{display:none}
+.group{margin-bottom:22px}
+.group > .lbl{display:flex;align-items:center;gap:8px;padding:2px 4px 10px;color:var(--ink);font-weight:500}
+.group > .lbl i{font-style:normal;color:var(--ink-3)}
+.stack{display:grid;gap:12px}
+
+/* ---------- object faces (cards) ---------- */
+.card{display:block;width:100%;text-align:left;background:var(--face);border-radius:var(--r-card);box-shadow:var(--lift);padding:14px;position:relative;transition:box-shadow .25s, background .25s}
+.card:hover{background:#f3f1ec}
+.card.on{background:var(--face-2);box-shadow:var(--press)}
+.card .t{font-size:15px;font-weight:500;line-height:1.35;padding-right:26px}
+.card .m{font-size:12px;color:var(--ink-2);margin-top:6px;display:flex;gap:10px}
+.card .m em{font-style:normal;color:var(--ink-3)}
+.card .ctl{position:absolute;right:14px;width:16px;height:16px;display:grid;place-items:center;margin-top:2px}
+.card .body{position:relative}
+.card .body .ctl{right:0;top:0}
+
+/* display behind glass */
+.glass{background:var(--glass);border-radius:var(--r-glass);padding:6px;box-shadow:0 1px 0 rgba(255,255,255,.7), 0 0 0 1px rgba(0,0,0,.25) inset;margin-bottom:12px;position:relative;overflow:hidden}
+.glass img{width:100%;border-radius:3px;object-fit:cover}
+.glass::after{content:"";position:absolute;inset:6px;border-radius:3px;box-shadow:0 0 0 1px rgba(255,255,255,.06) inset;pointer-events:none}
+
+/* orange domed key (needs you) */
+.dome{width:14px;height:14px;border-radius:50%;background:radial-gradient(circle at 50% 32%, #f4874f 0, var(--orange) 55%, #c4450f 100%);box-shadow:0 1px 1.5px rgba(80,30,0,.35), 0 0 0 2px var(--face-2), 0 0 0 3px rgba(60,48,32,.08)}
+.dome.green{background:radial-gradient(circle at 50% 32%, #7cb26a 0, var(--green) 55%, #356a2a 100%);width:9px;height:9px;box-shadow:0 1px 1px rgba(0,40,0,.3)}
+
+/* T3 grille, slowly turning (working) */
+.grille{animation:turn 36s linear infinite;transform-origin:50% 50%}
+@keyframes turn{to{transform:rotate(360deg)}}
+.grille circle{fill:var(--ink)}
+
+/* ---------- artefacts ---------- */
+.art .glass img{aspect-ratio:16/10}
+.art.news .glass img{aspect-ratio:16/9}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pair .card{padding:10px 10px 12px}
+.pair .glass{padding:4px;margin-bottom:10px;border-radius:7px}
+.pair .glass::after{inset:4px}
+.pair .t{font-size:14px;padding-right:0}
+.art .x{font-size:15px;color:var(--ink-2);margin-top:6px;line-height:1.45}
+.info{background:var(--face-2);box-shadow:var(--press)}
+.info:hover{background:var(--face-2)}
+.info svg circle{fill:#4a4844}
+
+/* ---------- the instrument (centre) ---------- */
+.unit{background:var(--face);border-radius:var(--r-unit);box-shadow:var(--lift), 0 18px 40px -22px rgba(60,48,32,.35);display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;min-height:0;overflow:hidden}
+.u-head{padding:22px 28px 18px;display:flex;justify-content:space-between;align-items:flex-start;gap:24px}
+.u-head h1{font-size:25px;font-weight:500;line-height:1.25;letter-spacing:-.01em;max-width:36ch}
+.u-head .lbl{margin-bottom:8px;display:flex;gap:12px}
+.state{display:inline-flex;align-items:center;gap:7px;color:var(--ink);white-space:nowrap;margin-left:6px}
+.u-mid{display:grid;grid-template-columns:minmax(0,1fr) 236px;gap:28px;padding:0 28px;min-height:0}
+.screen{background:var(--glass);border-radius:12px;padding:10px;box-shadow:0 1px 0 rgba(255,255,255,.8), 0 0 0 1px rgba(0,0,0,.3) inset, 0 2px 6px rgba(0,0,0,.35) inset;position:relative;min-height:0;overflow:hidden}
+.screen .pane{position:absolute;inset:10px;border-radius:5px;overflow:hidden;opacity:0;transition:opacity .45s ease;display:grid;place-items:center}
+.screen .pane.on{opacity:1}
+.screen .pane img{max-width:100%;max-height:100%;object-fit:contain;border-radius:3px}
+.readout{place-items:start!important;align-content:space-between;padding:22px;color:#ecebe6}
+.readout .big{font-size:28px;font-weight:500;letter-spacing:-.01em;line-height:1.15}
+.readout .lbl{color:#9a968e}
+.readout .row{display:flex;justify-content:space-between;align-items:flex-end;width:100%}
+.readout .grille circle{fill:#5b5853}
+.readout .grille.still{animation:none}
+
+.panel{display:flex;flex-direction:column;min-height:0}
+.cap{min-height:88px}
+.cap .lbl{margin-bottom:6px}
+.cap p{font-size:15px;line-height:1.45}
+.keys{display:grid;grid-template-columns:repeat(5,40px);justify-content:space-between;margin-top:22px}
+.keys + .acts{margin-top:22px;padding-top:24px;border-top:1px solid var(--line)}
+.keyw{display:grid;justify-items:center;gap:6px}
+.key{width:40px;height:40px;border-radius:50%;background:radial-gradient(circle at 50% 30%, #fbfaf7 0, #ebe8e1 60%, #dcd8cf 100%);box-shadow:0 0 0 1px rgba(60,48,32,.12), 0 2px 2px rgba(60,48,32,.18), 0 4px 8px -3px rgba(60,48,32,.25);font-size:14px;font-weight:500;display:grid;place-items:center;transition:background .2s, box-shadow .2s, color .2s}
+.key:hover{background:radial-gradient(circle at 50% 30%, #fff 0, #efece6 60%, #e0dcd3 100%)}
+.key.on{background:radial-gradient(circle at 50% 30%, #4a4844 0, #2b2a27 60%, #1e1d1b 100%);color:#efede8;box-shadow:0 0 0 1px rgba(0,0,0,.4), 0 1px 1px rgba(0,0,0,.3)}
+.keyw .lbl{font-size:11px;height:14px;display:flex;align-items:center;gap:4px}
+.acts{display:grid;gap:12px;margin-top:28px}
+.panel > .acts:first-child{margin-top:0}
+.act{display:flex;align-items:center;gap:12px;font-size:15px;font-weight:500;text-align:left}
+.act .key{width:36px;height:36px;flex:none}
+.act.go .key{background:radial-gradient(circle at 50% 30%, #e9703a 0, var(--orange) 66%, #cc4d15 100%);box-shadow:0 0 0 1px rgba(120,40,0,.3), 0 2px 2px rgba(120,40,0,.25), 0 4px 8px -3px rgba(120,40,0,.35)}
+.act .key svg{width:12px;height:12px}
+
+.talk{margin:24px 28px 0;padding-top:18px;border-top:1px solid var(--line);display:grid;gap:12px;align-content:start;max-height:200px;overflow-y:auto;scrollbar-width:none}
+.msg{display:grid;grid-template-columns:96px 1fr;gap:16px}
+.msg .lbl{white-space:nowrap}
+.msg .lbl{padding-top:2px}
+.msg.you p{color:var(--ink-2)}
+.slot{margin:16px 28px 24px;display:flex;align-items:center;gap:12px;background:var(--well);border-radius:12px;padding:6px 6px 6px 18px;box-shadow:0 1px 2px rgba(60,48,32,.18) inset, 0 1px 0 rgba(255,255,255,.7)}
+.slot input{flex:1;background:none;border:0;outline:0;font-size:15px;height:36px}
+.slot input::placeholder{color:var(--ink-3)}
+.slot .key{width:36px;height:36px}
+
+.unit.readout-h{grid-template-rows:auto auto minmax(0,1fr) auto}
+.readout-h .screen{height:248px}
+.fade{transition:opacity .22s ease}
+.fade.out{opacity:0}
+
+/* ---------- phone ---------- */
+@media (max-width:1100px){
+  .desk{grid-template-columns:1fr;height:auto;min-height:0}
+  .col{overflow:visible}
+  .centre{order:-1}
+  .unit{grid-template-rows:auto auto auto auto}
+}
+@media (max-width:640px){
+  :root{--gut:16px}
+  .top .lbl span:first-child{margin-left:0}
+  .top .lbl .hide{display:none}
+  .u-head{padding:18px 18px 14px;flex-direction:column;gap:6px}
+  .u-head h1{font-size:20px}
+  .state{padding-top:0}
+  .u-mid{grid-template-columns:1fr;padding:0 18px;gap:18px}
+  .screen{height:auto;aspect-ratio:4/5}
+  .readout-h .screen{height:220px}
+  .cap{min-height:0}
+  .keys{margin:14px 0 4px}
+  .acts{margin-top:16px}
+  .talk{margin:20px 18px 0;max-height:none}
+  .msg{grid-template-columns:1fr;gap:2px}
+  .slot{margin:16px 18px 18px}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="mark"><b>flyd</b><span class="lbl" id="date">saturday 24 october</span></div>
+  <div class="lbl" id="sum"></div>
+</header>
+
+<main class="desk">
+  <aside class="col" id="jobs" aria-label="Jobs"></aside>
+  <section class="centre" style="min-height:0;display:grid">
+    <article class="unit" id="unit">
+      <div class="u-head fade" id="uHead"></div>
+      <div class="u-mid" id="uMid">
+        <div class="screen" id="screen"></div>
+        <div class="panel fade" id="panel"></div>
+      </div>
+      <div class="talk fade" id="talk"></div>
+      <form class="slot" id="slot" autocomplete="off">
+        <input id="say" placeholder="Write to Flyd about this job" aria-label="Message">
+        <button class="key" aria-label="Send"><svg viewBox="0 0 12 12" width="12" height="12"><path d="M2 6h8M6.5 2.5 10 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
+      </form>
+    </article>
+  </section>
+  <aside class="col" id="arts" aria-label="Artefacts"></aside>
+</main>
+
+<script src="../shared/data.js"></script>
+<script>
+const A = p => "../shared/" + p;
+const D = window.FLYD;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const lower = s => s.charAt(0).toLowerCase() + s.slice(1);
+
+/* T3 grille: concentric rings of perforations */
+function grille(size, rings, dot){
+  const c = size/2, step = (c - dot*1.6)/rings; let out = `<circle cx="${c}" cy="${c}" r="${dot}"/>`;
+  for(let i=1;i<=rings;i++){ const n = i*6, r = i*step;
+    for(let k=0;k<n;k++){ const a = (k/n)*Math.PI*2 + i*.26; out += `<circle cx="${(c+r*Math.cos(a)).toFixed(2)}" cy="${(c+r*Math.sin(a)).toFixed(2)}" r="${dot}"/>`; } }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${out}</svg>`;
+}
+
+const groups = [["needs","needs you"],["working","working"],["done","done"]];
+let active = D.jobs[0].id, shot = {};
+D.jobs.forEach(j => { if (j.shots) shot[j.id] = j.pick ?? 0; });
+
+/* header summary */
+const n = g => D.jobs.filter(j => j.group===g).length;
+document.getElementById("sum").innerHTML =
+  `<span><i class="dome" style="width:9px;height:9px;box-shadow:0 1px 1px rgba(80,30,0,.3)"></i>${n("needs")} need you</span>` +
+  `<span class="hide"><i class="led g"></i>${n("working")} working</span>` +
+  `<span class="hide"><i class="led"></i>${n("done")} done this week</span>`;
+
+function ctl(j){
+  if (j.group==="needs") return `<span class="ctl"><i class="dome"></i></span>`;
+  if (j.group==="working") return `<span class="ctl"><svg class="grille" width="16" height="16" viewBox="0 0 16 16">${grille(16,2,1.05).replace(/^<svg[^>]*>|<\/svg>$/g,"")}</svg></span>`;
+  return `<span class="ctl"><i class="dome green"></i></span>`;
+}
+
+function renderJobs(){
+  document.getElementById("jobs").innerHTML = groups.map(([g, name]) => {
+    const js = D.jobs.filter(j => j.group===g);
+    return `<div class="group"><div class="lbl">${name} <i>${js.length}</i></div><div class="stack">` +
+      js.map(j => {
+        const img = j.thumb && g!=="done" ? `<div class="glass"><img src="${A(j.thumb)}" alt="" style="aspect-ratio:16/9;object-position:top"></div>` : "";
+        return `<button class="card${j.id===active?" on":""}" data-job="${j.id}">${img}<div class="body">${ctl(j)}<div class="t">${esc(j.title)}</div><div class="m"><span>${esc(j.project)}</span><em>${esc(lower(j.state))} · ${esc(j.when)}</em></div></div></button>`;
+      }).join("") + `</div></div>`;
+  }).join("");
+}
+
+function renderArts(){
+  const des = D.artefacts.filter(a => a.kind==="design"), info = D.artefacts.find(a => a.kind==="info"), news = D.artefacts.filter(a => a.kind==="news");
+  const big = a => `<div class="card art ${a.kind}"><div class="glass"><img src="${A(a.img)}" alt=""></div><div class="t">${esc(a.title)}</div><div class="m"><span>${esc(a.meta)}</span></div>${a.text?`<p class="x">${esc(a.text)}</p>`:""}</div>`;
+  const small = a => `<div class="card art news"><div class="glass"><img src="${A(a.img)}" alt=""></div><div class="t">${esc(a.title)}</div><div class="m"><span>${esc(a.meta)}</span></div></div>`;
+  document.getElementById("arts").innerHTML =
+    `<div class="group"><div class="lbl">designs <i>${des.length}</i></div><div class="stack">${big(des[0])}<div class="pair">${des.slice(1).map(small).join("")}</div></div></div>` +
+    `<div class="group"><div class="lbl">today's news <i>${news.length}</i></div><div class="stack">` +
+      `<div class="card info"><div><div class="t">${esc(info.title)}</div><div class="m"><span>${esc(info.meta)}</span></div><p class="x">${esc(info.text)}</p></div></div>` +
+      big(news[0]) + `<div class="pair">${news.slice(1).map(small).join("")}</div></div></div>`;
+}
+
+const job = () => D.jobs.find(j => j.id===active);
+
+function screenFor(j){
+  if (j.shots) return j.shots.map((s,i) => `<div class="pane${i===shot[j.id]?" on":""}" data-i="${i}"><img src="${A(s)}" alt="${esc(j.shotLabels?j.shotLabels[i]:j.title)}"></div>`).join("");
+  const moving = j.group==="working";
+  return `<div class="pane on readout"><div class="lbl">${j.group==="working"?"in progress":j.group==="done"?"finished":"waiting on you"}</div>
+    <div class="row"><div class="big">${esc(lower(j.state))}${j.link?`<div class="lbl" style="font-size:13px;margin-top:8px;color:#b8b4ac">${esc(j.link)}</div>`:""}</div>${moving?grille(112,6,2.2).replace("<svg",'<svg class="grille"'):grille(112,6,2.2)}</div></div>`;
+}
+
+function capFor(j){
+  if (j.shotLabels){ const i = shot[j.id], s = j.shotLabels[i], cut = s.indexOf(". ");
+    return `<div class="lbl">version ${i+1} of ${j.shots.length}${i===j.pick?" · my pick":""}</div><p><b style="font-weight:500">${esc(s.slice(0,cut+1).replace(/^V\d \u00b7 /,""))}</b> ${esc(s.slice(cut+2))}</p>`; }
+  return `<div class="lbl">${j.kind==="design"?"the design":"the change"}</div><p>${esc(j.thread[j.thread.length-1].text.split(". ")[0])}.</p>`;
+}
+
+function panelFor(j){
+  let keys = "";
+  if (j.shots && j.shots.length>1) keys = `<div class="keys">` + j.shots.map((_,i) =>
+    `<div class="keyw"><button class="key${i===shot[j.id]?" on":""}" data-v="${i}" aria-label="Version ${i+1}">${i+1}</button><span class="lbl">${i===j.pick?'<i class="dome green" style="width:6px;height:6px"></i>pick':""}</span></div>`).join("") + `</div>`;
+  const acts = j.actions.map((a,i) => {
+    const label = (j.shots && j.shots.length>1 && i===0) ? `Build V${shot[j.id]+1}` : a;
+    const go = i===0 && j.group==="needs";
+    return `<button class="act${go?" go":""}"><span class="key">${go?"":'<svg viewBox="0 0 12 12"><path d="M3 9 9 3M4.5 3H9v4.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>'}</span>${esc(label)}</button>`;
+  }).join("");
+  return (j.shots ? `<div class="cap fade" id="cap">${capFor(j)}</div>` : "") + `${keys}<div class="acts">${acts}</div>`;
+}
+
+function render(){
+  const j = job();
+  document.getElementById("uHead").innerHTML =
+    `<div><div class="lbl"><span>${esc(j.project)}</span><span style="color:var(--ink-3)">${esc(j.when)}</span><span class="state">${j.group==="needs"?'<i class="led" style="background:var(--graphite)"></i>':j.group==="working"?'<i class="led g"></i>':'<i class="led"></i>'}${esc(lower(j.state))}</span></div><h1>${esc(j.title)}</h1></div>`;
+  document.getElementById("screen").innerHTML = screenFor(j);
+  document.getElementById("panel").innerHTML = panelFor(j);
+  document.getElementById("unit").classList.toggle("readout-h", !j.shots);
+  document.getElementById("talk").innerHTML = j.thread.map(m =>
+    `<div class="msg ${m.who}"><div class="lbl">${m.who==="you"?"you":"flyd"} · ${esc(m.at)}</div><p>${esc(m.text)}</p></div>`).join("");
+}
+
+/* TV fade between jobs */
+function select(id){
+  if (id===active) return;
+  active = id; renderJobs();
+  if (innerWidth < 1100) document.getElementById("unit").scrollIntoView({behavior:"smooth", block:"start"});
+  const parts = ["uHead","panel","talk"].map(x => document.getElementById(x));
+  const scr = document.getElementById("screen");
+  parts.forEach(p => p.classList.add("out")); scr.querySelectorAll(".pane").forEach(p => p.classList.remove("on"));
+  setTimeout(() => { render(); parts.forEach(p => p.classList.add("out"));
+    requestAnimationFrame(() => requestAnimationFrame(() => parts.forEach(p => p.classList.remove("out")))); }, 230);
+}
+
+function setShot(i){
+  const j = job(); if (shot[j.id]===i) return; shot[j.id] = i;
+  document.querySelectorAll("#screen .pane").forEach(p => p.classList.toggle("on", +p.dataset.i===i));
+  document.querySelectorAll(".keys .key").forEach(k => k.classList.toggle("on", +k.dataset.v===i));
+  const go = document.querySelector(".act.go"); if (go) go.lastChild.textContent = `Build V${i+1}`;
+  const cap = document.getElementById("cap"); cap.classList.add("out");
+  setTimeout(() => { cap.innerHTML = capFor(j); cap.classList.remove("out"); }, 200);
+}
+
+document.addEventListener("click", e => {
+  const c = e.target.closest("[data-job]"); if (c) return select(c.dataset.job);
+  const v = e.target.closest("[data-v]"); if (v) return setShot(+v.dataset.v);
+});
+document.addEventListener("keydown", e => {
+  const j = job(); if (!j.shots || document.activeElement.id==="say") return;
+  const k = +e.key; if (k>=1 && k<=j.shots.length) setShot(k-1);
+});
+document.getElementById("slot").addEventListener("submit", e => {
+  e.preventDefault(); const say = document.getElementById("say"), t = say.value.trim(); if (!t) return;
+  const talk = document.getElementById("talk"), d = document.createElement("div");
+  d.className = "msg you fade out"; d.innerHTML = `<div class="lbl">you · now</div><p>${esc(t)}</p>`;
+  talk.appendChild(d); requestAnimationFrame(() => requestAnimationFrame(() => d.classList.remove("out")));
+  talk.scrollTop = talk.scrollHeight; say.value = "";
+});
+
+renderJobs(); renderArts(); render();
+</script>
+</body>
+</html>

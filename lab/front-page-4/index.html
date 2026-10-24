@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --paper:#ECEAE5; --card:#F9F8F6; --sheet:#FFFFFF;
+    --ink:#161615; --ink2:#4A4945; --mute:#76746E; --line:#E2DFD9;
+    --mat:#DEDAD2; --dark:#151514;
+    --hot:#F04E1A;
+    --r:10px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font:15px/1.5 "Instrument Sans",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;
+    font-variant-numeric:tabular-nums}
+  button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  img{display:block}
+  a{color:inherit;text-decoration:none}
+
+  .app{height:100vh;display:grid;grid-template-columns:304px minmax(0,1fr) 352px;
+    grid-template-rows:56px minmax(0,1fr);gap:0 20px;padding:0 20px 20px}
+
+  /* Top line: who, when, how much */
+  .top{grid-column:1/-1;display:flex;align-items:center;gap:20px}
+  .mark{font-weight:600;font-size:17px;letter-spacing:-.01em}
+  .date{color:var(--mute)}
+  .tally{margin-left:auto;display:flex;gap:20px;color:var(--ink2)}
+  .tally b{font-weight:500;color:var(--ink)}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--hot);margin-right:7px;vertical-align:1px}
+
+  /* Side columns scroll on their own; the page never does */
+  .col{min-height:0;overflow:auto;scrollbar-width:none;padding-bottom:8px}
+  .col::-webkit-scrollbar{display:none}
+  .head{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:13px;color:var(--mute);padding:6px 4px 10px}
+  .head + .head{padding-top:0}
+  .group{margin-bottom:34px}
+
+  /* Job cards */
+  .job{display:block;width:100%;text-align:left;background:var(--card);border-radius:var(--r);
+    padding:14px 16px 15px;margin-bottom:8px;box-shadow:0 0 0 1px rgba(22,22,21,.04);
+    transition:background-color .2s, box-shadow .2s}
+  .job:hover{background:#fff}
+  .job.on{background:#fff;box-shadow:0 0 0 1px rgba(22,22,21,.10),0 6px 18px -10px rgba(22,22,21,.25)}
+  .job.on .frame{display:none}
+  .job .frame{border-radius:9px;background:var(--mat);padding:10px 10px 0;margin:-4px -6px 12px;
+    aspect-ratio:16/9;overflow:hidden}
+  .job .frame.dark{background:var(--dark);padding:0}
+  .job .frame img{width:100%;height:100%;object-fit:cover;object-position:top;border-radius:5px 5px 0 0}
+  .job .frame.dark img{border-radius:0}
+  .job .t{font-weight:500;line-height:1.35}
+  .job .m{font-size:13px;color:var(--mute);margin-top:4px;display:flex;gap:6px;align-items:center;white-space:nowrap}
+  .job .m .s{color:var(--ink2)}
+  .job .m .w{margin-left:auto}
+  .job.done .t{color:var(--ink2);font-weight:400}
+
+  /* The one active job */
+  .stage{min-height:0;background:var(--sheet);border-radius:14px;display:flex;flex-direction:column;
+    box-shadow:0 1px 2px rgba(22,22,21,.04),0 12px 40px -18px rgba(22,22,21,.18);overflow:hidden}
+  .stage .in{transition:opacity .22s ease}
+  .stage .in.fade{opacity:0}
+  .sh{padding:26px 32px 0}
+  .crumb{font-size:13px;color:var(--mute);display:flex;gap:8px;align-items:center}
+  .crumb .s{color:var(--ink)}
+  h1{font-weight:500;font-size:28px;line-height:1.2;letter-spacing:-.015em;margin:8px 0 0;text-wrap:balance}
+
+  .body{flex:1;min-height:0;display:flex;flex-direction:column}
+  .work{display:grid;grid-template-columns:minmax(0,1fr) 236px;gap:20px;padding:22px 32px 0}
+  .view{background:var(--mat);border-radius:12px;height:min(52vh,470px);overflow:auto;scrollbar-width:none;
+    padding:24px 28px 0;position:relative}
+  .view::-webkit-scrollbar{display:none}
+  .view.fit{display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden}
+  .view.dark{background:var(--dark)}
+  .view.fit img{width:100%;height:100%;object-fit:cover;border-radius:0;box-shadow:none}
+  .view img{width:100%;border-radius:5px 5px 0 0;box-shadow:0 2px 14px rgba(0,0,0,.12);transition:opacity .22s ease}
+  .view img.fade{opacity:0}
+  .versions{display:flex;flex-direction:column;gap:2px}
+  .ver{display:grid;grid-template-columns:14px 44px 1fr;gap:12px;align-items:center;text-align:left;padding:7px 8px;border-radius:9px;
+    transition:background-color .2s}
+  .ver:hover{background:#F4F2EE}
+  .ver.on{background:#F1EFEA}
+  .ver .th{width:44px;height:34px;border-radius:4px;background:var(--mat) center top/cover no-repeat;box-shadow:inset 0 0 0 1px rgba(0,0,0,.05)}
+  .ver .i{font-size:13px;color:var(--mute)}
+  .ver .n{font-size:14px;font-weight:500;line-height:1.25}
+  .ver .n small{display:block;font-size:12.5px;font-weight:400;color:var(--mute);margin-top:1px}
+  .ver .pick{color:var(--ink2)}
+  .vnote{font-size:14px;color:var(--ink2);margin-top:14px;padding:0 8px;line-height:1.45}
+  .acts{display:flex;gap:8px;align-items:center;padding:20px 32px 0}
+  .work .acts{padding:16px 8px 0}
+  .btn{white-space:nowrap;height:36px;padding:0 16px;border-radius:8px;background:var(--ink);color:#fff;font-weight:500;font-size:14px;transition:background-color .2s}
+  .btn:hover{background:#333331}
+  .btn.q{background:none;color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+  .btn.q:hover{background:#F4F2EE}
+
+  .talk{flex:1;min-height:0;overflow:auto;padding:22px 32px 8px;scrollbar-width:none}
+  .msg{display:grid;grid-template-columns:76px 1fr;gap:16px;margin-bottom:14px}
+  .msg .who{font-size:13px;color:var(--mute);padding-top:2px;line-height:1.35}
+  .msg .who b{display:block;font-weight:500;color:var(--ink)}
+  .msg p{margin:0;max-width:64ch;color:var(--ink2)}
+  .msg.flyd p{color:var(--ink)}
+  .box{margin:0 32px 24px;display:flex;align-items:center;gap:8px;background:#F4F2EE;border-radius:12px;padding:6px 6px 6px 16px}
+  .box input{flex:1;border:0;background:none;font:inherit;color:var(--ink);outline:none;height:36px}
+  .box input::placeholder{color:var(--mute)}
+  .box .btn{height:32px;padding:0 10px;background:none;box-shadow:none;color:var(--ink2)}
+
+  /* code jobs have no picture: the state is the picture */
+  .plain{margin:22px 32px 0;padding:26px 28px;border-radius:12px;background:#F4F2EE}
+  .plain .big{font-size:22px;font-weight:500;letter-spacing:-.01em;line-height:1.3;max-width:30ch}
+  .plain .sub{color:var(--mute);margin-top:6px;font-size:14px}
+
+  /* Artefacts */
+  .art{display:block;background:var(--card);border-radius:var(--r);overflow:hidden;margin-bottom:8px;
+    box-shadow:0 0 0 1px rgba(22,22,21,.04);transition:background-color .2s}
+  .art:hover{background:#fff}
+  .art .pic{aspect-ratio:16/10;background:var(--mat);padding:12px 12px 0;overflow:hidden}
+  .art .pic img{width:100%;height:100%;object-fit:cover;object-position:top;border-radius:5px 5px 0 0}
+  .art .pic.photo{padding:0}
+  .art .pic.photo img{border-radius:0;object-position:center}
+  .art .tx{padding:12px 14px 14px}
+  .art .t{font-weight:500;line-height:1.35}
+  .art .m{font-size:13px;color:var(--mute);margin-top:3px}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .pair .art{margin-bottom:8px}
+  .pair .art .pic{aspect-ratio:4/3}
+  .pair .art .tx{padding:10px 12px 12px}
+  .pair .art .t{font-size:14px}
+  .note{background:none;box-shadow:inset 0 0 0 1px var(--line);padding:14px 16px}
+  .note .t{font-weight:500}
+  .note p{margin:4px 0 0;color:var(--ink2);font-size:14px}
+
+  @media (max-width:1100px){
+    .app{grid-template-columns:260px minmax(0,1fr);}
+    .right{display:none}
+  }
+  @media (max-width:760px){
+    .app{display:block;height:auto;padding:0 16px 24px}
+    .top{height:56px}
+    .tally{display:none}
+    .col{overflow:visible}
+    .left{display:flex;gap:8px;overflow-x:auto;margin:0 -16px 12px;padding:0 16px}
+    .left .head,.left .done-group{display:none}
+    .left .group{display:contents}
+    .left .job{flex:0 0 248px;margin:0}
+    .stage{margin-top:4px}
+    .sh{padding:22px 20px 0}
+    h1{font-size:23px}
+    .work{grid-template-columns:1fr;padding:18px 20px 0;gap:12px}
+    .view{height:300px;padding:14px}
+    .versions{flex-direction:row;overflow-x:auto;gap:6px}
+    .ver{grid-template-columns:1fr;flex:0 0 auto;padding:6px}
+    .ver .n,.ver .i{display:none}
+    .vnote{display:none}
+    .acts{padding:16px 20px 0}
+    .talk{padding:18px 20px 4px}
+    .msg{grid-template-columns:1fr;gap:2px}
+    .box{margin:0 20px 20px}
+    .right{display:block;margin-top:28px}
+    .plain{margin:18px 20px 0}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <span class="mark">Flyd</span>
+    <span class="date">Saturday 24 October</span>
+    
+  </header>
+  <aside class="col left" id="jobs"></aside>
+  <main class="stage"><div class="in" id="stage"></div></main>
+  <aside class="col right" id="arts"></aside>
+</div>
+<script src="shared/data.js"></script>
+<script>
+const {jobs, artefacts} = window.FLYD;
+const A = p => 'shared/' + p;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dark = p => /dir-ident/.test(p || '');
+const groups = [['needs','Needs you'],['working','Working'],['done','Done']];
+let active = jobs[0].id, ver = {};
+
+if(0)document.body.innerHTML +=
+  `<span><span class="dot"></span><b>${jobs.filter(j=>j.group==='needs').length}</b> need you</span>
+   <span><b>${jobs.filter(j=>j.group==='working').length}</b> working</span>
+   <span><b>${jobs.filter(j=>j.group==='done').length}</b> done this week</span>`;
+
+function jobCard(j){
+  const pic = j.group === 'needs' && j.thumb
+    ? `<div class="frame${dark(j.thumb)?' dark':''}"><img src="${A(j.thumb)}" alt=""></div>` : '';
+  const dot = j.group === 'needs' ? '<span class="dot" style="margin-right:0"></span>' : '';
+  return `<button class="job ${j.group}${j.id===active?' on':''}" data-id="${j.id}">${pic}
+    <div class="t">${esc(j.title)}</div>
+    <div class="m">${dot}<span class="s">${esc(j.state)}</span><span>·</span><span>${esc(j.project)}</span><span class="w">${esc(j.when)}</span></div></button>`;
+}
+function renderJobs(){
+  document.getElementById('jobs').innerHTML = groups.map(([g,label]) => {
+    const list = jobs.filter(j => j.group === g);
+    return `<section class="group ${g}-group"><div class="head"><span>${label}</span><span>${list.length}</span></div>${list.map(jobCard).join('')}</section>`;
+  }).join('');
+}
+
+function stageHTML(j){
+  const shots = j.shots || [];
+  const acts = (j.actions||[]).map((a,i)=>`<button class="btn${i?' q':''}">${esc(a)}</button>`).join('');
+  const v = ver[j.id] ?? (j.pick ?? 0);
+  let work = '';
+  if (shots.length > 1){
+    const label = (j.shotLabels[v] || '').split('. ');
+    work = `<div class="work">
+      <div class="view"><img id="shot" src="${A(shots[v])}" alt=""></div>
+      <div><div class="versions">${shots.map((s,i)=>{
+        const [name] = (j.shotLabels[i]||'').split('. ');
+        const [num, title] = name.split(' · ');
+        return `<button class="ver${i===v?' on':''}" data-v="${i}"><span class="i">${i+1}</span><span class="th" style="background-image:url('${A(s)}')"></span>
+          <span class="n">${esc(title||'')}${i===j.pick?'<small>Flyd’s pick</small>':''}</span></button>`;
+      }).join('')}</div>
+      <div class="vnote" id="vnote">${esc(label.slice(1).join('. '))}</div><div class="acts">${acts}</div></div></div>`;
+  } else if (shots.length === 1){
+    work = `<div class="work" style="grid-template-columns:1fr"><div class="view fit${dark(shots[0])?' dark':''}"><img src="${A(shots[0])}" alt=""></div></div>`;
+  } else {
+    work = `<div class="plain"><div class="big">${esc(j.state)}${j.link?'. '+esc(j.link)+'.':'.'}</div><div class="sub">${esc(j.project)} · ${esc(j.when)}</div></div>`;
+  }
+  const talk = j.thread.map(m => `<div class="msg ${m.who}"><div class="who"><b>${m.who==='you'?'You':'Flyd'}</b>${esc(m.at)}</div><p>${esc(m.text)}</p></div>`).join('');
+  return `<div class="sh"><div class="crumb">${j.group==='needs'?'<span class="dot" style="margin-right:0"></span>':''}<span class="s">${esc(j.state)}</span><span>·</span><span>${esc(j.project)}</span><span>·</span><span>${esc(j.when)}</span></div>
+    <h1>${esc(j.title)}</h1></div>
+    <div class="body">${work}${shots.length>1?'':`<div class="acts">${acts}</div>`}
+    <div class="talk">${talk}</div>
+    <div class="box"><input placeholder="Message Flyd about this job"><button class="btn q">Send</button></div></div>`;
+}
+const stage = document.getElementById('stage');
+stage.parentElement.style.display = 'flex';
+stage.style.cssText = 'display:flex;flex-direction:column;flex:1;min-height:0';
+function renderStage(fade){
+  const j = jobs.find(x => x.id === active);
+  if (!fade){ stage.innerHTML = stageHTML(j); return; }
+  stage.classList.add('fade');
+  setTimeout(() => { stage.innerHTML = stageHTML(j); stage.classList.remove('fade'); }, 200);
+}
+
+function artCard(a, small){
+  if (a.kind === 'info') return `<div class="art note"><div class="t">${esc(a.title)}</div><p>${esc(a.text)}</p><div class="m">${esc(a.meta)}</div></div>`;
+  const photo = a.kind === 'news';
+  return `<a class="art" href="#"><div class="pic${photo?' photo':''}"><img src="${A(a.img)}" alt=""></div>
+    <div class="tx"><div class="t">${esc(a.title)}</div><div class="m">${esc(a.meta)}</div></div></a>`;
+}
+function renderArts(){
+  const made = artefacts.filter(a => a.kind === 'design');
+  const news = artefacts.filter(a => a.kind === 'news').sort((a,b)=>(b.title.includes('jet power'))-(a.title.includes('jet power')));
+  const info = artefacts.find(a => a.kind === 'info');
+  const pairs = list => { let h=''; for(let i=0;i<list.length;i+=2) h += `<div class="pair">${list.slice(i,i+2).map(a=>artCard(a,true)).join('')}</div>`; return h; };
+  document.getElementById('arts').innerHTML =
+    `<section class="group"><div class="head"><span>Made this week</span><span>${made.length}</span></div>
+      ${artCard(made[0])}${pairs(made.slice(1))}</section>
+     <section class="group"><div class="head"><span>Today's news</span><span>${news.length}</span></div>
+      ${artCard(news[0])}${pairs(news.slice(1))}${info?artCard(info):''}</section>`;
+}
+
+document.getElementById('jobs').addEventListener('click', e => {
+  const b = e.target.closest('.job'); if (!b || b.dataset.id === active) return;
+  active = b.dataset.id;
+  document.querySelectorAll('.job').forEach(x => x.classList.toggle('on', x.dataset.id === active));
+  renderStage(true);
+});
+stage.addEventListener('click', e => {
+  const b = e.target.closest('.ver'); if (!b) return;
+  const j = jobs.find(x => x.id === active), v = +b.dataset.v;
+  ver[j.id] = v;
+  stage.querySelectorAll('.ver').forEach(x => x.classList.toggle('on', +x.dataset.v === v));
+  const img = document.getElementById('shot');
+  img.classList.add('fade');
+  setTimeout(() => { img.src = A(j.shots[v]); img.onload = () => img.classList.remove('fade'); }, 180);
+  document.getElementById('vnote').textContent = (j.shotLabels[v]||'').split('. ').slice(1).join('. ');
+});
+
+renderJobs(); renderStage(false); renderArts();
+</script>
+</body>
+</html>

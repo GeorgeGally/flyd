@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd Instrument</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* unit 9 / radius 4 / key radius 7 — derived from this version's seed */
+:root{
+  --u:9px;
+  --page:#efeeea;
+  --alu:#d9d8d3;
+  --alu-2:#cfcec8;
+  --cream:#ebe3cc;
+  --cream-2:#e2d8bd;
+  --paper:#f7f6f2;
+  --ink:#141414;
+  --ink-2:#5b5a55;
+  --ink-3:#8d8b84;
+  --line:rgba(20,20,20,.14);
+  --orange:#ff5419;
+  --green:#1d4436;
+  --green-2:#2a5a48;
+  --mint:#3fae83;
+  --lcd:#141513;
+  --lcd-ink:#efe9da;
+  --r:4px;
+  --rk:7px;
+  --sans:"Albert Sans", ui-sans-serif, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--page);color:var(--ink)}
+body{font-family:var(--sans);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased;min-height:100vh}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:left}
+img{display:block}
+
+/* ── nav: TE pictogram language ───────────────────────── */
+.nav{display:grid;grid-template-columns:auto repeat(4,auto) 1fr auto auto;align-items:start;column-gap:calc(var(--u)*4);
+  padding:calc(var(--u)*2) calc(var(--u)*3) 0;height:118px}
+.word{font-weight:300;font-size:27px;line-height:1.1;letter-spacing:-.01em;padding-top:2px;min-width:132px}
+.nv{display:flex;gap:var(--u);align-items:flex-start;color:var(--ink)}
+.nv svg{width:44px;height:84px;flex:none}
+.nv .w{font-weight:300;font-size:27px;line-height:1.1;letter-spacing:-.01em}
+.nv .s{font-size:12.5px;line-height:1.25;color:var(--ink);margin-top:10px;font-weight:400}
+.nv .s b{font-weight:500;color:var(--orange)}
+.blurb{font-size:11.5px;line-height:1.35;max-width:150px;color:var(--ink);padding-top:4px}
+.mark{width:118px;height:84px}
+
+/* ── layout ───────────────────────────────────────────── */
+.desk{display:grid;grid-template-columns:304px minmax(0,1fr) 408px;gap:calc(var(--u)*2);
+  padding:0 calc(var(--u)*3) calc(var(--u)*2);height:calc(100vh - 118px);min-height:760px}
+.col{overflow:auto;scrollbar-width:none;padding:0 2px 24px}
+.col::-webkit-scrollbar{display:none}
+
+/* silkscreen labels with bracket rule, like the EP "LIVE" bracket */
+.silk{display:flex;align-items:center;gap:8px;font-size:10.5px;font-weight:500;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-2);margin:4px 0 9px}
+.silk::before{content:"";width:9px;height:6px;border-left:1px solid currentColor;border-top:1px solid currentColor;margin-top:6px;opacity:.6}
+.silk::after{content:"";flex:1;height:6px;border-right:1px solid currentColor;border-top:1px solid currentColor;margin-top:6px;opacity:.6}
+.silk .n{font-family:var(--mono);font-weight:500}
+.grp+.grp{margin-top:calc(var(--u)*3)}
+
+/* ── device-panel cards ───────────────────────────────── */
+.card{position:relative;display:block;width:100%;border-radius:var(--r);overflow:hidden;
+  box-shadow:0 0 0 1px rgba(0,0,0,.06),0 1px 1px rgba(0,0,0,.08),0 10px 18px -12px rgba(0,0,0,.35);
+  transition:transform .25s ease, box-shadow .25s ease}
+.card+.card{margin-top:var(--u)}
+button.card:hover{box-shadow:0 0 0 1px rgba(0,0,0,.08),0 2px 2px rgba(0,0,0,.08),0 16px 24px -14px rgba(0,0,0,.4)}
+.tabs{display:flex;height:21px;font-size:9.5px;font-weight:500;text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid rgba(0,0,0,.18)}
+.tabs span{display:flex;align-items:center;padding:0 8px;white-space:nowrap;border-right:1px solid rgba(0,0,0,.12)}
+.tabs .sp{flex:1;border-right:0}
+.tabs .tm{font-family:var(--mono);font-weight:400;font-size:10px;border-right:0}
+.t-or{background:var(--orange);color:#fff}
+.t-bk{background:var(--ink);color:var(--page)}
+.t-gr{background:var(--green);color:var(--cream)}
+.t-mt{background:var(--mint);color:#08130e}
+.t-cr{background:var(--cream);color:var(--ink)}
+.t-pp{background:var(--paper);color:var(--ink)}
+.t-al{background:var(--alu-2);color:var(--ink)}
+
+/* card colourways like the EP modules */
+.c-cream{background:var(--cream)}
+.c-alu{background:var(--alu)}
+.c-green{background:var(--green);color:var(--cream)}
+.c-paper{background:var(--paper)}
+
+.face{padding:10px 12px 12px}
+.ttl{font-size:15.5px;font-weight:400;line-height:1.3;letter-spacing:-.005em}
+.sub{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:12px;color:var(--ink-2)}
+.c-green .sub{color:rgba(235,227,204,.72)}
+.led{width:6px;height:6px;border-radius:50%;background:rgba(0,0,0,.2);flex:none}
+.led.or{background:var(--orange);box-shadow:0 0 0 2px rgba(255,84,25,.18)}
+.led.mt{background:var(--mint)}
+.led.cr{background:var(--cream)}
+.led.pulse{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+/* orange nubs on the top edge, like the EP power buttons */
+.nub{position:absolute;top:0;right:22px;width:12px;height:4px;background:var(--orange);border-radius:0 0 2px 2px;z-index:2}
+
+/* screens */
+.scr{margin:10px 10px 0;background:var(--lcd);border-radius:3px;padding:6px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.4)}
+.scr img{width:100%;aspect-ratio:16/10;object-fit:cover;object-position:top;border-radius:1px}
+.scr.tall img{aspect-ratio:16/9}
+.lcdline{margin:10px 10px 0;background:var(--lcd);color:var(--lcd-ink);border-radius:3px;padding:9px 10px;font-family:var(--mono);font-size:12px;display:flex;justify-content:space-between;align-items:center}
+.lcdline .v{color:rgba(239,233,218,.6)}
+.lcdline .g{color:var(--mint)}
+.card.on{box-shadow:0 0 0 2px var(--ink),0 10px 18px -12px rgba(0,0,0,.35)}
+.card.on .onmark{display:block}
+.onmark{display:none;position:absolute;left:0;top:21px;bottom:0;width:3px;background:var(--orange)}
+
+/* compact rows for working / done */
+.mini .face{padding:9px 12px 11px}
+.mini .ttl{font-size:15px}
+
+/* ── the instrument ───────────────────────────────────── */
+.inst{background:var(--alu);border-radius:6px;display:flex;flex-direction:column;position:relative;min-height:0;
+  box-shadow:0 0 0 1px rgba(0,0,0,.07),0 2px 2px rgba(0,0,0,.08),0 30px 50px -30px rgba(0,0,0,.45)}
+.inst .nub{right:40px;width:16px;height:5px}
+.inst .nub.b{right:78px;background:var(--ink)}
+.inst>.tabs{height:24px;font-size:10px;border-radius:6px 6px 0 0;overflow:hidden}
+.inst>.tabs span{padding:0 11px}
+.head{display:grid;grid-template-columns:1fr 150px;background:var(--cream);border-bottom:1px solid rgba(0,0,0,.14)}
+.head .tx{padding:16px 18px 14px}
+.head h1{font-weight:300;font-size:27px;line-height:1.12;letter-spacing:-.015em;max-width:24ch}
+.head .st{margin-top:12px;font-size:10.5px;font-weight:500;text-transform:uppercase;letter-spacing:.03em;display:flex;gap:14px;color:var(--ink-2)}
+.head .st b{color:var(--ink);font-weight:500}
+.grille{border-left:1px solid rgba(0,0,0,.14);background-color:var(--alu-2);
+  background-image:radial-gradient(circle at center,#3b3a36 1.6px,transparent 2.1px);background-size:9px 9px;background-position:4px 4px}
+
+.screen{margin:14px 14px 0;background:var(--lcd);border-radius:5px;padding:12px;display:grid;grid-template-columns:minmax(0,1fr) 236px;gap:18px;
+  box-shadow:inset 0 0 0 1px #000,0 1px 0 rgba(255,255,255,.6);flex:1 1 auto;min-height:250px}
+.screen .pic{background:#0b0c0b;border-radius:2px;overflow-y:auto;overflow-x:hidden;min-height:0;position:relative;scrollbar-width:thin;scrollbar-color:#444 #0b0c0b}
+.screen .pic img{width:100%;height:auto}
+.screen{height:0}
+.ro{color:var(--lcd-ink);display:flex;flex-direction:column;min-height:0;padding:4px 4px 2px 0}
+.ro .row1{display:flex;justify-content:space-between;align-items:flex-start;font-family:var(--mono);font-size:11px;color:rgba(239,233,218,.55)}
+.ro .big{font-family:var(--mono);font-weight:400;font-size:84px;line-height:.9;letter-spacing:-.04em;color:var(--lcd-ink);margin-top:10px}
+.ro .big i{font-style:normal;color:var(--lcd-ink)}
+.ro .nm{font-size:22px;font-weight:300;margin-top:12px;line-height:1.15}
+.ro .ds{font-size:15px;line-height:1.45;color:rgba(239,233,218,.82);margin-top:10px}
+.ro .pk{display:inline-flex;align-items:center;gap:7px;margin-top:auto;padding-top:12px;font-family:var(--mono);font-size:11px;color:var(--mint)}
+.ro .meter{display:flex;gap:3px;margin-top:14px}
+.ro .meter span{width:16px;height:5px;background:rgba(239,233,218,.16)}
+.ro .meter span.on{background:var(--mint)}
+.ro.code .big{font-size:44px;letter-spacing:-.03em;line-height:1}
+.ro.code .stt{color:var(--mint)}
+
+/* keys */
+.keys{display:flex;align-items:flex-end;gap:10px;padding:14px 14px 0}
+.kgrp{display:flex;flex-direction:column;gap:6px}
+.kgrp .lb{font-size:9.5px;font-weight:500;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-2);display:flex;align-items:center;gap:6px}
+.kgrp .lb::after{content:"";flex:1;height:5px;border-top:1px solid rgba(0,0,0,.3);border-right:1px solid rgba(0,0,0,.3);margin-top:5px}
+.krow{display:flex;gap:6px}
+.key{width:46px;height:46px;border-radius:var(--rk);background:#e6e5e0;position:relative;display:grid;place-items:center;
+  box-shadow:0 0 0 1px rgba(0,0,0,.14),0 2px 0 #a9a8a2,0 3px 5px rgba(0,0,0,.18);transition:transform .08s, box-shadow .08s}
+.key::before{content:"";position:absolute;inset:7px;border-radius:50%;background:#efeee9;box-shadow:inset 0 1px 2px rgba(0,0,0,.18),0 1px 0 rgba(255,255,255,.8)}
+.key span{position:relative;font-family:var(--mono);font-size:14px;font-weight:500}
+.key:active{transform:translateY(2px);box-shadow:0 0 0 1px rgba(0,0,0,.14),0 0 0 #a9a8a2,0 1px 2px rgba(0,0,0,.18)}
+.key .ld{position:absolute;top:-9px;left:50%;margin-left:-2.5px;width:5px;height:5px;border-radius:50%;background:rgba(0,0,0,.18)}
+.key.sel .ld{background:var(--orange)}
+.key.sel::before{background:var(--ink)}
+.key.sel span{color:var(--page)}
+.key .fp{position:absolute;bottom:-13px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:9px;color:var(--orange)}
+.act{height:46px;border-radius:var(--rk);padding:0 16px;display:inline-flex;align-items:center;gap:9px;font-size:14px;font-weight:500;
+  background:#e6e5e0;box-shadow:0 0 0 1px rgba(0,0,0,.14),0 2px 0 #a9a8a2,0 3px 5px rgba(0,0,0,.18);transition:transform .08s, box-shadow .08s}
+.act:active{transform:translateY(2px);box-shadow:0 0 0 1px rgba(0,0,0,.14),0 0 0 #a9a8a2}
+.act.or{background:var(--orange);color:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.18),0 2px 0 #b8380c,0 3px 6px rgba(0,0,0,.2)}
+.act.or:active{box-shadow:0 0 0 1px rgba(0,0,0,.18),0 0 0 #b8380c}
+.act .dot{width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:inset 0 1px 2px rgba(0,0,0,.25)}
+.act.or .dot{background:#ffd8c8}
+.kspace{flex:1}
+
+/* conversation: printed tape */
+.conv{margin:16px 14px 14px;background:var(--paper);border-radius:4px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1);display:flex;flex-direction:column}
+.thread{padding:12px 14px 4px;max-height:154px;overflow:auto;scrollbar-width:thin}
+.msg{display:grid;grid-template-columns:62px 1fr;gap:10px;padding:5px 0}
+.msg .who{font-family:var(--mono);font-size:11px;color:var(--ink-3);padding-top:3px;line-height:1.3}
+.msg .who b{display:block;font-weight:500;color:var(--ink)}
+.msg.f .who b{color:var(--green-2)}
+.msg p{font-size:15px;line-height:1.45}
+.msg.y p{color:var(--ink-2)}
+.slot{display:flex;gap:8px;align-items:center;padding:8px;border-top:1px solid rgba(0,0,0,.08)}
+.slot input{flex:1;height:38px;border:0;border-radius:3px;background:#e9e8e3;box-shadow:inset 0 1px 2px rgba(0,0,0,.14);padding:0 12px;font:inherit;font-size:15px;color:var(--ink);outline:none}
+.slot input:focus{box-shadow:inset 0 1px 2px rgba(0,0,0,.14),0 0 0 1.5px var(--ink)}
+.slot input::placeholder{color:var(--ink-3)}
+.send{width:38px;height:38px;border-radius:var(--rk);background:var(--ink);display:grid;place-items:center;box-shadow:0 2px 0 #000}
+.send:active{transform:translateY(2px);box-shadow:none}
+
+/* ── artefacts ────────────────────────────────────────── */
+.agrid{display:grid;grid-template-columns:1fr 1fr;gap:var(--u)}
+.agrid .card+.card{margin-top:0}
+.agrid .wide{grid-column:1/-1}
+.art .face{padding:9px 11px 12px}
+.art .ttl{font-size:15px}
+.art .wide .ttl,.art.wide .ttl{font-size:17px}
+.art .tx{font-size:15px;line-height:1.42;color:var(--ink-2);margin-top:6px}
+.art .mt{font-size:12px;color:var(--ink-2);margin-top:7px}
+.scr.n img{aspect-ratio:4/3;object-position:center}
+.wide .scr img{aspect-ratio:16/9}
+.info{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:stretch;padding:10px}
+.info .lcdn{background:var(--lcd);color:var(--mint);font-family:var(--mono);font-size:58px;line-height:1;padding:10px 14px 8px;border-radius:3px;display:flex;flex-direction:column;justify-content:space-between}
+.info .lcdn small{font-size:9.5px;color:rgba(239,233,218,.6);margin-top:6px}
+
+.fade{transition:opacity .22s ease}
+.fade.out{opacity:0}
+
+/* ── phone ────────────────────────────────────────────── */
+@media (max-width:1100px){
+  .nav{grid-template-columns:auto 1fr;height:auto;row-gap:18px;padding:18px 16px 22px}
+  .nav .nvs{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:16px 12px}
+  .blurb{display:none}
+  .mark{width:84px;height:60px;justify-self:end;grid-row:1;grid-column:2}
+  .nav>div:empty{display:none}
+  .screen{height:auto;flex:none}
+  .screen .pic{height:380px}
+  .desk{display:flex;flex-direction:column;height:auto;min-height:0;padding:0 16px 40px;gap:28px}
+  .col{overflow:visible;padding:0}
+  .inst{order:-1}
+}
+@media (min-width:1101px){ .nav .nvs{display:contents} }
+@media (max-width:640px){
+  .nv svg{width:30px;height:58px}
+  .nv .w{font-size:21px}
+  .nv .s{font-size:11.5px;margin-top:6px}
+  .word{font-size:22px;min-width:0}
+  .head{grid-template-columns:1fr 54px}
+  .head h1{font-size:23px}
+  .screen{grid-template-columns:1fr;margin:12px 10px 0;padding:10px}
+  .ro .big{font-size:60px}
+  .keys{flex-wrap:wrap;padding:14px 10px 0;row-gap:16px}
+  .key{width:42px;height:42px}
+  .kspace{display:none}
+  .conv{margin:16px 10px 10px}
+  .thread{max-height:none}
+  .agrid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="word">flyd<br>for george</div>
+  <div class="nvs">
+    <a class="nv" href="#jobs" style="text-decoration:none">
+      <!-- flower / fan: jobs -->
+      <svg viewBox="0 0 44 84" aria-hidden="true">
+        <g fill="#141414">
+          <circle cx="13" cy="12" r="9.5"/><circle cx="31" cy="12" r="9.5"/>
+          <circle cx="13" cy="30" r="9.5"/><circle cx="31" cy="30" r="9.5"/>
+        </g>
+        <circle cx="22" cy="21" r="3.2" fill="#efeeea"/>
+        <rect x="21" y="34" width="2" height="50" fill="#141414"/>
+      </svg>
+      <div><div class="w">jobs</div><div class="s"><b>needs you 3</b><br>working 3<br>done 4</div></div>
+    </a>
+    <a class="nv" href="#arts" style="text-decoration:none">
+      <!-- box: artefacts -->
+      <svg viewBox="0 0 44 84" aria-hidden="true">
+        <path d="M2 6 h40 v78 h-40z" fill="#141414"/>
+        <rect x="8" y="12" width="28" height="14" fill="#efeeea"/>
+        <rect x="2" y="30" width="40" height="2.5" fill="#efeeea"/>
+      </svg>
+      <div><div class="w">artefacts</div><div class="s">designs 3<br>news 7<br>info 1</div></div>
+    </a>
+    <div class="nv">
+      <!-- frame: today -->
+      <svg viewBox="0 0 44 84" aria-hidden="true"><rect x="3.5" y="3.5" width="37" height="77" fill="none" stroke="#141414" stroke-width="7"/></svg>
+      <div><div class="w">today</div><div class="s">saturday<br>24 october<br>latest 09:26</div></div>
+    </div>
+    <div class="nv">
+      <!-- composite: ask -->
+      <svg viewBox="0 0 44 84" aria-hidden="true">
+        <g fill="#141414">
+          <path d="M2 2 h20 v20z"/><rect x="24" y="2" width="18" height="20"/>
+          <circle cx="13" cy="38" r="10"/>
+          <circle cx="31" cy="60" r="11"/>
+          <rect x="2" y="64" width="16" height="18"/>
+        </g>
+        <circle cx="13" cy="38" r="4.5" fill="#efeeea"/>
+        <g fill="#efeeea"><circle cx="27" cy="56" r="2"/><circle cx="35" cy="56" r="2"/><circle cx="27" cy="64" r="2"/><circle cx="35" cy="64" r="2"/></g>
+      </svg>
+      <div><div class="w">ask</div><div class="s">type below<br>voice: fn + ctrl<br>live: ctrl ×3</div></div>
+    </div>
+  </div>
+  <div></div>
+  <p class="blurb">Flyd does the jobs, keeps what they make, and only asks when a call is yours.</p>
+  <!-- mark -->
+  <svg class="mark" viewBox="0 0 118 84" aria-label="flyd">
+    <g fill="#141414">
+      <path d="M10 82 V26 a22 22 0 0 1 22 -22 h12 v20 h-10 a4 4 0 0 0 -4 4 v6 h14 v20 h-14 v28z"/>
+      <rect x="54" y="34" width="60" height="48" rx="4"/>
+    </g>
+    <circle cx="84" cy="58" r="15" fill="#efeeea"/>
+    <circle cx="84" cy="58" r="8" fill="#141414"/>
+    <rect x="98" y="10" width="16" height="16" fill="#ff5419"/>
+  </svg>
+</header>
+
+<main class="desk">
+  <aside class="col" id="jobs"></aside>
+  <section class="inst" id="inst"></section>
+  <aside class="col art" id="arts"></aside>
+</main>
+
+<script src="../shared/data.js"></script>
+<script>
+const D = window.FLYD;
+const A = p => "../shared/" + p;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const groups = [["needs","needs you"],["working","working"],["done","done"]];
+let activeId = D.jobs[0].id;
+let ver = {}; // per-job selected shot
+D.jobs.forEach(j => { if (j.shots) ver[j.id] = j.pick ?? 0; });
+
+function jobTabs(j){
+  const g = j.group === "needs" ? '<span class="t-or">needs you</span>' : j.group === "working" ? '<span class="t-bk">working</span>' : '<span class="t-mt">done</span>';
+  const kind = j.kind === "design" ? '<span class="t-cr">design</span>' : '<span class="t-al">code</span>';
+  return `<div class="tabs">${g}<span class="t-pp">${esc(j.project)}</span><span class="sp"></span><span class="tm">${esc(j.when)}</span></div>`;
+}
+function jobCard(j){
+  const colour = j.group === "needs" ? "c-cream" : j.group === "working" ? "c-alu" : "c-green";
+  const led = j.group === "needs" ? "or" : j.group === "working" ? "mt pulse" : "cr";
+  let mid = "";
+  if (j.group === "needs" && j.thumb) mid = `<div class="scr tall"><img src="${A(j.thumb)}" alt=""></div>`;
+  else if (j.group === "needs") mid = `<div class="lcdline"><span class="g">${esc(j.state.toLowerCase())}</span><span class="v">${esc(j.link || "")}</span></div>`;
+  else if (j.thumb) mid = `<div class="scr"><img src="${A(j.thumb)}" alt=""></div>`;
+  const nub = j.group === "needs" ? '<i class="nub"></i>' : "";
+  return `<button class="card ${colour} ${j.group==="needs"?"":"mini"}" data-job="${j.id}">${nub}${jobTabs(j)}<i class="onmark"></i>${mid}
+    <div class="face"><div class="ttl">${esc(j.title)}</div><div class="sub"><span class="led ${led}"></span>${esc(j.state)}${j.shots && j.shots.length>1 ? ` · ${j.shots.length} versions` : ""}</div></div></button>`;
+}
+function renderJobs(){
+  document.getElementById("jobs").innerHTML = groups.map(([g, lbl]) => {
+    const js = D.jobs.filter(j => j.group === g);
+    return `<div class="grp"><div class="silk">${lbl} <span class="n">${js.length}</span></div>${js.map(jobCard).join("")}</div>`;
+  }).join("");
+  markActive();
+}
+function markActive(){
+  document.querySelectorAll("[data-job]").forEach(b => b.classList.toggle("on", b.dataset.job === activeId));
+}
+
+function screenHTML(j){
+  if (j.shots){
+    const i = ver[j.id], n = j.shots.length;
+    const lbl = j.shotLabels ? j.shotLabels[i] : null;
+    let name = "", desc = "";
+    if (lbl){ const m = lbl.match(/^V\d+\s·\s([^.]+)\.\s*(.*)$/); name = m ? m[1] : lbl; desc = m ? m[2] : ""; }
+    else { name = j.project; desc = j.state; }
+    const pick = j.pick === i ? `<span class="pk"><span class="led mt"></span>flyd's pick</span>` : `<span class="pk" style="color:rgba(239,233,218,.45)">flyd's pick is v${(j.pick??0)+1}</span>`;
+    return `<div class="pic"><img class="fade" id="shot" src="${A(j.shots[i])}" alt="${esc(lbl||j.title)}"></div>
+      <div class="ro fade" id="ro"><div class="row1"><span>version</span><span>${i+1} / ${n}</span></div>
+      <div class="big">v<i>${i+1}</i></div>
+      <div class="nm">${esc(name)}</div><div class="ds">${esc(desc)}</div>
+      <div class="meter">${j.shots.map((_,k)=>`<span class="${k===i?"on":""}"></span>`).join("")}</div>
+      ${n>1 || j.pick!==undefined ? pick : ""}</div>`;
+  }
+  const last = j.thread[j.thread.length-1];
+  return `<div class="ro code" style="grid-column:1/-1"><div class="row1"><span>${esc(j.project.toLowerCase())} · ${j.kind}</span><span>${esc(j.when)}</span></div>
+    <div class="big stt">${esc(j.state.toLowerCase())}</div>
+    <div class="ds" style="font-size:17px;max-width:46ch;margin-top:18px">${esc(last.text)}</div>
+    ${j.link ? `<span class="pk">${esc(j.link.toLowerCase())}</span>` : ""}</div>`;
+}
+function keysHTML(j){
+  let k = "";
+  if (j.shots && j.shots.length > 1){
+    k += `<div class="kgrp"><div class="lb">version</div><div class="krow">${j.shots.map((_,i)=>`<button class="key ${i===ver[j.id]?"sel":""}" data-v="${i}" aria-label="Version ${i+1}"><i class="ld"></i><span>${i+1}</span></button>`).join("")}</div></div>`;
+  }
+  k += `<span class="kspace"></span>`;
+  const acts = j.actions.map((a,i) => {
+    let label = a;
+    if (j.shots && j.shots.length>1 && /^Build V\d/.test(a)) label = "Build V" + (ver[j.id]+1);
+    return `<button class="act ${i===0?"or":""}" data-a="${i}"><span id="${i===0?"a0":""}">${esc(label)}</span></button>`;
+  }).join("");
+  k += `<div class="kgrp"><div class="lb">${j.group==="needs"?"your call":"action"}</div><div class="krow">${acts}</div></div>`;
+  return k;
+}
+function threadHTML(j){
+  return j.thread.map(m => `<div class="msg ${m.who==="flyd"?"f":"y"}"><div class="who"><b>${m.who}</b>${esc(m.at)}</div><p>${esc(m.text)}</p></div>`).join("");
+}
+function renderInst(){
+  const j = D.jobs.find(x => x.id === activeId);
+  const g = j.group === "needs" ? '<span class="t-or">needs you</span>' : j.group === "working" ? '<span class="t-bk">working</span>' : '<span class="t-mt">done</span>';
+  document.getElementById("inst").innerHTML = `<i class="nub"></i><i class="nub b"></i>
+   <div class="tabs">${g}<span class="t-pp">${esc(j.project)}</span><span class="${j.kind==="design"?"t-cr":"t-al"}">${j.kind}</span><span class="t-gr">active job</span><span class="sp"></span><span class="tm">${esc(j.when)}</span></div>
+   <div class="fade" id="instBody" style="display:flex;flex-direction:column;flex:1;min-height:0">
+    <div class="head"><div class="tx"><h1>${esc(j.title)}</h1><div class="st"><span><b>●</b> ${esc(j.state)}</span><span>${esc(j.project)}</span>${j.shots?`<span>${j.shots.length} ${j.shots.length>1?"versions":"take"}</span>`:""}</div></div><div class="grille"></div></div>
+    <div class="screen" id="screen">${screenHTML(j)}</div>
+    <div class="keys" id="keys">${keysHTML(j)}</div>
+    <div class="conv"><div class="thread" id="thread">${threadHTML(j)}</div>
+      <form class="slot" id="slot"><input id="msg" placeholder="Message Flyd about this job" autocomplete="off"><button class="send" aria-label="Send"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 7h9M7.5 3l4 4-4 4" stroke="#efeeea" stroke-width="1.6" fill="none"/></svg></button></form></div>
+   </div>`;
+  const th = document.getElementById("thread"); th.scrollTop = th.scrollHeight;
+}
+function fadeSwap(el, fn){
+  el.classList.add("out");
+  setTimeout(() => { fn(); requestAnimationFrame(() => requestAnimationFrame(() => { const n = document.getElementById("instBody"); n && n.classList.remove("out"); })); }, 200);
+}
+
+document.addEventListener("click", e => {
+  const card = e.target.closest("[data-job]");
+  if (card && card.dataset.job !== activeId){
+    activeId = card.dataset.job; markActive();
+    fadeSwap(document.getElementById("instBody"), () => { renderInst(); document.getElementById("instBody").classList.add("out"); });
+    if (innerWidth <= 1100) document.getElementById("inst").scrollIntoView({behavior:"smooth"});
+    return;
+  }
+  const k = e.target.closest("[data-v]");
+  if (k){
+    const j = D.jobs.find(x => x.id === activeId); const v = +k.dataset.v;
+    if (v === ver[j.id]) return;
+    ver[j.id] = v;
+    const s = document.getElementById("shot"), r = document.getElementById("ro");
+    s.classList.add("out"); r.classList.add("out");
+    document.querySelectorAll("[data-v]").forEach(b => b.classList.toggle("sel", +b.dataset.v === v));
+    const a0 = document.getElementById("a0"); if (a0 && /^Build V/.test(a0.textContent)) { a0.parentElement.classList.add("fade"); a0.textContent = "Build V" + (v+1); }
+    setTimeout(() => {
+      document.getElementById("screen").innerHTML = screenHTML(j);
+      const s2 = document.getElementById("shot"), r2 = document.getElementById("ro");
+      s2.classList.add("out"); r2.classList.add("out");
+      requestAnimationFrame(() => requestAnimationFrame(() => { s2.classList.remove("out"); r2.classList.remove("out"); }));
+    }, 200);
+  }
+});
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= 5){ const b = document.querySelector(`[data-v="${n-1}"]`); b && b.click(); }
+});
+document.addEventListener("submit", e => {
+  e.preventDefault();
+  const i = document.getElementById("msg"); const t = i.value.trim(); if (!t) return;
+  const j = D.jobs.find(x => x.id === activeId);
+  j.thread.push({ who: "you", at: "now", text: t }); i.value = "";
+  const th = document.getElementById("thread"); th.innerHTML = threadHTML(j); th.scrollTop = th.scrollHeight;
+});
+
+function renderArts(){
+  const designs = D.artefacts.filter(a => a.kind === "design");
+  const info = D.artefacts.find(a => a.kind === "info");
+  const news = D.artefacts.filter(a => a.kind === "news");
+  const dCard = (a, wide) => {
+    const [proj, rest] = a.meta.split(" · ");
+    return `<article class="card c-paper ${wide?"wide":""}"><div class="tabs"><span class="t-gr">design</span><span class="t-cr">${esc(proj)}</span><span class="sp"></span></div>
+      <div class="scr"><img src="${A(a.img)}" alt=""></div><div class="face"><div class="ttl">${esc(a.title)}</div><div class="mt">${esc(rest||"")}</div></div></article>`;
+  };
+  const nCard = a => `<article class="card c-cream"><div class="tabs"><span class="t-bk">news</span><span class="t-pp">${esc(a.meta)}</span><span class="sp"></span></div>
+      <div class="scr n"><img src="${A(a.img)}" alt=""></div><div class="face"><div class="ttl">${esc(a.title)}</div><div class="tx">${esc(a.text)}</div></div></article>`;
+  const num = (info.title.match(/\d+/)||[""])[0];
+  const iCard = `<article class="card c-alu wide"><div class="tabs"><span class="t-or">info</span><span class="t-pp">news today</span><span class="sp"></span><span class="tm">24 oct</span></div>
+      <div class="info"><div class="lcdn">${num}<small>picks</small></div><div><div class="ttl">${esc(info.title)}</div><div class="mt" style="margin-top:3px">${esc(info.meta)}</div><div class="tx" style="font-size:15px;margin-top:8px;color:var(--ink-2)">${esc(info.text)}</div></div></div></article>`;
+  document.getElementById("arts").innerHTML =
+    `<div class="grp"><div class="silk">finished designs <span class="n">${designs.length}</span></div><div class="agrid">${dCard(designs[0], true)}${designs.slice(1).map(a=>dCard(a)).join("")}</div></div>
+     <div class="grp"><div class="silk">news <span class="n">${news.length}</span></div><div class="agrid">${iCard}${news.map(nCard).join("")}</div></div>`;
+}
+renderJobs(); renderArts(); renderInst();
+</script>
+</body>
+</html>
