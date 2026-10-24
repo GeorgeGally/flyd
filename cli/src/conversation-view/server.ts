@@ -1717,8 +1717,9 @@ export class ConversationViewServer {
     const emit = () => {
       if (!latest) return;
       const current = this.islandRung.once(islandStatusOf(statusOf(latest), this.feed.current().fleet));
-      const ringing = this.notices.ringing();
-      const status = JSON.stringify({ session: session.id, ...current, ...(ringing ? { notice: { id: ringing.id, text: noticeLine(ringing) } } : {}) });
+      const found = this.notices.ringing();
+      const ringing = found ? this.islandRung.onceNotice({ id: found.id, text: noticeLine(found) }) : undefined;
+      const status = JSON.stringify({ session: session.id, ...current, ...(ringing ? { notice: ringing } : {}) });
       if (status === sent) return;
       sent = status;
       // What the island and the line under his message say, kept for Flyd's self-review.

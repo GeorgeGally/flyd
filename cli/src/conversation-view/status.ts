@@ -160,18 +160,31 @@ export class IslandRung {
   /** The status with any reply already rung removed; a first-seen reply is recorded and kept. */
   once(status: ConversationStatus): ConversationStatus {
     const id = status.reply?.id;
-    if (!id) return status;
-    if (this.ids.includes(id)) {
-      const { reply: _rung, ...rest } = status;
-      return rest;
-    }
+    if (!id || this.first(id)) return status;
+    const { reply: _rung, ...rest } = status;
+    return rest;
+  }
+
+  /**
+   * A notice rings once per wording: the sender re-posts the same ask under a
+   * new id every few minutes, so the id alone can't stop the repeat.
+   */
+  onceNotice<T extends { text: string }>(notice: T | undefined): T | undefined {
+    if (!notice) return undefined;
+    const key = `notice:${notice.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 160)}`;
+    return this.first(key) ? notice : undefined;
+  }
+
+  /** True the first time a key is seen (and records it). */
+  private first(id: string): boolean {
+    if (this.ids.includes(id)) return false;
     this.ids.push(id);
     if (this.ids.length > this.max) this.ids.splice(0, this.ids.length - this.max);
-    if (!this.file) return status;
+    if (!this.file) return true;
     try {
       mkdirSync(dirname(this.file), { recursive: true });
       writeFileSync(this.file, JSON.stringify(this.ids));
     } catch { /* best effort: worst case one more ring after a restart */ }
-    return status;
+    return true;
   }
 }
