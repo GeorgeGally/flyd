@@ -179,6 +179,8 @@ describe("IslandRung", () => {
     expect(rung.once(landIt).reply?.id).toBe("decision:land-it");
     expect(rung.once(truchet).reply).toBeUndefined();
     expect(new IslandRung(file).once(landIt).reply).toBeUndefined();
+    const refiled = { working: false, reply: { id: "decision:truchet-again", headline: "Truchet hero lab is ready to land", asks: true } };
+    expect(rung.once(refiled).reply).toBeUndefined();
     const ask = (id: string) => ({ id, text: "Truchet hero lab (Find-an-adviser) is ready to land on local CapFive main" });
     expect(rung.onceNotice(ask("n1"))?.id).toBe("n1");
     expect(rung.onceNotice(ask("n2"))).toBeUndefined();

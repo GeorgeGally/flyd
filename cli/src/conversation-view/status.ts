@@ -148,6 +148,11 @@ export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefac
  * minute or two. An id already sent is taken out of the feed; the record
  * survives restarts.
  */
+/** One key per wording, shared by replies and notices: the same ask rings once whichever path it takes. */
+function wordKey(text: string): string {
+  return `notice:${text.replace(/^needs you:\s*/i, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 160)}`;
+}
+
 export class IslandRung {
   private readonly ids: string[];
   // Tests keep the record in memory unless they name a file: never George's real one.
@@ -159,8 +164,13 @@ export class IslandRung {
 
   /** The status with any reply already rung removed; a first-seen reply is recorded and kept. */
   once(status: ConversationStatus): ConversationStatus {
-    const id = status.reply?.id;
-    if (!id || this.first(id)) return status;
+    const reply = status.reply;
+    if (!reply) return status;
+    // The same ask comes back re-filed as a new decision with a new id, so the
+    // wording counts as well as the id.
+    const worded = this.first(wordKey(reply.headline));
+    const fresh = this.first(reply.id) && worded;
+    if (fresh) return status;
     const { reply: _rung, ...rest } = status;
     return rest;
   }
@@ -171,8 +181,7 @@ export class IslandRung {
    */
   onceNotice<T extends { text: string }>(notice: T | undefined): T | undefined {
     if (!notice) return undefined;
-    const key = `notice:${notice.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 160)}`;
-    return this.first(key) ? notice : undefined;
+    return this.first(wordKey(notice.text)) ? notice : undefined;
   }
 
   /** True the first time a key is seen (and records it). */
