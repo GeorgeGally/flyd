@@ -21,8 +21,12 @@ export interface DomainRequest {
   intendedOutcome: string;
   doneWhen: string[];
   createdAt: string;
-  /** "view": George's own message from the conversation window's desk; the window itself shows its reply. */
-  source?: "chat" | "self-improvement" | "system" | "view";
+  /**
+   * "view": George's own message from the conversation window's desk; the window itself shows its reply.
+   * "flyd": Flyd's own note to the staff (a worker check-in, a call to close, a note about a task): never announced to
+   * George, never chased as a handoff of its own, and never a candidate for his live corrections.
+   */
+  source?: "chat" | "self-improvement" | "system" | "view" | "flyd";
   project?: { name?: string; root?: string };
   contextRefs?: string[];
   parentRequestId?: string;

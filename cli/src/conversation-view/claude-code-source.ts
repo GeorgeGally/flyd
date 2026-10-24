@@ -10,7 +10,7 @@ import { readProjects } from "../council/projects.js";
 import type { CrewProgress } from "./crew-progress.js";
 import { handoffLine, livened } from "./living.js";
 import { LineFollower } from "./line-follower.js";
-import { markRead, readUnacknowledged, unreadNotes } from "./note-receipts.js";
+import { markRead, readUnacknowledged } from "./note-receipts.js";
 import { ownWords, threaded } from "./replies.js";
 import { ElementShots } from "./element-shots.js";
 import { isHisImage, ReplyShots } from "./reply-shots.js";
@@ -508,23 +508,6 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     });
   }
 
-  /**
-   * Every note as the window would show it. When one looks unread, firstmate's
-   * live session is read first, so a note it answered in its own chat or its
-   * turn names counts as read even with no window open.
-   */
-  async heardExchanges(now = Date.now()): Promise<Exchange[]> {
-    const exchanges = this.exchanges();
-    if (!unreadNotes(exchanges, now)) return exchanges;
-    const live = await this.liveSession?.().catch(() => undefined);
-    if (!live) return exchanges;
-    try {
-      this.follow(live, () => {}).close();
-    } catch {
-      return exchanges;
-    }
-    return this.exchanges();
-  }
 
   /**
    * Firstmate's chat answers to the notes, with their screenshots kept. A

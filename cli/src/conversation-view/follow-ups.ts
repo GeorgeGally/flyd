@@ -3,11 +3,14 @@ import { outcomeFirst, spoken } from "./rail.js";
 import { clipKeepingLinks, inlineKeepingLinks } from "./line-links.js";
 import type { ConversationMessage, Exchange } from "./types.js";
 
-// Firstmate rarely answers a note with a formal `fm-inbox.sh reply`: it says
-// its answer in its own chat, in the turn that handled the note, and later
-// turns report the work done or landed. This finds, for each note, the latest
-// of those chat replies: the turn whose tool lines named the note, then any
-// later reply that is plainly about the same thing. Pure.
+// A note that opened a domain run (every message he sends now does) is
+// answered by firstmate's formal `fm-inbox.sh reply` on it, read from the
+// inbox's receipts. Firstmate sometimes says its answer only in its own chat,
+// in the turn that handled the note, and later turns report the work done or
+// landed: for such a run, once its receipt shows the note was taken up, this
+// finds the latest of those chat replies as the fallback: the turn whose tool
+// lines named the note, then any later reply plainly about the same thing.
+// One run's words are never another run's answer. Pure.
 
 /** Shorter than this, a reply is "shipshape" chatter, never an answer. */
 const MIN_REPLY_CHARS = 40;
@@ -138,6 +141,18 @@ export function followUps(exchanges: Exchange[], messages: ConversationMessage[]
     return best ? [{ exchange: best.exchange, text: message.text.includes("\n") ? part : message.text }] : [];
   };
   const found: Record<string, ConversationMessage> = {};
+  // A note that opened a domain run is settled by firstmate's formal reply on it; its own chat is only the fallback,
+  // and only once the receipts show firstmate took the note up. Words firstmate filed as one note's formal reply are
+  // that note's, so its chat repeating them is never another note's answer.
+  const formalOwner = new Map<string, string>();
+  for (const exchange of exchanges) {
+    if (exchange.answer?.id.startsWith("note-reply:")) formalOwner.set(exchange.answer.text.trim(), exchange.question.id);
+  }
+  const mayAnswer = (exchange: Exchange, message: ConversationMessage): boolean => {
+    if (exchange.question.run && exchange.handoff !== "taken") return false;
+    const owner = formalOwner.get(inFlydsVoice(message.text).trim());
+    return !owner || owner === exchange.question.id;
+  };
   // A turn that took in the outcome of crew work a note started reports on that note, when one of its sentences
   // shares two words with the note or with what firstmate said of the work when it took the note.
   const reported = (message: ConversationMessage): Array<{ exchange: Exchange; text: string }> => (message.reports ?? [])
@@ -157,22 +172,31 @@ export function followUps(exchanges: Exchange[], messages: ConversationMessage[]
     const answered = message.notes?.length
       ? handled.map((id) => ({ exchange: byNote.get(id)!, text: message.text }))
       : fromCrew.length ? fromCrew : OUTCOME.test(message.text) ? bestNote(message) : [];
-    for (const { exchange, text } of answered) found[exchange.question.id] = answerFrom(message, exchange, text);
+    for (const { exchange, text } of answered) if (mayAnswer(exchange, message)) found[exchange.question.id] = answerFrom(message, exchange, text);
   }
   // A note taken with others, its id never named again: the first reply firstmate settled after taking it.
   const settled = (working && messages.at(-1)?.role === "assistant" ? replies.filter((message) => message !== messages.at(-1)) : replies)
     .filter((message) => !message.wake)
     .map((message) => ({ message, at: Date.parse(message.timestamp ?? "") }));
+  const batch: Array<{ exchange: Exchange; index: number; reply: ConversationMessage }> = [];
   notes.forEach((exchange, index) => {
     if (found[exchange.question.id] || exchange.answer || !exchange.takenAt) return;
     const taken = Date.parse(exchange.takenAt);
     const own = exchange.question.id.slice("note:".length);
     const reply = settled.find(({ message, at }) => at >= taken && (!message.notes?.length || message.notes.includes(own)))?.message;
-    if (!reply) return;
+    if (reply && mayAnswer(exchange, reply)) batch.push({ exchange, index, reply });
+  });
+  // One untagged report shared by several runs' notes answers a run only where a line of it is plainly about that run:
+  // a report about one run is never another run's answer.
+  const runsPerReply = new Map<ConversationMessage, number>();
+  for (const { exchange, reply } of batch) if (exchange.question.run) runsPerReply.set(reply, (runsPerReply.get(reply) ?? 0) + 1);
+  for (const { exchange, index, reply } of batch) {
+    const shared = exchange.question.run && (runsPerReply.get(reply) ?? 0) > 1;
+    if (shared && aboutQuestion(topics[index]!, parsed(reply).sentences).share === 0) continue;
     // The report covers the batch it took, so the line naming most of this note's words is its part.
     const line = reply.text.includes("\n") ? mostAbout(topics[index]!, parsed(reply).sentences) : -1;
     found[exchange.question.id] = answerFrom(reply, exchange, line >= 0 ? excerpt(reply.text, line) : reply.text);
-  });
+  }
   return found;
 }
 
@@ -224,6 +248,8 @@ export function withFollowUps(exchanges: Exchange[], found: Record<string, Conve
   const merged = exchanges.map((exchange) => {
     const chat = found[exchange.question.id];
     if (!chat) return exchange;
+    // A run's note firstmate has not taken up has no answer but its formal reply, whatever its chat said.
+    if (exchange.question.run && exchange.handoff !== "taken" && !exchange.answer) return exchange;
     const formal = exchange.answer ? Date.parse(exchange.answer.timestamp ?? "") : Number.NaN;
     // A note that opened a domain run is answered by its run's own reply; chat matched by topic words is only the fallback.
     const runReply = Boolean(exchange.question.run && exchange.answer?.id.startsWith("note-reply:"));

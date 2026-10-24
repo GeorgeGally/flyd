@@ -255,6 +255,8 @@ describe("Flyd's watch on its coding staff", () => {
 
     // Even when the note cannot be left, a staff wait is Flyd's to chase, not George's to hear.
     rmSync(join(dir, "staff-monitor.json"));
+    // ...and with no record of the first check-in's run, so the same check-in is not a replay.
+    rmSync(join(dir, "runs"), { recursive: true, force: true });
     noteSaved = false;
     const watch = monitor(() => now, { notify: async (_title, message) => { told.push(message); } });
     expect((await watch.tick())!.concerns[0]!.nudgedAt).toBeUndefined();
@@ -279,8 +281,8 @@ describe("Flyd's watch on its coding staff", () => {
       ["worker_stopped", "There has been no word on \"Footer fix\" for 31 min."],
     ]);
     expect(notes.map((item) => item.input)).toEqual([
-      expect.stringMatching(/^FLYD CHECK-IN: worker admin stopped \(failed\) at .*\nRetry or repair it/),
-      expect.stringMatching(/^FLYD CHECK-IN: worker footer stopped \(no word\) at /),
+      expect.stringMatching(/^FLYD NOTE \(request flyd-staff-check-[0-9a-f]{16}; Flyd's own note, not George's wording\)\nFLYD CHECK-IN: worker admin stopped \(failed\) at .*\nRetry or repair it[\s\S]*DONE WHEN:[\s\S]*RETURN CONTRACT: reply to this note/),
+      expect.stringMatching(/\nFLYD CHECK-IN: worker footer stopped \(no word\) at /),
     ]);
     now += RENUDGE_MS + MIN;
     await watch.tick();

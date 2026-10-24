@@ -1,12 +1,13 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
-import { firstmateHome } from "../lib/firstmate-home.js";
+import { firstmateHome, firstmateInboxScript } from "../lib/firstmate-home.js";
 // Type-only: the page bundle imports this module, and the command layer is loaded when a message is sent.
-import type { FirstmateDomainTransport, FirstmateExec } from "../command/firstmate.js";
+import type { FirstmateDomainTransport, FirstmateExec, FlydNote } from "../command/firstmate.js";
 import type { DomainRequest, DomainRun } from "../command/types.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handoffLine } from "./living.js";
+import { ownWords, readReply } from "./replies.js";
 import { forCaptain, pullRequestsIn } from "./status.js";
 import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage } from "./types.js";
 
@@ -71,9 +72,10 @@ export function deskDoneWhen(command?: string): string[] {
 }
 
 /** The domain request one desk message opens: his words whole as the original, under the request's own id. */
-export function deskRequest(input: { text: string; command?: string; attachments?: string[]; now?: Date }): DomainRequest {
+export function deskRequest(input: { text: string; command?: string; attachments?: string[]; parentRequestId?: string; now?: Date }): DomainRequest {
   const words = input.text.trim();
-  const first = words.split("\n").find((line) => line.trim())?.trim() ?? "";
+  // A reply's first line says what it answers; what it asks for is his own words under it.
+  const first = ownWords(words).split("\n").find((line) => line.trim())?.trim() ?? "";
   const outcome = input.command
     ? `Run /${input.command} as George typed it`
     : first
@@ -88,6 +90,7 @@ export function deskRequest(input: { text: string; command?: string; attachments
     createdAt: (input.now ?? new Date()).toISOString(),
     source: "view",
     ...(input.attachments?.length ? { contextRefs: input.attachments } : {}),
+    ...(input.parentRequestId ? { parentRequestId: input.parentRequestId } : {}),
   };
 }
 
@@ -98,6 +101,7 @@ export function contractBlock(request: DomainRequest): string {
     "DONE WHEN:",
     ...request.doneWhen.map((point, index) => `${index + 1}. ${point}`),
     "When this reaches a stable outcome or needs his decision, reply to this note (fm-inbox.sh reply). Plain prose is fine: say plainly whether it is done (and what changed), needs his decision (with your recommendation), failed (and why), or still under way (and what is next). Flyd shows your reply under his message and settles the request from it.",
+    ...(request.parentRequestId ? [`Follow-up to prior Flyd domain run: ${request.parentRequestId}`] : []),
     "--- end of Flyd's return contract ---",
   ].join("\n");
 }
@@ -179,7 +183,13 @@ function parseRecord(file: string): { header: Map<string, string>; body: string 
   return { header, body: raw.slice(split + 4).replace(/\n$/, "") };
 }
 
-function parseNote(file: string, imagesDir: string, filesDir: string): ConversationMessage | null {
+/** A message on one of his runs (a chase, a decision passed on): `<run id>:<kind>:<digest>`. */
+const RUN_MESSAGE = /^(desk-[A-Za-z0-9-]{8,80}):[a-z_]+:[0-9a-f]+$/;
+
+/** A note as the window reads it: one of his, a message Flyd sent on one of his runs (never shown), or nothing to show. */
+type ParsedNote = ConversationMessage | { onRun: string; noteId: string } | null;
+
+function parseNote(file: string, imagesDir: string, filesDir: string): ParsedNote {
   const record = parseRecord(file);
   if (!record) return null;
   // Flyd's command layer writes its domain-run requests and follow-ups into
@@ -188,8 +198,11 @@ function parseNote(file: string, imagesDir: string, filesDir: string): Conversat
   // something he typed.
   const requestId = record.header.get("request_id") ?? "";
   if (/^(?:domain|flyd)-/.test(requestId)) return null;
-  const run = DESK_REQUEST.test(requestId) ? requestId : undefined;
   const id = record.header.get("id");
+  // Flyd's message on one of his runs is not his words; firstmate's reply to it is still that run's answer.
+  const onRun = RUN_MESSAGE.exec(requestId)?.[1];
+  if (onRun) return id ? { onRun, noteId: id } : null;
+  const run = DESK_REQUEST.test(requestId) ? requestId : undefined;
   const at = record.header.get("at");
   const images: string[] = [];
   const files: string[] = [];
@@ -230,25 +243,37 @@ export class FirstmateInbox implements CaptainInbox {
    * only moves a note into handled/ under the same name, and records one
    * reply per note. So each file is read once.
    */
-  private readonly parsed = new Map<string, ConversationMessage | null>();
+  private readonly parsed = new Map<string, ParsedNote>();
   private readonly parsedReplies = new Map<string, ConversationMessage | null>();
   private sorted: Exchange[] = [];
   private listingKey = "";
   private readonly exec?: FirstmateExec;
-  /** The one client for firstmate's inbox (the command layer's transport): his messages go through it as domain runs. */
-  private readonly transport?: FirstmateDomainTransport;
+  /**
+   * The one client for firstmate's inbox (the command layer's transport): his messages and Flyd's own notes
+   * all go through it as domain runs. This class only reads the inbox's files back.
+   */
+  private transport?: FirstmateDomainTransport;
 
   constructor(options: { home?: string; script?: string; exec?: FirstmateExec; transport?: FirstmateDomainTransport } = {}) {
-    this.home = options.home ?? firstmateHome();
-    this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
+    this.home = options.home ?? options.transport?.home ?? firstmateHome();
+    this.script = options.script ?? options.transport?.script ?? firstmateInboxScript(this.home);
     this.exec = options.exec;
     this.transport = options.transport;
   }
 
-  /** The command layer, loaded on first send; the same exec runs Flyd's own notes and the transport. */
-  private async client(): Promise<{ exec: FirstmateExec; Transport: typeof FirstmateDomainTransport; stdoutOf: (error: unknown) => string }> {
-    const command = await import("../command/firstmate.js");
-    return { exec: this.exec ?? command.defaultFirstmateExec, Transport: command.FirstmateDomainTransport, stdoutOf: command.firstmateStdout };
+  /** The command layer's transport, loaded on first send. */
+  private async client(): Promise<FirstmateDomainTransport> {
+    if (this.transport) return this.transport;
+    const { FirstmateDomainTransport: Transport } = await import("../command/firstmate.js");
+    this.transport = new Transport({ home: this.home, script: this.script, ...(this.exec ? { exec: this.exec } : {}) });
+    return this.transport;
+  }
+
+  /** The run a reply to one of his earlier messages follows up: the run that message opened, if it opened one. */
+  private parentRun(text: string): string | undefined {
+    const { replyTo } = readReply({ id: "", role: "user", text });
+    if (!replyTo?.startsWith("note:")) return undefined;
+    return this.notes().find((exchange) => exchange.question.id === replyTo)?.question.run;
   }
 
   available(): boolean {
@@ -313,42 +338,32 @@ export class FirstmateInbox implements CaptainInbox {
   }
 
   /**
-   * Flyd's own note to firstmate, under a request id that makes it
-   * idempotent (a repeat is a replay, not a second note) and keeps it out of
-   * his window: it is never something he said.
+   * Flyd's own note to firstmate, as a domain run of its own through the command layer's transport, under a
+   * request id that makes it idempotent (a repeat is a replay, not a second note) and keeps it out of his
+   * window: it is never something he said, though it may carry his words (`about.georgesWords`).
    */
-  sendOwn(text: string, requestId: string): Promise<void> {
-    return this.deliverOwn(text, requestId).then(() => undefined);
-  }
-
-  /** Whether firstmate replayed a note it already held under this request id rather than taking a new one. */
-  private async deliverOwn(text: string, requestId: string): Promise<{ replayed: boolean }> {
-    if (!/^flyd-[A-Za-z0-9._:-]{1,120}$/.test(requestId)) throw new Error("Flyd's own notes need a flyd- request id");
-    const { exec, stdoutOf } = await this.client();
-    let stdout: string;
-    let detail = "";
+  async sendOwn(text: string, requestId: string, about: Omit<FlydNote, "requestId" | "body">): Promise<{ replayed: boolean }> {
+    const transport = await this.client();
     try {
-      ({ stdout } = await exec(this.script, ["note", "--request-id", requestId, "-"], { env: { ...process.env, FM_HOME: this.home }, input: text.trim().slice(0, MAX_NOTE_CHARS), timeout: SEND_TIMEOUT_MS }));
+      const { replayed } = await transport.sendFlydNote({ ...about, requestId, body: text.trim().slice(0, MAX_NOTE_CHARS) });
+      return { replayed };
     } catch (error) {
-      stdout = stdoutOf(error);
-      detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`firstmate did not take Flyd's note: ${(error instanceof Error ? error.message : String(error)).trim().split("\n").pop() || "no note id returned"}`);
     }
-    // Saved (or replayed) is delivered: a failed wake after that is firstmate's to repair.
-    if (/^(?:queued|replay)\b/m.test(stdout)) return { replayed: /^replay\b/m.test(stdout) };
-    throw new Error(`firstmate did not take Flyd's note: ${detail.trim().split("\n").pop() || "no note id returned"}`);
   }
 
   /** Flyd's note about one task, keyed on the task and the note so the inbox takes each note at most once per task. */
   async sendTaskNote(taskId: string, text: string): Promise<{ requestId: string; replayed: boolean }> {
     const note = text.startsWith(`Task ${taskId}.`) ? text : `Task ${taskId}. ${text}`;
     const requestId = `flyd-task-${taskId.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 80)}-${createHash("sha256").update(note).digest("hex").slice(0, 16)}`;
-    const { replayed } = await this.deliverOwn(note, requestId);
+    const { replayed } = await this.sendOwn(note, requestId, { outcome: `Act on Flyd's note about task ${taskId}`, contextRefs: [`task:${taskId}`] });
     return { requestId, replayed };
   }
 
   /**
    * His message to firstmate as a domain run: `fm-inbox.sh note --request-id desk-… --json -`
    * through the command layer's transport, with the text on stdin (no shell, no interpolation).
+   * A reply to one of his earlier messages is a follow-up: its run names that message's run as its parent.
    */
   async send(text: string, images: ImageUpload[] = [], command?: string, files: FileUpload[] = [], brief?: string): Promise<SentMessage> {
     const typed = text.trim();
@@ -357,14 +372,14 @@ export class FirstmateInbox implements CaptainInbox {
     const paths = this.saveImages(images);
     const filePaths = this.saveFiles(files);
     const attached = [...paths.map((path) => `[image: ${path}]`), ...filePaths.map((path) => `[file: ${path}]`)].join("\n");
-    const request = deskRequest({ text: typed, ...(command ? { command } : {}), attachments: [...paths, ...filePaths] });
+    const parentRequestId = this.parentRun(typed);
+    const request = deskRequest({ text: typed, ...(command ? { command } : {}), attachments: [...paths, ...filePaths], ...(parentRequestId ? { parentRequestId } : {}) });
     const body = [typed, attached, brief?.trim() ? briefBlock(brief) : "", command ? commandMarker(command) : "", contractBlock(request)]
       .filter(Boolean)
       .join("\n\n");
-    const client = await this.client();
+    const transport = await this.client();
     // Saved is sent: a wake that failed after the note was saved must not read as "not sent", or a resend would duplicate it.
     let warning = "";
-    const transport = this.transport ?? new client.Transport({ home: this.home, script: this.script, exec: client.exec });
     let run: DomainRun;
     try {
       run = await transport.submit(request, "FirstMate", { body, onSavedDespite: (detail) => { warning = detail; } });
@@ -410,14 +425,27 @@ export class FirstmateInbox implements CaptainInbox {
     }
     const replyFor = new Map<string, ConversationMessage>();
     for (const reply of this.parsedReplies.values()) if (reply?.answers) replyFor.set(reply.answers, reply);
+    // Firstmate answers each note once, so a run's later word comes on Flyd's message notes on that run:
+    // the newest formal reply on any of the run's own notes is its answer, and never another run's.
+    const runReply = new Map<string, ConversationMessage>();
+    for (const parsed of this.parsed.values()) {
+      if (!parsed || !("onRun" in parsed)) continue;
+      const reply = replyFor.get(`note:${parsed.noteId}`);
+      const held = runReply.get(parsed.onRun);
+      if (reply && (!held || Date.parse(reply.timestamp ?? "") > Date.parse(held.timestamp ?? ""))) runReply.set(parsed.onRun, reply);
+    }
+    const newest = (a: ConversationMessage | undefined, b: ConversationMessage | undefined): ConversationMessage | undefined =>
+      !a ? b : !b ? a : Date.parse(b.timestamp ?? "") > Date.parse(a.timestamp ?? "") ? b : a;
     this.sorted = [...this.parsed.entries()]
-      .filter((entry): entry is [string, ConversationMessage] => entry[1] !== null)
+      .filter((entry): entry is [string, ConversationMessage] => entry[1] !== null && !("onRun" in entry[1]))
       .map(([name, parsed]): Exchange => {
         const path = present.get(name)!;
         // Acknowledged (`drain --ack`) is a move into handled/: the one signal that firstmate read it.
         const read = path.startsWith(`${handled}/`);
         const question: ConversationMessage = { ...parsed, receipt: read ? "read" : "sent" };
-        const answer = replyFor.get(question.id);
+        const later = parsed.run ? runReply.get(parsed.run) : undefined;
+        const found = newest(replyFor.get(question.id), later);
+        const answer = found && found.answers !== question.id ? { ...found, answers: question.id } : found;
         if (answer) return { question, answer, waiting: "" };
         const handoff = read ? "taken" : "queued";
         // Taking a note is a rename into handled/, which stamps the file's ctime.

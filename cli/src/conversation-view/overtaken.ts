@@ -40,8 +40,8 @@ export function closeNote(row: ArtefactRow, why: string): string {
 /** Flyd's check of calls against the staff's record of their tasks. */
 export class OvertakenCalls implements OvertakenCheck {
   constructor(private readonly options: {
-    /** Tells the staff to close an overtaken call, as Flyd's own note. */
-    send: (note: string, requestId: string) => Promise<unknown>;
+    /** Tells the staff to close an overtaken call on `task`, as Flyd's own note. */
+    send: (note: string, requestId: string, task: string) => Promise<unknown>;
   }) {}
 
   check(entry: BacklogEntry | undefined): string | undefined {
@@ -52,6 +52,6 @@ export class OvertakenCalls implements OvertakenCheck {
     if (!row.task) return;
     // The request id makes the note idempotent: a restart that finds the same call again sends nothing new;
     // the call reopened under the same task is raised again, and gets its own.
-    await this.options.send(closeNote(row, why), `flyd-close-${callId(row)}`.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 125));
+    await this.options.send(closeNote(row, why), `flyd-close-${callId(row)}`.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 125), row.task);
   }
 }

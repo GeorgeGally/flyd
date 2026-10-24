@@ -2,7 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, truncateSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { firstmateHome } from "../lib/firstmate-home.js";
+import { firstmateHome, firstmateInboxScript } from "../lib/firstmate-home.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { codexPathCandidates } from "../runtime/codex-adapter.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
@@ -77,17 +77,75 @@ export interface FirstmateReadiness {
   reason?: string;
 }
 
+/** What `fm-inbox.sh note --json` printed: the note's id, whether it is saved, and whether it replayed one already held. */
+interface NoteReceipt {
+  id?: string;
+  saved?: boolean;
+  acknowledged?: boolean;
+  outcome?: string;
+}
+
+/** Flyd's own notes go under `flyd-…` request ids: idempotent, and never shown in George's window as his words. */
+const FLYD_NOTE_ID = /^flyd-[A-Za-z0-9._:-]{1,120}$/;
+
+/**
+ * Flyd's own note to FirstMate that no run of George's carries (a worker check-in, a call to close, his answer to a
+ * recorded decision whose run is no longer open, a note about a task the staff runs): still a DomainRun of its own.
+ */
+export interface FlydNote {
+  /** `flyd-…`: the same id again is a replay, never a second note. */
+  requestId: string;
+  /** What Flyd tells the staff, in its own words. */
+  body: string;
+  /** What the note is for, in a few words. */
+  outcome: string;
+  /** George's own words the note carries, verbatim, when it carries any: they become the run's original message. */
+  georgesWords?: string;
+  doneWhen?: string[];
+  /** The run this note follows up, when it is about one. */
+  parentRequestId?: string;
+  contextRefs?: string[];
+}
+
+const FLYD_NOTE_DONE_WHEN = [
+  "the note is acted on within the authority you already have",
+  "what you did, or why you could not, is replied to this note",
+];
+
+/** Flyd's own note, marked as Flyd's, with George's words (when it carries any), what done means and the return contract under it. Pure. */
+export function flydNoteBody(request: DomainRequest, body: string): string {
+  const words = request.originalMessage !== body ? ["", "GEORGE'S OWN WORDS — preserve this wording as authority:", request.originalMessage] : [];
+  return [
+    `FLYD NOTE (request ${request.id}; Flyd's own note, not George's wording)`,
+    body,
+    ...words,
+    ...(request.parentRequestId ? ["", `Follow-up to prior Flyd domain run: ${request.parentRequestId}`] : []),
+    "",
+    "DONE WHEN:",
+    ...request.doneWhen.map((point, index) => `${index + 1}. ${point}`),
+    "",
+    "RETURN CONTRACT: reply to this note (fm-inbox.sh reply) with what you did. Plain prose is fine: done (and what changed), needs George's decision (with your recommendation), failed (and why), or still under way (and what is next).",
+  ].join("\n");
+}
+
+/**
+ * The one client for FirstMate's inbox. Every note Flyd sends, and every readiness and receipt read, goes through
+ * here; nothing else in Flyd runs `bin/fm-inbox.sh`.
+ */
 export class FirstmateDomainTransport {
   readonly home: string;
   readonly script: string;
 
-  constructor(options: { home?: string; script?: string; exec?: FirstmateExec } = {}) {
+  constructor(options: { home?: string; script?: string; exec?: FirstmateExec; dir?: string } = {}) {
     this.home = options.home ?? firstmateHome();
-    this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
+    this.script = options.script ?? firstmateInboxScript(this.home);
     this.exec = options.exec ?? defaultFirstmateExec;
+    this.dir = options.dir;
   }
 
   private readonly exec: FirstmateExec;
+  /** Where the runs it opens are kept (default commandDir()). */
+  private readonly dir?: string;
 
   available(): boolean {
     return existsSync(this.script) || this.exec !== defaultFirstmateExec;
@@ -97,11 +155,16 @@ export class FirstmateDomainTransport {
     return { ...process.env, FM_HOME: this.home };
   }
 
+  /** `fm-inbox.sh ready` as the script printed it; throws when it cannot be read. */
+  async readyReport(): Promise<unknown> {
+    const { stdout } = await this.exec(this.script, ["ready"], { env: this.env(), timeout: 5_000 });
+    return JSON.parse(stdout) as unknown;
+  }
+
   async ready(): Promise<FirstmateReadiness> {
     if (!this.available()) return { available: false, canReceive: false, reason: "FirstMate inbox is not installed" };
     try {
-      const { stdout } = await this.exec(this.script, ["ready"], { env: this.env(), timeout: 5_000 });
-      const parsed = JSON.parse(stdout) as { can_receive?: boolean | "unknown"; lock?: { live_harness?: boolean }; wake_consumer?: { reason?: string } };
+      const parsed = await this.readyReport() as { can_receive?: boolean | "unknown"; lock?: { live_harness?: boolean }; wake_consumer?: { reason?: string } };
       return {
         available: true,
         canReceive: parsed.can_receive === true ? true : parsed.can_receive === false ? false : "unknown",
@@ -120,13 +183,17 @@ export class FirstmateDomainTransport {
    * error of a note that was saved though the script then failed (its wake).
    */
   async submit(request: DomainRequest, owner = "FirstMate", options: { body?: string; onSavedDespite?: (detail: string) => void } = {}): Promise<DomainRun> {
-    if (request.domain !== "coding") throw new Error("FirstMate currently owns only the coding domain");
-    const readiness = await this.ready();
-    if (!readiness.available) throw new Error(readiness.reason ?? "FirstMate is unavailable");
-    const body = options.body ?? firstmateRequestBody(request);
+    return (await this.handOff(request, owner, options)).run;
+  }
+
+  /**
+   * The one `fm-inbox.sh note` call: the body on stdin under its request id. A note saved though its wake
+   * then failed still counts (`onSavedDespite` hears why).
+   */
+  private async note(requestId: string, body: string, onSavedDespite?: (detail: string) => void): Promise<NoteReceipt> {
     let stdout = "";
     try {
-      ({ stdout } = await this.exec(this.script, ["note", "--request-id", request.id, "--json", "-"], {
+      ({ stdout } = await this.exec(this.script, ["note", "--request-id", requestId, "--json", "-"], {
         env: this.env(),
         input: body,
         timeout: 20_000,
@@ -135,15 +202,43 @@ export class FirstmateDomainTransport {
       // A saved request may return a non-zero exit when only the wake failed.
       stdout = firstmateStdout(error);
       if (!stdout.trim()) throw error;
-      options.onSavedDespite?.((error instanceof Error ? error.message : String(error)).trim().split("\n").pop() ?? "");
+      onSavedDespite?.((error instanceof Error ? error.message : String(error)).trim().split("\n").pop() ?? "");
     }
-    const receipt = JSON.parse(stdout) as {
-      id?: string;
-      saved?: boolean;
-      acknowledged?: boolean;
-      outcome?: string;
+    return JSON.parse(stdout) as NoteReceipt;
+  }
+
+  /**
+   * Flyd's own note that no run of George's carries, as a DomainRun of its own (see FlydNote): its words,
+   * done_when and the return contract on the note. The same request id again is a replay, never a second note.
+   */
+  async sendFlydNote(note: FlydNote): Promise<{ run: DomainRun; replayed: boolean }> {
+    if (!FLYD_NOTE_ID.test(note.requestId)) throw new Error("Flyd's own notes need a flyd- request id");
+    const body = note.body.trim();
+    if (!body) throw new Error("Empty note");
+    const request: DomainRequest = {
+      id: note.requestId,
+      domain: "coding",
+      originalMessage: note.georgesWords?.trim() || body,
+      intendedOutcome: note.outcome.trim() || body.split("\n")[0]!.slice(0, 200),
+      doneWhen: note.doneWhen?.length ? note.doneWhen : FLYD_NOTE_DONE_WHEN,
+      createdAt: new Date().toISOString(),
+      source: "flyd",
+      ...(note.parentRequestId ? { parentRequestId: note.parentRequestId } : {}),
+      ...(note.contextRefs?.length ? { contextRefs: note.contextRefs } : {}),
     };
+    return this.handOff(request, "FirstMate", { body: flydNoteBody(request, body) });
+  }
+
+  /** As `submit`, also saying whether the request was handed over before (its run is on record, or the inbox replayed it). */
+  private async handOff(request: DomainRequest, owner: string, options: { body?: string; onSavedDespite?: (detail: string) => void }): Promise<{ run: DomainRun; replayed: boolean }> {
+    if (request.domain !== "coding") throw new Error("FirstMate currently owns only the coding domain");
+    const existing = readDomainRun(request.id, this.dir);
+    if (existing?.transport.kind === "firstmate" && existing.transport.externalId) return { run: existing, replayed: true };
+    const readiness = await this.ready();
+    if (!readiness.available) throw new Error(readiness.reason ?? "FirstMate is unavailable");
+    const receipt = await this.note(request.id, options.body ?? firstmateRequestBody(request), options.onSavedDespite);
     if (!receipt.id || receipt.saved !== true) throw new Error("FirstMate did not durably accept the request");
+    const replayed = receipt.outcome === "replay";
 
     const now = new Date().toISOString();
     const run: DomainRun = {
@@ -155,12 +250,12 @@ export class FirstmateDomainTransport {
       updatedAt: now,
       transport: { kind: "firstmate", requestId: request.id, externalId: receipt.id },
     };
-    saveDomainRun(run);
+    saveDomainRun(run, this.dir);
     if (!receipt.acknowledged) {
-      const session = await this.startSession(readiness, (failure) => suspendFirstmateRun(run, failure));
-      if (session.failure) return suspendFirstmateRun(run, session.failure);
+      const session = await this.startSession(readiness, (failure) => suspendFirstmateRun(run, failure, Date.now(), this.dir));
+      if (session.failure) return { run: suspendFirstmateRun(run, session.failure, Date.now(), this.dir), replayed };
     }
-    return run;
+    return { run, replayed };
   }
 
   async sendMessage(run: DomainRun, message: DomainMessage): Promise<{ externalId: string }> {
@@ -177,16 +272,7 @@ export class FirstmateDomainTransport {
       "",
       "Reply to this note (fm-inbox.sh reply) with the run's new state under the original request's return contract: status (completed|needs_decision|failed), brief, and the rest. Flyd reads the newest reply as the run's outcome.",
     ].join("\n");
-    let stdout = "";
-    try {
-      ({ stdout } = await this.exec(this.script, ["note", "--request-id", message.id, "--json", "-"], {
-        env: this.env(), input: body, timeout: 20_000,
-      }));
-    } catch (error) {
-      stdout = firstmateStdout(error);
-      if (!stdout.trim()) throw error;
-    }
-    const receipt = JSON.parse(stdout) as { id?: string; saved?: boolean };
+    const receipt = await this.note(message.id, body);
     if (!receipt.id || receipt.saved !== true) throw new Error("FirstMate did not durably accept the domain message");
     return { externalId: receipt.id };
   }
@@ -494,8 +580,8 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
   });
 }
 
-function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now()): DomainRun {
-  const current = readDomainRun(run.id) ?? run;
+function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now(), dir?: string): DomainRun {
+  const current = readDomainRun(run.id, dir) ?? run;
   if (["completed", "failed", "cancelled"].includes(current.status)) return current;
   const attempts = (current.launchRetry?.attempts ?? 0) + 1;
   const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
@@ -505,7 +591,7 @@ function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, n
     launchRetry: { attempts, nextAt: new Date(nowMs + delay).toISOString() },
     updatedAt: new Date(nowMs).toISOString(),
   };
-  saveDomainRun(suspended);
+  saveDomainRun(suspended, dir);
   return suspended;
 }
 
@@ -735,7 +821,8 @@ export async function syncFirstmateDomainRuns(options: {
     }
     if (JSON.stringify(next) === JSON.stringify(run)) continue;
     saveDomainRun(next);
-    if (statusUnclear && !next.statusAskedAt) next = await askForAClearStatus(next, unclearFrom, transport, (options.now ?? (() => new Date()))());
+    // Flyd's own notes (check-ins, closes) settle from their reply, but are never chased for a clearer one.
+    if (statusUnclear && !next.statusAskedAt && next.request.source !== "flyd") next = await askForAClearStatus(next, unclearFrom, transport, (options.now ?? (() => new Date()))());
     changed.push(next);
     await options.onChanged?.(next);
   }

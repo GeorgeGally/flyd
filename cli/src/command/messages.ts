@@ -6,7 +6,8 @@ import type { DomainId, DomainMessage, DomainMessageKind, DomainRun } from "./ty
 const ACTIVE = new Set(["queued", "accepted", "working", "needs_decision"]);
 
 export function activeDomainRuns(domain?: DomainId): DomainRun[] {
-  return listDomainRuns().filter((run) => ACTIVE.has(run.status) && (!domain || run.request.domain === domain));
+  // Flyd's own notes to the staff are not work George's corrections could be about.
+  return listDomainRuns().filter((run) => ACTIVE.has(run.status) && run.request.source !== "flyd" && (!domain || run.request.domain === domain));
 }
 
 function messageId(run: DomainRun, kind: DomainMessageKind, body: string): string {

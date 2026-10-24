@@ -8,7 +8,6 @@ import { FirstmateDomainTransport, syncFirstmateDomainRuns, type FirstmateExec }
 import { notifyRun } from "../../command/scheduler.js";
 import { listDomainRuns, readDomainRun } from "../../command/store.js";
 import type { FlydDesk } from "../flyd-desk.js";
-import { unreadNotes } from "../note-receipts.js";
 import type { ConversationSnapshot } from "../types.js";
 import { assistantText, captain } from "./transcript-fixture.js";
 
@@ -57,29 +56,46 @@ afterEach(() => {
 });
 
 describe("FirstmateInbox", () => {
-  it("takes Flyd's note about a task once, however often the task's status text changes", async () => {
+  it("takes Flyd's note about a task once, however often the task's status text changes, as a run of its own", async () => {
     // fm-inbox.sh replays a request id it already holds instead of queuing it again.
     const script = writeScript("fm-inbox.sh", `#!/usr/bin/env bash
 set -euo pipefail
-[ "$1" = "note" ] && [ "$2" = "--request-id" ] && [ "$4" = "-" ] || exit 2
+[ "$1" = "ready" ] && { echo '{"can_receive":true,"lock":{"live_harness":true}}'; exit 0; }
+[ "$1" = "note" ] && [ "$2" = "--request-id" ] && [ "$4" = "--json" ] && [ "$5" = "-" ] || exit 2
 mkdir -p "$FM_HOME/state/inbox"
 file="$FM_HOME/state/inbox/$3.note"
-if [ -f "$file" ]; then echo "replay $3"; exit 0; fi
+if [ -f "$file" ]; then printf '{"id":"%s","saved":true,"outcome":"replay"}\\n' "$3"; exit 0; fi
 cat > "$file"
-echo "queued $3"
+printf '{"id":"%s","saved":true,"acknowledged":false,"outcome":"queued"}\\n' "$3"
 `);
-    const inbox = new FirstmateInbox({ home, script });
-    const recover = "This work stopped or its state is unclear.";
-    // The failed row's status text moved from "tests red" to "tests red, retrying": a new decision, the same note.
-    const first = await inbox.sendTaskNote("gnm-7", recover);
-    const again = await inbox.sendTaskNote("gnm-7", recover);
-    const notes = readdirSync(join(home, "state", "inbox"));
-    expect(first.replayed).toBe(false);
-    expect(again).toEqual({ requestId: first.requestId, replayed: true });
-    expect(notes).toHaveLength(1);
-    expect(readFileSync(join(home, "state", "inbox", notes[0]!), "utf8")).toBe(`Task gnm-7. ${recover}`);
-    await inbox.sendTaskNote("gnm-8", recover);
-    expect(readdirSync(join(home, "state", "inbox"))).toHaveLength(2);
+    const previous = process.env.FLYD_COMMAND_DIR;
+    process.env.FLYD_COMMAND_DIR = join(dir, "command");
+    try {
+      const inbox = new FirstmateInbox({ home, script });
+      const recover = "This work stopped or its state is unclear.";
+      // The failed row's status text moved from "tests red" to "tests red, retrying": a new decision, the same note.
+      const first = await inbox.sendTaskNote("gnm-7", recover);
+      const again = await inbox.sendTaskNote("gnm-7", recover);
+      const notes = readdirSync(join(home, "state", "inbox"));
+      expect(first.replayed).toBe(false);
+      expect(again).toEqual({ requestId: first.requestId, replayed: true });
+      expect(notes).toHaveLength(1);
+      const body = readFileSync(join(home, "state", "inbox", notes[0]!), "utf8");
+      expect(body).toContain(`FLYD NOTE (request ${first.requestId}; Flyd's own note, not George's wording)\nTask gnm-7. ${recover}`);
+      expect(body).toContain("DONE WHEN:");
+      expect(body).toContain("RETURN CONTRACT: reply to this note (fm-inbox.sh reply)");
+      // Flyd's own note is a domain run of its own, never announced to him and never shown as his words.
+      expect(readDomainRun(first.requestId)).toMatchObject({ request: { source: "flyd", originalMessage: `Task gnm-7. ${recover}`, contextRefs: ["task:gnm-7"] } });
+      expect(inbox.notes()).toEqual([]);
+      // The inbox itself replays a note it already holds, though Flyd has lost the run's record.
+      rmSync(join(dir, "command"), { recursive: true, force: true });
+      expect((await inbox.sendTaskNote("gnm-7", recover)).replayed).toBe(true);
+      await inbox.sendTaskNote("gnm-8", recover);
+      expect(readdirSync(join(home, "state", "inbox"))).toHaveLength(2);
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_COMMAND_DIR;
+      else process.env.FLYD_COMMAND_DIR = previous;
+    }
   });
 
   describe("as a domain run", () => {
@@ -323,6 +339,46 @@ echo "queued $3"
     expect(exchanges.map((exchange) => exchange.question.id)).toEqual(["note:100-a"]);
     expect(exchanges.some((exchange) => exchange.answer)).toBe(false);
     expect(exchanges.map((exchange) => exchange.question.receipt)).toEqual(["sent"]);
+  });
+
+  it("hides Flyd's messages on one of his runs, and shows firstmate's reply to them as that run's answer, never another's", () => {
+    const run = "desk-0b5e7c1d-1111-2222-3333-444455556666";
+    const target = join(home, "state", "inbox");
+    mkdirSync(join(target, "handled"), { recursive: true });
+    writeFileSync(join(target, "handled", "100-a.note"), `id=100-a\nat=2026-10-05T20:00:00Z\nsource=text\nrequest_id=${run}\n--\nfix the footer link\n`);
+    writeFileSync(join(target, "handled", "101-o.note"), "id=101-o\nat=2026-10-05T20:01:00Z\nsource=text\nrequest_id=desk-0b5e7c1d-1111-2222-3333-999999999999\n--\nmake the hero shorter\n");
+    // Flyd's chase on his run, two hours on: its own note, under the run's message id.
+    writeFileSync(join(target, "handled", "200-c.note"), `id=200-c\nat=2026-10-05T22:00:00Z\nsource=text\nrequest_id=${run}:question:0123456789abcdef0123\n--\nFLYD QUESTION FOR ACTIVE DOMAIN RUN ${run}\nReply with where it stands.\n`);
+    mkdirSync(join(target, ".replies"), { recursive: true });
+    writeFileSync(join(target, ".replies", "200-c"), "id=200-c\nat=2026-10-05T22:10:00Z\n--\nstatus: completed\nbrief: The footer link opens the partners page.\n");
+    const exchanges = new FirstmateInbox({ home, script: join(dir, "missing.sh") }).notes();
+    expect(exchanges.map((exchange) => exchange.question.id)).toEqual(["note:100-a", "note:101-o"]);
+    expect(exchanges[0]!.answer).toMatchObject({ id: "note-reply:200-c", answers: "note:100-a" });
+    expect(exchanges[0]!.answer!.text).toContain("The footer link opens the partners page.");
+    expect(exchanges[1]!.answer).toBeUndefined();
+  });
+
+  it("sends his reply to an earlier message as a follow-up run linked to that message's run", async () => {
+    const previous = process.env.FLYD_COMMAND_DIR;
+    process.env.FLYD_COMMAND_DIR = join(dir, "command");
+    try {
+      const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
+      const first = await inbox.send("the GNM hero is too tall on phones");
+      const parent = inbox.notes().find((exchange) => exchange.question.id === first.id)!;
+      const { replyNote } = await import("../replies.js");
+      await inbox.send(replyNote(parent, "make it one line instead"));
+      const runs = listDomainRuns();
+      const parentRun = runs.find((item) => item.transport.externalId === first.id.slice("note:".length))!;
+      const followUp = runs.find((item) => item.id !== parentRun.id)!;
+      expect(followUp.request).toMatchObject({ source: "view", parentRequestId: parentRun.id, intendedOutcome: "make it one line instead" });
+      expect(followUp.request.originalMessage).toContain("make it one line instead");
+      const raw = readFileSync(join(home, "state", "inbox", `${followUp.transport.externalId}.note`), "utf8");
+      expect(raw).toContain(`Follow-up to prior Flyd domain run: ${parentRun.id}`);
+      expect(raw).toContain("DONE WHEN:");
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_COMMAND_DIR;
+      else process.env.FLYD_COMMAND_DIR = previous;
+    }
   });
 });
 
