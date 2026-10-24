@@ -98,6 +98,41 @@ describe("followUps", () => {
     expect(followUps(batch, [reply("other", report, "2026-10-10T20:09:42Z", ["1791600000-zzzzzz"])])).toEqual({});
   });
 
+  describe("for notes that opened domain runs", () => {
+    const RUN_A = "desk-0b5e7c1d-1111-2222-3333-aaaaaaaaaaaa";
+    const RUN_B = "desk-0b5e7c1d-1111-2222-3333-bbbbbbbbbbbb";
+    const runNote = (id: string, text: string, at: string, run: string, handoff: "taken" | "queued" = "taken"): Exchange =>
+      ({ question: { id: `note:${id}`, role: "user", text, timestamp: at, run }, waiting: "Working on it", handoff, ...(handoff === "taken" ? { takenAt: "2026-10-10T20:00:00Z" } : {}) });
+
+    it("takes no chat as a run's answer until its receipt shows firstmate took the note up", () => {
+      const queued = runNote("1791700000-aaaaaa", "the footer link opens the wrong partners page", "2026-10-10T19:00:00Z", RUN_A, "queued");
+      const said = [...filler(6), reply("r1", "Captain, the footer link now opens the right partners page in your local copy.", "2026-10-10T19:30:00Z", ["1791700000-aaaaaa"])];
+      expect(followUps([queued], said)).toEqual({});
+      // Taken up, with no formal reply on it: the turn that handled it is the fallback.
+      expect(followUps([{ ...queued, handoff: "taken", takenAt: "2026-10-10T19:20:00Z" }], said)["note:1791700000-aaaaaa"]!.id).toBe("r1");
+    });
+
+    it("never gives one run's formal words, said again in chat, to another run", () => {
+      const footer: Exchange = {
+        ...runNote("1791700000-aaaaaa", "fix the footer partners link", "2026-10-10T19:00:00Z", RUN_A),
+        answer: { id: "note-reply:1791700000-aaaaaa", role: "assistant", text: "Sir, the footer partners link is fixed and done.", timestamp: "2026-10-10T19:40:00Z", answers: "note:1791700000-aaaaaa" },
+        waiting: "",
+      };
+      const other = runNote("1791700001-bbbbbb", "the footer partners link colour is off", "2026-10-10T19:05:00Z", RUN_B);
+      const found = followUps([footer, other], [...filler(6), reply("echo", "Captain, the footer partners link is fixed and done.", "2026-10-10T19:41:00Z")]);
+      expect(found["note:1791700001-bbbbbb"]).toBeUndefined();
+    });
+
+    it("gives a report two runs took together only to the run a line of it is plainly about", () => {
+      const hero = { ...runNote("1791700000-aaaaaa", "the hero image is too tall on phones", "2026-10-10T19:00:00Z", RUN_A), takenAt: "2026-10-10T20:00:00Z" };
+      const pricing = { ...runNote("1791700001-bbbbbb", "pricing table needs annual toggle", "2026-10-10T19:05:00Z", RUN_B), takenAt: "2026-10-10T20:00:00Z" };
+      const report = reply("r", "Captain, the hero image is shorter on phones now.", "2026-10-10T20:05:00Z");
+      const found = followUps([hero, pricing], [...filler(6), report]);
+      expect(found["note:1791700000-aaaaaa"]!.id).toBe("r");
+      expect(found["note:1791700001-bbbbbb"]).toBeUndefined();
+    });
+  });
+
   it("ignores Flyd's own questions", () => {
     const asks: Exchange[] = [{ question: { id: "ask:1", role: "user", text: "site map full screen?", timestamp: "2026-10-10T19:00:00Z" }, waiting: "" }];
     expect(followUps(asks, [reply("r", "Captain, the site map is now full screen in your local copy.", "2026-10-10T19:30:00Z")])).toEqual({});
@@ -123,9 +158,11 @@ describe("withFollowUps", () => {
     };
     const later: ConversationMessage = { id: "c-b", role: "assistant", text: "The footer link is fixed and the partners page is live.", timestamp: "2026-10-10T19:45:00Z", answers: "note:b" };
     expect(withFollowUps([formal], { "note:b": later })[0]!.answer!.text).toBe("Done: the footer link opens the partners page.");
-    // With no reply yet, the chat fallback still answers it.
+    // With no reply yet, the chat fallback answers it once the receipts show firstmate took the note up.
     const { answer: _none, ...unanswered } = formal;
-    expect(withFollowUps([{ ...unanswered, waiting: "Working on it" }], { "note:b": later })[0]!.answer!.text).toBe(later.text);
+    expect(withFollowUps([{ ...unanswered, waiting: "Working on it", handoff: "taken" }], { "note:b": later })[0]!.answer!.text).toBe(later.text);
+    // Still sitting in the inbox, it has no answer but its formal reply, whatever the chat said.
+    expect(withFollowUps([{ ...unanswered, waiting: "Queued", handoff: "queued" }], { "note:b": later })[0]!.answer).toBeUndefined();
   });
 
   it("calls a taken note with no words answered, except the newest while firstmate is mid-turn", () => {
