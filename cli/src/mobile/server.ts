@@ -15,7 +15,12 @@ export interface MobileServerOptions {
   transcribe?(pcm: Buffer): Promise<string>;
   mail?(action: string, input: Record<string, unknown>): Promise<unknown>;
   whatsapp?(name: string, input: Record<string, unknown>): Promise<unknown>;
+  /** Today's news edition, as the desktop shows it. */
+  news?(): MobileNews | null;
+  /** George's more/less on a story: a local preference write (recordScoutFeedback), not an outward action. False when it is not in today's edition. */
+  rateStory?(input: { n: number; url: string; verdict: "more" | "less" }): boolean;
 }
+export interface MobileNews { date: string; items: Array<{ n: number; title: string; url: string; source: string; why: string; kind: string }> }
 export class HttpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 function json(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(data));
@@ -78,6 +83,9 @@ export class MobileServer {
     await Promise.allSettled([...this.active]);
     await this.work;
   }
+  private news(): MobileNews | null {
+    try { return this.options.news?.() ?? null; } catch { return null; }
+  }
   private validOrigin(req: IncomingMessage): boolean { return req.headers.origin === this.origin.origin; }
   private csrf(req: IncomingMessage, session: Session): void {
     if (!this.validOrigin(req) || !equal(req.headers["x-flyd-view-token"], session.csrf)) throw new HttpError(403, "Refresh Flyd before trying again");
@@ -132,6 +140,7 @@ export class MobileServer {
     }
     if (req.method === "GET" && path === "/api/state") {
       json(res, 200, { csrf: session.csrf, accountsEnabled: !!this.options.whatsapp, mac: "not_connected", voice: !!this.options.transcribe,
+        news: this.news(),
         requests: this.options.requests.list().slice(-40).map(row => ({ ...row, html: row.answer ? renderMarkdown(row.answer) : undefined })) }); return;
     }
     if (req.method === "POST" && path === "/auth/logout") {
@@ -158,6 +167,14 @@ export class MobileServer {
           .finally(() => this.queued.delete(id));
       }
       json(res, 202, { id: row.id, status: row.status }); return;
+    }
+    if (req.method === "POST" && path === "/api/news/feedback") {
+      if (!this.options.rateStory) throw new HttpError(503, "News is not available on this Flyd host");
+      const value = await parse(req);
+      const { n, url, verdict } = value;
+      if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || typeof url !== "string" || !url || (verdict !== "more" && verdict !== "less")) throw new HttpError(400, "Invalid news feedback");
+      if (!this.options.rateStory({ n, url, verdict })) throw new HttpError(409, "That story is no longer in today's news; refresh and try again");
+      json(res, 200, { ok: true, verdict }); return;
     }
     if (req.method === "POST" && path === "/api/transcribe") {
       if (!this.options.transcribe) throw new HttpError(503, "Voice is not configured yet");

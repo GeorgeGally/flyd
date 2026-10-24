@@ -80,3 +80,17 @@ it("shows newest results first, collapses older answers and prepares follow-up w
   expect((document.getElementById('message') as HTMLTextAreaElement).value).toContain('Question 1');
   expect(calls.some(call=>call.url==='/api/send')).toBe(false);
 });
+
+it("lists today's news with more/less buttons that rate the story", async () => {
+  (state as Record<string, unknown>).news = { date: "2026-10-24", items: [{ n: 2, title: "<b>DOOM</b> on a clamp meter", url: "https://hackaday.test/doom", source: "Hackaday", why: "any screen becomes a console", kind: "relevant" }] };
+  new Function(MOBILE_SCRIPT)(); await flush();
+  const section = document.getElementById("news")!;
+  expect(section.hidden).toBe(false);
+  const link = section.querySelector("a")!;
+  expect(link.textContent).toBe("<b>DOOM</b> on a clamp meter");
+  expect(link.getAttribute("href")).toBe("https://hackaday.test/doom");
+  (section.querySelector('button[data-verdict="less"]') as HTMLButtonElement).click(); await flush();
+  expect(calls.find(call => call.url === "/api/news/feedback")?.body).toEqual({ n: 2, url: "https://hackaday.test/doom", verdict: "less" });
+  expect(section.querySelector('button[data-verdict="less"]')!.getAttribute("aria-pressed")).toBe("true");
+  delete (state as Record<string, unknown>).news;
+});
