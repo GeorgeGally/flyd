@@ -40,24 +40,25 @@
     "commander": "^12.0.0",
     "dotenv": "^17.4.2",
     "imapflow": "^2.3.0",
-    "mailparser": "^3.9.37",
+    "mailparser": "^3.12.4",
     "marked": "^16.4.2",
     "openai": "^4.0.0",
     "pg": "^8.22.0",
     "qrcode-terminal": "^0.12.0",
-    "undici": "^7.30.0",
+    "undici": "^7.30.1",
     "ws": "^8.21.1"
   },
   "overrides": {
     "@modelcontextprotocol/sdk": "1.32.1",
     "braces": "$braces",
-    "fast-uri": "3.1.8",
+    "fast-uri": "3.1.9",
     "hono": "4.13.13",
-    "ip-address": "10.7.1",
+    "ip-address": "10.7.4",
     "nanoid": "5.1.16",
     "proxy-addr": "2.0.8",
-    "qs": "6.16.0",
-    "simple-git": "4.0.2"
+    "qs": "6.16.1",
+    "simple-git": "4.0.2",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
