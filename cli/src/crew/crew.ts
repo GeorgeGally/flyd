@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -450,15 +450,38 @@ export function checkCommand(command: string, nodeBin = dirname(process.execPath
   return `export PATH=${JSON.stringify(nodeBin)}:"$PATH"; ${command}`;
 }
 
-async function defaultRunCommand(command: string, cwd: string): Promise<{ ok: boolean; output: string }> {
-  try {
-    const { stdout, stderr } = await execFileAsync("/bin/bash", ["-lc", checkCommand(command)], { cwd, timeout: 15 * 60_000, maxBuffer: 16 * 1024 * 1024 });
-    return { ok: true, output: `${stdout}${stderr}` };
-  } catch (error) {
-    const failure = error as { stdout?: string; stderr?: string; message?: string };
-    return { ok: false, output: `${failure.stdout ?? ""}${failure.stderr ?? ""}${failure.message ?? ""}` };
-  }
+const CHECK_TIMEOUT_MS = 15 * 60_000;
+const CHECK_OUTPUT_MAX = 16 * 1024 * 1024;
+
+/**
+ * Run one check in its own process group. On timeout the whole group goes
+ * (bash, npm, vitest and its workers); killing only bash orphaned the test
+ * runners, which piled up until every later check timed out.
+ */
+export function runCheckCommand(command: string, cwd: string, timeoutMs = CHECK_TIMEOUT_MS): Promise<{ ok: boolean; output: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("/bin/bash", ["-lc", checkCommand(command)], { cwd, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    const take = (chunk: Buffer) => { if (output.length < CHECK_OUTPUT_MAX) output += chunk.toString(); };
+    child.stdout?.on("data", take);
+    child.stderr?.on("data", take);
+    let timedOut = false;
+    const killGroup = (signal: NodeJS.Signals) => { try { process.kill(-child.pid!, signal); } catch { /* already gone */ } };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killGroup("SIGTERM");
+      setTimeout(() => killGroup("SIGKILL"), 5_000).unref();
+    }, timeoutMs);
+    child.on("error", (error) => { clearTimeout(timer); resolve({ ok: false, output: `${output}${error.message}` }); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      killGroup("SIGKILL"); // stragglers that outlived bash
+      resolve({ ok: code === 0 && !timedOut, output: timedOut ? `${output}\ncheck timed out after ${Math.round(timeoutMs / 60_000)} min` : output });
+    });
+  });
 }
+
+const defaultRunCommand = (command: string, cwd: string) => runCheckCommand(command, cwd);
 
 const ANSI = /\u001b\[[0-9;]*m/g;
 
@@ -477,6 +500,14 @@ export function failureSignatures(output: string): Set<string> {
     if (tsc) found.add(`${tsc[1]} ${tsc[2]} ${tsc[3]}`);
   }
   return found;
+}
+
+/** A baseline worth caching: the runner printed its summary and few tests timed out. */
+export function completeBaseline(output: string): boolean {
+  const plain = output.replace(ANSI, "");
+  const finished = /^\s*Test Files\s+/m.test(plain) || /error TS\d+|Found \d+ errors?/.test(plain) || !/FAIL|error/i.test(plain);
+  const timeouts = (plain.match(/Test timed out|Timeout/g) ?? []).length;
+  return finished && timeouts < 5;
 }
 
 /** True when every failure in `after` was already failing on the base commit. */
@@ -503,8 +534,13 @@ async function baselineOutput(task: CrewTask, command: string, run: (command: st
   try {
     await git(task.worktree, ["checkout", "--quiet", "--detach", task.baseCommit]);
     const result = await run(command, task.worktree);
-    mkdirSync(cacheDir, { recursive: true });
-    writeFileSync(cached, result.output);
+    // Keep only a baseline that ran to completion on a calm machine: a run cut
+    // off mid-way (a restart) or swamped by timeouts (load) would be compared
+    // against forever.
+    if (completeBaseline(result.output)) {
+      mkdirSync(cacheDir, { recursive: true });
+      writeFileSync(cached, result.output);
+    }
     return result.output;
   } catch {
     return null;
@@ -532,9 +568,33 @@ async function restoreWorktree(task: CrewTask): Promise<void> {
 }
 
 /** Advance every running crewmate: finished ones are verified and reported; stuck ones are stopped. */
+/**
+ * One supervise pass at a time, across processes: Core's tick and a launchd
+ * `agenda run-due` both supervise, and a pass outlives the 5-minute tick, so
+ * overlapping passes ran the same suites side by side. A later caller skips.
+ */
 export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<CrewTask[]> {
-  const now = (deps.now ?? (() => new Date()))();
   const dir = deps.dir ?? crewDir();
+  mkdirSync(dir, { recursive: true });
+  const lock = join(dir, "supervise.lock");
+  const take = (): boolean => {
+    try { writeFileSync(lock, String(process.pid), { flag: "wx" }); return true; } catch { return false; }
+  };
+  if (!take()) {
+    const holder = Number(readFileSync(lock, "utf8").trim());
+    if (holder && holder !== process.pid && processAlive(holder)) return [];
+    try { rmSync(lock); } catch { /* raced */ }
+    if (!take()) return [];
+  }
+  try {
+    return await superviseCrewPass(deps, dir);
+  } finally {
+    try { rmSync(lock); } catch { /* already gone */ }
+  }
+}
+
+async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Promise<CrewTask[]> {
+  const now = (deps.now ?? (() => new Date()))();
   const alive = deps.alive ?? processAlive;
   const run = deps.runCommand ?? defaultRunCommand;
   const changed: CrewTask[] = [];

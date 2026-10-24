@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, checkCommand, cleanupCrewWorktree, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, providerFailure, readTask, superviseCrew } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, providerFailure, readTask, superviseCrew } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -119,6 +119,35 @@ describe("crew", () => {
     const line = checkCommand("npm test", "/opt/node 22/bin");
     expect(line).toBe('export PATH="/opt/node 22/bin":"$PATH"; npm test');
     expect(execFileSync("/bin/bash", ["-c", checkCommand("command -v node")], { encoding: "utf8" }).trim()).toBe(process.execPath);
+  });
+
+  it("a timed-out check takes its whole process tree with it", async () => {
+    const marker = join(home, "child.pid");
+    const result = await runCheckCommand(`(sleep 30 & echo $! > ${marker}; wait)`, home, 500);
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("timed out");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const child = Number(readFileSync(marker, "utf8"));
+    expect(() => process.kill(child, 0)).toThrow();
+  });
+
+  it("runs one supervise pass at a time and skips while another live process holds it", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
+    const lock = join(process.env.FLYD_CREW_DIR!, "supervise.lock");
+    const sleeper = spawn("sleep", ["30"]);
+    writeFileSync(lock, String(sleeper.pid));
+    expect(await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }) })).toEqual([]);
+    sleeper.kill();
+    await new Promise((resolve) => sleeper.on("exit", resolve));
+    const [done] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }) });
+    expect(done.status).toBe("ready");
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  it("caches only a baseline that finished on a calm machine", () => {
+    expect(completeBaseline(" FAIL  src/a.test.ts > A\n Test Files  1 failed | 9 passed (10)")).toBe(true);
+    expect(completeBaseline(" RUN  v4.1.10 /x\nCommand failed: npm test")).toBe(false);
+    expect(completeBaseline(" Test Files  9 failed\n" + "Error: Test timed out in 5000ms.\n".repeat(6))).toBe(false);
   });
 
   it("reads vitest and tsc failures as stable signatures and never treats unreadable output as clean", () => {
