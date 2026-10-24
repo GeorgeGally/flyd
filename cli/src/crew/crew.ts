@@ -57,6 +57,8 @@ export interface CrewTask {
   model?: string;
   /** How far into the log Claude spend has been counted. */
   spendOffset?: number;
+  /** Set once a failed or discarded task's worktree is gone from disk (its branch is kept while it holds commits). */
+  worktreeRemoved?: boolean;
 }
 
 /**
@@ -306,6 +308,59 @@ export function lastSummary(logPath: string): string {
   return (texts.at(-1) ?? "").slice(0, 1_500);
 }
 
+/** Words a model provider uses when it refuses the work itself: money, limits, keys, capacity. */
+const PROVIDER_REFUSAL = /insufficient[_ ]?(?:credits?|balance|funds|quota)|credit balance (?:is )?too low|out of credits|no credits|usage[_ ]limit|rate[_ ]?limit(?:ed)?|too many requests|quota (?:exceeded|exhausted)|exceeded your (?:current )?quota|billing|payment required|\b40[12]\b|invalid[_ ]?(?:api[_ ]?)?key|authentication[_ ]?(?:error|failed)|unauthori[sz]ed|overloaded/i;
+
+/** An error event's own message, wherever OpenCode put it. */
+function errorMessage(event: Record<string, unknown>): string {
+  const error = (event.error && typeof event.error === "object" ? event.error : event.part && typeof event.part === "object" ? event.part : {}) as Record<string, unknown>;
+  const data = (error.data && typeof error.data === "object" ? error.data : {}) as Record<string, unknown>;
+  const said = [data.message, error.message, error.name, event.message, typeof event.error === "string" ? event.error : undefined]
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  return said?.trim() ?? "";
+}
+
+/**
+ * Why the crewmate's model provider refused the work, from its log: an error event OpenCode
+ * wrote, or a provider's own words about credits, limits, keys or capacity on a plain line.
+ * The crewmate's own prose is never read as one. Undefined when the log shows none.
+ */
+export function providerFailure(logPath: string): string | undefined {
+  if (!existsSync(logPath)) return undefined;
+  let found: string | undefined;
+  for (const raw of readFileSync(logPath, "utf8").split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("{")) {
+      let event: Record<string, unknown>;
+      try { event = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
+      const type = typeof event.type === "string" ? event.type : "";
+      const part = (event.part && typeof event.part === "object" ? event.part : {}) as Record<string, unknown>;
+      const isError = /error/i.test(type) || /error/i.test(typeof part.type === "string" ? part.type : "") || (event.error !== undefined && event.error !== null);
+      if (!isError) continue;
+      const message = errorMessage(event) || type;
+      // A session error event is the run itself failing; any other error counts only in a provider's own words.
+      if (message && (type === "error" || PROVIDER_REFUSAL.test(message))) found = message;
+      continue;
+    }
+    if (PROVIDER_REFUSAL.test(line)) found = line;
+  }
+  return found ? found.replace(/\s+/g, " ").slice(0, 200) : undefined;
+}
+
+/**
+ * Removes a finished task's git worktree, keeping its branch while it holds commits
+ * (George may still want them) unless `deleteBranch`. Without `force`, a worktree with
+ * uncommitted changes is left where it is. True when the worktree is gone.
+ */
+export async function cleanupCrewWorktree(task: Pick<CrewTask, "repo" | "worktree" | "branch">, options: { force?: boolean; deleteBranch?: boolean } = {}): Promise<boolean> {
+  await git(task.repo, ["worktree", "remove", ...(options.force ? ["--force"] : []), task.worktree]).catch(() => undefined);
+  await git(task.repo, ["worktree", "prune"]).catch(() => undefined);
+  const gone = !existsSync(task.worktree);
+  if (gone && options.deleteBranch) await git(task.repo, ["branch", "-D", task.branch]).catch(() => undefined);
+  return gone;
+}
+
 export interface SuperviseDependencies {
   now?: () => Date;
   dir?: string;
@@ -434,6 +489,8 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
       }
     }
     const verified = commits > 0 && verification.every((step) => step.ok);
+    // A crewmate whose provider refused the work (no credits, a usage limit, a bad key) did not fail at the work: say so.
+    const refused = verified ? undefined : providerFailure(task.log);
     // Passing checks is necessary, not sufficient: an independent reviewer
     // holds the diff to what was asked, and unmet points go back to the
     // crewmate once before George hears about it.
@@ -476,12 +533,17 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
       ...(review ? { review } : {}),
       ...(verified ? {} : {
         failure: commits === 0
-          ? `no commits${dirty ? " (uncommitted changes left in the worktree)" : ""}`
+          ? refused
+            ? `provider error: ${refused}`
+            : `no commits${dirty ? " (uncommitted changes left in the worktree)" : ""}`
           : `verification failed: ${verification.find((step) => !step.ok)?.command ?? "unknown"}`,
       }),
     };
-    saveTask(done, dir);
-    changed.push(done);
+    // A failed task's worktree goes; its branch stays while it holds commits, and uncommitted work is never thrown away.
+    const cleaned = !verified && await cleanupCrewWorktree(done, { deleteBranch: commits === 0 });
+    const recorded: CrewTask = cleaned ? { ...done, worktreeRemoved: true } : done;
+    saveTask(recorded, dir);
+    changed.push(recorded);
   }
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
     const judged = (task.review ?? []).filter((check) => !check.unchecked);
@@ -559,9 +621,8 @@ export async function discardCrewTask(id: string, dir = crewDir()): Promise<Crew
   if (task.status === "running" && processAlive(task.pid)) {
     try { process.kill(-task.pid!, "SIGTERM"); } catch { /* gone */ }
   }
-  await git(task.repo, ["worktree", "remove", "--force", task.worktree]).catch(() => undefined);
-  await git(task.repo, ["branch", "-D", task.branch]).catch(() => undefined);
-  const discarded = { ...task, status: "discarded" as const };
+  const removed = await cleanupCrewWorktree(task, { force: true, deleteBranch: true });
+  const discarded = { ...task, status: "discarded" as const, ...(removed ? { worktreeRemoved: true } : {}) };
   saveTask(discarded, dir);
   return discarded;
 }
@@ -572,6 +633,15 @@ export function blockedBy(task: Pick<CrewTask, "failure">): string {
   if (failure.startsWith("no commits")) return /uncommitted/.test(failure) ? "changes were made but never committed" : "nothing was committed";
   if (failure.startsWith("verification failed")) return "its tests failed";
   if (failure.startsWith("stopped after")) return "it ran for two hours without finishing";
+  if (failure.startsWith("provider error")) {
+    const said = failure.slice("provider error:".length).trim();
+    const plain = /credit|balance|funds|billing|payment|\b402\b/i.test(said) ? "the model provider is out of credits"
+      : /usage[_ ]limit|rate[_ ]?limit|too many requests|quota/i.test(said) ? "the model provider's usage limit was hit"
+        : /key|auth|unauthori[sz]ed|\b401\b/i.test(said) ? "the model provider rejected its key"
+          : /overloaded/i.test(said) ? "the model provider was overloaded"
+            : "the model provider refused the work";
+    return `${plain}, so no work was done`;
+  }
   return "it couldn't be finished";
 }
 

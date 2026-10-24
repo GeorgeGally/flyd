@@ -3,24 +3,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
-import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
+import { FirstmateInbox, deskDoneWhen, mergeNotes, relayed } from "../firstmate-inbox.js";
+import { FirstmateDomainTransport, syncFirstmateDomainRuns, type FirstmateExec } from "../../command/firstmate.js";
+import { notifyRun } from "../../command/scheduler.js";
+import { listDomainRuns, readDomainRun } from "../../command/store.js";
 import type { FlydDesk } from "../flyd-desk.js";
 import { unreadNotes } from "../note-receipts.js";
 import type { ConversationSnapshot } from "../types.js";
 import { assistantText, captain } from "./transcript-fixture.js";
 
-// A stand-in for firstmate's bin/fm-inbox.sh with the same `note -` contract:
-// body on stdin, a note file under $FM_HOME/state/inbox, "queued <id>" on stdout.
-// Tests never run the real script, which would wake firstmate.
+// A stand-in for firstmate's bin/fm-inbox.sh with the same `note --request-id <id> --json -`
+// contract: body on stdin, a note file under $FM_HOME/state/inbox carrying its request id,
+// the JSON receipt on stdout. Tests never run the real script, which would wake firstmate.
 const FAKE_SCRIPT = `#!/usr/bin/env bash
 set -euo pipefail
-[ "$1" = "note" ] && [ "$2" = "-" ] || { echo "usage" >&2; exit 2; }
+[ "$1" = "note" ] && [ "$2" = "--request-id" ] && [ "$4" = "--json" ] && [ "$5" = "-" ] || { echo "usage" >&2; exit 2; }
 body=$(cat)
 [ -n "\${body//[[:space:]]/}" ] || { echo "fm-inbox: refusing to queue an empty note" >&2; exit 1; }
 mkdir -p "$FM_HOME/state/inbox"
 id="$(date +%s)-$RANDOM$RANDOM"
-printf 'id=%s\\nat=%s\\nsource=text\\n--\\n%s\\n' "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$body" > "$FM_HOME/state/inbox/$id.note"
-printf 'queued %s\\n  %s\\n' "$id" "$body"
+printf 'id=%s\\nat=%s\\nsource=text\\nrequest_id=%s\\n--\\n%s\\n' "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$3" "$body" > "$FM_HOME/state/inbox/$id.note"
+printf '{"id":"%s","saved":true,"acknowledged":false}\\n' "$id"
 `;
 
 let dir: string;
@@ -77,6 +80,71 @@ echo "queued $3"
     expect(readFileSync(join(home, "state", "inbox", notes[0]!), "utf8")).toBe(`Task gnm-7. ${recover}`);
     await inbox.sendTaskNote("gnm-8", recover);
     expect(readdirSync(join(home, "state", "inbox"))).toHaveLength(2);
+  });
+
+  describe("as a domain run", () => {
+    let commandDir: string | undefined;
+    beforeEach(() => {
+      commandDir = process.env.FLYD_COMMAND_DIR;
+      process.env.FLYD_COMMAND_DIR = join(dir, "command");
+    });
+    afterEach(() => {
+      if (commandDir === undefined) delete process.env.FLYD_COMMAND_DIR;
+      else process.env.FLYD_COMMAND_DIR = commandDir;
+    });
+
+    it("opens a domain run for each message: his words whole, the request id on the note, done_when and the return contract under them, hidden from his window", async () => {
+      const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
+      const sent = await inbox.send("the GNM hero is too tall on phones", [], undefined, [], "He decided the hero stays one line on phones.");
+      const [run] = listDomainRuns();
+      expect(run).toMatchObject({
+        owner: "FirstMate",
+        status: "queued",
+        request: { domain: "coding", source: "view", originalMessage: "the GNM hero is too tall on phones", intendedOutcome: "the GNM hero is too tall on phones", doneWhen: deskDoneWhen() },
+        transport: { kind: "firstmate", externalId: sent.id.slice("note:".length) },
+      });
+      expect(run!.id).toMatch(/^desk-[0-9a-f-]{36}$/);
+      expect(run!.transport.requestId).toBe(run!.id);
+      const raw = readFileSync(join(home, "state", "inbox", readdirSync(join(home, "state", "inbox")).find((f) => f.endsWith(".note"))!), "utf8");
+      expect(raw).toContain(`request_id=${run!.id}\n`);
+      expect(raw).toMatch(/^the GNM hero is too tall on phones\n\n--- Flyd's brief/m);
+      expect(raw).toContain(`--- Flyd's return contract (request ${run!.id}; Flyd's own, not George's words) ---\nDONE WHEN:\n1. ${deskDoneWhen()[0]}`);
+      expect(raw).toContain("fm-inbox.sh reply");
+      expect(questions(inbox)[0]).toMatchObject({ id: sent.id, text: "the GNM hero is too tall on phones", run: run!.id });
+    });
+
+    it("settles from firstmate's receipts and reply through the command layer, and leaves the telling to the window", async () => {
+      let reply: { id: string; body: string; cursor: string; at: string } | null = null;
+      let noteId = "";
+      let requestId = "";
+      const exec: FirstmateExec = async (_script, args) => {
+        if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: true, lock: { live_harness: true } }), stderr: "" };
+        if (args[0] === "note") {
+          noteId = "1791700000-abcdef";
+          requestId = args[2]!;
+          return { stdout: JSON.stringify({ id: noteId, saved: true, acknowledged: false }), stderr: "" };
+        }
+        if (args[0] === "receipts") {
+          return { stdout: JSON.stringify(reply
+            ? { handled: [{ id: noteId, request_id: requestId, acknowledged: true, reply }] }
+            : { pending: [{ id: noteId, request_id: requestId, acknowledged: false, at: new Date().toISOString() }] }), stderr: "" };
+        }
+        throw new Error(`unexpected ${args.join(" ")}`);
+      };
+      const script = join(dir, "fm-inbox.sh");
+      const inbox = new FirstmateInbox({ home, script, exec });
+      await inbox.send("fix the footer link");
+      const [opened] = listDomainRuns();
+      const transport = new FirstmateDomainTransport({ home, script, exec });
+      const judge = async () => "completed" as const;
+      expect(await syncFirstmateDomainRuns({ transport, judge })).toEqual([]);
+
+      reply = { id: noteId, body: "Done: the footer link opens the partners page, verified on the live site.", cursor: "000001", at: new Date().toISOString() };
+      const notify = async () => { throw new Error("the window shows his reply; no notice"); };
+      const changed = await syncFirstmateDomainRuns({ transport, judge, onChanged: (run) => notifyRun(run, notify) });
+      expect(changed.map((run) => [run.id, run.status])).toEqual([[opened!.id, "completed"]]);
+      expect(readDomainRun(opened!.id)).toMatchObject({ status: "completed", notified: true, result: { brief: expect.stringContaining("footer link") }, transport: { replyCursor: "000001" } });
+    });
   });
 
   it("hands the text to fm-inbox.sh on stdin with FM_HOME, never through a shell", async () => {

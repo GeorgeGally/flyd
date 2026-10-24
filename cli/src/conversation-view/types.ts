@@ -43,6 +43,8 @@ export interface ConversationMessage {
   wake?: boolean;
   /** Inbox notes (by note id) the turn behind this reply handled, read from firstmate's own tool lines. */
   notes?: string[];
+  /** On his note to firstmate: the Flyd domain run it opened (its request id), whose formal reply is its answer. */
+  run?: string;
   /** Inbox notes whose crew work this turn took the outcome of (its report read, or its PR merged), by note id. */
   reports?: string[];
   /**

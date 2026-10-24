@@ -21,7 +21,8 @@ export interface DomainRequest {
   intendedOutcome: string;
   doneWhen: string[];
   createdAt: string;
-  source?: "chat" | "self-improvement" | "system";
+  /** "view": George's own message from the conversation window's desk; the window itself shows its reply. */
+  source?: "chat" | "self-improvement" | "system" | "view";
   project?: { name?: string; root?: string };
   contextRefs?: string[];
   parentRequestId?: string;
