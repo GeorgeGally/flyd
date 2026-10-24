@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, crewBrief, discardCrewTask, dispatchCrewTask, landCrewTask, lastSummary, listTasks, readTask, superviseCrew } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, cleanupCrewWorktree, crewBrief, discardCrewTask, dispatchCrewTask, landCrewTask, lastSummary, listTasks, providerFailure, readTask, superviseCrew } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -77,6 +77,60 @@ describe("crew", () => {
     await dispatchCrewTask({ repo, outcome: "Break the tests", launch: fakeCrewmate() });
     const [broken] = await superviseCrew({ alive: () => false, runCommand: async (command) => ({ ok: command !== "git diff --check", output: "boom" }) });
     expect(broken.failure).toBe("verification failed: git diff --check");
+  });
+
+  it("records a provider refusal as the failure, says it plainly to George, and clears the empty worktree", async () => {
+    const task = await dispatchCrewTask({
+      repo,
+      outcome: "Add a feature file",
+      launch: vi.fn((launched: { log: string }) => {
+        writeFileSync(launched.log, [
+          JSON.stringify({ type: "step_start", part: { type: "step-start" } }),
+          JSON.stringify({ type: "error", error: { name: "APIError", data: { message: "Insufficient credits. Add more at openrouter.ai/settings/credits", statusCode: 402 } } }),
+          "",
+        ].join("\n"));
+        return 424242;
+      }),
+    });
+    const notify = vi.fn(async () => undefined);
+    const [failed] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify });
+    expect(failed).toMatchObject({ status: "failed", failure: "provider error: Insufficient credits. Add more at openrouter.ai/settings/credits", worktreeRemoved: true });
+    expect(notify).toHaveBeenCalledWith("Flyd", "Add a feature file is blocked: the model provider is out of credits, so no work was done. Tell me whether to try another way or drop it.", "blocker");
+    expect(existsSync(task.worktree)).toBe(false);
+    expect(git(repo, "branch", "--list", task.branch)).toBe("");
+    expect(git(repo, "worktree", "list")).not.toContain(task.worktree);
+  });
+
+  it("reads provider refusals from error events and plain lines, never from the crewmate's own prose", () => {
+    const log = join(home, "provider.log");
+    writeFileSync(log, `${JSON.stringify({ type: "text", part: { type: "text", text: "I hit a rate limit earlier but retried." } })}\n`);
+    expect(providerFailure(log)).toBeUndefined();
+    writeFileSync(log, "Error: 429 Too Many Requests: usage limit reached for this month\n");
+    expect(providerFailure(log)).toBe("Error: 429 Too Many Requests: usage limit reached for this month");
+    writeFileSync(log, `${JSON.stringify({ type: "error", error: { message: "invalid x-api-key" } })}\n`);
+    expect(providerFailure(log)).toBe("invalid x-api-key");
+    expect(providerFailure(join(home, "missing.log"))).toBeUndefined();
+  });
+
+  it("clears a failed task's worktree but keeps its branch while it holds commits, and keeps uncommitted work", async () => {
+    const broken = await dispatchCrewTask({ repo, outcome: "Break the tests", launch: fakeCrewmate() });
+    const [failed] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: false, output: "boom" }) });
+    expect(failed).toMatchObject({ status: "failed", worktreeRemoved: true });
+    expect(existsSync(broken.worktree)).toBe(false);
+    expect(git(repo, "branch", "--list", broken.branch)).toContain(broken.branch);
+
+    const dirty = await dispatchCrewTask({ repo, outcome: "Leave a mess", launch: vi.fn((task: { worktree: string; log: string }) => {
+      writeFileSync(join(task.worktree, "half.txt"), "half\n");
+      writeFileSync(task.log, "");
+      return 424242;
+    }) });
+    const [messy] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }) });
+    expect(messy).toMatchObject({ status: "failed", failure: "no commits (uncommitted changes left in the worktree)" });
+    expect(messy.worktreeRemoved).toBeUndefined();
+    expect(existsSync(join(dirty.worktree, "half.txt"))).toBe(true);
+    // Discarding is George's call: then it goes, branch and all.
+    expect(await cleanupCrewWorktree(dirty, { force: true, deleteBranch: true })).toBe(true);
+    expect(git(repo, "branch", "--list", dirty.branch)).toBe("");
   });
 
   it("leaves running crewmates alone, stops ones stuck for hours, and refuses to land on a moved checkout", async () => {
@@ -224,6 +278,9 @@ describe("what stopped a failed task", () => {
     expect(blockedBy({ failure: "no commits (uncommitted changes left in the worktree)" })).toBe("changes were made but never committed");
     expect(blockedBy({ failure: "verification failed: npm test" })).toBe("its tests failed");
     expect(blockedBy({ failure: "stopped after 2 hours without finishing" })).toBe("it ran for two hours without finishing");
+    expect(blockedBy({ failure: "provider error: insufficient credits" })).toBe("the model provider is out of credits, so no work was done");
+    expect(blockedBy({ failure: "provider error: 429 usage limit reached" })).toBe("the model provider's usage limit was hit, so no work was done");
+    expect(blockedBy({ failure: "provider error: invalid x-api-key" })).toBe("the model provider rejected its key, so no work was done");
     expect(blockedBy({ failure: "Command failed: ENOENT /tmp/x.sh" })).toBe("it couldn't be finished");
     expect(blockedBy({})).toBe("it couldn't be finished");
   });
