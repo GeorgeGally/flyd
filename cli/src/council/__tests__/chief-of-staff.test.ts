@@ -172,6 +172,22 @@ describe("the chief-of-staff checks", () => {
     }
   });
 
+  it("keeps asks about what he sees, owns or uses his, and still flags the run calls", () => {
+    for (const text of [
+      "Should I revert the homepage headline to the old wording?",
+      "Do you want me to roll back the kitchen order?",
+      "Say the word and I will restart your Mac.",
+    ]) {
+      expect(checkSaid({ surface: "relay", text }).map((item) => item.requirement), text).not.toContain("decisions_handled");
+    }
+    for (const text of [
+      "The capfive-intranet-map run failed. Let me know whether to retry or drop it.",
+      "The run failed; I am waiting on you to say whether to rerun it.",
+    ]) {
+      expect(checkSaid({ surface: "relay", text }).map((item) => item.requirement), text).toEqual(["decisions_handled"]);
+    }
+  });
+
   it("asks Jev only what the checks cannot see, and records its decided answers", async () => {
     const subtle = "There are two ways we could run the nightly check, a cron entry or the Core tick; which would you prefer?";
     expect(checkSaid({ surface: "relay", text: subtle })).toEqual([]);
