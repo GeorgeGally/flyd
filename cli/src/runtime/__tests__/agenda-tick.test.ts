@@ -59,7 +59,7 @@ describe("agenda tick", () => {
   });
 
   it("records a usage limit even when the job swallows the model error", async () => {
-    const complete = guardModelCall(async () => { throw Object.assign(new Error("rate limited"), { status: 429 }); }, { now: () => now, path: backoffPath });
+    const complete = guardModelCall(async (_prompt: string): Promise<string> => { throw Object.assign(new Error("rate limited"), { status: 429 }); }, { now: () => now, path: backoffPath });
     const ran: string[] = [];
     await runTickJobs([
       { name: "investigator", usesModel: true, run: async () => { await complete("x").catch(() => undefined); } },
