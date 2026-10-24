@@ -83,7 +83,7 @@ export function startRealtimeServer(): Promise<void> {
           case "start":
             adapterWs.send(JSON.stringify({ type: "connecting" }));
             try {
-              openaiWs = await connectRealtime(adapterWs, observationResolvers);
+              openaiWs = await connectRealtime(adapterWs, observationResolvers, sessionId);
               adapterWs.send(JSON.stringify({ type: "ready" }));
               sessionActive = true;
             } catch {
@@ -136,7 +136,8 @@ export const REALTIME_TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
 
 async function connectRealtime(
   adapterWs: WebSocket,
-  observationResolvers: Map<string, (env: Record<string, unknown>) => void>
+  observationResolvers: Map<string, (env: Record<string, unknown>) => void>,
+  sessionId?: string
 ): Promise<WebSocket> {
   const model = realtimeModel();
   // Realtime WS is OpenAI-only — prefer OPENAI_API_KEY so FLYD_MODEL_API_KEY
@@ -212,7 +213,7 @@ async function connectRealtime(
           adapterWs.send(JSON.stringify({ type: "transcript_delta", text: ev.delta }));
         }
         if (ev.type === "response.done") {
-          handleToolCalls(adapterWs, ws, ev as Record<string, unknown>, observationResolvers);
+          handleToolCalls(adapterWs, ws, ev as Record<string, unknown>, observationResolvers, sessionId);
         }
         if (ev.type === "error") {
           adapterWs.send(JSON.stringify({ type: "error", message: "Realtime service error" }));
@@ -308,7 +309,8 @@ async function handleToolCalls(
   adapterWs: WebSocket,
   openaiWs: WebSocket,
   responseEvent: Record<string, unknown>,
-  observationResolvers: Map<string, (env: Record<string, unknown>) => void>
+  observationResolvers: Map<string, (env: Record<string, unknown>) => void>,
+  liveSessionId?: string
 ) {
   const output = (responseEvent.response as Record<string, unknown>)?.output;
   if (!Array.isArray(output)) return;
@@ -354,8 +356,8 @@ async function handleToolCalls(
         workerConfig = loadFlydWorkerConfig();
       } catch { /* not configured */ }
       const resolution = workerConfig
-        ? await resolve(manifest, workerConfig.model, workerConfig.apiKey, workerConfig.baseURL)
-        : await resolve(manifest);
+        ? await resolve(manifest, workerConfig.model, workerConfig.apiKey, workerConfig.baseURL, undefined, [], { surface: "live", sessionId: liveSessionId })
+        : await resolve(manifest, undefined, undefined, undefined, undefined, [], { surface: "live", sessionId: liveSessionId });
       const validationError = validateResolution(resolution);
       const toolOutput = buildResolveToolOutput(resolution, validationError);
 

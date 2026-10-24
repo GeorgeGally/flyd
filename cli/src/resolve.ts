@@ -24,7 +24,10 @@ import { constructCurrentWork, resolveRepositoryFromPath, type GroundingContext 
 import { runWorkIntelligence } from "./work-intelligence/work-interaction-service.js";
 import { defaultModel, getKey } from "./lib/config.js";
 import { compileContext } from "./cognition/context-compiler.js";
-import { formatCompiledContext } from "./cognition/context-format.js";
+import { clampText, formatCompiledContext } from "./cognition/context-format.js";
+import { readSoul } from "./lib/soul.js";
+import { memoryEvidenceFromCompiled, recordResolutionReceipt, type ResolutionPath, type ResolutionReceiptOptions, type ResolutionSurface } from "./runtime/resolution-receipt.js";
+import type { MemoryEvidence } from "./runtime/types.js";
 import { queryMemory } from "./cognition/memory.js";
 import type { CompiledContext, UnifiedMemoryResult } from "./cognition/types.js";
 
@@ -361,6 +364,9 @@ export function currentWorkSnapshotResolution(
   };
 }
 
+/** SOUL.md share of the resolution prompt; the compiled context carries its own per-block budgets. */
+export const RESOLUTION_SOUL_BUDGET_CHARS = 6000;
+
 export const RESOLUTION_SYSTEM_PROMPT =
   "You are Flyd's resolution engine. You convert user intents into executable operations. Respond with ONLY valid JSON. " +
   "Do not describe a Flyd subsystem as retired, removed, or inactive unless the supplied current evidence explicitly says so. " +
@@ -379,7 +385,8 @@ export function buildResolutionPrompt(
   isVoiceConversation = false,
   needsPersonalContext = true,
   behaviouralDirectives: BehaviouralDirectiveInput[] | null = null,
-  compiledContext?: CompiledContext
+  compiledContext?: CompiledContext,
+  soul: string = readSoul()
 ): string {
   const app = environment.application.name;
   const bundleId = environment.application.bundle_id;
@@ -536,10 +543,16 @@ export function buildResolutionPrompt(
 
   const directivesBlock = formatBehaviouralDirectives(behaviouralDirectives ?? []);
   const cognitiveContextBlock = compiledContext ? `\n${formatCompiledContext(compiledContext)}` : "";
+  // The same voice George hears in chat (SOUL.md). It shapes what Flyd says to
+  // him; the JSON contract and route rules below still decide the shape.
+  const soulText = soul.trim();
+  const voiceBlock = soulText
+    ? `\n\nWHO YOU ARE (Flyd's one voice, the same in chat, the overlay and LIVE. It governs every answer, explanation and spoken reply you give George. Text you insert into his document or draft for him to send is written in his voice, not yours. The response-shape rules below always win):\n${clampText(soulText, RESOLUTION_SOUL_BUDGET_CHARS)}`
+    : "";
 
   return `You are Flyd, an intelligent overlay assistant. You are invoked by the user while they are working in another application. Your job is to resolve their intent into concrete operations that the Mac adapter can execute.
 
-The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}${directivesBlock}${cognitiveContextBlock}
+The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${voiceBlock}${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}${directivesBlock}${cognitiveContextBlock}
 
 ROUTE DECISION:
 - Kind: ${route.kind}
@@ -812,13 +825,66 @@ const DETERMINISTIC_PATTERNS: Array<{
   },
 ];
 
+/** What resolveManifest learned on the way, for the turn receipt. */
+interface ResolutionTrace {
+  path: ResolutionPath;
+  memory?: MemoryEvidence;
+}
+
+export interface ResolveReceiptOptions extends ResolutionReceiptOptions {
+  /** Defaults from the manifest: LIVE when the realtime model wrote the intent, else the overlay. */
+  surface?: ResolutionSurface;
+  /** Groups receipts; defaults to the manifest's conversation id. */
+  sessionId?: string;
+}
+
+/**
+ * Resolve an overlay or LIVE manifest. The response contract is resolveManifest's,
+ * unchanged; every resolution additionally leaves a turn receipt tagged with
+ * its surface, the same mechanism chat uses.
+ */
 export async function resolve(
   manifest: ManifestRequest,
   model?: string,
   apiKey?: string,
   baseURL?: string,
   router?: RouterConfig | null,
-  conversationTurns: ConversationTurn[] = []
+  conversationTurns: ConversationTurn[] = [],
+  receiptOptions: ResolveReceiptOptions = {}
+): Promise<Resolution> {
+  const trace: ResolutionTrace = { path: "model" };
+  const { surface: requestedSurface, sessionId: requestedSession, ...persistOptions } = receiptOptions;
+  const receipt = {
+    surface: requestedSurface ?? (manifest.intent_author === "model" ? "live" as const : "overlay" as const),
+    sessionId: requestedSession ?? manifest.conversation_id ?? undefined,
+    message: manifest.intent,
+    model,
+    baseURL,
+  };
+  try {
+    const resolution = await resolveManifest(manifest, model, apiKey, baseURL, router, conversationTurns, trace);
+    void recordResolutionReceipt({ ...receipt, path: trace.path, resolution, memory: trace.memory }, persistOptions);
+    return resolution;
+  } catch (error) {
+    void recordResolutionReceipt({
+      ...receipt,
+      path: "error",
+      memory: trace.memory,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    }, persistOptions);
+    throw error;
+  }
+}
+
+async function resolveManifest(
+  manifest: ManifestRequest,
+  model: string | undefined,
+  apiKey: string | undefined,
+  baseURL: string | undefined,
+  router: RouterConfig | null | undefined,
+  conversationTurns: ConversationTurn[],
+  trace: ResolutionTrace
 ): Promise<Resolution> {
   const { invocation_id, environment_revision, environment, intent, modality } = manifest;
 
@@ -881,6 +947,7 @@ export async function resolve(
         const validationError = validateResolution(resolution);
         if (!validationError) {
           recordDeterministicResolution();
+          trace.path = "deterministic";
           return resolution;
         }
       }
@@ -895,6 +962,7 @@ export async function resolve(
   );
   if (currentWorkSnapshot) {
     recordDeterministicResolution();
+    trace.path = "current-work";
     return currentWorkSnapshot;
   }
 
@@ -924,6 +992,7 @@ export async function resolve(
   });
 
   if (!isDictation && isAccountIntent(intent)) {
+    trace.path = "account";
     const answer = await answerAccountIntent(intent, conversationTurns.map(t => `George: ${t.user}\nFlyd: ${t.assistant}`).join("\n"), { allowExplicitSend: manifest.intent_author !== "model" });
     return {
       resolutionId: randomUUID(), invocationId: invocation_id,
@@ -968,6 +1037,7 @@ export async function resolve(
       const validationError = validateResolution(resolution);
       if (!validationError) {
         recordLlmResolution();
+        trace.path = "work-intelligence";
         return resolution;
       }
     } catch {
@@ -996,6 +1066,8 @@ export async function resolve(
     fetchBehaviouralDirectives(),
   ]);
   const memoryPack = compiledMemoryToPack(compiledContext.memory);
+  trace.path = "model";
+  try { trace.memory = memoryEvidenceFromCompiled(compiledContext.memory); } catch { /* receipt evidence is best-effort */ }
 
   // Deterministic consequence detection is safety-authoritative. A semantic
   // classifier may escalate a benign heuristic, but may never downgrade a
