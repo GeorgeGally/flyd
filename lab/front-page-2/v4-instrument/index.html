@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd · Instrument</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* V4 · Instrument. 13-column grid (3 · 7 · 3), 9px unit.
+   Four functional colours, used only as marks: orange = needs you, blue = working,
+   green = done, white = artefact. Mono only for times, counts and version numbers. */
+:root{
+  --alu:#E2E2DE; --alu-hi:#ECECE8;
+  --line:#C6C6C1; --line-2:#D3D3CE;
+  --ink:#141414; --ink-2:#4F4F4A; --ink-3:#86867F;
+  --screen:#111111; --screen-2:#1D1D1C; --screen-ink:#EDEDE8; --screen-mid:#B4B4AE; --screen-dim:#6E6E69;
+  --orange:#FF5A1F; --blue:#2F5BEA; --green:#14A660; --white:#FAFAF7;
+  --gut:18px; --pad:36px;
+  --mono:"Geist Mono",ui-monospace,monospace;
+  --sans:"Geist",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--alu);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:left}
+img{display:block}
+.fig{font-family:var(--mono);font-size:12px;color:var(--ink-3);font-feature-settings:"tnum"}
+.meta{font-size:13px;color:var(--ink-3);line-height:1.4}
+
+/* ---------- frame ---------- */
+.app{height:100vh;display:grid;grid-template-rows:48px 1fr}
+header{display:grid;grid-template-columns:repeat(13,1fr);column-gap:var(--gut);padding:0 var(--pad);align-items:center;border-bottom:1px solid var(--line)}
+.word{grid-column:1/4;font-weight:600;font-size:18px;letter-spacing:-.02em}
+.hdr-r{grid-column:11/14;display:flex;justify-content:space-between}
+.main{display:grid;grid-template-columns:repeat(13,1fr);column-gap:var(--gut);padding:0 var(--pad);min-height:0}
+.col{min-height:0;overflow-y:auto;scrollbar-width:none;padding:27px 0}
+.col::-webkit-scrollbar{display:none}
+.left{grid-column:1/4}
+.centre{grid-column:4/11;display:flex;flex-direction:column;margin:0 -9px;padding:27px 27px;border-left:1px solid var(--line);border-right:1px solid var(--line)}
+.right{grid-column:11/14}
+
+/* ---------- section heads: a small encoder, a label, a count ---------- */
+.sh{display:grid;grid-template-columns:22px 1fr auto;column-gap:9px;align-items:center;width:100%;padding:0 0 9px}
+.sh .l{font-size:13px;font-weight:500;color:var(--ink)}
+.sh .fig{color:var(--ink-2)}
+.knob{width:22px;height:22px;display:block}
+.knob .cap{transition:transform .8s cubic-bezier(.3,.7,.2,1);transform-origin:11px 11px}
+button.sh:hover .cap{transform:rotate(var(--a2)) !important}
+
+/* ---------- jobs ---------- */
+.group{padding:0 0 18px;margin-bottom:18px;border-bottom:1px solid var(--line-2);transition:opacity .25s}
+.group:last-child{border-bottom:0}
+.group.dim{opacity:.3}
+.job.hide{display:none}
+.more{padding:6px 0 0 31px;color:var(--ink-2)}
+.more:hover{color:var(--ink)}
+.group[data-g="done"] .job{grid-template-columns:22px 1fr auto}
+.group[data-g="done"] .job .m{display:none}
+.group[data-g="done"] .job .tm{grid-column:3;grid-row:1;padding-left:12px;padding-top:2px}
+.job{display:grid;grid-template-columns:22px 1fr auto;column-gap:9px;width:100%;padding:10px 0;position:relative;align-items:start}
+.job .mk{padding-top:4px;padding-left:5px}
+.job .t{font-size:15px;line-height:1.38;color:var(--ink-2);transition:color .2s}
+.job .m{grid-column:2;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.job .th{grid-row:1/3;grid-column:3;width:72px;height:46px;border-radius:2px;overflow:hidden;background:#fff;box-shadow:0 0 0 1px var(--line);margin-left:12px;margin-top:3px}
+.job .th img{width:100%;height:100%;object-fit:cover;object-position:top}
+.job::before{content:"";position:absolute;left:-12px;top:13px;height:16px;width:2px;background:var(--ink);opacity:0;transition:opacity .2s}
+.job[aria-current="true"]::before{opacity:1}
+.job[aria-current="true"] .t,.job:hover .t,.group[data-g="needs"] .job .t{color:var(--ink)}
+
+/* ---------- centre ---------- */
+.fade{transition:opacity .22s ease}
+.fade.out{opacity:0}
+.head{display:grid;grid-template-columns:1fr auto;column-gap:27px;align-items:center;padding:0 0 20px}
+.head h1{font-size:24px;font-weight:500;letter-spacing:-.02em;line-height:1.25;margin-top:4px;text-wrap:balance}
+.dialwrap{display:flex;align-items:center;gap:12px}
+.dialtxt{font-size:15px;line-height:1.3}
+
+.screen{background:var(--screen);border-radius:6px;padding:14px;display:flex;flex-direction:column;flex:1 1 auto;min-height:320px;max-height:600px;overflow:hidden}
+.screen .shot{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#3A3A38 transparent;border-radius:3px;background:#fff}
+.screen .shot img{width:100%;height:auto;display:block;transition:opacity .22s}
+.screen.wide .shot{overflow:hidden;background:var(--screen)}
+.screen.wide .shot img{height:100%;object-fit:cover;object-position:center;cursor:zoom-in}
+.readout{color:var(--screen-ink);display:grid;grid-template-columns:1fr auto;column-gap:27px;align-items:center;padding:14px 4px 0}
+.readout .ln{font-size:15px;line-height:1.45;color:var(--screen-mid);max-width:58ch}
+.readout .ln b{font-weight:500;color:var(--screen-ink);margin-right:8px}
+.tape{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;position:relative;margin-top:14px;padding-top:12px;border-top:1px solid #2A2A28;flex:0 0 auto}
+.tape .cell{display:flex;flex-direction:column;gap:6px;min-width:0}
+.tape .fr{height:56px;border-radius:2px;overflow:hidden;background:#fff}
+.tape .fr img{width:100%;height:100%;object-fit:cover;object-position:top}
+.tape .lab{display:flex;align-items:center;gap:7px;white-space:nowrap;font-size:12px;color:var(--screen-dim);transition:color .2s}
+.tape .lab .fig{color:inherit}
+.tape .cell[aria-selected="true"] .lab,.tape .cell:hover .lab{color:var(--screen-ink)}
+.playhead{position:absolute;top:-1px;left:0;height:3px;background:var(--screen-ink);transition:transform .45s cubic-bezier(.3,.7,.2,1),width .45s}
+.acts{display:flex;align-items:center;gap:9px}
+.centre > .fade > .acts{margin-top:18px}
+.btn{font-size:13px;font-weight:500;height:30px;padding:0 13px;border-radius:4px;display:inline-flex;align-items:center;gap:8px;transition:background .15s,box-shadow .15s}
+.btn.pri{background:var(--ink);color:var(--white)}
+.btn.pri:hover{background:#000}
+.btn.sec{box-shadow:inset 0 0 0 1px var(--line);color:var(--ink)}
+.btn.sec:hover{background:var(--alu-hi)}
+.screen .btn.pri{background:var(--white);color:var(--ink);height:32px;padding:0 14px}
+.screen .btn.pri:hover{background:#fff}
+.screen .btn.sec{box-shadow:inset 0 0 0 1px #3A3A38;color:var(--screen-ink)}
+.screen .btn.sec:hover{background:var(--screen-2)}
+.btn .fig{font-size:11px;color:inherit;opacity:.5}
+.link{font-size:13px;color:var(--screen-mid);text-decoration:underline;text-underline-offset:3px;text-decoration-color:#4A4A47;transition:color .15s}
+.link:hover{color:var(--screen-ink)}
+
+.thread{margin-top:22px;display:flex;flex-direction:column;gap:12px}
+.msg{display:grid;grid-template-columns:72px 1fr;column-gap:18px}
+.msg .who{font-size:13px;color:var(--ink-2);padding-top:2px;line-height:1.35}
+.msg .who .fig{display:block;margin-top:1px;white-space:nowrap}
+.msg p{font-size:15px;line-height:1.5;max-width:64ch}
+.msg.you p{color:var(--ink-2)}
+.living{grid-column:2;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-3);margin-top:4px}
+.compose{margin-top:18px;display:grid;grid-template-columns:1fr auto;column-gap:9px;align-items:center}
+.compose input{font:inherit;font-size:15px;height:36px;border:0;background:var(--alu-hi);border-radius:4px;padding:0 12px;color:var(--ink);outline:none;box-shadow:inset 0 0 0 1px var(--line-2)}
+.compose input:focus{box-shadow:inset 0 0 0 1px var(--ink-3)}
+.compose input::placeholder{color:var(--ink-3)}
+.compose .btn{height:36px}
+
+/* ---------- artefacts ---------- */
+.rsec{margin-bottom:18px;padding-bottom:9px;border-bottom:1px solid var(--line-2)}
+.rsec:last-child{border-bottom:0}
+.art{display:block;width:100%;padding:9px 0 12px}
+.art .fr{display:block;width:100%;background:var(--alu-hi);box-shadow:inset 0 0 0 1px var(--line-2);border-radius:3px;padding:6px;margin-bottom:10px;cursor:zoom-in}
+.art .fr img{width:100%;aspect-ratio:16/8;object-fit:cover;object-position:top left;border-radius:1px}
+.art .t{font-size:15px;line-height:1.38}
+.art .meta{margin-top:2px}
+.dgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.dgrid .art{padding:6px 0 12px}
+.dgrid .art .fr{padding:3px;margin-bottom:8px}
+.dgrid .art .fr img{aspect-ratio:4/3}
+.dgrid .art .t{font-size:13px;line-height:1.35;color:var(--ink)}
+.dgrid .art .meta{font-size:12px;text-wrap:balance}
+.note{font-size:15px;line-height:1.45;color:var(--ink-2);padding:2px 0 9px}
+
+/* marks */
+.spin{transform-origin:5px 5px;animation:spin 1.6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.blink{animation:blink 1.4s steps(1) infinite}
+@keyframes blink{50%{opacity:.25}}
+.pulse{animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+
+.lb{position:fixed;inset:0;background:rgba(17,17,17,.95);display:flex;align-items:center;justify-content:center;padding:36px;opacity:0;pointer-events:none;transition:opacity .22s;z-index:9}
+.lb.on{opacity:1;pointer-events:auto}
+.lb img{max-width:100%;max-height:100%;border-radius:3px}
+
+/* ---------- phone ---------- */
+@media (max-width:760px){
+  body{overflow:auto}
+  :root{--pad:16px}
+  .app{height:auto;display:block}
+  header{height:52px;grid-template-columns:1fr auto}
+  .word{grid-column:1}
+  .hdr-r{grid-column:2;gap:14px}
+  .main{display:flex;flex-direction:column}
+  .col{overflow:visible;padding:22px 0}
+  .centre{order:-1;margin:0;padding:22px 0;border:0}
+  .left,.right{border-top:1px solid var(--line)}
+  .head{grid-template-columns:1fr;row-gap:16px}
+  .head h1{font-size:22px}
+  .screen{max-height:none;min-height:0;padding:10px}
+  .screen .shot{height:420px;flex:0 0 auto}
+  .screen.wide .shot{height:auto}
+  .readout{grid-template-columns:1fr;row-gap:16px;padding:14px 2px 0}
+  .tape .fr{height:44px}
+  .tape .lab span:not(.fig){display:none}
+  .msg{grid-template-columns:1fr;row-gap:3px}
+  .msg .who .fig{display:inline;margin-left:6px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="word">flyd</div>
+    <div class="hdr-r"><span class="fig" id="day"></span><span class="fig" id="clock"></span></div>
+  </header>
+  <div class="main">
+    <aside class="col left" id="groups"></aside>
+    <main class="col centre" id="centre"></main>
+    <aside class="col right" id="arts"></aside>
+  </div>
+</div>
+<div class="lb" id="lb"><img alt=""></div>
+
+<script src="../shared/data.js"></script>
+<script>
+const D = window.FLYD, A = p => "../shared/" + p;
+const C = {needs:"var(--orange)", working:"var(--blue)", done:"var(--green)", art:"var(--white)"};
+const G = [["needs","Needs you"],["working","Working"],["done","Done"]];
+const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s);
+let active = D.jobs[0], ver = active.pick ?? 0, solo = null, doneOpen = false;
+
+/* glyphs: needs you = solid square key, working = turning quarter-arc, done = lit LED disc, artefact = ring */
+function mark(g, sz=12){
+  const v = `width="${sz}" height="${sz}" viewBox="0 0 12 12"`;
+  if(g==="needs") return `<svg ${v}><rect x="1.5" y="1.5" width="9" height="9" fill="${C.needs}"/><rect x="3.5" y="3.5" width="5" height="1.2" fill="#fff" opacity=".9"/></svg>`;
+  if(g==="working") return `<svg ${v}><path class="spin" style="transform-origin:6px 6px" d="M6 1.5 A4.5 4.5 0 1 1 1.5 6" fill="none" stroke="${C.working}" stroke-width="2.6" stroke-linecap="butt"/></svg>`;
+  if(g==="done") return `<svg ${v}><circle cx="6" cy="6" r="5" fill="${C.done}"/><circle cx="6" cy="6" r="1.6" fill="#fff"/></svg>`;
+  return `<svg ${v}><circle cx="6" cy="6" r="4.4" fill="${C.art}" stroke="var(--ink)" stroke-width="1.2"/></svg>`;
+}
+
+/* OP-1 style encoder: coloured cap, its notch turned to this section's share */
+function knob(col, share){
+  const a = -135 + 270*share;
+  const ticks = [-135,-67.5,0,67.5,135].map(d=>{const t=(d-90)*Math.PI/180;return `<line x1="${11+9.6*Math.cos(t)}" y1="${11+9.6*Math.sin(t)}" x2="${11+10.8*Math.cos(t)}" y2="${11+10.8*Math.sin(t)}" stroke="var(--ink-3)" stroke-width="1"/>`}).join("");
+  const edge = col===C.art ? 'stroke="var(--ink)" stroke-width="1"' : "";
+  return `<svg class="knob" viewBox="0 0 22 22">${ticks}<g class="cap" data-a="${a}" style="transform:rotate(-135deg);--a2:${a+24}deg"><circle cx="11" cy="11" r="7.6" fill="${col}" ${edge}/><rect x="10.25" y="4" width="1.5" height="4.5" rx=".75" fill="${col===C.art?'var(--ink)':'#fff'}"/></g></svg>`;
+}
+function turnKnobs(){ requestAnimationFrame(()=>requestAnimationFrame(()=>$$(".cap").forEach(c=>c.style.transform=`rotate(${c.dataset.a}deg)`))); }
+
+function renderJobs(){
+  const total = D.jobs.length;
+  $("#groups").innerHTML = G.map(([g,l])=>{
+    const js = D.jobs.filter(j=>j.group===g);
+    return `<div class="group ${solo&&solo!==g?'dim':''}" data-g="${g}">
+      <button class="sh" data-g="${g}" aria-pressed="${solo===g}" title="Show only ${l.toLowerCase()}">${knob(C[g], js.length/total)}<span class="l">${l}</span><span class="fig">${js.length}</span></button>
+      ${js.map((j,ji)=>`<button class="job ${g==="done"&&ji>=2&&!doneOpen?'hide':''}" data-id="${j.id}" aria-current="${j===active}">
+        <span class="mk">${mark(g)}</span>
+        <span class="t">${j.title}</span>
+        <span class="meta m">${j.project} · <span class="fig">${j.when}</span></span>
+        ${g==="done"?`<span class="fig tm">${j.when}</span>`:""}
+        ${g==="needs"&&j.thumb?`<span class="th"><img src="${A(j.thumb)}" alt=""></span>`:""}
+      </button>`).join("")}${g==="done"&&js.length>2&&!doneOpen?`<button class="more meta" id="more">${js.length-2} more</button>`:""}</div>`;
+  }).join("");
+  const m=$("#more"); if(m) m.onclick=()=>{doneOpen=true; renderJobs(); $$(".group[data-g=done] .job").forEach(b=>{b.classList.add("fade","out"); requestAnimationFrame(()=>requestAnimationFrame(()=>b.classList.remove("out")));});};
+  $$(".job").forEach(b=>b.onclick=()=>open(D.jobs.find(j=>j.id===b.dataset.id)));
+  $$("#groups .sh").forEach(b=>b.onclick=()=>{solo = solo===b.dataset.g?null:b.dataset.g; $$(".group").forEach(gr=>gr.classList.toggle("dim", !!solo && solo!==gr.dataset.g));});
+}
+
+/* where a job is, from its group alone: working -> needs you -> done */
+const TRACK = [["working","Working"],["needs","Needs you"],["done","Done"]];
+const posOf = job => TRACK.findIndex(t=>t[0]===job.group);
+
+function dial(job){
+  const p = posOf(job), n=3, R=22, cx=28, cy=28, seg=270/n, gap=9;
+  let s = "";
+  for(let i=0;i<n;i++){
+    const a0=(-225+i*seg+gap/2)*Math.PI/180, a1=(-225+(i+1)*seg-gap/2)*Math.PI/180;
+    const d=`M${cx+R*Math.cos(a0)} ${cy+R*Math.sin(a0)} A${R} ${R} 0 0 1 ${cx+R*Math.cos(a1)} ${cy+R*Math.sin(a1)}`;
+    const cur = i===p, past = i<p;
+    s += `<path d="${d}" fill="none" stroke-width="4" stroke="${cur?C[TRACK[i][0]]:past?'var(--ink)':'var(--line)'}" class="${cur&&job.group!=='done'?(job.group==='working'?'pulse':'blink'):''}"/>`;
+  }
+  const na=(-225+(p+.5)*seg)*Math.PI/180;
+  s += `<line x1="${cx}" y1="${cy}" x2="${cx+13*Math.cos(na)}" y2="${cy+13*Math.sin(na)}" stroke="var(--ink)" stroke-width="1.5" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="2.5" fill="var(--ink)"/>`;
+  return `<svg width="56" height="56" viewBox="0 0 56 56">${s}</svg>`;
+}
+
+function track(job){
+  const p = posOf(job), W=660, x0=10, step=(W-20)/2, anc=i=>i===0?'start':i===2?'end':'middle';
+  let s = `<line x1="${x0}" y1="24" x2="${W-x0}" y2="24" stroke="#333" stroke-width="1"/><line x1="${x0}" y1="24" x2="${x0+step*p}" y2="24" stroke="var(--screen-ink)" stroke-width="1"/>`;
+  TRACK.forEach(([g,name],i)=>{
+    const x=x0+step*i, cur=i===p, past=i<p, off=i===0?7:i===2?-7:0;
+    s += cur ? `<rect x="${x+off-7}" y="17" width="14" height="14" fill="${C[g]}" class="${g==='working'?'pulse':g==='needs'?'blink':''}"/>`
+             : `<circle cx="${x+off}" cy="24" r="5" fill="${past?'var(--screen-ink)':'var(--screen)'}" stroke="${past?'none':'#555'}"/>`;
+    s += `<text x="${x}" y="62" fill="${cur||past?'#EDEDE8':'#6E6E69'}" font-family="Geist" font-size="13" text-anchor="${anc(i)}">${name}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} 72" style="width:100%;display:block">${s}</svg>`;
+}
+
+const parse = l => { const m = l.match(/^V(\d) · ([^.]+)\. (.*)$/); return {n:m[1], name:m[2], d:m[3]}; };
+function readoutHTML(job){
+  const v = parse(job.shotLabels[ver]);
+  return `<p class="ln"><b>V${v.n} · ${v.name}</b>${v.d}</p>
+    <div class="acts"><button class="link">${job.actions[1]}</button><button class="btn pri">Build V${ver+1}<span class="fig">↵</span></button></div>`;
+}
+
+function centreHTML(job){
+  const shots = job.shots||[], multi = shots.length>1;
+  let screen, actsBelow = true;
+  if(multi){
+    actsBelow = false;
+    screen = `<div class="screen" id="screen">
+      <div class="shot" id="shot"><img id="shotImg" src="${A(shots[ver])}" alt=""></div>
+      <div class="readout fade" id="readout">${readoutHTML(job)}</div>
+      <div class="tape" role="tablist"><span class="playhead" id="ph"></span>
+        ${shots.map((s,i)=>`<button class="cell" role="tab" data-i="${i}" aria-selected="${i===ver}"><span class="fr"><img src="${A(s)}" alt=""></span><span class="lab"><span class="fig">V${i+1}</span>${i===job.pick?`<svg width="7" height="7" viewBox="0 0 7 7"><rect x="0" y="0" width="7" height="7" fill="var(--screen-ink)"/></svg><span>Flyd's pick</span>`:""}</span></button>`).join("")}
+      </div></div>`;
+  } else if(shots.length){
+    screen = `<div class="screen wide"><div class="shot" data-src="${A(shots[0])}"><img src="${A(shots[0])}" alt=""></div></div>`;
+  } else {
+    screen = `<div class="screen wide" style="min-height:0;flex:0 0 auto;padding:27px">${track(job)}</div>`;
+  }
+  const acts = actsBelow ? `<div class="acts">${job.actions.map((a,i)=>`<button class="btn ${i===0?'pri':'sec'}">${a}</button>`).join("")}${job.link?`<span class="meta" style="margin-left:9px">${job.link}</span>`:""}</div>` : "";
+  const thread = job.thread.map(t=>`<div class="msg ${t.who}"><span class="who">${t.who==="you"?"You":"Flyd"}<span class="fig">${t.at}</span></span><p>${t.text}</p></div>`).join("");
+  return `<div class="fade out" id="cIn" style="display:flex;flex-direction:column;min-height:100%">
+    <div class="head">
+      <div><span class="meta">${job.project} · ${job.kind==="design"?"Design":"Code"} · <span class="fig">${job.when}</span></span><h1>${job.title}</h1></div>
+      <div class="dialwrap" title="${TRACK[posOf(job)][1]}">${dial(job)}${multi?"":`<span class="s dialtxt">${job.state}</span>`}</div>
+    </div>
+    ${screen}
+    ${acts}
+    <div class="thread" id="thread">${thread}</div>
+    <form class="compose" id="compose"><input id="box" placeholder="Message Flyd about this job" autocomplete="off"><button class="btn sec" type="submit">Send</button></form>
+  </div>`;
+}
+
+function placePlayhead(){
+  const ph=$("#ph"), cell=document.querySelector(`.tape .cell[data-i="${ver}"]`);
+  if(!ph||!cell) return;
+  const t=cell.parentElement.getBoundingClientRect(), r=cell.getBoundingClientRect();
+  ph.style.width = r.width+"px"; ph.style.transform = `translateX(${r.left-t.left}px)`;
+}
+
+function setVer(i){
+  const job = active; if(!job.shots||job.shots.length<2) return;
+  ver = (i+job.shots.length)%job.shots.length;
+  const ro=$("#readout"), img=$("#shotImg");
+  ro.classList.add("out"); img.style.opacity=0;
+  $$(".tape .cell").forEach(c=>c.setAttribute("aria-selected", +c.dataset.i===ver));
+  placePlayhead();
+  setTimeout(()=>{
+    img.src = A(job.shots[ver]); $("#shot").scrollTop = 0;
+    ro.innerHTML = readoutHTML(job);
+    const show=()=>{img.style.opacity=1}; img.onload=show; if(img.complete) show();
+    ro.classList.remove("out");
+  },200);
+}
+
+function open(job, first){
+  const go = ()=>{
+    active = job; ver = job.pick ?? 0;
+    $("#centre").innerHTML = centreHTML(job);
+    $$(".job").forEach(b=>b.setAttribute("aria-current", b.dataset.id===job.id));
+    $$(".tape .cell").forEach(c=>c.onclick=()=>setVer(+c.dataset.i));
+    $$(".shot[data-src]").forEach(s=>s.onclick=()=>lightbox(s.dataset.src));
+    $("#compose").onsubmit = e=>{e.preventDefault(); send();};
+    requestAnimationFrame(()=>{placePlayhead(); requestAnimationFrame(()=>$("#cIn").classList.remove("out"));});
+  };
+  const c = $("#cIn");
+  if(first||!c) return go();
+  c.classList.add("out"); setTimeout(go,180);
+}
+
+function send(){
+  const v = $("#box").value.trim(); if(!v) return;
+  const th = $("#thread"), now = new Date().toTimeString().slice(0,5);
+  const add = (who, html)=>{const d=document.createElement("div");d.className=`msg ${who} fade out`;d.innerHTML=html;th.appendChild(d);requestAnimationFrame(()=>requestAnimationFrame(()=>d.classList.remove("out")));return d;};
+  add("you", `<span class="who">You<span class="fig">${now}</span></span><p></p>`).querySelector("p").textContent = v;
+  $("#box").value = "";
+  const last = th.lastChild; const q = document.createElement("span"); q.className="living fade out"; q.innerHTML=`${mark('working')}Queued`;
+  last.querySelector("p").after(q); requestAnimationFrame(()=>requestAnimationFrame(()=>q.classList.remove("out")));
+  $("#centre").scrollTo({top:1e5,behavior:"smooth"});
+}
+
+function lightbox(src){ const lb=$("#lb"); lb.querySelector("img").src=src; lb.classList.add("on"); }
+$("#lb").onclick = ()=>$("#lb").classList.remove("on");
+
+function renderArts(){
+  const designs = D.artefacts.filter(a=>a.kind==="design"), news = D.artefacts.filter(a=>a.kind==="news"), info = D.artefacts.find(a=>a.kind==="info");
+  const n = D.artefacts.length;
+  $("#arts").innerHTML = `
+    <div class="rsec"><div class="sh">${knob(C.art, designs.length/n)}<span class="l">Designs</span><span class="fig">${designs.length}</span></div>
+      <div class="dgrid">${designs.map(a=>`<div class="art"><button class="fr" data-src="${A(a.img)}"><img src="${A(a.img)}" alt="${a.title}"></button><div class="t">${a.title}</div><div class="meta">${a.meta}</div></div>`).join("")}</div>
+    </div>
+    <div class="rsec"><div class="sh">${knob("var(--ink)", news.length/n)}<span class="l">News</span><span class="fig">${news.length}</span></div>
+      ${info?`<p class="note">${info.text}</p>`:""}
+      ${news.map(a=>`<div class="art"><div class="t">${a.title}</div><div class="meta">${a.meta}</div></div>`).join("")}
+    </div>`;
+  $$(".art .fr").forEach(b=>b.onclick=()=>lightbox(b.dataset.src));
+}
+
+function tick(){
+  const d = new Date();
+  $("#day").textContent = d.toLocaleDateString("en-GB",{weekday:"short", day:"numeric", month:"short"});
+  $("#clock").textContent = d.toTimeString().slice(0,5);
+}
+
+document.addEventListener("keydown", e=>{
+  if(e.target.tagName==="INPUT") return;
+  if(e.key==="ArrowRight") setVer(ver+1);
+  if(e.key==="ArrowLeft") setVer(ver-1);
+  if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault(); const i=D.jobs.indexOf(active); open(D.jobs[(i+(e.key==="ArrowDown"?1:-1)+D.jobs.length)%D.jobs.length]);}
+  if(e.key==="Escape") $("#lb").classList.remove("on");
+});
+window.addEventListener("resize", placePlayhead);
+
+renderJobs(); renderArts(); open(active, true); turnKnobs(); tick(); setInterval(tick, 15000);
+</script>
+</body>
+</html>

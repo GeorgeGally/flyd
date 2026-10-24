@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd · Less, but better</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* One unit, one family, three sizes, two weights, one colour. */
+  :root {
+    --u: 8px;
+    --paper: #f4f3f0;
+    --mat: #e4e3df;
+    --ink: #141413;
+    --ink-2: #3d3c39;
+    --quiet: #66655f;      /* 5.3:1 on paper */
+    --rule: #c4c3be;
+    --signal: #ff5a1f;
+    --s: 15px;  --s-lh: 24px;
+    --m: 20px;  --m-lh: 32px;
+    --l: 28px;  --l-lh: 40px;
+    --fade: 280ms cubic-bezier(.4, 0, .2, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 var(--s)/var(--s-lh) "Host Grotesk", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-wrap: pretty;
+    font-variant-numeric: tabular-nums;
+  }
+  button, textarea { font: inherit; color: inherit; background: none; border: 0; }
+  button { cursor: pointer; text-align: left; }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; }
+
+  /* ---------- grid: three columns, one top line ---------- */
+  .page {
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 256px minmax(0, 1fr) 256px;
+    column-gap: calc(var(--u) * 6);
+    padding: calc(var(--u) * 5);
+  }
+  .col { min-height: 0; overflow-y: auto; scrollbar-width: none; }
+  .col::-webkit-scrollbar { display: none; }
+
+  /* ---------- lists: left jobs, right artefacts ---------- */
+  .group + .group { margin-top: calc(var(--u) * 3); }
+  .ghead { display: flex; align-items: center; gap: 10px; font-size: var(--m); line-height: var(--m-lh); margin-bottom: var(--u); }
+  .ghead .n { color: var(--quiet); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--signal); flex: none; }
+  .row { display: block; width: 100%; padding: var(--u) 0; color: var(--ink-2); }
+  .row .t { display: block; transition: color var(--fade); }
+  .row .w { display: block; color: var(--quiet); }
+  .row .im { width: 100%; object-fit: cover; object-position: top center; background: var(--mat); margin-bottom: var(--u); transition: opacity var(--fade); }
+  .index .row .im { height: 64px; }
+  .art .row .im { height: 136px; }
+  button.row:hover .t, a.row:hover .t { color: var(--ink); }
+  .row.on .t { color: var(--ink); font-weight: 500; }
+  .more { color: var(--ink-2); transition: color var(--fade); }
+  .more:hover { color: var(--ink); }
+
+  /* ---------- the work ---------- */
+  .work { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; }
+  .bar { display: flex; align-items: center; gap: calc(var(--u) * 3); height: var(--m-lh); margin-bottom: calc(var(--u) * 2); }
+  .state { font-size: var(--m); line-height: var(--m-lh); }
+  .where { color: var(--quiet); }
+  .ptitle { display: none; }
+  .acts { display: flex; align-items: center; gap: calc(var(--u) * 3); margin-left: auto; }
+  .btn { height: 32px; padding: 0 14px; border-radius: 6px; background: var(--ink); color: var(--paper); font-weight: 500; transition: background var(--fade); }
+  .btn:hover { background: #33332f; }
+  .link { color: var(--ink); display: inline-flex; gap: 6px; }
+  .link::after { content: "→"; opacity: .55; transition: opacity var(--fade); }
+  .link:hover::after { opacity: 1; }
+
+  .mat { min-height: 0; overflow-y: auto; scrollbar-width: none; background: var(--mat); padding: calc(var(--u) * 3) calc(var(--u) * 3) 0; }
+  .mat::-webkit-scrollbar { display: none; }
+  .crop { overflow: hidden; transition: opacity var(--fade); }
+  .crop.out { opacity: 0; }
+  .crop img { width: 100%; height: auto; }
+  .crop.lab img { margin-top: -4.4%; margin-bottom: -5.2%; }   /* trims the lab's own label band */
+  .crop[hidden], .plate[hidden] { display: none; }
+  .plate { font-size: var(--l); line-height: var(--l-lh); letter-spacing: -.01em; padding: calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 5); max-width: 19em; transition: opacity var(--fade); }
+  .plate.out { opacity: 0; }
+
+  .below { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); column-gap: calc(var(--u) * 5); padding-top: calc(var(--u) * 3); height: 272px; }
+  .nums { display: flex; gap: 6px; margin-left: -9px; }
+  .nums button { width: 28px; height: 28px; border-radius: 50%; text-align: center; color: var(--ink-2); transition: background var(--fade), color var(--fade); }
+  .nums button:hover { color: var(--ink); }
+  .nums button.on { background: var(--ink); color: var(--paper); font-weight: 500; }
+  .vname { font-size: var(--m); line-height: var(--m-lh); margin-top: var(--u); }
+  .vdesc { color: var(--ink-2); }
+  .vrec { color: var(--quiet); }
+  .fade { transition: opacity var(--fade); }
+  .fade.out { opacity: 0; }
+
+  .talk { display: flex; flex-direction: column; min-height: 0; }
+  .thread { min-height: 0; overflow-y: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(transparent, #000 32px); mask-image: linear-gradient(transparent, #000 32px); padding-top: 0; }
+  .thread.top { -webkit-mask-image: none; mask-image: none; }
+  .thread::-webkit-scrollbar { display: none; }
+  .turn + .turn { margin-top: calc(var(--u) * 2); }
+  .turn .who { font-weight: 500; }
+  .turn .at { color: var(--quiet); margin-left: var(--u); }
+  .turn.you .tx { color: var(--ink-2); }
+  .reply textarea {
+    display: block; width: 100%; height: 41px; resize: none; outline: none; margin-top: calc(var(--u) * 2);
+    padding: 8px 0; border-bottom: 1px solid var(--rule); caret-color: var(--signal);
+    transition: border-color var(--fade);
+  }
+  .reply textarea:focus { border-bottom-color: var(--ink); }
+  .reply textarea::placeholder { color: var(--quiet); }
+
+  /* ---------- phone ---------- */
+  @media (max-width: 760px) {
+    .page { height: auto; display: flex; flex-direction: column; padding: calc(var(--u) * 3) calc(var(--u) * 2) calc(var(--u) * 8); }
+    .col { overflow: visible; }
+    .work { order: 1; display: block; }
+    .bar { flex-wrap: wrap; height: auto; row-gap: var(--u); }
+    .acts { margin-left: 0; width: 100%; }
+    .mat { padding: calc(var(--u) * 2) calc(var(--u) * 2) 0; max-height: 70vh; }
+    .below { display: block; height: auto; }
+    .talk { margin-top: calc(var(--u) * 4); }
+    .thread { overflow: visible; -webkit-mask-image: none; mask-image: none; }
+    .ptitle { display: block; order: -1; width: 100%; font-size: var(--l); line-height: var(--l-lh); letter-spacing: -.01em; margin-bottom: var(--u); }
+    .index { order: 2; margin-top: calc(var(--u) * 7); }
+    .art { order: 3; margin-top: calc(var(--u) * 5); }
+    .plate { font-size: var(--m); line-height: var(--m-lh); }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+  <nav class="col index" id="index"></nav>
+
+  <section class="work">
+    <div class="bar fade" id="bar"></div>
+    <div class="mat" id="mat"><div class="crop" id="crop" hidden><img id="shot" alt=""></div><div class="plate" id="plate" hidden></div></div>
+    <div class="below">
+      <div class="fade" id="ver"></div>
+      <div class="talk">
+        <div class="thread fade" id="thread"></div>
+        <div class="reply"><textarea id="box" rows="1" placeholder="Reply to Flyd"></textarea></div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="col art" id="art"></aside>
+</main>
+
+<script src="../shared/data.js"></script>
+<script>
+(() => {
+  const D = window.FLYD;
+  const A = p => "../shared/" + p;
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  let cur = D.jobs[0], shot = 0, doneOpen = false;
+
+  const row = (tag, attrs, img, t, w) =>
+    `<${tag} class="row" ${attrs}>${img ? `<img class="im" src="${A(img)}" alt="">` : ""}<span class="t">${esc(t)}</span><span class="w">${esc(w)}</span></${tag}>`;
+  const meta = j => (j.project === "Flyd" ? "" : j.project + " · ") + j.when;
+
+  // ---- left: jobs. The selected row is the headline; it isn't repeated.
+  function renderIndex() {
+    const g = k => D.jobs.filter(j => j.group === k);
+    const rows = js => js.map(j => row("button", `data-id="${j.id}"`, j.group === "needs" ? j.thumb : null, j.title, meta(j))).join("");
+    const done = g("done");
+    $("index").innerHTML =
+      `<div class="group"><div class="ghead"><span>Needs you</span><span class="n">${g("needs").length}</span><span class="dot"></span></div>${rows(g("needs"))}</div>` +
+      `<div class="group"><div class="ghead"><span>Working</span><span class="n">${g("working").length}</span></div>${rows(g("working"))}</div>` +
+      `<div class="group"><div class="ghead"><span>Done</span><span class="n">${done.length}</span></div>` +
+      (doneOpen ? rows(done) : `<button class="row more" id="more">Show all ${done.length}</button>`) + `</div>`;
+    document.querySelectorAll("#index .row[data-id]").forEach(b => {
+      b.classList.toggle("on", b.dataset.id === cur.id);
+      b.addEventListener("click", () => load(D.jobs.find(j => j.id === b.dataset.id)));
+    });
+    const m = $("more"); if (m) m.addEventListener("click", () => { doneOpen = true; renderIndex(); });
+  }
+
+  // ---- right: artefacts
+  const made = D.artefacts.filter(a => a.img), news = D.artefacts.filter(a => !a.img);
+  $("art").innerHTML =
+    `<div class="group"><div class="ghead"><span>Designs</span><span class="n">${made.length}</span></div>${made.map(a => row("a", 'href="#"', a.img, a.title, a.meta)).join("")}</div>` +
+    `<div class="group"><div class="ghead"><span>News</span><span class="n">${news.length}</span></div>${news.map(a => row("a", 'href="#"', null, a.title, a.meta)).join("")}</div>`;
+
+  // ---- the work
+  D.jobs.forEach(j => (j.shots || []).forEach(s => { new Image().src = A(s); }));
+
+  function show(k, first) {
+    shot = k;
+    const s = cur.shots ? cur.shots[k] : null;
+    $("crop").classList.add("out"); $("ver").classList.add("out");
+    setTimeout(() => {
+      $("crop").hidden = !s;
+      if (s) { $("shot").src = A(s); $("crop").classList.toggle("lab", /capfive-v\d/.test(s)); }
+      $("mat").scrollTop = 0;
+      const many = cur.shots && cur.shots.length > 1;
+      if (many) {
+        const [name, ...rest] = cur.shotLabels[k].replace(/^V\d+ · /, "").split(". ");
+        const rec = k === cur.pick ? "Flyd recommends this one." : `Flyd recommends ${cur.pick + 1}.`;
+        $("ver").innerHTML = `<div class="nums">${cur.shots.map((_, n) => `<button class="${n === k ? "on" : ""}" aria-label="Version ${n + 1}">${n + 1}</button>`).join("")}</div>` +
+          `<div class="vname">${esc(name)}</div><div class="vdesc">${esc(rest.join(". "))}</div><div class="vrec">${rec}</div>`;
+        $("ver").querySelectorAll("button").forEach((b, n) => b.addEventListener("click", () => show(n)));
+      } else {
+        const last = cur.thread[cur.thread.length - 1];
+        $("ver").innerHTML = s ? "" : `<div class="vrec">Flyd · ${esc(last.at)}</div>`;
+      }
+      $("crop").classList.remove("out"); $("ver").classList.remove("out");
+    }, first ? 0 : 180);
+  }
+
+  function load(j, first) {
+    cur = j;
+    renderIndex();
+    ["bar", "thread", "plate"].forEach(id => $(id).classList.add("out"));
+    setTimeout(() => {
+      const last = j.thread[j.thread.length - 1];
+      const [a1, a2] = j.actions;
+      $("bar").innerHTML = `<span class="ptitle">${esc(j.title)}</span><span class="state">${esc(j.state)}</span><span class="where">${esc(j.project)} · ${esc(j.when)}</span>` +
+        `<span class="acts"><button class="btn">${esc(a1)}</button>${a2 ? `<a class="link" href="#">${esc(a2)}</a>` : ""}</span>`;
+      // the work is an image, or Flyd's latest word set large on the mat
+      $("plate").hidden = !!j.shots;
+      $("plate").textContent = j.shots ? "" : last.text;
+      const msgs = j.shots ? j.thread : j.thread.slice(0, -1);
+      $("thread").innerHTML = msgs.map(m => `<div class="turn ${m.who}"><div><span class="who">${m.who === "you" ? "You" : "Flyd"}</span><span class="at">${esc(m.at)}</span></div><div class="tx">${esc(m.text)}</div></div>`).join("");
+      const th = $("thread"); th.scrollTop = th.scrollHeight; th.classList.toggle("top", th.scrollTop === 0);
+      th.onscroll = () => th.classList.toggle("top", th.scrollTop === 0);
+      show(j.shots && j.shots.length > 1 ? (j.pick ?? 0) : 0, true);
+      ["bar", "thread", "plate"].forEach(id => $(id).classList.remove("out"));
+    }, first ? 0 : 180);
+  }
+
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "TEXTAREA" || !cur.shots || cur.shots.length < 2) return;
+    if (e.key === "ArrowRight") show((shot + 1) % cur.shots.length);
+    if (e.key === "ArrowLeft") show((shot + cur.shots.length - 1) % cur.shots.length);
+  });
+
+  load(cur, true);
+})();
+</script>
+</body>
+</html>

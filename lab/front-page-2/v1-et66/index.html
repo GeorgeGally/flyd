@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd · ET 66</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Module 8px. Columns 288 / fluid / 248. Type: 13 / 15 / 18 / 28. One family, tabular figures. */
+:root{
+  --chassis:#E6E4DF;
+  --face:#F3F2EE;
+  --well:#E1DFD9;
+  --ink:#1D1C1A;
+  --ink-2:#5F5D58;
+  --ink-3:#8E8B85;
+  --key:#FBFAF8;
+  --key-dark:#2B2A27;
+  --signal:#EE7A22;
+  --pad:24px;
+  --fx:40px;              /* face inner x padding */
+  --sans:"Geist", system-ui, sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--chassis);color:var(--ink);font:400 15px/1.6 var(--sans);-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;overflow:hidden}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+
+.chassis{height:100vh;display:grid;grid-template-columns:280px minmax(0,1fr) 240px;gap:40px;padding:var(--pad) var(--pad) var(--pad) 32px}
+.side{min-height:0;overflow:auto;padding-top:32px;scrollbar-width:none}
+.side::-webkit-scrollbar{display:none}
+.left{padding-left:16px;margin-left:-16px}
+.bar{display:flex;align-items:baseline;justify-content:space-between;font-size:15px;line-height:24px;margin-bottom:24px}
+.bar b{font-weight:600}
+.bar span{color:var(--ink-3)}
+.sec{display:flex;align-items:baseline;justify-content:space-between;font:600 13px/16px var(--sans);color:var(--ink);margin-bottom:6px}
+.sec span{font-weight:400;color:var(--ink-3)}
+
+/* ---------- left: jobs ---------- */
+.group+.group{margin-top:24px}
+.job{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:16px;align-items:start;text-align:left;padding:7px 0;width:100%;}
+.job::before{content:"";position:absolute;left:-16px;top:10px;bottom:10px;width:2px;border-radius:1px;background:var(--ink);opacity:0;transition:opacity .2s ease}
+.job.on::before{opacity:1}
+.job .t{display:block;font-size:15px;line-height:20px;color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;transition:color .18s ease}
+.job:hover .t,.job.on .t{color:var(--ink)}
+.job.on .t{font-weight:500}
+.job .m{display:block;margin-top:4px;font-size:13px;line-height:16px;color:var(--ink-3)}
+.job.done .t{-webkit-line-clamp:1}
+.job img{display:block;width:64px;height:40px;object-fit:cover;object-position:50% 20%;border-radius:3px;margin-top:2px;box-shadow:0 0 0 1px rgba(0,0,0,.1)}
+
+/* ---------- centre: the face, the one object ---------- */
+.display{min-height:0;background:var(--face);border-radius:14px;box-shadow:0 0 0 1px rgba(0,0,0,.05),0 1px 1px rgba(0,0,0,.05),0 2px 6px rgba(0,0,0,.04);position:relative;overflow:hidden}
+.panel{position:absolute;inset:0;display:flex;flex-direction:column;padding:32px var(--fx) 28px;transition:opacity .22s ease}
+.panel.out{opacity:0;transition-duration:.14s}
+.head{flex:none;display:flex;align-items:baseline;justify-content:space-between;gap:24px;font-size:13px;line-height:20px;color:var(--ink-3)}
+.head .state{color:var(--ink);font-weight:500}
+.title{flex:none;font:500 28px/34px var(--sans);letter-spacing:-.015em;margin:8px 0 24px;max-width:34ch;text-wrap:balance}
+
+/* the window: a recessed band; the version sits in it near 1:1, framed on purpose */
+.screen{flex:1 1 0;min-height:240px;margin:0 calc(-1 * var(--fx));position:relative;background:var(--well)}
+.screen::after{content:"";position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 2px 3px -1px rgba(0,0,0,.14),inset 0 -1px 0 rgba(255,255,255,.7)}
+.glass{position:absolute;inset:0;overflow:auto;padding:24px var(--fx) 0;scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.25) transparent}
+.sheet{max-width:var(--natural,100%);margin:0 auto;overflow:hidden;border-radius:3px 3px 0 0;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.08);transition:opacity .22s ease}
+.sheet img{display:block;width:100%}
+.sheet img.crop{margin-top:-4.3%;margin-bottom:-7%}
+.sheet.out{opacity:0;transition-duration:.12s}
+.screen.dark{background:#0E0E0E}
+.screen.dark .glass{padding:0;display:flex;align-items:center}
+.screen.dark .sheet{max-width:none;width:100%;height:100%;box-shadow:none;background:none;border-radius:0}
+.screen.dark .sheet img{height:100%;object-fit:contain}
+
+/* versions: the actual choices as keys */
+.versions{flex:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;margin-top:20px}
+.v{text-align:left;min-width:0}
+.v .tn{display:block;height:56px;border-radius:4px;overflow:hidden;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.1);transition:box-shadow .2s ease}
+.v .tn img{display:block;width:100%;margin-top:-4.3%}
+.v.on .tn{box-shadow:0 0 0 2px var(--ink)}
+.v .nm{display:block;margin-top:8px;font-size:13px;line-height:16px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .18s ease}
+.v .nm b{font-weight:500}
+.v:hover .nm,.v.on .nm{color:var(--ink)}
+.v .pk{display:block;font-size:13px;line-height:16px;color:var(--ink-3);height:16px;white-space:nowrap}
+
+.acts{flex:none;display:flex;align-items:center;gap:24px}
+.btn{height:36px;padding:0 16px;border-radius:7px;font-size:14px;font-weight:500;background:var(--key);box-shadow:0 1px 0 rgba(0,0,0,.14),0 0 0 1px rgba(0,0,0,.05);transition:background-color .18s ease;white-space:nowrap}
+.btn:hover{background:#fff}
+.btn.go{background:var(--signal);color:#1B140E;box-shadow:0 1px 0 rgba(120,50,0,.35)}
+.btn.go:hover{background:#F2873A}
+.quiet{font-size:14px;font-weight:500;color:var(--ink-2);transition:color .18s ease;white-space:nowrap}
+.quiet:hover{color:var(--ink)}
+
+/* thread */
+.thread{flex:0 1 auto;min-height:0;overflow:auto;margin-top:24px;scrollbar-width:none}
+.thread::-webkit-scrollbar{display:none}
+.panel.plain .thread{flex:1 1 auto;margin-top:8px}
+.msg{display:grid;grid-template-columns:112px minmax(0,1fr);max-width:760px}
+.msg+.msg{margin-top:12px}
+.msg .who{font-size:13px;line-height:24px;color:var(--ink-3)}
+.msg .who b{font-weight:500;color:var(--ink-2)}
+.msg p{font-size:15px;line-height:24px;color:var(--ink-2)}
+.msg.lead p{color:var(--ink)}
+.plain .msg.lead p{font-size:18px;line-height:28px}
+.plain .msg.lead .who{line-height:28px}
+.thread .acts{margin:16px 0 0 112px}
+
+/* composer: a groove; Send is a small key seated on it */
+.compose{flex:none;display:flex;align-items:flex-end;gap:12px;margin-top:24px;position:relative}
+.compose::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(rgba(0,0,0,.14) 50%,#fff 50%)}
+.slot{flex:1;min-width:0}
+.slot input{width:100%;height:40px;border:0;background:none;font:400 15px/40px var(--sans);color:var(--ink);outline:none}
+.slot input::placeholder{color:var(--ink-3)}
+.send{height:28px;margin-bottom:8px;padding:0 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--ink-2);background:var(--chassis);transition:background-color .18s ease,color .18s ease}
+.send:hover{color:var(--ink);background:var(--well)}
+.fade-in{animation:fi .3s ease both}
+@keyframes fi{from{opacity:0}to{opacity:1}}
+
+/* ---------- right: the shelf ---------- */
+.shelf .sec{margin-bottom:12px}
+.shelf .sec+*{margin-top:0}
+.designs .mod+.mod{margin-top:24px}
+.news{margin-top:40px}
+.mod img{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;object-position:0 0;border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.08);margin-bottom:10px}
+.mod h3{font:400 15px/20px var(--sans)}
+.mod p{margin-top:2px;font-size:13px;line-height:18px;color:var(--ink-3)}
+.news .mod+.mod{margin-top:16px}
+.news .mod h3{font-size:14px;line-height:20px;color:var(--ink-2)}
+
+/* ---------- phone ---------- */
+.mbar{display:none}
+@media (max-width:760px){
+  body{overflow:auto}
+  :root{--fx:20px}
+  .chassis{height:auto;display:flex;flex-direction:column;gap:0;padding:16px}
+  .mbar{display:flex;order:-1;padding:8px 4px 0;margin-bottom:16px}
+  .side{overflow:visible;padding-top:0}
+  .left .bar{display:none}
+  .left{order:1;margin:48px 4px 0 20px}
+  .right{order:2;margin:48px 4px 0;padding-bottom:40px}
+  .right .bar{display:none}
+  .display{overflow:visible}
+  .panel{position:relative;inset:auto;padding:24px var(--fx)}
+  .title{font-size:24px;line-height:30px}
+  .screen{flex:none}
+  .glass{position:static;max-height:64vh;padding-top:16px}
+  .versions{gap:8px}
+  .v .tn{height:40px}
+  .v .nm b{display:none}
+  .v .pk{font-size:12px}
+  .thread{overflow:visible}
+  .msg{grid-template-columns:1fr}
+  .thread .acts{margin-left:0}
+}
+</style>
+</head>
+<body>
+<main class="chassis">
+  <div class="bar mbar"><b>Flyd</b><span id="date-m"></span></div>
+  <nav class="side left" aria-label="Jobs">
+    <div class="bar"><b>Flyd</b><span id="date"></span></div>
+    <div id="jobs"></div>
+  </nav>
+  <section class="display" aria-live="polite"><div class="panel" id="panel"></div></section>
+  <aside class="side right" aria-label="Artefacts">
+    <div class="bar"><b style="font-weight:500">Artefacts</b><span id="art-count"></span></div>
+    <div class="shelf" id="shelf"></div>
+  </aside>
+</main>
+<script src="../shared/data.js"></script>
+<script>
+const D = window.FLYD, A = '../shared/';
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const groups = [['needs','Needs you'],['working','Working'],['done','Done']];
+const crop = src => /capfive-v\d/.test(src) ? 'crop' : '';
+let active = D.jobs[0].id; const shot = {};
+
+$('#date').textContent = $('#date-m').textContent = 'Saturday 24 October';
+
+function renderJobs(){
+  $('#jobs').innerHTML = groups.map(([g,label]) => {
+    const js = D.jobs.filter(j => j.group===g);
+    return `<section class="group"><h2 class="sec">${label}<span>${js.length}</span></h2>${js.map(j => `
+      <button class="job ${g==='done'?'done':''} ${j.id===active?'on':''}" data-id="${j.id}">
+        <span><span class="t">${esc(j.title)}</span><span class="m">${esc(j.project)} · ${esc(j.when)}</span></span>
+        ${j.thumb ? `<img src="${A+j.thumb}" alt="">` : ''}
+      </button>`).join('')}</section>`;
+  }).join('');
+}
+
+const parseLabel = l => { const m = l.match(/^V\d+\s*·\s*([^.]+)\.\s*(.*)$/); return m ? {name:m[1], rest:m[2]} : {name:'', rest:l}; };
+const multi = j => (j.shots||[]).length > 1;
+const cur = j => shot[j.id] ?? (j.pick ?? 0);
+
+function primaryLabel(j){
+  const a = j.actions[0];
+  return multi(j) && /^Build V\d/.test(a) ? `Build V${cur(j)+1}` : a;
+}
+function actsHTML(j){
+  return `<div class="acts">${j.actions.map((a,k)=> k===0
+    ? `<button class="btn ${j.group==='needs'?'go':''}" data-primary>${esc(primaryLabel(j))}</button>`
+    : `<button class="quiet">${esc(a)}</button>`).join('')}</div>`;
+}
+function sheetHTML(j,i){
+  const src = j.shots[i], alt = j.shotLabels ? j.shotLabels[i] : j.title;
+  return `<div class="sheet"><img class="${crop(src)}" src="${A+src}" alt="${esc(alt)}" onload="this.parentNode.style.setProperty('--natural',this.naturalWidth+'px')"></div>`;
+}
+
+function renderPanel(){
+  const j = D.jobs.find(x => x.id===active);
+  const shots = j.shots || [], i = cur(j);
+  const lastFlyd = j.thread.map(m=>m.who).lastIndexOf('flyd');
+  const msgs = j.thread.map((m,k) => `
+    <div class="msg ${m.who} ${k===lastFlyd?'lead':''}"><div class="who"><b>${m.who==='you'?'You':'Flyd'}</b> · ${esc(m.at)}</div><p>${esc(m.text)}</p></div>
+    ${k===lastFlyd ? actsHTML(j) : ''}`).join('');
+  const P = $('#panel');
+  P.classList.toggle('plain', !shots.length);
+  P.innerHTML = `
+    <div class="head"><span>${esc(j.project)}</span><span class="state">${esc(j.state)}</span></div>
+    <h1 class="title">${esc(j.title)}</h1>
+    ${shots.length ? `<div class="screen ${/dir-ident/.test(shots[i])?'dark':''}"><div class="glass">${sheetHTML(j,i)}</div></div>` : ''}
+    ${multi(j) ? `<div class="versions">${shots.map((src,k)=>{ const n = parseLabel(j.shotLabels[k]).name; return `
+        <button class="v ${k===i?'on':''}" data-v="${k}" title="${esc(parseLabel(j.shotLabels[k]).rest)}">
+          <span class="tn"><img src="${A+src}" alt=""></span>
+          <span class="nm">${k+1} <b>${esc(n)}</b></span>
+          <span class="pk">${j.pick===k?'Flyd’s pick':''}</span>
+        </button>`; }).join('')}</div>` : ''}
+    <div class="thread">${msgs}${lastFlyd<0 ? actsHTML(j) : ''}</div>
+    <form class="compose"><label class="slot"><input name="message" placeholder="Write to Flyd about this job" aria-label="Message to Flyd"></label><button class="send" type="submit">Send</button></form>`;
+}
+
+function renderShelf(){
+  const designs = D.artefacts.filter(a=>a.img), news = D.artefacts.filter(a=>!a.img);
+  $('#art-count').textContent = '';
+  $('#shelf').innerHTML = `
+    <section class="designs"><h2 class="sec">Designs<span>${designs.length}</span></h2>${designs.map(a => `<article class="mod"><img src="${A+a.img}" alt=""><h3>${esc(a.title)}</h3><p>${esc(a.meta)}</p></article>`).join('')}</section>
+    <section class="news"><h2 class="sec">News<span>${news.length}</span></h2>${news.map(a => `<article class="mod"><h3>${esc(a.title)}</h3><p>${esc(a.kind==='info' ? a.text : a.meta)}</p></article>`).join('')}</section>`;
+}
+
+/* TV fade: out, swap, in. Nothing moves. */
+function switchJob(id){
+  if(id===active) return;
+  active = id; renderJobs();
+  const p = $('#panel'); p.classList.add('out');
+  setTimeout(()=>{ renderPanel(); requestAnimationFrame(()=>p.classList.remove('out')); }, 150);
+  if(innerWidth<=760) scrollTo({top:0});
+}
+function switchVersion(k){
+  const j = D.jobs.find(x=>x.id===active); if(k===cur(j)) return; shot[j.id]=k;
+  document.querySelectorAll('.v').forEach((b,n)=>b.classList.toggle('on',n===k));
+  $('[data-primary]').textContent = primaryLabel(j);
+  const glass = $('.glass'), old = glass.querySelector('.sheet');
+  old.classList.add('out');
+  setTimeout(()=>{
+    glass.innerHTML = sheetHTML(j,k); glass.scrollTop = 0;
+    const sh = glass.querySelector('.sheet'); sh.classList.add('out');
+    sh.querySelector('img').addEventListener('load', () => requestAnimationFrame(()=>sh.classList.remove('out')), {once:true});
+  }, 130);
+}
+
+document.addEventListener('click', e => {
+  const job = e.target.closest('.job'); if(job) return switchJob(job.dataset.id);
+  const v = e.target.closest('.v'); if(v) return switchVersion(+v.dataset.v);
+});
+document.addEventListener('submit', e => {
+  e.preventDefault();
+  const inp = e.target.querySelector('input'); const t = inp.value.trim(); if(!t) return;
+  const j = D.jobs.find(x=>x.id===active);
+  const add = m => { j.thread.push(m); renderPanel(); const th=$('.thread'); const all=th.querySelectorAll('.msg'); all[all.length-1].classList.add('fade-in'); th.scrollTop=th.scrollHeight; };
+  add({who:'you', at:'Now', text:t});
+  setTimeout(()=>{ if(active===j.id){ add({who:'flyd', at:'Now', text:'Got it. I’ve added that to this job and will answer here.'}); $('.compose input').focus(); } }, 900);
+});
+document.addEventListener('keydown', e => {
+  if(e.target.tagName==='INPUT') return;
+  const j = D.jobs.find(x=>x.id===active);
+  if(multi(j) && /^[1-9]$/.test(e.key) && +e.key<=j.shots.length) switchVersion(+e.key-1);
+});
+
+renderJobs(); renderPanel(); renderShelf();
+</script>
+</body>
+</html>
