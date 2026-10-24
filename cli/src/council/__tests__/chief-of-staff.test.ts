@@ -177,12 +177,18 @@ describe("the chief-of-staff checks", () => {
       "Should I revert the homepage headline to the old wording?",
       "Do you want me to roll back the kitchen order?",
       "Say the word and I will restart your Mac.",
+      "Your decision on the headline stands; I reverted the test copy and the tests pass.",
+      "I'm waiting for you to get back before I touch the prompt.",
+      "The fix is in and the tests pass; nothing is waiting on you.",
+      "The config change is in, per your decision yesterday.",
     ]) {
       expect(checkSaid({ surface: "relay", text }).map((item) => item.requirement), text).not.toContain("decisions_handled");
     }
     for (const text of [
       "The capfive-intranet-map run failed. Let me know whether to retry or drop it.",
       "The run failed; I am waiting on you to say whether to rerun it.",
+      "The run failed; I'm waiting on you to say whether to rerun it.",
+      "The capfive-intranet-map run failed. Retry or drop it, your decision.",
     ]) {
       expect(checkSaid({ surface: "relay", text }).map((item) => item.requirement), text).toEqual(["decisions_handled"]);
     }
