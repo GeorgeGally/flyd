@@ -57,14 +57,13 @@ let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
 export async function runAndPersistBrief(deps: DailyBriefDeps = {}): Promise<{ ok: boolean; file: string }> {
   try {
-    const brief = await composeDailyBrief(deps);
+    // Nobody asked: read Calendar and Reminders only if he has them open.
+    const brief = await composeDailyBrief({ background: true, ...deps });
     const file = persistDailyBrief(brief);
     return { ok: true, file };
   } catch (error) {
-    if (deps.last30daysScript) {
-      // keep last error observable, but a brief must never crash Core
-      console.error(`[brief] compose failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    // Keep the error observable, but a brief must never crash Core.
+    console.error(`[brief] compose failed: ${error instanceof Error ? error.message : String(error)}`);
     return { ok: false, file: dailyBriefFile() };
   }
 }

@@ -177,12 +177,12 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       // Have the morning ready before George is up (council/morning.ts).
       name: "morning", usesModel: true,
       run: async () => {
-        const [{ prepareMorning }, { composeSessionBriefing }, { museGreeting }, { readUserProfile }, scout, { localDay }] = await Promise.all([
+        const [{ prepareMorning }, { composeMorning }, { museGreeting }, { readUserProfile }, scout, { localDay }] = await Promise.all([
           import("../council/morning.js"), import("./session-briefing.js"), import("../council/greeting.js"),
           import("../lib/user-profile.js"), import("../council/scout.js"), import("../council/memory-store.js"),
         ]);
         await prepareMorning({
-          briefing: (now) => composeSessionBriefing({ now: () => now, peek: true, background: true }),
+          briefing: (now) => composeMorning({ now: () => now, peek: true, background: true }),
           compose: (briefing, now) => museGreeting({ briefing, now, profile: (() => { try { return readUserProfile(); } catch { return null; } })() }, prose),
           newsReady: (now) => scout.latestEdition()?.date === localDay(now),
         });

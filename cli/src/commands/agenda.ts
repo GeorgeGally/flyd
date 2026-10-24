@@ -9,7 +9,7 @@ import {
 } from "../runtime/agenda.js";
 
 const LABEL = "com.flyd.agenda";
-const DEFAULT_BRIEF_TASK = "Morning brief: today's calendar and reminders (flag anything overdue), what changed in my active repos since yesterday, any Flyd agenda results I haven't seen, and the one thing most worth doing first today.";
+const DEFAULT_BRIEF_TASK = "Morning brief: today's news, calendar and reminders (flag anything overdue), what changed in my active repos since yesterday, any Flyd agenda results I haven't seen, and the one thing most worth doing first today.";
 
 function plistPath(): string {
   return join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);

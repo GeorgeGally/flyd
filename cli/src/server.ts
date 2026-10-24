@@ -1906,9 +1906,9 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
         console.warn(`[Flyd Core] Realtime server failed to start:`, err.message);
       });
 
-      // Background daily-brief cron: composes and persists the brief so the
-      // opening / /brief show a fresh brief without blocking the session on
-      // network research. Checks on an interval, but only composes when the
+      // Background daily-brief cron: refreshes repository intelligence, then
+      // writes George's composed morning (session-briefing.ts composeMorning)
+      // to the daily brief file. Checks on an interval, but only composes when the
       // local clock says it is a weekday morning (07:00–11:00, once per day),
       // so a start or wake at any hour can't write an off-hours morning brief.
       // Check cadence is 15 minutes; override via FLYD_BRIEF_INTERVAL_MINUTES.
@@ -1917,14 +1917,7 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
         if (Number.isFinite(minutes) && minutes > 0) return minutes * 60 * 1000;
         return undefined;
       })();
-      startBriefScheduler({
-        intervalMs: briefIntervalMs,
-        deps: {
-          last30daysScript: getKey("LAST30DAYS_SCRIPT"),
-          last30daysTopics: getKey("LAST30DAYS_TOPICS")
-            ?.split(",").map((t) => t.trim()).filter(Boolean),
-        },
-      });
+      startBriefScheduler({ intervalMs: briefIntervalMs });
       console.log(`[Flyd Core] Daily brief scheduler started`);
 
       // Tests start Core too; they must never execute George's real agenda.
