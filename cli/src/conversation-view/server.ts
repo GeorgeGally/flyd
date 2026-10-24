@@ -21,7 +21,7 @@ import { syncTasteSkills } from "../council/taste-skills.js";
 import { readProjects } from "../council/projects.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
-import { islandStatusOf, statusOf } from "./status.js";
+import { IslandRung, islandStatusOf, statusOf } from "./status.js";
 import { authorSummary, digestReply, isActionable, isRoutine, isRoutineAnswer, askedForArtefact, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
@@ -708,6 +708,8 @@ export class ConversationViewServer {
   private readonly chased = new Set<string>();
   /** Notices that would have been macOS notifications: the island rings for those that need him, the column keeps the rest. */
   readonly notices = new NoticeBoard();
+  /** Island items already rung (see IslandRung). */
+  private readonly islandRung = new IslandRung();
 
   constructor(
     private readonly source: ConversationSource,
@@ -1714,7 +1716,7 @@ export class ConversationViewServer {
     let sent = "";
     const emit = () => {
       if (!latest) return;
-      const current = islandStatusOf(statusOf(latest), this.feed.current().fleet);
+      const current = this.islandRung.once(islandStatusOf(statusOf(latest), this.feed.current().fleet));
       const ringing = this.notices.ringing();
       const status = JSON.stringify({ session: session.id, ...current, ...(ringing ? { notice: { id: ringing.id, text: noticeLine(ringing) } } : {}) });
       if (status === sent) return;

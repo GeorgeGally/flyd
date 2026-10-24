@@ -162,3 +162,22 @@ describe("a decision already answered or done never rings the island", () => {
     expect(statusOf({ ...snapshot, messages: snapshot.messages.slice(0, 3) }).reply?.asks ?? false).toBe(false);
   });
 });
+
+describe("IslandRung", () => {
+  it("rings an item once, even when it drops out and comes back or trades places, and remembers across restarts", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { IslandRung } = await import("../status.js");
+    const file = join(mkdtempSync(join(tmpdir(), "island-")), "rung.json");
+    const truchet = { working: false, reply: { id: "decision:truchet", headline: "Truchet hero lab is ready to land", asks: true } };
+    const landIt = { working: false, reply: { id: "decision:land-it", headline: "Land it?", asks: true } };
+    const rung = new IslandRung(file);
+    expect(rung.once(truchet).reply?.id).toBe("decision:truchet");
+    expect(rung.once({ working: false }).reply).toBeUndefined();
+    expect(rung.once(truchet).reply).toBeUndefined();
+    expect(rung.once(landIt).reply?.id).toBe("decision:land-it");
+    expect(rung.once(truchet).reply).toBeUndefined();
+    expect(new IslandRung(file).once(landIt).reply).toBeUndefined();
+  });
+});

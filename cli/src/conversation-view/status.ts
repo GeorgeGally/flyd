@@ -6,6 +6,9 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { authorSummary, digestReply, isActionable, isRoutine } from "./summaries.js";
 import type { FleetArtefact } from "./artefact.js";
 import type { ConversationSnapshot } from "./types.js";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { FLYD_DIR } from "../lib/config.js";
 
 // A glanceable status of the conversation for Flyd's notch island: is the
 // assistant working, what is it doing, and what did its newest reply say
@@ -136,4 +139,39 @@ export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefac
     ...(reply ? { reply } : {}),
     ...(current.waiting?.failed ? { waiting: current.waiting } : {}),
   };
+}
+
+/**
+ * Each island item rings once, ever. The island only remembers the last id it
+ * saw, so an open call that drops out of the fleet snapshot (an unreadable
+ * read) or trades places with another call came back as "new" and rang every
+ * minute or two. An id already sent is taken out of the feed; the record
+ * survives restarts.
+ */
+export class IslandRung {
+  private readonly ids: string[];
+  // Tests keep the record in memory unless they name a file: never George's real one.
+  constructor(private readonly file: string | null = process.env.VITEST ? null : join(process.env.FLYD_DIR || FLYD_DIR, "view", "island-rung.json"), private readonly max = 500) {
+    let ids: string[] = [];
+    try { if (file && existsSync(file)) ids = JSON.parse(readFileSync(file, "utf8")) as string[]; } catch { ids = []; }
+    this.ids = Array.isArray(ids) ? ids : [];
+  }
+
+  /** The status with any reply already rung removed; a first-seen reply is recorded and kept. */
+  once(status: ConversationStatus): ConversationStatus {
+    const id = status.reply?.id;
+    if (!id) return status;
+    if (this.ids.includes(id)) {
+      const { reply: _rung, ...rest } = status;
+      return rest;
+    }
+    this.ids.push(id);
+    if (this.ids.length > this.max) this.ids.splice(0, this.ids.length - this.max);
+    if (!this.file) return status;
+    try {
+      mkdirSync(dirname(this.file), { recursive: true });
+      writeFileSync(this.file, JSON.stringify(this.ids));
+    } catch { /* best effort: worst case one more ring after a restart */ }
+    return status;
+  }
 }
