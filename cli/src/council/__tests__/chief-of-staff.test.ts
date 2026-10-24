@@ -164,6 +164,9 @@ describe("the chief-of-staff checks", () => {
       "The firstmate answer fix failed and nothing merged. I'm having it taken up again, and I'll flag anything that needs your call.",
       "Flyd is recording zero experience events, and I'm fixing it now. I'll flag anything you need to decide.",
       "The copy is being brought up to date; I'll report what merged and flag any conflict that needs your call.",
+      // A sign-off inviting him to speak up is not a choice handed to him.
+      "The fix is in and the tests pass; let me know if anything looks off.",
+      "The guard is back on by default; tell me if that's wrong.",
     ]) {
       expect(checkSaid({ surface: "relay", text }).map((item) => item.requirement), text).not.toContain("decisions_handled");
     }
