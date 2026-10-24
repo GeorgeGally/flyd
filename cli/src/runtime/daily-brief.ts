@@ -21,8 +21,10 @@ export interface DailyBrief {
   lines: string[];
 }
 
+// Read FLYD_DIR when called, not at import: a test that points it at a temp
+// dir after import must never write George's real brief.
 export function dailyBriefFile(): string {
-  return join(FLYD_DIR, 'overlay', 'daily-brief.md');
+  return join(process.env.FLYD_DIR || FLYD_DIR, 'overlay', 'daily-brief.md');
 }
 
 /** Compose the brief without marking anything seen: writing a file tells George nothing yet. */
