@@ -1,4 +1,5 @@
 import { learningRequest } from "./cognition/learning-service.js";
+import { recordResolutionReceipt, type ResolutionLike } from "./runtime/resolution-receipt.js";
 import { config } from "dotenv";
 import { isOpenConversationIntent } from "./conversation-view/open-intent.js";
 import { resolve as resolvePath, join } from "node:path";
@@ -365,6 +366,13 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
             placement: "cursor",
           }],
         });
+        void recordResolutionReceipt({
+          surface: "overlay",
+          sessionId: parsed.work_session_id ?? parsed.conversation_id ?? undefined,
+          message: parsed.intent,
+          path: "deterministic",
+          resolution: { mode: "requires_augment", rationale: `compound-nl:${compound.kind}`, augmentations: [{ content: compound.reply }] },
+        });
         return;
       }
     }
@@ -493,6 +501,15 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
       }
 
       sendJson(res, 200, augmentJson);
+      void recordResolutionReceipt({
+        surface: "overlay",
+        sessionId: parsed.work_session_id ?? parsed.conversation_id ?? wiResult.workSessionId,
+        message: parsed.intent,
+        path: "work-intelligence",
+        resolution: augmentJson as unknown as ResolutionLike,
+        model: config.model,
+        baseURL: config.baseURL,
+      });
 
       intentHistory.push({ intent: parsed.intent, timestamp: new Date().toISOString() });
       if (intentHistory.length > 100) intentHistory.shift();

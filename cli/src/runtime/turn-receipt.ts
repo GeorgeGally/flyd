@@ -20,7 +20,9 @@ export interface TurnReceipt {
   recordedAt: string;
   sessionId: string;
   turnNumber: number;
-  route: "conversation" | "coding" | "work-intelligence";
+  route: "conversation" | "coding" | "work-intelligence" | "resolution";
+  /** Where George was talking to Flyd. Absent on older chat receipts. */
+  surface?: "chat" | "mobile" | "overlay" | "live";
   message: string;
   model: string;
   providerIdentity: string;
@@ -36,6 +38,8 @@ export interface TurnReceipt {
   decisionPolicy?: string;
   /** Descriptive understanding, not a grant or a success claim. */
   understanding?: TurnUnderstanding;
+  /** Overlay/LIVE resolutions: the response mode the Mac adapter got and the resolve stage that produced it. */
+  resolution?: { mode: string; path: string; workSessionId?: string };
 }
 
 type TurnReceiptInput = Omit<TurnReceipt, "version" | "id" | "recordedAt">;

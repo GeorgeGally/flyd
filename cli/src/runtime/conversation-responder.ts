@@ -1027,6 +1027,7 @@ export async function respondToConversation(
       sessionId: input.sessionId,
       turnNumber: input.turnNumber,
       route: "conversation",
+      surface: input.surface === "mobile" ? "mobile" : "chat",
       message: input.message,
       model: connection.model,
       providerIdentity: connection.providerIdentity,
