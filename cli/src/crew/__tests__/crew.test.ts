@@ -99,6 +99,42 @@ describe("crew", () => {
     expect(said).not.toMatch(/tests failed|\bcrew(?:mates?)?\b/i);
   });
 
+  it("leads with the provider's cause when partial work hit the credit wall and then failed its tests", async () => {
+    const launch = vi.fn((task: { worktree: string; log: string }) => {
+      writeFileSync(join(task.worktree, "partial.txt"), "half done\n");
+      git(task.worktree, "add", ".");
+      git(task.worktree, "commit", "-qm", "wip: partial");
+      writeFileSync(task.log, [
+        JSON.stringify({ type: "text", part: { type: "text", text: "Started on the checkpointing." } }),
+        JSON.stringify({ type: "error", timestamp: 2, error: { type: "provider.quota", message: "This request requires more credits, or fewer max_tokens. You requested up to 256000 tokens, but can only afford 49.", status: 402 } }),
+      ].join("\n") + "\n");
+      return 424242;
+    });
+    await dispatchCrewTask({ repo, outcome: "Checkpoint and requeue the background jobs", launch });
+    const notify = vi.fn(async (_title: string, _message: string, _kind?: string) => undefined);
+    const [failed] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: false, output: "2 failing" }), notify });
+    expect(failed).toMatchObject({ status: "failed", commits: 1 });
+    expect(failed.verification?.some((step) => !step.ok)).toBe(true);
+    const reason = blockedBy(failed);
+    expect(reason.startsWith("the model provider was out of credit")).toBe(true);
+    expect(reason.indexOf("provider")).toBeLessThan(reason.indexOf("tests"));
+    expect(notify.mock.calls[0]?.[1]).toBe(`${plainOutcome(failed)} is blocked: ${reason}. Tell me whether to try another way or drop it.`);
+  });
+
+  it("does not blame the provider for an error the run recovered from", async () => {
+    const launch = vi.fn((task: { log: string }) => {
+      writeFileSync(task.log, [
+        JSON.stringify({ type: "error", timestamp: 1, error: { type: "provider.quota", message: "Rate limited", status: 429 } }),
+        JSON.stringify({ type: "text", part: { type: "text", text: "Retried and looked around; nothing to change." } }),
+      ].join("\n") + "\n");
+      return 424242;
+    });
+    await dispatchCrewTask({ repo, outcome: "Look for a change", launch });
+    const [failed] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }) });
+    expect(failed.failure).toBe("no commits");
+    expect(blockedBy(failed)).toBe("nothing was committed");
+  });
+
   it("leaves running crewmates alone, stops ones stuck for hours, and refuses to land on a moved checkout", async () => {
     const task = await dispatchCrewTask({ repo, outcome: "Long job", launch: fakeCrewmate(), now: new Date(Date.now() - 3 * 3_600_000) });
     const kill = vi.fn();
