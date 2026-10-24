@@ -1,10 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { UNREAD_AFTER_MS, UNREAD_CHASE_MS, UnreadNoteWatcher, unreadNotes, waited } from "../note-receipts.js";
+import { UNREAD_AFTER_MS, markRead, readUnacknowledged } from "../note-receipts.js";
 import { deliverNotification } from "../../runtime/agenda.js";
-import { RENUDGE_MS } from "../../command/fleet-monitor.js";
 import type { GeorgeKind } from "../../lib/reaches-george.js";
 import type { Exchange } from "../types.js";
 
@@ -18,162 +17,26 @@ function note(id: string, sentAgoMs: number, receipt: "sent" | "read", answered 
     : { question, handoff: receipt === "read" ? "taken" : "queued", waiting: "Working on it" };
 }
 
-describe("unreadNotes", () => {
-  it("counts only notes firstmate has not acknowledged for longer than three minutes, oldest first", () => {
-    const unread = unreadNotes([
-      note("fresh", UNREAD_AFTER_MS - 1_000, "sent"),
-      note("late", 10 * 60_000, "sent"),
-      note("older", 64 * 60_000, "sent"),
-      note("read", 30 * 60_000, "read"),
-    ], NOW);
-    expect(unread).toEqual({ count: 2, oldest: ago(64 * 60_000), ids: ["note:older", "note:late"] });
-  });
-
-  it("does not count a note firstmate replied to, nor a message to Flyd itself", () => {
-    const ask: Exchange = { question: { id: "ask:1", role: "user", text: "hi", timestamp: ago(60 * 60_000) }, waiting: "" };
-    expect(unreadNotes([note("answered", 60 * 60_000, "sent", true), ask], NOW)).toBeNull();
-  });
-
-  it("does not count a note firstmate answered in its own chat or finished with, though it never filed it", () => {
+describe("read receipts", () => {
+  it("counts a note as read once firstmate answered it, settled it, finished with it or is working on it, though it never filed it", () => {
     const settled: Exchange = { ...note("chat", 60 * 60_000, "sent"), waiting: "The footer links are fixed", settled: true };
     const finished: Exchange = { ...note("finished", 60 * 60_000, "sent"), waiting: "", answered: true };
-    expect(unreadNotes([settled, finished, note("unread", 60 * 60_000, "sent")], NOW)?.ids).toEqual(["note:unread"]);
+    expect(readUnacknowledged(note("answered", 60 * 60_000, "sent", true))).toBe(true);
+    expect(readUnacknowledged(settled)).toBe(true);
+    expect(readUnacknowledged(finished)).toBe(true);
+    expect(readUnacknowledged(note("picked", UNREAD_AFTER_MS + 1, "sent"), new Set(["note:picked"]))).toBe(true);
+    expect(readUnacknowledged(note("unread", 60 * 60_000, "sent"))).toBe(false);
   });
 
-  it("does not count Flyd's own chase for a missed artefact as a note he sent", () => {
-    const chase: Exchange = { question: { id: "note:chase", role: "user", text: "Flyd: send that as an artefact, please", timestamp: ago(60 * 60_000), receipt: "sent", flydAsked: true }, handoff: "queued", waiting: "Working on it" };
-    expect(unreadNotes([note("unread", 60 * 60_000, "sent"), chase], NOW)?.ids).toEqual(["note:unread"]);
-  });
-});
-
-describe("waited", () => {
-  it("puts short waits in minutes, long ones in hours and days", () => {
-    expect(waited(ago(64 * 60_000), NOW)).toBe("1 h 4 min");
-    expect(waited(ago(4 * 60_000), NOW)).toBe("4 min");
+  it("marks only a sent note as read", () => {
+    expect(markRead(note("a", 60_000, "sent")).question.receipt).toBe("read");
+    const read = note("b", 60_000, "read");
+    expect(markRead(read)).toBe(read);
   });
 
-  it("puts long waits in hours and days", () => {
-    expect(waited(ago(2 * 60 * 60_000), NOW)).toBe("2 h");
-    expect(waited(ago(3 * 24 * 60 * 60_000), NOW)).toBe("3 days");
-  });
-});
-
-describe("UnreadNoteWatcher", () => {
-  it("chases on the staff chase's own cadence", () => {
-    expect(UNREAD_CHASE_MS).toBe(RENUDGE_MS);
-  });
-
-  it("chases firstmate, quietly, when a note crosses into unread, and again for a newly unread one", async () => {
-    let exchanges = [note("a", 5 * 60_000, "sent"), note("b", 60_000, "sent")];
-    const chase = vi.fn(async (_note: string, _requestId: string) => {});
-    let now = NOW;
-    const watcher = new UnreadNoteWatcher(() => exchanges, chase, () => now);
-
-    expect(await watcher.check()).toBe(true);
-    expect(chase).toHaveBeenCalledWith("FLYD CHECK-IN: 1 of George's notes has sat unread in your inbox for 5 min (note:a). Take them up now and answer each as usual.", expect.stringMatching(/^flyd-unread-[0-9a-f]{16}$/));
-    expect(await watcher.check()).toBe(false);
-
-    now += 3 * 60_000;
-    expect(await watcher.check()).toBe(true);
-    expect(chase).toHaveBeenLastCalledWith(expect.stringContaining("2 of George's notes have sat unread in your inbox for 8 min (note:a, note:b)."), expect.any(String));
-
-    exchanges = [note("a", 8 * 60_000, "read"), note("b", 4 * 60_000, "read")];
-    expect(await watcher.check()).toBe(false);
-    expect(chase).toHaveBeenCalledTimes(2);
-  });
-
-  it("keeps chasing while the notes stay unread, each chase its own note", async () => {
-    const exchanges = [note("a", 5 * 60_000, "sent")];
-    const ids: string[] = [];
-    let now = NOW;
-    const watcher = new UnreadNoteWatcher(() => exchanges, async (_note, requestId) => { ids.push(requestId); }, () => now);
-    expect(await watcher.check()).toBe(true);
-    now += UNREAD_CHASE_MS - 1;
-    expect(await watcher.check()).toBe(false);
-    now += 1;
-    expect(await watcher.check()).toBe(true);
-    expect(new Set(ids).size).toBe(2);
-  });
-
-  it("stays quiet when nothing is unread, and tries a chase that did not go through again", async () => {
-    const chase = vi.fn(async () => { throw new Error("firstmate did not take Flyd's note"); });
-    const quiet = new UnreadNoteWatcher(() => [note("a", 60_000, "sent")], chase, () => NOW);
-    expect(await quiet.check()).toBe(false);
-    const failing = new UnreadNoteWatcher(() => [note("a", 10 * 60_000, "sent")], chase, () => NOW);
-    expect(await failing.check()).toBe(false);
-    expect(await failing.check()).toBe(false);
-    expect(chase).toHaveBeenCalledTimes(2);
-  });
-
-  it("keeps chasing a note that stays unread for days, never giving up on it", async () => {
-    const exchanges = [note("a", 60 * 60_000, "sent")];
-    const chase = vi.fn(async () => {});
-    let now = NOW;
-    const watcher = new UnreadNoteWatcher(() => exchanges, chase, () => now);
-
-    expect(await watcher.check()).toBe(true);
-    expect(chase).toHaveBeenCalledTimes(1);
-
-    // However long it stays unread, well past any give-up window: chased again each grace.
-    for (let i = 0; i < 12; i++) {
-      now += UNREAD_CHASE_MS;
-      expect(await watcher.check()).toBe(true);
-    }
-    expect(chase).toHaveBeenCalledTimes(13);
-
-    // Read at last: the state clears, and nothing more is sent.
-    exchanges.length = 0;
-    exchanges.push(note("a", 80 * 60_000, "read"));
-    expect(await watcher.check()).toBe(false);
-  });
-
-  it("chases a later note alongside an older one, each chase its own note", async () => {
-    const exchanges = [note("a", 60 * 60_000, "sent")];
-    const chase = vi.fn(async (_note: string) => {});
-    let now = NOW;
-    const watcher = new UnreadNoteWatcher(() => exchanges, chase, () => now);
-    expect(await watcher.check()).toBe(true);
-    now += UNREAD_CHASE_MS;
-    exchanges.push({ ...note("b", 0, "sent"), question: { ...note("b", 0, "sent").question, timestamp: new Date(now - 10 * 60_000).toISOString() } });
-    expect(await watcher.check()).toBe(true);
-    expect(chase).toHaveBeenCalledTimes(2);
-    expect(chase.mock.calls[1]![0]).toContain("note:a");
-    expect(chase.mock.calls[1]![0]).toContain("note:b");
-  });
-
-  it("keeps its chase across a restart, and records only chases, never a word to George", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "flyd-unread-chase-"));
-    const stateFile = join(dir, "view", "unread-chase.json");
-    try {
-      const exchanges = [note("a", 60 * 60_000, "sent")];
-      const chase = vi.fn(async () => {});
-      let now = NOW;
-      const first = new UnreadNoteWatcher(() => exchanges, chase, () => now, stateFile);
-      expect(await first.check()).toBe(true);
-      expect(chase).toHaveBeenCalledTimes(1);
-
-      // Restarted inside the grace: the chase is not sent again early.
-      now += UNREAD_CHASE_MS - 1;
-      const second = new UnreadNoteWatcher(() => exchanges, chase, () => now, stateFile);
-      expect(await second.check()).toBe(false);
-      expect(chase).toHaveBeenCalledTimes(1);
-
-      now += 1;
-      expect(await second.check()).toBe(true);
-      expect(chase).toHaveBeenCalledTimes(2);
-
-      // Only chases are kept: there is no record of telling George anything.
-      expect(Object.keys(JSON.parse(readFileSync(stateFile, "utf8")) as Record<string, unknown>)).toEqual(["chased"]);
-
-      // Read at last: the record clears, so a later restart starts afresh.
-      const cleared = new UnreadNoteWatcher(() => [note("a", 60_000, "read")], chase, () => now, stateFile);
-      expect(await cleared.check()).toBe(false);
-      const fresh = new UnreadNoteWatcher(() => exchanges, chase, () => now, stateFile);
-      expect(await fresh.check()).toBe(true);
-      expect(chase).toHaveBeenCalledTimes(3);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it("leaves chasing to the command layer: the view has no chaser of its own", async () => {
+    const exported = Object.keys(await import("../note-receipts.js"));
+    expect(exported.sort()).toEqual(["UNREAD_AFTER_MS", "markRead", "readUnacknowledged"]);
   });
 });
 

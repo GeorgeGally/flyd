@@ -26,7 +26,6 @@ import { ActivityReader } from "../conversation-view/activity.js";
 import { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { MemoryReader } from "../conversation-view/memory.js";
 import { OvertakenCalls } from "../conversation-view/overtaken.js";
-import { defaultUnreadChaseState, UnreadNoteWatcher } from "../conversation-view/note-receipts.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 import { LiveStaffSession } from "../command/fleet-monitor.js";
 import { listDomainRuns } from "../command/store.js";
@@ -159,7 +158,13 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         evidenceRef = `domain-message:${receipt.id}`;
       } else {
         if (!inbox.available()) throw new Error("There is no connected coding employee to receive that decision");
-        await inbox.sendOwn(`George's answer to the recorded decision ${decision.question}:\n\n${answer.trim()}`, `flyd-decision-${decisionId}`);
+        // No run of his is open for it: his answer goes as a run of its own, his words as its original message.
+        await inbox.sendOwn(`George's answer to the recorded decision ${decision.question}:\n\n${answer.trim()}`, `flyd-decision-${decisionId}`, {
+          outcome: `Act on George's answer to: ${decision.question}`.slice(0, 200),
+          georgesWords: answer.trim(),
+          doneWhen: ["George's answer is carried out on the work it decides", "what was done is replied to this note"],
+          contextRefs: [`decision:${decisionId}`, `task:${taskId}`],
+        });
         evidenceRef = `firstmate-note:flyd-decision-${decisionId}`;
       }
       resolveExecutiveDecision(store, decisionId, answer, [evidenceRef]);
@@ -204,7 +209,13 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   // A call whose task the staff's record shows finished, answered or released leaves Needs you, and firstmate is told to close it.
   const firstmateInbox = inbox;
   const overtaken = wantsInbox && firstmateInbox && process.env.FLYD_CLOSE_OVERTAKEN !== "0"
-    ? new OvertakenCalls({ send: (note, requestId) => firstmateInbox.sendOwn(note, requestId) })
+    ? new OvertakenCalls({ send: (note, requestId, task) => firstmateInbox.sendOwn(note, requestId, {
+      outcome: `Close the overtaken call on ${task}`,
+      doneWhen: ["the hold is closed, or reopened with what changed if it is still a real decision", "what you did is replied to this note"],
+      contextRefs: [`task:${task}`],
+      // The call's own run, when one of Flyd's handoffs raised it.
+      ...(listDomainRuns().some((run) => run.id === task) ? { parentRequestId: task } : {}),
+    }) })
     : undefined;
   const decideChanges = async (changes: import("../intelligence/executive/firstmate-decision.js").FirstmateChange[]) => {
     const runs = listDomainRuns();
@@ -257,17 +268,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       ? "Summaries: model summaries off (FLYD_VIEW_SUMMARIES=0); long replies lead with Flyd's whole briefing."
       : "Summaries: no CLAUDE_API_KEY, ANTHROPIC_API_KEY or XAI_API_KEY found; long replies lead with Flyd's whole briefing.");
   if (options.open !== false) openInBrowser(url);
-  // A note firstmate leaves unread past three minutes: Flyd chases firstmate itself, quietly, and George never hears.
-  const heard = wantsInbox ? transcript : undefined;
-  const unread = heard
-    ? new UnreadNoteWatcher(
-      () => heard.heardExchanges(),
-      (note, requestId) => inbox.sendOwn(note, requestId),
-      Date.now,
-      defaultUnreadChaseState(),
-    )
-    : undefined;
-  unread?.start();
+  // A note left unread is not chased from here: each is a domain run, and the command layer and the staff watch
+  // in Core look after it (a session launched for an unread note, one open chase for a run gone quiet).
 
   await new Promise<void>((resolve) => {
     let watchdog: NodeJS.Timeout | undefined;
@@ -275,7 +277,6 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       process.off("SIGINT", stop);
       process.off("SIGTERM", stop);
       if (watchdog) clearInterval(watchdog);
-      unread?.stop();
       void server.close().then(resolve);
     };
     process.on("SIGINT", stop);

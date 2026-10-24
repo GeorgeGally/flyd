@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { firstmateHome } from "../lib/firstmate-home.js";
 import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
-import { defaultFirstmateExec, firstmateStdout, type FirstmateExec, type FirstmateReceipts } from "./firstmate.js";
+import { FirstmateDomainTransport, type FirstmateExec, type FirstmateReceipts } from "./firstmate.js";
 import { sendRunMessage } from "./messages.js";
 import { commandDir, listDomainRuns } from "./store.js";
 import type { DomainRun } from "./types.js";
@@ -100,8 +99,6 @@ const DECIDING = new Set(["needs-decision", "needs_decision", "blocked"]);
 /** Work that stopped without asking anyone: it failed, or the staff lost sight of it. */
 const STOPPED = new Set(["failed", "unknown"]);
 const OPEN_HANDOFF = new Set(["queued", "accepted", "working"]);
-
-const defaultExec = defaultFirstmateExec;
 
 type ReceiptNote = NonNullable<FirstmateReceipts["pending"]>[number];
 
@@ -326,6 +323,8 @@ export interface StaffMonitorOptions {
   home?: string;
   script?: string;
   exec?: FirstmateExec;
+  /** The one client for the staff's inbox; built from home/script/exec when not given. */
+  transport?: FirstmateDomainTransport;
   sessionsDir?: string;
   /** Where Flyd's command records live (default commandDir()). */
   dir?: string;
@@ -337,20 +336,24 @@ export interface StaffMonitorOptions {
 /** Reads the staff's live state and acts on what is stuck: nudge the staff first, then tell George. */
 export class StaffMonitor {
   private readonly home: string;
-  private readonly script: string;
-  private readonly exec: FirstmateExec;
+  /** The one client for the staff's inbox: every read and note goes through it. */
+  private readonly transport: FirstmateDomainTransport;
   private readonly now: () => number;
   private running = false;
 
   constructor(private readonly options: StaffMonitorOptions = {}) {
-    this.home = options.home ?? firstmateHome();
-    this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
-    this.exec = options.exec ?? defaultExec;
+    this.transport = options.transport ?? new FirstmateDomainTransport({
+      ...(options.home ? { home: options.home } : {}),
+      ...(options.script ? { script: options.script } : {}),
+      ...(options.exec ? { exec: options.exec } : {}),
+      ...(options.dir ? { dir: options.dir } : {}),
+    });
+    this.home = this.transport.home;
     this.now = options.now ?? Date.now;
   }
 
   available(): boolean {
-    return existsSync(this.script) || this.exec !== defaultExec;
+    return this.transport.available();
   }
 
   private dir(): string {
@@ -366,14 +369,9 @@ export class StaffMonitor {
     return { ...EMPTY_STATE(), ...(state ?? {}) };
   }
 
-  private env(): NodeJS.ProcessEnv {
-    return { ...process.env, FM_HOME: this.home };
-  }
-
   private async readiness(): Promise<StaffReadiness> {
     try {
-      const { stdout } = await this.exec(this.script, ["ready"], { env: this.env(), timeout: 5_000 });
-      return parseReadiness(JSON.parse(stdout));
+      return parseReadiness(await this.transport.readyReport());
     } catch {
       return parseReadiness({});
     }
@@ -402,7 +400,8 @@ export class StaffMonitor {
       return id ? [{ id, summary: text(decision.summary) || id, ...(Number.isFinite(age) ? { ageDays: age } : {}) }] : [];
     });
     const queued = Number(record(summary.counts).queued);
-    const runs = listDomainRuns(this.dir()).filter((run) => run.transport.kind === "firstmate" && (OPEN_HANDOFF.has(run.status) || run.status === "needs_decision"));
+    // Flyd's own notes (check-ins, closes) are chases about something else, never handoffs to chase in turn.
+    const runs = listDomainRuns(this.dir()).filter((run) => run.transport.kind === "firstmate" && run.request.source !== "flyd" && (OPEN_HANDOFF.has(run.status) || run.status === "needs_decision"));
     const handoffs = runs.map((run): StaffHandoff => {
       const heard = state.heard[run.id];
       const lastHeard = heard && heard.progress === progressOf(run) ? heard.since : run.updatedAt;
@@ -460,8 +459,7 @@ export class StaffMonitor {
   /** The staff's inbox receipts, or null when they cannot be read (then nothing is chased: no chase on a pile Flyd cannot see). */
   private async receipts(): Promise<FirstmateReceipts | null> {
     try {
-      const { stdout } = await this.exec(this.script, ["receipts", "--all-pending", "--all-handled", "--all-replies"], { env: this.env(), timeout: 10_000 });
-      return JSON.parse(stdout) as FirstmateReceipts;
+      return await this.transport.receipts();
     } catch {
       return null;
     }
@@ -505,7 +503,8 @@ export class StaffMonitor {
         `Flyd has had no word on this handoff since ${concern.since}.${again}`,
         "Reply with where it stands. Plain prose is fine: done (and what changed), needs George's decision (and your recommendation), failed (and why), or still working (and what is next).",
       ].join(" ");
-      const outcome = await (this.options.sendRun ?? sendRunMessage)({ run, kind: "question", body, from: "flyd" }).catch(() => ({ delivered: false }));
+      // The chase is a message on the run itself: its parent is the run, and the run's reply settles it.
+      const outcome = await (this.options.sendRun ?? sendRunMessage)({ run, kind: "question", body, from: "flyd", transport: this.transport }).catch(() => ({ delivered: false }));
       return outcome.delivered;
     }
     if (concern.workerId) {
@@ -514,24 +513,23 @@ export class StaffMonitor {
       const body = concern.kind === "worker_stopped"
         ? [
           `FLYD CHECK-IN: worker ${concern.workerId} stopped (${concern.workerState === "failed" ? "failed" : "no word"}) at ${concern.since}.${again}`,
-          "Retry or repair it within the authority you already have; bring it to George through Flyd only as a real blocker, in plain words, with your recommendation. Reply to this note (fm-inbox.sh reply) with what you did; plain prose is fine.",
+          "Retry or repair it within the authority you already have; bring it to George through Flyd only as a real blocker, in plain words, with your recommendation.",
         ].join("\n")
         : [
           `FLYD CHECK-IN: worker ${concern.workerId} has been waiting on a decision since ${concern.since}.${again}`,
-          "Settle it within the authority you already have, or bring it to George through Flyd with your recommendation if it is truly his. Reply to this note (fm-inbox.sh reply) with what you did; plain prose is fine.",
+          "Settle it within the authority you already have, or bring it to George through Flyd with your recommendation if it is truly his.",
         ].join("\n");
-      let stdout: string;
-      try {
-        ({ stdout } = await this.exec(this.script, ["note", "--request-id", id, "--json", "-"], { env: this.env(), input: body, timeout: 20_000 }));
-      } catch (error) {
-        // A saved note may exit non-zero when only its wake failed; the receipt on stdout still counts.
-        stdout = firstmateStdout(error);
-      }
-      try {
-        return (JSON.parse(stdout) as { saved?: boolean }).saved === true ? id : false;
-      } catch {
-        return false;
-      }
+      // A worker the staff runs has no run of Flyd's: the check-in goes as a run of its own, through the one transport.
+      return this.transport.sendFlydNote({
+        requestId: id,
+        body,
+        outcome: concern.kind === "worker_stopped" ? `Get stopped work moving again: ${concern.subject ?? concern.workerId}` : `Settle the decision a worker waits on: ${concern.subject ?? concern.workerId}`,
+        doneWhen: [
+          concern.kind === "worker_stopped" ? "the worker is retried or repaired, or what blocks it is brought to George as a real blocker" : "the decision is settled, or brought to George with a recommendation when it is truly his",
+          "what you did is replied to this note",
+        ],
+        contextRefs: [`worker:${concern.workerId}`],
+      }).then(() => id, () => false);
     }
     return false;
   }
@@ -566,14 +564,14 @@ const LIVE_SESSION_TTL_MS = 30_000;
 export class LiveStaffSession {
   private cached?: { at: number; session: string | undefined };
   private pending?: Promise<string | undefined>;
-  private readonly script: string;
-  private readonly exec: FirstmateExec;
-  private readonly home: string;
+  private readonly transport: FirstmateDomainTransport;
 
-  constructor(private readonly options: { home?: string; script?: string; exec?: FirstmateExec; sessionsDir?: string; ttlMs?: number; now?: () => number } = {}) {
-    this.home = options.home ?? firstmateHome();
-    this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
-    this.exec = options.exec ?? defaultExec;
+  constructor(private readonly options: { home?: string; script?: string; exec?: FirstmateExec; transport?: FirstmateDomainTransport; sessionsDir?: string; ttlMs?: number; now?: () => number } = {}) {
+    this.transport = options.transport ?? new FirstmateDomainTransport({
+      ...(options.home ? { home: options.home } : {}),
+      ...(options.script ? { script: options.script } : {}),
+      ...(options.exec ? { exec: options.exec } : {}),
+    });
   }
 
   async current(): Promise<string | undefined> {
@@ -581,9 +579,8 @@ export class LiveStaffSession {
     if (this.cached && now - this.cached.at < (this.options.ttlMs ?? LIVE_SESSION_TTL_MS)) return this.cached.session;
     this.pending ??= (async () => {
       try {
-        if (!existsSync(this.script) && this.exec === defaultExec) return undefined;
-        const { stdout } = await this.exec(this.script, ["ready"], { env: { ...process.env, FM_HOME: this.home }, timeout: 5_000 });
-        const readiness = parseReadiness(JSON.parse(stdout));
+        if (!this.transport.available()) return undefined;
+        const readiness = parseReadiness(await this.transport.readyReport());
         return readiness.lock === "held" && readiness.pid ? sessionOfPid(readiness.pid, this.options.sessionsDir) : undefined;
       } catch {
         return undefined;

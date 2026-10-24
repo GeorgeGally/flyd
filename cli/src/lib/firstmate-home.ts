@@ -13,3 +13,11 @@ export function firstmateHome(env: NodeJS.ProcessEnv = process.env): string {
   if (configured) return configured;
   return env.VITEST ? join(tmpdir(), "flyd-test-no-firstmate") : DEFAULT_FIRSTMATE_HOME;
 }
+
+/**
+ * Where firstmate's inbox script sits in a home. Only the command layer's transport
+ * (command/firstmate.ts) runs it; anyone else may only ask whether it is there.
+ */
+export function firstmateInboxScript(home: string = firstmateHome()): string {
+  return join(home, "bin", "fm-inbox.sh");
+}
