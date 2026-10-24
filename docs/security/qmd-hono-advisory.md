@@ -10,7 +10,7 @@ CI enforces the high-severity gate with:
 npm audit --omit=dev --audit-level=high
 ```
 
-The moderate entries that remained after the high-severity fix all sat under `@tobilu/qmd` -> `@modelcontextprotocol/sdk` (overridden to 1.31.0):
+The moderate entries that remained after the high-severity fix all sat under `@tobilu/qmd` -> `@modelcontextprotocol/sdk` (overridden to 1.32.1):
 
 ```text
 @tobilu/qmd
@@ -18,15 +18,19 @@ The moderate entries that remained after the high-severity fix all sat under `@t
     -> hono (also via @hono/node-server)
     -> express-rate-limit -> ip-address
     -> express (and body-parser) -> qs
+    -> ajv -> fast-uri
+  -> zod (also via openai)
 ```
 
-They are cleared by pinned `overrides` in `cli/package.json`, each the smallest patched release inside the range its parents already declare:
+They are cleared by pinned `overrides` in `cli/package.json`, each the smallest patched release inside the range its parents already declare. `zod` is the exception: `@tobilu/qmd` pins exactly 4.2.1, so the override crosses that pin (zod 4 minors are non-breaking) instead of taking qmd's and openai's breaking major upgrades:
 
 | Package | Was | Now | Advisories cleared |
 |---|---|---|---|
-| `hono` | 4.12.30 | 4.13.7 | CORS and language middleware DoS, `memo()` SSR disclosure, proxy helper header handling, `toSSG()` path escape, `parseBody()` nesting DoS, query parsing after the URL fragment, `hono/jsx` XSS |
-| `ip-address` | 10.3.1 | 10.7.1 | IPv6 link-local / NAT64 classifier and cross-family subnet checks (SSRF/trust-boundary bypass), unbounded parse diagnostic; also clears the `express-rate-limit` entry |
-| `qs` | 6.15.2 | 6.16.0 | array-limit bypass, `isBuffer` DoS |
+| `hono` | 4.12.30 | 4.13.13 | CORS and language middleware DoS, `memo()` SSR disclosure, proxy helper header handling, `toSSG()` path escape, `parseBody()` nesting DoS, query parsing after the URL fragment, `hono/jsx` XSS |
+| `ip-address` | 10.3.1 | 10.7.4 | IPv6 link-local / NAT64 classifier and cross-family subnet checks (SSRF/trust-boundary bypass), unbounded parse diagnostic; also clears the `express-rate-limit` entry |
+| `qs` | 6.15.2 | 6.16.1 | array-limit bypass, `isBuffer` DoS |
+| `fast-uri` | 3.1.8 | 3.1.9 | moderate advisory past 3.1.8 |
+| `zod` | 4.2.1 | 4.6.7 | GHSA-mrhx-c7xc-m3w5 (high, below 4.6.6) |
 
 ## Reachability
 
@@ -52,4 +56,4 @@ CI scans active TypeScript source and fails if Flyd begins importing or invoking
 
 ## Exit condition
 
-Remove each `hono`, `ip-address` and `qs` override once `@tobilu/qmd` / `@modelcontextprotocol/sdk` resolve to that patched version (or newer) without it. Revisit immediately if a new advisory in this chain cannot be patched within the declared ranges, or if Flyd starts an MCP or Hono server from this dependency chain.
+Remove each `hono`, `ip-address`, `qs`, `fast-uri` and `zod` override once `@tobilu/qmd` / `@modelcontextprotocol/sdk` resolve to that patched version (or newer) without it. Revisit immediately if a new advisory in this chain cannot be patched within the declared ranges, or if Flyd starts an MCP or Hono server from this dependency chain.
