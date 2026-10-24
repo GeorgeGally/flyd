@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkSaid, isIdleNotice, isPlaceholder, judgeSaid, NOTIFICATION_CHARS, notificationLine, reviewSaid, screenBeforeDisplay, voiceRules } from "../chief-of-staff.js";
-import { collectSaid, noteSaid, readVerdicts, reviewEvidence, runReplyReview, scorecard } from "../reply-review.js";
+import { collectSaid, noteSaid, readVerdicts, reviewEvidence, runReplyReview, scorecard, screenOutgoing } from "../reply-review.js";
 import { gatherEvidence } from "../../crew/self-improve.js";
 import { deliverNotification } from "../../runtime/agenda.js";
 import { parseDomainResult } from "../../command/result.js";
@@ -19,6 +19,15 @@ import { FENCE_HELD, HANDLE_IT_YOURSELF, RECOVER_IT_YOURSELF, type ExecutiveDeci
 const GOOD = "Dark mode is live on the GNM site: every page now follows your Mac's setting, and the footer contrast issue is gone.";
 const PLACEHOLDER = "Working on it";
 const INTERNAL_DECISION = "Firstmate's new turn-end guard needs your call: gate it behind config, or push back.";
+/** A relay that reached George as written: retry or drop a failed run is Flyd's call, not his. */
+const RETRY_OR_DROP = "The capfive-intranet-map run failed, so it's stuck for now. I'm holding it; I need you to decide whether to retry it or drop it.";
+/** Asks that are his: money, his name, people he deals with, going live. */
+const HIS_ASKS = [
+  "The invoice to Acme is ready at £4,200. Do you want me to send it today, or hold it until the contract is signed?",
+  "Two people replied, Sam and Priya. Which one should I put forward for the Monday call?",
+  "The byline can read George Gally or Studio Gally. Which name do you want on it?",
+  "The site is ready to publish. Should I take it live now, or wait for your final look?",
+];
 
 /** A Jev reply with the given probabilities, standing in for the TypeSafe API. */
 function jev(answers: Record<string, number>, sink: Array<{ state: Record<string, unknown>; questions: Record<string, unknown> }> = []): typeof fetch {
@@ -130,6 +139,34 @@ describe("the chief-of-staff checks", () => {
     expect(checkSaid({ surface: "relay", text: "The guard is now an opt-in setting, off by default. From here on I'll bring you only what needs your decision." })).toEqual([]);
     // Naming a helper is fine when he asked about it.
     expect(checkSaid({ surface: "chat", text: "Firstmate is reachable again.", asked: "is firstmate back?" })).toEqual([]);
+  });
+
+  it("rejects a retry-or-drop call handed to him, in every wording, and accepts the decisions that are his", () => {
+    for (const text of [
+      RETRY_OR_DROP,
+      "The capfive-intranet-map run failed. Do you want me to retry it or drop it?",
+      "The capfive-intranet-map run failed. Let me know whether to retry or drop it.",
+      "The capfive-intranet-map run failed. Retry or drop it, your decision.",
+      "The run failed; I'm waiting on you to say whether to rerun it.",
+      "Should I gate the new guard behind config, or leave it on by default?",
+    ]) {
+      expect(checkSaid({ surface: "relay", text }).map((item) => item.requirement), text).toEqual(["decisions_handled"]);
+    }
+    for (const text of HIS_ASKS) {
+      expect(checkSaid({ surface: "relay", text }), text).toEqual([]);
+      expect(checkSaid({ surface: "chat", text }), text).toEqual([]);
+    }
+    // The call made and the outcome reported is the standard met, not an ask.
+    for (const text of [
+      "The retry worked: the capfive-intranet-map run finished and the map is live.",
+      "The capfive-intranet-map run failed twice, so I dropped it and queued a rebuild for tonight.",
+      // Promising to flag what is his is not asking him; "flag" is a verb here, not a feature flag.
+      "The firstmate answer fix failed and nothing merged. I'm having it taken up again, and I'll flag anything that needs your call.",
+      "Flyd is recording zero experience events, and I'm fixing it now. I'll flag anything you need to decide.",
+      "The copy is being brought up to date; I'll report what merged and flag any conflict that needs your call.",
+    ]) {
+      expect(checkSaid({ surface: "relay", text }).map((item) => item.requirement), text).not.toContain("decisions_handled");
+    }
   });
 
   it("asks Jev only what the checks cannot see, and records its decided answers", async () => {
@@ -396,6 +433,25 @@ describe("before display", () => {
   it("keeps a placeholder notification from George and records it", async () => {
     expect(await deliverNotification("Flyd", "Working on it")).toBe("placeholder");
     expect(readVerdicts().filter((verdict) => verdict.held && verdict.text === "Working on it")).toHaveLength(1);
+  });
+
+  it("withholds a relay that hands him an internal call and records the violation; a compliant reply is sent unchanged", () => {
+    const held = screenOutgoing({ surface: "relay", source: "relay:interpretation", text: RETRY_OR_DROP });
+    expect(held.send).toBe(false);
+    expect(held.shortfalls.map((item) => item.requirement)).toEqual(["decisions_handled"]);
+    const verdict = readVerdicts().find((item) => item.text === RETRY_OR_DROP);
+    expect(verdict).toMatchObject({ held: true, surface: "relay", source: "relay:interpretation" });
+    expect(verdict?.shortfalls.map((item) => item.requirement)).toEqual(["decisions_handled"]);
+
+    // What it still catches from the relay path: machinery, placeholders.
+    expect(screenOutgoing({ surface: "relay", source: "relay:staff", text: INTERNAL_DECISION }).shortfalls.map((item) => item.requirement).sort()).toEqual(["backstage_hidden", "decisions_handled"]);
+    expect(screenOutgoing({ surface: "relay", source: "relay:staff", text: PLACEHOLDER }).send).toBe(false);
+
+    const before = readVerdicts().length;
+    for (const text of [GOOD, ...HIS_ASKS, "The capfive-intranet-map run failed twice, so I dropped it and queued a rebuild for tonight."]) {
+      expect(screenOutgoing({ surface: "relay", source: "relay:staff", text }), text).toEqual({ send: true, shortfalls: [] });
+    }
+    expect(readVerdicts()).toHaveLength(before);
   });
 });
 

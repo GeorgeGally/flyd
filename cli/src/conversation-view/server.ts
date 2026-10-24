@@ -52,8 +52,8 @@ import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from ".
 import { ComposerDrafts, draftKey } from "./drafts.js";
 import { concernKind, readStaffView, type StaffView } from "../command/fleet-monitor.js";
 import { reachesGeorge } from "../lib/reaches-george.js";
-import { noteSaid, recordHeld } from "../council/reply-review.js";
-import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
+import { noteSaid, screenOutgoing } from "../council/reply-review.js";
+import { stripCommitIds } from "../runtime/honesty-check.js";
 import { expandScrawl, fileScrawl } from "./scrawl-capture.js";
 import { NoticeBoard, noticeLine, noticeOf, type NoticeInput } from "./notices.js";
 
@@ -312,17 +312,15 @@ export class SnapshotDiffer {
 
   /**
    * Whether a relay from the staff fails the outgoing-answer checks a chat reply
-   * passes (backstage machinery, a phrase he ruled out, a placeholder), so it may
-   * not reach him as written. Each one held is recorded once for a reviewer.
+   * passes (backstage machinery, a phrase he ruled out, a placeholder, an
+   * internal call handed to him), so it may not reach him as written. Each one
+   * held is recorded once for a reviewer (council/reply-review.ts).
    */
   private heldRelay(text: string): boolean {
     const said = inFlydsVoice(text);
-    const held = relayShortfalls(said);
-    if (!held.length) return false;
-    if (!heldRelays.has(said)) {
-      heldRelays.add(said);
-      recordHeld({ surface: "relay", source: "relay:staff", text: said }, held);
-    }
+    if (heldRelays.has(said)) return true;
+    if (screenOutgoing({ surface: "relay", source: "relay:staff", text: said }).send) return false;
+    heldRelays.add(said);
     return true;
   }
 
