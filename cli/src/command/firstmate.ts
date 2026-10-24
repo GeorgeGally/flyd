@@ -23,6 +23,18 @@ export type FirstmateExec = (script: string, args: string[], options: {
   timeout: number;
 }) => Promise<FirstmateExecResult>;
 
+/**
+ * The one low-level runner for firstmate's `bin/fm-inbox.sh`: no shell, the body on stdin.
+ * A non-zero exit rejects with the script's stdout kept on the error, since a saved
+ * note may exit non-zero when only its wake failed (see `firstmateStdout`).
+ */
+export const defaultFirstmateExec: FirstmateExec = defaultExec;
+
+/** What the script printed, from its result or from the error a non-zero exit raised; "" when nothing. */
+export function firstmateStdout(error: unknown): string {
+  return error && typeof error === "object" && "stdout" in error ? String((error as { stdout?: string }).stdout ?? "") : "";
+}
+
 async function defaultExec(script: string, args: string[], options: {
   env: NodeJS.ProcessEnv;
   input?: string;
@@ -52,6 +64,8 @@ async function defaultExec(script: string, args: string[], options: {
       }
       resolve({ stdout: String(stdout), stderr: String(stderr) });
     });
+    // A script that refuses before reading its input closes the pipe; its exit status says why.
+    child.stdin?.on("error", () => {});
     child.stdin?.end(options.input);
   });
 }
@@ -70,13 +84,13 @@ export class FirstmateDomainTransport {
   constructor(options: { home?: string; script?: string; exec?: FirstmateExec } = {}) {
     this.home = options.home ?? firstmateHome();
     this.script = options.script ?? join(this.home, "bin", "fm-inbox.sh");
-    this.exec = options.exec ?? defaultExec;
+    this.exec = options.exec ?? defaultFirstmateExec;
   }
 
   private readonly exec: FirstmateExec;
 
   available(): boolean {
-    return existsSync(this.script) || this.exec !== defaultExec;
+    return existsSync(this.script) || this.exec !== defaultFirstmateExec;
   }
 
   private env(): NodeJS.ProcessEnv {
@@ -99,11 +113,17 @@ export class FirstmateDomainTransport {
     }
   }
 
-  async submit(request: DomainRequest, owner = "FirstMate"): Promise<DomainRun> {
+  /**
+   * Hands one request to FirstMate as a durable inbox note under the request's id and records its DomainRun.
+   * `body` replaces the default note text (the view's desk note keeps George's words, attachments and
+   * Flyd's brief in its own shape, with the return contract under them); `onSavedDespite` hears the
+   * error of a note that was saved though the script then failed (its wake).
+   */
+  async submit(request: DomainRequest, owner = "FirstMate", options: { body?: string; onSavedDespite?: (detail: string) => void } = {}): Promise<DomainRun> {
     if (request.domain !== "coding") throw new Error("FirstMate currently owns only the coding domain");
     const readiness = await this.ready();
     if (!readiness.available) throw new Error(readiness.reason ?? "FirstMate is unavailable");
-    const body = firstmateRequestBody(request);
+    const body = options.body ?? firstmateRequestBody(request);
     let stdout = "";
     try {
       ({ stdout } = await this.exec(this.script, ["note", "--request-id", request.id, "--json", "-"], {
@@ -113,8 +133,9 @@ export class FirstmateDomainTransport {
       }));
     } catch (error) {
       // A saved request may return a non-zero exit when only the wake failed.
-      stdout = error && typeof error === "object" && "stdout" in error ? String((error as { stdout?: string }).stdout ?? "") : "";
+      stdout = firstmateStdout(error);
       if (!stdout.trim()) throw error;
+      options.onSavedDespite?.((error instanceof Error ? error.message : String(error)).trim().split("\n").pop() ?? "");
     }
     const receipt = JSON.parse(stdout) as {
       id?: string;
@@ -162,7 +183,7 @@ export class FirstmateDomainTransport {
         env: this.env(), input: body, timeout: 20_000,
       }));
     } catch (error) {
-      stdout = error && typeof error === "object" && "stdout" in error ? String((error as { stdout?: string }).stdout ?? "") : "";
+      stdout = firstmateStdout(error);
       if (!stdout.trim()) throw error;
     }
     const receipt = JSON.parse(stdout) as { id?: string; saved?: boolean };
@@ -378,7 +399,9 @@ export async function startFirstmateSession(options: {
   })().catch(() => ({ available: true, canReceive: "unknown" as const }));
   if (ready.canReceive !== false || ready.liveHarness) return { started: false };
   const runtimes = sessionRuntimes(options.env);
-  if (options.exec === defaultExec) {
+  if (options.exec === defaultFirstmateExec) {
+    // A test must never wake a real firstmate session.
+    if (process.env.VITEST && process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH !== "1") return { started: false };
     if (launchingHomes.has(options.home)) return { started: false };
     launchingHomes.add(options.home);
     return launchDetachedFirstmateSession(options.home, runtimes, record, options.onFailure, () => launchingHomes.delete(options.home));

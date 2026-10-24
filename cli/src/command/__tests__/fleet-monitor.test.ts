@@ -30,9 +30,15 @@ describe("Flyd's watch on its coding staff", () => {
   let ready: Record<string, unknown>;
   let notes: Array<{ args: string[]; input?: string }>;
   let noteSaved: boolean;
+  /** The staff's inbox receipts; null makes them unreadable. */
+  let receipts: Record<string, unknown> | null;
 
   const exec: FirstmateExec = async (_script, args, options) => {
     if (args[0] === "ready") return { stdout: JSON.stringify(ready), stderr: "" };
+    if (args[0] === "receipts") {
+      if (!receipts) throw new Error("receipts unreadable");
+      return { stdout: JSON.stringify(receipts), stderr: "" };
+    }
     if (args[0] === "note") {
       notes.push({ args, input: options.input });
       if (!noteSaved) throw new Error("inbox refused");
@@ -72,6 +78,7 @@ describe("Flyd's watch on its coding staff", () => {
     ready = { lock: { state: "held", pid: 4242, live_harness: true }, wake_consumer: { state: "healthy", beacon_age_seconds: 12 }, can_receive: true };
     notes = [];
     noteSaved = true;
+    receipts = {};
     summary({ active_children: [], decisions_open: [], counts: { queued: 0 } });
   });
 
@@ -326,6 +333,71 @@ describe("Flyd's watch on its coding staff", () => {
     expect(view!.concerns.some((concern) => concern.kind === "unreachable")).toBe(false);
     expect(notes).toHaveLength(1);
     expect(told).toEqual([]);
+  });
+
+  it("leaves no second chase on a quiet run while its last chase still sits unread", async () => {
+    saveDomainRun(run(), dir);
+    let now = T0 + STALE_HANDOFF_MS + MIN;
+    const nudged: string[] = [];
+    const sendRun: typeof sendRunMessage = async (input) => {
+      const id = `chase-${nudged.length + 1}`;
+      nudged.push(id);
+      const next: DomainRun = { ...input.run, messages: [...(input.run.messages ?? []), { id: `domain-quiet:question:${id}`, kind: "question", body: input.body, from: "flyd", at: new Date(now).toISOString(), deliveredAt: new Date(now).toISOString(), externalId: id }] };
+      saveDomainRun(next, dir);
+      return { delivered: true, run: next };
+    };
+    const watch = monitor(() => now, { sendRun });
+    await watch.tick();
+    expect(nudged).toEqual(["chase-1"]);
+    // The first chase is still unread in the staff's inbox: six hours on, Flyd does not pile another on top.
+    receipts = { pending: [{ id: "chase-1", request_id: "domain-quiet:question:chase-1", acknowledged: false }], handled: [{ id: "note-1", request_id: "domain-quiet", acknowledged: true }] };
+    for (let i = 0; i < 4; i++) {
+      now += RENUDGE_MS + MIN;
+      await watch.tick();
+    }
+    expect(nudged).toEqual(["chase-1"]);
+    // Read and still no word back: one more chase.
+    receipts = { handled: [{ id: "chase-1", request_id: "domain-quiet:question:chase-1", acknowledged: true }, { id: "note-1", request_id: "domain-quiet", acknowledged: true }] };
+    now += RENUDGE_MS + MIN;
+    await watch.tick();
+    expect(nudged).toEqual(["chase-1", "chase-2"]);
+  });
+
+  it("does not chase a run whose own request the staff has not read yet, nor chase when the inbox cannot be read", async () => {
+    saveDomainRun(run(), dir);
+    const now = T0 + STALE_HANDOFF_MS + MIN;
+    let nudges = 0;
+    const sendRun: typeof sendRunMessage = async () => { nudges += 1; return { delivered: true }; };
+    receipts = { pending: [{ id: "note-1", request_id: "domain-quiet", acknowledged: false }] };
+    await monitor(() => now, { sendRun }).tick();
+    expect(nudges).toBe(0);
+    rmSync(join(dir, "staff-monitor.json"), { force: true });
+    receipts = null;
+    await monitor(() => now, { sendRun }).tick();
+    expect(nudges).toBe(0);
+    receipts = {};
+    await monitor(() => now, { sendRun }).tick();
+    expect(nudges).toBe(1);
+  });
+
+  it("keeps one check-in open per stuck worker: none while the last is unread, one more once it is read", async () => {
+    summary({ active_children: [{ id: "admin", state: "failed", name: "Admin redesign" }], decisions_open: [], counts: {} });
+    writeFileSync(join(home, "state", "admin.status"), `failed [at=${T0 / 1000}]: tests failed\n`);
+    let now = T0 + WORKER_WAIT_MS + MIN;
+    const watch = monitor(() => now);
+    await watch.tick();
+    expect(notes).toHaveLength(1);
+    const first = notes[0]!.args[2]!;
+    receipts = { pending: [{ id: "note-x", request_id: first, acknowledged: false }] };
+    now += RENUDGE_MS + MIN;
+    await watch.tick();
+    now += RENUDGE_MS + MIN;
+    await watch.tick();
+    expect(notes).toHaveLength(1);
+    receipts = { handled: [{ id: "note-x", request_id: first, acknowledged: true }] };
+    now += RENUDGE_MS + MIN;
+    await watch.tick();
+    expect(notes).toHaveLength(2);
   });
 
   it("describes the staff for chat in plain words, without machinery names", async () => {

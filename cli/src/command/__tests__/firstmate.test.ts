@@ -763,7 +763,9 @@ describe("FirstMate domain transport", () => {
     ].join("\n"), { mode: 0o755 });
     writeFileSync(join(bin, "claude"), "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
     writeFileSync(join(bin, "codex"), `#!/bin/sh\ntouch ${JSON.stringify(join(dir, "codex-ran"))}\n`, { mode: 0o755 });
-    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_RUNTIMES: process.env.FLYD_FIRSTMATE_RUNTIMES, FLYD_CODEX_PATH: process.env.FLYD_CODEX_PATH };
+    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_RUNTIMES: process.env.FLYD_FIRSTMATE_RUNTIMES, FLYD_CODEX_PATH: process.env.FLYD_CODEX_PATH, FLYD_FIRSTMATE_ALLOW_LAUNCH: process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH };
+    // Only fake runtimes on PATH are ever launched here; tests otherwise never start a session.
+    process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH = "1";
     process.env.PATH = `${bin}:${process.env.PATH}`;
     process.env.FLYD_CODEX_PATH = join(bin, "codex");
     process.env.FLYD_FIRSTMATE_RUNTIMES = "claude,codex";

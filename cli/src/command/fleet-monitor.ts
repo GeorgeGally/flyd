@@ -1,11 +1,10 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
-import type { FirstmateExec } from "./firstmate.js";
+import { defaultFirstmateExec, firstmateStdout, type FirstmateExec, type FirstmateReceipts } from "./firstmate.js";
 import { sendRunMessage } from "./messages.js";
 import { commandDir, listDomainRuns } from "./store.js";
 import type { DomainRun } from "./types.js";
@@ -15,7 +14,9 @@ import type { DomainRun } from "./types.js";
 // workers, decisions waiting on George, the queue), each worker's status log,
 // and Flyd's own handoffs. Stuck work is Flyd's to chase: a note to the staff,
 // and another every few hours while one goes unanswered, never a word to
-// George. He is told only when nobody is there to take the chase at all
+// George. At most one chase per run or worker is open at a time: none while
+// the staff has not yet read a note about it (its last chase, or the request
+// itself), and none when its inbox receipts cannot be read. He is told only when nobody is there to take the chase at all
 // (lib/reaches-george.ts: a blocker Flyd has run out of moves on), once.
 // Nothing here writes into the FirstMate home except notes through its inbox.
 
@@ -100,15 +101,32 @@ const DECIDING = new Set(["needs-decision", "needs_decision", "blocked"]);
 const STOPPED = new Set(["failed", "unknown"]);
 const OPEN_HANDOFF = new Set(["queued", "accepted", "working"]);
 
-async function defaultExec(script: string, args: string[], options: { env: NodeJS.ProcessEnv; input?: string; timeout: number }): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(script, args, { env: options.env, timeout: options.timeout, maxBuffer: 4 * 1024 * 1024, encoding: "utf8" }, (error, stdout, stderr) => {
-      // A saved note may exit non-zero when only its wake failed; the receipt on stdout still counts.
-      if (error && !String(stdout).trim()) reject(error);
-      else resolve({ stdout: String(stdout), stderr: String(stderr) });
-    });
-    if (options.input !== undefined) child.stdin?.end(options.input);
-  });
+const defaultExec = defaultFirstmateExec;
+
+type ReceiptNote = NonNullable<FirstmateReceipts["pending"]>[number];
+
+/** A note the staff has not yet read or acknowledged: chasing on top of it only adds to the pile. */
+function stillUnread(note: ReceiptNote, pending: Set<string>): boolean {
+  return pending.has(note.id) || note.acknowledged === false;
+}
+
+/**
+ * Whether a chase about this run is still open: any of the run's own notes (the request, a
+ * correction, or Flyd's last chase) sits unread in the staff's inbox. Pure.
+ */
+export function runChaseOpen(run: DomainRun, receipts: FirstmateReceipts): boolean {
+  const pending = new Set((receipts.pending ?? []).map((note) => note.id));
+  const noteIds = new Set([run.transport.externalId, ...(run.messages ?? []).map((message) => message.externalId)].filter(Boolean));
+  const requestIds = new Set([run.transport.requestId, ...(run.messages ?? []).map((message) => message.id)]);
+  return [...(receipts.pending ?? []), ...(receipts.handled ?? [])]
+    .some((note) => (noteIds.has(note.id) || (note.request_id ? requestIds.has(note.request_id) : false)) && stillUnread(note, pending));
+}
+
+/** Whether Flyd's last check-in under this request id still sits unread. Pure. */
+export function noteChaseOpen(requestId: string | undefined, receipts: FirstmateReceipts): boolean {
+  if (!requestId) return false;
+  const pending = new Set((receipts.pending ?? []).map((note) => note.id));
+  return [...(receipts.pending ?? []), ...(receipts.handled ?? [])].some((note) => note.request_id === requestId && stillUnread(note, pending));
 }
 
 function readJson(path: string): unknown {
@@ -179,6 +197,8 @@ interface MonitorState {
   nudged: Record<string, string>;
   /** Concern keys George has been told about. */
   told: Record<string, string>;
+  /** Per worker: the request id of Flyd's last check-in note about it, so a second is never left on an unread first. */
+  chases?: Record<string, string>;
   /** When the staff was first seen unreachable in the current outage. */
   unreachableSince?: string;
 }
@@ -409,7 +429,12 @@ export class StaffMonitor {
       state.unreachableSince = unreachable ? state.unreachableSince ?? snapshot.at : undefined;
       const concerns = assessStaff(snapshot, state.unreachableSince, now);
       const nobodyThere = concerns.some((concern) => concern.kind === "unreachable");
-      for (const concern of concerns) await this.act(concern, state, nobodyThere, now);
+      // Read once per pass, and only when there is something to chase.
+      let receipts: FirstmateReceipts | null | undefined;
+      const inbox = async (): Promise<FirstmateReceipts | null> => (receipts === undefined ? (receipts = await this.receipts()) : receipts);
+      for (const concern of concerns) await this.act(concern, state, nobodyThere, now, inbox);
+      const stuckWorkers = new Set(concerns.flatMap((concern) => (concern.workerId ? [concern.workerId] : [])));
+      if (state.chases) state.chases = Object.fromEntries(Object.entries(state.chases).filter(([worker]) => stuckWorkers.has(worker)));
       // Forget what is no longer stuck, so the records stay small.
       const live = new Set(concerns.map((concern) => concern.key));
       state.nudged = Object.fromEntries(Object.entries(state.nudged).filter(([key]) => live.has(key)));
@@ -432,7 +457,17 @@ export class StaffMonitor {
     }
   }
 
-  private async act(concern: StaffConcern, state: MonitorState, nobodyThere: boolean, now: number): Promise<void> {
+  /** The staff's inbox receipts, or null when they cannot be read (then nothing is chased: no chase on a pile Flyd cannot see). */
+  private async receipts(): Promise<FirstmateReceipts | null> {
+    try {
+      const { stdout } = await this.exec(this.script, ["receipts", "--all-pending", "--all-handled", "--all-replies"], { env: this.env(), timeout: 10_000 });
+      return JSON.parse(stdout) as FirstmateReceipts;
+    } catch {
+      return null;
+    }
+  }
+
+  private async act(concern: StaffConcern, state: MonitorState, nobodyThere: boolean, now: number, inbox: () => Promise<FirstmateReceipts | null>): Promise<void> {
     if (state.told[concern.key]) return;
     const nudgedAt = state.nudged[concern.key];
     const gated = reachesGeorge({ kind: concernKind(concern), text: concern.text }, "notification");
@@ -446,11 +481,22 @@ export class StaffMonitor {
     // With nobody there to take a note, the outage itself is what reaches him. A note the inbox
     // would not take is tried again on the next pass.
     if (nobodyThere || (nudgedAt && now - Date.parse(nudgedAt) < RENUDGE_MS)) return;
-    if (await this.nudge(concern, nudgedAt)) state.nudged[concern.key] = new Date(now).toISOString();
+    // One open chase at a time: nothing more while a note about it still sits unread.
+    const receipts = await inbox();
+    if (!receipts) return;
+    if (concern.runId) {
+      const run = listDomainRuns(this.dir()).find((item) => item.id === concern.runId);
+      if (run && runChaseOpen(run, receipts)) return;
+    }
+    if (concern.workerId && noteChaseOpen(state.chases?.[concern.workerId], receipts)) return;
+    const sent = await this.nudge(concern, nudgedAt);
+    if (!sent) return;
+    state.nudged[concern.key] = new Date(now).toISOString();
+    if (concern.workerId && typeof sent === "string") state.chases = { ...(state.chases ?? {}), [concern.workerId]: sent };
   }
 
-  /** A note to the staff about one stuck thing, saying when Flyd last asked; true once the inbox has it. */
-  private async nudge(concern: StaffConcern, askedBefore?: string): Promise<boolean> {
+  /** A note to the staff about one stuck thing, saying when Flyd last asked; truthy once the inbox has it (a worker check-in: its request id). */
+  private async nudge(concern: StaffConcern, askedBefore?: string): Promise<boolean | string> {
     const again = askedBefore ? ` Flyd asked at ${askedBefore} and has had no answer.` : "";
     if (concern.runId) {
       const run = listDomainRuns(this.dir()).find((item) => item.id === concern.runId);
@@ -474,9 +520,15 @@ export class StaffMonitor {
           `FLYD CHECK-IN: worker ${concern.workerId} has been waiting on a decision since ${concern.since}.${again}`,
           "Settle it within the authority you already have, or bring it to George through Flyd with your recommendation if it is truly his. Reply to this note (fm-inbox.sh reply) with what you did; plain prose is fine.",
         ].join("\n");
+      let stdout: string;
       try {
-        const { stdout } = await this.exec(this.script, ["note", "--request-id", id, "--json", "-"], { env: this.env(), input: body, timeout: 20_000 });
-        return (JSON.parse(stdout) as { saved?: boolean }).saved === true;
+        ({ stdout } = await this.exec(this.script, ["note", "--request-id", id, "--json", "-"], { env: this.env(), input: body, timeout: 20_000 }));
+      } catch (error) {
+        // A saved note may exit non-zero when only its wake failed; the receipt on stdout still counts.
+        stdout = firstmateStdout(error);
+      }
+      try {
+        return (JSON.parse(stdout) as { saved?: boolean }).saved === true ? id : false;
       } catch {
         return false;
       }
