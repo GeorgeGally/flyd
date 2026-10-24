@@ -1547,6 +1547,30 @@ describe("ConversationViewServer", () => {
     expect(readTaste().rules.map((rule) => rule.id)).toContain("retired01");
   });
 
+  it("records more or less like a story in today's news only from its own page, and only for a story the latest edition still numbers so", async () => {
+    const scout = mkdtempSync(join(tmpdir(), "view-scout-"));
+    const previous = process.env.FLYD_SCOUT_DIR;
+    process.env.FLYD_SCOUT_DIR = scout;
+    try {
+      const url = "https://www.reddit.com/r/Bitcoin/comments/abc/a_story/";
+      writeFileSync(join(scout, "edition-latest.json"), JSON.stringify({ date: "2026-10-24", generatedAt: "2026-10-24T06:00:00.000Z", topics: [], items: [{ n: 2, title: "A story", url, source: "r/Bitcoin", topic: "bitcoin", why: "It matters.", kind: "relevant" }] }));
+      const port = await start();
+      const json = { "content-type": "application/json" };
+      const more = JSON.stringify({ n: 2, url, verdict: "more" });
+      expect((await post(port, more, json, "/api/scout-feedback")).status).toBe(403);
+      expect((await post(port, more, { ...json, "x-flyd-view-token": viewToken!, origin: "https://attacker.example" }, "/api/scout-feedback")).status).toBe(403);
+      expect((await post(port, JSON.stringify({ n: 2, url: "https://elsewhere.example/", verdict: "more" }), { ...json, "x-flyd-view-token": viewToken! }, "/api/scout-feedback")).status).toBe(404);
+      expect((await post(port, JSON.stringify({ n: 2, url, verdict: "sideways" }), { ...json, "x-flyd-view-token": viewToken! }, "/api/scout-feedback")).status).toBe(400);
+      expect(existsSync(join(scout, "feedback.jsonl"))).toBe(false);
+      expect((await post(port, more, { ...json, "x-flyd-view-token": viewToken! }, "/api/scout-feedback")).status).toBe(200);
+      expect(JSON.parse(readFileSync(join(scout, "feedback.jsonl"), "utf8").trim())).toMatchObject({ verdict: "more", title: "A story", source: "r/Bitcoin" });
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_SCOUT_DIR;
+      else process.env.FLYD_SCOUT_DIR = previous;
+      rmSync(scout, { recursive: true, force: true });
+    }
+  });
+
   it("lists no slash commands for a read-only conversation", async () => {
     const port = await start();
     expect(JSON.parse((await get(port, "/api/commands")).body)).toEqual({ commands: [] });

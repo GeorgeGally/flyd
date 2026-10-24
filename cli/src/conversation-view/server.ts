@@ -829,6 +829,10 @@ export class ConversationViewServer {
       await this.editTaste(req, res);
       return;
     }
+    if (req.method === "POST" && url.pathname === "/api/scout-feedback") {
+      await this.scoutFeedback(req, res);
+      return;
+    }
     if (req.method !== "GET") {
       sendJson(res, 405, { error: "method not allowed" });
       return;
@@ -1235,6 +1239,34 @@ export class ConversationViewServer {
   }
 
   /** George rewords, vetoes or restores a learned taste rule from the taste page. */
+  /** "More like this" or "less like this" on a story in today's news: the same verdict `flyd scout more|less` records. */
+  private async scoutFeedback(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    let payload: { n?: unknown; url?: unknown; verdict?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, 4 * 1024)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    const { n, url, verdict } = payload;
+    if (typeof n !== "number" || !Number.isInteger(n) || typeof url !== "string" || (verdict !== "more" && verdict !== "less")) {
+      sendJson(res, 400, { error: "expected { n, url, verdict: more|less }" });
+      return;
+    }
+    const scout = await import("../council/scout.js");
+    // The story must still be that number in the latest edition: a newer edition renumbers its stories.
+    if (scout.latestEdition()?.items.find((item) => item.n === n)?.url !== url) {
+      sendJson(res, 404, { error: "not in the latest edition" });
+      return;
+    }
+    sendJson(res, 200, { ok: Boolean(scout.recordScoutFeedback(n, verdict)), verdict });
+  }
+
   private async editTaste(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const origin = req.headers.origin;
     if (origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) {

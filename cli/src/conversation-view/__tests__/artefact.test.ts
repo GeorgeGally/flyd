@@ -689,6 +689,29 @@ describe("ArtefactFeed", () => {
     }
   });
 
+  it("dates a landed row firstmate gave no time by when Flyd first saw it, and keeps that date across reads", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-landed-at-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    writeFileSync(snapshot, JSON.stringify({ landed: [{ id: "shipped", what: "The gallery is live", artifact: "https://github.com/example/flyd/pull/9", owner: "firstmate" }] }));
+    const options = { home, artefactsFile: join(home, "artefacts.json"), memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") };
+    const feed = new ArtefactFeed(options);
+    const before = Date.now();
+    await feed.refresh();
+    const first = feed.current().fleet!.landed[0]!.at!;
+    expect(Date.parse(first)).toBeGreaterThanOrEqual(before - 1000);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await feed.refresh();
+    expect(feed.current().fleet!.landed[0]!.at).toBe(first);
+    // A restart reads the same first sighting from disk.
+    const rebooted = new ArtefactFeed(options);
+    await rebooted.refresh();
+    expect(rebooted.current().fleet!.landed[0]!.at).toBe(first);
+  });
+
   it("adds new artefacts, updates one in place and drops none on a failed read", async () => {
     const home = mkdtempSync(join(tmpdir(), "artefact-list-"));
     mkdirSync(join(home, "bin"));
