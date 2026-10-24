@@ -505,7 +505,8 @@ export function failureSignatures(output: string): Set<string> {
 /** A baseline worth caching: the runner printed its summary and few tests timed out. */
 export function completeBaseline(output: string): boolean {
   const plain = output.replace(ANSI, "");
-  const finished = /^\s*Test Files\s+/m.test(plain) || /error TS\d+|Found \d+ errors?/.test(plain) || !/FAIL|error/i.test(plain);
+  if (/check timed out/.test(plain)) return false;
+  const finished = /^\s*Test Files\s+/m.test(plain) || /error TS\d+|Found \d+ errors?/.test(plain);
   const timeouts = (plain.match(/Test timed out|Timeout/g) ?? []).length;
   return finished && timeouts < 5;
 }

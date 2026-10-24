@@ -147,6 +147,7 @@ describe("crew", () => {
   it("caches only a baseline that finished on a calm machine", () => {
     expect(completeBaseline(" FAIL  src/a.test.ts > A\n Test Files  1 failed | 9 passed (10)")).toBe(true);
     expect(completeBaseline(" RUN  v4.1.10 /x\nCommand failed: npm test")).toBe(false);
+    expect(completeBaseline(" RUN  v4.1.10 /x\n\n\ncheck timed out after 15 min")).toBe(false);
     expect(completeBaseline(" Test Files  9 failed\n" + "Error: Test timed out in 5000ms.\n".repeat(6))).toBe(false);
   });
 
