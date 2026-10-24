@@ -137,7 +137,7 @@ export class FirstmateDomainTransport {
     };
     saveDomainRun(run);
     if (!receipt.acknowledged) {
-      const session = await this.startSession(readiness, (failure) => suspendFirstmateRun(run, failure));
+      const session = await this.startSession(run.id, readiness, (failure, terminal) => suspendFirstmateRun(run, failure, Date.now(), terminal));
       if (session.failure) return suspendFirstmateRun(run, session.failure, Date.now(), session.terminal);
     }
     return run;
@@ -179,8 +179,8 @@ export class FirstmateDomainTransport {
     return JSON.parse(stdout) as FirstmateReceipts;
   }
 
-  startSession(readiness?: FirstmateReadiness, onFailure?: (failure: string) => void): Promise<FirstmateLaunch> {
-    return startFirstmateSession({ home: this.home, script: this.script, exec: this.exec, readiness, onFailure });
+  startSession(request: string, readiness?: FirstmateReadiness, onFailure?: (failure: string, terminal?: RepeatedLoopError) => void): Promise<FirstmateLaunch> {
+    return startFirstmateSession({ home: this.home, script: this.script, exec: this.exec, request, readiness, onFailure });
   }
 }
 
@@ -371,9 +371,9 @@ export interface FirstmateLaunch {
   terminal?: RepeatedLoopError;
 }
 
-/** The launch an attempt repeats: the same home asking the same runtimes to start. */
-function launchInput(home: string, runtimes: SessionRuntime[]): Record<string, unknown> {
-  return { home, runtimes: runtimes.join(",") };
+/** The launch an attempt repeats: the same request asking the same home and runtimes to start. */
+function launchInput(home: string, runtimes: SessionRuntime[], request: string): Record<string, unknown> {
+  return { home, runtimes: runtimes.join(","), request };
 }
 
 function repeatedLaunchFailure(attempts: number): string {
@@ -384,10 +384,12 @@ export async function startFirstmateSession(options: {
   home: string;
   script: string;
   exec: FirstmateExec;
+  /** The domain run, or the unread notes' requests, this launch serves: identical failures are counted per request. */
+  request: string;
   readiness?: FirstmateReadiness;
   env?: NodeJS.ProcessEnv;
   recordAttempt?: (entry: Record<string, unknown>) => void;
-  onFailure?: (failure: string) => void;
+  onFailure?: (failure: string, terminal?: RepeatedLoopError) => void;
 }): Promise<FirstmateLaunch> {
   const record = options.recordAttempt ?? recordSessionAttempt;
   const ready = options.readiness ?? await (async () => {
@@ -397,27 +399,32 @@ export async function startFirstmateSession(options: {
   })().catch(() => ({ available: true, canReceive: "unknown" as const }));
   if (ready.canReceive !== false || ready.liveHarness) return { started: false };
   const runtimes = sessionRuntimes(options.env);
-  const launch = launchInput(options.home, runtimes);
-  const stopped = launchRepeats.blocked(SESSION_LAUNCH_OPERATION, launch);
-  if (stopped) {
-    return { started: false, failure: stopped, terminal: new RepeatedLoopError(stopped, launchRepeats.attempts(SESSION_LAUNCH_OPERATION, launch)) };
+  const launch = launchInput(options.home, runtimes, options.request);
+  if (launchRepeats.blocked(SESSION_LAUNCH_OPERATION, launch)) {
+    const attempts = launchRepeats.attempts(SESSION_LAUNCH_OPERATION, launch);
+    const terminal = new RepeatedLoopError(repeatedLaunchFailure(attempts), attempts);
+    return { started: false, failure: terminal.message, terminal };
   }
   let runtime: SessionRuntime | undefined;
   let detail: string | undefined;
-  const settle = (result: FirstmateLaunch): FirstmateLaunch => {
-    if (result.started) { launchRepeats.changed(); return result; }
-    if (!result.failure) return result;
-    launchRepeats.record(SESSION_LAUNCH_OPERATION, launch, detail ?? result.failure);
+  const fail = (failure: string): FirstmateLaunch => {
+    launchRepeats.record(SESSION_LAUNCH_OPERATION, launch, detail ?? failure);
     const attempts = launchRepeats.attempts(SESSION_LAUNCH_OPERATION, launch);
-    if (attempts < MAX_IDENTICAL_LAUNCH_FAILURES) return result;
+    if (attempts < MAX_IDENTICAL_LAUNCH_FAILURES) return { started: false, failure };
     const terminal = new RepeatedLoopError(repeatedLaunchFailure(attempts), attempts);
-    record({ runtime: runtime ?? runtimes[0], outcome: "repeated_loop", home: options.home, attempts, detail: (detail ?? result.failure).slice(0, 500) });
+    record({ runtime: runtime ?? runtimes[0], outcome: "repeated_loop", home: options.home, attempts, detail: (detail ?? failure).slice(0, 500) });
     return { started: false, failure: terminal.message, terminal };
   };
+  const succeeded = (): void => launchRepeats.record(SESSION_LAUNCH_OPERATION, launch, null);
   if (options.exec === defaultExec) {
     if (launchingHomes.has(options.home)) return { started: false };
     launchingHomes.add(options.home);
-    return settle(await launchDetachedFirstmateSession(options.home, runtimes, record, options.onFailure, () => launchingHomes.delete(options.home)));
+    const handedOffFailure = (failure: string): void => {
+      const stopped = fail(failure);
+      options.onFailure?.(stopped.failure!, stopped.terminal);
+    };
+    const result = await launchDetachedFirstmateSession(options.home, runtimes, record, handedOffFailure, () => launchingHomes.delete(options.home), succeeded);
+    return result.failure ? fail(result.failure) : result;
   }
   for (const candidate of runtimes) {
     runtime = candidate;
@@ -430,23 +437,24 @@ export async function startFirstmateSession(options: {
         continue;
       }
       record({ runtime: candidate, outcome: "started" });
-      return settle({ started: true });
+      succeeded();
+      return { started: true };
     } catch (error) {
       detail = error instanceof Error ? error.message : String(error);
       record({ runtime: candidate, outcome: /usage limit|rate limit|quota/i.test(detail) ? "usage_limited" : "failed", detail: detail.slice(0, 500) });
     }
   }
-  return settle({ started: false, failure: SESSION_LAUNCH_FAILURE });
+  return fail(SESSION_LAUNCH_FAILURE);
 }
 
-function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[], record: (entry: Record<string, unknown>) => void, onFailure: ((failure: string) => void) | undefined, release: () => void): Promise<{ started: boolean; failure?: string }> {
+function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[], record: (entry: Record<string, unknown>) => void, onFailure: (failure: string) => void, release: () => void, succeeded: () => void): Promise<{ started: boolean; failure?: string }> {
   return new Promise((resolve) => {
     let handedOff = false;
     const attempt = (index: number): void => {
       const runtime = runtimes[index];
       if (!runtime) {
         release();
-        if (handedOff) onFailure?.(SESSION_LAUNCH_FAILURE);
+        if (handedOff) onFailure(SESSION_LAUNCH_FAILURE);
         else resolve({ started: false, failure: SESSION_LAUNCH_FAILURE });
         return;
       }
@@ -502,6 +510,7 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
           }
         } else {
           release();
+          succeeded();
         }
       });
     };
@@ -665,7 +674,8 @@ export async function syncFirstmateDomainRuns(options: {
           if (capped && !retry?.capped) recordSessionAttempt({ kind: "unread_relaunch_capped", home: transport.home, notes: oldPending.map((note) => note.id) });
           runlessRetry.set(transport.home, { attempts, nextAt: nowMs + delay, capped });
         }
-        const session = await transport.startSession(readiness, waitingRun ? (failure) => suspendFirstmateRun(waitingRun, failure) : undefined).catch(() => ({ started: false, failure: undefined, terminal: undefined }));
+        const request = waitingRun?.id ?? oldPending.map((note) => note.request_id ?? note.id).sort().join(",");
+        const session = await transport.startSession(request, readiness, waitingRun ? (failure, terminal) => suspendFirstmateRun(waitingRun, failure, Date.now(), terminal) : undefined).catch(() => ({ started: false, failure: undefined, terminal: undefined }));
         if (session.started && waitingRun?.launchRetry) {
           saveDomainRun({ ...waitingRun, failure: undefined, updatedAt: new Date(nowMs).toISOString() });
         } else if (session.failure && waitingRun) {

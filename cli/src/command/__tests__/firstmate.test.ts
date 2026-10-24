@@ -94,7 +94,7 @@ describe("FirstMate domain transport", () => {
       return { stdout: "", stderr: "" };
     };
     const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
       readiness: { available: true, canReceive: false, liveHarness: false },
       recordAttempt: vi.fn(),
     });
@@ -105,7 +105,7 @@ describe("FirstMate domain transport", () => {
   it("does not start a second session while a harness is live", async () => {
     const exec = vi.fn<FirstmateExec>();
     const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
       readiness: { available: true, canReceive: false, liveHarness: true },
       recordAttempt: vi.fn(),
     });
@@ -121,7 +121,7 @@ describe("FirstMate domain transport", () => {
       return { stdout: "started", stderr: "" };
     };
     const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
       readiness: { available: true, canReceive: false, liveHarness: false },
       recordAttempt: vi.fn(),
     });
@@ -133,7 +133,7 @@ describe("FirstMate domain transport", () => {
     const calls: string[] = [];
     const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
     const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
       readiness: { available: true, canReceive: false, liveHarness: false },
       recordAttempt: vi.fn(),
     });
@@ -157,7 +157,7 @@ describe("FirstMate domain transport", () => {
         return { stdout: "started", stderr: "" };
       };
       const result = await startFirstmateSession({
-        home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+        home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
         readiness: { available: true, canReceive: false, liveHarness: false },
         recordAttempt: vi.fn(),
       });
@@ -772,7 +772,7 @@ describe("FirstMate domain transport", () => {
     const before = existsSync(path) ? readFileSync(path, "utf8").length : 0;
     try {
       const transport = new FirstmateDomainTransport({ home, script });
-      expect(await transport.startSession()).toEqual({ started: true });
+      expect(await transport.startSession("view-note")).toEqual({ started: true });
       const [helper] = recordedHelpers() as Array<{ pid: number; log: string }>;
       helperPid = helper!.pid;
       mkdirSync(join(home, "state"), { recursive: true });
@@ -986,6 +986,77 @@ describe("FirstMate domain transport", () => {
       if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
       else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
     }
+  });
+
+  it("stops a detached launch whose spawned session keeps failing after three identical failures", async () => {
+    const home = join(dir, "firstmate-detached");
+    const bin = join(dir, "bin-detached");
+    mkdirSync(join(home, "bin"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    const script = join(home, "bin", "fm-inbox.sh");
+    writeFileSync(script, [
+      "#!/bin/sh",
+      'case "$1" in',
+      '  receipts) echo \'{"pending":[{"id":"note-1","request_id":"domain-test-1","acknowledged":false,"at":"2026-10-09T00:00:00.000Z"}]}\' ;;',
+      '  ready) echo \'{"can_receive":false,"lock":{"live_harness":false}}\' ;;',
+      "esac",
+    ].join("\n"), { mode: 0o755 });
+    const launchLog = join(dir, "detached-launches");
+    writeFileSync(join(bin, "claude"), `#!/bin/sh\necho launched >> ${JSON.stringify(launchLog)}\necho "session crashed"\nexit 1\n`, { mode: 0o755 });
+    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_RUNTIMES: process.env.FLYD_FIRSTMATE_RUNTIMES };
+    process.env.PATH = `${bin}:${process.env.PATH}`;
+    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
+    saveDomainRun(queuedRun());
+    const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
+    const before = existsSync(path) ? readFileSync(path, "utf8").length : 0;
+    const outcomes = () => (existsSync(path) ? readFileSync(path, "utf8").slice(before) : "").trim().split("\n").filter(Boolean)
+      .map((line) => JSON.parse(line) as { outcome?: string; home?: string }).filter((entry) => entry.outcome);
+    try {
+      const transport = new FirstmateDomainTransport({ home, script });
+      const start = Date.now();
+      for (let tick = 0; tick < 21; tick += 1) {
+        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + tick * 60 * 60_000) });
+        await vi.waitFor(() => {
+          const seen = outcomes();
+          expect(seen.filter((entry) => entry.outcome === "failed")).toHaveLength(seen.filter((entry) => entry.outcome === "started").length);
+          if (seen.some((entry) => entry.outcome === "started")) expect(listDomainRuns()[0]!.failure).toBeDefined();
+        }, { timeout: 5_000 });
+      }
+
+      expect(readFileSync(launchLog, "utf8").trim().split("\n")).toHaveLength(3);
+      const [run] = listDomainRuns();
+      expect(run!.status).toBe("failed");
+      expect(run!.launchRetry).toBeUndefined();
+      expect(run!.failure).toMatch(/3 identical launch attempts/);
+      expect(outcomes().filter((entry) => entry.outcome === "repeated_loop" && entry.home === home)).toHaveLength(1);
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
+  it("counts identical launch failures per request, so a new run still gets its own attempts", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
+    const launch = (request: string) => startFirstmateSession({
+      home: "/fake/firstmate-shared", script: "/fake/fm-inbox.sh", exec, request,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
+      recordAttempt: vi.fn(),
+    });
+    const runA = [await launch("run-a"), await launch("run-a"), await launch("run-a")];
+    expect(runA.map((result) => Boolean(result.terminal))).toEqual([false, false, true]);
+    expect(runA[2]!.terminal!.attempts).toBe(3);
+    const blocked = await launch("run-a");
+    expect(blocked.failure).toMatch(/3 identical launch attempts/);
+    expect(calls).toHaveLength(3);
+
+    const runB = await launch("run-b");
+    expect(calls).toHaveLength(4);
+    expect(runB.terminal).toBeUndefined();
+    expect(runB.failure).toBe("I couldn't start the work right now. I'll keep it safe and try again when I can.");
   });
 
   it("cools the home down instead of relaunching every tick for an unconsumed note", async () => {
