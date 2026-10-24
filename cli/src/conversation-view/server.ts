@@ -1105,13 +1105,18 @@ export class ConversationViewServer {
         title: item.headline,
         ...(item.detail ? { line: item.detail } : {}),
         ...(item.links?.[0]?.url ? { url: item.links[0].url } : {}),
+        // The work's own screenshot leads its card, and its own time says when it was done.
+        ...(item.shots?.[0]?.src ? { image: item.shots[0].src } : {}),
+        ...(item.at ? { at: item.at } : {}),
       }))];
     const interpreter = this.summaries?.interpreter;
     const { boards, deliverables } = this.workshop.current();
     // A Lavish board refuses to be framed; the column frames the page it reviews instead and links the board.
     const board = new Map<string, RailPreview>(boards.map((entry) => {
       const url = normalizeLoopback(entry.url) ?? entry.url;
-      return [url, { id: `live:${url}`, kind: "live", url, title: `Review board: ${entry.title}`, line: entry.task ?? entry.title, frame: this.railFileSrc(entry.file) }];
+      // Only a page /rail-file will serve is framed; a board kept elsewhere is linked, never a blank frame.
+      const framable = entry.file.startsWith(join(firstmateHome(), "data") + sep);
+      return [url, { id: `live:${url}`, kind: "live", url, title: `Review board: ${entry.title}`, line: entry.task ?? entry.title, ...(framable ? { frame: this.railFileSrc(entry.file) } : {}) }];
     }));
     const workshop: RailPreview[] = [
       // A board whose server stopped is gone, not "not running".

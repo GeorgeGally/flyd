@@ -3252,8 +3252,51 @@ describe("what Flyd shows of its staff, at a glance", () => {
     const cards = [...document.querySelectorAll<HTMLElement>("#artefacts .art-card")];
     expect(cards.map((card) => card.dataset.key)).toEqual(["file:deck", "reply:r1"]);
     expect(cards[0]!.querySelector("img")!.getAttribute("src")).toMatch(/^\/api\/rail-image\?path=%2Ftmp%2Fdeck\.png&token=/);
-    expect(cards[0]!.querySelector(".brief-meta")!.textContent).toBe("open5m ago");
+    // One line of what it is and when, then "open".
+    expect(cards[0]!.querySelector(".art-meta")!.textContent).toBe("gnm · HTML + PDF · 5m ago");
+    expect(cards[0]!.querySelector(".brief-meta")!.textContent).toBe("open");
     expect([...cards[1]!.querySelectorAll(".art-steps li")].map((li) => li.textContent)).toEqual(["Open the page", "Pick a photo", "Save", "1 more"]);
+  });
+
+  it("leads the column with pictured artefacts, shows a few and the rest behind Show all, and never draws a merged change twice", async () => {
+    load("");
+    await settle();
+    const pictures = Array.from({ length: 8 }, (_, index) => ({ id: `file:${index}`, title: `Lab ${index}`, line: `lab-${index} · HTML`, image: `/api/rail-image?path=%2Ftmp%2F${index}.png`, url: `/rail-file/x/${index}.html` }));
+    open("latest", []).emit("update", {
+      order: [], messages: [], working: false, boxes: [],
+      rail: { conversations: [], artefacts: [
+        { id: "news:link", title: "Link WhatsApp", line: "Scan the code" },
+        { id: "landed:pr", title: "The change is merged: fix(x)", url: "https://github.com/o/r/pull/1" },
+        ...pictures,
+      ] },
+    });
+    await settle();
+    // The pictures lead, in a grid; a merged change without a picture is left to Done.
+    const keys = () => [...document.querySelectorAll<HTMLElement>("#artefacts .art-card")].map((card) => card.dataset.key);
+    expect(keys()).toEqual(["file:0", "file:1", "file:2", "file:3", "file:4", "file:5"]);
+    expect(document.querySelectorAll("#artefacts .art-grid .art-card")).toHaveLength(6);
+    const more = document.querySelector<HTMLButtonElement>("#artefacts .brief-more")!;
+    expect(more.textContent).toBe("Show all 9");
+    more.click();
+    expect(keys()).toEqual([...pictures.map((card) => card.id), "news:link"]);
+    expect(document.querySelectorAll("#artefacts .art-plain .art-card")).toHaveLength(1);
+  });
+
+  it("shows History a few rows a project, the rest behind Show all, below the artefacts", async () => {
+    const sessions = [{ id: "latest", title: "Latest", updatedAt: new Date().toISOString() }, ...Array.from({ length: 9 }, (_, index) => ({ id: `s${index}`, title: `Talk ${index}`, updatedAt: new Date(Date.now() - (index + 1) * 60_000).toISOString() }))];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/commands" ? json({ commands: [] }) : json({ assistantLabel: "firstmate", sessions }))));
+    load("?session=latest");
+    await settle();
+    open("latest", []);
+    await settle();
+    const rows = () => document.querySelectorAll("#history-list .history-item").length;
+    expect(rows()).toBe(5);
+    const more = document.querySelector<HTMLButtonElement>("#history-list .history-more")!;
+    expect(more.textContent).toBe("Show all 9");
+    more.click();
+    expect(rows()).toBe(9);
+    // The column's order: the work first, then History, then the news.
+    expect([...document.querySelectorAll(".rail-pane > *")].map((node) => node.id)).toEqual(["brief", "history", "brief-news"]);
   });
 
   it("forgets Done cards it saw that have long left the column, and keeps at most 300", async () => {
@@ -3349,6 +3392,35 @@ describe("screen gates", () => {
     expect(scene.querySelector(".screen-question")!.textContent).toBe("Launch Friday or Saturday?");
     expect([...scene.querySelectorAll(".scene-ask .choice-pick")].map((button) => button.textContent)).toEqual(["Fridayrecommended", "Saturday"]);
     expect(scene.dataset.pattern).toBe("decision-choice");
+  });
+
+  it("says a decision once when its headline, line and question are the same words", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const said = "Choose the default screen direction: adaptive single stage or columns with on-demand rail; decide whether only high-confidence housekeeping interrupts or all findings enter a digest";
+    // The same decision, as the fleet hands it over: no full stop on the headline, one on the detail, different case on the question.
+    const focus = screened(object("task:direction", "decision", "interrupted", said, {
+      summary: "",
+      detail: `${said}.`,
+      decision: { target: "direction", question: `${said.toLowerCase()}.`, alternatives: [] },
+    }));
+    expect(focus.screen.lead).toBe("");
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus, semantic: [focus] } as unknown as ShowScreen, boxes: [] });
+    await settle();
+    const count = (root: Element) => (root.textContent ?? "").toLowerCase().split("choose the default screen direction").length - 1;
+    expect(count(document.getElementById("scene")!)).toBe(1);
+    expect(count(document.getElementById("inline-screen")!)).toBe(1);
+    // A line that adds a sentence keeps only that sentence.
+    const more = screened(object("task:direction", "decision", "interrupted", said, {
+      summary: "",
+      detail: `${said}. The lab has both versions side by side.`,
+      decision: { target: "direction", question: said, alternatives: [] },
+    }));
+    stream.emit("update", { order: [], messages: [], working: false, show: { title: "", summary: "", live: false, counts: {}, items: [], focus: more, semantic: [more] } as unknown as ShowScreen, boxes: [] });
+    await settle();
+    expect(count(document.getElementById("scene")!)).toBe(1);
+    expect(document.getElementById("scene-line")!.textContent).toBe("The lab has both versions side by side.");
   });
 
   it("draws an investigation's findings and an approval's operation and its action", async () => {

@@ -195,6 +195,12 @@ function blockFor(kind: PatternBlockKind, object: SemanticObject, plan?: Manifes
   }
 }
 
+/** Whether two lines say the same words, whatever their case, punctuation or spacing. Pure. */
+export function sameWords(a: string, b: string): boolean {
+  const words = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return words(a) !== "" && words(a) === words(b);
+}
+
 /** The approved action for an approval-shaped decision, so the pattern can be answered in one tap. */
 function approvalAction(object: SemanticObject): PatternAction {
   return object.action?.requiresApproval ? "approve" : "choose";
@@ -211,11 +217,13 @@ export function fillScreen(object: SemanticObject, plan?: ManifestationPlan, nam
     const block = blockFor(kind, object, plan);
     return block ? [block] : [];
   });
+  // The lead never repeats the headline: a lead that only says the title again is no lead.
+  const lead = object.summary || object.detail || "";
   return {
     meaning,
     pattern: pattern.id,
     title: object.subject,
-    lead: object.summary || object.detail || "",
+    lead: sameWords(lead, object.subject) ? "" : lead,
     blocks,
     action: pattern.action === "choose" ? approvalAction(object) : pattern.action,
     visual: pattern.visual,
