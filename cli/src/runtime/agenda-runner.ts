@@ -38,65 +38,10 @@ export function startAgendaScheduler(options: { intervalMs?: number; onError?: (
   startCommandScheduler({ onError: options.onError });
   // Flyd watches its coding staff: what is under way, stuck or waiting (command/fleet-monitor.ts).
   startStaffMonitor({ onError: options.onError });
+  // One shared tick (runtime/agenda-tick.ts): each job isolated, model jobs wait out a usage-limit backoff.
   const tick = () => {
-    void import("./agenda.js")
-      .then(({ runDueAgenda }) => runDueAgenda({ runTask: runAgendaTask }))
-      .then(async () => {
-        const [{ runCouncilPass }, { query }, { notifyMac }] = await Promise.all([
-          import("../council/council.js"), import("../lib/llm.js"), import("./agenda.js"),
-        ]);
-        await runCouncilPass({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac });
-        const { superviseCrew } = await import("../crew/crew.js");
-        await superviseCrew({ notify: notifyMac });
-        // Learn George's taste from his own turns in his Claude Code sessions (council/taste.ts).
-        const { learnTaste } = await import("../council/taste.js");
-        await learnTaste({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) }).catch(() => undefined);
-        // …and carry it to every agent as skills (council/taste-skills.ts).
-        const { syncTasteSkills } = await import("../council/taste-skills.js");
-        try { syncTasteSkills(); } catch { /* next tick */ }
-        const [{ investigate }, { runPersonalTool }] = await Promise.all([import("../council/investigator.js"), import("./personal-tools.js")]);
-        await investigate({
-          complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
-          calendar: (from, days) => runPersonalTool("calendar_events", { from, days }, { background: true }),
-          reminders: () => runPersonalTool("reminders", { action: "list" }, { background: true }),
-          recall: (text) => runPersonalTool("recall", { query: text }),
-          otherAssistants: async () => {
-            const { readFileSync } = await import("node:fs");
-            const { homedir } = await import("node:os");
-            const files = [".hermes/memories/USER.md", ".hermes/memories/MEMORY.md", ".openclaw/workspace/USER.md", ".openclaw/workspace/MEMORY.md"];
-            return files.map((file) => { try { return readFileSync(`${homedir()}/${file}`, "utf8"); } catch { return ""; } }).join("\n\n");
-          },
-        }).catch(() => undefined);
-        const { backfillArchive } = await import("../council/investigator.js");
-        await backfillArchive({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }) }).catch(() => undefined);
-        // Read back what George was shown against the chief-of-staff standard; shortfalls feed the improver.
-        const { runReplyReview } = await import("../council/reply-review.js");
-        await runReplyReview().catch(() => undefined);
-        // Once a day, consolidate canonical experience traces into evidence-backed
-        // candidate insights. Dreaming is analysis only: it cannot mutate policy,
-        // USER.md, memory, or code.
-        const { runDreamCycle } = await import("../intelligence/dream/cycle.js");
-        await runDreamCycle().catch(() => undefined);
-        const { runSelfImprovement } = await import("../crew/self-improve.js");
-        await runSelfImprovement({ complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }), notify: notifyMac }).catch(() => undefined);
-        const { scoutTick, editionActivityRecord } = await import("../council/scout.js");
-        const { recordActivity } = await import("../conversation-view/activity.js");
-        await scoutTick({
-          complete: (prompt) => query(prompt, undefined, undefined, undefined, undefined, { json: true }),
-          notify: notifyMac,
-          record: (edition) => recordActivity(editionActivityRecord(edition)),
-        });
-        // Have the morning ready before George is up (council/morning.ts).
-        const [{ prepareMorning }, { composeSessionBriefing }, { museGreeting }, { readUserProfile }, scout, { localDay }] = await Promise.all([
-          import("../council/morning.js"), import("./session-briefing.js"), import("../council/greeting.js"),
-          import("../lib/user-profile.js"), import("../council/scout.js"), import("../council/memory-store.js"),
-        ]);
-        await prepareMorning({
-          briefing: (now) => composeSessionBriefing({ now: () => now, peek: true, background: true }),
-          compose: (briefing, now) => museGreeting({ briefing, now, profile: (() => { try { return readUserProfile(); } catch { return null; } })() }, (prompt) => query(prompt)),
-          newsReady: (now) => scout.latestEdition()?.date === localDay(now),
-        }).catch(() => undefined);
-      })
+    void import("./agenda-tick.js")
+      .then(({ runAgendaTick }) => runAgendaTick({ log: (line) => console.log(`[Flyd Core] tick ${line}`) }))
       .catch((error) => options.onError?.(error));
   };
   agendaTimer = setInterval(tick, options.intervalMs ?? 5 * 60 * 1000);

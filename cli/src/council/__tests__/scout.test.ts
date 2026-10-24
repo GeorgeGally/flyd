@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  editionActivityRecord, evolveScout, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
+  editionActivityRecord, evolveScout, reviveFailedSources, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
   runScout, scoutTick, SEED_TASTE, seedSources, takeEvolutionNotes, watchScout, writeSources, type Edition, type ScoutSource,
 } from "../scout.js";
 import { activityFromRecords } from "../../conversation-view/activity.js";
@@ -235,14 +235,74 @@ describe("evolution", () => {
     expect(takeEvolutionNotes(dir)).toEqual([]);
   });
 
-  it("the tick builds the morning edition, then watches, and only evolves once there is feedback", async () => {
+  it("the tick evolves weekly without waiting for feedback, builds the morning edition, then watches", async () => {
     onlySources([{ kind: "rss", name: "Waxy.org", target: "https://waxy.org/feed/" }]);
     const fetchFn = fakeFetch({ "waxy.org": rss([{ title: "Story", link: "https://waxy.org/s" }]) });
     const complete = vi.fn(async () => '{"picks": []}');
     // Scout keeps George's local clock, so the morning is 07:30 wherever the test runs.
     const morning = new Date(2026, 8, 27, 7, 30);
-    expect(await scoutTick({ complete, fetchFn, dir, now: () => morning })).toEqual(["edition: 0 items"]);
+    expect(await scoutTick({ complete, fetchFn, dir, now: () => morning })).toEqual(["evolved: no changes", "edition: 0 items"]);
     expect(latestEdition(dir)?.items).toEqual([]);
     expect(await scoutTick({ complete, fetchFn, dir, now: () => morning })).toEqual(["watch: 0 must-know"]);
+  });
+
+  it("gives failure-paused sources one retry after they rest, but leaves taste pauses alone", () => {
+    const base = { shown: 0, likes: 0, dislikes: 0, addedBy: "seed" as const, addedAt: "2026-09-01T00:00:00Z" };
+    const sources: ScoutSource[] = [
+      { ...base, id: "reddit:ordinals", kind: "reddit", name: "r/ordinals", target: "ordinals", status: "paused", failures: 5, note: "paused after 5 consecutive fetch failures", lastFetchedAt: "2026-10-12T09:00:00Z" },
+      { ...base, id: "reddit:p5js", kind: "reddit", name: "r/p5js", target: "p5js", status: "paused", failures: 5, note: "paused after 5 consecutive fetch failures", pausedAt: "2026-10-23T09:00:00Z" },
+      { ...base, id: "rss:dull.test/feed", kind: "rss", name: "Dull", target: "https://dull.test/feed", status: "paused", failures: 0, note: "paused by evolution 2026-09-01", pausedAt: "2026-09-01T00:00:00Z" },
+    ];
+    const { sources: next, revived } = reviveFailedSources(sources, at("2026-10-24T10:00:00Z"));
+    expect(revived.map((source) => source.name)).toEqual(["r/ordinals"]);
+    // One failure from paused again.
+    expect(next[0]).toMatchObject({ status: "active", failures: 4 });
+    expect(next[1]!.status).toBe("paused");
+    expect(next[2]!.status).toBe("paused");
+  });
+
+  it("evolves with no feedback: explores more reserve while sources are paused, and replans topics from taste", async () => {
+    const base = { shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "seed" as const, addedAt: "2026-09-01T00:00:00Z" };
+    writeSources([
+      { ...base, id: "reddit:a", kind: "reddit", name: "r/a", target: "a", status: "paused", note: "paused by evolution 2026-09-01" },
+      { ...base, id: "reddit:b", kind: "reddit", name: "r/b", target: "b", status: "paused", note: "paused by evolution 2026-09-01" },
+      { ...base, id: "rss:one.test/feed", kind: "rss", name: "One", target: "https://one.test/feed", status: "reserve" },
+      { ...base, id: "rss:two.test/feed", kind: "rss", name: "Two", target: "https://two.test/feed", status: "reserve" },
+      { ...base, id: "rss:three.test/feed", kind: "rss", name: "Three", target: "https://three.test/feed", status: "reserve" },
+      { ...base, id: "topic:hybrid search query rewriting", kind: "topic", name: "hybrid search query rewriting", target: "hybrid search query rewriting", status: "active", addedBy: "evolution" },
+      { ...base, id: "topic:ordinals recursion", kind: "topic", name: "ordinals recursion", target: "ordinals recursion", status: "active", addedBy: "george" },
+    ], dir);
+    const prompts: string[] = [];
+    const complete = vi.fn(async (prompt: string) => {
+      prompts.push(prompt);
+      return prompt.startsWith("Plan 3") ? JSON.stringify({ topics: [
+        { topic: "touchdesigner audio reactive", why: "creative coding" },
+        { topic: "ordinals recursion", why: "duplicate of a kept one" },
+        { topic: "esp32 cyberdeck builds", why: "hardware hacking" },
+      ] }) : "{}";
+    });
+    const changes = await evolveScout({ complete, dir, now: () => at("2026-10-24T07:00:00Z") });
+    const sources = readSources(dir);
+    expect(sources.filter((source) => source.status === "active" && source.target.includes(".test/")).map((source) => source.name)).toEqual(["One", "Two"]);
+    expect(prompts[0]).toContain("crypto art, generative art");
+    expect(prompts[0]).toContain("Already searching (do not repeat): ordinals recursion");
+    const topics = sources.filter((source) => source.kind === "topic" && source.status === "active").map((source) => source.target);
+    expect(topics).toEqual(["ordinals recursion", "touchdesigner audio reactive", "esp32 cyberdeck builds"]);
+    expect(sources.find((source) => source.target === "hybrid search query rewriting")?.status).toBe("paused");
+    expect(changes.map((change) => change.kind)).toEqual(["revived", "revived", "topics"]);
+  });
+
+  it("records more/less by story link or source id, for a view button", async () => {
+    onlySources([{ kind: "rss", name: "Waxy.org", target: "https://waxy.org/feed/" }]);
+    const now = at("2026-09-27T07:00:00Z");
+    const edition: Edition = { date: "2026-09-27", generatedAt: now.toISOString(), topics: ["Internet"], items: [
+      { n: 1, title: "Story", url: "https://waxy.org/s", source: "Waxy.org", sourceId: "rss:waxy.org/feed/", topic: "Internet", why: "good", kind: "relevant" },
+    ] };
+    writeFileSync(join(dir, "edition-latest.json"), JSON.stringify(edition));
+    expect(recordScoutFeedback("https://waxy.org/s", "more", dir, now)?.title).toBe("Story");
+    expect(recordScoutFeedback({ sourceId: "rss:waxy.org/feed/" }, "less", dir, now)?.title).toBe("Waxy.org");
+    expect(recordScoutFeedback("https://nowhere.test/x", "more", dir, now)).toBeNull();
+    expect(readSources(dir).find((source) => source.name === "Waxy.org")).toMatchObject({ likes: 1, dislikes: 1 });
+    expect(readFileSync(join(dir, "feedback.jsonl"), "utf8").trim().split("\n")).toHaveLength(2);
   });
 });
