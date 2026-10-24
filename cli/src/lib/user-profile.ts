@@ -6,7 +6,13 @@ import { FLYD_DIR } from "./config.js";
 // highest-authority personal context Flyd has — derived projections and
 // archive recall only fill in what it does not say.
 
-export const USER_PROFILE_MAX_CHARS = 8_000;
+/**
+ * Ceiling for the profile in a prompt. Over it, sections are trimmed from
+ * within (longest first) so no section ever silently disappears.
+ */
+export const USER_PROFILE_MAX_CHARS = 24_000;
+/** Never trimmed while anything else can give way: his voice rules and hard limits. */
+export const PROTECTED_PROFILE_SECTIONS = ["How to be with me", "Constraints"] as const;
 const LEARNED_HEADING = "## Learned in conversation";
 
 export function userProfilePath(): string {
@@ -39,7 +45,50 @@ export function readUserProfile(path = userProfilePath()): string | null {
     .trim();
   const hasFacts = /^\s*-\s+\S/m.test(text) || text.split("\n").some((line) => line.trim() && !line.startsWith("#"));
   if (!hasFacts) return null;
-  return text.length > USER_PROFILE_MAX_CHARS ? `${text.slice(0, USER_PROFILE_MAX_CHARS)}\n…(truncated)` : text;
+  return fitProfile(text, USER_PROFILE_MAX_CHARS);
+}
+
+interface ProfileBlock { heading: string | null; lines: string[]; dropped: number }
+
+function renderBlocks(blocks: ProfileBlock[]): string {
+  return blocks.map((block) => [
+    ...(block.heading === null ? [] : [block.heading]),
+    ...block.lines,
+    ...(block.dropped ? [`- …(${block.dropped} more line${block.dropped === 1 ? "" : "s"} in USER.md)`] : []),
+  ].join("\n")).filter(Boolean).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Fit the profile to `max` without dropping a section: the longest
+ * unprotected section gives up one line at a time (oldest first in "Learned
+ * in conversation", from the end elsewhere); protected sections give way last.
+ */
+export function fitProfile(text: string, max = USER_PROFILE_MAX_CHARS): string {
+  if (text.length <= max) return text;
+  const blocks: ProfileBlock[] = [{ heading: null, lines: [], dropped: 0 }];
+  for (const line of text.split("\n")) {
+    if (/^##\s/.test(line)) blocks.push({ heading: line, lines: [], dropped: 0 });
+    else blocks[blocks.length - 1].lines.push(line);
+  }
+  const name = (block: ProfileBlock) => block.heading?.replace(/^##\s+/, "").trim().toLowerCase() ?? "";
+  const isProtected = (block: ProfileBlock) => block.heading === null
+    || (PROTECTED_PROFILE_SECTIONS as readonly string[]).some((section) => section.toLowerCase() === name(block));
+  const size = (block: ProfileBlock) => block.lines.reduce((sum, line) => sum + line.length + 1, 0);
+  const trimmable = (block: ProfileBlock) => block.lines.some((line) => line.trim());
+  const learned = LEARNED_HEADING.replace(/^##\s+/, "").toLowerCase();
+  let rendered = renderBlocks(blocks);
+  while (rendered.length > max) {
+    const unprotected = blocks.filter((block) => trimmable(block) && !isProtected(block));
+    const pool = unprotected.length ? unprotected : blocks.filter(trimmable);
+    if (pool.length === 0) break;
+    const target = pool.reduce((a, b) => (size(b) > size(a) ? b : a));
+    while (target.lines.length && !target.lines[target.lines.length - 1].trim()) target.lines.pop();
+    if (name(target) === learned) target.lines.splice(target.lines.findIndex((line) => line.trim()), 1);
+    else target.lines.pop();
+    target.dropped += 1;
+    rendered = renderBlocks(blocks);
+  }
+  return rendered.length > max ? `${rendered.slice(0, max)}\n…(truncated)` : rendered;
 }
 
 export function ensureUserProfile(path = userProfilePath()): string {
