@@ -498,8 +498,11 @@ const FOCUS_PRIORITY: Record<SemanticKind, number> = {
 /**
  * Semantic focus is meaning-driven, not card-order-driven. Interrupted work
  * wins; quiet Monitors deliberately sink until they change or need George.
+ * Finished artefacts never take the single focus slot: they live in the right
+ * column's Artefacts and Done, so the slot stays for live work and what needs him.
  */
-export function semanticFocus(objects: readonly SemanticObject[]): SemanticObject | undefined {  return [...objects].sort((a, b) => {
+export function semanticFocus(objects: readonly SemanticObject[]): SemanticObject | undefined {
+  return objects.filter((object) => object.kind !== "artifact").sort((a, b) => {
     const interrupted = Number(b.lifecycle === "interrupted") - Number(a.lifecycle === "interrupted");
     if (interrupted) return interrupted;
     const monitorA = a.monitor?.phase === "quiet" ? -25 : 0;

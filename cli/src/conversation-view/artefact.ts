@@ -568,6 +568,8 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     if (decision?.disposition !== "handle_internally" || !decision.show || decision.verification.status !== "verified") return [];
     return [{
       ...row,
+      // When the work finished: its own report time, else when Flyd verified it had landed (never invented).
+      ...(!row.at && decision.createdAt ? { at: decision.createdAt } : {}),
       executiveDecisionId: decision.decisionId,
       label: decision.summary,
       detail: undefined,
@@ -869,8 +871,8 @@ export function underwayItems(fleet: FleetArtefact | undefined, options: Compose
   return [...fleet.live].sort((a, b) => since(a) - since(b)).flatMap((row, index) => gatedItem(rowItem("live", `live-${row.task ?? index}`, row, options)) ?? []);
 }
 
-/** How many finished jobs the conversation's Done list names. */
-export const DONE_LIMIT = 8;
+/** How many finished jobs the Done list carries; the page shows a few and a "Show all" for the rest. */
+export const DONE_LIMIT = 40;
 
 /** Work that landed, newest first, one line each. Pure. */
 export function doneItems(fleet: FleetArtefact | undefined, options: ComposeOptions = {}, limit = DONE_LIMIT): ShowItem[] {

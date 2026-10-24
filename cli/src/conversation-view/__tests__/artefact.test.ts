@@ -154,6 +154,15 @@ describe("the decision-backed fleet projection", () => {
     expect(publicFleet.next).toEqual([]);
     expect(JSON.stringify(publicFleet)).not.toMatch(/Paused|no-mistakes run|compiling project|working|paused/i);
   });
+
+  it("dates verified finished work by its own report time, else by when Flyd verified it, never inventing one", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "result", state: "done", name: "Review complete", doing: "Requested tests passed" }] });
+    const verified = decision({ taskId: "result", disposition: "handle_internally", summary: "Requested tests passed", verification: { status: "verified", evidenceRefs: ["receipt:test-run"] }, show: true, createdAt: "2026-10-22T08:30:00.000Z" });
+    const undated = projectFleetDecisions(fleet, [verified]);
+    expect(undated.landed[0]!.at).toBe("2026-10-22T08:30:00.000Z");
+    const reported = { ...fleet, landed: fleet.landed.map((row) => ({ ...row, at: "2026-10-21T10:00:00.000Z" })), ready: fleet.ready.map((row) => ({ ...row, at: "2026-10-21T10:00:00.000Z" })) };
+    expect(projectFleetDecisions(reported, [verified]).landed[0]!.at).toBe("2026-10-21T10:00:00.000Z");
+  });
 });
 
 describe("what needs him", () => {

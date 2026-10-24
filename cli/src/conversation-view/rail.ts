@@ -133,7 +133,8 @@ export interface Rail {
 /** How far back a named preview still counts as what we are talking about. */
 export const PREVIEW_SCAN = 12;
 export const MAX_RAIL_CONVERSATIONS = 40;
-export const MAX_RAIL_ARTEFACTS = 10;
+/** A bound on what the update carries, not on what he sees: the page shows a few and a "Show all" for the rest. */
+export const MAX_RAIL_ARTEFACTS = 40;
 export const MAX_RAIL_PREVIEWS = 4;
 
 /** A loopback URL he named: the site we are looking at, never a remote page. */

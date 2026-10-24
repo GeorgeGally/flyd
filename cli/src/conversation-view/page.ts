@@ -564,7 +564,9 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .rail-hide:hover { color: var(--fg); }
 .rail-hide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rail-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
-.history { flex: 0 0 min(420px, 48%); min-height: 0; max-height: 52%; overflow-y: auto; padding: 18px 20px 12px; border-bottom: 1px solid var(--faint); }
+/* History sits under the work, a few rows a project, so it never pushes the artefacts out of view. */
+.history { flex: none; padding: 20px 20px 12px; border-bottom: 1px solid var(--faint); }
+.history .history-more { margin: 0 0 6px 14px; padding: 6px 0; }
 .history[hidden] { display: none; }
 .history-top { display: flex; align-items: baseline; margin: 0 0 10px; }
 .history-title { margin: 0; font: 600 14px/1.2 var(--sans); color: var(--muted); }
@@ -621,15 +623,24 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .brief-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 /* What came since he last looked: one quiet word in the accent, nothing moves. */
 .brief-new { color: var(--accent); }
-/* Artefacts: the picture leads, full column width, then its title, a line, and "open". */
-.brief-list .art-list { gap: 28px; }
+/* Artefacts: a grid of pictures, each with its title, one line of what and when, and "open". */
+.brief-list .art-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 14px; }
+.brief-list .art-plain { gap: 16px; margin-top: 24px; }
+.brief-list .art-grid + .art-plain { padding-top: 20px; border-top: 1px solid var(--faint); }
 .art-card { display: block; min-width: 0; }
-.art-pic { position: relative; display: block; width: 100%; margin: 0 0 12px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--tint); cursor: pointer; }
-.art-pic img { display: block; width: 100%; max-height: 240px; object-fit: cover; object-position: top; }
+.art-card p { margin: 0; }
+.art-pic { position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; margin: 0 0 10px; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--tint); cursor: pointer; }
+.art-pic img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
 .art-pic:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.art-frame { aspect-ratio: 1280 / 800; cursor: default; }
+.art-frame { cursor: default; }
 .art-frame iframe { position: absolute; top: 0; left: 0; border: 0; display: block; background: transparent; transform: scale(var(--fit, 0.3)); transform-origin: 0 0; pointer-events: none; }
-.art-phone { width: min(180px, 50%); aspect-ratio: 390 / 844; border-radius: 18px; }
+.art-phone { border-radius: 8px; }
+.art-card .art-title { font-size: 15px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.art-meta { display: flex; margin: 3px 0 0; font: 400 13px/1.4 var(--sans); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.art-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.art-ago { flex: none; white-space: pre; }
+.art-card .art-meta { margin-top: 3px; }
+.art-card .brief-meta { margin-top: 6px; }
 .art-frame-open { position: absolute; inset: 0; }
 .art-frame-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .art-steps { margin: 8px 0 0; padding: 0 0 0 18px; font: 400 14px/1.5 var(--sans); color: var(--fg); }
@@ -1748,6 +1759,7 @@ var __name = function (f) { return f; };
   var doneEl = document.getElementById("done");
   var noticesEl = document.getElementById("notices");
   var artefactsEl = document.getElementById("artefacts");
+  var briefNewsEl = document.getElementById("brief-news");
   // Notices other tools sent instead of macOS notifications, newest first.
   var notices = [];
   var newsEl = document.getElementById("news");
@@ -1898,9 +1910,9 @@ var __name = function (f) { return f; };
     if (meta) needsEl.appendChild(el("p", "needs-meta", meta));
     needsEl.appendChild(el("h3", "needs-head", decision.subject));
     var question = decision.decision && decision.decision.question;
-    var detail = decision.detail && decision.detail !== decision.subject ? decision.detail
-      : question && question !== decision.subject ? question
-      : decision.summary && decision.summary !== "waiting on you" ? decision.summary : "";
+    var said = [];
+    unsaid(decision.subject, said);
+    var detail = unsaid(decision.detail, said) || unsaid(question, said) || (decision.summary !== "waiting on you" ? unsaid(decision.summary, said) : "");
     if (detail) needsEl.appendChild(el("p", "needs-detail", sentence(capital(detail))));
 
     var images = (decision.evidence || []).filter(function (object) { return object.kind === "image"; });
@@ -1970,7 +1982,9 @@ var __name = function (f) { return f; };
     if (meta) needsEl.appendChild(el("p", "needs-meta", meta));
     needsEl.appendChild(el("h3", "needs-head", call.headline));
     var question = call.decision && call.decision.question;
-    var detail = call.detail && call.detail !== call.headline ? call.detail : question && question !== call.headline ? question : "";
+    var said = [];
+    unsaid(call.headline, said);
+    var detail = unsaid(call.detail, said) || unsaid(question, said);
     if (detail) needsEl.appendChild(el("p", "needs-detail", sentence(capital(detail))));
     var advice = call.decision && call.decision.recommended ? "I'd pick " + call.decision.recommended + "." : "";
     if (advice) {
@@ -2061,8 +2075,9 @@ var __name = function (f) { return f; };
     fillBrief();
   }
   function fillBrief() {
-    briefFilled = !doneEl.hidden || !noticesEl.hidden || !newsEl.hidden || !artefactsEl.hidden;
-    briefEl.hidden = !briefFilled;
+    briefEl.hidden = doneEl.hidden && noticesEl.hidden && artefactsEl.hidden;
+    briefNewsEl.hidden = newsEl.hidden;
+    briefFilled = !briefEl.hidden || !briefNewsEl.hidden;
     showRail();
   }
   // The stories behind a news card: how each was marked, the headline as a link, a line of gist, and where it came from.
@@ -2133,7 +2148,7 @@ var __name = function (f) { return f; };
   }
   // What Flyd made or was shown: each artefact with its picture when it has one, its title in plain words,
   // a short line, and "open". Redrawn only when it changes, so a framed page never reloads under him.
-  var ARTEFACTS_FEW = 4;
+  var ARTEFACTS_FEW = 6;
   var artefactsAll = false;
   var artefactsDrawn = "";
   var lastArtefacts = [];
@@ -2183,17 +2198,34 @@ var __name = function (f) { return f; };
     if (fitFrames) fitFrames.observe(box);
     return box;
   }
+  // Whether a card has a picture to lead with: a screenshot, or a page that can be framed.
+  function pictured(card) { return !!(card.image || (card.preview && !card.down && !card.checking && !card.blocked)); }
+  // One artefact: its picture first, then its title, one line of what it is and when, and "open".
   function artefactItem(card) {
-    var li = el("li", "art-card");
+    var li = el("li", "art-card" + (pictured(card) ? " art-pictured" : ""));
     li.dataset.key = card.id;
     var picture = artefactPicture(card);
     if (picture) li.appendChild(picture);
-    li.appendChild(el("p", "brief-line", card.title));
-    var line = String(card.line || "").replace(/\\s+/g, " ").trim();
+    li.appendChild(el("p", "brief-line art-title", card.title));
+    // The line says only what the title does not ("Bearings - fleet board" under "Review board: Bearings - fleet board" goes).
+    var said = [];
+    unsaid(card.title, said);
+    var line = unsaid(card.line, said);
     if (card.down) line = "Not running" + (line ? " · " + line : "");
-    if (line.length > 110) line = line.slice(0, 109).replace(/\\s+\\S*$/, "") + "…";
-    if (line) li.appendChild(el("p", "brief-outcome", line));
-    var steps = card.steps || (card.choice && card.choice.options) || [];
+    if (line || card.at) {
+      var meta = el("p", "art-meta");
+      // The line gives way before the time does: "how long ago" is never cut.
+      if (line) meta.appendChild(el("span", "art-line", line));
+      if (card.at) {
+        // How long ago moves on with the clock; the card itself is not redrawn, so a framed page never reloads.
+        var when = el("span", "art-ago", (line ? " · " : "") + ago(card.at));
+        when.dataset.at = card.at;
+        meta.appendChild(when);
+      }
+      li.appendChild(meta);
+    }
+    // A card with no picture is its words: a reply's steps or a choice's options say what it is.
+    var steps = !picture ? card.steps || (card.choice && card.choice.options) || [] : [];
     if (steps.length) {
       var list = el(card.choice ? "ul" : "ol", "art-steps");
       steps.slice(0, 3).forEach(function (step) { list.appendChild(el("li", "", String(step))); });
@@ -2218,12 +2250,15 @@ var __name = function (f) { return f; };
       });
       foot.appendChild(go);
     }
-    if (card.at) foot.appendChild(document.createTextNode(ago(card.at)));
     if (foot.firstChild) li.appendChild(foot);
     return li;
   }
-  function renderArtefacts(cards) {
-    lastArtefacts = cards;
+  function renderArtefacts(all) {
+    lastArtefacts = all;
+    // A merged change with no picture is already in Done, with its time: it is not drawn twice.
+    var cards = all.filter(function (card) { return !(/^landed:/.test(card.id) && !pictured(card)); });
+    // The pictures lead; work with no picture follows as a plain line, in the same order otherwise.
+    cards = cards.filter(pictured).concat(cards.filter(function (card) { return !pictured(card); }));
     var key = JSON.stringify([cards, artefactsAll]);
     if (key === artefactsDrawn) { fillBrief(); return; }
     artefactsDrawn = key;
@@ -2232,9 +2267,12 @@ var __name = function (f) { return f; };
     artefactsEl.hidden = !cards.length;
     if (cards.length) {
       artefactsEl.appendChild(briefTop("Artefacts"));
-      var list = el("ul", "art-list");
-      (artefactsAll ? cards : cards.slice(0, ARTEFACTS_FEW)).forEach(function (card) { list.appendChild(artefactItem(card)); });
-      artefactsEl.appendChild(list);
+      var shown = artefactsAll ? cards : cards.slice(0, ARTEFACTS_FEW);
+      var grid = el("ul", "art-list art-grid");
+      var plain = el("ul", "art-list art-plain");
+      shown.forEach(function (card) { (pictured(card) ? grid : plain).appendChild(artefactItem(card)); });
+      if (grid.firstChild) artefactsEl.appendChild(grid);
+      if (plain.firstChild) artefactsEl.appendChild(plain);
       if (cards.length > ARTEFACTS_FEW) {
         var more = el("button", "brief-more", artefactsAll ? "Show fewer" : "Show all " + cards.length);
         more.type = "button";
@@ -2245,7 +2283,12 @@ var __name = function (f) { return f; };
     fillBrief();
   }
   // How long ago each piece of work was done moves on with the clock, not only with updates.
-  setInterval(function () { if (lastBrief) renderBrief(lastBrief); }, 60000);
+  setInterval(function () {
+    if (lastBrief) renderBrief(lastBrief);
+    artefactsEl.querySelectorAll(".art-ago").forEach(function (span) {
+      span.textContent = (span.previousSibling ? " · " : "") + ago(span.dataset.at);
+    });
+  }, 60000);
 
   // The right column: what got done.
   var railEl = document.getElementById("rail");
@@ -3370,7 +3413,11 @@ ${LEFT_SCRIPT}
     document.title = session.title + " · " + assistant;
   }
 
+  var HISTORY_FEW = 5;
+  var historyAll = {};
+  var lastSessions = [];
   function renderHistory(sessions) {
+    lastSessions = sessions;
     var past = sessions.filter(function (session) { return session.id !== current; });
     var drawn = JSON.stringify([current, past.map(function (session) { return [session.id, session.title, session.project, ago(session.updatedAt)]; })]);
     if (drawn === historyDrawn) return;
@@ -3399,7 +3446,9 @@ ${LEFT_SCRIPT}
       details.appendChild(summary);
       var list = document.createElement("ul");
       list.className = "history-items";
-      group.sessions.forEach(function (session) {
+      // A few conversations each, newest first; the rest wait behind "Show all" so the column's work stays in view.
+      var whole = !!historyAll[group.name];
+      (whole ? group.sessions : group.sessions.slice(0, HISTORY_FEW)).forEach(function (session) {
         var item = document.createElement("li");
         var button = document.createElement("button");
         button.type = "button";
@@ -3419,6 +3468,16 @@ ${LEFT_SCRIPT}
         list.appendChild(item);
       });
       details.appendChild(list);
+      if (group.sessions.length > HISTORY_FEW) {
+        var more = el("button", "brief-more history-more", whole ? "Show fewer" : "Show all " + group.sessions.length);
+        more.type = "button";
+        more.addEventListener("click", function () {
+          historyAll[group.name] = !whole;
+          historyDrawn = "";
+          renderHistory(lastSessions);
+        });
+        details.appendChild(more);
+      }
       historyList.appendChild(details);
     });
     showRail();
@@ -4100,13 +4159,34 @@ ${LEFT_SCRIPT}
     return (box.children || []).filter(function (child) { return child.kind === "shot" && child.shot; }).map(function (child) { return child.shot; });
   }
 
+  // Words as compared for repeats: case, punctuation and spacing set aside.
+  function wordsOf(text) { return String(text || "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim(); }
+  // What of this text has not been said yet on the card: each sentence once, whatever its case or
+  // punctuation, and none that an earlier line already holds whole. What it keeps is added to said.
+  function unsaid(text, said) {
+    var parts = String(text || "").replace(/\\s+/g, " ").trim().split(/(?<=[.!?;])\\s+/);
+    var whole = wordsOf(text);
+    if (!whole) return "";
+    var held = function (key) {
+      return said.some(function (before) { return before === key || (key.length >= 12 && (" " + before + " ").indexOf(" " + key + " ") >= 0); });
+    };
+    if (held(whole)) return "";
+    var kept = parts.filter(function (part) {
+      var key = wordsOf(part);
+      if (!key || held(key)) return false;
+      said.push(key);
+      return true;
+    });
+    if (kept.length) said.push(whole);
+    return kept.join(" ");
+  }
+
   // The pattern's body, drawn from the reviewed blocks the Screen team owns.
-  // Anything already said in the headline or the line is not repeated.
-  function screenBody(box) {
+  // Anything already said in the headline or the line is not repeated: see unsaid().
+  function screenBody(box, said) {
     var screen = box.screen;
     if (!screen || !screen.blocks || !screen.blocks.length) return null;
-    var said = {};
-    [box.title, box.line].forEach(function (text) { if (text) said[String(text).trim().toLowerCase()] = true; });
+    if (!said) { said = []; unsaid(box.title, said); unsaid(box.line, said); }
     var wrap = el("div", "screen-body");
     var known = {};
     (box.links || []).forEach(function (link) { known[link.url] = true; });
@@ -4115,9 +4195,13 @@ ${LEFT_SCRIPT}
       if (block.kind === "question" || block.kind === "document" || block.kind === "recommendation" || block.kind === "operation") {
         var text = String(block.text || "").trim();
         if (!text) return;
-        if (block.kind !== "document") {
-          if (said[text.toLowerCase()]) return;
-          said[text.toLowerCase()] = true;
+        if (block.kind === "document") {
+          // A document is prose laid out as written: kept whole, unless every word of it was already said.
+          if (!unsaid(text, said.slice())) return;
+          unsaid(text, said);
+        } else {
+          text = unsaid(text, said);
+          if (!text) return;
         }
         if (block.kind === "recommendation") {
           var rec = el("p", "screen-rec");
@@ -4214,8 +4298,11 @@ ${LEFT_SCRIPT}
       sceneHead.dataset.inline = "";
     }
     var hasDocument = !!(screen && screen.blocks && screen.blocks.some(function (block) { return block.kind === "document"; }));
-    var line = box.line && box.line !== box.title ? box.line : "";
-    sceneLine.textContent = line && !hasDocument ? sentence(capital(line)) : "";
+    // Each sentence once on the card: the headline, then only what the line adds, then only what the body adds.
+    var said = [];
+    unsaid(box.title, said);
+    var line = !hasDocument ? unsaid(box.line, said) : "";
+    sceneLine.textContent = line ? sentence(capital(line)) : "";
     var oldOpen = sceneEl.querySelector(".scene-open");
     if (oldOpen) oldOpen.remove();
     if (box.open) sceneLine.after(pageButton(box.open, "scene-open"));
@@ -4224,7 +4311,7 @@ ${LEFT_SCRIPT}
     // owns the interactive part, so choices are never drawn twice.
     var oldBody = sceneEl.querySelector(".screen-body");
     if (oldBody) oldBody.remove();
-    var body = screenBody(box);
+    var body = screenBody(box, said);
     if (body) sceneLine.after(body);
     // Every scene takes his words about it at its foot; a question's options answer it in one tap.
     var oldAsk = sceneEl.querySelector(".scene-ask");
@@ -4701,7 +4788,10 @@ ${LEFT_SCRIPT}
     var main = el("div", "inline-main");
     var text = el("div", "inline-text");
     text.appendChild(head);
-    var body = screenBody(box);
+    // The card shows no line of its own: only the headline counts as said.
+    var inlineSaid = [];
+    unsaid(box.title, inlineSaid);
+    var body = screenBody(box, inlineSaid);
     if (body) text.appendChild(body);
     var askKey = askKeyFor(box);
     if (askKey) text.appendChild(sceneAsk(box, askKey));
@@ -4750,7 +4840,8 @@ ${LEFT_SCRIPT}
     if (focusBox) {
       // The focus leads when it needs him; the rest of the semantic work and any
       // settled call follows it. Legacy presentation cards stay out of its way.
-      var standing = parts.stage.filter(function (box) { return box.tone === "clear" || box.semanticKind; });
+      // A finished artefact is never a scene of its own: it lives in the right column.
+      var standing = parts.stage.filter(function (box) { return (box.tone === "clear" || box.semanticKind) && box.semanticKind !== "artifact"; });
       var needsHim = !!(next.focus && next.focus.lifecycle === "interrupted");
       parts.stage = needsHim ? [focusBox].concat(standing) : standing.concat([focusBox]);
       // The plan gauge is the one instrument worth keeping beside the counts: the
@@ -5057,11 +5148,13 @@ ${LEFT_HTML}
 <aside class="rail" id="rail" hidden aria-label="Conversation history and done work">
   <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
   <div class="rail-pane">
-  <section class="history" id="history" hidden aria-label="Past conversations"><div class="history-top"><h2 class="history-title">History</h2></div><div id="history-list"></div></section>
   <div class="brief" id="brief" hidden>
     <section class="brief-list" id="notices" hidden aria-label="Notices"></section>
     <section class="brief-list artefacts" id="artefacts" hidden aria-label="Artefacts"></section>
     <section class="brief-list" id="done" hidden aria-label="Done"></section>
+  </div>
+  <section class="history" id="history" hidden aria-label="Past conversations"><div class="history-top"><h2 class="history-title">History</h2></div><div id="history-list"></div></section>
+  <div class="brief brief-news" id="brief-news" hidden>
     <section class="brief-list news" id="news" hidden aria-label="News"></section>
   </div>
   </div>

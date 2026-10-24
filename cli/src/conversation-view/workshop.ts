@@ -11,8 +11,9 @@ import { basename, dirname, extname, join } from "node:path";
 const CACHE_MS = 15_000;
 /** A deliverable older than this is done with, not something to look at now. */
 export const DELIVERABLE_DAYS = 3;
-export const MAX_DELIVERABLES = 4;
-export const MAX_BOARDS = 3;
+// Bounds on the read, not on what he sees: the column shows a few and a "Show all" for the rest.
+export const MAX_DELIVERABLES = 16;
+export const MAX_BOARDS = 8;
 const TITLE_BYTES = 16 * 1024;
 
 export interface ReviewBoard {
