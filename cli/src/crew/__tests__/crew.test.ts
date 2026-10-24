@@ -87,7 +87,9 @@ describe("crew", () => {
     writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { test: "vitest run" } }));
     git(repo, "add", ".");
     git(repo, "commit", "-qm", "suite");
-    await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
+    const added_task = await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
+    // Installed dependencies are untracked files; they must not block the baseline run.
+    writeFileSync(join(added_task.worktree, "node_modules"), "linked deps\n");
     const [clean] = await superviseCrew({ alive: () => false, runCommand: async (command, cwd) => command === "git diff --check" ? { ok: true, output: "" } : { ok: false, output: suite(cwd, "") } });
     expect(clean.status).toBe("ready");
     expect(clean.verification?.some((step) => step.preExisting)).toBe(true);

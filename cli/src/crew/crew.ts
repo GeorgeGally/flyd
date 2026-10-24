@@ -497,7 +497,9 @@ async function baselineOutput(task: CrewTask, command: string, run: (command: st
   const key = `${task.baseCommit}-${Buffer.from(command).toString("base64url")}`.slice(0, 200);
   const cached = join(cacheDir, `${key}.txt`);
   if (existsSync(cached)) return readFileSync(cached, "utf8");
-  if ((await git(task.worktree, ["status", "--porcelain"]).catch(() => "x")).trim()) return null;
+  // Only tracked changes block the checkout; untracked files (installed or
+  // linked dependencies) ride along untouched.
+  if ((await git(task.worktree, ["status", "--porcelain", "--untracked-files=no"]).catch(() => "x")).trim()) return null;
   try {
     await git(task.worktree, ["checkout", "--quiet", "--detach", task.baseCommit]);
     const result = await run(command, task.worktree);
