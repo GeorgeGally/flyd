@@ -306,6 +306,23 @@ export function lastSummary(logPath: string): string {
   return (texts.at(-1) ?? "").slice(0, 1_500);
 }
 
+/** The provider error the run's own log recorded, if it ended on one; the reason a run stopped is in its record, not assumed. */
+export function providerErrorIn(logPath: string): string {
+  if (!existsSync(logPath)) return "";
+  let found = "";
+  for (const line of readFileSync(logPath, "utf8").split("\n")) {
+    if (!line.trim().startsWith("{")) continue;
+    try {
+      const event = JSON.parse(line) as { type?: string; error?: { type?: string; message?: string; status?: number } };
+      const said = `${event.error?.type ?? ""} ${event.error?.message ?? ""} ${event.error?.status ?? ""}`;
+      if (event.type === "error" && event.error?.message && /provider|credit|quota|billing|max_tokens|\b(402|429)\b/i.test(said)) {
+        found = event.error.message.slice(0, 300);
+      }
+    } catch { /* not an event */ }
+  }
+  return found;
+}
+
 export interface SuperviseDependencies {
   now?: () => Date;
   dir?: string;
@@ -468,6 +485,7 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
         }
       }
     }
+    const providerError = commits === 0 ? providerErrorIn(task.log) : "";
     const done: CrewTask = {
       ...task,
       status: verified ? "ready" : "failed",
@@ -476,7 +494,7 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
       ...(review ? { review } : {}),
       ...(verified ? {} : {
         failure: commits === 0
-          ? `no commits${dirty ? " (uncommitted changes left in the worktree)" : ""}`
+          ? providerError ? `provider error: ${providerError}` : `no commits${dirty ? " (uncommitted changes left in the worktree)" : ""}`
           : `verification failed: ${verification.find((step) => !step.ok)?.command ?? "unknown"}`,
       }),
     };
@@ -566,11 +584,20 @@ export async function discardCrewTask(id: string, dir = crewDir()): Promise<Crew
   return discarded;
 }
 
-/** What stopped a failed task, in plain words; the raw failure stays in the task record. */
-export function blockedBy(task: Pick<CrewTask, "failure">): string {
+/** A provider that refused the run for budget reasons: the account could not pay for the tokens it asked for. */
+const PROVIDER_BUDGET = /credit|quota|billing|max_tokens|\b402\b/i;
+
+/** What stopped a failed task, in plain words, from the run's own record; the raw failure stays in the task record. */
+export function blockedBy(task: Pick<CrewTask, "failure" | "verification">): string {
   const failure = task.failure ?? "";
+  const failedCheck = (task.verification ?? []).some((step) => !step.ok);
+  if (failure.startsWith("provider error")) {
+    return PROVIDER_BUDGET.test(failure)
+      ? "the model provider was out of credit for the tokens it asked for; top up and retry"
+      : "the model provider refused the run; retry it once it's reachable";
+  }
+  if (failure.startsWith("verification failed")) return failedCheck ? "its tests failed" : "it couldn't be finished";
   if (failure.startsWith("no commits")) return /uncommitted/.test(failure) ? "changes were made but never committed" : "nothing was committed";
-  if (failure.startsWith("verification failed")) return "its tests failed";
   if (failure.startsWith("stopped after")) return "it ran for two hours without finishing";
   return "it couldn't be finished";
 }
