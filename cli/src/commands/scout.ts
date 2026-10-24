@@ -33,8 +33,8 @@ export async function runScoutCommand(action = "show", args: string[] = []): Pro
     }
     case "more":
     case "less": {
-      const item = recordScoutFeedback(Number(args[0]), action);
-      process.stdout.write(item ? `${action === "more" ? "More" : "Less"} like "${item.title}".\n` : `No item ${args[0] ?? ""} in the latest edition.\n`);
+      const item = recordScoutFeedback(args[0] ?? "", action);
+      process.stdout.write(item ? `${action === "more" ? "More" : "Less"} like "${item.title}".\n` : `Nothing to rate for ${args[0] ?? ""} (an item number, story link or source id).\n`);
       return;
     }
     case "sources": {

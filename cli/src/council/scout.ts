@@ -41,6 +41,8 @@ export interface ScoutSource {
   dislikes: number;
   failures: number;
   lastFetchedAt?: string;
+  /** When the source was last paused (fetch failures, evolution, or a topic replan). */
+  pausedAt?: string;
   addedBy: "seed" | "evolution" | "george";
   addedAt: string;
   note?: string;
@@ -403,34 +405,78 @@ function rankContext(dir: string, now: Date, sources: ScoutSource[], mode: "edit
   };
 }
 
-function recordFailures(sources: ScoutSource[], failed: string[]): ScoutSource[] {
+const FAILURE_PAUSE_NOTE = "paused after 5 consecutive fetch failures";
+
+function recordFailures(sources: ScoutSource[], failed: string[], now: Date): ScoutSource[] {
   return sources.map((source) => {
     if (failed.includes(source.id)) {
       const failures = source.failures + 1;
-      // A source that keeps failing is paused, not deleted; evolve may revive it.
-      return { ...source, failures, ...(failures >= 5 ? { status: "paused" as const, note: "paused after 5 consecutive fetch failures" } : {}) };
+      // A source that keeps failing is paused, not deleted; it gets a retry later (reviveFailedSources).
+      return { ...source, failures, ...(failures >= 5 ? { status: "paused" as const, note: FAILURE_PAUSE_NOTE, pausedAt: now.toISOString() } : {}) };
     }
     return source.status === "active" ? { ...source, failures: 0 } : source;
   });
 }
 
-export async function planInitialTopics(complete: (prompt: string) => Promise<string>, now: Date): Promise<ScoutSource[]> {
+const RETRY_PAUSED_AFTER_MS = 3 * 86_400_000;
+
+/**
+ * A source paused for fetch failures (a Reddit block, a feed outage) gets one
+ * retry once it has rested a few days: back to active, one failure from being
+ * paused again. Sources paused for low fitness stay paused — that was taste.
+ */
+export function reviveFailedSources(sources: ScoutSource[], now = new Date()): { sources: ScoutSource[]; revived: ScoutSource[] } {
+  const revived: ScoutSource[] = [];
+  const next = sources.map((source) => {
+    if (source.status !== "paused" || source.note !== FAILURE_PAUSE_NOTE) return source;
+    const since = Date.parse(source.pausedAt ?? source.lastFetchedAt ?? source.addedAt);
+    if (Number.isFinite(since) && now.getTime() - since < RETRY_PAUSED_AFTER_MS) return source;
+    const retry = { ...source, status: "active" as const, failures: 4, note: `retrying after pause ${localDay(now)}` };
+    revived.push(retry);
+    return retry;
+  });
+  return { sources: next, revived };
+}
+
+/** Topics George added or liked are kept; planned ones are replaced each evolution. */
+function keepsTopic(source: ScoutSource): boolean {
+  return source.addedBy === "george" || source.likes > 0;
+}
+
+/** Search topics from George's taste — the world he follows, not the internals of his own code. */
+export async function planTopics(
+  complete: (prompt: string) => Promise<string>,
+  now: Date,
+  options: { taste?: string; keep?: string[]; count?: number; feedback?: ScoutFeedback[] } = {},
+): Promise<ScoutSource[]> {
+  const count = options.count ?? 4;
+  if (count <= 0) return [];
   const prompt = [
-    "Plan 4 web/social search topics for George's daily news, based on what he is actively building and deciding.",
-    "Each topic is 2-5 words, specific, the way people talk about it online (e.g. 'AI parenting apps funding', 'bitcoin ordinals generative art'). Avoid generic topics.",
+    `Plan ${count} web/social search topics for George's daily news: things he would enjoy reading about, drawn from his taste below.`,
+    "Topics are about the scenes, crafts, tools and communities in his taste (e.g. 'bitcoin ordinals generative art', 'touchdesigner audio reactive visuals', 'esp32 cyberdeck builds') — not the internal workings of the products he is building.",
+    "Never use implementation phrases from his own code (e.g. 'hybrid search query rewriting', 'browsing taste signal capture'). Each topic is 2-5 words, specific, the way people talk about it online. Avoid generic topics.",
+    ...(options.keep?.length ? [`Already searching (do not repeat): ${options.keep.join(", ")}`] : []),
     'Reply with JSON only: {"topics": [{"topic": "...", "why": "<one line>"}]}',
+    `--- George's taste ---\n${options.taste ?? SEED_TASTE}`,
+    `--- His feedback on past picks ---\n${feedbackDigest(options.feedback ?? [])}`,
     `--- Profile ---\n${readUserProfile() ?? "(empty)"}`,
-    `--- Memory ---\n${memoryPromptText() ?? "(empty)"}`,
   ].join("\n\n");
   try {
     const parsed = JSON.parse((await complete(prompt)).match(/\{[\s\S]*\}/)?.[0] ?? "{}") as { topics?: Array<{ topic?: unknown; why?: unknown }> };
-    return (parsed.topics ?? []).slice(0, 4).flatMap((item) => {
+    const keep = new Set((options.keep ?? []).map((topic) => topic.toLowerCase()));
+    return (parsed.topics ?? []).flatMap((item) => {
       const topic = String(item.topic ?? "").replace(/\s+/g, " ").trim();
-      return topic && topic.length <= 60 ? [newSource("topic", topic, topic, "Your projects", "active", "evolution", now, String(item.why ?? ""))] : [];
-    });
+      return topic && topic.length <= 60 && !keep.has(topic.toLowerCase())
+        ? [newSource("topic", topic, topic, "Your interests", "active", "evolution", now, String(item.why ?? ""))]
+        : [];
+    }).slice(0, count);
   } catch {
     return [];
   }
+}
+
+export async function planInitialTopics(complete: (prompt: string) => Promise<string>, now: Date, dir = scoutDir()): Promise<ScoutSource[]> {
+  return planTopics(complete, now, { taste: readTaste(dir) });
 }
 
 // ── Edition, watch, feedback ───────────────────────────────────────────────
@@ -464,12 +510,12 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   if (!sources.some((source) => source.status === "active")) return { skipped: "no_sources", failedTopics: [] };
   if (!sources.some((source) => source.kind === "topic")) {
     // First run: search topics come from what George is actually doing.
-    sources = [...sources, ...await planInitialTopics(deps.complete, now)];
+    sources = [...sources, ...await planInitialTopics(deps.complete, now, dir)];
     writeSources(sources, dir);
   }
 
   const { candidates, failed } = await gatherCandidates(sources, { fetchFn: deps.fetchFn, fetchTopicFn: deps.fetchTopicFn, includeTopics: true, now, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
-  sources = recordFailures(sources, failed);
+  sources = recordFailures(sources, failed, now);
   const seen = seenUrls(dir);
   const fresh = interleaveBySource(candidates.filter((candidate, index) => !seen.has(candidate.url) && candidates.findIndex((other) => other.url === candidate.url) === index)).slice(0, 150);
   const items = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh) : [];
@@ -510,7 +556,7 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   const today = localDay(now);
   let sources = readSources(dir, now);
   const { candidates, failed } = await gatherCandidates(sources, { fetchFn: deps.fetchFn, includeTopics: false, now, redditLimit: 5, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
-  sources = recordFailures(sources, failed);
+  sources = recordFailures(sources, failed, now);
   writeSources(sources, dir);
   const seen = seenUrls(dir);
   const watched = new Set(readJsonl<{ url: string }>(join(dir, "watched.jsonl")).map((item) => item.url));
@@ -536,24 +582,52 @@ export function recentFlashes(dir = scoutDir(), now = new Date()): EditionItem[]
   return readJsonl<EditionItem & { date: string }>(join(dir, "flash.jsonl")).filter((flash) => flash.date >= cutoff);
 }
 
-/** George's verdict on an edition item: shapes source fitness, ranking, and the next evolution. */
-export function recordScoutFeedback(n: number, verdict: "more" | "less", dir = scoutDir(), now = new Date()): EditionItem | null {
-  const item = latestEdition(dir)?.items.find((entry) => entry.n === n);
-  if (!item) return null;
-  appendJsonl(join(dir, "feedback.jsonl"), [{ at: now.toISOString(), verdict, title: item.title, topic: item.topic, source: item.source, ...(item.sourceId ? { sourceId: item.sourceId } : {}), why: item.why }]);
-  if (item.sourceId) {
-    writeSources(readSources(dir, now).map((source) => source.id !== item.sourceId ? source : {
-      ...source,
-      likes: source.likes + (verdict === "more" ? 1 : 0),
-      dislikes: source.dislikes + (verdict === "less" ? 1 : 0),
+/** What George can rate: an item number in today's brief, a story link (brief or flash, past week), or a source id. */
+export type ScoutFeedbackTarget = number | string | { n?: number; url?: string; sourceId?: string };
+export type RatedScoutItem = Pick<EditionItem, "title" | "source" | "topic" | "why"> & { url?: string; sourceId?: string };
+
+function ratedItem(target: ScoutFeedbackTarget, dir: string, now: Date): EditionItem | undefined {
+  const text = typeof target === "string" ? target.trim() : "";
+  const n = typeof target === "number" ? target : typeof target === "object" ? target.n : /^\d+$/.test(text) ? Number(text) : undefined;
+  const url = typeof target === "object" ? target.url : /^https?:\/\//i.test(text) ? text : undefined;
+  if (url) {
+    const recent = [
+      latestEdition(dir),
+      ...Array.from({ length: 7 }, (_, days) => readJson<Edition | null>(join(dir, "editions", `${localDay(new Date(now.getTime() - days * 86_400_000))}.json`), null)),
+    ].flatMap((edition) => edition?.items ?? []);
+    return [...recent, ...recentFlashes(dir, now)].find((entry) => entry.url === url);
+  }
+  return n === undefined ? undefined : latestEdition(dir)?.items.find((entry) => entry.n === n);
+}
+
+/**
+ * George's more/less verdict — from `flyd scout more|less N`, chat, or a view
+ * button. Shapes source fitness, ranking, the taste profile and the next
+ * evolution. Returns what was rated, or null when nothing matched.
+ */
+export function recordScoutFeedback(target: ScoutFeedbackTarget, verdict: "more" | "less", dir = scoutDir(), now = new Date()): RatedScoutItem | null {
+  const item = ratedItem(target, dir, now);
+  const wantedSource = item?.sourceId
+    ?? (item ? undefined : typeof target === "object" ? target.sourceId : typeof target === "string" ? target.trim() : undefined);
+  const sources = readSources(dir, now);
+  const source = wantedSource ? sources.find((entry) => entry.id === wantedSource) : undefined;
+  const rated: RatedScoutItem | null = item
+    ?? (source ? { title: source.name, source: source.name, topic: source.category ?? source.name, why: "", sourceId: source.id } : null);
+  if (!rated) return null;
+  appendJsonl(join(dir, "feedback.jsonl"), [{ at: now.toISOString(), verdict, title: rated.title, topic: rated.topic, source: rated.source, ...(rated.sourceId ? { sourceId: rated.sourceId } : {}), why: rated.why }]);
+  if (source) {
+    writeSources(sources.map((entry) => entry.id !== source.id ? entry : {
+      ...entry,
+      likes: entry.likes + (verdict === "more" ? 1 : 0),
+      dislikes: entry.dislikes + (verdict === "less" ? 1 : 0),
     }), dir);
   }
-  return item;
+  return rated;
 }
 
 // ── Evolution ──────────────────────────────────────────────────────────────
 
-export interface EvolutionChange { kind: "paused" | "added" | "revived" | "taste"; detail: string }
+export interface EvolutionChange { kind: "paused" | "added" | "revived" | "taste" | "topics"; detail: string }
 
 export function evolvePrompt(sources: ScoutSource[], feedback: ScoutFeedback[], taste: string, profile: string | null, memory: string | null, today: string): string {
   const table = sources.filter((source) => source.status !== "reserve").map((source) =>
@@ -561,7 +635,7 @@ export function evolvePrompt(sources: ScoutSource[], feedback: ScoutFeedback[], 
   return [
     "You are evolving Flyd's Scout so George's news gets better every week.",
     `Today is ${today}.`,
-    "1. Propose up to 3 NEW sources grown from what he liked and from his active projects: subreddits (just the name), RSS/Atom feed URLs you are confident exist, or last30days search topics (2-5 words, specific). Also propose 1 exploratory source outside his current mix that his taste suggests he'd love.",
+    "1. Propose up to 3 NEW sources grown from what he liked and from his taste (the world he follows, never implementation phrases from his own code): subreddits (just the name), RSS/Atom feed URLs you are confident exist, or last30days search topics (2-5 words, specific). Also propose 1 exploratory source outside his current mix that his taste suggests he'd love.",
     "2. Revise his taste profile: keep his voice and structure; sharpen what he favours/avoids using only evidence from his feedback. Small, specific edits. If feedback is thin, return the taste unchanged.",
     'Reply with JSON only: {"add": [{"kind": "reddit|rss|topic", "name": "...", "target": "...", "category": "...", "why": "..."}], "taste": "<full revised taste profile>", "taste_change": "<one line summarising what changed, or empty>"}',
     `--- Current taste ---\n${taste}`,
@@ -589,20 +663,45 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
   sources = sources.map((source) => {
     if (source.status === "active" && source.shown >= MIN_EXPOSURE_TO_PRUNE && fitness(source) < PRUNE_BELOW) {
       changes.push({ kind: "paused", detail: `${source.name} (fit ${fitness(source).toFixed(2)} after ${source.shown} shown)` });
-      return { ...source, status: "paused" as const, note: `paused by evolution ${localDay(now)}` };
+      return { ...source, status: "paused" as const, note: `paused by evolution ${localDay(now)}`, pausedAt: now.toISOString() };
     }
     return source;
   });
 
-  // Exploration: one untried reserve feed each cycle.
-  const reserve = sources.find((source) => source.status === "reserve");
-  if (reserve) {
+  // Counted before revival: a source on its one retry may well fail again.
+  const pausedFeeds = sources.filter((source) => source.status === "paused" && source.kind !== "topic").length;
+
+  // Failure-paused sources that have rested get one more try.
+  const revival = reviveFailedSources(sources, now);
+  sources = revival.sources;
+  for (const source of revival.revived) changes.push({ kind: "revived", detail: `retrying ${source.name}` });
+
+  // Exploration: one untried reserve feed each cycle, up to three while feeds or subreddits sit paused.
+  for (const reserve of sources.filter((source) => source.status === "reserve").slice(0, Math.max(1, Math.min(3, pausedFeeds)))) {
     sources = sources.map((source) => source.id === reserve.id ? { ...source, status: "active" as const, note: "exploring from reserve" } : source);
     changes.push({ kind: "revived", detail: `trying ${reserve.name}` });
   }
 
   const taste = readTaste(dir);
   const feedback = readFeedback(dir);
+
+  // Replan search topics from his taste: keep the ones he added or liked, replace the rest.
+  const activeTopics = sources.filter((source) => source.kind === "topic" && source.status === "active");
+  const kept = activeTopics.filter(keepsTopic);
+  const planned = await planTopics(deps.complete, now, { taste, feedback, keep: kept.map((source) => source.target), count: 4 - kept.length });
+  if (planned.length) {
+    const plannedIds = new Set(planned.map((source) => source.id));
+    sources = sources.map((source) => {
+      // A topic planned again is reactivated rather than duplicated.
+      if (plannedIds.has(source.id)) return { ...source, status: "active" as const, note: planned.find((topic) => topic.id === source.id)?.note };
+      if (source.kind === "topic" && source.status === "active" && !keepsTopic(source)) {
+        return { ...source, status: "paused" as const, note: `replanned ${localDay(now)}`, pausedAt: now.toISOString() };
+      }
+      return source;
+    });
+    sources.push(...planned.filter((topic) => !sources.some((source) => source.id === topic.id)));
+    changes.push({ kind: "topics", detail: `now searching ${planned.map((topic) => topic.target).join(", ")}` });
+  }
   try {
     const reply = await deps.complete(evolvePrompt(sources, feedback, taste, readUserProfile(), memoryPromptText(), localDay(now)));
     const parsed = JSON.parse(reply.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as { add?: Array<Record<string, unknown>>; taste?: string; taste_change?: string };
@@ -703,7 +802,15 @@ export async function scoutTick(deps: ScoutDependencies): Promise<string[]> {
   const dir = deps.dir ?? scoutDir();
   const log: string[] = [];
   const result = await withLock(dir, async () => {
-    if (evolutionDue(now, dir) && readFeedback(dir).length > 0) {
+    if (process.env.FLYD_SCOUT === "0") return;
+    // Failure-paused sources get their retry without waiting for the weekly evolution.
+    const revival = reviveFailedSources(readSources(dir, now), now);
+    if (revival.revived.length) {
+      writeSources(revival.sources, dir);
+      log.push(`retrying ${revival.revived.map((source) => source.name).join(", ")}`);
+    }
+    // Weekly, with or without feedback: revive, explore the reserve, replan topics, refine taste.
+    if (evolutionDue(now, dir)) {
       const changes = await evolveScout(deps);
       log.push(`evolved: ${changes.map((change) => change.kind).join(", ") || "no changes"}`);
     }
