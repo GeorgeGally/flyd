@@ -83,8 +83,8 @@ interface AgentSessionDependencies {
   rateAdvisory?(advisoryId: string, verdict: "useful" | "dismissed"): Promise<void>;
   /** George's verdict on a Scout edition item. */
   rateStory?(n: number, verdict: "more" | "less"): Promise<string | null>;
-  /** Proactive briefing lines for the intro (inbox, due reminders, agenda). */
-  loadBriefing?(): Promise<string[]>;
+  /** George's morning (session-briefing.ts composeMorning) for the intro, and again, unmarked, for /brief. */
+  loadBriefing?(options?: { situation?: AgentSituation | null; peek?: boolean }): Promise<string[]>;
   /** The Muse turns the briefing into a few warm sentences; the raw lines move to /brief. */
   composeGreeting?(input: { briefing: string[]; hypothesis: string | null }): Promise<string>;
   /** Put text on the system clipboard (/copy). */
@@ -580,28 +580,11 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
 
       if (/^\/brief\b/i.test(text.trim())) {
         await waitForTurns();
-        if (briefingLines.length) deps.terminal.write(wrapDisplayText(`\n${briefingLines.map((line) => `  ${line}`).join("\n")}\n`));
-        const { readLatestBrief, composeDailyBrief } = await import("./daily-brief.js");
-        const { getKey } = await import("../lib/config.js");
-        // Prefer a fresh cron-produced brief (from the background scheduler);
-        // fall back to a live compose so /brief never blocks on network.
-        const latest = readLatestBrief();
-        let body: string;
-        if (latest) {
-          body = latest.body;
-        } else {
-          const script = getKey("LAST30DAYS_SCRIPT");
-          const topics = getKey("LAST30DAYS_TOPICS")
-            ?.split(",").map((t) => t.trim()).filter(Boolean);
-          const brief = await composeDailyBrief({ situation, last30daysScript: script, last30daysTopics: topics });
-          body = [
-            brief.heading,
-            ...brief.state,
-            ...(brief.external.length ? ["\nCurrent signal:"] : []),
-            ...brief.external,
-          ].join("\n");
-        }
-        deps.terminal.write(wrapDisplayText(`\n  ${body}\n\n`));
+        // The whole morning as it stands now: the same composer every morning surface uses (session-briefing.ts).
+        const morning = deps.loadBriefing ?? (async (options) => (await import("./session-briefing.js")).composeMorning(options));
+        const lines = await morning({ situation, peek: true }).catch(() => briefingLines);
+        const body = lines.length ? lines.map((line) => `  ${line}`).join("\n") : "  Nothing pressing right now.";
+        deps.terminal.write(wrapDisplayText(`\n  Daily brief — ${new Date().toLocaleString()}\n${body}\n\n`));
         continue;
       }
 

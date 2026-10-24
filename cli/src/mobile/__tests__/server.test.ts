@@ -199,3 +199,26 @@ describe("mobile mail boundary",()=>{
   });
   it("explains unavailable account integration",async()=>{await start();expect((await request('/api/mail',{action:'accounts',input:{}})).status).toBe(503)});
 });
+
+describe("today's news on the phone", () => {
+  const news = { date: "2026-10-24", items: [{ n: 1, title: "DOOM on a clamp meter", url: "https://hackaday.test/doom", source: "Hackaday", why: "any screen becomes a console", kind: "relevant" }] };
+  it("shows today's edition in state and records more/less as a local preference write", async () => {
+    const rateStory = vi.fn(({ n, url }: { n: number; url: string }) => n === 1 && url === "https://hackaday.test/doom");
+    await start({ news: () => news, rateStory });
+    expect((await (await request("/api/state")).json()).news).toEqual(news);
+    const rated = await request("/api/news/feedback", { n: 1, url: "https://hackaday.test/doom", verdict: "more" });
+    expect(rated.status).toBe(200);
+    expect(rateStory).toHaveBeenCalledWith({ n: 1, url: "https://hackaday.test/doom", verdict: "more" });
+    expect((await request("/api/news/feedback", { n: 1, url: "https://elsewhere.test/x", verdict: "less" })).status).toBe(409);
+    expect((await request("/api/news/feedback", { n: 1, url: "https://hackaday.test/doom", verdict: "send" })).status).toBe(400);
+    // The same session boundary as every other write.
+    expect((await request("/api/news/feedback", { n: 1, url: "https://hackaday.test/doom", verdict: "more" }, { "x-flyd-view-token": "bad" })).status).toBe(403);
+    expect((await request("/api/news/feedback", { n: 1, url: "https://hackaday.test/doom", verdict: "more" }, { Cookie: "" })).status).toBe(401);
+    expect(rateStory).toHaveBeenCalledTimes(2);
+  });
+  it("explains when news is not available on this host", async () => {
+    await start();
+    expect((await (await request("/api/state")).json()).news).toBeNull();
+    expect((await request("/api/news/feedback", { n: 1, url: "https://hackaday.test/doom", verdict: "more" })).status).toBe(503);
+  });
+});

@@ -137,6 +137,11 @@ function sourceId(kind: SourceKind, target: string): string {
   return `${kind}:${target.toLowerCase().replace(/^https?:\/\//, "").replace(/\/+$/, "")}`;
 }
 
+/** A subreddit is always shown as r/<name>, however it was added. */
+function redditName(target: string): string {
+  return `r/${target.replace(/^\/?r\//i, "")}`;
+}
+
 function newSource(kind: SourceKind, name: string, target: string, category: string | undefined, status: SourceStatus, addedBy: ScoutSource["addedBy"], now: Date, note?: string): ScoutSource {
   return { id: sourceId(kind, target), kind, name, target, ...(category ? { category } : {}), status, shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy, addedAt: now.toISOString(), ...(note ? { note } : {}) };
 }
@@ -144,7 +149,7 @@ function newSource(kind: SourceKind, name: string, target: string, category: str
 export function seedSources(now = new Date()): ScoutSource[] {
   return [
     ...SEED_RSS.map(([name, url, category]) => newSource("rss", name, url, category, "active", "seed", now)),
-    ...Object.entries(SEED_SUBREDDITS).flatMap(([category, subs]) => subs.map((sub) => newSource("reddit", `r/${sub}`, sub, category, "active", "seed", now))),
+    ...Object.entries(SEED_SUBREDDITS).flatMap(([category, subs]) => subs.map((sub) => newSource("reddit", redditName(sub), sub, category, "active", "seed", now))),
     ...RESERVE_RSS.map(([name, url, category]) => newSource("rss", name, url, category, "reserve", "seed", now)),
   ];
 }
@@ -164,8 +169,10 @@ export function readSources(dir = scoutDir(), now = new Date()): ScoutSource[] {
   }
   const stored = readJson<ScoutSource[] | null>(path, null);
   if (!Array.isArray(stored)) return [];
-  const merged = withSeedDefaults(stored, now);
-  if (merged.length !== stored.length) atomicWrite(path, `${JSON.stringify(merged, null, 2)}\n`);
+  // Subreddits added before names were normalised keep their target but read as r/<name>.
+  const named = stored.map((source) => source.kind === "reddit" && source.name !== redditName(source.target) ? { ...source, name: redditName(source.target) } : source);
+  const merged = withSeedDefaults(named, now);
+  if (merged.length !== stored.length || named.some((source, index) => source !== stored[index])) atomicWrite(path, `${JSON.stringify(merged, null, 2)}\n`);
   return merged;
 }
 
@@ -210,6 +217,8 @@ function feedbackDigest(feedback: ScoutFeedback[]): string {
 // A bot marker in the user agent gets a 403 block page from Reddit.
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
 const REDDIT_SPACING_MS = 10_000;
+/** Subreddits one run visits (oldest-fetched first); the 3-hourly watches rotate through the rest. */
+export const REDDIT_PER_RUN = 5;
 /** One patient retry after a 429 before giving up on Reddit for this run. */
 const REDDIT_RETRY_AFTER_MS = 45_000;
 
@@ -347,6 +356,7 @@ export function rankPrompt(
       "kind: 'must' for genuinely novel or important (Hot), 'relevant' for worth a look, 'rabbit_hole' for the one deep pick (exactly one).",
       "Be opinionated: curate, don't list, and mark a 'Skip' by omitting it. Write 'why' as one sharp sentence in your own voice on why this is worth his time, grounded in what the item actually says — never a stretch to his projects and never generic filler ('could inspire your work', 'can enhance your process').",
       "Skip generic world or mainstream tech news, politics, crypto price talk and PFP/NFT market chatter: they do not clear the bar however fresh they are. Every pick must carry a working link.",
+      `Spread it across his sources: at most ${EDITION_PER_SOURCE} picks from any one source (the name in brackets), so no single feed dominates.`,
     ];
   return [
     "You are Flyd's Scout, curating for George. Be opinionated: curate, don't list.",
@@ -363,7 +373,7 @@ export function rankPrompt(
   ].join("\n\n");
 }
 
-export function parsePicks(text: string, candidates: ScoutCandidate[], max = BRIEF_MAX): EditionItem[] {
+export function parsePicks(text: string, candidates: ScoutCandidate[], max = BRIEF_MAX, perSource = Infinity): EditionItem[] {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error("Scout ranker returned no JSON");
   const parsed = JSON.parse(match[0]) as { picks?: Array<{ index?: unknown; kind?: unknown; why?: unknown }> };
@@ -372,6 +382,8 @@ export function parsePicks(text: string, candidates: ScoutCandidate[], max = BRI
   for (const pick of parsed.picks ?? []) {
     const candidate = candidates[Number(pick.index)];
     if (!candidate || items.some((item) => item.url === candidate.url)) continue;
+    // One prolific feed never fills the brief on its own.
+    if (items.filter((item) => item.sourceId === candidate.sourceId).length >= perSource) continue;
     let kind: ItemKind = pick.kind === "must" ? "must" : pick.kind === "rabbit_hole" || pick.kind === "wildcard" ? "rabbit_hole" : "relevant";
     if (kind === "rabbit_hole" && rabbitHoles++ > 0) kind = "relevant";
     items.push({ n: items.length + 1, title: candidate.title, url: candidate.url, source: candidate.source, sourceId: candidate.sourceId, topic: candidate.topic, why: String(pick.why ?? "").trim(), kind });
@@ -391,6 +403,49 @@ export function interleaveBySource(candidates: ScoutCandidate[]): ScoutCandidate
 
 function seenUrls(dir: string): Set<string> {
   return new Set(readJsonl<{ url: string }>(join(dir, "seen.jsonl")).map((item) => item.url));
+}
+
+/** Picks one source may have in a daily edition. */
+export const EDITION_PER_SOURCE = 3;
+
+// The pool: what the 3-hourly watches fetched since the last edition. Reddit
+// rate-limits a burst of subreddit reads, so the morning edition cannot fetch
+// every subreddit itself; it ranks from everything the day's watches already
+// gathered as well as its own fetch. Short-lived: an edition empties it, and
+// nothing older than two days is kept.
+const POOL_FILE = "pool.jsonl";
+const POOL_MAX_AGE_MS = 2 * 86_400_000;
+type PooledCandidate = ScoutCandidate & { pooledAt: string };
+
+function freshPool(dir: string, now: Date): PooledCandidate[] {
+  const cutoff = now.getTime() - POOL_MAX_AGE_MS;
+  return readJsonl<PooledCandidate>(join(dir, POOL_FILE)).filter((entry) => Date.parse(entry.pooledAt) >= cutoff && Boolean(entry.url) && Boolean(entry.sourceId));
+}
+
+function writePool(dir: string, entries: PooledCandidate[]): void {
+  atomicWrite(join(dir, POOL_FILE), entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""));
+}
+
+/** Keep a watch's candidates for the next edition. */
+export function poolCandidates(candidates: ScoutCandidate[], dir = scoutDir(), now = new Date()): void {
+  if (candidates.length === 0) return;
+  const kept = freshPool(dir, now);
+  const have = new Set(kept.map((entry) => entry.url));
+  writePool(dir, [...kept, ...candidates.filter((candidate) => !have.has(candidate.url)).map((candidate) => ({ ...candidate, pooledAt: now.toISOString() }))]);
+}
+
+/** Pooled candidates gathered since `since` (the last edition), newest first, none older than two days. */
+export function readPool(dir = scoutDir(), now = new Date(), since?: string): ScoutCandidate[] {
+  const from = since ? Date.parse(since) : NaN;
+  return freshPool(dir, now)
+    .filter((entry) => !Number.isFinite(from) || Date.parse(entry.pooledAt) >= from)
+    .reverse()
+    .map(({ pooledAt: _pooledAt, ...candidate }) => candidate);
+}
+
+function clearPool(dir: string, upTo: Date): void {
+  if (!existsSync(join(dir, POOL_FILE))) return;
+  writePool(dir, freshPool(dir, upTo).filter((entry) => Date.parse(entry.pooledAt) > upTo.getTime()));
 }
 
 function rankContext(dir: string, now: Date, sources: ScoutSource[], mode: "edition" | "watch") {
@@ -514,11 +569,15 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
     writeSources(sources, dir);
   }
 
-  const { candidates, failed } = await gatherCandidates(sources, { fetchFn: deps.fetchFn, fetchTopicFn: deps.fetchTopicFn, includeTopics: true, now, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
+  // Everything the watches fetched since the last edition, plus this run's own fetch.
+  const pooled = readPool(dir, now, latestEdition(dir)?.generatedAt);
+  const gathered = await gatherCandidates(sources, { fetchFn: deps.fetchFn, fetchTopicFn: deps.fetchTopicFn, includeTopics: true, now, redditLimit: REDDIT_PER_RUN, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
+  const { failed } = gathered;
+  const candidates = [...gathered.candidates, ...pooled];
   sources = recordFailures(sources, failed, now);
   const seen = seenUrls(dir);
   const fresh = interleaveBySource(candidates.filter((candidate, index) => !seen.has(candidate.url) && candidates.findIndex((other) => other.url === candidate.url) === index)).slice(0, 150);
-  const items = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh) : [];
+  const items = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh, BRIEF_MAX, EDITION_PER_SOURCE) : [];
 
   // Exposure counts toward fitness: a source that keeps being shown but never liked fades.
   sources = sources.map((source) => ({ ...source, shown: source.shown + items.filter((item) => item.sourceId === source.id).length }));
@@ -527,6 +586,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   atomicWrite(join(dir, "editions", `${today}.json`), `${JSON.stringify(edition, null, 2)}\n`);
   atomicWrite(join(dir, "edition-latest.json"), `${JSON.stringify(edition, null, 2)}\n`);
   appendJsonl(join(dir, "seen.jsonl"), items.map((item) => ({ url: item.url, date: today })));
+  clearPool(dir, now);
   if (items.length) deps.record?.(edition);
   return { edition, failedTopics: failed };
 }
@@ -555,7 +615,7 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   const dir = deps.dir ?? scoutDir();
   const today = localDay(now);
   let sources = readSources(dir, now);
-  const { candidates, failed } = await gatherCandidates(sources, { fetchFn: deps.fetchFn, includeTopics: false, now, redditLimit: 5, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
+  const { candidates, failed } = await gatherCandidates(sources, { fetchFn: deps.fetchFn, includeTopics: false, now, redditLimit: REDDIT_PER_RUN, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
   sources = recordFailures(sources, failed, now);
   writeSources(sources, dir);
   const seen = seenUrls(dir);
@@ -563,6 +623,8 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   const fresh = interleaveBySource(candidates.filter((candidate, index) => !seen.has(candidate.url) && !watched.has(candidate.url) && candidates.findIndex((other) => other.url === candidate.url) === index)).slice(0, 80);
   // Everything examined is remembered so the watch never re-reads the same item.
   appendJsonl(join(dir, "watched.jsonl"), fresh.map((candidate) => ({ url: candidate.url, date: today })));
+  // …and kept for the next edition, which ranks from it.
+  poolCandidates(fresh, dir, now);
   if (fresh.length === 0) return [];
 
   const musts = parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "watch"))), fresh, 2).filter((item) => item.kind === "must");
@@ -714,7 +776,7 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
       const id = sourceId(kind, target);
       const existing = sources.find((source) => source.id === id);
       if (existing) continue;
-      sources.push(newSource(kind, String(raw.name ?? (kind === "reddit" ? `r/${target}` : target)), target, String(raw.category ?? "") || undefined, "active", "evolution", now, String(raw.why ?? "")));
+      sources.push(newSource(kind, kind === "reddit" ? redditName(target) : String(raw.name ?? target), target, String(raw.category ?? "") || undefined, "active", "evolution", now, String(raw.why ?? "")));
       changes.push({ kind: "added", detail: `${kind === "reddit" ? "r/" : ""}${target}${raw.why ? ` — ${String(raw.why)}` : ""}` });
     }
     const revised = String(parsed.taste ?? "").trim();

@@ -4,9 +4,16 @@ import {
   agendaPaths, formatLocalDateTime, markInboxRead, unreadInbox, upcomingAgenda, type AgendaPaths,
 } from "./agenda.js";
 
-// What a good PA says when you sit down: what happened while you were away,
-// what is due today, and what is coming. Deterministic and local so opening
-// Flyd stays instant.
+// George's morning, composed in one place: what a good PA says when you sit
+// down — what is on his mind, today's news, what happened while he was away,
+// his calendar and what is due, his goals, and what is coming. Deterministic
+// and local so opening Flyd stays instant.
+//
+// Every morning surface renders these lines rather than gathering its own:
+// the opening of a chat session (commands/code.ts), the morning Flyd prepares
+// before he is up (council/morning.ts via agenda-tick), the daily brief file
+// and /brief (daily-brief.ts), and the weekday "Morning brief" agenda job that
+// reaches him as a notification (agenda-runner.ts).
 
 const execFileAsync = promisify(execFile);
 
@@ -68,13 +75,35 @@ export interface SessionBriefingDependencies {
   peek?: boolean;
   /** Prepared with nobody asking: read Calendar and Reminders only if George has them open. */
   background?: boolean;
+  /** Where his current work stands, when the caller knows it (the /brief command). */
+  situation?: { nextAction: string | null; status: string | null } | null;
 }
 
 /** After telling him the news, don't lead with the same stories again for a few hours. */
 const NEWS_REPEAT_MS = 3 * 60 * 60 * 1000;
 
-/** Lines for the session intro, or [] when there is nothing worth saying. */
-export async function composeSessionBriefing(deps: SessionBriefingDependencies = {}): Promise<string[]> {
+/** The line that heads news he has not been told yet; the greeting leads with news when it sees it. */
+export const UNTOLD_NEWS = "Today's news, not yet told him (/more N, /less N):";
+
+function newsMarkPath(scoutDir: string): string {
+  return `${scoutDir}/briefed-date`;
+}
+
+/** Record that George has now been told today's news (a surface delivered a morning that carried it). */
+export async function markNewsTold(now = new Date()): Promise<void> {
+  const { scoutDir } = await import("../council/scout.js");
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  mkdirSync(scoutDir(), { recursive: true });
+  writeFileSync(newsMarkPath(scoutDir()), now.toISOString());
+}
+
+/** True when the composed morning carries news he has not heard yet. */
+export function carriesUntoldNews(lines: string[]): boolean {
+  return lines.some((line) => line.trim() === UNTOLD_NEWS);
+}
+
+/** George's morning as fact lines, or [] when there is nothing worth saying. The one composer of the morning. */
+export async function composeMorning(deps: SessionBriefingDependencies = {}): Promise<string[]> {
   const now = (deps.now ?? (() => new Date()))();
   const paths = deps.paths ?? agendaPaths();
   const lines: string[] = [];
@@ -93,8 +122,8 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
   try {
     const scout = await import("../council/scout.js");
     const edition = scout.latestEdition();
-    const markPath = `${scout.scoutDir()}/briefed-date`;
-    const { readFileSync: read, writeFileSync: write, mkdirSync: mkdir } = await import("node:fs");
+    const markPath = newsMarkPath(scout.scoutDir());
+    const { readFileSync: read } = await import("node:fs");
     let toldAt: Date | null = null;
     try {
       // Holds when he was last told the news (older builds wrote only the date).
@@ -107,18 +136,15 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
       const heard = toldAt && now.getTime() - toldAt.getTime() < NEWS_REPEAT_MS;
       lines.push(heard
         ? `News he already heard at ${clock(toldAt!)} (bring up only if something is new or he asks):`
-        : "Today's news, not yet told him (/more N, /less N):");
+        : UNTOLD_NEWS);
       const shown = edition.items.slice(0, heard ? 4 : scout.BRIEF_MAX);
       const sections = new Map<string, typeof shown>();
       for (const item of shown) sections.set(item.topic, [...(sections.get(item.topic) ?? []), item]);
       for (const [topic, items] of sections) {
         lines.push(`  ${topic}`);
-        for (const item of items) lines.push(`    ${item.n}. ${item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : ""}${firstLine(item.title, 70)} — ${firstLine(item.why, 110)}`);
+        for (const item of items) lines.push(`    ${item.n}. ${item.kind === "rabbit_hole" || item.kind === "wildcard" ? "🐇 " : item.kind === "must" ? "❗ " : ""}${firstLine(item.title, 70)} — ${firstLine(item.why, 110)} ${item.url}`);
       }
-      if (!heard && !deps.peek) {
-        mkdir(scout.scoutDir(), { recursive: true });
-        write(markPath, now.toISOString());
-      }
+      if (!heard && !deps.peek) await markNewsTold(now);
     }
   } catch {
     // News is optional; the briefing never fails for it.
@@ -181,6 +207,22 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
   if (overdue.length) lines.push(`Overdue: ${overdue.map((reminder) => reminder.title).join(", ")}`);
   if (today.length) lines.push(`Due today: ${today.map((reminder) => `${reminder.title} ${clock(reminder.due)}`).join(", ")}`);
 
+  const next = deps.situation?.nextAction?.trim();
+  if (next && !/^(?:so\s+)?(?:how|why|what|when|where|who)\b|[?？]\s*$/i.test(next)) lines.push(`Next: ${next}.`);
+  else if (deps.situation?.status === "blocked") lines.push("You have a blocked task — say 'resume' to pick it up.");
+
+  if (!deps.paths) {
+    try {
+      const { listGoals, listPatterns } = await import("./coach-memory.js");
+      const goals = listGoals();
+      if (goals.length) lines.push(`Goals: ${goals.map((goal) => goal.statement).join(" | ")}`);
+      const patterns = listPatterns().slice(0, 3);
+      if (patterns.length) lines.push(`Patterns I'm watching: ${patterns.map((pattern) => pattern.observation).join(" | ")}`);
+    } catch {
+      // Coach memory is optional.
+    }
+  }
+
   const horizon = now.getTime() + 24 * 60 * 60 * 1000;
   const coming = upcomingAgenda(paths).filter((item) => new Date(item.nextRunAt).getTime() <= horizon);
   if (coming.length) {
@@ -200,6 +242,27 @@ export async function composeSessionBriefing(deps: SessionBriefingDependencies =
     // A missing or unreadable profile never blocks the briefing.
   }
   return lines;
+}
+
+/** George's weekday "Morning brief" agenda item (commands/agenda.ts seeds it; he may word his own). */
+export function isMorningBriefTask(task: string): boolean {
+  return /^\s*morning brief(?:ing)?\b/i.test(task);
+}
+
+/**
+ * What the unattended agenda turn is told for his morning brief: the composed
+ * morning, so it writes from the same facts every other surface shows instead
+ * of gathering its own, and always carries today's news.
+ */
+export function morningBriefFacts(morning: string[]): string[] {
+  if (morning.length === 0) return [];
+  return [
+    "His morning, already gathered (work from this; don't look these up again, and use tools only for what it leaves out, like what changed in his repos):",
+    ...morning.map((line) => `| ${line}`),
+    ...(carriesUntoldNews(morning)
+      ? ["Include today's news: the two or three stories above that matter most to him, each with its link and a few words on why; the rest are a /brief away."]
+      : []),
+  ];
 }
 
 /** Compact agenda block for the chat prompt so Flyd knows what it has promised. */

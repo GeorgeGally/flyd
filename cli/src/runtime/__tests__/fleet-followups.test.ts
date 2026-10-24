@@ -6,7 +6,7 @@ import { runAgendaCommand } from "../../commands/agenda.js";
 import { agendaPaths, readInbox, recordInbox, unreadInbox, type AgendaPaths } from "../agenda.js";
 import { buildConversationPrompt } from "../conversation-responder.js";
 import { syncFleetFollowups } from "../fleet-followups.js";
-import { agendaPromptBlock, composeSessionBriefing } from "../session-briefing.js";
+import { agendaPromptBlock, composeMorning } from "../session-briefing.js";
 
 const FULL_PROFILE = "## About me\n- Lives in Canggu\n## People\n- Partner: Maya\n## Routines\n- Runs at 6am\n## Goals\n- Ship Flyd";
 const STALLED = { id: "job-1", task: "Daily news brief as good as Hermes's", status: "paused" };
@@ -51,7 +51,7 @@ describe("fleet followups", () => {
   it("keeps stalled fleet work out of George's briefing and every chat prompt", async () => {
     syncFleetFollowups([STALLED], paths);
     expect(unreadInbox(paths)).toEqual([]);
-    expect(await composeSessionBriefing({ paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE })).toEqual([]);
+    expect(await composeMorning({ paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE })).toEqual([]);
     expect(agendaPromptBlock(paths)).toBe("");
     const input = (message: string) => ({ message, history: [], memory: { verdict: "insufficient" as const, matches: [] }, situation: null });
     for (const message of ["How was your day?", "what's on my plate", "Fix the island filter in flyd"]) {

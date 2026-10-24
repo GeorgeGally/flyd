@@ -306,3 +306,73 @@ describe("evolution", () => {
     expect(readFileSync(join(dir, "feedback.jsonl"), "utf8").trim().split("\n")).toHaveLength(2);
   });
 });
+
+describe("the edition draws on the whole day", () => {
+  const indexOf = (prompt: string, title: string) => Number(prompt.split("\n").find((line) => line.includes(title))?.match(/^\[(\d+)\]/)?.[1]);
+
+  it("ranks what the day's watches fetched even when Reddit rate-limits the morning edition", async () => {
+    onlySources([
+      { kind: "rss", name: "Hackaday", target: "https://hackaday.test/feed" },
+      { kind: "reddit", name: "r/generative", target: "generative" },
+    ]);
+    let redditBlocked = false;
+    const fetchFn = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("hackaday.test")) return new Response(rss([{ title: "A clamp meter runs DOOM", link: "https://hackaday.test/doom" }]), { status: 200 });
+      if (url.includes("reddit.com/r/generative")) {
+        return redditBlocked ? new Response("slow down", { status: 429 }) : new Response(rss([{ title: "Flow fields from bird migration data", link: "https://www.reddit.com/r/generative/flow" }]), { status: 200 });
+      }
+      return new Response("nope", { status: 404 });
+    }) as typeof fetch;
+
+    // A daytime watch fetches the subreddit; nothing in it is must-know.
+    await watchScout({ complete: vi.fn(async () => '{"picks": []}'), fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-27T09:00:00Z") });
+
+    // Next morning Reddit answers 429, but the edition still sees the watch's find.
+    redditBlocked = true;
+    const prompts: string[] = [];
+    const complete = vi.fn(async (prompt: string) => {
+      if (prompt.startsWith("Plan 4")) return '{"topics": []}';
+      prompts.push(prompt);
+      return JSON.stringify({ picks: [{ index: indexOf(prompt, "Flow fields"), kind: "relevant", why: "Data as a brush." }] });
+    });
+    const result = await runScout({ complete, fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-28T06:00:00Z") });
+    expect(prompts[0]).toContain("A clamp meter runs DOOM");
+    expect(result.edition?.items.map((item) => item.source)).toEqual(["r/generative"]);
+
+    // Used once: the pool empties with the edition, so the next one does not rank it again.
+    const later: string[] = [];
+    await runScout({ complete: vi.fn(async (prompt: string) => { later.push(prompt); return '{"picks": []}'; }), fetchFn, dir, redditSpacingMs: 0, force: true, now: () => at("2026-09-29T06:00:00Z") });
+    expect(later.join("\n")).not.toContain("Flow fields");
+  });
+
+  it("caps any one source so a prolific feed cannot fill the edition", async () => {
+    onlySources([
+      { kind: "rss", name: "Hackaday", target: "https://hackaday.test/feed" },
+      { kind: "rss", name: "Waxy.org", target: "https://waxy.test/feed" },
+    ]);
+    const fetchFn = fakeFetch({
+      "hackaday.test": rss(Array.from({ length: 6 }, (_, n) => ({ title: `Hack ${n}`, link: `https://hackaday.test/${n}` }))),
+      "waxy.test": rss([{ title: "Waxy link", link: "https://waxy.test/1" }]),
+    });
+    const complete = vi.fn(async (prompt: string) => {
+      if (prompt.startsWith("Plan 4")) return '{"topics": []}';
+      expect(prompt).toContain("at most 3 picks from any one source");
+      const picks = [...Array.from({ length: 6 }, (_, n) => `Hack ${n}`), "Waxy link"].map((title) => ({ index: indexOf(prompt, title), kind: "relevant", why: "good" }));
+      return JSON.stringify({ picks });
+    });
+    const result = await runScout({ complete, fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-27T06:00:00Z") });
+    expect(result.edition?.items.filter((item) => item.source === "Hackaday")).toHaveLength(3);
+    expect(result.edition?.items.some((item) => item.source === "Waxy.org")).toBe(true);
+  });
+
+  it("names every subreddit r/<name>, whether seeded, bred by evolution, or stored before the fix", async () => {
+    writeSources([
+      { id: "reddit:oldinternet", kind: "reddit", name: "oldinternet", target: "oldinternet", status: "active", shown: 0, likes: 0, dislikes: 0, failures: 0, addedBy: "evolution", addedAt: "2026-10-24T00:00:00Z" },
+    ], dir);
+    expect(readSources(dir).find((source) => source.target === "oldinternet")?.name).toBe("r/oldinternet");
+    const complete = vi.fn(async (prompt: string) => prompt.startsWith("Plan") ? '{"topics": []}' : JSON.stringify({ add: [{ kind: "reddit", name: "IndustrialDesign", target: "IndustrialDesign", why: "form" }] }));
+    await evolveScout({ complete, dir, now: () => at("2026-10-24T07:00:00Z") });
+    expect(readSources(dir).find((source) => source.target === "IndustrialDesign")?.name).toBe("r/IndustrialDesign");
+  });
+});

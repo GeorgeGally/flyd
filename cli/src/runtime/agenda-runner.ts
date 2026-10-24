@@ -1,4 +1,5 @@
 import type { AgendaItem } from "./agenda.js";
+import { carriesUntoldNews, composeMorning, isMorningBriefTask, markNewsTold, morningBriefFacts } from "./session-briefing.js";
 import { startCommandScheduler, stopCommandScheduler } from "../command/scheduler.js";
 import { startStaffMonitor, stopStaffMonitor } from "../command/fleet-monitor.js";
 
@@ -12,15 +13,14 @@ export async function runAgendaTask(task: string, item: AgendaItem, onTool?: (na
   const situation = await loadAgentSituation().catch(() => null);
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
   const memory = await retrieveAgentMemory(task).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
-  const message = [
-    `Scheduled task George set up earlier (${item.repeat === "none" ? "one-off" : item.repeat}): ${task}`,
-    "Do it now. George is not at the keyboard: anything needing his approval, describe instead of doing.",
-    "Report the outcome in at most 6 short lines, most important first. If nothing needs his attention, say so in one line.",
-  ].join("\n");
-  return respondToConversation({
+  // His morning brief is written from the one composed morning (session-briefing.ts), news included.
+  const morning = isMorningBriefTask(task)
+    ? await composeMorning({ peek: true, background: true }).catch(() => [])
+    : [];
+  const answer = await respondToConversation({
     sessionId: `agenda-${item.id}`,
     turnNumber: item.runs + 1,
-    message,
+    message: agendaTaskMessage(task, item, morning),
     history: [],
     memory,
     situation,
@@ -28,6 +28,19 @@ export async function runAgendaTask(task: string, item: AgendaItem, onTool?: (na
     onToken: () => {},
     ...(onTool ? { onTool } : {}),
   });
+  // The brief reaches him as a notification: the news in it has now been told.
+  if (carriesUntoldNews(morning)) await markNewsTold().catch(() => undefined);
+  return answer;
+}
+
+/** The unattended turn's instructions; a morning brief carries the composed morning as its facts. */
+export function agendaTaskMessage(task: string, item: Pick<AgendaItem, "repeat">, morning: string[] = []): string {
+  return [
+    `Scheduled task George set up earlier (${item.repeat === "none" ? "one-off" : item.repeat}): ${task}`,
+    "Do it now. George is not at the keyboard: anything needing his approval, describe instead of doing.",
+    ...morningBriefFacts(morning),
+    `Report the outcome in at most ${morning.length ? 8 : 6} short lines, most important first. If nothing needs his attention, say so in one line.`,
+  ].join("\n");
 }
 
 let agendaTimer: ReturnType<typeof setInterval> | null = null;

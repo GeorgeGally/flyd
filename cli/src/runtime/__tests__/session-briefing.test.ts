@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addAgendaItem, agendaPaths, formatLocalDateTime, parseLocalDateTime, runDueAgenda, unreadInbox, type AgendaPaths } from "../agenda.js";
 import type { Edition, EditionItem } from "../../council/scout.js";
-import { agendaPromptBlock, composeSessionBriefing, profileGaps } from "../session-briefing.js";
+import { agendaPromptBlock, composeMorning, profileGaps } from "../session-briefing.js";
 
 const FULL_PROFILE = "## About me\n- Lives in Canggu\n## People\n- Partner: Maya\n## Routines\n- Runs at 6am\n## Goals\n- Ship Flyd";
 
-describe("composeSessionBriefing", () => {
+describe("composeMorning", () => {
   let dir: string;
   let paths: AgendaPaths;
   const at = (text: string) => parseLocalDateTime(text)!;
@@ -19,12 +19,12 @@ describe("composeSessionBriefing", () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   it("puts today's calendar in the briefing, and survives a denied Calendar", async () => {
-    const lines = await composeSessionBriefing({
+    const lines = await composeMorning({
       paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE,
       loadCalendar: async () => ["Monday, 28 September 2026 at 11:00:00 | Call with Sam [Work]"],
     });
     expect(lines).toEqual(["Calendar today: Monday, 28 September 2026 at 11:00:00 | Call with Sam [Work]"]);
-    expect(await composeSessionBriefing({
+    expect(await composeMorning({
       paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE, loadCalendar: async () => { throw new Error("not authorized"); },
     })).toEqual([]);
   });
@@ -32,20 +32,20 @@ describe("composeSessionBriefing", () => {
   it("can gather ahead of time without marking the inbox read", async () => {
     addAgendaItem({ task: "Check whether the PR merged", when: "2026-09-26 08:00" }, paths, at("2026-09-26 07:00"));
     await runDueAgenda({ paths, now: () => at("2026-09-26 08:01"), runTask: async () => "Merged.", notify: async () => {} });
-    const peeked = await composeSessionBriefing({ paths, peek: true, readProfile: () => FULL_PROFILE, loadReminders: async () => [] });
+    const peeked = await composeMorning({ paths, peek: true, readProfile: () => FULL_PROFILE, loadReminders: async () => [] });
     expect(peeked.join("\n")).toContain("While you were away (1 update)");
     expect(unreadInbox(paths)).toHaveLength(1);
   });
 
   it("says nothing when there is nothing to say", async () => {
-    expect(await composeSessionBriefing({ paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE })).toEqual([]);
+    expect(await composeMorning({ paths, loadReminders: async () => [], readProfile: () => FULL_PROFILE })).toEqual([]);
   });
 
   it("leads with what happened while George was away, then due items, then Flyd's plans", async () => {
     addAgendaItem({ task: "Check whether the PR merged", when: "2026-09-26 08:00" }, paths, at("2026-09-26 07:00"));
     await runDueAgenda({ paths, now: () => at("2026-09-26 08:01"), runTask: async () => "- Merged at 07:45 by Sam.", notify: async () => {} });
     addAgendaItem({ task: "Morning brief", when: "2026-09-27 08:00", repeat: "weekdays" }, paths, at("2026-09-26 07:00"));
-    const lines = await composeSessionBriefing({
+    const lines = await composeMorning({
       paths,
       readProfile: () => FULL_PROFILE,
       now: () => at("2026-09-26 09:00"),
@@ -67,21 +67,21 @@ describe("composeSessionBriefing", () => {
 
   it("previews Flyd's next 24 hours and feeds the agenda to the prompt", async () => {
     addAgendaItem({ task: "Morning brief", when: "2026-09-27 08:00", repeat: "weekdays" }, paths, at("2026-09-26 09:00"));
-    const lines = await composeSessionBriefing({ paths, now: () => at("2026-09-26 20:00"), loadReminders: async () => [], readProfile: () => FULL_PROFILE });
+    const lines = await composeMorning({ paths, now: () => at("2026-09-26 20:00"), loadReminders: async () => [], readProfile: () => FULL_PROFILE });
     expect(lines).toEqual(["Later I'll: 08:00 Morning brief"]);
     expect(agendaPromptBlock(paths)).toContain("(weekdays)");
   });
 
   it("survives Reminders being unavailable", async () => {
-    expect(await composeSessionBriefing({ paths, loadReminders: async () => { throw new Error("denied"); }, readProfile: () => FULL_PROFILE })).toEqual([]);
+    expect(await composeMorning({ paths, loadReminders: async () => { throw new Error("denied"); }, readProfile: () => FULL_PROFILE })).toEqual([]);
   });
 
   it("nudges George to /onboard for the profile gaps that matter", async () => {
     expect(profileGaps(FULL_PROFILE)).toEqual([]);
     expect(profileGaps("## About me\n- Lives in Canggu\n## People\n- \n## Goals\n- Ship")).toEqual(["People", "Routines"]);
-    const lines = await composeSessionBriefing({ paths, loadReminders: async () => [], readProfile: () => null });
+    const lines = await composeMorning({ paths, loadReminders: async () => [], readProfile: () => null });
     expect(lines).toEqual(["I don't know much about you yet — type /onboard and I'll ask a few questions."]);
-    const partial = await composeSessionBriefing({ paths, loadReminders: async () => [], readProfile: () => "## About me\n- x\n## Routines\n- y\n## Goals\n- z" });
+    const partial = await composeMorning({ paths, loadReminders: async () => [], readProfile: () => "## About me\n- x\n## Routines\n- y\n## Goals\n- z" });
     expect(partial).toEqual(["I don't know the people in your life yet — type /onboard and I'll ask a few questions."]);
   });
 });
@@ -122,35 +122,35 @@ describe("opening news briefing", () => {
     const edition: Edition = { date, generatedAt: now.toISOString(), topics: ["Bitcoin and crypto art", "Creative tech and AI art", "Everything else", "Rabbit hole"], items };
     writeFileSync(join(dir, "edition-latest.json"), JSON.stringify(edition));
 
-    const lines = await composeSessionBriefing({ now: () => now, loadReminders: async () => [], readProfile: () => FULL_PROFILE, loadCalendar: async () => [] });
+    const lines = await composeMorning({ now: () => now, loadReminders: async () => [], readProfile: () => FULL_PROFILE, loadCalendar: async () => [] });
 
     expect(lines).toEqual([
       "Today's news, not yet told him (/more N, /less N):",
       "  Bitcoin and crypto art",
-      "    1. Ordinals auction closes — the market finally moves",
-      "    2. ❗ Taproot upgrade lands — protocol news, not price",
-      "    3. CryptoArt drop tonight — a live generative release",
+      "    1. Ordinals auction closes — the market finally moves https://ex.test/1",
+      "    2. ❗ Taproot upgrade lands — protocol news, not price https://ex.test/2",
+      "    3. CryptoArt drop tonight — a live generative release https://ex.test/3",
       "  Creative tech and AI art",
-      "    4. ComfyUI workflow — a new node graph technique",
-      "    5. ❗ p5.js 2.0 ships — a creative coding milestone",
-      "    6. TouchDesigner tutorial — a gpu patching walkthrough",
-      "    7. Diffusion era ends — what replaced it",
+      "    4. ComfyUI workflow — a new node graph technique https://ex.test/4",
+      "    5. ❗ p5.js 2.0 ships — a creative coding milestone https://ex.test/5",
+      "    6. TouchDesigner tutorial — a gpu patching walkthrough https://ex.test/6",
+      "    7. Diffusion era ends — what replaced it https://ex.test/7",
       "  Everything else",
-      "    8. A data hoarder's vault — an archival approach worth copying",
-      "    9. Hardware hacking weekend — a teardown that teaches",
-      "    10. ESP32 project roundup — a dozen buildable ideas",
-      "    11. Indie SaaS pricing — how solo founders price",
-      "    12. A reverse-engineering tale — a well-told teardown",
-      "    13. Why old maps lie — a historian corrects a myth",
+      "    8. A data hoarder's vault — an archival approach worth copying https://ex.test/8",
+      "    9. Hardware hacking weekend — a teardown that teaches https://ex.test/9",
+      "    10. ESP32 project roundup — a dozen buildable ideas https://ex.test/10",
+      "    11. Indie SaaS pricing — how solo founders price https://ex.test/11",
+      "    12. A reverse-engineering tale — a well-told teardown https://ex.test/12",
+      "    13. Why old maps lie — a historian corrects a myth https://ex.test/13",
       "  Rabbit hole",
-      "    14. 🐇 The paper that started it — the origin story worth an hour",
+      "    14. 🐇 The paper that started it — the origin story worth an hour https://ex.test/14",
     ]);
   });
 });
 
 describe("one voice", () => {
   it("never names Flyd's internal helpers in the briefing", async () => {
-    const { composeSessionBriefing } = await import("../session-briefing.js");
+    const { composeMorning } = await import("../session-briefing.js");
     const { appendFileSync, mkdirSync } = await import("node:fs");
     const { dirname } = await import("node:path");
     const path = process.env.FLYD_ADVISORIES_PATH!;
@@ -160,7 +160,7 @@ describe("one voice", () => {
       confidence: "high", urgency: "normal", topics: ["sam"], createdAt: new Date().toISOString(),
       expires: "2999-01-01", status: "open",
     })}\n`);
-    const lines = await composeSessionBriefing({ loadReminders: async () => [], readProfile: () => "## About me\n- x\n## People\n- x\n## Routines\n- x\n## Goals\n- x\n" });
+    const lines = await composeMorning({ loadReminders: async () => [], readProfile: () => "## About me\n- x\n## People\n- x\n## Routines\n- x\n## Goals\n- x\n" });
     expect(lines).toContain("On my mind: Sam's deadline moved to Friday.");
     expect(lines.join("\n")).not.toMatch(/Critic|Strategist|Muse|Scout|Crew|crewmate/);
   });

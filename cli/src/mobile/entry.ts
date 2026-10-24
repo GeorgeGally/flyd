@@ -38,8 +38,15 @@ export async function runMobile(args: string[] = []): Promise<void> {
     resolveModelConnection(chatModelChain()[0]);
     const db = new IntelligenceEventStore(), requests = new MobileRequests(db);
     const mail = accounts ? new (await import("./mail.js")).MobileMail(db) : undefined;
+    const scout = await import("../council/scout.js");
     const server = new MobileServer({
       origin, auth, requests,
+      // Today's news with the desktop's more/less: a local preference write, no tool or outward action.
+      news: () => {
+        const edition = scout.latestEdition();
+        return edition ? { date: edition.date, items: edition.items.map(({ n, title, url, source, why, kind }) => ({ n, title, url, source, why, kind })) } : null;
+      },
+      rateStory: ({ n, url, verdict }) => scout.latestEdition()?.items.find((item) => item.n === n)?.url === url && Boolean(scout.recordScoutFeedback(n, verdict)),
       ...(mail ? { mail: (action: string, input: Record<string, unknown>) => mail.run(action, input) } : {}),
       answer: (message, history, id) => respondToConversation({
         surface: "mobile", mobileAccounts: accounts,

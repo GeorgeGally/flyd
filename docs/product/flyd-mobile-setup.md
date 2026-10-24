@@ -10,6 +10,7 @@ Implemented 2026-10-18. This is a server-native web adapter to the existing Type
 - Restarted in-flight/queued requests become unknown and are never automatically replayed. A succeeded receipt means the runtime returned an answer, not that an external message was delivered. Uncertain account effects are not silently retried.
 - Optional explicit voice capture, resampled to the existing 24 kHz mono PCM16 transcription path. Maximum sixty seconds; raw audio is transient only. Transcript stays editable until Send. Backgrounding, locking, logout and navigation stop capture; background listening is not supported.
 - Existing Gmail/DreamHost/Drive integrations operate through Flyd's account tools after setup. Email is drafts only. WhatsApp keeps exact reviewed-draft send authority and atomic uncertain-send protection. Existing account limits and partial-history caveats still apply.
+- Today's news edition from the host's Scout, with the desktop's "More like this" / "Less like this" on each story. A rating is a local preference write (`recordScoutFeedback`, CSRF-protected `POST /api/news/feedback`) for a story still in today's edition; it is not a tool call and sends nothing outward.
 - Shared runtime/context/curator/tool policy. Mobile is a capability ceiling: no filesystem, shell, AppleScript, coding boss, crew or local-app tools. This remains true even if a model forges a hidden tool call or autonomy is set to full.
 
 ## What remains unavailable
