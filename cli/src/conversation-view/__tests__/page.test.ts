@@ -2525,9 +2525,12 @@ describe("header and artefact view", () => {
     expect(document.documentElement.getAttribute("data-screen")).toBe("show");
     expect(flip.getAttribute("aria-checked")).toBe("true");
     expect(flip.textContent).toBe("artefact");
+    // The front page is paper by default; the switch turns it dark.
     const theme = document.getElementById("theme")!;
-    theme.click();
     expect(theme.getAttribute("aria-checked")).toBe("true");
+    theme.click();
+    expect(theme.getAttribute("aria-checked")).toBe("false");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(theme.querySelector(".prefs-name")!.textContent).toBe("Light theme");
   });
 
@@ -3367,8 +3370,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(more.textContent).toBe("Show all 9");
     more.click();
     expect(rows()).toBe(9);
-    // The column's order: the work first, then History, then the news.
-    expect([...document.querySelectorAll(".rail-pane > *")].map((node) => node.id)).toEqual(["brief", "history", "brief-news"]);
+    // On the front page History sits under the jobs; the artefact column keeps the work, then the news.
+    expect([...document.querySelectorAll(".rail-pane > *")].map((node) => node.id)).toEqual(["brief", "brief-news"]);
+    expect(document.getElementById("history")!.closest("#jobs")).not.toBeNull();
   });
 
   it("forgets Done cards it saw that have long left the column, and keeps at most 300", async () => {
@@ -3538,5 +3542,76 @@ describe("screen gates", () => {
     // The scene's own headline opens it in the conversation, never a side view.
     expect((document.getElementById("scene-head") as HTMLElement).dataset.inline).toBe("1");
     expect((document.getElementById("inline-screen") as HTMLElement).hidden).toBe(false);
+  });
+});
+
+describe("the front page", () => {
+  const SHOW = {
+    title: "Your move.", summary: "", items: [], counts: { call: 1 }, live: false, read: "2026-10-25T00:00:00Z",
+    calls: [{
+      id: "call:pick", kind: "call", headline: "Which bezel should CopyCopy build?", why: "", status: "Needs your choice", project: "CopyCopy",
+      at: "2026-10-24T15:30:00.000Z", task: "bezel", detail: "Both read well at small sizes.",
+      shots: [{ src: "/api/artefact-shot?task=bezel&file=v2-spindle.png", label: "v2-spindle.png" }, { src: "/api/artefact-shot?task=bezel&file=v6-numeral.png", label: "v6-numeral.png" }],
+      decision: { task: "bezel", decisionId: "d1", question: "Which bezel should CopyCopy build?", choices: ["V2 Spindle", "V6 Numeral"] },
+    }],
+    landedWeek: [{ id: "landed:fix", kind: "landed", headline: "Restore dropping files onto Flyd", why: "", at: "2026-10-24", project: "Flyd", task: "file-drop", links: [{ label: "flyd #224", url: "https://github.com/GeorgeGally/flyd/pull/224" }] }],
+  };
+  const groups = () => Array.from(document.querySelectorAll("#jobs-list .fgroup")).map((group) => [
+    group.querySelector(".fhead span")!.textContent,
+    group.querySelector(".fempty")?.textContent ?? group.querySelectorAll(".job").length,
+  ]);
+  async function opened(): Promise<FakeEventSource> {
+    load("");
+    await settle();
+    return open("latest", [{ id: "u1", role: "user", html: "<p>hello</p>" }]);
+  }
+  function after(act: () => void): void {
+    vi.useFakeTimers();
+    try { act(); vi.advanceTimersByTime(250); } finally { vi.useRealTimers(); }
+  }
+
+  it("lists the jobs as cards, and an unread fleet as unknown rather than empty", async () => {
+    const stream = await opened();
+    expect(groups()).toEqual([["Conversation", 1], ["Needs you", "Not read yet."], ["Working", "Not read yet."], ["Done", "Not read yet."]]);
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
+    expect(groups()).toEqual([["Conversation", 1], ["Needs you", 1], ["Working", "Nothing is running right now."], ["Done", 1]]);
+    const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
+    expect(needs.querySelector(".frame img")).not.toBeNull();
+    // Under "Needs you" the dot says it; the card names the project.
+    expect(needs.querySelector(".s")).toBeNull();
+    expect(needs.querySelector(".p")!.textContent).toBe("CopyCopy");
+    expect(document.getElementById("stage-crumb")!.textContent).toContain("With firstmate");
+  });
+
+  it("opens one job on the sheet, with its pictures, its choices and its own box, and Escape brings the conversation back", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
+    after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
+    expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
+    expect(document.getElementById("stage-title")!.textContent).toBe("Which bezel should CopyCopy build?");
+    expect(Array.from(document.querySelectorAll(".job-view .ver .n")).map((name) => name.textContent)).toEqual(["V2 spindle", "V6 numeral"]);
+    expect(Array.from(document.querySelectorAll(".job-view .choice-pick")).map((button) => button.textContent)).toEqual(["V2 Spindle", "V6 Numeral"]);
+    expect(document.querySelector(".job-view .jv-msg p")!.textContent).toBe("Both read well at small sizes.");
+    expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
+    after(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(document.documentElement.hasAttribute("data-job")).toBe(false);
+  });
+
+  it("lists what needs him from the one list, a finished design lab among them, led by its picture", async () => {
+    const stream = await opened();
+    const lab = {
+      id: "lab:run-7", kind: "activity", lifecycle: "active", subject: "Ten directions for the CapFive deal alert", summary: "Ready for your review.",
+      project: "capfive", evidence: [{ kind: "web", ref: "https://example.test/lab.html", label: "Open the lab" }, { kind: "image", ref: "/api/rail-image?path=%2Ftmp%2Fv1.png", label: "v1.png" }],
+      actions: [], source: { showItemId: "lab:run-7", ref: "run-7" }, activity: { phase: "ready", started: "2026-10-24T08:00:00.000Z" }, updatedAt: "2026-10-24T09:00:00.000Z",
+    };
+    const focus = { id: "task:bezel", kind: "decision", lifecycle: "interrupted", subject: "Which bezel should CopyCopy build?", source: { showItemId: "call:pick", task: "bezel" } };
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, focus, needs: [lab] }, leftColumn: { now: [], recent: [], week: [], monitors: [], semantic: [lab] } });
+    expect(Array.from(document.querySelectorAll("#jobs-list .job.needs")).map((card) => card.getAttribute("data-job"))).toEqual(["call:pick", "lab:run-7"]);
+    const card = document.querySelector<HTMLElement>('.job[data-job="lab:run-7"]')!;
+    expect(card.querySelector(".s")!.textContent).toBe("Lab ready for review");
+    expect(card.querySelector(".frame img")!.getAttribute("src")).toContain("/api/rail-image?path=");
+    after(() => card.click());
+    expect(document.querySelector<HTMLAnchorElement>(".job-view .fbtn")!.href).toBe("https://example.test/lab.html");
+    expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { escapeHtml } from "../markdown.js";
 import { LEFT_BUTTON, LEFT_HTML, LEFT_PREFERENCE } from "../left-column.js";
+import { FRONT_HTML } from "./front-markup.js";
 
 export interface PageOptions { assistantLabel: string; sendToken?: string; newSession?: string }
 
@@ -9,7 +10,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
   const token = (options.sendToken ? ` data-send-token="${escapeHtml(options.sendToken)}"` : "")
     + (options.newSession ? ` data-new-session="${escapeHtml(options.newSession)}"` : "");
   return `<!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light" data-layout="front">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -19,6 +20,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
 <body${token}>
 <header>
   <span class="who">${label}</span>
+  <span class="front-date" id="front-date"></span>
   <span class="project-badge" id="project-badge" hidden></span>
   <span class="picker" id="conversation-title" aria-label="Current conversation"></span>
   <span class="air" id="air">standby</span>
@@ -40,6 +42,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
   <button id="taste-link" type="button"><span class="prefs-words"><span class="prefs-name">Taste</span><span class="prefs-about">What Flyd knows about your taste</span></span><span class="prefs-go" aria-hidden="true">→</span></button>
 </div>
 ${LEFT_HTML}
+${FRONT_HTML}
 <aside class="rail" id="rail" hidden aria-label="Conversation history and done work">
   <button class="rail-hide" id="rail-hide" type="button" aria-label="Hide the column">✕</button>
   <div class="rail-pane">

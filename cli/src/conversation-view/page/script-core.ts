@@ -51,7 +51,7 @@ var __name = function (f) { return f; };
     // Inside Flyd.app the window's title bar follows the page.
     try { window.webkit.messageHandlers.flyd.postMessage({ theme: theme }); } catch (e) { /* in a browser */ }
   }
-  applyTheme(store("flyd-view-theme") === "light" ? "light" : "dark");
+  applyTheme(store("flyd-view-theme") === "dark" ? "dark" : "light");
   var modeBtn = document.getElementById("mode");
   // One switch, FULL: off is Flyd's reading of every reply, on is everything as it was written.
   function applyMode(mode) {
@@ -117,7 +117,7 @@ var __name = function (f) { return f; };
   // Pinned: he is reading the latest message, so whatever changes keeps him
   // there. Only his own scrolling up unpins it.
   var pinned = true;
-  function onConversation() { return document.documentElement.getAttribute("data-screen") !== "show"; }
+  function onConversation() { return document.documentElement.getAttribute("data-screen") !== "show" && !document.documentElement.hasAttribute("data-job"); }
   function toBottom() { pinned = true; window.scrollTo(0, document.documentElement.scrollHeight); }
   // The message at the top of the window and where it sits, so a change above
   // it cannot move what he is reading (WebKit has no scroll anchoring).
