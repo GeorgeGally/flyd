@@ -68,6 +68,12 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
   const prose = guardModelCall((prompt: string) => query(prompt), guard);
   return [
     {
+      // A read-only Claude Code audit, once a week; it calls no Flyd model.
+      name: "weekly-audit",
+      usesModel: false,
+      run: async () => (await import("./weekly-audit.js")).startWeeklyAuditIfDue(),
+    },
+    {
       // George's own scheduled tasks: they have their own retry/failure handling and
       // the chat failover chain, so they are not held back by the background backoff.
       name: "agenda", usesModel: false,

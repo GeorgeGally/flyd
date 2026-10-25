@@ -1,8 +1,9 @@
 #!/bin/bash
-# Weekly state-of-the-nation audit of Flyd (launchd: com.flyd.audit).
+# Weekly state-of-the-nation audit of Flyd, started by Core's tick (cli/src/runtime/weekly-audit.ts).
 # A read-only Claude Code run writes ~/.flyd/audits/<date>.md; Flyd's notch
 # then shows its one-line headline. Run by hand: scripts/flyd-audit.sh
 set -euo pipefail
+[ -n "${FLYD_AUDIT_MARKER:-}" ] && trap 'rm -f "$FLYD_AUDIT_MARKER"' EXIT
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="$HOME/.flyd/audits"
