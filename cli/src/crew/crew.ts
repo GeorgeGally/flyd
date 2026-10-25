@@ -57,6 +57,8 @@ export interface CrewTask {
   model?: string;
   /** How far into the log Claude spend has been counted. */
   spendOffset?: number;
+  /** When a failed or discarded task's worktree (and, if safe, its branch) was tidied away. */
+  prunedAt?: string;
 }
 
 /**
@@ -514,6 +516,10 @@ export async function superviseCrew(deps: SuperviseDependencies = {}): Promise<C
     await deps.notify!("Flyd", message, task.status !== "ready" ? "blocker" : "deliverable").catch(() => undefined);
     saveTask({ ...task, notified: true }, dir);
   }
+  // Old failed and discarded tasks give their worktrees and spent branches back.
+  await pruneCrewTasks({ now, dir }).catch((error: unknown) => {
+    console.warn("[crew] prune failed:", error instanceof Error ? error.message : error);
+  });
   return changed;
 }
 
@@ -581,6 +587,68 @@ export async function discardCrewTask(id: string, dir = crewDir()): Promise<Crew
   const discarded = { ...task, status: "discarded" as const };
   saveTask(discarded, dir);
   return discarded;
+}
+
+/** Days a failed or discarded task keeps its worktree before the supervise tick tidies it away. */
+export const CREW_PRUNE_AFTER_DAYS = 7;
+
+export interface PrunedCrewTask {
+  task: CrewTask;
+  worktreeRemoved: boolean;
+  branchDeleted: boolean;
+  /** Why something was left in place. */
+  kept?: string;
+}
+
+async function branchExists(repo: string, branch: string): Promise<boolean> {
+  return git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).then(() => true, () => false);
+}
+
+/**
+ * Tidy failed and discarded tasks that finished more than `days` ago: remove
+ * the worktree and delete the branch. A discarded task was George's call, so
+ * both go. A failed task's branch is deleted only when every commit on it is
+ * already on its base branch; one holding work of its own is kept (discard
+ * drops it), and a worktree with uncommitted changes is left alone. The task
+ * record stays, marked prunedAt, so it is never revisited.
+ */
+export async function pruneCrewTasks(options: { days?: number; now?: Date; dir?: string } = {}): Promise<PrunedCrewTask[]> {
+  const days = options.days ?? CREW_PRUNE_AFTER_DAYS;
+  const now = options.now ?? new Date();
+  const dir = options.dir ?? crewDir();
+  const pruned: PrunedCrewTask[] = [];
+  for (const task of listTasks(dir)) {
+    if ((task.status !== "failed" && task.status !== "discarded") || task.prunedAt) continue;
+    if (now.getTime() - Date.parse(task.finishedAt ?? task.createdAt) < days * 86_400_000) continue;
+    if (!existsSync(task.repo)) continue;
+    const discarded = task.status === "discarded";
+    let worktreeRemoved = false;
+    if (existsSync(task.worktree)) {
+      // A failed crewmate's uncommitted changes are work too: leave them, and look again next tick.
+      if (!discarded && await git(task.worktree, ["status", "--porcelain"]).catch(() => "")) {
+        pruned.push({ task, worktreeRemoved, branchDeleted: false, kept: "uncommitted changes in its worktree" });
+        continue;
+      }
+      worktreeRemoved = await git(task.repo, ["worktree", "remove", ...(discarded ? ["--force"] : []), task.worktree]).then(() => true, () => false);
+      if (!worktreeRemoved) {
+        pruned.push({ task, worktreeRemoved, branchDeleted: false, kept: "its worktree could not be removed" });
+        continue;
+      }
+    }
+    await git(task.repo, ["worktree", "prune"]).catch(() => undefined);
+    let branchDeleted = false;
+    let kept: string | undefined;
+    if (await branchExists(task.repo, task.branch)) {
+      const base = await branchExists(task.repo, task.baseBranch) ? task.baseBranch : task.baseCommit;
+      const ahead = discarded ? 0 : Number(await git(task.repo, ["rev-list", "--count", `${base}..${task.branch}`]).catch(() => "1")) || 0;
+      if (ahead > 0) kept = `${ahead} commit${ahead === 1 ? "" : "s"} not on ${task.baseBranch}`;
+      else branchDeleted = await git(task.repo, ["branch", "-D", task.branch]).then(() => true, () => false);
+    }
+    const tidied: CrewTask = { ...task, prunedAt: now.toISOString() };
+    saveTask(tidied, dir);
+    pruned.push({ task: tidied, worktreeRemoved, branchDeleted, ...(kept ? { kept } : {}) });
+  }
+  return pruned;
 }
 
 /** A provider that refused the run for budget reasons: the account could not pay for the tokens it asked for. */

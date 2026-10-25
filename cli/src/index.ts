@@ -130,8 +130,8 @@ program
 
 program
   .command("crew")
-  .description("Flyd's coding crew (OpenCode crewmates in worktrees): list | dispatch <outcome> [--done <point>]… | show <id> | supervise | land <id> | discard <id>")
-  .argument("[action]", "list, dispatch, show, supervise, land, discard")
+  .description("Flyd's coding crew (OpenCode crewmates in worktrees): list | dispatch <outcome> [--done <point>]… | show <id> | supervise | land <id> | discard <id> | prune [--days N]")
+  .argument("[action]", "list, dispatch, show, supervise, land, discard, prune")
   .argument("[args...]", "outcome text or task id")
   .allowUnknownOption()
   .action(async (action: string | undefined, args: string[] = []) => {
