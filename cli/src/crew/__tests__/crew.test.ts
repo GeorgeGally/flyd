@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, providerFailure, readTask, superviseCrew } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -75,8 +75,64 @@ describe("crew", () => {
     await expect(landCrewTask(idle.id)).rejects.toThrow("not ready to land");
 
     await dispatchCrewTask({ repo, outcome: "Break the tests", launch: fakeCrewmate() });
-    const [broken] = await superviseCrew({ alive: () => false, runCommand: async (command) => ({ ok: command !== "git diff --check", output: "boom" }) });
+    const [broken] = await superviseCrew({ alive: () => false, runCommand: async (command) => ({ ok: command !== "git diff --check", output: "boom" }), notify });
     expect(broken.failure).toBe("verification failed: git diff --check");
+    expect(notify).toHaveBeenLastCalledWith("Flyd", "Break the tests is blocked: its tests failed. Tell me whether to try another way or drop it.", "blocker");
+  });
+
+  it("says the provider ran out of credit when that, not a test, is what the run recorded", async () => {
+    const launch = vi.fn((task: { log: string }) => {
+      writeFileSync(task.log, `${JSON.stringify({ type: "error", timestamp: 1, error: { type: "provider.quota", message: "This request requires more credits, or fewer max_tokens. You requested up to 256000 tokens, but can only afford 49.", status: 402 } })}\n`);
+      return 424242;
+    });
+    await dispatchCrewTask({ repo, outcome: "Checkpoint and requeue the background jobs", launch });
+    const notify = vi.fn(async (_title: string, _message: string, _kind?: string) => undefined);
+    const [failed] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify });
+    expect(failed).toMatchObject({ status: "failed", verification: [] });
+    expect(failed.failure).toMatch(/^provider error: This request requires more credits/);
+    const reason = blockedBy(failed);
+    expect(reason).toMatch(/provider/i);
+    expect(reason).not.toMatch(/tests failed/i);
+    expect(reason).not.toMatch(/\bcrew(?:mates?)?\b/i);
+    const said = notify.mock.calls[0]?.[1];
+    expect(said).toBe(`${plainOutcome(failed)} is blocked: ${reason}. Tell me whether to try another way or drop it.`);
+    expect(said).not.toMatch(/tests failed|\bcrew(?:mates?)?\b/i);
+  });
+
+  it("leads with the provider's cause when partial work hit the credit wall and then failed its tests", async () => {
+    const launch = vi.fn((task: { worktree: string; log: string }) => {
+      writeFileSync(join(task.worktree, "partial.txt"), "half done\n");
+      git(task.worktree, "add", ".");
+      git(task.worktree, "commit", "-qm", "wip: partial");
+      writeFileSync(task.log, [
+        JSON.stringify({ type: "text", part: { type: "text", text: "Started on the checkpointing." } }),
+        JSON.stringify({ type: "error", timestamp: 2, error: { type: "provider.quota", message: "This request requires more credits, or fewer max_tokens. You requested up to 256000 tokens, but can only afford 49.", status: 402 } }),
+      ].join("\n") + "\n");
+      return 424242;
+    });
+    await dispatchCrewTask({ repo, outcome: "Checkpoint and requeue the background jobs", launch });
+    const notify = vi.fn(async (_title: string, _message: string, _kind?: string) => undefined);
+    const [failed] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: false, output: "2 failing" }), notify });
+    expect(failed).toMatchObject({ status: "failed", commits: 1 });
+    expect(failed.verification?.some((step) => !step.ok)).toBe(true);
+    const reason = blockedBy(failed);
+    expect(reason.startsWith("the model provider was out of credit")).toBe(true);
+    expect(reason.indexOf("provider")).toBeLessThan(reason.indexOf("tests"));
+    expect(notify.mock.calls[0]?.[1]).toBe(`${plainOutcome(failed)} is blocked: ${reason}. Tell me whether to try another way or drop it.`);
+  });
+
+  it("does not blame the provider for an error the run recovered from", async () => {
+    const launch = vi.fn((task: { log: string }) => {
+      writeFileSync(task.log, [
+        JSON.stringify({ type: "error", timestamp: 1, error: { type: "provider.quota", message: "Rate limited", status: 429 } }),
+        JSON.stringify({ type: "text", part: { type: "text", text: "Retried and looked around; nothing to change." } }),
+      ].join("\n") + "\n");
+      return 424242;
+    });
+    await dispatchCrewTask({ repo, outcome: "Look for a change", launch });
+    const [failed] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }) });
+    expect(failed.failure).toBe("no commits");
+    expect(blockedBy(failed)).toBe("nothing was committed");
   });
 
   it("passes a check whose only failures were already failing on the base commit, and still fails a new one", async () => {
@@ -174,7 +230,7 @@ describe("crew", () => {
     const notify = vi.fn(async () => undefined);
     const [failed] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify });
     expect(failed).toMatchObject({ status: "failed", failure: "provider error: Insufficient credits. Add more at openrouter.ai/settings/credits", worktreeRemoved: true });
-    expect(notify).toHaveBeenCalledWith("Flyd", "Add a feature file is blocked: the model provider is out of credits, so no work was done. Tell me whether to try another way or drop it.", "blocker");
+    expect(notify).toHaveBeenCalledWith("Flyd", "Add a feature file is blocked: the model provider was out of credit for the tokens it asked for; top up and retry. Tell me whether to try another way or drop it.", "blocker");
     expect(existsSync(task.worktree)).toBe(false);
     expect(git(repo, "branch", "--list", task.branch)).toBe("");
     expect(git(repo, "worktree", "list")).not.toContain(task.worktree);
@@ -355,12 +411,23 @@ describe("what stopped a failed task", () => {
   it("says each failure in plain words, never the raw error", () => {
     expect(blockedBy({ failure: "no commits" })).toBe("nothing was committed");
     expect(blockedBy({ failure: "no commits (uncommitted changes left in the worktree)" })).toBe("changes were made but never committed");
-    expect(blockedBy({ failure: "verification failed: npm test" })).toBe("its tests failed");
     expect(blockedBy({ failure: "stopped after 2 hours without finishing" })).toBe("it ran for two hours without finishing");
-    expect(blockedBy({ failure: "provider error: insufficient credits" })).toBe("the model provider is out of credits, so no work was done");
-    expect(blockedBy({ failure: "provider error: 429 usage limit reached" })).toBe("the model provider's usage limit was hit, so no work was done");
-    expect(blockedBy({ failure: "provider error: invalid x-api-key" })).toBe("the model provider rejected its key, so no work was done");
+    expect(blockedBy({ failure: "provider error: insufficient credits" })).toBe("the model provider was out of credit for the tokens it asked for; top up and retry");
+    expect(blockedBy({ failure: "provider error: 429 usage limit reached" })).toBe("the model provider refused the run; retry it once it's reachable");
+    expect(blockedBy({ failure: "provider error: invalid x-api-key" })).toBe("the model provider refused the run; retry it once it's reachable");
     expect(blockedBy({ failure: "Command failed: ENOENT /tmp/x.sh" })).toBe("it couldn't be finished");
     expect(blockedBy({})).toBe("it couldn't be finished");
+  });
+
+  it("only blames the tests when the run recorded a failing check", () => {
+    expect(blockedBy({ failure: "verification failed: npm test", verification: [{ command: "npm test", ok: false, tail: "2 failing" }] })).toBe("its tests failed");
+    expect(blockedBy({ failure: "verification failed: npm test", verification: [] })).toBe("it couldn't be finished");
+    expect(blockedBy({ failure: "verification failed: npm test" })).toBe("it couldn't be finished");
+  });
+
+  it("names the provider's own cause when it, not a test, stopped the run", () => {
+    const credit = "provider error: This request requires more credits, or fewer max_tokens. You requested up to 256000 tokens, but can only afford 49.";
+    expect(blockedBy({ failure: credit, verification: [] })).toBe("the model provider was out of credit for the tokens it asked for; top up and retry");
+    expect(blockedBy({ failure: "provider error: the upstream model returned 503", verification: [] })).toBe("the model provider refused the run; retry it once it's reachable");
   });
 });

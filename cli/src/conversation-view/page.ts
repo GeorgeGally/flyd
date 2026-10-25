@@ -1076,6 +1076,9 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .attachment.file .kind { font: 800 11px/1 var(--mono); color: var(--bg); background: var(--accent); border-radius: 3px; padding: 3px 4px; }
 .attachment.file .name { font: 500 13px/1.3 var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .attachment.file button { top: 50%; transform: translateY(-50%); }
+/* A drop Flyd could not take: said in the box itself, where the file was headed. */
+.composer .notice { margin: 0 0 0.5em; font: 12.5px/1.45 var(--mono); color: var(--accent); }
+.composer .notice[hidden] { display: none; }
 .docs { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.45em; }
 .doc { display: inline-flex; align-items: center; gap: 0.45em; max-width: 100%; padding: 4px 8px; border: 1px solid var(--faint); border-radius: 0.25em; background: var(--tint); font: 500 13px/1.3 var(--mono); color: var(--fg); }
 .doc .kind { font-weight: 800; color: var(--accent); }
@@ -3706,19 +3709,47 @@ ${LEFT_SCRIPT}
   var MAX_IMAGE_BYTES = ${MAX_IMAGE_BYTES};
   var MAX_FILE_BYTES = ${MAX_FILE_BYTES};
   var IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+  // A refusal has to outlive the next stream update: say it in the box, not in
+  // the corner line the view clears whenever Core sends something.
+  var noticeEl = document.getElementById("notice");
+  function noteRefusal(text) {
+    noticeEl.textContent = text;
+    noticeEl.hidden = !text;
+  }
+  function megabytes(bytes) {
+    return Math.round(bytes / 1048576);
+  }
+  function refuse(refused, text) {
+    if (refused.indexOf(text) === -1) refused.push(text);
+  }
   function addFiles(files) {
     var refused = [];
+    var taken = 0;
     Array.prototype.forEach.call(files, function (file) {
       if (!file) return;
       var image = IMAGE_TYPES.indexOf(file.type) !== -1;
+      var limit = image ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
       var ext = file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase();
-      if (!image && (file.name.indexOf(".") === -1 || DOCUMENTS.indexOf(ext) === -1)) { refused.push(file.name + ": not a document Flyd can pass on"); return; }
-      if (file.size > (image ? MAX_IMAGE_BYTES : MAX_FILE_BYTES)) { refused.push(file.name + ": over " + Math.round((image ? MAX_IMAGE_BYTES : MAX_FILE_BYTES) / 1048576) + "MB"); return; }
-      if (attachments.length >= MAX_ATTACHMENTS) { refused.push(file.name + ": " + MAX_ATTACHMENTS + " attachments at most"); return; }
+      if (!image && (file.name.indexOf(".") === -1 || DOCUMENTS.indexOf(ext) === -1)) {
+        refuse(refused, (file.name || "That file") + " can't be attached; Flyd takes PDFs, Office and text documents, or images");
+        return;
+      }
+      if (file.size > limit) {
+        refuse(refused, (file.name || "That file") + " is " + megabytes(file.size) + "MB; " + (image ? "images" : "documents") + " can be up to " + megabytes(limit) + "MB");
+        return;
+      }
+      if (attachments.length >= MAX_ATTACHMENTS) {
+        refuse(refused, "At most " + MAX_ATTACHMENTS + " attachments per message");
+        return;
+      }
+      taken += 1;
       var reader = new FileReader();
       reader.onload = function () {
         var url = String(reader.result);
-        if (attachments.length >= MAX_ATTACHMENTS) return;
+        if (attachments.length >= MAX_ATTACHMENTS) {
+          noteRefusal("At most " + MAX_ATTACHMENTS + " attachments per message");
+          return;
+        }
         var data = url.slice(url.indexOf(",") + 1);
         var attachment = image ? { url: url, mediaType: file.type, data: data } : { name: file.name, data: data };
         attachments.push(attachment);
@@ -3727,7 +3758,15 @@ ${LEFT_SCRIPT}
       };
       reader.readAsDataURL(file);
     });
-    if (refused.length) problem.textContent = refused.join(" · ");
+    if (taken) noteRefusal("");
+    if (refused.length) noteRefusal(refused.join(" · "));
+  }
+  // A dropped file is going into the message box, so the box comes back with it
+  // instead of the file landing unseen behind the artefact screen.
+  function revealComposer() {
+    if (composer.hidden || showEl.hidden) return;
+    applyScreen("terminal", false);
+    store("flyd-view-screen", "terminal");
   }
   input.addEventListener("paste", function (event) {
     var files = Array.prototype.map.call((event.clipboardData && event.clipboardData.items) || [], function (item) {
@@ -3750,9 +3789,13 @@ ${LEFT_SCRIPT}
     if (composer.hidden) return;
     event.preventDefault();
     composer.classList.remove("dropping");
-    if (event.dataTransfer) addFiles(event.dataTransfer.files);
+    var files = event.dataTransfer ? event.dataTransfer.files : null;
+    if (!files || !files.length) return;
+    revealComposer();
+    addFiles(files);
   });
   input.addEventListener("input", grow);
+  input.addEventListener("input", function () { noteRefusal(""); });
   // Terminal-style history: Up on the first line recalls earlier messages,
   // newest first; Down walks back and finally restores the draft.
   var recall = { list: [], index: -1, draft: "" };
@@ -3984,6 +4027,7 @@ ${LEFT_SCRIPT}
 
   composer.addEventListener("submit", function (event) {
     event.preventDefault();
+    noteRefusal("");
     var text = input.value.trim();
     var sending = attachments.slice();
     if ((!text && !sending.length) || !current) return;
@@ -5200,6 +5244,7 @@ ${LEFT_HTML}
     <p class="unread" id="staff" role="status" hidden></p>
     <ul class="commands" id="commands" role="listbox" aria-label="Skills and commands" hidden></ul>
     <section class="about" id="about" aria-label="What this message is about" hidden><button class="about-clear" type="button" id="about-clear" aria-label="Not about this">✕</button><div class="about-head" id="about-head"></div><p class="about-title" id="about-title"></p><div id="about-body"></div></section>
+    <p class="notice" id="notice" role="status" aria-live="polite" hidden></p>
     <div class="attachments" id="attachments" hidden></div>
     <div class="field">
       <div class="typing">

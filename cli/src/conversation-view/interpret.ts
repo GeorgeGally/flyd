@@ -3,8 +3,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryPaths } from "../council/memory-store.js";
-import { recordHeld } from "../council/reply-review.js";
-import { relayShortfalls, stripCommitIds } from "../runtime/honesty-check.js";
+import { screenOutgoing } from "../council/reply-review.js";
+import { stripCommitIds } from "../runtime/honesty-check.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import type { Complete } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -148,13 +148,10 @@ export class AnswerInterpreter {
       const text = stripCommitIds(inFlydsVoice(raw.trim()));
       if (!text || isRoutine(text) || isAcknowledgement(text)) throw new Error("no interpretation");
       // The relayed update reaches George under the same outgoing-answer checks
-      // a chat reply passes: one that names backstage machinery or is a
-      // placeholder is not shown, and what was held is recorded.
-      const held = relayShortfalls(text);
-      if (held.length) {
-        recordHeld({ surface: "relay", source: "relay:interpretation", text }, held);
-        throw new Error("relay held back");
-      }
+      // a chat reply passes: one that names backstage machinery, is a
+      // placeholder or hands him an internal call is not shown, and what was
+      // held is recorded (council/reply-review.ts).
+      if (!screenOutgoing({ surface: "relay", source: "relay:interpretation", text }).send) throw new Error("relay held back");
       return text;
     } finally {
       if (timer) clearTimeout(timer);

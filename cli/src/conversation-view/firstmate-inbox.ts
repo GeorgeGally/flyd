@@ -122,7 +122,8 @@ export const MAX_IMAGES = 4;
 export const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const IMAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(png|jpg|gif|webp)$/;
 export const MAX_FILES = 4;
-export const MAX_FILE_BYTES = 12 * 1024 * 1024;
+/** Design decks and brand books routinely run past 12MB; a dropped document up to this size is taken as it is. */
+export const MAX_FILE_BYTES = 32 * 1024 * 1024;
 /** A saved document's place under the files folder: "<stamp>/<name>". */
 const FILE_PLACE = /^\d+-[0-9a-f]+\/[^/.][^/]*$/;
 

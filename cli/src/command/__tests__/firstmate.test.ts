@@ -94,7 +94,7 @@ describe("FirstMate domain transport", () => {
       return { stdout: "", stderr: "" };
     };
     const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
       readiness: { available: true, canReceive: false, liveHarness: false },
       recordAttempt: vi.fn(),
     });
@@ -105,7 +105,7 @@ describe("FirstMate domain transport", () => {
   it("does not start a second session while a harness is live", async () => {
     const exec = vi.fn<FirstmateExec>();
     const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
       readiness: { available: true, canReceive: false, liveHarness: true },
       recordAttempt: vi.fn(),
     });
@@ -121,7 +121,7 @@ describe("FirstMate domain transport", () => {
       return { stdout: "started", stderr: "" };
     };
     const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
       readiness: { available: true, canReceive: false, liveHarness: false },
       recordAttempt: vi.fn(),
     });
@@ -133,7 +133,7 @@ describe("FirstMate domain transport", () => {
     const calls: string[] = [];
     const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
     const result = await startFirstmateSession({
-      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
       readiness: { available: true, canReceive: false, liveHarness: false },
       recordAttempt: vi.fn(),
     });
@@ -157,7 +157,7 @@ describe("FirstMate domain transport", () => {
         return { stdout: "started", stderr: "" };
       };
       const result = await startFirstmateSession({
-        home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec,
+        home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-1",
         readiness: { available: true, canReceive: false, liveHarness: false },
         recordAttempt: vi.fn(),
       });
@@ -774,7 +774,7 @@ describe("FirstMate domain transport", () => {
     const before = existsSync(path) ? readFileSync(path, "utf8").length : 0;
     try {
       const transport = new FirstmateDomainTransport({ home, script });
-      expect(await transport.startSession()).toEqual({ started: true });
+      expect(await transport.startSession("view-note")).toEqual({ started: true });
       const [helper] = recordedHelpers() as Array<{ pid: number; log: string }>;
       helperPid = helper!.pid;
       mkdirSync(join(home, "state"), { recursive: true });
@@ -954,6 +954,218 @@ describe("FirstMate domain transport", () => {
     failing = true;
     await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T01:06:00.000Z") });
     expect(listDomainRuns()[0]!.launchRetry?.attempts).toBe(3);
+  });
+
+  it("stops an unchanged launch after three identical failures instead of retrying 21 times", async () => {
+    const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
+    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
+    try {
+      const home = join(dir, "firstmate-repeated");
+      saveDomainRun(queuedRun());
+      let launches = 0;
+      const exec: FirstmateExec = async (_script, args) => {
+        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+        if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+        launches += 1;
+        throw new Error("claude: usage limit reached");
+      };
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
+      const start = Date.parse("2026-10-09T01:00:00.000Z");
+      for (let tick = 0; tick < 21; tick += 1) {
+        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + tick * 60 * 60_000) });
+      }
+
+      expect(launches).toBe(3);
+      const [run] = listDomainRuns();
+      expect(run!.status).toBe("failed");
+      expect(run!.launchRetry).toBeUndefined();
+      expect(run!.failure).toMatch(/3 identical launch attempts/);
+      const recorded = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl"), "utf8")
+        .trim().split("\n").map((line) => JSON.parse(line) as { outcome?: string; home?: string })
+        .filter((entry) => entry.home === home && entry.outcome);
+      expect(recorded.map((entry) => entry.outcome)).toEqual(["repeated_loop"]);
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
+      else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
+    }
+  });
+
+  async function driveDetachedLaunches(name: string, claude: string, ticks: number) {
+    const home = join(dir, name);
+    const bin = join(dir, `bin-${name}`);
+    mkdirSync(join(home, "bin"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    const script = join(home, "bin", "fm-inbox.sh");
+    writeFileSync(script, [
+      "#!/bin/sh",
+      'case "$1" in',
+      '  receipts) echo \'{"pending":[{"id":"note-1","request_id":"domain-test-1","acknowledged":false,"at":"2026-10-09T00:00:00.000Z"}]}\' ;;',
+      '  ready) echo \'{"can_receive":false,"lock":{"live_harness":false}}\' ;;',
+      "esac",
+    ].join("\n"), { mode: 0o755 });
+    const launchLog = join(dir, `${name}-launches`);
+    writeFileSync(join(bin, "claude"), `#!/bin/sh\necho launched >> ${JSON.stringify(launchLog)}\nLAUNCHES=$(wc -l < ${JSON.stringify(launchLog)} | tr -d ' ')\n${claude}\nexit 1\n`, { mode: 0o755 });
+    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_RUNTIMES: process.env.FLYD_FIRSTMATE_RUNTIMES, FLYD_FIRSTMATE_ALLOW_LAUNCH: process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH };
+    process.env.PATH = `${bin}:${process.env.PATH}`;
+    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
+    // The launch is a fake script on PATH; the test-run guard must let it through.
+    process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH = "1";
+    saveDomainRun(queuedRun());
+    const path = join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl");
+    const before = existsSync(path) ? readFileSync(path, "utf8").length : 0;
+    const outcomes = () => (existsSync(path) ? readFileSync(path, "utf8").slice(before) : "").trim().split("\n").filter(Boolean)
+      .map((line) => JSON.parse(line) as { outcome?: string; home?: string; detail?: string }).filter((entry) => entry.outcome);
+    try {
+      const transport = new FirstmateDomainTransport({ home, script });
+      const start = Date.now();
+      for (let tick = 0; tick < ticks; tick += 1) {
+        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + tick * 60 * 60_000) });
+        await vi.waitFor(() => {
+          const seen = outcomes();
+          expect(seen.filter((entry) => entry.outcome === "failed" || entry.outcome === "usage_limited")).toHaveLength(seen.filter((entry) => entry.outcome === "started").length);
+          if (seen.some((entry) => entry.outcome === "started")) expect(listDomainRuns()[0]!.failure).toBeDefined();
+        }, { timeout: 5_000 });
+      }
+      return {
+        launches: readFileSync(launchLog, "utf8").trim().split("\n").length,
+        run: listDomainRuns()[0]!,
+        repeated: outcomes().filter((entry) => entry.outcome === "repeated_loop" && entry.home === home),
+      };
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
+
+  it("stops a detached launch whose spawned session keeps failing after three identical failures", async () => {
+    const { launches, run, repeated } = await driveDetachedLaunches("firstmate-detached", 'echo "session crashed"', 21);
+
+    expect(launches).toBe(3);
+    expect(run.status).toBe("failed");
+    expect(run.launchRetry).toBeUndefined();
+    expect(run.failure).toMatch(/3 identical launch attempts/);
+    expect(repeated).toHaveLength(1);
+    expect(repeated[0]!.detail).toMatch(/session crashed/);
+  });
+
+  it("keeps retrying a detached launch whose spawned sessions fail in different ways", async () => {
+    const { launches, run, repeated } = await driveDetachedLaunches("firstmate-detached-varied", [
+      'case "$LAUNCHES" in',
+      '  1) echo "claude usage limit reached" ;;',
+      '  2) echo "auth error: not logged in" ;;',
+      '  *) echo "session crashed" ;;',
+      "esac",
+    ].join("\n"), 3);
+
+    expect(launches).toBe(3);
+    expect(run.status).toBe("queued");
+    expect(run.launchRetry?.attempts).toBe(3);
+    expect(repeated).toEqual([]);
+  });
+
+  it("backs off a picked-up run's relaunches, then fails it at the third identical failure", async () => {
+    const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
+    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
+    try {
+      saveDomainRun(queuedRun());
+      let acknowledged = false;
+      let canReceive = false;
+      let launches = 0;
+      const exec: FirstmateExec = async (_script, args) => {
+        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+        if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: canReceive, lock: { live_harness: false } }), stderr: "" };
+        launches += 1;
+        throw new Error("claude: usage limit reached");
+      };
+      const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate-acknowledged"), script: "/fake/fm-inbox.sh", exec });
+      const start = Date.parse("2026-10-09T01:00:00.000Z");
+      const launchedAt: number[] = [];
+      const changed: DomainRun[] = [];
+      const tick = async (minute: number) => {
+        const before = launches;
+        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000), onChanged: (run) => { changed.push(run); } });
+        if (launches > before) launchedAt.push(minute);
+      };
+
+      await tick(0);
+      await tick(5);
+      expect(launchedAt).toEqual([0, 5]);
+      expect(listDomainRuns()[0]!.status).toBe("queued");
+
+      acknowledged = true;
+      canReceive = true;
+      await tick(6);
+      expect(listDomainRuns()[0]!.status).toBe("accepted");
+
+      canReceive = false;
+      for (let minute = 7; minute <= 70; minute += 1) await tick(minute);
+      expect(launchedAt).toEqual([0, 5, 10, 18, 34]);
+      const [run] = listDomainRuns();
+      expect(run!.status).toBe("failed");
+      expect(run!.launchRetry).toBeUndefined();
+      expect(run!.failure).toMatch(/3 identical launch attempts/);
+      expect(changed.filter((item) => item.status === "failed").map((item) => item.result?.brief)).toEqual([run!.failure]);
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
+      else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
+    }
+  });
+
+  it("blocks an unread note outside any run after three identical failures, then relaunches it once the backoff reaches its cap", async () => {
+    const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
+    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
+    try {
+      const home = join(dir, "firstmate-runless");
+      saveDomainRun({ ...queuedRun(), status: "failed", failure: "I stopped starting the work" });
+      let launches = 0;
+      const exec: FirstmateExec = async (_script, args) => {
+        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }, { id: "view-note", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+        if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+        launches += 1;
+        throw new Error("claude: usage limit reached");
+      };
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
+      const start = Date.parse("2026-10-09T01:00:00.000Z");
+      const launchedAt: number[] = [];
+      for (let minute = 0; minute <= 70; minute += 1) {
+        const before = launches;
+        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000) });
+        if (launches > before) launchedAt.push(minute);
+      }
+
+      expect(launchedAt).toEqual([0, 5, 10, 34, 64]);
+      const repeated = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl"), "utf8")
+        .trim().split("\n").map((line) => JSON.parse(line) as { outcome?: string; home?: string })
+        .filter((entry) => entry.home === home && entry.outcome === "repeated_loop");
+      expect(repeated).toHaveLength(1);
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
+      else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
+    }
+  });
+
+  it("counts identical launch failures per request, so a new run still gets its own attempts", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
+    const launch = (request: string) => startFirstmateSession({
+      home: "/fake/firstmate-shared", script: "/fake/fm-inbox.sh", exec, request,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
+      recordAttempt: vi.fn(),
+    });
+    const runA = [await launch("run-a"), await launch("run-a"), await launch("run-a")];
+    expect(runA.map((result) => Boolean(result.terminal))).toEqual([false, false, true]);
+    expect(runA[2]!.terminal!.attempts).toBe(3);
+    const blocked = await launch("run-a");
+    expect(blocked.failure).toMatch(/3 identical launch attempts/);
+    expect(calls).toHaveLength(3);
+
+    const runB = await launch("run-b");
+    expect(calls).toHaveLength(4);
+    expect(runB.terminal).toBeUndefined();
+    expect(runB.failure).toBe("I couldn't start the work right now. I'll keep it safe and try again when I can.");
   });
 
   it("cools the home down instead of relaunching every tick for an unconsumed note", async () => {
