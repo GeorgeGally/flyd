@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd front page lab 6</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  /* Lab 6, round 2: Flyd at Elasti's weight. Each first screen holds one portrait
+     glass card that is mostly air: the job's headline at the top; at the bottom,
+     a small matted picture of Flyd's pick, one sentence and one small button.
+     A real photograph, blurred, puts a dark shape behind the glass. The other jobs
+     wait below or behind the card. Versions differ in where the card sits and
+     what the light is. */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #0b0b0b; }
+  body { font: 300 14px/1.45 "Inter Tight", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  .tag { margin: 0; padding: 24px 32px 12px; font: 400 12.5px/1.4 "JetBrains Mono", monospace; color: #8f8b85; }
+  .tag b { color: #eee; font-weight: 400; }
+  .only .tag { display: none; }
+
+  .v { position: relative; height: 900px; overflow: hidden; isolation: isolate; color: var(--ink); background: var(--base); }
+  .only .v { height: 100vh; min-height: 760px; }
+  .bg { position: absolute; inset: -120px; z-index: -1; background: var(--bgimg) var(--bgpos, center) / var(--bgsize, cover) no-repeat; filter: blur(var(--blur, 60px)) saturate(var(--sat, 1)) brightness(var(--bri, 1)) contrast(var(--con, 1)); }
+  .tint { position: absolute; inset: 0; z-index: -1; background: var(--tint); mix-blend-mode: var(--blend, normal); }
+  .m { font: 400 11.5px/1.75 "JetBrains Mono", monospace; letter-spacing: .03em; text-transform: uppercase; }
+
+  .brand { position: absolute; top: 30px; left: 30px; display: flex; align-items: center; gap: 8px; font: 400 17px/1 "Inter Tight", sans-serif; }
+  .brand svg { width: 20px; height: 20px; }
+  .nav { position: absolute; top: 112px; left: 30px; margin: 0; padding: 0; list-style: none; color: var(--ink3); }
+  .nav li { margin-bottom: 12px; } .nav .on { color: var(--ink); }
+  .clock { position: absolute; top: 30px; right: 30px; text-align: right; color: var(--ink2); font-variant-numeric: tabular-nums; }
+  .foot-l { position: absolute; left: 30px; bottom: 28px; color: var(--ink2); }
+  .foot-r { position: absolute; right: 30px; bottom: 28px; color: var(--ink2); text-align: right; }
+
+  .card { position: absolute; width: 540px; height: 600px; display: flex; flex-direction: column; padding: 32px; border-radius: 12px;
+    background: var(--glass); box-shadow: inset 0 0 0 1px var(--edge); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); }
+  .mark { width: 30px; height: 30px; flex: none; margin-bottom: 22px; }
+  .card h1, .card h2 { margin: 0; font: 300 20px/1.3 "Inter Tight", sans-serif; letter-spacing: -.005em; max-width: 17em; text-wrap: balance; }
+  .card .low { margin-top: auto; }
+  .pic { width: 62%; margin: 0 0 22px; padding: 7px; border-radius: 9px; background: var(--mat); }
+  .pic img { display: block; width: 100%; aspect-ratio: 16/10; object-fit: cover; object-position: top; object-view-box: inset(5.5% 0 0 0); border-radius: 4px; opacity: var(--pic-op, .92); }
+  .card p { margin: 0; max-width: 31em; color: var(--ink2); font-size: 13.5px; line-height: 1.5; }
+  .btn { display: inline-block; margin-top: 22px; padding: 7px 11px 6px; border-radius: 5px; background: var(--btn); color: var(--btn-ink); }
+  .card.next h2 { color: var(--ink2); }
+
+  /* V1 · Elasti. Seed fd09e6: hue 18°. The reference itself: centred card, a dark form low right, the next job peeking below. */
+  .v1 { --base: #3a1a0c; --bgimg: url(shared/assets/news-doom.jpg); --bgpos: 30% 30%; --blur: 70px; --con: 1.3; --bri: .95;
+    --tint: linear-gradient(180deg, #c8673a, #b4532a 60%, #7a3216); --blend: multiply;
+    --ink: #fff6f0; --ink2: rgba(255,246,240,.8); --ink3: rgba(255,246,240,.58);
+    --glass: rgba(255,226,206,.12); --edge: rgba(255,238,226,.16); --mat: rgba(255,240,230,.12); --btn: #fff; --btn-ink: #24140c; }
+  .v1 .card.open { left: 50%; top: 150px; margin-left: -270px; }
+  .v1 .card.next { left: 50%; top: 810px; margin-left: -270px; }
+
+  /* V2 · Poster. Seed 2549ee: autumn red. The card stands left on the nav's shoulder; the photograph's dark car and trees hold the right. */
+  .v2 { --base: #1a0d08; --bgimg: url(shared/assets/news-turbine.jpg); --bgpos: 70% 70%; --blur: 46px; --sat: 1.25; --bri: .78;
+    --tint: linear-gradient(90deg, rgba(20,8,4,.55), rgba(20,8,4,.1) 60%);
+    --ink: #fbf1ea; --ink2: rgba(251,241,234,.8); --ink3: rgba(251,241,234,.55);
+    --glass: rgba(40,16,8,.3); --edge: rgba(255,230,214,.14); --mat: rgba(255,236,224,.1); --btn: #fbf1ea; --btn-ink: #21110a; }
+  .v2 .card.open { left: 300px; top: 150px; }
+  .v2 .peek { position: absolute; left: 300px; top: 778px; width: 540px; color: var(--ink2); }
+  .v2 .peek span { color: var(--ink3); }
+
+  /* V3 · Deck. Seed c3b4c3: night green-blue. The three jobs that need you as a stack; the open one on top, the next two show their edges. */
+  .v3 { --base: #08100f; --bgimg: url(shared/assets/news-msx.jpg); --bgpos: 40% 60%; --blur: 60px; --sat: 1.1; --bri: .7;
+    --tint: linear-gradient(180deg, rgba(6,14,16,.3), rgba(4,8,10,.7));
+    --ink: #eef5f3; --ink2: rgba(238,245,243,.8); --ink3: rgba(238,245,243,.52);
+    --glass: rgba(170,215,210,.09); --edge: rgba(200,235,230,.15); --mat: rgba(220,240,236,.08); --btn: #eef5f3; --btn-ink: #0a1513; }
+  .v3 .card.open { left: 50%; top: 168px; margin-left: -270px; height: 580px; }
+  .v3 .card.back { left: 50%; margin-left: -250px; width: 500px; height: 580px; padding: 14px 22px; }
+  .v3 .card.back h2 { font-size: 13.5px; color: var(--ink3); }
+  .v3 .b1 { top: 140px; opacity: .8; } .v3 .b2 { top: 112px; margin-left: -230px !important; width: 460px !important; opacity: .55; }
+
+  /* V4 · Fog. Seed f5b325: pale field. The light one: white glass on mist, the dark timber of the photograph behind it. */
+  .v4 { --base: #e6e5df; --bgimg: url(shared/assets/news-crossbow.jpg); --bgpos: 45% 60%; --blur: 40px; --sat: .35; --bri: 1.12;
+    --tint: rgba(240,239,233,.42);
+    --ink: #191a16; --ink2: rgba(25,26,22,.76); --ink3: rgba(25,26,22,.5);
+    --glass: rgba(255,255,255,.4); --edge: rgba(255,255,255,.75); --mat: rgba(255,255,255,.6); --btn: #191a16; --btn-ink: #f4f3ee; --pic-op: 1; }
+  .v4 .card.open { left: 50%; top: 150px; margin-left: -270px; }
+  .v4 .card.next { left: 50%; top: 810px; margin-left: -270px; }
+
+  /* V5 · Corner. Seed 63d15a: night. The photograph is the page; the card sits small at the lower right, like a note left on a desk. */
+  .v5 { --base: #0a0c14; --bgimg: url(shared/assets/news-msx.jpg); --bgpos: 30% 40%; --blur: 24px; --sat: .9; --bri: .55;
+    --tint: linear-gradient(200deg, rgba(10,12,20,.2), rgba(10,12,20,.7));
+    --ink: #eef1f8; --ink2: rgba(238,241,248,.8); --ink3: rgba(238,241,248,.55);
+    --glass: rgba(16,20,32,.42); --edge: rgba(210,220,245,.14); --mat: rgba(220,228,248,.08); --btn: #eef1f8; --btn-ink: #0c1020; }
+  .v5 .card.open { right: 30px; bottom: 76px; width: 460px; height: 560px; }
+
+  @media (max-width: 760px) {
+    .v, .only .v { height: auto; min-height: 100vh; padding: 92px 16px 80px; }
+    .nav, .foot-r, .card.next, .card.back, .peek { display: none; }
+    .brand { left: 16px; top: 24px; } .clock { right: 16px; top: 24px; }
+    .foot-l { left: 16px; bottom: 22px; }
+    .card.open { position: relative; inset: auto !important; margin: 0 !important; width: auto !important; height: auto; min-height: 560px; }
+    .pic { width: 80%; }
+  }
+</style>
+</head>
+<body>
+<div id="lab"></div>
+<script>
+  var mark = '<svg class="mark" viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M15 2v26M3.7 8.5l22.6 13M3.7 21.5l22.6-13"/></svg>';
+  var brand = '<div class="brand"><svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 4v22M5.5 9.5l19 11M5.5 20.5l19-11"/></svg>Flyd</div>';
+  var nav = '<ul class="nav m"><li class="on">Today</li><li>Jobs</li><li>Artefacts</li><li>Preferences</li></ul>';
+  var d = new Date();
+  var clock = '<div class="clock m">' + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + "<br>" + d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) + "</div>";
+  var foot = '<div class="foot-l m">3 jobs need you</div><div class="foot-r m">News · 9 picks today</div>';
+  var title = "<h1>CapFive dashboard: five versions to pick from</h1>";
+  var low = '<div class="low"><figure class="pic"><img src="shared/assets/capfive-v2.jpg" alt="CapFive dashboard, version 2"></figure>'
+    + "<p>I'd build version 2: the closed-deal tombstone leads, in CapFive's own style, using the site's existing parts.</p>"
+    + '<span class="btn m">Build version 2</span></div>';
+  var open = function (withMark) { return '<section class="card open">' + (withMark ? mark : "") + title + low + "</section>"; };
+  var next = '<section class="card next"><h2>DIR station ident with tighter type</h2></section>';
+  var V = [
+    { cls: "v1", tag: "V1 · Elasti.", line: "The reference itself: one centred glass card, its mark, the job's headline at the top and Flyd's pick at the bottom; the next job peeks below.",
+      body: open(true) + next },
+    { cls: "v2", tag: "V2 · Poster.", line: "The card stands on the left beside the nav, and the photograph's dark shapes hold the right half of the page.",
+      body: open(false) + '<div class="peek m">Next · DIR station ident with tighter type <span>· Flyd keeps opening Calendar and Notes</span></div>' },
+    { cls: "v3", tag: "V3 · Deck.", line: "The three jobs that need you as a stack of glass; the open one on top, the next two showing only their edges and names.",
+      body: '<section class="card back b2"><h2>Flyd keeps opening Calendar and Notes</h2></section><section class="card back b1"><h2>DIR station ident with tighter type</h2></section>' + open(false) },
+    { cls: "v4", tag: "V4 · Fog.", line: "The light one: white glass on a misted field photograph, dark ink, the next job peeking below.",
+      body: open(false) + next },
+    { cls: "v5", tag: "V5 · Corner.", line: "The photograph is the page; the job is a smaller card at the lower right, like a note left on a desk.",
+      body: open(false) },
+  ];
+  var only = (location.hash.match(/^#(v\d)$/) || [])[1];
+  if (only) document.body.classList.add("only");
+  document.getElementById("lab").innerHTML = V.filter(function (v) { return !only || v.cls === only; }).map(function (v) {
+    return '<p class="tag"><b>' + v.tag + "</b> " + v.line + '</p><section class="v ' + v.cls + '"><div class="bg"></div><div class="tint"></div>' + brand + nav + clock + v.body + foot + "</section>";
+  }).join("");
+</script>
+</body>
+</html>

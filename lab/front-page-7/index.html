@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd front page lab 7</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  /* Lab 7: one version, measured from the Elasti reference at 1200 × 750 and
+     filled with Flyd's content. No screenshot in the card; the light does the work. */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { position: relative; min-height: 750px; overflow: hidden; color: #fff; background: #a9583a;
+    font: 360 17px/22px Inter, system-ui, sans-serif; letter-spacing: -.01em; -webkit-font-smoothing: antialiased; }
+
+  /* The light: a warm field with one soft dark shape low right, as a heavily blurred photograph would give. */
+  .light { position: fixed; inset: -10%; z-index: -2; filter: blur(40px);
+    background:
+      radial-gradient(28% 34% at 74% 80%, rgba(8,8,8,.96), rgba(8,8,8,.75) 40%, transparent 100%),
+      radial-gradient(22% 30% at 58% 98%, rgba(10,10,10,.8), transparent 100%),
+      radial-gradient(60% 50% at 85% 30%, rgba(196,110,72,.9), transparent 70%),
+      radial-gradient(70% 60% at 10% 55%, rgba(178,82,40,.95), transparent 70%),
+      linear-gradient(180deg, #ad6448 0%, #b0603e 35%, #a24e2c 62%, #6a2e1a 88%, #4a2214 100%); }
+  .grain { position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .3;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,.035) 0 1px, transparent 1px 3px); }
+
+  .m { font: 400 11px/15px "JetBrains Mono", monospace; letter-spacing: .04em; text-transform: uppercase; }
+
+  .brand { position: absolute; top: 23px; left: 22px; display: flex; align-items: center; gap: 7px; font-size: 16px; letter-spacing: -.01em; }
+  .brand svg { width: 19px; height: 19px; }
+  .nav { position: absolute; top: 93px; left: 24px; margin: 0; padding: 0; list-style: none; }
+  .nav li { height: 30px; color: rgba(255,255,255,.55); } .nav li.on { color: #fff; }
+  .clock { position: absolute; top: 23px; right: 24px; text-align: right; color: rgba(255,255,255,.72); font-variant-numeric: tabular-nums; }
+  .clock span { display: block; height: 20px; }
+  .foot-l { position: absolute; left: 24px; bottom: 23px; color: rgba(255,255,255,.72); }
+  .foot-r { position: absolute; right: 24px; bottom: 23px; text-align: right; color: rgba(255,255,255,.72); }
+  .foot-r span { display: block; height: 20px; }
+
+  .card { position: absolute; left: 50%; width: 450px; margin-left: -225px; padding: 26px 26px 30px; border-radius: 10px;
+    background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1px rgba(255,255,255,.13);
+    backdrop-filter: blur(18px) saturate(1.05); -webkit-backdrop-filter: blur(18px) saturate(1.05); }
+  .card.open { top: 125px; height: 500px; display: flex; flex-direction: column; }
+  .card svg { width: 26px; height: 28px; }
+  .card h1 { margin: 22px 0 0; font: inherit; max-width: 270px; }
+  .card .low { margin-top: auto; }
+  .card p { margin: 0; max-width: 262px; font-size: 12.5px; line-height: 17px; letter-spacing: 0; color: rgba(255,255,255,.72); }
+  .btn { display: inline-block; margin-top: 16px; height: 26px; padding: 0 10px; border-radius: 4px; background: #fff; color: #1a1a1a; line-height: 26px; }
+  .card.next { top: 675px; height: 300px; background: rgba(255,255,255,.06); }
+  .card.next h1 { margin: 0; color: rgba(255,255,255,.55); padding-top: 3px; }
+</style>
+</head>
+<body>
+<div class="light"></div><div class="grain"></div>
+
+<div class="brand"><svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 4v22M5.5 9.5l19 11M5.5 20.5l19-11"/></svg>Flyd</div>
+<ul class="nav m"><li class="on">Today</li><li>Jobs</li><li>Artefacts</li><li>Preferences</li></ul>
+<div class="clock m"><span id="t"></span><span id="d"></span></div>
+
+<section class="card open">
+  <svg viewBox="0 0 26 28" fill="none" stroke="currentColor" stroke-width="1.1"><path d="M13 1v26M1.7 7.5l22.6 13M1.7 20.5l22.6-13"/></svg>
+  <h1>Five CapFive dashboards are ready. I'd build the second.</h1>
+  <div class="low">
+    <p>Page one brings back the closed-deal tombstone as the lead story, told in CapFive's own editorial style.</p>
+    <span class="btn m">See the five</span>
+  </div>
+</section>
+<section class="card next"><h1>The DIR station ident is tighter. Six takes are in the lab.</h1></section>
+
+<div class="foot-l m">3 jobs need you,<br>3 working, 4 done<br>this week.</div>
+<div class="foot-r m"><span>9 news picks today</span><span>Artefacts / News</span></div>
+
+<script>
+  function tick() {
+    var d = new Date();
+    document.getElementById("t").textContent = d.toLocaleTimeString("en-GB");
+    document.getElementById("d").textContent = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }).toUpperCase();
+  }
+  tick(); setInterval(tick, 1000);
+</script>
+</body>
+</html>
