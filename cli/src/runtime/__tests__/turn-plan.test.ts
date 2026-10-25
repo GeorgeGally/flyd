@@ -47,6 +47,18 @@ describe("turn plan", () => {
     expect(offRoute(knowledge, "start_coding_task", { outcome: "build it" })).toMatch(/^Skipped/);
   });
 
+  it("hands a creative delegated turn to the designers, not only a generic background job", () => {
+    const withDesign = [...tools, { name: "start_design_task" }];
+    const creative = planTurn(jev("delegate", "creative"));
+    expect(visibleTools(withDesign, creative).map((tool) => tool.name)).toEqual(["background_task", "start_design_task"]);
+    expect(offRoute(creative, "start_design_task", { outcome: "five landing heroes", done_when: ["five versions"] })).toBeNull();
+    expect(planBrief(creative!)).toContain("a design lab, N versions or a redesign of a page, screen or component goes to start_design_task");
+    expect(visibleTools(withDesign, planTurn(jev("delegate", "life"))).map((tool) => tool.name)).toEqual(["background_task"]);
+    // Starting designs changes something, so an answer turn keeps it out of sight; acting may start one.
+    expect(visibleTools(withDesign, planTurn(jev("answer"))).map((tool) => tool.name)).not.toContain("start_design_task");
+    expect(offRoute(planTurn(jev("act")), "start_design_task", { outcome: "a lab" })).toBeNull();
+  });
+
   it("asks back on an unclear request, without researching first", () => {
     const plan = planTurn(jev("clarify"));
     expect(plan!.instruction).toContain("Ask one short question");

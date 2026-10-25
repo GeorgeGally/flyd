@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kindVisual } from "../cards.js";
-import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, MAX_RECENT, monitorsFromActivityRecords, recordActivity } from "../activity.js";
+import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, LAB_REVIEW_WINDOW_MS, labReviews, MAX_RECENT, monitorsFromActivityRecords, recordActivity } from "../activity.js";
+import { needsGeorge } from "../semantic.js";
+import { saveDomainRun } from "../../command/store.js";
+import type { DomainRun } from "../../command/types.js";
 
 const NOW = Date.parse("2026-10-17T12:00:00.000Z");
 const minutesAgo = (minutes: number): string => new Date(NOW - minutes * 60_000).toISOString();
@@ -339,5 +342,59 @@ describe("activity-backed semantic monitors", () => {
     expect(monitorsFromActivityRecords(records)).toMatchObject([{
       id: "monitor:watch:staff", lifecycle: "resolved", monitor: { phase: "resolved" },
     }]);
+  });
+});
+
+describe("design labs waiting for his review", () => {
+  const lab = (id: string, extra: Partial<DomainRun> = {}, request: Partial<DomainRun["request"]> = {}): DomainRun => ({
+    id, owner: "FirstMate", status: "completed", createdAt: minutesAgo(120), updatedAt: minutesAgo(10),
+    transport: { kind: "firstmate", requestId: id },
+    request: { id, domain: "coding", originalMessage: "make a lab for the hero", intendedOutcome: "Five versions of the landing hero", doneWhen: ["five versions"], createdAt: minutesAgo(120), skill: { name: "design-lab", body: "…" }, project: { name: "CapFive" }, ...request },
+    result: {
+      format: "structured", brief: "Five distinct heroes, each critiqued to 9/10. V2 and V4 are the strongest.", detailedReport: "", decisionsMade: [], unresolvedQuestions: [], risks: [],
+      evidence: ["/Users/elsewhere/secret.png"],
+      artifacts: ["http://localhost:5173/labs/hero.html", "/fm/data/hero/v1.png", "/fm/data/hero/v2.png", "/fm/data/hero/v2.png"],
+      specialistOutputs: [], raw: [], informationLossRisk: "low",
+    },
+    ...extra,
+  });
+
+  it("shows a finished lab as ready for review, with its link and the screenshots the window may serve", () => {
+    const [review, ...rest] = labReviews([lab("domain-lab")], NOW, ["/fm"]);
+    expect(rest).toEqual([]);
+    expect(review).toMatchObject({
+      id: "lab:domain-lab", kind: "activity", lifecycle: "active", subject: "Five versions of the landing hero",
+      summary: "Ready for your review.", project: "CapFive", activity: { phase: "ready" },
+      detail: "Five distinct heroes, each critiqued to 9/10. V2 and V4 are the strongest.",
+    });
+    expect(review!.evidence).toEqual([
+      { kind: "web", ref: "http://localhost:5173/labs/hero.html", label: "Open the lab" },
+      { kind: "image", ref: "/api/rail-image?path=%2Ffm%2Fdata%2Fhero%2Fv1.png", label: "v1.png" },
+      { kind: "image", ref: "/api/rail-image?path=%2Ffm%2Fdata%2Fhero%2Fv2.png", label: "v2.png" },
+    ]);
+    expect(needsGeorge(review!)).toBe(true);
+  });
+
+  it("leaves out ordinary work, labs still under way, labs he has answered and labs left too long", () => {
+    const answered = lab("domain-answered");
+    const followUp = lab("domain-round-two", { status: "working" }, { parentRequestId: "domain-answered" });
+    expect(labReviews([
+      lab("domain-code", {}, { skill: undefined }),
+      lab("domain-working", { status: "working" }),
+      answered, followUp,
+      lab("domain-old", { updatedAt: new Date(NOW - LAB_REVIEW_WINDOW_MS - 60_000).toISOString() }),
+    ], NOW, ["/fm"])).toEqual([]);
+  });
+
+  it("reads the domain runs Flyd keeps, so the panel carries the review", () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-activity-labs-"));
+    try {
+      saveDomainRun(lab("domain-lab"), join(dir, "command"));
+      const panel = new ActivityReader({ dir, now: () => NOW }).current();
+      expect(panel.reviews?.map((object) => object.id)).toEqual(["lab:domain-lab"]);
+      expect(composeActivity({ log: [], jobs: [], advice: [], records: [] }, NOW).reviews).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

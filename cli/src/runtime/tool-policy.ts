@@ -200,6 +200,7 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     case "speaking_style":
     case "background_task":
     case "start_knowledge_task":
+    case "start_design_task":
     case "pass_on_question":
       return "local";
     // Merging into George's branch or deleting a crew branch is his call, every time.
@@ -238,6 +239,8 @@ function describe(name: string, input: Record<string, unknown>): string {
     case "whatsapp_send": return `send WhatsApp draft ${clip(String(input.id ?? ""), 40)}`;
     case "start_knowledge_task":
       return `research "${clip(String(input.outcome ?? ""), 80)}"`;
+    case "start_design_task":
+      return `design "${clip(String(input.outcome ?? ""), 80)}"`;
     case "pass_on_question":
       return `pass on the question "${clip(String(input.question ?? ""), 80)}"`;
     case "domain_work":

@@ -11,7 +11,7 @@ afterEach(() => rmSync(home, { recursive: true, force: true }));
 describe("skills", () => {
   it("seeds the bundled skills once, and one he deletes stays deleted", () => {
     const added = seedSkills(home, bundledSkillsDir());
-    expect(added.sort()).toEqual(["chase-payment", "launch-plan", "plan-week", "prioritize", "research-brief", "write-message"]);
+    expect(added.sort()).toEqual(["chase-payment", "design-lab", "launch-plan", "plan-week", "prioritize", "research-brief", "write-message"]);
     expect(loadSkills(home).find((skill) => skill.name === "chase-payment")?.description).toMatch(/^Getting money George is owed paid/);
     rmSync(join(home, "prioritize"), { recursive: true });
     expect(seedSkills(home, bundledSkillsDir())).toEqual([]);

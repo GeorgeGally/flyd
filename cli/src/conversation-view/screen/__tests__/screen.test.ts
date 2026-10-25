@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { SCREEN_FIXTURES } from "../fixtures.js";
 import { isScreenMeaning, meaningOf, SCREEN_MEANINGS } from "../meaning.js";
 import { fillScreen, SCREEN_PATTERNS, screenComplete } from "../patterns.js";
-import { reviewScreen, screenTeamLoop } from "../owner.js";
 
 describe("screen meanings", () => {
   it("reads each fixture's meaning from the object, its plan or the runtime's name", () => {
@@ -85,23 +84,5 @@ describe("screen patterns", () => {
     expect(filled.meaning).toBe("decision");
     expect(filled.action).toBe("approve");
     expect(filled.blocks.find((block) => block.kind === "operation")).toMatchObject({ text: "Send the drafted WhatsApp reply", category: "outward" });
-  });
-});
-
-describe("screen team", () => {
-  it("runs Discover, Define and Deliver for the meaning, and keeps the pattern in Deliver", () => {
-    const assignment = { objectId: "task:launch", meaning: "decision" as const, subject: "Choose the launch date" };
-    const loop = screenTeamLoop(assignment);
-    expect(loop.map((stage) => stage.stage)).toEqual(["discover", "define", "deliver"]);
-    expect(loop[2]!.evidence).toContain(`pattern:${SCREEN_PATTERNS.decision.id}`);
-    expect(loop[1]!.evidence).toEqual(["desktop", "phone"]);
-  });
-
-  it("gates a screen on a body, an action, both viewports and an independent check", () => {
-    const fixture = SCREEN_FIXTURES.find((item) => item.meaning === "decision")!;
-    const filled = fillScreen(fixture.object);
-    expect(reviewScreen(filled).ok).toBe(false);
-    expect(reviewScreen(filled).missing).toContain("phone screenshot");
-    expect(reviewScreen(filled, { directions: 3, desktop: true, phone: true, independent: true })).toEqual({ ok: true, missing: [] });
   });
 });

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -44,6 +44,27 @@ describe("assistant tools", () => {
     }
   });
 
+  it("routes design work to the coding boss's domain path, never a real note from a test", async () => {
+    const home = join(dir, "firstmate");
+    mkdirSync(join(home, "bin"), { recursive: true });
+    const calls = join(dir, "calls.log");
+    writeFileSync(join(home, "bin", "fm-inbox.sh"), `#!/bin/sh\necho "$1" >> '${calls}'\nprintf '%s' '{"can_receive":true}'\n`, { mode: 0o755 });
+    const saved = { home: process.env.FLYD_FIRSTMATE_HOME, command: process.env.FLYD_COMMAND_DIR };
+    process.env.FLYD_FIRSTMATE_HOME = home;
+    process.env.FLYD_COMMAND_DIR = join(dir, "command");
+    try {
+      // Refused by the test-worker guard on the domain path, which a generic background job would never reach.
+      expect(await runAssistantTool("start_design_task", { outcome: "Five landing heroes", done_when: ["five versions"], repo: dir }))
+        .toBe("Design request refused: test_worker");
+      expect(existsSync(calls) ? readFileSync(calls, "utf8") : "").not.toContain("note");
+    } finally {
+      for (const [key, value] of [["FLYD_FIRSTMATE_HOME", saved.home], ["FLYD_COMMAND_DIR", saved.command]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it("manages the confirmed to-do list", async () => {
     expect(await runAssistantTool("todos", { action: "list" })).toBe("(no open to-dos)");
     const added = await runAssistantTool("todos", { action: "add", items: "- call the accountant\n- renew passport" });
@@ -74,6 +95,9 @@ describe("assistant tools", () => {
       .toBe("Error: start_knowledge_task needs an outcome");
     expect(await runAssistantTool("start_knowledge_task", { outcome: "Research Jev" }))
       .toBe("Error: start_knowledge_task needs done_when: the checkable points that mean it's done");
+    expect(await runAssistantTool("start_design_task", { outcome: "" })).toBe("Error: start_design_task needs an outcome");
+    expect(await runAssistantTool("start_design_task", { outcome: "Five landing heroes" }))
+      .toBe("Error: start_design_task needs done_when: the checkable points that mean the lab is ready");
     expect(await runAssistantTool("crew", { action: "list" })).toBe("No crew tasks yet.");
     expect(await runAssistantTool("crew", { action: "land" })).toBe("Error: crew show/land/discard needs an id");
   });
