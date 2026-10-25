@@ -14,7 +14,7 @@ CLAUDE="${FLYD_AUDIT_CLAUDE:-$HOME/.local/bin/claude}"
 cd "$REPO"
 "$CLAUDE" -p "$(cat "$REPO/docs/audit/state-of-the-nation-prompt.md")" \
   --permission-mode dontAsk \
-  --allowedTools "Read" "Grep" "Glob" "Bash(git log:*)" "Bash(git show:*)" "Bash(git diff:*)" "Bash(ls:*)" "Bash(wc:*)" "Bash(grep:*)" "Bash(tail:*)" "Bash(head:*)" "Bash(curl -s http://127.0.0.1:4815/health)" "Bash(flyd crew list)" \
+  --allowedTools "Read" "Grep" "Glob" "Bash(git log:*)" "Bash(git show:*)" "Bash(git diff:*)" "Bash(ls:*)" "Bash(wc:*)" "Bash(grep:*)" "Bash(tail:*)" "Bash(head:*)" "Bash(curl -s http\://127.0.0.1\:4815/health)" "Bash(curl -s -o /dev/null -w *)" "Bash(flyd crew list)" "Bash(flyd doctor *)" \
   > "$OUT.tmp"
 mv "$OUT.tmp" "$OUT"
 

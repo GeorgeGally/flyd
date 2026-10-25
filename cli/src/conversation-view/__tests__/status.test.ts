@@ -170,20 +170,37 @@ describe("IslandRung", () => {
     const { join } = await import("node:path");
     const { IslandRung } = await import("../status.js");
     const file = join(mkdtempSync(join(tmpdir(), "island-")), "rung.json");
+    let now = 1_000_000;
+    const later = () => { now += 61_000; };
     const truchet = { working: false, reply: { id: "decision:truchet", headline: "Truchet hero lab is ready to land", asks: true } };
     const landIt = { working: false, reply: { id: "decision:land-it", headline: "Land it?", asks: true } };
-    const rung = new IslandRung(file);
+    const rung = new IslandRung(file, 500, () => now);
     expect(rung.once(truchet).reply?.id).toBe("decision:truchet");
+    // Every connection open as it rings sees it: a second read a moment later still carries it.
+    expect(rung.once(truchet).reply?.id).toBe("decision:truchet");
+    later();
     expect(rung.once({ working: false }).reply).toBeUndefined();
     expect(rung.once(truchet).reply).toBeUndefined();
     expect(rung.once(landIt).reply?.id).toBe("decision:land-it");
+    later();
     expect(rung.once(truchet).reply).toBeUndefined();
-    expect(new IslandRung(file).once(landIt).reply).toBeUndefined();
+    expect(new IslandRung(file, 500, () => now).once(landIt).reply).toBeUndefined();
     const refiled = { working: false, reply: { id: "decision:truchet-again", headline: "Truchet hero lab is ready to land", asks: true } };
     expect(rung.once(refiled).reply).toBeUndefined();
     const ask = (id: string) => ({ id, text: "Truchet hero lab (Find-an-adviser) is ready to land on local CapFive main" });
     expect(rung.onceNotice(ask("n1"))?.id).toBe("n1");
+    later();
     expect(rung.onceNotice(ask("n2"))).toBeUndefined();
-    expect(new IslandRung(file).onceNotice(ask("n3"))).toBeUndefined();
+    expect(new IslandRung(file, 500, () => now).onceNotice(ask("n3"))).toBeUndefined();
+  });
+
+  it("reads the older record, a plain list of keys, as rung long ago", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { IslandRung } = await import("../status.js");
+    const file = join(mkdtempSync(join(tmpdir(), "island-")), "rung.json");
+    writeFileSync(file, JSON.stringify(["decision:old"]));
+    expect(new IslandRung(file).once({ working: false, reply: { id: "decision:old", headline: "Old ask", asks: true } }).reply).toBeUndefined();
   });
 });

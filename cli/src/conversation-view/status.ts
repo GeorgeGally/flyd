@@ -8,7 +8,7 @@ import type { FleetArtefact } from "./artefact.js";
 import type { ConversationSnapshot } from "./types.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { FLYD_DIR } from "../lib/config.js";
+import { homedir } from "node:os";
 
 // A glanceable status of the conversation for Flyd's notch island: is the
 // assistant working, what is it doing, and what did its newest reply say
@@ -153,13 +153,23 @@ function wordKey(text: string): string {
   return `notice:${text.replace(/^needs you:\s*/i, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 160)}`;
 }
 
+/** How long an item keeps going out after it first rings: every connection open at that moment sees it, then never again. */
+const RING_WINDOW_MS = 60_000;
+
 export class IslandRung {
-  private readonly ids: string[];
+  /** Key → when it first rang. */
+  private readonly rung: Map<string, number>;
   // Tests keep the record in memory unless they name a file: never George's real one.
-  constructor(private readonly file: string | null = process.env.VITEST ? null : join(process.env.FLYD_DIR || FLYD_DIR, "view", "island-rung.json"), private readonly max = 500) {
-    let ids: string[] = [];
-    try { if (file && existsSync(file)) ids = JSON.parse(readFileSync(file, "utf8")) as string[]; } catch { ids = []; }
-    this.ids = Array.isArray(ids) ? ids : [];
+  constructor(
+    private readonly file: string | null = process.env.VITEST ? null : join(process.env.FLYD_DIR || join(homedir(), ".flyd"), "view", "island-rung.json"),
+    private readonly max = 500,
+    private readonly now: () => number = Date.now,
+  ) {
+    let saved: unknown = [];
+    try { if (file && existsSync(file)) saved = JSON.parse(readFileSync(file, "utf8")); } catch { saved = []; }
+    // An older record is a plain list of keys: each rang long ago.
+    this.rung = new Map(Array.isArray(saved) ? saved.flatMap((entry): Array<[string, number]> =>
+      typeof entry === "string" ? [[entry, 0]] : Array.isArray(entry) && typeof entry[0] === "string" ? [[entry[0], Number(entry[1]) || 0]] : []) : []);
   }
 
   /** The status with any reply already rung removed; a first-seen reply is recorded and kept. */
@@ -168,8 +178,8 @@ export class IslandRung {
     if (!reply) return status;
     // The same ask comes back re-filed as a new decision with a new id, so the
     // wording counts as well as the id.
-    const worded = this.first(wordKey(reply.headline));
-    const fresh = this.first(reply.id) && worded;
+    const worded = this.ringing(wordKey(reply.headline));
+    const fresh = this.ringing(reply.id) && worded;
     if (fresh) return status;
     const { reply: _rung, ...rest } = status;
     return rest;
@@ -181,18 +191,20 @@ export class IslandRung {
    */
   onceNotice<T extends { text: string }>(notice: T | undefined): T | undefined {
     if (!notice) return undefined;
-    return this.first(wordKey(notice.text)) ? notice : undefined;
+    return this.ringing(wordKey(notice.text)) ? notice : undefined;
   }
 
-  /** True the first time a key is seen (and records it). */
-  private first(id: string): boolean {
-    if (this.ids.includes(id)) return false;
-    this.ids.push(id);
-    if (this.ids.length > this.max) this.ids.splice(0, this.ids.length - this.max);
+  /** True while a key is new: unseen (it is recorded now) or first rung within the window. */
+  private ringing(key: string): boolean {
+    const at = this.now();
+    const first = this.rung.get(key);
+    if (first !== undefined) return at - first < RING_WINDOW_MS;
+    this.rung.set(key, at);
+    while (this.rung.size > this.max) this.rung.delete(this.rung.keys().next().value!);
     if (!this.file) return true;
     try {
       mkdirSync(dirname(this.file), { recursive: true });
-      writeFileSync(this.file, JSON.stringify(this.ids));
+      writeFileSync(this.file, JSON.stringify([...this.rung]));
     } catch { /* best effort: worst case one more ring after a restart */ }
     return true;
   }
