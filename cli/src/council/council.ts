@@ -97,7 +97,9 @@ export async function runCouncilPass(deps: CouncilDependencies): Promise<Council
     const librarian = await runLibrarian({ complete: deps.complete, now: () => now });
     // What the Librarian just curated reaches every agent as skills.
     try { syncTasteSkills(); } catch { /* next pass */ }
-    if (librarian.skipped || tasteOnly) return { librarian, advisories: [], notified: [] };
+    // A taste-only pass still reads (and consumes) new turns; when it did, the advisors
+    // must see them now, or the work-due check never fires for those turns again.
+    if (librarian.skipped || (tasteOnly && !librarian.turns && !librarian.captures)) return { librarian, advisories: [], notified: [] };
     const advisories = await runAdvisors({
       profile: readUserProfile(),
       memory: memoryPromptText(),

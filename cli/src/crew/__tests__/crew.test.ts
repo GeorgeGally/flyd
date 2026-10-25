@@ -395,6 +395,22 @@ describe("crew review against done_when", () => {
     expect(done.review?.[0].note).toBe("the review couldn't run");
   });
 
+  it("reviews again on a later pass when the review couldn't run, and tells George the verdict", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    await superviseCrew({ alive: () => false, runCommand: passing, review: async () => { throw new Error("401 bad key"); } });
+    const notify = vi.fn(async () => {});
+    const [judged] = await superviseCrew({ alive: () => false, runCommand: passing, notify, review: async () => "MET 1: yes\nMET 2: yes" });
+    expect(judged).toMatchObject({ status: "ready", reviewRetries: 1, review: [{ met: true }, { met: true }] });
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/done and tested/), "deliverable");
+  });
+
+  it("stops retrying a review that keeps failing", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    const review = vi.fn(async (): Promise<string> => { throw new Error("down"); });
+    for (let pass = 0; pass < 6; pass += 1) await superviseCrew({ alive: () => false, runCommand: passing, review });
+    expect(review).toHaveBeenCalledTimes(4);
+  });
+
   it("gives the repair round its own clock", async () => {
     const start = new Date(Date.now() - 3 * 3_600_000);
     await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate(), now: start });

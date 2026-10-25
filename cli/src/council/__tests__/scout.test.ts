@@ -246,6 +246,15 @@ describe("evolution", () => {
     expect(await scoutTick({ complete, fetchFn, dir, now: () => morning })).toEqual(["watch: 0 must-know"]);
   });
 
+  it("never pauses a source George has only been shown, not marked down", async () => {
+    writeSources([
+      { id: "rss:simonwillison.net/atom/everything", kind: "rss", name: "Simon Willison", target: "https://simonwillison.net/atom/everything/", status: "active", shown: 40, likes: 0, dislikes: 0, failures: 0, addedBy: "seed", addedAt: "2026-09-01T00:00:00Z" },
+    ], dir);
+    const complete = vi.fn(async () => JSON.stringify({ add: [], taste: SEED_TASTE, taste_change: "" }));
+    await evolveScout({ complete, dir, now: () => at("2026-09-27T07:00:00Z") });
+    expect(readSources(dir).find((source) => source.name === "Simon Willison")?.status).toBe("active");
+  });
+
   it("gives failure-paused sources one retry after they rest, but leaves taste pauses alone", () => {
     const base = { shown: 0, likes: 0, dislikes: 0, addedBy: "seed" as const, addedAt: "2026-09-01T00:00:00Z" };
     const sources: ScoutSource[] = [

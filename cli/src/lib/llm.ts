@@ -427,6 +427,7 @@ export async function runWithModelFailover<T>(
   const healthy = models.filter((model) => (providerCooldowns.get(model) ?? 0) <= now);
   const order = healthy.length > 0 ? [...healthy, ...models.filter((m) => !healthy.includes(m))] : models;
   let lastError: unknown;
+  const failures: string[] = [];
   for (let index = 0; index < order.length; index += 1) {
     const model = order[index];
     try {
@@ -438,7 +439,12 @@ export async function runWithModelFailover<T>(
       if (isAbort(error, options.signal)) throw error;
       if (shouldCoolDown(error)) providerCooldowns.set(model, Date.now() + PROVIDER_COOLDOWN_MS);
       const next = order[index + 1];
-      if (!next || options.canFailOver?.() === false) throw error;
+      if (!next || options.canFailOver?.() === false) {
+        // The last model's error alone hides why the earlier ones failed; name every model that was tried.
+        if (failures.length && error instanceof Error) error.message = `${error.message} (${model}; earlier: ${failures.join("; ")})`;
+        throw error;
+      }
+      failures.push(`${model}: ${error instanceof Error ? error.message : String(error)}`);
       options.onFailover?.({
         from: model,
         to: next,

@@ -46,6 +46,8 @@ export interface CrewTask {
   doneWhen?: string[];
   /** The independent review of the diff against doneWhen, after the checks pass. */
   review?: AcceptanceCheck[];
+  /** Times the review was tried again after it couldn't run. */
+  reviewRetries?: number;
   /** Crewmate runs so far: the first build plus any repair round. */
   attempts?: number;
   /** When the current crewmate run began; the runtime cap is per run. */
@@ -416,6 +418,7 @@ export function crewRepairBrief(task: CrewTask, unmet: AcceptanceCheck[], verifi
 }
 
 const MAX_REVIEW_DIFF = 80_000;
+const MAX_REVIEW_RETRIES = 3;
 const REVIEW_TIMEOUT_MS = Number(process.env.FLYD_CREW_REVIEW_TIMEOUT_MS) || 5 * 60_000;
 /** Generated and vendored files say nothing about whether the outcome was delivered. */
 const REVIEW_EXCLUDES = [":(exclude)**/package-lock.json", ":(exclude)**/yarn.lock", ":(exclude)**/pnpm-lock.yaml", ":(exclude)**/dist/**", ":(exclude)**/*.min.js"];
@@ -709,6 +712,23 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     const recorded: CrewTask = cleaned ? { ...done, worktreeRemoved: true } : done;
     saveTask(recorded, dir);
     changed.push(recorded);
+  }
+  // A review that couldn't run (a slow or refused model) is tried again on a later
+  // tick, one task per pass, rather than leaving tested work unjudged for good.
+  const unjudged = listTasks(dir).find((item) => item.status === "ready" && !changed.some((done) => done.id === item.id) && item.review?.some((check) => check.unchecked) && (item.reviewRetries ?? 0) < MAX_REVIEW_RETRIES);
+  if (unjudged) {
+    const retries = (unjudged.reviewRetries ?? 0) + 1;
+    try {
+      const reply = await (deps.review ?? defaultReview)(reviewPrompt(unjudged, await reviewDiff(unjudged)));
+      if (reply !== null) {
+        const judged: CrewTask = { ...unjudged, review: parseVerdicts(acceptanceCriteria(unjudged), reply), reviewRetries: retries, notified: false };
+        saveTask(judged, dir);
+        changed.push(judged);
+      }
+    } catch (error) {
+      console.warn("[crew] review retry failed:", error instanceof Error ? error.message : error);
+      saveTask({ ...unjudged, reviewRetries: retries }, dir);
+    }
   }
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
     const judged = (task.review ?? []).filter((check) => !check.unchecked);

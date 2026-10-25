@@ -303,6 +303,17 @@ describe("council pass", () => {
     expect(complete).toHaveBeenCalledTimes(1);
   });
 
+  it("runs the advisors when a taste pass picked up new turns, so those turns aren't lost to them", async () => {
+    quiet();
+    const id = ruleId("Never hard-code an API key.");
+    writeTaste({ rules: [{ id, text: "Never hard-code an API key.", scope: "personal", count: 1, projects: [], evidence: [] }], vetoed: [], names: {} });
+    appendJournalTurn({ user: "cleanx store review still not submitted", assistant: "ok", at: at("2026-09-27T09:59:30Z") });
+    const complete = vi.fn(async (prompt: string) => prompt.startsWith("You are Flyd's Librarian") ? JSON.stringify({ memory_ops: [] }) : '{"advisories": []}');
+    const result = await runCouncilPass({ complete, now: () => at("2026-09-27T10:00:00Z") });
+    expect(result.librarian?.turns).toBe(1);
+    expect(complete.mock.calls.some(([prompt]) => prompt.includes("George's Critic"))).toBe(true);
+  });
+
   it("curates next pass the rules learned while the model was reading", async () => {
     quiet();
     writeTaste({ rules: [{ id: ruleId("Equal gaps between the cards."), text: "Equal gaps between the cards.", scope: "personal", count: 2, projects: [], evidence: [] }], vetoed: [], names: {} });
