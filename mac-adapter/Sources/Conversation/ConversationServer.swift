@@ -94,7 +94,11 @@ final class ConversationServer {
         }
         nodePath = node
 
-        let chosen = (port.flatMap { Self.isFree($0) ? $0 : nil }) ?? Self.freeLoopbackPort(preferred: Self.preferredPort)
+        // 4818 whenever it is free: a start that found it still held by the old
+        // view must not keep the fallback port for the rest of the session.
+        let chosen = (Self.isFree(Self.preferredPort) ? Self.preferredPort : nil)
+            ?? (port.flatMap { Self.isFree($0) ? $0 : nil })
+            ?? Self.freeLoopbackPort(preferred: Self.preferredPort)
         guard let chosen else {
             fail("No free local port for the conversation view.")
             return
