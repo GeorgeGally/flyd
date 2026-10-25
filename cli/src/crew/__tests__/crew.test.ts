@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew, pruneCrewTasks, saveTask } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -285,6 +285,55 @@ describe("crew", () => {
     expect(git(repo, "branch", "--list", ready.branch)).toBe("");
     expect(listTasks().map((item) => item.status).sort()).toEqual(["discarded", "failed"]);
     expect(readTask(task.id)?.status).toBe("failed");
+  });
+
+  it("tidies old failed and discarded tasks on the supervise tick, keeping a branch that holds work", async () => {
+    const runCommand = async () => ({ ok: true, output: "" });
+    // Failed with nothing committed: worktree and branch both go.
+    const empty = await dispatchCrewTask({ repo, outcome: "Do nothing", launch: fakeCrewmate(false) });
+    await superviseCrew({ alive: () => false, runCommand });
+    // Failed with a commit of its own: worktree goes, branch stays.
+    const broken = await dispatchCrewTask({ repo, outcome: "Break the tests", launch: fakeCrewmate() });
+    await superviseCrew({ alive: () => false, runCommand: async (command) => ({ ok: command !== "git diff --check", output: "boom" }) });
+    // Failed with uncommitted changes left behind: nothing is touched.
+    const dirty = await dispatchCrewTask({ repo, outcome: "Leave a mess", launch: fakeCrewmate(false) });
+    writeFileSync(join(dirty.worktree, "wip.txt"), "half done\n");
+    await superviseCrew({ alive: () => false, runCommand });
+    // A recent failure is left for George to look at.
+    const recent = await dispatchCrewTask({ repo, outcome: "Fresh failure", launch: fakeCrewmate(false) });
+    await superviseCrew({ alive: () => false, runCommand });
+    saveTask({ ...readTask(recent.id)!, finishedAt: new Date(Date.now() + 9 * 86_400_000).toISOString() });
+    expect([empty, broken, dirty, recent].map((task) => readTask(task.id)?.status)).toEqual(["failed", "failed", "failed", "failed"]);
+    // A clean failed worktree goes at once (its branch kept while it holds commits); the rest wait for the tidy.
+    expect([empty, broken].some((task) => existsSync(task.worktree))).toBe(false);
+    expect(git(repo, "branch", "--list", broken.branch)).not.toBe("");
+    expect(existsSync(dirty.worktree)).toBe(true);
+
+    await superviseCrew({ alive: () => false, runCommand, now: () => new Date(Date.now() + 10 * 86_400_000) });
+
+    expect(existsSync(empty.worktree)).toBe(false);
+    expect(git(repo, "branch", "--list", empty.branch)).toBe("");
+    expect(readTask(empty.id)?.prunedAt).toBeTruthy();
+    expect(existsSync(broken.worktree)).toBe(false);
+    expect(git(repo, "branch", "--list", broken.branch)).toContain(broken.branch);
+    expect(readTask(broken.id)?.prunedAt).toBeTruthy();
+    expect(existsSync(join(dirty.worktree, "wip.txt"))).toBe(true);
+    expect(readTask(dirty.id)?.prunedAt).toBeUndefined();
+    expect(readTask(recent.id)?.prunedAt).toBeUndefined();
+    expect(readTask(recent.id)?.status).toBe("failed");
+  });
+
+  it("prunes a discarded task's leftovers, branch and all, once it is old enough", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
+    await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }) });
+    // A discard whose cleanup never happened (say the repo was busy) leaves both behind.
+    saveTask({ ...readTask(task.id)!, status: "discarded", finishedAt: new Date().toISOString() });
+    expect(await pruneCrewTasks({ days: 7 })).toEqual([]);
+    const [pruned] = await pruneCrewTasks({ days: 7, now: new Date(Date.now() + 8 * 86_400_000) });
+    expect(pruned).toMatchObject({ worktreeRemoved: true, branchDeleted: true });
+    expect(existsSync(task.worktree)).toBe(false);
+    expect(git(repo, "branch", "--list", task.branch)).toBe("");
+    expect(await pruneCrewTasks({ days: 0, now: new Date(Date.now() + 9 * 86_400_000) })).toEqual([]);
   });
 
   it("refuses to launch a real crewmate under tests", async () => {

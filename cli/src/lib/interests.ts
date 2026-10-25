@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { FLYD_DIR, RAW_DIR, INTERESTS_PATH, INTERESTS_STATE_PATH } from "./config.js";
 import { parse } from "./frontmatter.js";
@@ -74,6 +74,22 @@ function loadInterests(): InterestStore {
   } catch {
     return { version: 1, updated: "", global: [], projects: {} };
   }
+}
+
+let readCache: { path: string; mtimeMs: number; size: number; store: InterestStore } | null = null;
+
+/**
+ * The interests for reading only, parsed once per change of the file:
+ * retrieval scores every candidate against them, which read and parsed
+ * interests.json hundreds of times per chat turn.
+ */
+function readInterests(): InterestStore {
+  let stat;
+  try { stat = statSync(INTERESTS_PATH); } catch { return loadInterests(); }
+  if (readCache && readCache.path === INTERESTS_PATH && readCache.mtimeMs === stat.mtimeMs && readCache.size === stat.size) return readCache.store;
+  const store = loadInterests();
+  readCache = { path: INTERESTS_PATH, mtimeMs: stat.mtimeMs, size: stat.size, store };
+  return store;
 }
 
 function saveInterests(store: InterestStore): void {
@@ -316,7 +332,7 @@ export function extractInterests(options: ExtractInterestsOptions = {}): { extra
 }
 
 export function getMatchingInterests(text: string, project?: string): Interest[] {
-  const store = loadInterests();
+  const store = readInterests();
   const all: Interest[] = [...store.global];
 
   if (project && store.projects[project]) {
@@ -335,7 +351,7 @@ export function getMatchingInterests(text: string, project?: string): Interest[]
 }
 
 export function getActiveInterests(project?: string): Interest[] {
-  const store = loadInterests();
+  const store = readInterests();
   const topics = project && store.projects[project]
     ? new Set(store.projects[project])
     : null;

@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { afterAll, describe, expect, it } from "vitest";
+import { postgresAvailable, TEST_DATABASE_URL } from "../../__tests__/support/postgres.js";
 import { Pool } from "pg";
 import { InMemoryRunStore, PostgresRunStore, type RunStore } from "../run-store.js";
 import {
@@ -13,7 +14,9 @@ import {
 // Kernel behavior must be identical on both backends. Postgres proves the
 // durable contract (cross-instance resume); memory proves the abstraction.
 
-const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
+const connectionString = TEST_DATABASE_URL;
+// No local integration database: skip rather than fail (support/postgres.ts).
+const hasPostgres = await postgresAvailable();
 const pool = new Pool({ connectionString, max: 2 });
 const pgStore = new PostgresRunStore(pool);
 const principal = { kind: "user" as const, id: "kernel-eval" };
@@ -46,7 +49,7 @@ function lastOutput(outputs: OutputEvent[]): OutputEvent {
   return outputs[outputs.length - 1];
 }
 
-describe.each(Object.keys(BACKENDS) as BackendName[])("SessionKernel[%s]", (backend) => {
+describe.each((Object.keys(BACKENDS) as BackendName[]).filter((name) => hasPostgres || name !== "postgres"))("SessionKernel[%s]", (backend) => {
   it("starts a run from a user message, parks for approval, resumes on the next message", async () => {
     let turns = 0;
     const kernel = kernelWith(backend, async (ctx) => {
@@ -176,7 +179,7 @@ describe.each(Object.keys(BACKENDS) as BackendName[])("SessionKernel[%s]", (back
   });
 });
 
-describe("SessionKernel[postgres] durability", { timeout: 15_000 }, () => {
+describe.skipIf(!hasPostgres)("SessionKernel[postgres] durability", { timeout: 15_000 }, () => {
   afterAll(async () => {
     await cleanRuns();
     await pool.end();

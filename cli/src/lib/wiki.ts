@@ -34,10 +34,10 @@ export function readWikiFile(path: string): ParsedMarkdown {
   return parse(readFileSync(path, "utf8"));
 }
 
-export function walkWikiFiles(): string[] {
-  if (!existsSync(WIKI_DIR)) return [];
+export function walkWikiFiles(root: string = WIKI_DIR): string[] {
+  if (!existsSync(root)) return [];
   const results: string[] = [];
-  const stack = [WIKI_DIR];
+  const stack = [root];
   while (stack.length) {
     const dir = stack.pop()!;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

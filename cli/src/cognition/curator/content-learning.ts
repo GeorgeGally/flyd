@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { IntelligenceEventStore, type StoredEvent } from "../../intelligence/event-store.js";
-import { ProjectionEngine } from "../../intelligence/projections.js";
-import { deriveWorldState, worldModelProjector } from "../../intelligence/world/world-model.js";
+import { replayWorldModel } from "../../intelligence/world/replay-cache.js";
+import { deriveWorldState } from "../../intelligence/world/world-model.js";
 import { completeText, type CompleteText } from "../../dictation/http.js";
 import { getKey } from "../../lib/config.js";
 import { CognitiveCurator } from "./curator.js";
@@ -111,7 +111,7 @@ export function applyLessons(store: IntelligenceEventStore, event: StoredEvent, 
   const occurredAt = typeof conversation.occurredAt === "string" ? Date.parse(conversation.occurredAt) : NaN;
   const effectiveAt = Number.isFinite(occurredAt) ? new Date(occurredAt).toISOString() : event.capturedAt;
   const curator = new CognitiveCurator(store);
-  const prior = new ProjectionEngine(store, worldModelProjector).rebuild(0).state;
+  const prior = replayWorldModel(store);
   const current = deriveWorldState(prior).current;
   let applied = 0;
   for (const lesson of lessons) {

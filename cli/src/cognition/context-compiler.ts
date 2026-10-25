@@ -7,7 +7,6 @@ import { materializePresentFromWork } from "./present-materializer.js";
 import { readProjection, readProjectProjection } from "./projections/store.js";
 import type { CompiledContext } from "./types.js";
 import type { JevOptions } from "./system-one/types.js";
-import { readContextBundles } from "../lib/context-bundles.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import { memoryPromptText } from "../council/memory-store.js";
 import { resolveTasteProject, tastePromptText } from "../council/taste.js";
@@ -68,9 +67,13 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   catch { omissions.push("present_materialization_failed"); }
 
   const tProjection = Date.now();
-  const profile = readProjection("profile");
+  // PROFILE carries canonical person/preference claims; until there are any
+  // it only says so, and that sentence is not worth a place in the prompt.
+  const profileProjection = readProjection("profile");
+  const profile = /^- No canonical profile claims yet\.$/m.test(profileProjection) ? "" : profileProjection;
   const nowProjection = readProjection("now");
-  sources.push("PROFILE","NOW");
+  sources.push(...(profile ? ["PROFILE"] : []), "NOW");
+  if (!profile) omissions.push("profile_projection_empty");
   timings.projections=Date.now()-tProjection;
 
   const present = { ...readPresentState(), projection: nowProjection };
@@ -90,22 +93,12 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   timings.memory=Date.now()-tMemory;
   sources.push("world-model","memory");
 
-  const legacyBundles = readContextBundles();
-  const legacyProfile = legacyBundles
-    .filter((bundle) => bundle.name === "current_identity" || bundle.name === "current_constraints")
-    .map((bundle) => `## Legacy ${bundle.name}\n${bundle.body}`)
-    .join("\n\n");
-  if (legacyProfile) sources.push("legacy-context-bundles");
+  // The legacy context bundles (~/.flyd/context) were compiled from the June
+  // wiki and have not been regenerated since; USER.md, MEMORY.md and the
+  // project projections carry who he is and what he is working on now.
   const projects = interpretation.projectIds
     .map((id) => ({ id, projection: readProjectProjection(id) }))
     .filter((item) => Boolean(item.projection));
-  const legacyActiveProjects = legacyBundles
-    .filter((bundle) => bundle.name === "active_projects" || bundle.name === "recent_history")
-    .map((bundle) => `## Legacy ${bundle.name}\n${bundle.body}`)
-    .join("\n\n");
-  if (legacyActiveProjects && projects.length === 0) {
-    projects.push({ id: "legacy:active-work", projection: legacyActiveProjects });
-  }
   let ownProfile: string | null = null;
   try { ownProfile = readUserProfile(); } catch { omissions.push("user_profile_unreadable"); }
   if (ownProfile) sources.push("USER.md");
@@ -128,7 +121,6 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   const profileCombined = [
     personalPromptBlocks(ownProfile, curated),
     clampText(profile, 1500),
-    clampText(legacyProfile, 1500),
   ].filter(Boolean).join("\n\n");
 
   timings.total=Date.now()-started;

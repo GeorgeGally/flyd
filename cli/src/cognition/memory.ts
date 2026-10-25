@@ -1,7 +1,7 @@
-import { defaultIntelligenceDbPath, IntelligenceEventStore } from "../intelligence/event-store.js";
-import { ProjectionEngine } from "../intelligence/projections.js";
-import { deriveWorldState, worldModelProjector, type WorldModelState } from "../intelligence/world/world-model.js";
-import { retrieveResilientLexicalBrainEvidence } from "../lib/brain-retrieval.js";
+import { IntelligenceEventStore } from "../intelligence/event-store.js";
+import { replayWorldModel } from "../intelligence/world/replay-cache.js";
+import { deriveWorldState } from "../intelligence/world/world-model.js";
+import { retrieveLiveBrainEvidence, type BrainRetrievalResult } from "../lib/brain-retrieval.js";
 import { evaluatePredicates } from "./system-one/jev.js";
 import { familyEgress, questionFor } from "./system-one/registry.js";
 import type { JevOptions, PredicateQuestion } from "./system-one/types.js";
@@ -21,22 +21,28 @@ export interface MemoryQuery {
   jev?: JevOptions;
 }
 
-/**
- * One chat turn queries memory more than once (agent memory retrieval and the
- * context compiler). Replaying the whole event log is the expensive part, so
- * the replayed world state is reused while the log is unchanged: same file,
- * same head sequence, no new erasure, and only briefly.
- */
-const WORLD_STATE_TTL_MS = 15_000;
-let worldStateCache: { key: string; at: number; state: WorldModelState } | null = null;
+// A chat turn asks memory about the same message twice: once for the
+// evidence the turn carries (retrieveRuntimeMemory) and once in the context
+// compiler. The archive recall is the costly half and depends only on the
+// message, so the second ask shares the first one's result.
+const RECALL_SHARE_MS = 20_000;
+const recalls = new Map<string, { at: number; result: Promise<BrainRetrievalResult> }>();
 
-function replayWorldState(store: IntelligenceEventStore): WorldModelState {
-  const key = `${defaultIntelligenceDbPath()}#${store.headSequence()}#${store.erasureMark()}`;
+function recallFor(text: string, projectRoot?: string): Promise<BrainRetrievalResult> {
   const now = Date.now();
-  if (worldStateCache && worldStateCache.key === key && now - worldStateCache.at < WORLD_STATE_TTL_MS) return worldStateCache.state;
-  const state = new ProjectionEngine(store, worldModelProjector).rebuild(0).state;
-  worldStateCache = { key, at: now, state };
-  return state;
+  for (const [key, entry] of recalls) if (now - entry.at > RECALL_SHARE_MS) recalls.delete(key);
+  const key = `${projectRoot ?? ""}\u0000${text}`;
+  const shared = recalls.get(key);
+  if (shared) return shared.result;
+  const result = retrieveLiveBrainEvidence(text, projectRoot);
+  recalls.set(key, { at: now, result });
+  result.catch(() => recalls.delete(key));
+  return result;
+}
+
+/** Forget shared recalls (tests, or after writing new captures that must be seen at once). */
+export function clearSharedRecalls(): void {
+  recalls.clear();
 }
 
 export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResult> {
@@ -44,7 +50,7 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
   let derived;
   let conversations: Array<{ id: string; content: string; source: string; relevance: number; epistemicStatus: string; freshness: number; temporalStatus: string }> = [];
   try {
-    derived = deriveWorldState(replayWorldState(store));
+    derived = deriveWorldState(replayWorldModel(store));
     const terms = input.text.match(/[\p{L}\p{N}_-]+/gu)?.filter(t => !/^(?:what|where|when|why|how|the|this|that|did|was|were|with|from|have|about|working)$/i.test(t)) ?? [];
     conversations = store.searchConversations(terms, input.projectIds, input.limit ?? 8).map(event => {
       const turn = event.payload!.conversation as { user: string; assistant?: string };
@@ -70,8 +76,8 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
       })
     : [];
 
-  let legacy: Awaited<ReturnType<typeof retrieveResilientLexicalBrainEvidence>> | null = null;
-  try { legacy = await retrieveResilientLexicalBrainEvidence(input.text, input.projectRoot); } catch {}
+  let legacy: BrainRetrievalResult | null = null;
+  try { legacy = await recallFor(input.text, input.projectRoot); } catch {}
   let memorySystemOne: UnifiedMemoryResult["systemOne"] | undefined;
   let relevant = (legacy?.matches ?? []).slice(0, Math.max(input.limit ?? 8, 1)).map((m) => ({
     id: m.id,

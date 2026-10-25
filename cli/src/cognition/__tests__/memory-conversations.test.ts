@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 vi.mock("../../lib/brain-retrieval.js", () => ({
-  retrieveResilientLexicalBrainEvidence: async () => ({
+  retrieveLiveBrainEvidence: async () => ({
     matches: [1, 2, 3, 4].map(i => ({
       id: "brain:" + i, confidence: 0.9 - i / 100, epistemicStatus: "curated",
       content: { excerpt: "Curated dictation note " + i, path: "notes/" + i + ".md" },

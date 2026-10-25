@@ -125,9 +125,8 @@ export function buildRawEntries(results: Array<{ path: string; score: number }>,
   return entries;
 }
 
-export function searchWiki(query: string, keywords: string[]): BaseEntry[] {
+export function searchWiki(query: string, keywords: string[], wikiFiles: string[] = walkWikiFiles()): BaseEntry[] {
   const entries: BaseEntry[] = [];
-  const wikiFiles = walkWikiFiles();
 
   for (const fullPath of wikiFiles) {
     try {

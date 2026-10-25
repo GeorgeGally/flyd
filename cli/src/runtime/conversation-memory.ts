@@ -1,6 +1,5 @@
 import { randomUUID } from "crypto";
-import { existsSync } from "fs";
-import { mkdir, readFile, readdir, rename, writeFile } from "fs/promises";
+import { mkdir, readFile, readdir, rename, stat, writeFile } from "fs/promises";
 import { dirname, join, resolve } from "path";
 import { FLYD_DIR, PROJECT } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
@@ -211,10 +210,23 @@ export function createConversationMemorySession(
   };
 }
 
+// Only the terminal chat writes these records (none since late September),
+// yet every turn on every surface re-read all of them. Every write renames a
+// file into the directory, so its mtime says when the parsed set is stale.
+const recordCache = new Map<string, { mtimeNs: bigint; records: ConversationRecord[] }>();
+
 async function readRecords(flydDir: string): Promise<ConversationRecord[]> {
   const directory = stateDirectory(flydDir);
-  if (!existsSync(directory)) return [];
+  let mtimeNs: bigint;
+  try { mtimeNs = (await stat(directory, { bigint: true })).mtimeNs; } catch { return []; }
+  const cached = recordCache.get(directory);
+  if (cached && cached.mtimeNs === mtimeNs) return [...cached.records];
+  const records = await readRecordsFrom(directory);
+  recordCache.set(directory, { mtimeNs, records });
+  return [...records];
+}
 
+async function readRecordsFrom(directory: string): Promise<ConversationRecord[]> {
   const names = (await readdir(directory))
     .filter((name) => name.endsWith(".json"))
     .sort()

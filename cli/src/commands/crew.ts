@@ -1,4 +1,4 @@
-import { describeTask, discardCrewTask, dispatchCrewTask, landCrewTask, listTasks, readTask, reviewLines, superviseCrew } from "../crew/crew.js";
+import { CREW_PRUNE_AFTER_DAYS, describeTask, discardCrewTask, dispatchCrewTask, landCrewTask, listTasks, pruneCrewTasks, readTask, reviewLines, superviseCrew } from "../crew/crew.js";
 
 /** flyd crew dispatch <outcome…> [--done "<point>"]… — a trailing bare --done stays in the outcome. */
 export function parseDispatchArgs(args: string[]): { outcome: string; doneWhen: string[] } {
@@ -41,7 +41,17 @@ export async function runCrewCommand(action = "list", args: string[] = []): Prom
     case "discard":
       process.stdout.write(`${describeTask(await discardCrewTask(args[0] ?? ""))}\n`);
       return;
+    case "prune": {
+      const daysAt = args.indexOf("--days");
+      const days = daysAt >= 0 ? Number(args[daysAt + 1]) : CREW_PRUNE_AFTER_DAYS;
+      if (!Number.isFinite(days) || days < 0) throw new Error("--days takes a number of days (0 or more)");
+      const pruned = await pruneCrewTasks({ days });
+      process.stdout.write(pruned.length
+        ? `${pruned.map(({ task, worktreeRemoved, branchDeleted, kept }) => `${task.id}: ${[worktreeRemoved ? "worktree removed" : "", branchDeleted ? `branch ${task.branch} deleted` : "", kept ? `kept (${kept})` : ""].filter(Boolean).join("; ") || "already tidy"}`).join("\n")}\n`
+        : `No failed or discarded tasks older than ${days} days to tidy.\n`);
+      return;
+    }
     default:
-      throw new Error(`Unknown crew action: ${action} (list|dispatch <outcome>|show <id>|supervise|land <id>|discard <id>)`);
+      throw new Error(`Unknown crew action: ${action} (list|dispatch <outcome>|show <id>|supervise|land <id>|discard <id>|prune [--days N])`);
   }
 }

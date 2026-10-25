@@ -5,6 +5,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { promisify } from "util";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { postgresAvailable, TEST_DATABASE_URL } from "../../__tests__/support/postgres.js";
 import { Pool } from "pg";
 import { ensureRuntimeSchema } from "../runtime-schema.js";
 import { PostgresTaskStore } from "../task-store.js";
@@ -12,7 +13,9 @@ import { finalizeDetachedProject } from "../detached-finalizer.js";
 import { GitWorktreeManager } from "../worktree-manager.js";
 
 const execFileAsync = promisify(execFile);
-const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
+const connectionString = TEST_DATABASE_URL;
+// No local integration database: skip rather than fail (support/postgres.ts).
+const hasPostgres = await postgresAvailable();
 // Production pools run in UTC (createRuntimePool); timestamp columns compare
 // against NOW() wrongly in any other session time zone.
 const pool = new Pool({ connectionString, max: 2, options: "-c timezone=UTC" });
@@ -188,7 +191,7 @@ async function seedDetachedSurvivor(repo: { root: string; head: string }) {
   return { projectRoot: repo.root, taskKey: task.taskKey, manager, worktreePath: worktree.path };
 }
 
-describe("detached-finalizer integration (macOS-only: verification sandbox requires darwin, so these tests skip elsewhere)", { timeout: 30_000 }, () => {
+describe.skipIf(!hasPostgres)("detached-finalizer integration (macOS-only: verification sandbox requires darwin, so these tests skip elsewhere)", { timeout: 30_000 }, () => {
   beforeAll(async () => {
     await ensureRuntimeSchema(pool);
   });

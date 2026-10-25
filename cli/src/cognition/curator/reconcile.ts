@@ -2,8 +2,8 @@ import { conversationOf, type ConversationPayload } from "./conversation.js";
 import { runContentLearning } from "./content-learning.js";
 import { createHash } from "node:crypto";
 import { IntelligenceEventStore, type StoredEvent } from "../../intelligence/event-store.js";
-import { ProjectionEngine } from "../../intelligence/projections.js";
-import { deriveWorldState, worldModelProjector } from "../../intelligence/world/world-model.js";
+import { replayWorldModel } from "../../intelligence/world/replay-cache.js";
+import { deriveWorldState } from "../../intelligence/world/world-model.js";
 import { predicatePasses, SYSTEM_ONE_POLICY_VERSION } from "../system-one/policy.js";
 import { familyEgress, familyQuestions, predicateThreshold } from "../system-one/registry.js";
 import type { JevOptions } from "../system-one/types.js";
@@ -37,7 +37,7 @@ function hash(value: unknown): string {
 
 function existingEntityFor(projectIds: string[], store: IntelligenceEventStore): string | null {
   if (projectIds.length === 0) return null;
-  const state = deriveWorldState(new ProjectionEngine(store, worldModelProjector).rebuild(0).state);
+  const state = deriveWorldState(replayWorldModel(store));
   const all = new Set([
     ...state.current.map((claim) => claim.entityId),
     ...state.historical.map((claim) => claim.entityId),
