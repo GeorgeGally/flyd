@@ -216,11 +216,12 @@ function feedbackDigest(feedback: ScoutFeedback[]): string {
 
 // A bot marker in the user agent gets a 403 block page from Reddit.
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
-const REDDIT_SPACING_MS = 10_000;
+// Reddit gives an anonymous reader one feed per minute (x-ratelimit-reset ≈ 60s), so space them past that.
+const REDDIT_SPACING_MS = 61_000;
 /** Subreddits one run visits (oldest-fetched first); the 3-hourly watches rotate through the rest. */
 export const REDDIT_PER_RUN = 5;
 /** One patient retry after a 429 before giving up on Reddit for this run. */
-const REDDIT_RETRY_AFTER_MS = 45_000;
+const REDDIT_RETRY_AFTER_MS = 61_000;
 
 class RateLimited extends Error {}
 
