@@ -41,11 +41,19 @@
     background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1px rgba(255,255,255,.13);
     backdrop-filter: blur(18px) saturate(1.05); -webkit-backdrop-filter: blur(18px) saturate(1.05); }
   .card.open { top: 125px; height: 500px; display: flex; flex-direction: column; }
-  .card svg { width: 26px; height: 28px; }
+  .card svg { width: 26px; height: 28px; flex: none; }
   .card h1 { margin: 22px 0 0; font: inherit; max-width: 270px; }
   .card .low { margin-top: auto; }
+  /* The five, shown: Flyd's pick large on a mat, all five in a row under it. */
+  .five { margin-top: 26px; }
+  .pick { margin: 0; padding: 6px; border-radius: 7px; background: rgba(255,255,255,.1); }
+  .pick img { display: block; width: 100%; aspect-ratio: 16/7.2; object-fit: cover; object-position: top; object-view-box: inset(5.5% 0 0 0); border-radius: 3px; }
+  .row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; }
+  .row img { display: block; width: 100%; aspect-ratio: 16/10; object-fit: cover; object-position: top; object-view-box: inset(5.5% 0 0 0); border-radius: 3px; opacity: .55; cursor: pointer; transition: opacity .2s; }
+  .row img:hover { opacity: .85; }
+  .row img.on { opacity: 1; outline: 1px solid #fff; outline-offset: 2px; }
   .card p { margin: 0; max-width: 262px; font-size: 12.5px; line-height: 17px; letter-spacing: 0; color: rgba(255,255,255,.72); }
-  .btn { display: inline-block; margin-top: 16px; height: 26px; padding: 0 10px; border-radius: 4px; background: #fff; color: #1a1a1a; line-height: 26px; }
+  .btn { display: inline-block; margin-top: 0; height: 26px; padding: 0 10px; border-radius: 4px; background: #fff; color: #1a1a1a; line-height: 26px; }
   .card.next { top: 675px; height: 300px; background: rgba(255,255,255,.06); }
   .card.next h1 { margin: 0; color: rgba(255,255,255,.55); padding-top: 3px; }
 </style>
@@ -60,9 +68,12 @@
 <section class="card open">
   <svg viewBox="0 0 26 28" fill="none" stroke="currentColor" stroke-width="1.1"><path d="M13 1v26M1.7 7.5l22.6 13M1.7 20.5l22.6-13"/></svg>
   <h1>Five CapFive dashboards are ready. I'd build the second.</h1>
+  <div class="five">
+    <figure class="pick"><img src="shared/assets/capfive-v2.jpg" alt="Version 2, Page one"></figure>
+    <div class="row"><img src="shared/assets/capfive-v1.jpg" alt="Version 1"><img class="on" src="shared/assets/capfive-v2.jpg" alt="Version 2"><img src="shared/assets/capfive-v3.jpg" alt="Version 3"><img src="shared/assets/capfive-v4.jpg" alt="Version 4"><img src="shared/assets/capfive-v5.jpg" alt="Version 5"></div>
+  </div>
   <div class="low">
-    <p>Page one brings back the closed-deal tombstone as the lead story, told in CapFive's own editorial style.</p>
-    <span class="btn m">See the five</span>
+    <span class="btn m">Build the second</span>
   </div>
 </section>
 <section class="card next"><h1>The DIR station ident is tighter. Six takes are in the lab.</h1></section>
@@ -77,6 +88,14 @@
     document.getElementById("d").textContent = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }).toUpperCase();
   }
   tick(); setInterval(tick, 1000);
+  // Each version can be looked at in the big frame; the pick stays marked.
+  document.querySelectorAll(".row img").forEach(function (img) {
+    img.addEventListener("click", function () {
+      document.querySelector(".pick img").src = img.src;
+      document.querySelectorAll(".row img").forEach(function (one) { one.style.opacity = ""; });
+      if (!img.classList.contains("on")) img.style.opacity = "1";
+    });
+  });
 </script>
 </body>
 </html>
