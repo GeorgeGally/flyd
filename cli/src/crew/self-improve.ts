@@ -184,7 +184,9 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
   for (const task of listTasks()) {
     if (task.createdAt < since) continue;
     if (task.status === "failed") {
-      evidence.push({ id: `crew:${task.id}`, kind: "crew", at: task.createdAt, text: `A crew task failed (${task.failure ?? "unknown"}): "${task.outcome.slice(0, 200)}"` });
+      const reason = task.reason ? `${task.reason}: ${task.failure ?? ""}` : task.failure ?? "unknown";
+      const trace = task.trace ? ` Agent last message: "${task.trace.slice(0, 300)}"` : "";
+      evidence.push({ id: `crew:${task.id}`, kind: "crew", at: task.createdAt, text: `A crew task failed (${reason}): "${task.outcome.slice(0, 200)}"${trace}` });
       continue;
     }
     // A review that couldn't run says nothing about the work.

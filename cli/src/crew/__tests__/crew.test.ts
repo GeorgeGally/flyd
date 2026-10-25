@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, providerFailure, readTask, superviseCrew } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, MAX_NO_PROGRESS_ITERATIONS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, providerFailure, readTask, superviseCrew } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -70,8 +70,8 @@ describe("crew", () => {
     await dispatchCrewTask({ repo, outcome: "Do nothing", launch: fakeCrewmate(false) });
     const notify = vi.fn(async () => undefined);
     const [idle] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify });
-    expect(idle).toMatchObject({ status: "failed", failure: "no commits" });
-    expect(notify).toHaveBeenCalledWith("Flyd", "Do nothing is blocked: nothing was committed. Tell me whether to try another way or drop it.", "blocker");
+    expect(idle).toMatchObject({ status: "failed", reason: "no_progress", failure: "no progress: no files changed" });
+    expect(notify).toHaveBeenCalledWith("Flyd", "Do nothing is blocked: it finished without changing any files. Tell me whether to try another way or drop it.", "blocker");
     await expect(landCrewTask(idle.id)).rejects.toThrow("not ready to land");
 
     await dispatchCrewTask({ repo, outcome: "Break the tests", launch: fakeCrewmate() });
@@ -231,6 +231,37 @@ describe("crew", () => {
     expect(readTask(task.id)?.status).toBe("failed");
   });
 
+  it("fails a no-op agent after a bounded number of iterations and persists its last message", async () => {
+    const lastMessage = "I inspected the task, but have not changed any files.";
+    const task = await dispatchCrewTask({
+      repo,
+      outcome: "Make a change",
+      launch: vi.fn((launched: { log: string }) => {
+        writeFileSync(launched.log, `${JSON.stringify({ type: "text", part: { type: "text", text: lastMessage } })}\n`);
+        return 424242;
+      }),
+    });
+    const kill = vi.fn();
+    let result;
+    for (let iteration = 0; iteration < MAX_NO_PROGRESS_ITERATIONS; iteration += 1) {
+      writeFileSync(task.log, `${JSON.stringify({ type: "step_finish" })}\n`, { flag: "a" });
+      [result] = await superviseCrew({ alive: () => true, kill });
+      if (result?.status === "failed") break;
+    }
+
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: "no_progress",
+      noProgressIterations: MAX_NO_PROGRESS_ITERATIONS,
+      trace: lastMessage,
+    });
+    expect(kill).toHaveBeenCalledWith(424242);
+    expect(readTask(task.id)).toMatchObject({ reason: "no_progress", trace: lastMessage });
+    expect(readFileSync(task.log, "utf8")).toContain(lastMessage);
+    expect(Date.parse(result!.finishedAt!) - Date.parse(task.createdAt)).toBeLessThan(2 * 60 * 60 * 1000);
+    expect(blockedBy(result!)).toContain("made no file changes");
+  });
+
   it("refuses to launch a real crewmate under tests", async () => {
     await expect(dispatchCrewTask({ repo, outcome: "Would be real" })).rejects.toThrow("refusing to launch a real OpenCode crewmate under tests");
   });
@@ -353,6 +384,8 @@ describe("after landing", () => {
 
 describe("what stopped a failed task", () => {
   it("says each failure in plain words, never the raw error", () => {
+    expect(blockedBy({ reason: "no_progress", noProgressIterations: 0, failure: "no progress: no files changed" })).toBe("it finished without changing any files");
+    expect(blockedBy({ reason: "no_progress", noProgressIterations: 3, failure: "no progress after 3 iterations" })).toBe("it made no file changes for 3 consecutive iterations");
     expect(blockedBy({ failure: "no commits" })).toBe("nothing was committed");
     expect(blockedBy({ failure: "no commits (uncommitted changes left in the worktree)" })).toBe("changes were made but never committed");
     expect(blockedBy({ failure: "verification failed: npm test" })).toBe("its tests failed");

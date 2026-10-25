@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -40,6 +41,11 @@ export interface CrewTask {
   commits?: number;
   summary?: string;
   failure?: string;
+  reason?: "no_progress";
+  trace?: string;
+  progressSignature?: string;
+  completedIterations?: number;
+  noProgressIterations?: number;
   source?: "chat" | "self-improvement" | "cli";
   notified?: boolean;
   /** What done means, stated at dispatch. Empty: the outcome itself is the one point. */
@@ -138,6 +144,7 @@ export const CREW_OPENCODE_CONFIG = {
 
 /** One repair round after the first review; more is paying to repeat a failure. */
 export const MAX_CREW_ATTEMPTS = 2;
+export const MAX_NO_PROGRESS_ITERATIONS = 3;
 
 export function acceptanceCriteria(task: Pick<CrewTask, "outcome" | "doneWhen">): string[] {
   return task.doneWhen?.length ? task.doneWhen : [task.outcome];
@@ -202,6 +209,7 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
   const task: CrewTask = {
     id, repo, outcome, branch, baseBranch, baseCommit, worktree, status: "running", log,
     createdAt: now.toISOString(), source: options.source ?? "chat", attempts: 1,
+    progressSignature: await worktreeSignature(worktree, baseCommit), completedIterations: 0, noProgressIterations: 0,
     ...(crewModel() ? { model: crewModel() } : {}),
     ...(doneWhen.length ? { doneWhen } : {}),
     ...(options.afterLand?.length ? { afterLand: options.afterLand } : {}),
@@ -311,6 +319,24 @@ export function lastSummary(logPath: string): string {
     } catch { /* not an event */ }
   }
   return (texts.at(-1) ?? "").slice(0, 1_500);
+}
+
+function completedIterations(logPath: string): number {
+  if (!existsSync(logPath)) return 0;
+  return readFileSync(logPath, "utf8").split("\n").reduce((count, line) => {
+    try { return count + Number((JSON.parse(line) as { type?: string }).type === "step_finish"); } catch { return count; }
+  }, 0);
+}
+
+async function worktreeSignature(cwd: string, baseCommit: string): Promise<string> {
+  const [status, diff, untracked] = await Promise.all([
+    git(cwd, ["status", "--porcelain", "--untracked-files=all"]),
+    git(cwd, ["diff", "--binary", baseCommit]),
+    git(cwd, ["ls-files", "--others", "--exclude-standard", "-z"]),
+  ]);
+  const hash = createHash("sha256").update(status).update(diff);
+  for (const path of untracked.split("\0").filter(Boolean)) hash.update(path).update(await git(cwd, ["hash-object", "--", path]));
+  return hash.digest("hex");
 }
 
 /** Words a model provider uses when it refuses the work itself: money, limits, keys, capacity. */
@@ -608,17 +634,55 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     const spendOffset = recordCrewSpend(listed);
     const task = spendOffset === listed.spendOffset ? listed : { ...listed, spendOffset };
     if (task !== listed) saveTask(task, dir);
-    if (alive(task.pid)) {
-      if (now.getTime() - Date.parse(task.attemptStartedAt ?? task.createdAt) > MAX_RUNTIME_MS) {
-        try { (deps.kill ?? ((pid: number) => process.kill(-pid, "SIGTERM")))(task.pid!); } catch { /* already gone */ }
-        const failed = { ...task, status: "failed" as const, failure: "stopped after 2 hours without finishing", finishedAt: now.toISOString() };
+    const processIsAlive = alive(task.pid);
+    let observed = task;
+    const iterations = completedIterations(task.log);
+    const newIterations = iterations - (task.completedIterations ?? 0);
+    if (newIterations > 0) {
+      const signature = await worktreeSignature(task.worktree, task.baseCommit).catch(() => undefined);
+      if (signature) {
+        const noProgressIterations = !task.progressSignature || signature === task.progressSignature
+          ? (task.noProgressIterations ?? 0) + newIterations
+          : 0;
+        observed = { ...task, progressSignature: signature, completedIterations: iterations, noProgressIterations };
+        if (noProgressIterations >= MAX_NO_PROGRESS_ITERATIONS) {
+          if (processIsAlive) {
+            try { (deps.kill ?? ((pid: number) => process.kill(-pid, "SIGTERM")))(task.pid!); } catch {}
+          }
+          const trace = lastSummary(task.log);
+          const failed = {
+            ...observed, status: "failed" as const, reason: "no_progress" as const,
+            failure: `no progress after ${noProgressIterations} iterations`, trace, summary: trace, finishedAt: now.toISOString(),
+          };
+          const [commits, diffStat, dirty] = await Promise.all([
+            git(task.repo, ["rev-list", "--count", `${task.baseCommit}..${task.branch}`]).then(Number).catch(() => 0),
+            git(task.repo, ["diff", "--shortstat", `${task.baseCommit}..${task.branch}`]).catch(() => ""),
+            git(task.worktree, ["status", "--porcelain"]).catch(() => "unavailable"),
+          ]);
+          const complete = { ...failed, commits, diffStat };
+          const cleaned = !dirty && await cleanupCrewWorktree(complete, { deleteBranch: commits === 0 });
+          const recorded = cleaned ? { ...complete, worktreeRemoved: true } : complete;
+          saveTask(recorded, dir);
+          changed.push(recorded);
+          continue;
+        }
+      } else {
+        observed = { ...task, completedIterations: iterations };
+      }
+      saveTask(observed, dir);
+    }
+    if (processIsAlive) {
+      if (now.getTime() - Date.parse(observed.attemptStartedAt ?? observed.createdAt) > MAX_RUNTIME_MS) {
+        try { (deps.kill ?? ((pid: number) => process.kill(-pid, "SIGTERM")))(observed.pid!); } catch { /* already gone */ }
+        const trace = lastSummary(observed.log);
+        const failed = { ...observed, status: "failed" as const, failure: "stopped after 2 hours without finishing", summary: trace, trace, finishedAt: now.toISOString() };
         saveTask(failed, dir);
         changed.push(failed);
       }
       continue;
     }
-    saveTask({ ...task, status: "verifying" }, dir);
-    const summary = lastSummary(task.log);
+    saveTask({ ...observed, status: "verifying" }, dir);
+    const summary = lastSummary(observed.log);
     // Count the branch's commits from the repository, never from the worktree:
     // a missing worktree must not read as "nothing was committed", or the
     // cleanup below deletes a branch that holds real work.
@@ -653,6 +717,7 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     const verified = commits > 0 && verification.every((step) => step.ok);
     // A crewmate whose provider refused the work (no credits, a usage limit, a bad key) did not fail at the work: say so.
     const refused = verified ? undefined : providerFailure(task.log);
+    const noProgress = commits === 0 && !dirty && !refused;
     // Passing checks is necessary, not sufficient: an independent reviewer
     // holds the diff to what was asked, and unmet points go back to the
     // crewmate once before George hears about it.
@@ -680,7 +745,11 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
         }
         if (pid) {
           // A fresh clock for the repair round; without a live pid there is nothing to wait for.
-          const again: CrewTask = { ...task, status: "running", attempts: attempts + 1, review, commits, diffStat, verification, summary, pid, attemptStartedAt: now.toISOString() };
+          const again: CrewTask = {
+            ...observed, status: "running", attempts: attempts + 1, review, commits, diffStat, verification, summary, pid,
+            progressSignature: await worktreeSignature(observed.worktree, observed.baseCommit),
+            noProgressIterations: 0, attemptStartedAt: now.toISOString(),
+          };
           saveTask(again, dir);
           changed.push(again);
           continue;
@@ -688,16 +757,19 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
       }
     }
     const done: CrewTask = {
-      ...task,
+      ...observed,
       status: verified ? "ready" : "failed",
       finishedAt: now.toISOString(),
       commits, diffStat, verification, summary,
       ...(review ? { review } : {}),
       ...(verified ? {} : {
+        ...(noProgress ? { reason: "no_progress" as const, noProgressIterations: observed.noProgressIterations ?? completedIterations(observed.log), trace: summary } : {}),
         failure: commits === 0
           ? refused
             ? `provider error: ${refused}`
-            : `no commits${dirty ? " (uncommitted changes left in the worktree)" : ""}`
+            : noProgress
+              ? "no progress: no files changed"
+              : `no commits${dirty ? " (uncommitted changes left in the worktree)" : ""}`
           : `verification failed: ${verification.find((step) => !step.ok)?.command ?? "unknown"}`,
       }),
     };
@@ -790,8 +862,11 @@ export async function discardCrewTask(id: string, dir = crewDir()): Promise<Crew
 }
 
 /** What stopped a failed task, in plain words; the raw failure stays in the task record. */
-export function blockedBy(task: Pick<CrewTask, "failure">): string {
+export function blockedBy(task: Pick<CrewTask, "failure"> & Partial<Pick<CrewTask, "reason" | "noProgressIterations">>): string {
   const failure = task.failure ?? "";
+  if (task.reason === "no_progress") return task.noProgressIterations
+    ? `it made no file changes for ${task.noProgressIterations} consecutive iterations`
+    : "it finished without changing any files";
   if (failure.startsWith("no commits")) return /uncommitted/.test(failure) ? "changes were made but never committed" : "nothing was committed";
   if (failure.startsWith("verification failed")) return "its tests failed";
   if (failure.startsWith("stopped after")) return "it ran for two hours without finishing";

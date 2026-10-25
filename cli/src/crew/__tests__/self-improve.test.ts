@@ -199,6 +199,7 @@ describe("harness failures as evidence", () => {
     saveTask(task({ id: "c1", status: "ready", review: [{ criterion: "a test covers it", met: false, note: "no test" }] }));
     saveTask(task({ id: "c2", status: "ready", review: [{ criterion: "ok", met: true, note: "" }] }));
     saveTask(task({ id: "c3", status: "ready", review: [{ criterion: "x", met: false, note: "the review couldn't run", unchecked: true }] }));
+    saveTask(task({ id: "c4", status: "failed", reason: "no_progress", failure: "no progress after 3 iterations", trace: "I did not edit any files." }));
     writeFileSync(join(home, "jobs", "a3.json"), JSON.stringify({ id: "a3", status: "interrupted", startedAt: "2026-09-26T10:00:00Z", contract: { task: "cut off" }, checks: [] }));
     mkdirSync(join(home, "turn-receipts", "s1"), { recursive: true });
     writeFileSync(join(home, "turn-receipts", "s1", "1.json"), JSON.stringify({
@@ -206,10 +207,12 @@ describe("harness failures as evidence", () => {
       toolCalls: [{ name: "bash", error: "Skipped: this exact bash call already failed 2 times the same way (Error: exit 1)." }],
     }));
     const evidence = gatherEvidence({ flydDir: home, now: NOW });
-    expect(evidence.map((item) => item.id).sort()).toEqual(["crew-review:c1", "job:a1", "job:a3", "loop:s1:1.json"]);
+    expect(evidence.map((item) => item.id).sort()).toEqual(["crew-review:c1", "crew:c4", "job:a1", "job:a3", "loop:s1:1.json"]);
     expect(evidence.find((item) => item.id === "job:a3")!.text).toContain("cut off by a restart");
     expect(evidence.find((item) => item.kind === "job")!.text).toContain("three mixes exist (only one)");
     expect(evidence.find((item) => item.kind === "loop")!.text).toContain("build DIR");
+    expect(evidence.find((item) => item.id === "crew:c4")!.text).toContain("no_progress");
+    expect(evidence.find((item) => item.id === "crew:c4")!.text).toContain("I did not edit any files.");
   });
 
   it("asks for the most durable fix and keeps its class, layer and done_when", () => {
