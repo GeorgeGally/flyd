@@ -26,7 +26,8 @@ import { defaultModel, getKey } from "./lib/config.js";
 import { compileContext } from "./cognition/context-compiler.js";
 import { clampText, formatCompiledContext } from "./cognition/context-format.js";
 import { readSoul } from "./lib/soul.js";
-import { memoryEvidenceFromCompiled, recordResolutionReceipt, type ResolutionPath, type ResolutionReceiptOptions, type ResolutionSurface } from "./runtime/resolution-receipt.js";
+import { memoryEvidenceFromCompiled, recordResolutionReceipt, resolutionAnswerText, type ResolutionPath, type ResolutionReceiptInput, type ResolutionReceiptOptions, type ResolutionSurface } from "./runtime/resolution-receipt.js";
+import { finishInFlydsVoice, prepareSurfaceTurn, type SurfaceTurn, type SurfaceTurnInput } from "./runtime/turn-stages.js";
 import type { MemoryEvidence } from "./runtime/types.js";
 import { queryMemory } from "./cognition/memory.js";
 import type { CompiledContext, UnifiedMemoryResult } from "./cognition/types.js";
@@ -386,7 +387,8 @@ export function buildResolutionPrompt(
   needsPersonalContext = true,
   behaviouralDirectives: BehaviouralDirectiveInput[] | null = null,
   compiledContext?: CompiledContext,
-  soul: string = readSoul()
+  soul: string = readSoul(),
+  turnBrief = ""
 ): string {
   const app = environment.application.name;
   const bundleId = environment.application.bundle_id;
@@ -549,10 +551,15 @@ export function buildResolutionPrompt(
   const voiceBlock = soulText
     ? `\n\nWHO YOU ARE (Flyd's one voice, the same in chat, the overlay and LIVE. It governs every answer, explanation and spoken reply you give George. Text you insert into his document or draft for him to send is written in his voice, not yours. The response-shape rules below always win):\n${clampText(soulText, RESOLUTION_SOUL_BUDGET_CHARS)}`
     : "";
+  // The turn chat's stages planned (runtime/turn-stages.ts): its route, what
+  // the reply must cover, and the one skill and note that ride it.
+  const turnBlock = turnBrief.trim()
+    ? `\n\nTHIS TURN (the same reading chat makes before it answers; the response-shape rules below still decide the shape):\n${turnBrief.trim()}`
+    : "";
 
   return `You are Flyd, an intelligent overlay assistant. You are invoked by the user while they are working in another application. Your job is to resolve their intent into concrete operations that the Mac adapter can execute.
 
-The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${voiceBlock}${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}${directivesBlock}${cognitiveContextBlock}
+The user wants fast, high-quality help inside their current app. Use profile, goals, memories, and knowledge only when they directly improve the reply. Never recite database records, extracted fields, source names, or memory metadata. For replies, drafts, rewrites, and explanations, write polished natural language that could be used as-is.${voiceBlock}${profileBlock}${knowledgeBlock}${personalContextBlock}${memoriesBlock}${memoryStatusBlock}${screenshotBlock}${directivesBlock}${cognitiveContextBlock}${turnBlock}
 
 ROUTE DECISION:
 - Kind: ${route.kind}
@@ -829,6 +836,11 @@ const DETERMINISTIC_PATTERNS: Array<{
 interface ResolutionTrace {
   path: ResolutionPath;
   memory?: MemoryEvidence;
+  surface: ResolutionSurface;
+  sessionId?: string;
+  stages: Pick<SurfaceTurnInput, "routeTurn" | "skills">;
+  /** The shared turn stages' reading, when the answer went through them. */
+  turn?: SurfaceTurn;
 }
 
 export interface ResolveReceiptOptions extends ResolutionReceiptOptions {
@@ -836,6 +848,9 @@ export interface ResolveReceiptOptions extends ResolutionReceiptOptions {
   surface?: ResolutionSurface;
   /** Groups receipts; defaults to the manifest's conversation id. */
   sessionId?: string;
+  /** Test seams for the shared turn stages (turn-stages.ts); default to chat's own. */
+  routeTurn?: SurfaceTurnInput["routeTurn"];
+  skills?: SurfaceTurnInput["skills"];
 }
 
 /**
@@ -852,8 +867,7 @@ export async function resolve(
   conversationTurns: ConversationTurn[] = [],
   receiptOptions: ResolveReceiptOptions = {}
 ): Promise<Resolution> {
-  const trace: ResolutionTrace = { path: "model" };
-  const { surface: requestedSurface, sessionId: requestedSession, ...persistOptions } = receiptOptions;
+  const { surface: requestedSurface, sessionId: requestedSession, routeTurn, skills, ...persistOptions } = receiptOptions;
   const receipt = {
     surface: requestedSurface ?? (manifest.intent_author === "model" ? "live" as const : "overlay" as const),
     sessionId: requestedSession ?? manifest.conversation_id ?? undefined,
@@ -861,13 +875,24 @@ export async function resolve(
     model,
     baseURL,
   };
+  const trace: ResolutionTrace = { path: "model", surface: receipt.surface, sessionId: receipt.sessionId, stages: { routeTurn, skills } };
+  const turnReceipt = (): Pick<ResolutionReceiptInput, "plan" | "routing"> => trace.turn ? {
+    plan: { ...(trace.turn.plan ? { route: trace.turn.plan.route, source: trace.turn.plan.source, cover: trace.turn.plan.cover } : { route: "unplanned", cover: [] }), ...(trace.turn.skill ? { skill: trace.turn.skill } : {}) },
+    ...(trace.turn.routing ? { routing: trace.turn.routing } : {}),
+  } : {};
   try {
     const resolution = await resolveManifest(manifest, model, apiKey, baseURL, router, conversationTurns, trace);
-    void recordResolutionReceipt({ ...receipt, path: trace.path, resolution, memory: trace.memory }, persistOptions);
+    void recordResolutionReceipt({ ...receipt, path: trace.path, resolution, memory: trace.memory, ...turnReceipt() }, persistOptions);
+    // A backstage note the answer was handed counts as raised, as in chat.
+    const raised = trace.turn?.raisedAdvisory;
+    if (raised && trace.path === "model" && resolutionAnswerText(resolution).trim()) {
+      void import("./council/advisors.js").then(({ updateAdvisoryStatus }) => updateAdvisoryStatus(raised, "shown")).catch(() => undefined);
+    }
     return resolution;
   } catch (error) {
     void recordResolutionReceipt({
       ...receipt,
+      ...turnReceipt(),
       path: "error",
       memory: trace.memory,
       status: "failed",
@@ -1045,9 +1070,29 @@ async function resolveManifest(
     }
   }
 
+  // One brain: an answer for George (not text typed into his document) goes
+  // through chat's turn stages — the same route reading, skill pick and
+  // backstage notes — before the resolution model writes it. The stages need
+  // no retrieved memory, so their one ~0.3s Jev call runs alongside context
+  // compilation rather than after it; the ~10s room reading stays off this
+  // hot path (turn-stages.ts). Native edits keep resolve's own routing.
+  const answersGeorge = route.placement === "answer_panel";
+  const turnStages = answersGeorge
+    ? prepareSurfaceTurn({
+      surface: trace.surface,
+      message: intent,
+      history: conversationTurns.flatMap((turn) => [
+        { role: "user" as const, content: turn.user },
+        { role: "assistant" as const, content: turn.assistant },
+      ]),
+      sessionId: `${trace.surface}:${trace.sessionId ?? invocation_id}`,
+      ...trace.stages,
+    }).catch(() => undefined)
+    : Promise.resolve(undefined);
+
   // Classifier latency hides under the memory-retrieval budget; regex
   // routing is the fallback, not the primary.
-  const [worldState, compiledContext, behaviouralDirectives] = await Promise.all([
+  const [worldState, compiledContext, behaviouralDirectives, surfaceTurn] = await Promise.all([
     Promise.resolve().then(buildIntelligenceState),
     compileContext({
       intent,
@@ -1064,7 +1109,9 @@ async function resolveManifest(
       jev: { apiKey: "" },
     }),
     fetchBehaviouralDirectives(),
+    turnStages,
   ]);
+  if (surfaceTurn) trace.turn = surfaceTurn;
   const memoryPack = compiledMemoryToPack(compiledContext.memory);
   trace.path = "model";
   try { trace.memory = memoryEvidenceFromCompiled(compiledContext.memory); } catch { /* receipt evidence is best-effort */ }
@@ -1114,7 +1161,9 @@ async function resolveManifest(
     modality === "voice",
     needsPersonalContext,
     behaviouralDirectives,
-    compiledContext
+    compiledContext,
+    undefined,
+    surfaceTurn?.brief ?? ""
   );
   const systemPrompt = RESOLUTION_SYSTEM_PROMPT;
 
@@ -1125,6 +1174,15 @@ async function resolveManifest(
     });
     let resolution = parseResolutionResponse(response, invocation_id);
     resolution = enforceRoutePlacement(resolution, route);
+    // What George reads is held to chat's voice: no internal narration, no
+    // phrase he has ruled out. Text typed into his document is his, untouched.
+    if (answersGeorge && resolution.augmentations) {
+      resolution.augmentations = resolution.augmentations.map((augmentation) => {
+        if (augmentation.kind !== "explanation" || !augmentation.content) return augmentation;
+        const content = finishInFlydsVoice(augmentation.content);
+        return content.trim() ? { ...augmentation, content } : augmentation;
+      });
+    }
     resolution.environmentRevision = environment_revision;
     resolution.consequence = consequence;
 

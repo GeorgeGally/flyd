@@ -15,11 +15,10 @@ import { agentLoop, agentLoopWithFailover, PROMPT_CACHE_BREAK, type AgentTool, t
 import { readSoul } from "../lib/soul.js";
 import { presenceBrief, presenceEnabled, presenceInstructions, understandTurn, type TurnUnderstanding } from "./conversation-presence.js";
 import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-policy.js";
-import { readTheRoom, roomBrief, roomPrompt, ROOM_RUBRIC_VERSION, type RoomInput, type RoomRead } from "./read-the-room.js";
-import { safeRoutingValue, type RoutingTrace } from "./routing-learning.js";
-import { buildRoomContext, privateNotes } from "./room-context.js";
+import { roomBrief, type RoomInput } from "./read-the-room.js";
+import type { RoutingTrace } from "./routing-learning.js";
 import { authorSummary, clip as clipProse, sentences } from "../conversation-view/summaries.js";
-import { artefactRequiredViolation, honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, stripInternalNarration, stripRetiredPhrases, styleProblems, unsupportedClaims } from "./honesty-check.js";
+import { artefactRequiredViolation, honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, styleProblems, unsupportedClaims } from "./honesty-check.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool, type PersonalToolDependencies } from "./personal-tools.js";
 import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantToolContext } from "./assistant-tools.js";
 import { fetchPublicUrl } from "./url-guard.js";
@@ -28,13 +27,13 @@ import { agendaPromptBlock } from "./session-briefing.js";
 import { coordinatePreparation, type InitiativeDependencies } from "./conversational-initiative.js";
 import { PreparationStore } from "./preparation-store.js";
 import type { ConversationTurnSource } from "./conversation-turn.js";
-import type { RemitSummary } from "./preparation-reading.js";
 import { createRepeatGuard } from "./repeat-guard.js";
 import { runJobShell } from "./background-jobs.js";
 import { morningPromptBlock } from "../council/morning.js";
 import { projectNamed, projectsPromptBlock } from "../council/projects.js";
-import { loadSkills, seedSkills, skillPromptBlock, type Skill } from "./skills.js";
-import { CODE_TOOLS, offCode, offRoute, planBrief, planBudget, planTurn, routeWithJev, visibleTools, type RouteReading, type TurnPlan } from "./turn-plan.js";
+import type { Skill } from "./skills.js";
+import { CODE_TOOLS, offCode, offRoute, planBudget, planTurn, visibleTools, type TurnPlan } from "./turn-plan.js";
+import { defaultRouteTurn, finishInFlydsVoice, gatherTurnKnowledge, readRoomStage, turnBriefParts, turnExtras, type FastRouteReading, type ReadRoom, type RouteTurn } from "./turn-stages.js";
 import { contractError } from "./tool-contracts.js";
 import { flydSetupReport, isFlydSetupQuestion } from "./flyd-setup.js";
 import { advanceSemanticAction, allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, semanticActionForToolCall, type ToolPolicyState } from "./tool-policy.js";
@@ -102,27 +101,15 @@ interface ConversationResponderDependencies {
   /** Evaluation runs: state-changing tools are recorded as attempted but never execute. */
   readOnly?: boolean;
   /** Read the room before answering; null (a failed reading) answers read-only. Defaults to a model call outside tests; FLYD_ROOM=0 turns the default off. */
-  readRoom?: (input: RoomInput) => Promise<RoomRead | null>;
+  readRoom?: ReadRoom;
   /** The fast route reading; defaults to Jev outside tests. */
-  routeTurn?: (message: string, history: ConversationInput["history"], notes?: Array<{ id: string; text: string }>, remits?: RemitSummary[]) => Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null; raise?: string | null }) | null>;
+  routeTurn?: RouteTurn;
   /** Skills a matched name resolves against; defaults to ~/.flyd/skills. */
   skills?: () => Skill[];
   /** Honesty rewrite call; defaults to the turn's model. */
   rewrite?: (prompt: string) => Promise<string>;
   /** Flyd's own live setup, for questions about itself; defaults to resolving it from the running configuration. */
   flydSetup?: () => Promise<string>;
-}
-
-async function defaultRouteTurn(message: string, history: ConversationInput["history"], notes: Array<{ id: string; text: string }> = [], remits: RemitSummary[] = []): Promise<(RouteReading & { decided: boolean; needsCode?: boolean | null; skill?: string | null; raise?: string | null }) | null> {
-  if (process.env.VITEST) return null;
-  try { seedSkills(); } catch { /* skills are optional */ }
-  return routeWithJev(message, history, loadSkills(), notes, remits);
-}
-
-async function defaultReadRoom(input: RoomInput): Promise<RoomRead | null> {
-  if (process.env.FLYD_ROOM === "0" || process.env.VITEST) return null;
-  const { quickQuery } = await import("../lib/llm.js");
-  return readTheRoom(input, (prompt) => quickQuery(prompt, { model: process.env.FLYD_ROUTING_FALLBACK_MODEL, json: true }));
 }
 
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
@@ -1069,16 +1056,9 @@ export async function respondToConversation(
   // Read the room first: what George needs, and the little Flyd knows that
   // matters here. Without a reading, fall back to the keyword heuristic.
   const roomNow = input.now?.() ?? new Date();
-  const notes = await privateNotes(roomNow).catch(() => []);
+  // Stage: what Flyd could draw on — who he is, the knowledge pool, backstage notes.
+  const { notes, roomContext } = await gatherTurnKnowledge(roomNow, input.memory.matches);
   input.signal?.throwIfAborted();
-  const { readUserProfile } = await import("../lib/user-profile.js");
-  const { readMemoryEntries } = await import("../council/memory-store.js");
-  const roomContext = buildRoomContext({
-    now: roomNow,
-    profile: (() => { try { return readUserProfile(); } catch { return null; } })(),
-    memory: (() => { try { return readMemoryEntries(); } catch { return []; } })(),
-    retrieved: input.memory.matches.filter((item) => item.authority !== "assistant_output" && item.outcome !== "rejected"),
-  });
   // The turn's route decides the tools on the table and the budget. Jev
   // decides it in ~0.3s when it's sure; only then is the ~10s LLM room
   // reading skipped. Unattended runs are the work itself and read nothing.
@@ -1088,7 +1068,7 @@ export async function respondToConversation(
   const initiative = !mobile && !dependencies.readOnly && !unattended && source && process.env.FLYD_INITIATIVE !== "0"
     ? dependencies.initiative ?? { store: new PreparationStore() } : undefined;
   const remits = initiative && source ? initiative.store.listRemits(source.sessionId) : [];
-  const fast = unattended ? null : await (dependencies.routeTurn ?? defaultRouteTurn)(input.message, input.history, notes, remits).catch(() => null);
+  const fast: FastRouteReading | null = unattended ? null : await (dependencies.routeTurn ?? defaultRouteTurn)(input.message, input.history, notes, remits).catch(() => null);
   input.signal?.throwIfAborted();
 
   // A confident correction/decision for exactly one active domain run takes a
@@ -1122,37 +1102,14 @@ export async function respondToConversation(
   const roomInput: RoomInput = {
     preparationRemits: remits, message: source?.text ?? input.message, history: input.history, now: roomNow, core: roomContext.core, knowledge: roomContext.knowledge, notes,
   };
-  const fallbackStarted = Date.now();
-  // FLYD_ROOM=0 switches the room reading off: a choice, not a failure, so an
-  // unsure turn runs unplanned as it did before routing.
-  const roomOff = !dependencies.readRoom && process.env.FLYD_ROOM === "0";
-  const readsRoom = !(unattended || fast?.decided || roomOff);
-  if (readsRoom) input.onActivity?.("Working out what you need");
-  const room = readsRoom ? await (dependencies.readRoom ?? defaultReadRoom)(roomInput).catch(() => null) : null;
+  // Stage: Jev decides when sure; otherwise the room reading, else an answer.
+  const { room, reading, routingTrace: trace } = await readRoomStage({
+    message: input.message, roomInput, fast, unattended, sessionId: txSession,
+    ...(dependencies.readRoom ? { readRoom: dependencies.readRoom } : {}),
+    onReading: () => input.onActivity?.("Working out what you need"),
+  });
+  routingTrace = trace;
   input.signal?.throwIfAborted();
-  // An uncertain Jev prediction does not gain authority when the fallback
-  // fails, but Flyd can still answer: read-only, never a forced question.
-  const reading = room ? { route: room.route, source: "llm" as const }
-    : fast?.decided ? fast : unattended || roomOff ? null : { route: "answer" as const, source: "llm" as const };
-  if (reading && !unattended && process.env.FLYD_ROUTING_LEARNING !== "0") {
-    const prompt = roomPrompt(roomInput);
-    routingTrace = {
-      version: 1, surface: "runtime", at: roomNow.toISOString(), sessionId: txSession,
-      input: safeRoutingValue({ ...(fast?.evidence?.input ?? {}),
-        message: input.message,
-        ...(!fast?.decided ? { fallbackPrompt: prompt } : { conversation_recap: fast?.evidence?.input.conversation_recap ?? input.history.slice(-4) }),
-      }) as Record<string, unknown>,
-      contextComplete: true, policyVersion: [fast?.evidence?.policyVersion ?? "jev-unavailable", ROOM_RUBRIC_VERSION, decisionPolicyVersion() ?? "baseline"].join(":"),
-      observed: { route: reading.route, ...(fast?.decided && fast.domain ? { domain: fast.domain } : {}) },
-      source: room ? "llm" : fast?.decided ? "jev" : "answer_after_failure",
-      ...(fast ? { confidence: fast.confidence, judgments: fast.evidence?.judgments, model: fast.evidence?.model } : {}),
-      ...(room ? { model: process.env.FLYD_ROUTING_FALLBACK_MODEL ?? "configured-room-reader" } : {}),
-      models: { ...(fast?.evidence?.model ? { jev: fast.evidence.model } : {}), ...(!fast?.decided ? { fallback: process.env.FLYD_ROUTING_FALLBACK_MODEL ?? "configured-room-reader" } : {}) },
-      ...(fast && fast.confidence > 0 ? { candidate: { route: fast.route, ...(fast.domain ? { domain: fast.domain } : {}) } } : {}),
-      latencyMs: (fast?.evidence?.latencyMs ?? 0) + (room || !fast?.decided ? Date.now() - fallbackStarted : 0),
-      ...(!fast?.decided ? { fallbackReason: fast ? "uncertain_route_or_domain" : "jev_unavailable" } : {}),
-    };
-  }
   let preparationNote = "";
   const preparation = room?.preparation ?? (fast?.decided ? fast.preparation : null) ?? null;
   if (initiative && source && preparation && reading) {
@@ -1164,11 +1121,10 @@ export async function respondToConversation(
   const availableReading = mobile && answerReading?.route === "delegate" ? { ...answerReading, route: "answer" as const } : answerReading;
   const plan = planTurn(availableReading, room?.cover ?? [], { unattended });
   turnPlan = plan;
-  // The one skill that fits this turn, if any: its know-how rides in this turn only.
-  const skill = fast?.skill ? (() => { try { return (dependencies.skills ?? loadSkills)().find((item) => item.name === fast.skill) ?? null; } catch { return null; } })() : null;
+  // Stage: the one skill that fits this turn (its know-how rides in this turn
+  // only) and, on the fast path, the one backstage note Jev found relevant.
+  const { skill, fastNote, raisedAdvisory } = turnExtras(fast, room, notes, dependencies.skills);
   turnSkill = skill?.name ?? null;
-  // On the fast path the room reading never runs, so a note Jev found relevant rides in the plan.
-  const fastNote = !room && fast?.raise ? notes.find((note) => note.id === fast.raise) ?? null : null;
   // Naming a project is not a code turn: the room reading decides, then Jev
   // when sure, then the keyword heuristic.
   const projectTurn = mobile ? false : room ? room.mode === "operator"
@@ -1193,9 +1149,7 @@ export async function respondToConversation(
   input.signal?.throwIfAborted();
   const planBlock = [
     understanding ? presenceBrief(understanding) : "",
-    plan ? planBrief(plan) : "",
-    skill ? skillPromptBlock(skill) : "",
-    fastNote ? `Something from your own background thinking that bears on this; weave it in, in your own words, if it fits: ${fastNote.text}` : "",
+    ...turnBriefParts({ plan, skill, fastNote, surface: "chat" }),
     domainDeliveryNote,
     preparationNote,
     selfSetup ? `He's asking about you, Flyd. This is your own setup, looked up live from your configuration just now; it is complete and current. Answer from it in full and specifically: every job he asked about with the model that does it. Don't say you'd be guessing and don't offer to look it up. For anything about yourself it doesn't cover, read your own code at the path it gives, or pass the question on.\n\n${selfSetup}` : "",
@@ -1205,8 +1159,6 @@ export async function respondToConversation(
     ...(room ? { room: { core: roomContext.core, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
     ...(planBlock ? { plan: planBlock } : {}),
   });
-  const raisedId = room?.raise ?? (room ? null : fast?.raise ?? null);
-  const raisedAdvisory = raisedId ? notes.find((note) => note.id === raisedId)?.advisoryId : undefined;
   const injectedConnection = dependencies.resolveConnection?.();
   const models = injectedConnection ? [injectedConnection.model] : chatModelChain();
   const model = models[0];
@@ -1316,13 +1268,7 @@ export async function respondToConversation(
       if (fixed.trim()) final = extractFinal(fixed).replace(/^"""|"""$/g, "").trim();
     }
     // After any rewrite, so a rewritten answer can't bring the narration back.
-    final = stripInternalNarration(final).cleaned;
-    // A phrase George has ruled out never reaches him: cut any a failed rewrite left behind.
-    const leftover = retiredPhrasesIn(final);
-    if (leftover.length) {
-      console.warn(`[his-voice] cut a ruled-out phrase the rewrite left: ${leftover.join(", ")}`);
-      final = stripRetiredPhrases(final);
-    }
+    final = finishInFlydsVoice(final);
     if (containsProviderToolProtocol(final)) {
       throw new Error("Flyd's configured model returned tool protocol markup instead of a user-facing answer");
     }
