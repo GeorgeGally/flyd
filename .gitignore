@@ -36,6 +36,22 @@
 /app/assets/builds/*
 !/app/assets/builds/.keep
 
+# Retired Rails tree (legacy/rails/). The root-level entries above stay so
+# leftovers in older checkouts (logs, master.key, builds) remain ignored.
+/legacy/rails/.bundle
+/legacy/rails/log/*
+!/legacy/rails/log/.keep
+/legacy/rails/tmp/*
+!/legacy/rails/tmp/.keep
+!/legacy/rails/tmp/pids/
+/legacy/rails/tmp/pids/*
+!/legacy/rails/tmp/pids/.keep
+/legacy/rails/storage/*
+/legacy/rails/public/assets
+/legacy/rails/config/master.key
+/legacy/rails/app/assets/builds/*
+!/legacy/rails/app/assets/builds/.keep
+
 # Node / TS CLI
 node_modules/
 dist/

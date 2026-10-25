@@ -16,7 +16,7 @@ module AgentRuntime
     TIMEOUT = 10.seconds
     MAX_REQUEST_BYTES = 64.kilobytes
 
-    def initialize(command_runner: nil, bridge_path: Rails.root.join("cli/dist/runtime-bridge.js"), timeout: TIMEOUT)
+    def initialize(command_runner: nil, bridge_path: Rails.root.join("../../cli/dist/runtime-bridge.js"), timeout: TIMEOUT)
       @command_runner = command_runner
       @bridge_path = Pathname(bridge_path)
       @timeout = timeout
@@ -47,7 +47,7 @@ module AgentRuntime
 
     def run(input)
       return Timeout.timeout(@timeout) do
-        @command_runner.call(*command, stdin_data: input, chdir: Rails.root.join("cli").to_s)
+        @command_runner.call(*command, stdin_data: input, chdir: Rails.root.join("../../cli").to_s)
       end if @command_runner
 
       run_subprocess(input)
@@ -58,7 +58,7 @@ module AgentRuntime
       output_thread = error_thread = nil
       stdin, stdout, stderr, wait_thread = Open3.popen3(
         *command,
-        chdir: Rails.root.join("cli").to_s,
+        chdir: Rails.root.join("../../cli").to_s,
         pgroup: true
       )
       stdin.write(input)

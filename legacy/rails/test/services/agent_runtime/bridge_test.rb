@@ -17,7 +17,7 @@ class AgentRuntime::BridgeTest < ActiveSupport::TestCase
         Success.new(true)
       ]
     end
-    bridge_path = Rails.root.join("cli/src/runtime-bridge.ts")
+    bridge_path = Rails.root.join("../../cli/src/runtime-bridge.ts")
 
     result = AgentRuntime::Bridge.new(command_runner: runner, bridge_path:).call(
       schemaVersion: 1,
@@ -28,7 +28,7 @@ class AgentRuntime::BridgeTest < ActiveSupport::TestCase
     assert_equal true, result.dig("data", "healthy")
     assert_equal [ "node", bridge_path.to_s ], calls.first.fetch(:command)
     assert_equal "health", calls.first.dig(:input, "action")
-    assert_equal Rails.root.join("cli").to_s, calls.first.fetch(:chdir)
+    assert_equal Rails.root.join("../../cli").to_s, calls.first.fetch(:chdir)
   end
 
   test "preserves a structured runtime failure" do

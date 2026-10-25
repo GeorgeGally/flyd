@@ -13,8 +13,8 @@ class IntelligenceState::CliBridgeTest < ActiveSupport::TestCase
     payload = IntelligenceState::CliBridge.new(command_runner: runner).retrieve("last work")
 
     assert_equal "last work", payload.fetch("query")
-    assert_equal [ "node", Rails.root.join("cli/dist/bridge.js").to_s, "retrieve", "--query", "last work" ], calls.first.first
-    assert_equal Rails.root.join("cli").to_s, calls.first.last
+    assert_equal [ "node", Rails.root.join("../../cli/dist/bridge.js").to_s, "retrieve", "--query", "last work" ], calls.first.first
+    assert_equal Rails.root.join("../../cli").to_s, calls.first.last
   end
 
   test "raises a useful error when the CLI bridge fails" do

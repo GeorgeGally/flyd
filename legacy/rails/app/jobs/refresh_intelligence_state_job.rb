@@ -51,7 +51,7 @@ class RefreshIntelligenceStateJob < ApplicationJob
     command = exporter_command
 
     Timeout.timeout(TIMEOUT) do
-      stdout, stderr, status = Open3.capture3(*command, chdir: Rails.root.to_s)
+      stdout, stderr, status = Open3.capture3(*command, chdir: Rails.root.join("../..").to_s)
       raise ExportError, "CLI intelligence state export failed: #{stderr.presence || stdout}" unless status.success?
 
       stdout
@@ -61,7 +61,7 @@ class RefreshIntelligenceStateJob < ApplicationJob
   end
 
   def exporter_command
-    if Rails.root.join("cli/dist/export-state.js").exist?
+    if Rails.root.join("../../cli/dist/export-state.js").exist?
       [ "node", "cli/dist/export-state.js", "--stdout" ]
     elsif Rails.env.production?
       raise ExportError, "Compiled CLI exporter missing at cli/dist/export-state.js"

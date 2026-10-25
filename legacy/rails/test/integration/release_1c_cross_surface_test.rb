@@ -42,7 +42,7 @@ class Release1cCrossSurfaceTest < ActiveSupport::TestCase
     flyd_dir = Dir.mktmpdir("flyd-release-1c")
     ENV["FLYD_DATABASE_URL"] = "postgres:///#{database}"
     ENV["FLYD_DIR"] = flyd_dir
-    bridge = AgentRuntime::Bridge.new(bridge_path: Rails.root.join("cli/dist/not-built-runtime-bridge.js"))
+    bridge = AgentRuntime::Bridge.new(bridge_path: Rails.root.join("../../cli/dist/not-built-runtime-bridge.js"))
     cli_status = bridge.call(
       schemaVersion: 1,
       action: "task.status",
