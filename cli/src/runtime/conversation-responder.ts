@@ -18,7 +18,7 @@ import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-poli
 import { roomBrief, type RoomInput } from "./read-the-room.js";
 import type { RoutingTrace } from "./routing-learning.js";
 import { authorSummary, clip as clipProse, sentences } from "../conversation-view/summaries.js";
-import { artefactRequiredViolation, honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, styleProblems, unsupportedClaims } from "./honesty-check.js";
+import { artefactRequiredViolation, checkGrounding, honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, stripInternalNarration, styleProblems, unsupportedClaims } from "./honesty-check.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool, type PersonalToolDependencies } from "./personal-tools.js";
 import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantToolContext } from "./assistant-tools.js";
 import { fetchPublicUrl } from "./url-guard.js";
@@ -1173,6 +1173,7 @@ export async function respondToConversation(
   const evidence = projectTurn ? gatherProjectEvidence(projectRoot) : "";
   const prompt = `${facts ? facts : ""}${evidence}\n${request.prompt}`;
   const toolCalls: TurnToolCall[] = [];
+  const toolOutputs: string[] = [];
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
   const personalToolDeps = unattendedPersonalTools(input.sessionId, input.background);
   const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn, dependencies.readOnly, {
@@ -1203,6 +1204,7 @@ export async function respondToConversation(
       const result = await handler(name, toolInput);
       const succeeded = !TOOL_FAILURE.test(result);
       toolCalls.push({ name, input: toolInput, succeeded, ...(succeeded ? {} : { error: result }) });
+      if (succeeded) toolOutputs.push(result);
       // Only a real change makes an old failure stale; `ls` or `git status` doesn't.
       const changedWorld = name === "bash" ? !isReadOnlyCommand(String(toolInput.command ?? "")) : isMutatingToolCall(name, toolInput);
       if (succeeded && changedWorld) repeats.changed();
@@ -1260,15 +1262,20 @@ export async function respondToConversation(
     let final = extractFinal(answer);
     const retired = retiredPhrasesIn(final);
     if (retired.length) console.warn(`[his-voice] rejected a candidate answer that used a ruled-out phrase: ${retired.join(", ")}`);
-    const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final)];
+    const groundingText = [...input.history.filter((turn) => turn.role === "user").map((turn) => turn.content), input.message, ...toolOutputs].join("\n");
+    const ungrounded = checkGrounding(stripInternalNarration(final).cleaned, groundingText);
+    const groundingProblems = ungrounded.length
+      ? [`These spans were not found in context — remove or ground these: ${ungrounded.join(", ")}.`]
+      : [];
+    const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final), ...groundingProblems];
     if (problems.length) {
       // One honest rewrite; if that fails, the original stands rather than nothing.
       const rewrite = dependencies.rewrite ?? (async (prompt: string) => (process.env.VITEST ? "" : (await import("../lib/llm.js")).query(prompt, usedModel)));
       const fixed = await rewrite(honestyRewritePrompt(final, problems)).catch(() => "");
       if (fixed.trim()) final = extractFinal(fixed).replace(/^"""|"""$/g, "").trim();
     }
-    // After any rewrite, so a rewritten answer can't bring the narration back.
     final = finishInFlydsVoice(final);
+    if (checkGrounding(final, groundingText).length) final += "\n\nI can't verify those names or dates from the context I have.";
     if (containsProviderToolProtocol(final)) {
       throw new Error("Flyd's configured model returned tool protocol markup instead of a user-facing answer");
     }

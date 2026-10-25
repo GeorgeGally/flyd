@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CognitiveCurator } from "../../cognition/curator/curator.js";
 import {
@@ -547,6 +547,61 @@ describe("buildConversationPrompt", () => {
       expect(traces.some((line) => line.includes("[his-voice]") && line.includes("Captain"))).toBe(true);
     } finally {
       warn.mockRestore();
+    }
+  });
+
+  it("regenerates once for ungrounded names and dates, then hedges if they remain", async () => {
+    let rewrites = 0;
+    const answer = await respondToConversation({
+      message: "When is the release?",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: null,
+      onToken: () => undefined,
+    }, {
+      readOnly: true,
+      runAgentLoop: async () => "<final>The launch for Bloom and Capfive is on October 25.</final>",
+      rewrite: async (prompt) => {
+        rewrites += 1;
+        expect(prompt).toContain("Bloom");
+        expect(prompt).toContain("Capfive");
+        expect(prompt).toContain("October 25");
+        expect(prompt).toContain("not found in context — remove or ground these");
+        return "<final>The launch for Bloom and Capfive is on October 25.</final>";
+      },
+      persistReceipt: async (input) => input as never,
+    });
+
+    expect(rewrites).toBe(1);
+    expect(answer).toBe("The launch for Bloom and Capfive is on October 25.\n\nI can't verify those names or dates from the context I have.");
+  });
+
+  it("grounds named entities and dates in successful tool output", async () => {
+    const root = mkdtempSync(join(process.cwd(), ".grounding-test-"));
+    const file = join(root, "evidence.md");
+    writeFileSync(file, "Bloom and Capfive launch on October 25.");
+    let rewrites = 0;
+    try {
+      const answer = await respondToConversation({
+        message: "Read the source code and tell me the release date.",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      }, {
+        readOnly: true,
+        runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+          await onToolCall("read_file", { path: `${basename(root)}/evidence.md` });
+          return "<final>Bloom and Capfive launch on October 25.</final>";
+        },
+        rewrite: async () => { rewrites += 1; return ""; },
+        persistReceipt: async (input) => input as never,
+      });
+
+      expect(rewrites).toBe(0);
+      expect(answer).toBe("Bloom and Capfive launch on October 25.");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
