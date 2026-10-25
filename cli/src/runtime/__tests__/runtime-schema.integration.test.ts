@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { postgresAvailable, TEST_DATABASE_URL } from "../../__tests__/support/postgres.js";
 import { createRuntimePool, withTransaction } from "../database.js";
 import { OperationalDecisionStore } from "../operational-decision-store.js";
 
-const adminUrl = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
+const adminUrl = TEST_DATABASE_URL;
+// No local integration database: skip rather than fail (support/postgres.ts).
+const hasPostgres = await postgresAvailable();
 
 function databaseUrl(base: string, dbName: string): string {
   const url = new URL(base);
@@ -15,7 +18,7 @@ function databaseUrl(base: string, dbName: string): string {
 // Proves Core owns the runtime schema: a brand-new database with zero tables
 // bootstraps itself through the pool and runtime writes succeed — no
 // bin/rails db:prepare involved.
-describe("runtime schema bootstrap on a fresh database", () => {
+describe.skipIf(!hasPostgres)("runtime schema bootstrap on a fresh database", () => {
   let dbName: string;
   let pool: pg.Pool;
   let admin: pg.Client;

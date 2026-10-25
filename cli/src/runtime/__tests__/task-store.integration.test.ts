@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { postgresAvailable, TEST_DATABASE_URL } from "../../__tests__/support/postgres.js";
 import { Pool } from "pg";
 import { createRuntimePool } from "../database.js";
 import { deliveryContractOf } from "../delivery-contract.js";
@@ -7,7 +8,9 @@ import { ensureRuntimeSchema } from "../runtime-schema.js";
 import { PostgresTaskStore } from "../task-store.js";
 import type { WorkerSession } from "../types.js";
 
-const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
+const connectionString = TEST_DATABASE_URL;
+// No local integration database: skip rather than fail (support/postgres.ts).
+const hasPostgres = await postgresAvailable();
 // Production pools run in UTC (createRuntimePool); timestamp columns compare
 // against NOW() wrongly in any other session time zone.
 const pool = new Pool({ connectionString, max: 2, options: "-c timezone=UTC" });
@@ -38,7 +41,7 @@ async function cleanProject(): Promise<void> {
   }
 }
 
-describe("PostgresTaskStore", { timeout: 15_000 }, () => {
+describe.skipIf(!hasPostgres)("PostgresTaskStore", { timeout: 15_000 }, () => {
   // A blank database (CI) has no schema until Core bootstraps it.
   beforeAll(() => ensureRuntimeSchema(pool));
 

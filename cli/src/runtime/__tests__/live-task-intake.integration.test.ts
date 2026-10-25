@@ -1,10 +1,13 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { postgresAvailable, TEST_DATABASE_URL } from "../../__tests__/support/postgres.js";
 import { Pool } from "pg";
 import { PostgresTaskStore } from "../task-store.js";
 import { intakeLiveTask, resolveLiveTaskIntent } from "../live-task-intake.js";
 import type { RepositorySnapshot } from "../types.js";
 
-const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
+const connectionString = TEST_DATABASE_URL;
+// No local integration database: skip rather than fail (support/postgres.ts).
+const hasPostgres = await postgresAvailable();
 const pool = new Pool({ connectionString, max: 2 });
 const store = new PostgresTaskStore(pool);
 const projectRoot = "/work/live-intake-test";
@@ -43,7 +46,7 @@ async function cleanProject(): Promise<void> {
   }
 }
 
-describe("live task intake", { timeout: 15_000 }, () => {
+describe.skipIf(!hasPostgres)("live task intake", { timeout: 15_000 }, () => {
   beforeEach(async () => {
     await cleanProject();
   });

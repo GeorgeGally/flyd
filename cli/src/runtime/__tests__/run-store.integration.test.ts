@@ -1,4 +1,5 @@
 import { describe, expect, it, afterAll } from "vitest";
+import { postgresAvailable, TEST_DATABASE_URL } from "../../__tests__/support/postgres.js";
 import { Pool } from "pg";
 import {
   InvalidTransitionError,
@@ -6,7 +7,9 @@ import {
   RevisionConflictError,
 } from "../run-store.js";
 
-const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
+const connectionString = TEST_DATABASE_URL;
+// No local integration database: skip rather than fail (support/postgres.ts).
+const hasPostgres = await postgresAvailable();
 const pool = new Pool({ connectionString, max: 2 });
 const store = new PostgresRunStore(pool);
 
@@ -17,7 +20,7 @@ async function cleanRuns(): Promise<void> {
   await pool.query("DELETE FROM agent_runs WHERE principal_id = 'run-store-eval'");
 }
 
-describe("PostgresRunStore", { timeout: 15_000 }, () => {
+describe.skipIf(!hasPostgres)("PostgresRunStore", { timeout: 15_000 }, () => {
   afterAll(async () => {
     await cleanRuns();
     await pool.end();

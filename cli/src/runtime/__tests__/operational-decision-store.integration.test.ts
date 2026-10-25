@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { postgresAvailable, TEST_DATABASE_URL } from "../../__tests__/support/postgres.js";
 import { Pool } from "pg";
 import { OperationalDecisionStore } from "../operational-decision-store.js";
 import { ensureRuntimeSchema } from "../runtime-schema.js";
 import { PostgresTaskStore } from "../task-store.js";
 
-const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
+const connectionString = TEST_DATABASE_URL;
+// No local integration database: skip rather than fail (support/postgres.ts).
+const hasPostgres = await postgresAvailable();
 const pool = new Pool({ connectionString, max: 2 });
 const taskStore = new PostgresTaskStore(pool);
 const decisionStore = new OperationalDecisionStore(pool);
@@ -44,7 +47,7 @@ async function createTask() {
   });
 }
 
-describe("OperationalDecisionStore", { timeout: 15_000 }, () => {
+describe.skipIf(!hasPostgres)("OperationalDecisionStore", { timeout: 15_000 }, () => {
   // Core owns the runtime schema; a narrower copy here would shadow it for
   // every later suite on the same database (CREATE TABLE IF NOT EXISTS).
   beforeAll(() => ensureRuntimeSchema(pool));

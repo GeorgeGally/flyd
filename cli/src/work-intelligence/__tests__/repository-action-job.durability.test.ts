@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { afterAll, describe, expect, it } from "vitest";
+import { postgresAvailable, TEST_DATABASE_URL } from "../../__tests__/support/postgres.js";
 import { Pool } from "pg";
 import { PostgresRunStore } from "../../runtime/run-store.js";
 import { RepositoryActionJobStore } from "../repository-action-job.js";
@@ -7,7 +8,9 @@ import { RepositoryActionJobStore } from "../repository-action-job.js";
 // Durability contract for repository-action jobs: statuses and results
 // survive process restarts; interrupted runs are failed at boot.
 
-const connectionString = process.env.FLYD_TEST_DATABASE_URL ?? "postgres:///flyd_v1_test";
+const connectionString = TEST_DATABASE_URL;
+// No local integration database: skip rather than fail (support/postgres.ts).
+const hasPostgres = await postgresAvailable();
 const pool = new Pool({ connectionString, max: 2 });
 const runStore = new PostgresRunStore(pool);
 
@@ -20,7 +23,7 @@ async function cleanRuns(): Promise<void> {
   await pool.query("DELETE FROM agent_runs WHERE principal_id = 'core' AND kind = 'repository_action'");
 }
 
-describe("RepositoryActionJobStore durability", { timeout: 15_000 }, () => {
+describe.skipIf(!hasPostgres)("RepositoryActionJobStore durability", { timeout: 15_000 }, () => {
   afterAll(async () => {
     await cleanRuns();
     await pool.end();
