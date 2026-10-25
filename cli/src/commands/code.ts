@@ -3,7 +3,7 @@ import { join } from "path";
 import { execFile } from "child_process";
 import { fileURLToPath } from "url";
 import { promisify } from "util";
-import { FLYD_DIR, zodiacSign } from "../lib/config.js";
+import { FLYD_DIR } from "../lib/config.js";
 import { currentPlanAssignments, planAssignments } from "../runtime/assignment-planner.js";
 import { deliverArchiveOutbox } from "../runtime/archive-outbox.js";
 import { createRuntimePool } from "../runtime/database.js";
@@ -36,7 +36,6 @@ import {
   retrieveRecentConversationEvidence,
 } from "../runtime/conversation-memory.js";
 import { queryMemory } from "../cognition/memory.js";
-import { isHoroscopeQuestion, verifiedHoroscopeEvidence } from "../runtime/personal-context-memory.js";
 import { actionableTaskNextAction } from "../runtime/orientation.js";
 import type { ContextPackage, MemoryEvidence } from "../runtime/types.js";
 import { GitWorktreeManager } from "../runtime/worktree-manager.js";
@@ -105,28 +104,7 @@ export async function retrieveAgentMemory(
     }),
     retrieveArchive(query),
   ]);
-  const combined = mergeAgentMemoryEvidence(query, [ conversation, archive ]);
-  if (!isHoroscopeQuestion(query)) return combined;
-  const pool = createRuntimePool(undefined, { connectionTimeoutMillis: 500 });
-  try {
-    const result = await pool.query(
-      `SELECT status, fresh_until, payload
-       FROM intelligence_snapshots
-       WHERE provider = 'personal-context'
-       ORDER BY received_at DESC, created_at DESC
-       LIMIT 1`,
-    );
-    const horoscopes = verifiedHoroscopeEvidence(result.rows[0] ?? null, zodiacSign());
-    if (horoscopes.length === 0) return combined;
-    return {
-      verdict: "partial",
-      matches: [ ...horoscopes, ...combined.matches ].slice(0, 6),
-    };
-  } catch {
-    return combined;
-  } finally {
-    await pool.end();
-  }
+  return mergeAgentMemoryEvidence(query, [ conversation, archive ]);
 }
 
 export async function writeRuntimeContext(taskKey: string, context: ContextPackage): Promise<string> {

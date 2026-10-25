@@ -107,7 +107,6 @@ interface FlydConfig {
   COMMANDCODE_API_KEY_MODEL?: string;
   COMMANDCODE_BASE_URL?: string;
   FLYD_MODEL_BASE_URL?: string;
-  FLYD_ZODIAC_SIGN?: string;
   LAST30DAYS_SCRIPT?: string;
   LAST30DAYS_TOPICS?: string;
   FLYD_BRIEF_INTERVAL_MINUTES?: string;
@@ -317,10 +316,6 @@ export function resolveModelConnection(model = defaultChatModel()): ModelConnect
     ...(baseURL ? { baseURL } : {}),
     providerIdentity: `${providerHost}/${apiModelId(model)}`,
   };
-}
-
-export function zodiacSign(): string | null {
-  return getKey("FLYD_ZODIAC_SIGN")?.trim().toLowerCase() || null;
 }
 
 /** True when a connection (provider, endpoint and key) can be resolved for the model right now. */
