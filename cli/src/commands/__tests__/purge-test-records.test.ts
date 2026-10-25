@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { purgeTestRecords } from "../purge-test-records.js";
+import { REPLAYED_PAIR_MIN, purgeTestRecords } from "../purge-test-records.js";
 
 function seed(path: string): void {
   const store = new IntelligenceEventStore({ path });
@@ -118,5 +118,31 @@ describe("purgeTestRecords", () => {
     const after = new IntelligenceEventStore({ path: dbPath });
     expect(after.count()).toBe(3);
     after.close();
+  });
+
+  it("deletes a question and reply replayed verbatim dozens of times, and the passes over them, but keeps a pair said a few times", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "purge-"));
+    const dbPath = join(dir, "intelligence.sqlite");
+    const store = new IntelligenceEventStore({ path: dbPath });
+    const db = (store as any).db;
+    let n = 0;
+    const add = (sourceId: string, payload: Record<string, unknown>) => {
+      db.prepare(
+        `INSERT INTO personal_events (id, schema_version, kind, source_id, captured_at, consent_json, retention_class, provenance, idempotency_key, payload_domain, payload_json)
+         VALUES (?, 1, 'observation', ?, '2026-10-24T10:00:00Z', '{}', 'durable', 'test', ?, 'x', ?)`,
+      ).run(`r${n}`, sourceId, `rk${n++}`, JSON.stringify(payload));
+      return Number(db.prepare("SELECT MAX(sequence) s FROM personal_events").get().s);
+    };
+    for (let i = 0; i < REPLAYED_PAIR_MIN; i++) {
+      const seq = add("chat.cognition", { conversation: { sessionId: `s${i}`, user: "what is the weather today?", assistant: "Sunny, 24 degrees.", projectIds: [] } });
+      add("cognition.system-one", { sourceEvent: seq });
+    }
+    for (let i = 0; i < 3; i++) add("chat.cognition", { conversation: { sessionId: `g${i}`, user: "do it", assistant: "done", projectIds: [] } });
+    store.close();
+
+    const report = await purgeTestRecords({ dbPath });
+    expect(report.reasons["conversations replayed verbatim"]).toBe(REPLAYED_PAIR_MIN);
+    expect(report.reasons["system-one passes over test events"]).toBe(REPLAYED_PAIR_MIN);
+    expect(report.eventsAfter).toBe(3);
   });
 });

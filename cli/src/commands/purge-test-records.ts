@@ -57,6 +57,9 @@ function parse(row: Row): Record<string, any> {
 }
 
 /** Pure classification: sequence -> reason, for every row that is positively test output. */
+/** Times an identical question and reply must recur before it counts as a replayed fixture. */
+export const REPLAYED_PAIR_MIN = 20;
+
 export function classifyTestRecords(db: Database.Database): { doomed: Map<number, string>; review: PurgeReport["review"] } {
   const doomed = new Map<number, string>();
   const mark = (seq: number, reason: string) => { if (!doomed.has(seq)) doomed.set(seq, reason); };
@@ -86,6 +89,15 @@ export function classifyTestRecords(db: Database.Database): { doomed: Map<number
   const keptUsers = new Set<string>();
   const testTopics = new Set<string>();
   const norm = (s: unknown) => String(s ?? "").trim().toLowerCase();
+  // George never asks the same thing and gets the same words back dozens of
+  // times; a question-and-reply pair repeated that often is a fixture replayed
+  // by test runs that slipped past the sandbox.
+  const pairKey = (c: { user?: unknown; assistant?: unknown }) => `${norm(c.user)}\u0000${norm(c.assistant)}`;
+  const pairCounts = new Map<string, number>();
+  for (const row of cognition) {
+    const c = row.kind === "observation" ? parse(row).conversation : undefined;
+    if (c) pairCounts.set(pairKey(c), (pairCounts.get(pairKey(c)) ?? 0) + 1);
+  }
   for (const row of cognition) {
     const p = parse(row);
     if (row.kind === "observation" && p.conversation) {
@@ -93,6 +105,7 @@ export function classifyTestRecords(db: Database.Database): { doomed: Map<number
       const test = isFixtureSession(c.sessionId)
         || (Array.isArray(c.projectIds) && c.projectIds.includes(TEST_PROJECT));
       if (test) { mark(row.sequence, "fixture conversations"); doomedUsers.add(norm(c.user)); }
+      else if ((pairCounts.get(pairKey(c)) ?? 0) >= REPLAYED_PAIR_MIN) { mark(row.sequence, "conversations replayed verbatim"); doomedUsers.add(norm(c.user)); }
       else keptUsers.add(norm(c.user));
     } else if (row.kind === "observation" && p.relation?.to === TEST_PROJECT && String(p.relation.from).startsWith("topic:")) {
       testTopics.add(p.relation.from);

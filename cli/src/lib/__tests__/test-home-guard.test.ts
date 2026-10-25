@@ -1,4 +1,4 @@
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { assertNotRealFlydHome } from "../test-home-guard.js";
@@ -13,6 +13,16 @@ describe("test home isolation", () => {
     expect(() => assertNotRealFlydHome(join(homedir(), ".flyd", "intelligence.sqlite"))).toThrow(/real/);
     expect(() => assertNotRealFlydHome(join(homedir(), ".flyd"))).toThrow(/real/);
     expect(() => assertNotRealFlydHome(join(homedir(), ".flyd-other", "x.sqlite"))).not.toThrow();
+  });
+
+  it("still refuses the account's real ~/.flyd when $HOME has been pointed elsewhere", () => {
+    const original = process.env.HOME;
+    process.env.HOME = "/tmp/elsewhere";
+    try {
+      expect(() => assertNotRealFlydHome(join(userInfo().homedir, ".flyd", "intelligence.sqlite"))).toThrow(/real/);
+    } finally {
+      process.env.HOME = original;
+    }
   });
 
   it("refuses to open the real event store", () => {
