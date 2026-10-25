@@ -281,6 +281,9 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       process.off("SIGINT", stop);
       process.off("SIGTERM", stop);
       if (watchdog) clearInterval(watchdog);
+      // A stray timer or child (a fleet read, a model call) must not keep a stopped
+      // view alive and port-less, where Flyd.app's supervisor never sees it exit.
+      setTimeout(() => process.exit(0), 5_000).unref();
       void server.close().then(resolve);
     };
     process.on("SIGINT", stop);

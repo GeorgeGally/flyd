@@ -1,8 +1,37 @@
 import Darwin
 import Foundation
 
+/// When the conversation view is relaunched and when a running one counts as gone.
+/// Pure, so the backoff is testable without a process.
+struct ConversationRestartPolicy {
+    var initialDelay: TimeInterval = 2
+    var maxDelay: TimeInterval = 60
+    /// A view that ran at least this long before exiting restarts from the initial delay.
+    var stableRunDuration: TimeInterval = 60
+    /// How long a started view may take to answer before it is replaced.
+    var readyDeadline: TimeInterval = 180
+    /// How often a ready view is asked whether it still answers.
+    var livenessInterval: TimeInterval = 30
+    /// Missed liveness checks in a row before the view is replaced.
+    var livenessMisses = 3
+    /// How long a view asked to stop may linger before it is killed.
+    var killGrace: TimeInterval = 5
+
+    /// The wait before relaunch number `failures` (1-based): doubling, capped.
+    func delay(afterFailures failures: Int) -> TimeInterval {
+        let exponent = Double(min(max(failures - 1, 0), 30))
+        return min(initialDelay * pow(2, exponent), maxDelay)
+    }
+
+    /// The failure count after an exit: a long, healthy run starts the count again.
+    func failures(after previous: Int, ranFor duration: TimeInterval) -> Int {
+        duration >= stableRunDuration ? 1 : previous + 1
+    }
+}
+
 /// Runs `flyd view` (the conversation view server, TypeScript Core) for the
-/// Conversation window: on a free loopback port, restarted if it dies,
+/// Conversation window: on a free loopback port, relaunched with backoff
+/// whenever it exits (cleanly or not), fails to start, or stops answering,
 /// stopped when Flyd quits. The captain never touches a terminal.
 final class ConversationServer {
     static let shared = ConversationServer()
@@ -18,6 +47,11 @@ final class ConversationServer {
     private var stopping = false
     private var nodePath: String?
     private(set) var url: URL?
+    private let policy = ConversationRestartPolicy()
+    /// Exits, failed launches and unanswered starts since the last healthy run.
+    private var consecutiveFailures = 0
+    private var startedAt = Date()
+    private var relaunchScheduled = false
 
     static let preferredPort = 4818
     static let logURL = FileManager.default.homeDirectoryForCurrentUser
@@ -85,14 +119,19 @@ final class ConversationServer {
                 guard self.process === finished else { return }
                 self.process = nil
                 guard !self.stopping else { return }
-                Self.appendLog("conversation view exited (\(finished.terminationStatus)); restarting in 2s")
-                self.queue.asyncAfter(deadline: .now() + 2) { self.launch() }
+                let how = finished.terminationReason == .uncaughtSignal
+                    ? "killed by signal \(finished.terminationStatus)"
+                    : "exited (\(finished.terminationStatus))"
+                let ran = Date().timeIntervalSince(self.startedAt)
+                self.consecutiveFailures = self.policy.failures(after: self.consecutiveFailures, ranFor: ran)
+                self.scheduleRelaunch("conversation view \(how) after \(Int(ran))s")
             }
         }
 
         do {
             try process.run()
             self.process = process
+            startedAt = Date()
             Self.appendLog("conversation view starting on 127.0.0.1:\(chosen) (pid \(process.processIdentifier), cwd \(cliDir))")
             waitUntilReady(port: chosen, process: process)
         } catch {
@@ -100,31 +139,96 @@ final class ConversationServer {
         }
     }
 
-    private func waitUntilReady(port: Int, process: Process, attempt: Int = 0) {
-        guard let probe = URL(string: "http://127.0.0.1:\(port)/api/sessions") else { return }
-        var request = URLRequest(url: probe)
-        request.timeoutInterval = 2
+    /// Relaunches after the policy's backoff; one relaunch is pending at a time.
+    private func scheduleRelaunch(_ why: String) {
+        guard !stopping, !relaunchScheduled else { return }
+        relaunchScheduled = true
+        let delay = policy.delay(afterFailures: max(consecutiveFailures, 1))
+        Self.appendLog("\(why); restarting in \(Int(delay))s")
+        queue.asyncAfter(deadline: .now() + delay) {
+            self.relaunchScheduled = false
+            self.launch()
+        }
+    }
+
+    /// Asks the view whether it answers; calls back on the server queue.
+    private func probe(port: Int, timeout: TimeInterval, _ done: @escaping (Bool) -> Void) {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/api/sessions") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
         URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
-            guard let self else { return }
-            self.queue.async {
-                guard self.process === process, !self.stopping else { return }
-                if (response as? HTTPURLResponse)?.statusCode == 200 {
-                    let url = URL(string: "http://127.0.0.1:\(port)/")!
-                    self.url = url
-                    DispatchQueue.main.async { self.onReady?(url) }
-                } else if attempt < 120 {
-                    self.queue.asyncAfter(deadline: .now() + 0.25) { self.waitUntilReady(port: port, process: process, attempt: attempt + 1) }
-                } else {
-                    Self.appendLog("conversation view did not answer on port \(port)")
-                }
-            }
+            self?.queue.async { done((response as? HTTPURLResponse)?.statusCode == 200) }
         }.resume()
     }
 
-    private func fail(_ message: String) {
-        Self.appendLog(message)
-        DispatchQueue.main.async { self.onFailure?(message) }
+    /// Polls until the view answers, never giving up on a live process: a slow
+    /// start (a loaded machine compiling tsx) still reaches the window. A view
+    /// that has not answered by the deadline is replaced.
+    private func waitUntilReady(port: Int, process: Process, attempt: Int = 0) {
+        probe(port: port, timeout: 2) { [weak self] answered in
+            guard let self, self.process === process, !self.stopping else { return }
+            if answered {
+                let url = URL(string: "http://127.0.0.1:\(port)/")!
+                self.url = url
+                if attempt >= 120 { Self.appendLog("conversation view answered on port \(port) after a slow start") }
+                DispatchQueue.main.async { self.onReady?(url) }
+                self.watch(port: port, process: process)
+                return
+            }
+            if attempt == 120 { Self.appendLog("conversation view not answering on port \(port) yet; still waiting") }
+            if Date().timeIntervalSince(self.startedAt) >= self.policy.readyDeadline {
+                self.replace(process, why: "conversation view never answered on port \(port)")
+                return
+            }
+            let wait: TimeInterval = attempt < 120 ? 0.25 : 2
+            self.queue.asyncAfter(deadline: .now() + wait) { self.waitUntilReady(port: port, process: process, attempt: attempt + 1) }
+        }
     }
+
+    /// While the view runs, checks it still answers: a process that stopped
+    /// serving without exiting (stuck event loop, lingering after SIGTERM) is
+    /// replaced instead of leaving the window dead until the app restarts.
+    private func watch(port: Int, process: Process, misses: Int = 0) {
+        queue.asyncAfter(deadline: .now() + policy.livenessInterval) { [weak self] in
+            guard let self, self.process === process, !self.stopping else { return }
+            if misses == 0, Date().timeIntervalSince(self.startedAt) >= self.policy.stableRunDuration {
+                self.consecutiveFailures = 0
+            }
+            self.probe(port: port, timeout: 10) { answered in
+                guard self.process === process, !self.stopping else { return }
+                if answered {
+                    if misses > 0 { Self.appendLog("conversation view on port \(port) answering again") }
+                    self.watch(port: port, process: process)
+                } else if misses + 1 >= self.policy.livenessMisses {
+                    self.replace(process, why: "conversation view stopped answering on port \(port)")
+                } else {
+                    Self.appendLog("conversation view on port \(port) did not answer (\(misses + 1)/\(self.policy.livenessMisses))")
+                    self.watch(port: port, process: process, misses: misses + 1)
+                }
+            }
+        }
+    }
+
+    /// Stops a view that no longer serves; its exit relaunches it. One that
+    /// ignores SIGTERM is killed after a grace period.
+    private func replace(_ process: Process, why: String) {
+        Self.appendLog("\(why); stopping pid \(process.processIdentifier) to restart it")
+        process.terminate()
+        let pid = process.processIdentifier
+        queue.asyncAfter(deadline: .now() + policy.killGrace) {
+            guard process.isRunning else { return }
+            Self.appendLog("conversation view pid \(pid) ignored SIGTERM; killing it")
+            kill(pid, SIGKILL)
+        }
+    }
+
+    /// A launch that could not happen is retried with backoff, not abandoned.
+    private func fail(_ message: String) {
+        DispatchQueue.main.async { self.onFailure?(message) }
+        consecutiveFailures += 1
+        scheduleRelaunch(message)
+    }
+
 
     // MARK: - Helpers
 
@@ -185,9 +289,11 @@ final class ConversationServer {
         if !FileManager.default.fileExists(atPath: logURL.path) {
             FileManager.default.createFile(atPath: logURL.path, contents: nil)
         }
-        let handle = (try? FileHandle(forWritingTo: logURL)) ?? FileHandle.nullDevice
-        handle.seekToEndOfFile()
-        return handle
+        // O_APPEND: the view's own output and these lines share the file; with a plain
+        // write offset each writer overwrote the other's lines.
+        let fd = open(logURL.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+        guard fd >= 0 else { return FileHandle.nullDevice }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
 
     static func appendLog(_ message: String) {

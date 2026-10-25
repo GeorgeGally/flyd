@@ -101,12 +101,13 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
         if let window, window.isVisible, window.isKeyWindow { window.performClose(nil) } else { show() }
     }
 
-    /// The server is up (again) at `url`; load it if that is new.
+    /// The server is up (again) at `url`. Each call is a freshly started server
+    /// process, so the page is reloaded even at the same URL: the old page's
+    /// connections died with the process it was served by.
     func serverReady(_ url: URL) {
         failure = nil
-        let changed = serverURL != url
         serverURL = url
-        if changed || webView?.url?.scheme == "about" { load() }
+        load()
     }
 
     func serverFailed(_ message: String) {

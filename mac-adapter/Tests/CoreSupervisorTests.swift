@@ -104,13 +104,30 @@ final class CoreSupervisorTests: XCTestCase {
         XCTAssertEqual(harness.runNextScheduled(), 2)
     }
 
-    func testCleanExitIsNotRestarted() {
+    func testCleanExitIsRestartedWithBackoff() {
         let harness = Harness()
         harness.supervisor.start()
-        harness.exitCore(0)
 
-        XCTAssertTrue(harness.scheduled.isEmpty)
+        // A restart that SIGTERMs Core and never relaunches it leaves it exited 0.
+        harness.exitCore(0)
+        XCTAssertEqual(harness.runNextScheduled(), 2)
+        XCTAssertEqual(harness.launches, 2)
+        XCTAssertTrue(harness.logs.contains { $0.contains("clean exit") })
+
+        harness.exitCore(0)
+        XCTAssertEqual(harness.runNextScheduled(), 4, "repeated clean exits back off like crashes")
+    }
+
+    func testCleanExitAdoptsACoreSomeoneElseRestarted() {
+        let harness = Harness()
+        harness.supervisor.start()
+
+        harness.healthy = true
+        harness.exitCore(0)
+        _ = harness.runNextScheduled()
+
         XCTAssertEqual(harness.launches, 1)
+        XCTAssertTrue(harness.logs.last!.contains("adopting"))
     }
 
     func testFailedLaunchBacksOff() {
