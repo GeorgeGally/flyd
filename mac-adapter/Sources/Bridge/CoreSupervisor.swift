@@ -5,8 +5,10 @@ import Foundation
 /// Before every launch it asks the port for `/health`: a Core that is already serving
 /// (left over from a previous app instance, or started by hand with `npm run core`) is
 /// adopted and watched instead of being raced by a second Core that can only die with
-/// "Port 4815 is already in use". Crashes restart with exponential backoff, and only
-/// state changes are logged, so the launch log cannot grow by a few lines every 2s.
+/// "Port 4815 is already in use". Any exit while the app runs, a crash or a clean one
+/// (a SIGTERM from a restart that never relaunched it exits 0), is followed by a fresh
+/// health check and a relaunch with exponential backoff, and only state changes are
+/// logged, so the launch log cannot grow by a few lines every 2s.
 final class CoreSupervisor {
     struct Timing {
         var initialRestartDelay: TimeInterval = 2
@@ -75,8 +77,7 @@ final class CoreSupervisor {
     private func launchOwnCore() {
         let startedAt = now()
         let started = launch { [self] status in
-            log("Core exited with status \(status)")
-            guard status != 0 else { return }
+            log("Core exited with status \(status)\(status == 0 ? " (clean exit)" : "")")
             if now().timeIntervalSince(startedAt) >= timing.stableRunDuration {
                 consecutiveFailures = 0
             }

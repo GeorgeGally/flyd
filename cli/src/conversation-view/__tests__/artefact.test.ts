@@ -8,7 +8,7 @@ import { semanticObjectFromShow } from "../semantic.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, heldItems, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
-  callItems, doneItems, underwayItems, workerStarted, weekLandedRows, type FleetArtefact,
+  callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, type FleetArtefact,
 } from "../artefact.js";
 import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -1001,4 +1001,121 @@ it("renders a Core-owned choice as a decision with its answer target, rather tha
   const item = composeArtefact({ fleet, memories: [], news: [], taste: [] }).find((item) => item.kind === "call")!;
   expect(semanticObjectFromShow(item)).toMatchObject({ kind: "decision", status: "Needs your choice", decision: { decisionId: record.decisionId, target: "scope", alternatives: ["Close it", "add the tools"] } });
   expect(semanticObjectFromShow(item).activity).toBeUndefined();
+});
+
+describe("ArtefactFeed fleet reads", () => {
+  const files = (home: string) => ({ memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none"), artefactsFile: join(home, "view", "artefacts.json") });
+  const fleetHome = (prefix: string) => {
+    const home = mkdtempSync(join(tmpdir(), prefix));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    return { home, script: join(home, "bin", "fm-bearings-snapshot.sh") };
+  };
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it("names a timed-out read as one in Flyd's log, not 'no reason given'", async () => {
+    const { home, script } = fleetHome("artefact-why-");
+    writeFileSync(script, "#!/bin/sh\nsleep 5\n", { mode: 0o755 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await new ArtefactFeed({ home, timeoutMs: 200, ...files(home) }).refresh();
+      const log = warn.mock.calls.flat().join(" ");
+      expect(log).toContain("fleet snapshot unreadable: timed out");
+      expect(log).not.toContain("no reason given");
+    } finally {
+      warn.mockRestore();
+    }
+  }, 30_000);
+
+  it("stops the script's whole process tree when a read times out, leaving nothing running", async () => {
+    const { home, script } = fleetHome("artefact-tree-");
+    const pidFile = join(home, "child.pid");
+    // Like the bearings script: the work runs in children the shell waits on.
+    writeFileSync(script, `#!/bin/sh\nsleep 30 &\necho $! > '${pidFile}'\nwait\n`, { mode: 0o755 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let child = 0;
+    try {
+      await new ArtefactFeed({ home, timeoutMs: 2_000, ...files(home) }).refresh();
+      child = Number(readFileSync(pidFile, "utf8").trim());
+      expect(child).toBeGreaterThan(0);
+      await vi.waitFor(() => expect(alive(child)).toBe(false), { timeout: 5_000 });
+    } finally {
+      warn.mockRestore();
+      if (child && alive(child)) process.kill(child, "SIGKILL");
+    }
+  }, 30_000);
+
+  it("hands a failed read's refresh the last good read, so nothing on screen or the island changes", async () => {
+    const { home, script } = fleetHome("artefact-lastgood-");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(snapshot, JSON.stringify(BEARINGS));
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const decideChanges = vi.fn(async (_changes: unknown[]) => [] as ExecutiveDecisionRecord[]);
+    const feed = new ArtefactFeed({ home, decideChanges, ...files(home) });
+    await feed.refresh();
+    const good = feed.current();
+    expect(good.landedByDay).toHaveLength(7);
+
+    writeFileSync(script, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await feed.refresh();
+      // The executive sees the same changes, so no call is decided afresh and rung again.
+      expect(decideChanges.mock.calls[1]![0]).toEqual(decideChanges.mock.calls[0]![0]);
+      expect(feed.current().fleet).toEqual(good.fleet);
+      expect(feed.current().landedByDay).toEqual(good.landedByDay);
+      expect(warn.mock.calls.flat().join(" ")).toContain("showing the read from");
+
+      // A restarted view whose first read fails starts from the last good read kept on disk.
+      const restarted = new ArtefactFeed({ home, decideChanges, ...files(home) });
+      await restarted.refresh();
+      expect(decideChanges.mock.calls[2]![0]).toEqual(decideChanges.mock.calls[0]![0]);
+      expect(restarted.current().fleet).toEqual(good.fleet);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stops standing in for the fleet once the last good read is half an hour old", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { home, script } = fleetHome("artefact-oldgood-");
+      writeFileSync(script, `#!/bin/sh\necho '${JSON.stringify(BEARINGS)}'\n`, { mode: 0o755 });
+      const feed = new ArtefactFeed({ home, ...files(home) });
+      await feed.refresh();
+      writeFileSync(script, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+      vi.setSystemTime(Date.now() + 31 * 60 * 1000);
+      await feed.refresh();
+      // The old read is not passed off as current: the screen keeps its list, the week chart waits.
+      expect(feed.current().landedByDay).toBeUndefined();
+      expect(warn.mock.calls.flat().join(" ")).not.toContain("showing the read from");
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("reads the snapshot past stray lines around its JSON", async () => {
+    const { home, script } = fleetHome("artefact-noise-");
+    writeFileSync(script, `#!/bin/sh\necho 'note: ledger cache refreshed'\necho '${JSON.stringify(BEARINGS)}'\n`, { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, ...files(home) });
+    await feed.refresh();
+    expect(feed.current().fleet!.unavailable).toBeUndefined();
+    expect(feed.current().fleet!.live.map((row) => row.task)).toEqual(["a"]);
+  });
+
+  it("gives a read that has been slow more time, within a bound", () => {
+    expect(fleetReadTimeout(undefined)).toBe(60_000);
+    expect(fleetReadTimeout(10_000)).toBe(60_000);
+    expect(fleetReadTimeout(40_000)).toBe(120_000);
+    expect(fleetReadTimeout(500_000)).toBe(180_000);
+  });
 });

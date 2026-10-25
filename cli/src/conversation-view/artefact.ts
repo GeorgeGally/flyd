@@ -1,5 +1,5 @@
 import { recommendationText } from "../intelligence/executive/decision-step.js";
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -1074,6 +1074,81 @@ const REPORT_SETTLE_MS = 2_000;
 const REPORT_GAP_MS = 15_000;
 /** How long the bearings script may take before its read is abandoned; it runs long on a loaded machine. */
 const FLEET_READ_TIMEOUT_MS = 60_000;
+/** The most a read is given however slow the last one was. */
+const FLEET_READ_MAX_TIMEOUT_MS = 180_000;
+/** How long the last good read stands in for reads that fail: transient failures change nothing on screen. */
+const FLEET_LAST_GOOD_MS = 30 * 60_000;
+
+/** A read's time limit: three times the last good read's duration, never under the default nor over the bound. Pure. */
+export function fleetReadTimeout(lastDurationMs: number | undefined): number {
+  return Math.min(FLEET_READ_MAX_TIMEOUT_MS, Math.max(FLEET_READ_TIMEOUT_MS, 3 * (lastDurationMs ?? 0)));
+}
+
+/**
+ * Runs the bearings script in its own process group. On timeout the whole group
+ * is killed: the script's work runs in children it waits on, and killing only
+ * the shell left them running, slowing every later read until those timed out too.
+ * Rejects with why it failed, carrying no command line.
+ */
+function runFleetScript(script: string, timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(script, ["--json"], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const out: Buffer[] = [];
+    let outBytes = 0;
+    let err = "";
+    let failure: string | undefined;
+    const killGroup = (signal: NodeJS.Signals) => {
+      try {
+        if (child.pid) process.kill(-child.pid, signal);
+      } catch {
+        // Already gone.
+      }
+    };
+    const stop = (why: string) => {
+      failure ??= why;
+      killGroup("SIGTERM");
+      setTimeout(() => killGroup("SIGKILL"), 2_000).unref();
+    };
+    const timer = setTimeout(() => stop(`timed out after ${Math.round(timeoutMs / 1000)}s`), timeoutMs);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      outBytes += chunk.length;
+      if (outBytes > 4 * 1024 * 1024) stop("its output was too large");
+      else out.push(chunk);
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      if (err.length < 2_000) err += chunk.toString("utf8");
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      if (failure) return reject(new Error(failure));
+      if (code === 0) return resolve(Buffer.concat(out).toString("utf8"));
+      const said = err.trim().split("\n").at(-1) ?? "";
+      reject(new Error(`${signal ? `killed by ${signal}` : `exited ${code}`}${said ? `: ${said}` : " with nothing on stderr"}`));
+    });
+  });
+}
+
+/** The snapshot's JSON, read past any stray lines printed around it. */
+function bearingsJson(out: string): unknown {
+  try {
+    return JSON.parse(out);
+  } catch (error) {
+    const start = out.indexOf("{");
+    const end = out.lastIndexOf("}");
+    if (start < 0 || end <= start) throw error;
+    return JSON.parse(out.slice(start, end + 1));
+  }
+}
 /** How long an artefact the screen has shown stays once nothing reports it, before it ages out. */
 const LEDGER_KEEP_MS = RECENT_DAYS * 86_400_000;
 
@@ -1118,6 +1193,10 @@ export class ArtefactFeed {
   private readonly listeners = new Set<() => void>();
   /** Calls already found overtaken and closed with the staff, by callId: kept out of Needs you. */
   private readonly overtaken = new Map<string, string>();
+  /** The last good bearings JSON, when it was read and how long the read took. */
+  private good?: { raw: unknown; at: number; durationMs?: number };
+  /** The fleet read in progress, shared by anyone who asks while it runs. */
+  private reading?: Promise<FleetArtefact>;
 
   /** Notices and replies use the same decision owner as polled fleet changes. */
   decide(changes: FirstmateChange[]): Promise<ExecutiveDecisionRecord[]> | null {
@@ -1176,18 +1255,57 @@ export class ArtefactFeed {
     }
   }
 
-  private async readFleet(): Promise<FleetArtefact> {
-    const script = join(this.paths().home, "bin", "fm-bearings-snapshot.sh");
-    const timeout = this.options.timeoutMs ?? FLEET_READ_TIMEOUT_MS;
+  /** Where the last good snapshot is kept, beside the artefact list, so a restart or a second view shares it. */
+  private lastGoodPath(): string {
+    return join(dirname(this.ledgerPath()), "fleet-last-good.json");
+  }
+
+  /** The last good read, from memory or disk, while it is recent enough to stand in for a failed one. */
+  private lastGood(now: number): { raw: unknown; at: number } | undefined {
+    if (!this.good) {
+      try {
+        const stored = JSON.parse(readFileSync(this.lastGoodPath(), "utf8")) as { raw?: unknown; at?: unknown; durationMs?: unknown };
+        if (stored.raw && Number.isFinite(Number(stored.at))) {
+          this.good = { raw: stored.raw, at: Number(stored.at), durationMs: Number(stored.durationMs) || undefined };
+        }
+      } catch {
+        // No good read kept yet.
+      }
+    }
+    return this.good && now - this.good.at <= FLEET_LAST_GOOD_MS ? this.good : undefined;
+  }
+
+  private keepGood(raw: unknown, at: number, durationMs: number): void {
+    this.good = { raw, at, durationMs };
     try {
-      const out = await new Promise<string>((resolve, reject) => {
-        execFile(script, ["--json"], { timeout, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
-          if (error) reject(error);
-          else resolve(stdout);
-        });
-      });
-      const fleet = parseBearings(JSON.parse(out));
+      const file = this.lastGoodPath();
+      mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+      const temp = `${file}.${process.pid}.tmp`;
+      writeFileSync(temp, JSON.stringify(this.good), { mode: 0o600 });
+      renameSync(temp, file);
+    } catch (error) {
+      console.warn(`[view] could not keep the fleet snapshot: ${reason(error)}`);
+    }
+  }
+
+  /** One read at a time: a caller that comes while one runs shares it rather than starting the script again. */
+  private readFleet(): Promise<FleetArtefact> {
+    this.reading ??= this.readFleetOnce().finally(() => {
+      this.reading = undefined;
+    });
+    return this.reading;
+  }
+
+  private async readFleetOnce(): Promise<FleetArtefact> {
+    const script = join(this.paths().home, "bin", "fm-bearings-snapshot.sh");
+    const started = Date.now();
+    this.lastGood(started);
+    const timeout = this.options.timeoutMs ?? fleetReadTimeout(this.good?.durationMs);
+    try {
+      const raw = bearingsJson(await runFleetScript(script, timeout));
+      const fleet = parseBearings(raw);
       if (fleet.unavailable) throw new Error(fleet.unavailable);
+      this.keepGood(raw, Date.now(), Date.now() - started);
       if (!process.env.VITEST) {
         try {
           syncFleetFollowups(fleet.held.flatMap((row) => row.task ? [{ id: row.task, task: row.label, status: row.status ?? "" }] : []));
@@ -1198,6 +1316,14 @@ export class ArtefactFeed {
       return fleet;
     } catch (error) {
       // A read that failed is Flyd's own hiccup: the reason goes to Flyd's log, never to George.
+      // While the last good read is recent it stands in unchanged, so a transient failure makes
+      // nothing vanish and come back (and no call ring the island again).
+      const good = this.lastGood(Date.now());
+      const standIn = good ? parseBearings(good.raw) : undefined;
+      if (good && standIn && !standIn.unavailable) {
+        console.warn(`[view] fleet snapshot unreadable: ${reason(error)}; showing the read from ${Math.round((Date.now() - good.at) / 1000)}s ago`);
+        return standIn;
+      }
       console.warn(`[view] fleet snapshot unreadable: ${reason(error)}`);
       return FLEET_UNAVAILABLE("unreadable");
     }

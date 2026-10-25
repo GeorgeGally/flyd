@@ -36,6 +36,25 @@ final class ConversationServerTests: XCTestCase {
         XCTAssertEqual(ConversationServer.arguments(port: 4818), ["--import", "tsx", "src/entry.ts", "view", "--no-open", "--port", "4818"])
     }
 
+    func testRelaunchesBackOffToACapInsteadOfLoopingEveryTwoSeconds() {
+        let policy = ConversationRestartPolicy()
+        var failures = 0
+        var delays: [TimeInterval] = []
+        for _ in 0..<8 {
+            failures = policy.failures(after: failures, ranFor: 1)
+            delays.append(policy.delay(afterFailures: failures))
+        }
+        XCTAssertEqual(delays, [2, 4, 8, 16, 32, 60, 60, 60])
+    }
+
+    func testAViewThatRanWellRestartsQuickly() {
+        let policy = ConversationRestartPolicy()
+        // A clean exit after a long run (a SIGTERM from a restart) relaunches at the initial delay.
+        XCTAssertEqual(policy.failures(after: 5, ranFor: 3_600), 1)
+        XCTAssertEqual(policy.delay(afterFailures: policy.failures(after: 5, ranFor: 3_600)), 2)
+        XCTAssertEqual(policy.delay(afterFailures: 0), 2)
+    }
+
     func testABranchCheckoutCanBeNamedForTheView() {
         XCTAssertEqual(ConversationServer.cliDirectory(environment: ["FLYD_VIEW_CLI_DIR": "/tmp/flyd/cli"]), "/tmp/flyd/cli")
     }
