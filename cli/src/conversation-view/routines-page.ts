@@ -1,4 +1,4 @@
-import { BASE_STYLE } from "./page.js";
+import { BASE_STYLE } from "./page/base-style.js";
 
 const CLIENT = String.raw`
 const session = new URLSearchParams(location.search).get('session') || 'latest';

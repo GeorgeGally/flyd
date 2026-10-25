@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { DOCUMENT_EXTENSIONS as LIMIT_EXTENSIONS, MAX_FILE_BYTES, MAX_IMAGE_BYTES, type DocumentExtension } from "./attachment-limits.js";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { firstmateHome, firstmateInboxScript } from "../lib/firstmate-home.js";
@@ -118,12 +119,10 @@ export interface CaptainInbox {
 
 const SEND_TIMEOUT_MS = 20_000;
 export const MAX_NOTE_CHARS = 8_000;
+export { MAX_FILE_BYTES, MAX_IMAGE_BYTES };
 export const MAX_IMAGES = 4;
-export const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const IMAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(png|jpg|gif|webp)$/;
 export const MAX_FILES = 4;
-/** Design decks and brand books routinely run past 12MB; a dropped document up to this size is taken as it is. */
-export const MAX_FILE_BYTES = 32 * 1024 * 1024;
 /** A saved document's place under the files folder: "<stamp>/<name>". */
 const FILE_PLACE = /^\d+-[0-9a-f]+\/[^/.][^/]*$/;
 
@@ -131,7 +130,7 @@ const FILE_PLACE = /^\d+-[0-9a-f]+\/[^/.][^/]*$/;
 const ZIP = (b: Buffer): boolean => b.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
 const OLE = (b: Buffer): boolean => b.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
 const TEXT = (b: Buffer): boolean => !b.includes(0);
-const DOCUMENT_TYPES: Record<string, (b: Buffer) => boolean> = {
+const DOCUMENT_TYPES: Record<DocumentExtension, (b: Buffer) => boolean> = {
   pdf: (b) => b.subarray(0, 5).toString("latin1") === "%PDF-",
   docx: ZIP, xlsx: ZIP, pptx: ZIP, odt: ZIP, ods: ZIP, odp: ZIP,
   doc: OLE, xls: OLE, ppt: OLE,
@@ -139,8 +138,8 @@ const DOCUMENT_TYPES: Record<string, (b: Buffer) => boolean> = {
   txt: TEXT, md: TEXT, markdown: TEXT, csv: TEXT, tsv: TEXT, json: TEXT, yaml: TEXT, yml: TEXT, xml: TEXT, html: TEXT, htm: TEXT, log: TEXT,
 };
 
-/** The documents the view lets him attach, by extension. */
-export const DOCUMENT_EXTENSIONS = Object.keys(DOCUMENT_TYPES);
+/** The documents the view lets him attach, by extension (the page reads the same list from attachment-limits.ts). */
+export const DOCUMENT_EXTENSIONS: string[] = [...LIMIT_EXTENSIONS];
 
 /** The extension a document is accepted under, or null. */
 export function documentExtension(name: string): string | null {
@@ -316,7 +315,7 @@ export class FirstmateInbox implements CaptainInbox {
       if (!ext) throw new Error(`${file.name}: only PDFs, text, Markdown, Word, Excel and PowerPoint files can be sent`);
       const bytes = Buffer.from(file.data, "base64");
       if (bytes.length === 0 || bytes.length > MAX_FILE_BYTES) throw new Error(`Documents must be under ${MAX_FILE_BYTES / (1024 * 1024)}MB`);
-      if (!DOCUMENT_TYPES[ext]!(bytes)) throw new Error(`${file.name} is not a ${ext.toUpperCase()} file`);
+      if (!DOCUMENT_TYPES[ext as DocumentExtension](bytes)) throw new Error(`${file.name} is not a ${ext.toUpperCase()} file`);
       return { bytes, name: safeFileName(file.name, ext) };
     });
     return decoded.map(({ bytes, name }) => {

@@ -2,7 +2,7 @@ import type { Project } from "../council/projects.js";
 import type { TasteProfile, TasteRule } from "../council/taste.js";
 import { planTasteSkills, type TasteSkill } from "../council/taste-skills.js";
 import { escapeHtml } from "./markdown.js";
-import { BASE_STYLE } from "./page.js";
+import { BASE_STYLE } from "./page/base-style.js";
 
 // "Your taste": the signal first. What leads is what Flyd actually tells every
 // agent — George's principles and the skills compiled from TASTE.md, in his

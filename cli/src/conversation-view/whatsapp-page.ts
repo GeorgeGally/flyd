@@ -1,4 +1,4 @@
-import { BASE_STYLE } from "./page.js";
+import { BASE_STYLE } from "./page/base-style.js";
 
 /** A Core-backed Flyd artefact. Provider text only ever enters textContent. */
 export function renderWhatsAppPage(token: string): string {
