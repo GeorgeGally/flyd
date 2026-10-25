@@ -52,6 +52,20 @@ var __name = function (f) { return f; };
     try { window.webkit.messageHandlers.flyd.postMessage({ theme: theme }); } catch (e) { /* in a browser */ }
   }
   applyTheme(store("flyd-view-theme") === "dark" ? "dark" : "light");
+  // The look (page/skins-style.ts): ?skin=1…5 or the Preferences picker, kept here; 0 is the classic page.
+  function applySkin(skin) {
+    if (/^[1-5]$/.test(skin)) document.documentElement.setAttribute("data-skin", skin); else document.documentElement.removeAttribute("data-skin");
+    document.querySelectorAll("#skins button").forEach(function (button) { button.setAttribute("aria-pressed", String(button.dataset.skin === (skin || "0"))); });
+  }
+  var skinAsked = new URLSearchParams(location.search).get("skin");
+  if (skinAsked !== null) store("flyd-view-skin", skinAsked);
+  applySkin(store("flyd-view-skin") || "0");
+  document.getElementById("skins").addEventListener("click", function (event) {
+    var button = event.target.closest("button[data-skin]");
+    if (!button) return;
+    store("flyd-view-skin", button.dataset.skin);
+    applySkin(button.dataset.skin);
+  });
   var modeBtn = document.getElementById("mode");
   // One switch, FULL: off is Flyd's reading of every reply, on is everything as it was written.
   function applyMode(mode) {

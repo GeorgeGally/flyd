@@ -16,6 +16,7 @@ import { REPLIES_SCRIPT } from "./page/script-replies.js";
 import { SESSION_SCRIPT } from "./page/script-session.js";
 import { SHOW_SCRIPT } from "./page/script-show.js";
 import { SHOW_STYLE } from "./page/show-style.js";
+import { SKINS_STYLE } from "./page/skins-style.js";
 
 // The whole page: one flat column, the captain's words and the replies, a
 // slim header. Everything is inline (see the CSP in server.ts); the page
@@ -32,7 +33,7 @@ function joined(parts: string[]): string {
   return "\n" + parts.map((part) => part.replace(/^\n/, "")).join("");
 }
 
-const STYLE = BASE_STYLE + joined([CHROME_STYLE, MESSAGE_STYLE, COMPOSER_STYLE]) + LEFT_STYLE + SHOW_STYLE + FRONT_STYLE;
+const STYLE = BASE_STYLE + joined([CHROME_STYLE, MESSAGE_STYLE, COMPOSER_STYLE]) + LEFT_STYLE + SHOW_STYLE + FRONT_STYLE + SKINS_STYLE;
 
 const SCRIPT = joined([
   CORE_SCRIPT,

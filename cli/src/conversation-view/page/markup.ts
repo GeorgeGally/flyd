@@ -33,6 +33,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
 </header>
 <div class="prefs" id="prefs" hidden role="dialog" aria-label="Preferences">
   <p class="prefs-title">Preferences</p>
+  <div class="skins" id="skins" role="group" aria-label="Look"><span class="skins-name">Look</span><button type="button" data-skin="0">Classic</button><button type="button" data-skin="1">Dusk</button><button type="button" data-skin="2">Night</button><button type="button" data-skin="3">Fog</button><button type="button" data-skin="4">Focus</button><button type="button" data-skin="5">Ink</button></div>
   <button id="mode" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Full replies</span><span class="prefs-about">Every reply as written, not Flyd's reading</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="theme" type="button" role="switch" aria-checked="false"><span class="prefs-words"><span class="prefs-name">Light theme</span><span class="prefs-about">Dark when off</span></span><span class="track" aria-hidden="true"></span></button>
   <button id="rail-toggle" type="button" role="switch" aria-checked="true"><span class="prefs-words"><span class="prefs-name">Right column</span><span class="prefs-about">Past conversations and finished work</span></span><span class="track" aria-hidden="true"></span></button>
