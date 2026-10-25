@@ -1,7 +1,7 @@
 /**
- * The front page: jobs as cards on the left, the one active job (or the
- * conversation) on a white sheet in the middle, and the page's artefact
- * column (#rail: artefacts, notices, news) as cards on the right. Paper, sheet and ink; the only colour is the dot on what needs him.
+ * The front page: the one active job (or the conversation) straight on the
+ * paper in the middle, and one right column of two tabs: the jobs as cards and
+ * the page's artefact column (#rail: artefacts, notices, news) as cards. Paper and ink; the only colour is the dot on what needs him.
  * Text changes by a fade in place: nothing on it moves, no button lifts.
  * Comes last in the page's style so it wins over the older column rules it
  * replaces; the few layout properties those set with stronger selectors are
@@ -11,8 +11,10 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] {
   --paper: #ECEAE5; --card: #F5F4F1; --sheet: #FFFFFF; --ink: #161615; --ink2: #4A4945; --mute: #76746E;
   --line: #E2DFD9; --mat: #DEDAD2; --well: #F4F2EE; --well-on: #EEEBE5; --hot: #F04E1A;
-  --gut: 20px; --jobs-w: 304px; --arts-w: 352px; --head-h: 56px; --top: var(--head-h);
-  --c-left: calc(var(--gut) * 2 + var(--jobs-w)); --c-right: calc(var(--gut) * 2 + var(--arts-w));
+  --gut: 20px; --arts-w: 352px; --head-h: 56px; --top: var(--head-h); --tabs-h: 46px; --measure: 760px;
+  --c-left: var(--gut); --c-right: calc(var(--gut) * 2 + var(--arts-w));
+  /* The conversation keeps a readable measure, centred in the room the right column leaves. */
+  --pad-x: max(32px, calc((100vw - var(--c-left) - var(--c-right) - var(--measure)) / 2));
   --bg: var(--sheet); --fg: #2B2A28; --strong: var(--ink); --muted: var(--mute); --faint: var(--line); --tint: var(--well);
   --accent: var(--ink); --link: #1F5F99; --sel-bg: #ECE5D8; --sel-fg: var(--ink);
   background: var(--paper);
@@ -23,7 +25,7 @@ export const FRONT_STYLE = `
   --line: #2F2E2B; --mat: #2A2926; --well: #272624; --well-on: #2E2D2A;
   --fg: #DEDBD4; --link: #9CC3E6; --sel-bg: #3D372D; --sel-fg: #FFF6E6;
 }
-.jobs, .sheet, .sheet-foot, .stage-head, .job-view, .front-date { display: none; }
+.rtabs, .jobs, .stage-head, .job-view, .front-date { display: none; }
 :root[data-layout="front"] body { background: transparent; font-size: 20px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-wrap: pretty; }
 
 /* The top line: who and what day. The controls stay, smaller. */
@@ -38,15 +40,27 @@ export const FRONT_STYLE = `
 /* The older left column gives way to the job cards. */
 :root[data-layout="front"] .left { display: none !important; }
 
-/* Side columns scroll on their own. */
+/* The right column: two quiet tabs, then whichever one is open, scrolling on its own. */
+:root[data-layout="front"] .rtabs {
+  display: flex; gap: 22px; position: fixed; z-index: 3; top: var(--top); right: var(--gut); width: var(--arts-w); height: var(--tabs-h);
+  align-items: flex-start; padding: 6px 4px 0; background: var(--paper);
+}
+.rtab {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0; border: 0; background: none; cursor: pointer;
+  font: 400 15px/1 var(--sans); color: var(--mute); transition: color .2s ease;
+}
+.rtab:hover, .rtab[aria-pressed="true"] { color: var(--ink); }
+.rtab[aria-pressed="true"] { font-weight: 500; }
+.rtab .fdot[hidden] { display: none; }
+.rtab:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 2px; }
+:root[data-layout="front"][data-rtab="arts"] .jobs, :root[data-layout="front"][data-rtab="jobs"] .rail { display: none !important; }
 :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail {
-  display: block; position: fixed; top: var(--top); bottom: 0; z-index: 3; overflow-y: auto; scrollbar-width: none;
+  display: block; position: fixed; top: calc(var(--top) + var(--tabs-h)); bottom: 0; z-index: 3; overflow-y: auto; scrollbar-width: none;
   padding: 0 0 24px; font: 400 15px/1.5 var(--sans); color: var(--ink); background: none;
 }
 :root[data-layout="front"] .rail[hidden] { display: none; }
 .jobs::-webkit-scrollbar, .rail::-webkit-scrollbar, .rail-pane::-webkit-scrollbar { display: none; }
-:root[data-layout="front"] .jobs { left: var(--gut); width: var(--jobs-w); }
-:root[data-layout="front"] .rail { right: var(--gut); width: var(--arts-w); }
+:root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { right: var(--gut); width: var(--arts-w); }
 .fgroup { margin: 0 0 30px; }
 .fhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 6px 4px 10px; font: 400 13px/1.3 var(--sans); color: var(--mute); }
 .fempty { margin: 0; padding: 0 4px; font-size: 14px; color: var(--mute); }
@@ -77,15 +91,10 @@ export const FRONT_STYLE = `
 .job.done .t, .job.talk .t { font-weight: 400; color: var(--ink2); }
 .job.talk.on .t { color: var(--ink); }
 
-/* The sheet the one active job sits on. */
-:root[data-layout="front"] .sheet {
-  display: block; position: fixed; z-index: -1; top: var(--top); bottom: var(--gut); left: var(--c-left); right: var(--c-right);
-  background: var(--sheet); border-radius: 14px; box-shadow: 0 1px 2px rgba(22, 22, 21, .04), 0 12px 40px -18px rgba(22, 22, 21, .18);
-}
-:root[data-layout="front"] .sheet-foot { display: block; position: fixed; z-index: 3; left: var(--c-left); right: var(--c-right); bottom: 0; height: var(--gut); background: var(--paper); }
+/* The active job's heading, on the paper like everything else in the middle. */
 :root[data-layout="front"] .stage-head {
   display: block; position: fixed; z-index: 3; top: var(--top); left: var(--c-left); right: var(--c-right);
-  padding: 26px 32px 16px; border-radius: 14px 14px 0 0; background: var(--sheet); transition: opacity .2s ease;
+  padding: 26px var(--pad-x) 16px; background: var(--paper); transition: opacity .2s ease;
 }
 .crumb { display: flex; align-items: center; gap: 8px; margin: 0; font: 400 13px/1.4 var(--sans); color: var(--mute); white-space: nowrap; overflow: hidden; }
 .crumb .s { color: var(--ink); }
@@ -98,10 +107,10 @@ export const FRONT_STYLE = `
 }
 :root[data-layout="front"] .front-fade { opacity: 0; }
 
-/* The conversation, on the sheet. */
+/* The conversation, straight on the paper. */
 :root[data-layout="front"] main {
   max-width: none; margin: 0 var(--c-right) 0 var(--c-left) !important;
-  padding: calc(var(--stage-head-h, 110px) + 6px) 32px calc(var(--composer-h, 130px) + var(--gut) + 28px) !important;
+  padding: calc(var(--stage-head-h, 110px) + 6px) var(--pad-x) calc(var(--composer-h, 130px) + var(--gut) + 28px) !important;
   transition: opacity .2s ease;
 }
 :root[data-layout="front"] .msg.fresh { animation: choice-in 280ms ease both; }
@@ -115,22 +124,22 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .msg .card-meta { font: 400 13px/1.4 var(--sans); letter-spacing: 0; text-transform: none; }
 :root[data-layout="front"] .empty { margin-top: 18vh; }
 :root[data-layout="front"] .composer {
-  left: var(--c-left); right: var(--c-right); bottom: var(--gut); z-index: 4;
-  padding: 14px 32px 18px; border-radius: 0 0 14px 14px; background: var(--sheet); font-size: 16px;
+  left: var(--c-left); right: var(--c-right); bottom: 0; z-index: 4;
+  padding: 14px var(--pad-x) calc(var(--gut) + 14px); border-radius: 0; background: var(--paper); font-size: 16px;
 }
 :root[data-layout="front"] .composer .row { max-width: none; margin: 0 !important; padding: 0; }
-:root[data-layout="front"] .composer .field { margin-left: 0; padding: 7px 7px 7px 16px; border-radius: 12px; background: var(--well); align-items: center; }
-:root[data-layout="front"] .composer .field:focus-within { background: var(--well-on); }
+:root[data-layout="front"] .composer .field { margin-left: 0; padding: 7px 7px 7px 16px; border-radius: 12px; background: var(--sheet); align-items: center; box-shadow: 0 0 0 1px var(--line); }
+:root[data-layout="front"] .composer .field:focus-within { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent); }
 :root[data-layout="front"] .composer #send { height: 32px; padding: 0 12px; border-radius: 8px; font: 600 12px/1 var(--mono); letter-spacing: 0.02em; color: var(--sheet); background: var(--ink); }
 :root[data-layout="front"] .composer .about, :root[data-layout="front"] .composer .unread, :root[data-layout="front"] .composer .attachments { margin-left: 0; }
 :root[data-layout="front"] .composer .hint { margin-top: 8px; padding-left: 2px; font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .2s ease; }
 :root[data-layout="front"] .composer:hover .hint, :root[data-layout="front"] .composer:focus-within .hint { opacity: 1; }
-:root[data-layout="front"] .jump { right: calc(var(--c-right) + 32px); bottom: calc(var(--composer-h, 130px) + var(--gut) + 12px); }
+:root[data-layout="front"] .jump { right: calc(var(--c-right) + var(--pad-x)); bottom: calc(var(--composer-h, 130px) + var(--gut) + 12px); }
 
 /* One job, open: what it is, its pictures large enough to judge, its words and a box. */
 :root[data-layout="front"][data-job] main, :root[data-layout="front"][data-job] .composer, :root[data-layout="front"][data-job] .jump { display: none !important; }
 :root[data-layout="front"][data-job] .job-view {
-  display: block; margin: 0 var(--c-right) 0 var(--c-left); padding: calc(var(--stage-head-h, 110px) + 6px) 32px calc(var(--gut) + 40px);
+  display: block; margin: 0 var(--c-right) 0 var(--c-left); padding: calc(var(--stage-head-h, 110px) + 6px) var(--pad-x) calc(var(--gut) + 40px);
   font: 400 15px/1.5 var(--sans); color: var(--ink); transition: opacity .2s ease;
 }
 .jv-lead { margin: 0 0 20px; max-width: 64ch; color: var(--ink2); overflow-wrap: anywhere; }
@@ -233,22 +242,24 @@ export const FRONT_STYLE = `
 .jobs .history-item-age { font-size: 12.5px; }
 
 /* The artefact view keeps the whole screen. */
-:root[data-screen="show"] .jobs, :root[data-screen="show"] .sheet, :root[data-screen="show"] .sheet-foot,
+:root[data-screen="show"] .rtabs, :root[data-screen="show"] .jobs,
 :root[data-screen="show"] .stage-head, :root[data-screen="show"] .job-view { display: none !important; }
 
-/* Narrower: the jobs and the sheet; artefacts wait for the room. */
+/* Narrower: the right column gives up some width. */
 @media (max-width: 1100px) {
-  :root[data-layout="front"] { --jobs-w: 268px; --c-right: var(--gut); }
-  :root[data-layout="front"] .rail { display: none; }
+  :root[data-layout="front"] { --arts-w: 288px; }
 }
 /* A phone: one column. Jobs and artefacts are strips of cards above the conversation. */
 @media (max-width: 760px) {
-  :root[data-layout="front"] { --gut: 16px; --c-left: 0px; --c-right: 0px; }
+  :root[data-layout="front"] { --gut: 16px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); }
+  /* No tabs on a phone: jobs and artefacts both run as strips above the conversation. */
+  :root[data-layout="front"] .rtabs { display: none; }
+  :root[data-layout="front"][data-rtab] .jobs, :root[data-layout="front"][data-rtab] .rail:not([hidden]) { display: block !important; }
   :root[data-layout="front"] body { font-size: 18px; background: var(--paper); }
   :root[data-layout="front"] header { padding: 0 var(--gut); flex-wrap: nowrap; }
   :root[data-layout="front"] header .controls { flex: none; margin-left: auto; }
   :root[data-layout="front"] header .controls { gap: 0; }
-  :root[data-layout="front"] .front-date, :root[data-layout="front"] .sheet, :root[data-layout="front"] .sheet-foot { display: none; }
+  :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
   :root[data-layout="front"] .rail { display: block; margin-bottom: 18px; }
   :root[data-layout="front"] .rail[hidden] { display: none; }
@@ -263,10 +274,10 @@ export const FRONT_STYLE = `
   .fstrip > * { flex: 0 0 248px; width: 248px; min-width: 0; margin: 0; scroll-snap-align: start; }
   .fhead, .fempty, .fmore { padding-left: 0; padding-right: 0; }
   .jobs, :root[data-layout="front"] .rail { padding: 0 var(--gut) !important; }
-  :root[data-layout="front"] .stage-head { position: static; padding: 18px var(--gut) 0; border-radius: 14px 14px 0 0; margin: 4px 0 0; }
+  :root[data-layout="front"] .stage-head { position: static; padding: 18px var(--gut) 0; margin: 4px 0 0; }
   .stage-head h1 { font-size: 22px; }
-  :root[data-layout="front"] main { margin: 0 !important; padding: 8px var(--gut) calc(var(--composer-h, 130px) + 24px) !important; background: var(--sheet); min-height: 60vh; }
-  :root[data-layout="front"][data-job] .job-view { margin: 0; padding: 14px var(--gut) 40px; background: var(--sheet); }
+  :root[data-layout="front"] main { margin: 0 !important; padding: 8px var(--gut) calc(var(--composer-h, 130px) + 24px) !important; min-height: 60vh; }
+  :root[data-layout="front"][data-job] .job-view { margin: 0; padding: 14px var(--gut) 40px; }
   :root[data-layout="front"] .composer { left: 0; right: 0; bottom: 0; padding: 10px var(--gut) calc(12px + env(safe-area-inset-bottom)); border-radius: 0; }
   :root[data-layout="front"] .jump { right: var(--gut); }
   .jv-work { grid-template-columns: minmax(0, 1fr); gap: 12px; }

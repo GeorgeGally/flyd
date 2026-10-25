@@ -1,11 +1,10 @@
 /**
- * The front page's own places: the jobs column, the sheet the active job
- * sits on with its heading, and the open job. The conversation itself
- * (#stream and the message box) and the artefact column (#rail) are the
- * page's own; the sheet holds the one and the right column is the other.
+ * The front page's own places: the right column's two tabs, the jobs list
+ * (one tab; the page's artefact column #rail is the other), the open job's
+ * heading and the open job. The conversation itself (#stream and the message
+ * box) is the page's own and sits in the middle, on the paper.
  */
-export const FRONT_HTML = `<aside class="jobs" id="jobs" aria-label="Jobs"><div id="jobs-list"></div></aside>
-<div class="sheet" aria-hidden="true"></div>
-<div class="sheet-foot" aria-hidden="true"></div>
+export const FRONT_HTML = `<nav class="rtabs" id="rtabs" aria-label="Right column"><button type="button" class="rtab" data-rtab="jobs" aria-pressed="false">Jobs<span class="fdot" id="rtab-dot" hidden aria-label="something needs you"></span></button><button type="button" class="rtab" data-rtab="arts" aria-pressed="false">Artefacts</button></nav>
+<aside class="jobs" id="jobs" aria-label="Jobs"><div id="jobs-list"></div></aside>
 <div class="stage-head" id="stage-head"><p class="crumb" id="stage-crumb"></p><h1 id="stage-title"></h1></div>
 <section class="job-view" id="job-view" aria-label="The open job"></section>`;

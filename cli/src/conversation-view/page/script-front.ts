@@ -1,6 +1,6 @@
 /**
- * The front page: jobs as cards on the left, the one open job (or the
- * conversation) in the middle; the right column is the page's own artefact
+ * The front page: the one open job (or the conversation) in the middle; the
+ * right column is two tabs, the jobs as cards and the page's own artefact
  * column (#rail: artefacts, notices, news), restyled as cards by front-style.ts.
  * Every job comes from the stream's own update: show.needs and show.focus (one
  * list of what needs him, a finished design lab among them), the fleet's
@@ -28,6 +28,22 @@ export const FRONT_SCRIPT = `
   var frontDrawn = { jobs: "", view: "", viewId: "" };
   var frontVersion = {};
   var DONE_FEW_FRONT = 5;
+
+  // The right column holds two tabs, jobs and artefacts; the choice is remembered.
+  var rtabs = document.getElementById("rtabs");
+  var rtabDot = document.getElementById("rtab-dot");
+  function frontTab(name) {
+    frontRoot.dataset.rtab = name;
+    rtabs.querySelectorAll(".rtab").forEach(function (tab) { tab.setAttribute("aria-pressed", String(tab.dataset.rtab === name)); });
+    try { localStorage.setItem("flyd-front-tab", name); } catch (_) {}
+  }
+  var savedTab = "jobs";
+  try { savedTab = localStorage.getItem("flyd-front-tab") || "jobs"; } catch (_) {}
+  frontTab(savedTab === "arts" ? "arts" : "jobs");
+  rtabs.addEventListener("click", function (event) {
+    var tab = event.target.closest(".rtab");
+    if (tab) frontTab(tab.dataset.rtab);
+  });
 
   function frontEsc(text) {
     return String(text == null ? "" : text).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
@@ -200,6 +216,7 @@ export const FRONT_SCRIPT = `
     var working = jobs.filter(function (job) { return job.group === "working"; });
     var done = jobs.filter(function (job) { return job.group === "done"; });
     var shownDone = frontOpen.done ? done : done.slice(0, DONE_FEW_FRONT);
+    rtabDot.hidden = !needs.length;
     var html = frontGroup("Conversation", "", frontJobCard(talk))
       + (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">Nothing waits on you.</p>' : unread))
       + (working.length ? frontGroup("Working", working.length, working.map(frontJobCard).join("")) : frontGroup("Working", known ? 0 : "", "", known ? '<p class="fempty">Nothing is running right now.</p>' : unread))
@@ -211,7 +228,7 @@ export const FRONT_SCRIPT = `
     jobsList.innerHTML = html;
   }
 
-  // The sheet's heading: what the open job is, its state, where and when.
+  // The open job's heading: what the open job is, its state, where and when.
   function frontHead(job) {
     var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
     stageCrumb.innerHTML = dot + '<span class="s">' + frontEsc(job.state) + '</span>'
@@ -332,7 +349,7 @@ export const FRONT_SCRIPT = `
     frontDrawn.viewId = job.id;
     jobView.replaceChildren.apply(jobView, frontJobView(job));
   }
-  // Another job takes the sheet: the old one fades out where it stands, the new one fades in.
+  // Another job takes the middle: the old one fades out where it stands, the new one fades in.
   function frontSelect(id) {
     if (id === frontActive) return;
     frontActive = id;
@@ -348,7 +365,7 @@ export const FRONT_SCRIPT = `
     setTimeout(function () {
       frontStage();
       if (frontUpdate) frontDrawJobs(frontTalk(frontUpdate), Array.from(frontJobs.values()));
-      // On a phone the sheet sits under the strips of cards: the job opens where its heading is.
+      // On a phone the middle sits under the strips of cards: the job opens where its heading is.
       var stacked = getComputedStyle(stageHead).position !== "fixed";
       if (id === "talk") { if (pinned) toBottom(); }
       else window.scrollTo(0, stacked ? Math.max(0, stageHead.getBoundingClientRect().top + window.scrollY - document.querySelector("header").offsetHeight) : 0);
@@ -371,7 +388,7 @@ export const FRONT_SCRIPT = `
     var card = event.target.closest(".job");
     if (card) frontSelect(card.dataset.job);
   });
-  // Past conversations sit under the jobs; opening one brings the conversation back to the sheet.
+  // Past conversations sit under the jobs; opening one brings the conversation back to the middle.
   (function () {
     var group = el("section", "fgroup fhistory");
     var head = el("h2", "fhead");
@@ -389,7 +406,7 @@ export const FRONT_SCRIPT = `
   });
   // The conversation's heading follows its title as it changes.
   if (window.MutationObserver) new MutationObserver(function () { if (frontActive === "talk") frontStage(); }).observe(conversationTitle, { childList: true, characterData: true, subtree: true });
-  // The sheet's heading and the message box take the room they need; the conversation keeps clear of both.
+  // The heading and the message box take the room they need; the conversation keeps clear of both.
   if (window.ResizeObserver) {
     new ResizeObserver(function () { frontRoot.style.setProperty("--stage-head-h", stageHead.offsetHeight + "px"); }).observe(stageHead);
     new ResizeObserver(function () { frontRoot.style.setProperty("--composer-h", composer.offsetHeight + "px"); }).observe(composer);
