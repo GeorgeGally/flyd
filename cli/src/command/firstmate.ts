@@ -678,13 +678,14 @@ export async function syncFirstmateDomainRuns(options: {
       const cooling = (launchCooldownUntil.get(transport.home) ?? 0) > nowMs;
       if (due && !cooling) {
         launchCooldownUntil.set(transport.home, nowMs + LAUNCH_COOLDOWN_MS);
-        const request = waitingRun?.id ?? oldPending.map((note) => note.request_id ?? note.id).sort().join(",");
+        const runless = oldPending.filter((note) => !note.request_id || !readDomainRun(note.request_id));
+        const request = waitingRun?.id ?? (runless.length ? runless : oldPending).map((note) => note.request_id ?? note.id).sort().join(",");
         if (!waitingRun) {
           const attempts = (retry?.attempts ?? 0) + 1;
           const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
           const capped = delay === LAUNCH_RETRY_MAX_MS;
           if (capped && !retry?.capped) recordSessionAttempt({ kind: "unread_relaunch_capped", home: transport.home, notes: oldPending.map((note) => note.id) });
-          if (capped && !oldPending.some((note) => note.request_id && readDomainRun(note.request_id))) forgetLaunchFailures(transport.home, request);
+          if (capped && runless.length) forgetLaunchFailures(transport.home, request);
           runlessRetry.set(transport.home, { attempts, nextAt: nowMs + delay, capped });
         }
         const suspend = async (run: DomainRun, failure: string, at: number, terminal?: RepeatedLoopError): Promise<void> => {

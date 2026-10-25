@@ -1114,9 +1114,10 @@ describe("FirstMate domain transport", () => {
     process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
     try {
       const home = join(dir, "firstmate-runless");
+      saveDomainRun({ ...queuedRun(), status: "failed", failure: "I stopped starting the work" });
       let launches = 0;
       const exec: FirstmateExec = async (_script, args) => {
-        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "view-note", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }, { id: "view-note", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
         if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
         launches += 1;
         throw new Error("claude: usage limit reached");
