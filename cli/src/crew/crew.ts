@@ -254,9 +254,14 @@ export function crewOpenCodeConfig(claude: boolean): Record<string, unknown> {
     : CREW_OPENCODE_CONFIG;
 }
 
-/** The crewmate's model: FLYD_CREW_MODEL when set, else OpenCode's own default. */
-export function crewModel(): string | undefined {
-  return process.env.FLYD_CREW_MODEL?.trim() || undefined;
+/**
+ * The crewmate's model: FLYD_CREW_MODEL when set, else George's opencode-go plan.
+ * Never OpenCode's own default: with several providers stored it picked one
+ * George never chose (an OpenRouter key out of credits), and every task failed.
+ */
+export const DEFAULT_CREW_MODEL = "opencode-go/gpt-6-luna";
+export function crewModel(): string {
+  return process.env.FLYD_CREW_MODEL?.trim() || DEFAULT_CREW_MODEL;
 }
 
 /**

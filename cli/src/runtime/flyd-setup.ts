@@ -173,7 +173,7 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
   });
   add({
     job: "Coding crewmates (when FirstMate isn't installed; FirstMate picks its own models)",
-    model: crewModel() ?? "OpenCode's own default model",
+    model: crewModel(),
     settings: ["FLYD_CREW_MODEL"],
   });
 

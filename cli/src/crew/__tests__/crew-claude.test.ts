@@ -26,7 +26,7 @@ function step(input: number, output: number, read = 0): string {
 
 describe("crew on Claude", () => {
   it("leaves crewmates on OpenCode's own default even with Claude on, FLYD_CREW_MODEL when set", () => {
-    expect(crewModel()).toBeUndefined();
+    expect(crewModel()).toBe("opencode-go/gpt-6-luna");
     vi.stubEnv("FLYD_CREW_MODEL", "anthropic/claude-sonnet-5-5");
     expect(crewModel()).toBe("anthropic/claude-sonnet-5-5");
   });

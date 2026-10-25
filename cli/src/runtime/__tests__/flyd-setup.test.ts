@@ -75,7 +75,7 @@ describe("Flyd's own setup", () => {
     expect(report).toMatch(/Deciding who answers[^\n]*anthropic:claude-haiku-5-5 \[code default/);
     expect(report).toMatch(/Typing suggestions[^\n]*anthropic:claude-haiku-5-5/);
     expect(report).toMatch(/Summaries of long replies[^\n]*claude-haiku-5-5 \[code default\]; if it fails: grok-4-fast-non-reasoning/);
-    expect(report).toMatch(/Coding crewmates[^\n]*OpenCode's own default model/);
+    expect(report).toMatch(/Coding crewmates[^\n]*opencode-go\/gpt-6-luna/);
     expect(report).toMatch(/Claude spend for \d{4}-\d{2}: \$\d+\.\d{2} of a \$100 monthly cap/);
     expect(report).toMatch(/Provider keys present \(names only\): [^\n]*CLAUDE_API_KEY/);
     expect(report).not.toContain("sk-ant-api03-testsecretvalue000111222");

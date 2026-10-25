@@ -23,7 +23,7 @@ nothing else.
 | Quick jobs: room reading/routing, query rewrites, the view's routing, retold answers and status lines | Claude Haiku 5.5, thinking off | `FLYD_MODEL`, then the same fallbacks |
 | Reply summaries in the Flyd window | Claude Haiku 5.5 | xAI Grok (`XAI_API_KEY` or the grok CLI's key) |
 | Typing prediction | Claude Haiku 5.5, conversation cached | `openrouter:inception/mercury-2.5` |
-| Coding crew (`flyd crew`, `start_coding_task`) | OpenCode's own default model, or `FLYD_CREW_MODEL` | — |
+| Coding crew (`flyd crew`, `start_coding_task`) | `opencode-go/gpt-6-luna`, or `FLYD_CREW_MODEL` (never OpenCode's own default) | — |
 | Background learning, synthesis, curation | `FLYD_MODEL` chain, unchanged | — |
 
 A fallback takes over when Claude errors, declines, or the month's cap is
@@ -63,7 +63,7 @@ until the 1st and he hears that once too.
 | `FLYD_ROUTING_FALLBACK_MODEL` | — | Pins the room reader and view router to one exact model |
 | `FLYD_PREDICTION_MODEL` | Claude Haiku, then Mercury | Pins typing prediction to one exact model |
 | `FLYD_PREDICTIONS` | on | `0` turns typing prediction off |
-| `FLYD_CREW_MODEL` | OpenCode's own default | Pins the crew's OpenCode model (`provider/model`) |
+| `FLYD_CREW_MODEL` | `opencode-go/gpt-6-luna` | Pins the crew's OpenCode model (`provider/model`) |
 | `FLYD_VIEW_ANTHROPIC_MODEL` | quick model | Summaries' Claude model |
 | `FLYD_VIEW_XAI_MODEL` | `grok-4-fast-non-reasoning` | Summaries' xAI model |
 | `FLYD_VIEW_SUMMARIES` | on | `0` turns model summaries off |

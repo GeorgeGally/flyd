@@ -23,7 +23,7 @@ export async function modelSetup(): Promise<ModelSetup> {
     chat: safe(chatModelChain, []),
     quick: safe(quickModelChain, []),
     typing: safe(predictionModel, "unconfigured"),
-    crew: safe(() => crewModel() ?? "OpenCode's own default", "OpenCode's own default"),
+    crew: safe(() => crewModel(), "opencode-go/gpt-6-luna"),
     claude: { key: Boolean(claudeApiKey()), workspace: Object.keys(claudeHeaders()).length > 0, spend: spendStatus() },
   };
 }
