@@ -576,6 +576,25 @@ describe("buildConversationPrompt", () => {
     expect(answer).toBe("The launch for Bloom and Capfive is on October 25.\n\nI can't verify those names or dates from the context I have.");
   });
 
+  it("does not ground an answer with names and dates from an earlier turn", async () => {
+    let rewrites = 0;
+    const answer = await respondToConversation({
+      message: "What should I plan for this week?",
+      history: [{ role: "user", content: "Bloom and Capfive launch on October 25." }],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: null,
+      onToken: () => undefined,
+    }, {
+      readOnly: true,
+      runAgentLoop: async () => "<final>The launch for Bloom and Capfive is on October 25.</final>",
+      rewrite: async () => { rewrites += 1; return "<final>The launch for Bloom and Capfive is on October 25.</final>"; },
+      persistReceipt: async (input) => input as never,
+    });
+
+    expect(rewrites).toBe(1);
+    expect(answer).toBe("The launch for Bloom and Capfive is on October 25.\n\nI can't verify those names or dates from the context I have.");
+  });
+
   it("grounds named entities and dates in successful tool output", async () => {
     const root = mkdtempSync(join(process.cwd(), ".grounding-test-"));
     const file = join(root, "evidence.md");

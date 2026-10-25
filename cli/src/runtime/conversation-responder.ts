@@ -18,7 +18,7 @@ import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-poli
 import { roomBrief, type RoomInput } from "./read-the-room.js";
 import type { RoutingTrace } from "./routing-learning.js";
 import { authorSummary, clip as clipProse, sentences } from "../conversation-view/summaries.js";
-import { artefactRequiredViolation, checkGrounding, honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, stripInternalNarration, styleProblems, unsupportedClaims } from "./honesty-check.js";
+import { artefactRequiredViolation, honestyRewritePrompt, retiredPhraseProblems, retiredPhrasesIn, styleProblems, unsupportedClaims } from "./honesty-check.js";
 import { isMutatingToolCall, PERSONAL_TOOL_NAMES, personalTools, runPersonalTool, type PersonalToolDependencies } from "./personal-tools.js";
 import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantToolContext } from "./assistant-tools.js";
 import { fetchPublicUrl } from "./url-guard.js";
@@ -33,7 +33,7 @@ import { morningPromptBlock } from "../council/morning.js";
 import { projectNamed, projectsPromptBlock } from "../council/projects.js";
 import type { Skill } from "./skills.js";
 import { CODE_TOOLS, offCode, offRoute, planBudget, planTurn, visibleTools, type TurnPlan } from "./turn-plan.js";
-import { defaultRouteTurn, finishInFlydsVoice, gatherTurnKnowledge, readRoomStage, turnBriefParts, turnExtras, type FastRouteReading, type ReadRoom, type RouteTurn } from "./turn-stages.js";
+import { defaultRouteTurn, finishInFlydsVoice, gatherTurnKnowledge, groundingProblems, hedgeUngroundedAnswer, readRoomStage, turnBriefParts, turnExtras, type FastRouteReading, type ReadRoom, type RouteTurn } from "./turn-stages.js";
 import { contractError } from "./tool-contracts.js";
 import { flydSetupReport, isFlydSetupQuestion } from "./flyd-setup.js";
 import { advanceSemanticAction, allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, semanticActionForToolCall, type ToolPolicyState } from "./tool-policy.js";
@@ -1262,12 +1262,8 @@ export async function respondToConversation(
     let final = extractFinal(answer);
     const retired = retiredPhrasesIn(final);
     if (retired.length) console.warn(`[his-voice] rejected a candidate answer that used a ruled-out phrase: ${retired.join(", ")}`);
-    const groundingText = [...input.history.filter((turn) => turn.role === "user").map((turn) => turn.content), input.message, ...toolOutputs].join("\n");
-    const ungrounded = checkGrounding(stripInternalNarration(final).cleaned, groundingText);
-    const groundingProblems = ungrounded.length
-      ? [`These spans were not found in context — remove or ground these: ${ungrounded.join(", ")}.`]
-      : [];
-    const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final), ...groundingProblems];
+    const groundingText = [input.message, ...toolOutputs].join("\n");
+    const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final), ...groundingProblems(final, groundingText)];
     if (problems.length) {
       // One honest rewrite; if that fails, the original stands rather than nothing.
       const rewrite = dependencies.rewrite ?? (async (prompt: string) => (process.env.VITEST ? "" : (await import("../lib/llm.js")).query(prompt, usedModel)));
@@ -1275,7 +1271,7 @@ export async function respondToConversation(
       if (fixed.trim()) final = extractFinal(fixed).replace(/^"""|"""$/g, "").trim();
     }
     final = finishInFlydsVoice(final);
-    if (checkGrounding(final, groundingText).length) final += "\n\nI can't verify those names or dates from the context I have.";
+    final = hedgeUngroundedAnswer(final, groundingText);
     if (containsProviderToolProtocol(final)) {
       throw new Error("Flyd's configured model returned tool protocol markup instead of a user-facing answer");
     }

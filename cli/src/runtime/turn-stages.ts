@@ -22,7 +22,7 @@ import { buildRoomContext, privateNotes } from "./room-context.js";
 import { safeRoutingValue, type RoutingTrace } from "./routing-learning.js";
 import { loadSkills, seedSkills, skillPromptBlock, type Skill } from "./skills.js";
 import { planBrief, planTurn, routeWithJev, type RouteReading, type TurnPlan } from "./turn-plan.js";
-import { retiredPhrasesIn, stripInternalNarration, stripRetiredPhrases } from "./honesty-check.js";
+import { checkGrounding, retiredPhrasesIn, stripInternalNarration, stripRetiredPhrases } from "./honesty-check.js";
 import type { MemoryEvidence } from "./types.js";
 
 export type TurnHistory = Array<{ role: "user" | "assistant"; content: string }>;
@@ -171,6 +171,17 @@ export function finishInFlydsVoice(answer: string): string {
     final = stripRetiredPhrases(final);
   }
   return final;
+}
+
+export function groundingProblems(answer: string, groundingText: string): string[] {
+  const spans = checkGrounding(stripInternalNarration(answer).cleaned, groundingText);
+  return spans.length ? [`These spans were not found in context — remove or ground these: ${spans.join(", ")}.`] : [];
+}
+
+export function hedgeUngroundedAnswer(answer: string, groundingText: string): string {
+  return checkGrounding(answer, groundingText).length
+    ? `${answer}\n\nI can't verify those names or dates from the context I have.`
+    : answer;
 }
 
 export interface SurfaceTurnInput {
