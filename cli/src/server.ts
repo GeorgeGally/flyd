@@ -85,6 +85,7 @@ import {
   type ForegroundFeedbackInput,
 } from "./runtime/foreground-feedback.js";
 import { syncInstalledOpenCodePlugin } from "./runtime/opencode-plugin-sync.js";
+import { checkpointBackgroundJobs, deliverJob, resumeBackgroundJobs, runJobTurn, verifyJobTurn } from "./runtime/background-jobs.js";
 import { recordAction, recordNextState, isTransitionCaptureDisabled } from "./transitions/writer.js";
 import { captureRuntimeSnapshot } from "./planning/runtime-capture.js";
 import { materializePresentFromWork } from "./cognition/present-materializer.js";
@@ -1293,6 +1294,7 @@ export async function startServer(port = 4815, host = "127.0.0.1", options: { so
   // socket opens — otherwise this sweep can clobber jobs started moments
   // after listen(). Parked runs survive restarts untouched.
   await repositoryActionJobs.recoverInterrupted().catch(() => undefined);
+  resumeBackgroundJobs({ run: runJobTurn, verify: verifyJobTurn, deliver: deliverJob });
 
   return new Promise<void>((resolvePromise, reject) => {
     const server = createServer((req, res) => {
@@ -2017,12 +2019,14 @@ if (isMainModule) {
 
 process.on("SIGTERM", async () => {
   console.log("[Flyd Core] Received SIGTERM, draining...");
+  checkpointBackgroundJobs();
   await stopServer();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
   console.log("[Flyd Core] Received SIGINT, draining...");
+  checkpointBackgroundJobs();
   await stopServer();
   process.exit(0);
 });

@@ -13,6 +13,7 @@ import {
 } from "./tty-line-reader.js";
 import { paintFlyd, wrapDisplayText } from "./text-wrap.js";
 import { renderScreen, screenLayout, transcriptWidth, type ScreenView } from "./screen.js";
+import { checkpointBackgroundJobs } from "./background-jobs.js";
 
 export { CHAT_WRAP_WIDTH, displayWidth, wrapDisplayText, formatChatReply, paintFlyd } from "./text-wrap.js";
 
@@ -162,6 +163,7 @@ export class NodeTerminal {
     if (this.isTty && !signalCleanupRegistered) {
       signalCleanupRegistered = true;
       const onSignal = (signal: NodeJS.Signals) => {
+        checkpointBackgroundJobs();
         if (this.tuiMode) this.output.write(CURSOR_SHOW + ALT_SCREEN_OFF + MOUSE_OFF);
         this.disableBracketedPaste();
         try {
