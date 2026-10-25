@@ -802,7 +802,23 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
       saveTask({ ...unjudged, reviewRetries: retries }, dir);
     }
   }
+  // Flyd's own fixes land themselves once tested and checked against everything
+  // asked (George's call, 25 Oct); he hears afterwards. Other work waits for /land.
+  const couldNotLand = new Map<string, string>();
+  for (const [index, task] of changed.entries()) {
+    if (!landsOnItsOwn(task)) continue;
+    try {
+      changed[index] = { ...await landCrewTask(task.id, dir, run), notified: false };
+    } catch (error) {
+      couldNotLand.set(task.id, error instanceof Error ? error.message : String(error));
+    }
+  }
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
+    if (task.status === "landed") {
+      await deps.notify!("Flyd", `${plainOutcome(task)} is merged into main: its tests pass and it does everything you asked.`, "deliverable").catch(() => undefined);
+      saveTask({ ...task, notified: true }, dir);
+      continue;
+    }
     const judged = (task.review ?? []).filter((check) => !check.unchecked);
     const short = unmetChecks(judged).length ? shortfall(judged) : "";
     const unreviewed = judged.length < (task.review ?? []).length;
@@ -812,7 +828,9 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
         ? `${plainOutcome(task)} passes its tests but is still short on: ${short}. Your call whether to /land it.`
         : unreviewed
           ? `${plainOutcome(task)} passes its tests, but I couldn't check it against what you asked. Have a look before you /land it.`
-          : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
+          : couldNotLand.has(task.id)
+            ? `${plainOutcome(task)} is done and tested, but I couldn't merge it myself: ${couldNotLand.get(task.id)}. Say /land once that's sorted.`
+            : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
     await deps.notify!("Flyd", message, task.status !== "ready" ? "blocker" : "deliverable").catch(() => undefined);
     saveTask({ ...task, notified: true }, dir);
   }
@@ -821,6 +839,13 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     console.warn("[crew] prune failed:", error instanceof Error ? error.message : error);
   });
   return changed;
+}
+
+/** A self-improvement fix with passing checks and every acceptance check met lands without waiting for George. */
+export function landsOnItsOwn(task: CrewTask): boolean {
+  const review = task.review ?? [];
+  return task.status === "ready" && task.source === "self-improvement" && process.env.FLYD_CREW_AUTO_LAND !== "0"
+    && review.length > 0 && review.every((check) => !check.unchecked && check.met);
 }
 
 /**

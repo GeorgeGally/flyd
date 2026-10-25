@@ -401,6 +401,34 @@ describe("crew review against done_when", () => {
     expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/done and tested/), "deliverable");
   });
 
+  it("lands a self-improvement fix on its own once every point is met, and tells George afterwards", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, source: "self-improvement", launch: fakeCrewmate() });
+    const review = vi.fn(async (_prompt: string) => "MET 1: feature.txt contains done\nMET 2: test added");
+    const notify = vi.fn(async () => {});
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, notify });
+    expect(done.status).toBe("landed");
+    expect(existsSync(join(repo, "feature.txt"))).toBe(true);
+    expect(notify).toHaveBeenCalledWith("Flyd", "Add a feature file is merged into main: its tests pass and it does everything you asked.", "deliverable");
+  });
+
+  it("leaves a self-improvement fix for George when a point is unmet, and work from chat always", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    const review = vi.fn(async (_prompt: string) => "MET 1: feature.txt contains done\nMET 2: test added");
+    const [fromChat] = await superviseCrew({ alive: () => false, runCommand: passing, review });
+    expect(fromChat.status).toBe("ready");
+    expect(existsSync(join(repo, "feature.txt"))).toBe(false);
+  });
+
+  it("says why when a self-improvement fix could not land itself", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, source: "self-improvement", launch: fakeCrewmate() });
+    writeFileSync(join(repo, "README.md"), "edited by George\n");
+    const review = vi.fn(async (_prompt: string) => "MET 1: feature.txt contains done\nMET 2: test added");
+    const notify = vi.fn(async () => {});
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, notify });
+    expect(done.status).toBe("ready");
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/couldn't merge it myself: .*uncommitted changes.*Say \/land once that's sorted\.$/), "deliverable");
+  });
+
   it("sends unmet points back to the crewmate once in the same worktree, then reports what is still short", async () => {
     const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
     const relaunch = vi.fn((_task: unknown, _brief: string) => 515151);

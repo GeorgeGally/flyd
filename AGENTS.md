@@ -130,7 +130,7 @@ flyd evidence research "topic" [--deep] [--json]
 flyd agenda [list|add|cancel|inbox|run-due|install]           # proactive agenda          → docs/product/flyd-backstage.md
 flyd council [status|run [--all]|advisories|investigate|backfill]  # memory/projects curation → docs/product/flyd-backstage.md
 flyd scout [show|run|watch|evolve|more N|less N|sources|taste]     # personal news          → docs/product/flyd-backstage.md
-flyd crew [list|dispatch <outcome> [--done <point>]…|show|supervise|land|discard]  # crewmates; nothing lands without George's /land → flyd-backstage.md
+flyd crew [list|dispatch <outcome> [--done <point>]…|show|supervise|land|discard]  # crewmates; only fully-checked self-improvement fixes land themselves, all else waits for George's /land → flyd-backstage.md
 flyd improve [status|evidence|run|routing-import|routing-audit|routing-evaluate]  # governed self-improvement → docs/product/flyd-routing-learning.md
 flyd profile [edit|bootstrap]        # George's USER.md: explicit edits, confirmed bootstrap, `/onboard`; automatic extraction never writes USER.md; historical entries preserved
 flyd learning [--approve|--reject <n>]  # dictation corrections → docs/product/flyd-contextual-voice-learning.md

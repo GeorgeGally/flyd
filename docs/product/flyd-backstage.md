@@ -39,7 +39,7 @@ Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Cor
 
 - Flyd as first mate: OpenCode crewmates in git worktrees under `~/.flyd/worktrees`, verified with the repo's own checks.
 - An independent reviewer then holds the diff to the task's done_when (one repair round) on the agenda tick.
-- Nothing lands without George's `/land`.
+- Flyd's own self-improvement fixes land themselves once their checks pass and the independent review finds every acceptance point met; George is told afterwards (`FLYD_CREW_AUTO_LAND=0` turns this off). Everything else, and any fix short on a point or unreviewed, waits for George's `/land`.
 - Tests must never launch a real crewmate (guarded under VITEST).
 
 ## Self-improvement (`flyd improve [status|evidence|run|routing-import|routing-audit|routing-evaluate]`)
