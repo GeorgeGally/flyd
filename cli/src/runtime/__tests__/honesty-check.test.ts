@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { artefactRequiredViolation, honestyRewritePrompt, unsupportedClaims } from "../honesty-check.js";
+import { artefactRequiredViolation, checkGrounding, honestyRewritePrompt, unsupportedClaims } from "../honesty-check.js";
 
 const mutating = (name: string) => name === "write_file" || name === "reminders" || name === "background_task" || name === "start_knowledge_task";
 
 describe("honesty check", () => {
+  it("flags names and explicit dates absent from context, but accepts supplied references", () => {
+    const answer = "I spoke with Bloom and Capfive on October 25.";
+    expect(checkGrounding(answer, "The release is still being planned.")).toEqual(["Bloom", "Capfive", "October 25"]);
+    expect(checkGrounding(answer, "bloom and capfive are meeting on october 25.")).toEqual([]);
+    expect(checkGrounding("Today is Friday. Why not go in June?", "")).toEqual([]);
+    expect(checkGrounding("It ships Friday, October 25 and 2026-10-25.", "")).toEqual(["Friday, October 25", "2026-10-25"]);
+  });
+
   it("requires an artefact for long enumerations, but not short replies or artefact references", () => {
     expect(artefactRequiredViolation(Array.from({ length: 10 }, (_, index) => `${index + 1}. Item ${index + 1}`).join("\n"))).toEqual({ requirement: "artefact_required", count: 10 });
     expect(artefactRequiredViolation("1. One\n2. Two\n3. Three")).toBeNull();

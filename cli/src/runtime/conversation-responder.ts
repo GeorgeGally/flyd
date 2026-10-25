@@ -33,7 +33,7 @@ import { morningPromptBlock } from "../council/morning.js";
 import { projectNamed, projectsPromptBlock } from "../council/projects.js";
 import type { Skill } from "./skills.js";
 import { CODE_TOOLS, offCode, offRoute, planBudget, planTurn, visibleTools, type TurnPlan } from "./turn-plan.js";
-import { defaultRouteTurn, finishInFlydsVoice, gatherTurnKnowledge, readRoomStage, turnBriefParts, turnExtras, type FastRouteReading, type ReadRoom, type RouteTurn } from "./turn-stages.js";
+import { defaultRouteTurn, finishInFlydsVoice, gatherTurnKnowledge, groundingProblems, hedgeUngroundedAnswer, readRoomStage, turnBriefParts, turnExtras, type FastRouteReading, type ReadRoom, type RouteTurn } from "./turn-stages.js";
 import { contractError } from "./tool-contracts.js";
 import { flydSetupReport, isFlydSetupQuestion } from "./flyd-setup.js";
 import { advanceSemanticAction, allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, semanticActionForToolCall, type ToolPolicyState } from "./tool-policy.js";
@@ -1173,6 +1173,7 @@ export async function respondToConversation(
   const evidence = projectTurn ? gatherProjectEvidence(projectRoot) : "";
   const prompt = `${facts ? facts : ""}${evidence}\n${request.prompt}`;
   const toolCalls: TurnToolCall[] = [];
+  const toolOutputs: string[] = [];
   const knownRepos = input.crossRepo?.map((r) => r.root) ?? [];
   const personalToolDeps = unattendedPersonalTools(input.sessionId, input.background);
   const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn, dependencies.readOnly, {
@@ -1203,6 +1204,7 @@ export async function respondToConversation(
       const result = await handler(name, toolInput);
       const succeeded = !TOOL_FAILURE.test(result);
       toolCalls.push({ name, input: toolInput, succeeded, ...(succeeded ? {} : { error: result }) });
+      if (succeeded) toolOutputs.push(result);
       // Only a real change makes an old failure stale; `ls` or `git status` doesn't.
       const changedWorld = name === "bash" ? !isReadOnlyCommand(String(toolInput.command ?? "")) : isMutatingToolCall(name, toolInput);
       if (succeeded && changedWorld) repeats.changed();
@@ -1260,15 +1262,16 @@ export async function respondToConversation(
     let final = extractFinal(answer);
     const retired = retiredPhrasesIn(final);
     if (retired.length) console.warn(`[his-voice] rejected a candidate answer that used a ruled-out phrase: ${retired.join(", ")}`);
-    const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final)];
+    const groundingText = [input.message, ...toolOutputs].join("\n");
+    const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final), ...groundingProblems(final, groundingText)];
     if (problems.length) {
       // One honest rewrite; if that fails, the original stands rather than nothing.
       const rewrite = dependencies.rewrite ?? (async (prompt: string) => (process.env.VITEST ? "" : (await import("../lib/llm.js")).query(prompt, usedModel)));
       const fixed = await rewrite(honestyRewritePrompt(final, problems)).catch(() => "");
       if (fixed.trim()) final = extractFinal(fixed).replace(/^"""|"""$/g, "").trim();
     }
-    // After any rewrite, so a rewritten answer can't bring the narration back.
     final = finishInFlydsVoice(final);
+    final = hedgeUngroundedAnswer(final, groundingText);
     if (containsProviderToolProtocol(final)) {
       throw new Error("Flyd's configured model returned tool protocol markup instead of a user-facing answer");
     }

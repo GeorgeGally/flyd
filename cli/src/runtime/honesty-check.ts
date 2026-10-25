@@ -22,6 +22,56 @@ const DELEGATIONS = new Set(["background_task", "start_coding_task", "start_know
  */
 const PERFECT_CLAIM = /\bI(?:'ve| have)\s+(?:also\s+|already\s+)?(?!started\b|kicked\b|begun\b|queued\b|handed\b|passed\b|asked\b|got\b)[a-z]+(?:ed|en|t|de|ne|ft|ht)\b/i;
 const LOCAL_PATH = /(?:~|\/Users\/[^/\s]+)\/[^\s`'"),;:]+/g;
+const GROUNDING_ALLOWLIST = new Set([
+  "a", "actually", "after", "also", "an", "and", "are", "as", "at", "before", "because", "but", "can", "could", "did", "do", "does", "for", "from",
+  "george", "he", "hello", "here", "how", "i", "if", "in", "is", "it", "let", "my", "no", "not", "now", "of", "on", "or", "our",
+  "okay", "one", "right", "rows", "she", "so", "some", "started", "sure", "sunny", "that", "the", "their", "there", "these", "they", "this", "to", "two",
+  "today", "tomorrow", "we", "well", "what", "when", "where", "which", "who", "why", "will", "with", "yes", "you", "your",
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+  "jan", "january", "feb", "february", "mar", "march", "apr", "april", "may", "jun", "june", "jul", "july",
+  "aug", "august", "sep", "sept", "september", "oct", "october", "nov", "november", "dec", "december",
+]);
+const DATE_TOKEN = /(?<![\p{L}\p{N}])(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?(?:,\s+\d{4})?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])\d{4}-\d{2}-\d{2}(?![\p{L}\p{N}])/giu;
+
+function groundingHas(groundingText: string, span: string): boolean {
+  const escaped = span.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(groundingText);
+}
+
+export function checkGrounding(answer: string, groundingText: string): string[] {
+  const spans: Array<{ text: string; index: number }> = [];
+  const properNouns = /(?<![\p{L}\p{N}])\p{Lu}[\p{L}\p{N}]*(?:\s+\p{Lu}[\p{L}\p{N}]*)*(?![\p{L}\p{N}])/gu;
+  for (const match of answer.matchAll(properNouns)) {
+    const words = [...match[0].matchAll(/[\p{Lu}][\p{L}\p{N}]*/gu)];
+    let start: number | null = null;
+    let end = 0;
+    const add = () => {
+      if (start !== null) spans.push({ text: answer.slice(start, end), index: start });
+      start = null;
+    };
+    for (const word of words) {
+      const wordStart = match.index + word.index;
+      const wordEnd = wordStart + word[0].length;
+      if (GROUNDING_ALLOWLIST.has(word[0].toLowerCase())) add();
+      else {
+        if (start === null) start = wordStart;
+        end = wordEnd;
+      }
+    }
+    add();
+  }
+  for (const match of answer.matchAll(DATE_TOKEN)) spans.push({ text: match[0], index: match.index });
+  const seen = new Set<string>();
+  return spans
+    .sort((left, right) => left.index - right.index)
+    .filter(({ text }) => {
+      const key = text.toLowerCase();
+      if (seen.has(key) || groundingHas(groundingText, text)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(({ text }) => text);
+}
 
 export interface ClaimToolCall { name: string; input: Record<string, unknown>; succeeded: boolean }
 
