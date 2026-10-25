@@ -1061,7 +1061,7 @@ describe("FirstMate domain transport", () => {
     expect(repeated).toEqual([]);
   });
 
-  it("never fails a run whose note was picked up, and an acknowledgement resets its launch count", async () => {
+  it("never fails a run whose note was picked up, but keeps backing off its relaunches", async () => {
     const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
     process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
     try {
@@ -1077,24 +1077,29 @@ describe("FirstMate domain transport", () => {
       };
       const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate-acknowledged"), script: "/fake/fm-inbox.sh", exec });
       const start = Date.parse("2026-10-09T01:00:00.000Z");
-      const tick = (hour: number) => syncFirstmateDomainRuns({ transport, now: () => new Date(start + hour * 60 * 60_000) });
+      const launchedAt: number[] = [];
+      const tick = async (minute: number) => {
+        const before = launches;
+        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000) });
+        if (launches > before) launchedAt.push(minute);
+      };
 
       await tick(0);
-      await tick(1);
-      expect(launches).toBe(2);
+      await tick(5);
+      expect(launchedAt).toEqual([0, 5]);
       expect(listDomainRuns()[0]!.status).toBe("queued");
 
       acknowledged = true;
       canReceive = true;
-      await tick(2);
+      await tick(6);
       expect(listDomainRuns()[0]!.status).toBe("accepted");
 
       canReceive = false;
-      for (let hour = 3; hour < 8; hour += 1) await tick(hour);
-      expect(launches).toBe(7);
+      for (let minute = 7; minute <= 70; minute += 1) await tick(minute);
+      expect(launchedAt).toEqual([0, 5, 10, 18, 34]);
       const [run] = listDomainRuns();
       expect(run!.status).toBe("accepted");
-      expect(run!.failure).not.toMatch(/identical launch attempts/);
+      expect(Date.parse(run!.launchRetry!.nextAt)).toBeGreaterThan(start + 70 * 60_000);
     } finally {
       if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
       else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;

@@ -531,8 +531,8 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
 
 function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now(), terminal?: RepeatedLoopError): DomainRun {
   const current = readDomainRun(run.id) ?? run;
-  if (current.status !== "queued") return current;
-  if (terminal) {
+  if (["completed", "failed", "cancelled"].includes(current.status)) return current;
+  if (terminal && current.status === "queued") {
     const { launchRetry: _retry, ...rest } = current;
     const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, updatedAt: new Date(nowMs).toISOString() };
     saveDomainRun(stopped);
@@ -708,8 +708,8 @@ export async function syncFirstmateDomainRuns(options: {
     if (!own.length) continue;
     const original = own.find((item) => item.request_id === run.transport.requestId || item.id === run.transport.externalId);
     let next: DomainRun = run;
-    if (original?.acknowledged) forgetLaunchFailures(transport.home, run.id);
     if (original?.acknowledged && run.status === "queued") {
+      forgetLaunchFailures(transport.home, run.id);
       next = { ...next, status: "accepted", updatedAt: (options.now ?? (() => new Date()))().toISOString() };
     }
     // The newest reply is the run's current state; one already taken is never taken again.
