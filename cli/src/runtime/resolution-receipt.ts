@@ -42,6 +42,9 @@ export interface ResolutionReceiptInput {
   memory?: MemoryEvidence;
   status?: TurnReceipt["status"];
   error?: string;
+  /** The plan chat's turn stages made for this answer (turn-stages.ts), as chat records it. */
+  plan?: TurnReceipt["plan"];
+  routing?: TurnReceipt["routing"];
 }
 
 export interface ResolutionReceiptOptions {
@@ -127,6 +130,8 @@ export async function recordResolutionReceipt(
       answer: input.resolution ? resolutionAnswerText(input.resolution) : "",
       status,
       ...(error ? { error } : {}),
+      ...(input.plan ? { plan: input.plan } : {}),
+      ...(input.routing ? { routing: input.routing } : {}),
       ...(input.resolution
         ? { resolution: { mode: input.resolution.mode, path: input.path, ...(input.resolution.workSessionId ? { workSessionId: input.resolution.workSessionId } : {}) } }
         : { resolution: { mode: "none", path: input.path } }),
