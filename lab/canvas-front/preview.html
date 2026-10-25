@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd front page preview</title>
+<style>
+  /* One Flyd front page, drawn several ways. ?v= picks the left column; the
+     middle and right stay the same so only the left changes between items. */
+  :root {
+    --paper: #ECEAE5; --card: #F5F4F1; --sheet: #FFFFFF; --ink: #161615; --ink2: #4A4945; --mute: #76746E;
+    --line: #DCD9D2; --mat: #DEDAD2; --hot: #F04E1A; --link: #1F5F99;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+  :root[data-theme="dark"] {
+    --paper: #111110; --card: #1A1A18; --sheet: #1F1F1D; --ink: #F1EFEA; --ink2: #C9C6BF; --mute: #8E8B83;
+    --line: #2F2E2B; --mat: #2A2926; --link: #9CC3E6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--paper); color: var(--ink); font: 400 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; overflow: hidden; }
+  img { display: block; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+
+  header { height: 56px; display: flex; align-items: center; gap: 20px; padding: 0 24px; }
+  header .who { font-weight: 600; font-size: 17px; letter-spacing: -.01em; }
+  header .day { color: var(--mute); }
+  header nav { margin-left: auto; display: flex; gap: 24px; color: var(--ink2); font-size: 14px; }
+
+  .page { display: grid; grid-template-columns: var(--left, 304px) 1fr 352px; gap: 0 var(--gap, 40px); padding: 0 20px; height: calc(100% - 56px); }
+  .col { min-height: 0; overflow: auto; scrollbar-width: none; padding-bottom: 40px; }
+  .col::-webkit-scrollbar { display: none; }
+  .label { margin: 14px 0 16px; font-size: 13px; color: var(--mute); display: flex; justify-content: space-between; }
+
+  /* Middle: the conversation sits on the paper, no sheet around it. */
+  .main { display: flex; flex-direction: column; min-height: 0; max-width: 680px; width: 100%; justify-self: center; }
+  .main h1 { margin: 14px 0 28px; font: 500 22px/1.25 var(--sans); letter-spacing: -.015em; }
+  .thread { flex: 1; overflow: auto; scrollbar-width: none; }
+  .msg { margin: 0 0 28px; font-size: 17px; line-height: 1.55; }
+  .msg .at { display: block; margin-bottom: 4px; font-size: 13px; color: var(--mute); }
+  .msg.you { color: var(--ink2); }
+  .call { margin: 0 0 32px; padding: 0 0 0 16px; box-shadow: inset 2px 0 0 var(--hot); }
+  .call .k { font-size: 13px; color: var(--mute); }
+  .call h2 { margin: 4px 0 6px; font: 500 19px/1.3 var(--sans); }
+  .call p { margin: 0 0 8px; color: var(--ink2); }
+  .call a { color: var(--link); text-decoration: none; }
+  .composer { margin: 16px 0 0; display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 8px 0 18px; border-radius: 12px; background: var(--card); box-shadow: 0 0 0 1px var(--line); }
+  .composer input { flex: 1; border: 0; outline: 0; background: none; font: inherit; font-size: 16px; color: var(--ink); }
+  .composer input::placeholder { color: var(--mute); }
+  .composer .send { height: 34px; padding: 0 14px; border-radius: 8px; background: var(--ink); color: var(--paper); font: 600 12px/34px var(--mono); letter-spacing: .02em; }
+  .usage { margin: 10px 0 18px; font: 400 12px/1.4 var(--mono); color: var(--mute); }
+
+  /* Baseline: today's page, the sheet included. */
+  .v-today .main { max-width: none; background: var(--sheet); border-radius: 16px; padding: 0 36px; margin-bottom: 14px; }
+  .v-today .call { padding: 22px 24px; border-radius: 12px; background: var(--card); box-shadow: none; }
+  .v-today .composer { background: var(--card); box-shadow: none; }
+
+  /* Left column treatments. */
+  .card { display: block; width: 100%; margin-bottom: 12px; padding: 12px; border-radius: 14px; background: var(--card); }
+  .card .pic { border-radius: 6px; overflow: hidden; background: var(--mat); padding: 8px; margin-bottom: 12px; }
+  .card .pic img { width: 100%; aspect-ratio: 16/10; object-fit: cover; object-position: top; border-radius: 3px; }
+  .card .t { font-size: 16px; line-height: 1.35; padding: 0 6px; }
+  .meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 13px; color: var(--mute); padding: 0 6px; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--hot); margin-right: 7px; vertical-align: 1px; }
+
+  .row { display: block; width: 100%; padding: 14px 0; }
+  .row .t { font-size: 16px; line-height: 1.4; }
+  .row .meta { padding: 0; margin-top: 4px; }
+  .row.on .t { font-weight: 500; }
+  .group { margin-top: 36px; }
+  .group:first-child { margin-top: 0; }
+  .more { display: block; margin-top: 8px; font-size: 14px; color: var(--mute); }
+
+  .lead { display: block; width: 100%; margin-bottom: 20px; }
+  .lead .pic { padding: 10px; border-radius: 10px; background: var(--mat); }
+  .lead .pic img { width: 100%; aspect-ratio: 16/10; object-fit: cover; object-position: top; border-radius: 4px; }
+  .lead .t { margin-top: 14px; font: 500 19px/1.3 var(--sans); letter-spacing: -.01em; }
+  .lead .meta { padding: 0; }
+
+  .trow { display: flex; gap: 14px; align-items: center; width: 100%; padding: 12px 0; }
+  .trow .th { flex: none; width: 56px; height: 56px; border-radius: 6px; background: var(--mat); overflow: hidden; }
+  .trow .th img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .trow .th.none { display: grid; place-items: center; font: 500 15px/1 var(--sans); color: var(--mute); }
+  .trow .t { font-size: 15px; line-height: 1.35; }
+  .trow .meta { padding: 0; margin-top: 2px; justify-content: flex-start; }
+
+  .proj { display: block; width: 100%; padding: 12px 0; font-size: 17px; }
+  .proj .n { color: var(--mute); margin-left: 8px; font-size: 14px; }
+  .proj.open { font-weight: 500; }
+  .proj-items { padding: 2px 0 10px 0; }
+  .proj-items .row { padding: 8px 0; }
+  .proj-items .row .t { font-size: 15px; color: var(--ink2); }
+
+  /* Right column: artefacts. */
+  .art { display: block; width: 100%; margin-bottom: 12px; padding: 8px 8px 14px; border-radius: 14px; background: var(--card); }
+  .art .pic { border-radius: 8px; overflow: hidden; background: var(--mat); }
+  .art .pic img { width: 100%; aspect-ratio: 16/10; object-fit: cover; object-position: top; }
+  .art .t { margin: 12px 8px 0; font-size: 16px; line-height: 1.35; }
+  .art .meta { padding: 0 8px; margin-top: 2px; }
+  .art.text { padding: 18px 16px; }
+  .art.text .t { margin: 0; }
+  .art.text p { margin: 6px 0 0; color: var(--ink2); font-size: 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid .art { margin: 0; }
+  .grid .art .t { font-size: 14px; }
+
+  /* Single column of artefacts, no card behind them: picture, then a line. */
+  .solo .art { padding: 0; background: none; margin-bottom: 32px; }
+  .solo .art .pic { padding: 10px; background: var(--mat); border-radius: 10px; }
+  .solo .art .pic img { border-radius: 4px; }
+  .solo .art .t, .solo .art .meta { margin-left: 0; padding-left: 0; }
+  .solo .art.text { padding: 0; }
+</style>
+</head>
+<body>
+<header><span class="who">Flyd</span><span class="day">Sunday 25 October</span><nav><span>people</span><span>preferences</span><span>artefact</span></nav></header>
+<div class="page" id="page">
+  <aside class="col" id="left"></aside>
+  <section class="main">
+    <div class="label">Conversation</div>
+    <div class="thread">
+      <div class="call"><span class="k">Your call</span><h2>Link WhatsApp so Flyd can message people for you</h2><p>In WhatsApp: Linked devices, then Link a device, then scan the code.</p><a href="#">/whatsapp ↗</a></div>
+      <div class="msg you"><span class="at">You · 11:02</span>Which CapFive dashboard did you think was strongest?</div>
+      <div class="msg"><span class="at">Flyd · 11:02</span>Version 2, Page one. It brings back the closed-deal tombstone as the lead story, in CapFive's own editorial style. The other four are on the left if you want to compare.</div>
+    </div>
+    <label class="composer"><input placeholder="Message Flyd"><button class="send" type="button">AHOY</button></label>
+    <div class="usage">session 44% left · week 62% left · Fable week 80% left</div>
+  </section>
+  <aside class="col" id="right"></aside>
+</div>
+<script src="shared/data.js"></script>
+<script>
+  // The look is chosen by ?v=; the theme arrives from the canvas by message so the page never reloads.
+  var q = new URLSearchParams(location.search), v = q.get("v") || "today", right = q.get("right") || "grid";
+  document.documentElement.dataset.theme = q.get("theme") || "light";
+  addEventListener("message", function (e) { if (e.data && e.data.flydTheme) document.documentElement.dataset.theme = e.data.flydTheme; });
+  document.body.className = "v-" + v;
+
+  var F = window.FLYD, esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+  var src = function (p) { return "shared/" + p; };
+  var needs = F.jobs.filter(function (j) { return j.group === "needs"; });
+  var working = F.jobs.filter(function (j) { return j.group === "working"; });
+  var done = F.jobs.filter(function (j) { return j.group === "done"; });
+  var meta = function (j, dot) { return '<div class="meta"><span>' + (dot ? '<i class="dot"></i>' : "") + esc(j.project) + '</span><span>' + esc(j.when) + "</span></div>"; };
+  var label = function (t, n) { return '<div class="label"><span>' + t + "</span>" + (n != null ? "<span>" + n + "</span>" : "") + "</div>"; };
+  var rows = function (list, dot) { return list.map(function (j, i) { return '<button class="row' + (dot && i === 0 ? " on" : "") + '"><div class="t">' + esc(j.title) + "</div>" + meta(j, dot) + "</button>"; }).join(""); };
+
+  var left = {
+    today: function () {
+      return label("Needs you", needs.length) + needs.concat(working).map(function (j) {
+        return '<button class="card">' + (j.thumb ? '<div class="pic"><img src="' + src(j.thumb) + '" alt=""></div>' : "") + '<div class="t">' + esc(j.title) + "</div>" + meta(j, true) + "</button>";
+      }).join("");
+    },
+    quiet: function () {
+      return '<div class="group">' + label("Needs you") + rows(needs, true) + '</div><div class="group">' + label("Working") + rows(working) + '</div><div class="group">' + label("Done this week") + rows(done.slice(0, 2)) + '<span class="more">' + (done.length - 2) + " more</span></div>";
+    },
+    one: function () {
+      var j = needs[0];
+      return label("Needs you", needs.length) + '<button class="lead"><div class="pic"><img src="' + src(j.thumb) + '" alt=""></div><div class="t">' + esc(j.title) + "</div>" + meta(j, true) + "</button>" + rows(needs.slice(1), true).replace(' on"', '"') + '<div class="group" style="margin-top:32px">' + label("Working") + rows(working) + "</div>";
+    },
+    thumbs: function () {
+      var t = function (list, dot) { return list.map(function (j) {
+        return '<button class="trow"><span class="th' + (j.thumb ? "" : " none") + '">' + (j.thumb ? '<img src="' + src(j.thumb) + '" alt="">' : esc(j.project.charAt(0))) + '</span><span><div class="t">' + esc(j.title) + '</div><div class="meta">' + (dot ? '<i class="dot"></i>' : "") + esc(j.project) + " · " + esc(j.when) + "</div></span></button>";
+      }).join(""); };
+      return '<div class="group">' + label("Needs you") + t(needs, true) + '</div><div class="group">' + label("Working") + t(working) + "</div>";
+    },
+    projects: function () {
+      var by = {};
+      needs.concat(working).forEach(function (j) { (by[j.project] = by[j.project] || []).push(j); });
+      return label("Projects") + Object.keys(by).map(function (p, i) {
+        var hot = by[p].some(function (j) { return j.group === "needs"; });
+        return '<button class="proj' + (i === 0 ? " open" : "") + '">' + (hot ? '<i class="dot"></i>' : "") + esc(p) + '<span class="n">' + by[p].length + "</span></button>" + (i === 0 ? '<div class="proj-items">' + by[p].map(function (j) { return '<button class="row"><div class="t">' + esc(j.title) + "</div></button>"; }).join("") + "</div>" : "");
+      }).join("");
+    }
+  };
+
+  var art = function (a) {
+    return a.img ? '<button class="art"><div class="pic"><img src="' + src(a.img) + '" alt=""></div><div class="t">' + esc(a.title) + '</div><div class="meta"><span>' + esc(a.meta) + "</span></div></button>"
+      : '<button class="art text"><div class="t">' + esc(a.title) + "</div><p>" + esc(a.text || a.meta) + "</p></button>";
+  };
+  var arts = F.artefacts;
+  var rightHTML = right === "solo"
+    ? label("Artefacts") + '<div class="solo">' + arts.slice(0, 4).map(art).join("") + "</div>"
+    : label("Artefacts") + art(arts[0]) + '<div class="grid">' + arts.slice(1, 5).map(art).join("") + "</div>";
+
+  document.getElementById("left").innerHTML = (left[v] || left.today)();
+  document.getElementById("right").innerHTML = rightHTML;
+  if (v !== "today") document.getElementById("page").style.setProperty("--gap", "56px");
+</script>
+</body>
+</html>

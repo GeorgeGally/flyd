@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd front page canvas</title>
+<style>
+  :root { --bg: #E4E2DD; --fg: #2B2A28; --mute: #7A776F; --edge: rgba(0,0,0,.12); --ctl: #F5F4F1; }
+  :root[data-theme="dark"] { --bg: #0B0B0A; --fg: #E6E3DC; --mute: #8E8B83; --edge: rgba(255,255,255,.12); --ctl: #1A1A18; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body { background: var(--bg); color: var(--fg); font: 400 13px/1.4 -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  #shell { position: fixed; inset: 0; cursor: default; overscroll-behavior: none; outline: none; touch-action: none; }
+  #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  .item { position: absolute; }
+  .bar { display: flex; align-items: center; gap: 6px; height: 28px; }
+  .name { font: inherit; font-size: 14px; color: var(--fg); background: none; border: 0; padding: 2px 4px; border-radius: 4px; cursor: default; user-select: text; }
+  .name:focus-visible, .handle:focus-visible, .ctl button:focus-visible, .ctl select:focus-visible { outline: 2px solid #3B82F6; outline-offset: 1px; }
+  .handle { width: 22px; height: 22px; display: grid; place-items: center; border: 0; border-radius: 4px; background: none; color: var(--mute); cursor: default; touch-action: none; }
+  .handle:hover { color: var(--fg); background: var(--edge); }
+  .note { font-size: 12px; color: var(--mute); }
+  .frame { box-shadow: 0 0 0 1px var(--edge); border-radius: 6px; overflow: hidden; background: #fff; }
+  .frame iframe { display: block; border: 0; }
+  .shield { position: absolute; inset: 0; display: none; }
+  body.panning .shield { display: block; }
+  .ctl { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 4px; align-items: center; padding: 4px; border-radius: 8px; background: var(--ctl); box-shadow: 0 0 0 1px var(--edge); }
+  .ctl button, .ctl select { font: inherit; color: var(--fg); background: none; border: 0; height: 28px; padding: 0 9px; border-radius: 5px; cursor: default; }
+  .ctl button:hover { background: var(--edge); }
+  .ctl .z { min-width: 44px; text-align: center; color: var(--mute); font-variant-numeric: tabular-nums; }
+  .help { position: fixed; left: 16px; bottom: 16px; color: var(--mute); font-size: 12px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div id="shell" tabindex="0" aria-label="Canvas. Drag empty space or hold Space to pan, Ctrl or Cmd with the wheel to zoom, arrow keys to pan, plus and minus to zoom.">
+  <div id="world"></div>
+</div>
+<div class="ctl" role="toolbar" aria-label="Canvas controls">
+  <button id="zout" aria-label="Zoom out">−</button><span class="z" id="zlabel">100%</span><button id="zin" aria-label="Zoom in">+</button>
+  <button id="fit">Fit all</button><button id="reset">Reset</button>
+  <select id="theme" aria-label="Theme"><option value="light">Light</option><option value="dark">Dark</option></select>
+</div>
+<div class="help">Click a name to copy it · drag ⠿ to move</div>
+<div class="sr" aria-live="polite" id="live"></div>
+<script>
+  // The registry: every item on the canvas, edited in source only.
+  var W = 1440, H = 900;
+  var REGISTRY = [
+    { id: "today", name: "Front page · today", src: "preview.html?v=today", note: "Baseline: cards on the left, white sheet in the middle.", x: 0, y: 0, w: W, h: H },
+    { id: "quiet", name: "Front page · quiet list", src: "preview.html?v=quiet", note: "Left as words only: Needs you, Working, Done. No sheet.", x: 1540, y: 0, w: W, h: H },
+    { id: "one", name: "Front page · one picture", src: "preview.html?v=one", note: "The top call as a picture, the rest as lines.", x: 0, y: 1040, w: W, h: H },
+    { id: "thumbs", name: "Front page · small thumbs", src: "preview.html?v=thumbs", note: "A 56px picture beside each line.", x: 1540, y: 1040, w: W, h: H },
+    { id: "projects", name: "Front page · by project", src: "preview.html?v=projects", note: "Projects first; the open one lists its jobs.", x: 0, y: 2080, w: W, h: H },
+    { id: "quiet-solo", name: "Front page · quiet list, one artefact column", src: "preview.html?v=quiet&right=solo", note: "Quiet list, and artefacts as single pictures without cards.", x: 1540, y: 2080, w: W, h: H }
+  ];
+
+  var KEY = "flyd-lab:canvas-front:v1", MINZ = 0.1, MAXZ = 2, LIM = 1e5;
+  var shell = document.getElementById("shell"), world = document.getElementById("world"), live = document.getElementById("live");
+  var cam = { x: 40, y: 60, z: 0.4 }, pos = {}, theme = "light", frames = {};
+  var finite = function (n, lo, hi) { return typeof n === "number" && isFinite(n) && n >= lo && n <= hi; };
+
+  // Saved layout: camera, theme, positions by registry id. Anything else is ignored.
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { saved = null; }
+  if (saved && saved.v === 1) {
+    if (saved.cam && finite(saved.cam.x, -LIM, LIM) && finite(saved.cam.y, -LIM, LIM) && finite(saved.cam.z, MINZ, MAXZ)) cam = saved.cam;
+    if (saved.theme === "light" || saved.theme === "dark") theme = saved.theme;
+    if (saved.pos && typeof saved.pos === "object") REGISTRY.forEach(function (r) {
+      var p = saved.pos[r.id]; if (p && finite(p.x, -LIM, LIM) && finite(p.y, -LIM, LIM)) pos[r.id] = { x: p.x, y: p.y };
+    });
+  }
+  REGISTRY.forEach(function (r) { if (!pos[r.id]) pos[r.id] = { x: r.x, y: r.y }; });
+  var saveT = 0;
+  function save() { clearTimeout(saveT); saveT = setTimeout(flush, 300); }
+  function flush() { clearTimeout(saveT); try { localStorage.setItem(KEY, JSON.stringify({ v: 1, cam: cam, theme: theme, pos: pos })); } catch (e) {} }
+
+  // Camera: one transform write per frame.
+  var raf = 0;
+  function apply() { if (raf) return; raf = requestAnimationFrame(function () { raf = 0; world.style.transform = "translate(" + cam.x + "px," + cam.y + "px) scale(" + cam.z + ")"; document.getElementById("zlabel").textContent = Math.round(cam.z * 100) + "%"; }); }
+  function zoomAt(sx, sy, nz) {
+    nz = Math.min(MAXZ, Math.max(MINZ, nz));
+    var wx = (sx - cam.x) / cam.z, wy = (sy - cam.y) / cam.z;
+    cam.z = nz; cam.x = sx - wx * nz; cam.y = sy - wy * nz; apply(); save();
+  }
+  function panBy(dx, dy) { cam.x = Math.max(-LIM, Math.min(LIM, cam.x + dx)); cam.y = Math.max(-LIM, Math.min(LIM, cam.y + dy)); apply(); save(); }
+  function center() { return { x: innerWidth / 2, y: innerHeight / 2 }; }
+
+  // Items.
+  REGISTRY.forEach(function (r) {
+    var el = document.createElement("div"); el.className = "item"; el.dataset.id = r.id;
+    el.innerHTML = '<div class="bar"><button class="handle" aria-label="Move ' + r.name + '. Arrow keys move it." title="Drag to move">⠿</button>' +
+      '<button class="name" title="Click to copy the name">' + r.name + '</button><span class="note">' + r.note + '</span></div>' +
+      '<div class="frame" style="width:' + r.w + 'px;height:' + r.h + 'px;position:relative"><iframe title="' + r.name + '" width="' + r.w + '" height="' + r.h + '"></iframe><div class="shield"></div></div>';
+    world.appendChild(el);
+    var f = el.querySelector("iframe"); frames[r.id] = f;
+    f.src = r.src + (r.src.indexOf("?") < 0 ? "?" : "&") + "theme=" + theme;
+    f.addEventListener("load", function () { hookFrame(f); });
+    place(r.id);
+  });
+  function place(id) { var el = world.querySelector('[data-id="' + id + '"]'); el.style.left = pos[id].x + "px"; el.style.top = pos[id].y + "px"; }
+
+  // Names copy themselves.
+  world.addEventListener("click", function (e) {
+    var b = e.target.closest(".name"); if (!b || suppressClick) return;
+    var text = b.textContent;
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { flash(b, text); }, function () { selectText(b); });
+    else selectText(b);
+  });
+  function flash(b, text) { live.textContent = "Copied " + text; b.setAttribute("title", "Copied"); setTimeout(function () { b.setAttribute("title", "Click to copy the name"); }, 1200); }
+  function selectText(b) { var r = document.createRange(); r.selectNodeContents(b); var s = getSelection(); s.removeAllRanges(); s.addRange(r); live.textContent = "Copy failed; the name is selected."; }
+
+  // Gestures. Each pointer interaction has one owner: pan or move.
+  var g = null, spaceHeld = false, suppressClick = false;
+  shell.addEventListener("pointerdown", function (e) {
+    var handle = e.target.closest(".handle");
+    var empty = e.target === shell || e.target === world;
+    var panGesture = e.button === 1 || (e.button === 0 && (spaceHeld || empty || e.target.classList.contains("shield")));
+    if (handle && !spaceHeld && e.button === 0) {
+      var id = handle.closest(".item").dataset.id;
+      g = { kind: "move", id: id, sx: e.clientX, sy: e.clientY, ox: pos[id].x, oy: pos[id].y, pid: e.pointerId, moved: false };
+    } else if (panGesture) {
+      g = { kind: "pan", lx: e.clientX, ly: e.clientY, pid: e.pointerId, moved: false };
+      document.body.classList.add("panning");
+      if (e.button === 1) e.preventDefault();
+    } else return;
+    shell.setPointerCapture(e.pointerId);
+  });
+  shell.addEventListener("pointermove", function (e) {
+    if (!g || e.pointerId !== g.pid) return;
+    if (g.kind === "pan") { panBy(e.clientX - g.lx, e.clientY - g.ly); g.lx = e.clientX; g.ly = e.clientY; g.moved = true; }
+    else { pos[g.id] = { x: g.ox + (e.clientX - g.sx) / cam.z, y: g.oy + (e.clientY - g.sy) / cam.z }; place(g.id); g.moved = true; }
+  });
+  function endGesture(e) {
+    if (!g || (e && e.pointerId !== g.pid)) return;
+    if (g.moved) { suppressClick = true; setTimeout(function () { suppressClick = false; }, 0); }
+    try { shell.releasePointerCapture(g.pid); } catch (x) {}
+    g = null; if (!spaceHeld) document.body.classList.remove("panning"); save();
+  }
+  shell.addEventListener("pointerup", endGesture);
+  shell.addEventListener("pointercancel", endGesture);
+  shell.addEventListener("lostpointercapture", endGesture);
+  shell.addEventListener("auxclick", function (e) { if (e.button === 1) e.preventDefault(); });
+
+  // Wheel on the host: Ctrl/Cmd or pinch zooms around the pointer; otherwise pans.
+  function onWheel(e, sx, sy, scrollable) {
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoomAt(sx, sy, cam.z * Math.exp(-e.deltaY * 0.01)); return; }
+    if (scrollable) return;
+    e.preventDefault(); panBy(-e.deltaX, -e.deltaY);
+  }
+  shell.addEventListener("wheel", function (e) { onWheel(e, e.clientX, e.clientY, false); }, { passive: false });
+
+  // Inside a preview (same origin): zoom and pan unless a scroll area there can take the gesture.
+  function hookFrame(f) {
+    var doc; try { doc = f.contentDocument; } catch (e) { return; }
+    if (!doc) return;
+    f.contentWindow.postMessage({ flydTheme: theme }, "*");
+    doc.addEventListener("wheel", function (e) {
+      var r = f.getBoundingClientRect(), sx = r.left + e.clientX * cam.z, sy = r.top + e.clientY * cam.z;
+      onWheel(e, sx, sy, canScroll(e.target, e.deltaX, e.deltaY));
+    }, { passive: false });
+    doc.addEventListener("keydown", trackSpace(true)); doc.addEventListener("keyup", trackSpace(false));
+  }
+  function canScroll(el, dx, dy) {
+    for (; el && el.nodeType === 1; el = el.parentElement) {
+      var s = getComputedStyle(el), y = /(auto|scroll)/.test(s.overflowY), x = /(auto|scroll)/.test(s.overflowX);
+      if (y && dy && (dy > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0)) return true;
+      if (x && dx && (dx > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : el.scrollLeft > 0)) return true;
+    }
+    return false;
+  }
+
+  // Space to pan, unless something editable or a control has focus.
+  function editable(el) { return el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(el.tagName)); }
+  function trackSpace(down) { return function (e) {
+    if (e.code !== "Space") return;
+    var active = e.target.ownerDocument.activeElement;
+    if (down && editable(active) && active !== shell) return;
+    if (down) { e.preventDefault(); spaceHeld = true; document.body.classList.add("panning"); }
+    else { spaceHeld = false; if (!g) document.body.classList.remove("panning"); }
+  }; }
+  addEventListener("keydown", trackSpace(true)); addEventListener("keyup", trackSpace(false));
+  function clearHeld() { spaceHeld = false; if (g) endGesture(); document.body.classList.remove("panning"); }
+  addEventListener("blur", clearHeld);
+  document.addEventListener("visibilitychange", function () { if (document.hidden) { clearHeld(); flush(); } });
+
+  // Keyboard: camera on the shell, item movement on a focused handle.
+  shell.addEventListener("keydown", function (e) {
+    var h = e.target.closest && e.target.closest(".handle"), step = e.shiftKey ? 100 : 20;
+    var arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (h && arrows) { e.preventDefault(); var id = h.closest(".item").dataset.id; pos[id] = { x: pos[id].x + arrows[0] * step, y: pos[id].y + arrows[1] * step }; place(id); save(); return; }
+    if (e.target !== shell) return;
+    if (arrows) { e.preventDefault(); panBy(-arrows[0] * step * 3, -arrows[1] * step * 3); }
+    else if (e.key === "+" || e.key === "=") { var c = center(); zoomAt(c.x, c.y, cam.z * 1.2); }
+    else if (e.key === "-") { var c2 = center(); zoomAt(c2.x, c2.y, cam.z / 1.2); }
+    else if (e.key === "0") reset();
+    else if (e.key === "1") fitAll();
+  });
+  // Keyboard focus that lands offscreen is brought into view by the camera, never by page scroll.
+  shell.addEventListener("focusin", function (e) {
+    shell.scrollTop = 0; shell.scrollLeft = 0;
+    var r = e.target.getBoundingClientRect();
+    if (e.target === shell || (r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight)) return;
+    panBy(innerWidth / 3 - r.left, innerHeight / 3 - r.top);
+  });
+
+  // Fit and reset.
+  function fitAll() {
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    world.querySelectorAll(".item").forEach(function (el) {
+      var p = pos[el.dataset.id], w = el.offsetWidth, h = el.offsetHeight;
+      x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + w); y1 = Math.max(y1, p.y + h);
+    });
+    var pad = 48, z = Math.min(MAXZ, Math.max(MINZ, Math.min((innerWidth - pad * 2) / (x1 - x0), (innerHeight - pad * 2 - 40) / (y1 - y0))));
+    cam = { z: z, x: (innerWidth - (x1 - x0) * z) / 2 - x0 * z, y: (innerHeight - 40 - (y1 - y0) * z) / 2 - y0 * z };
+    apply(); save();
+  }
+  function reset() { cam = { x: 40, y: 60, z: 0.4 }; apply(); save(); }
+  document.getElementById("fit").onclick = fitAll;
+  document.getElementById("reset").onclick = reset;
+  document.getElementById("zin").onclick = function () { var c = center(); zoomAt(c.x, c.y, cam.z * 1.2); };
+  document.getElementById("zout").onclick = function () { var c = center(); zoomAt(c.x, c.y, cam.z / 1.2); };
+
+  // One theme for the canvas and every preview, sent by message so nothing reloads.
+  var sel = document.getElementById("theme");
+  function setTheme(t) { theme = t; sel.value = t; document.documentElement.dataset.theme = t; Object.keys(frames).forEach(function (id) { try { frames[id].contentWindow.postMessage({ flydTheme: t }, "*"); } catch (e) {} }); save(); }
+  sel.onchange = function () { setTheme(sel.value); };
+  setTheme(theme);
+
+  document.documentElement.style.overscrollBehaviorX = "none";
+  addEventListener("pagehide", flush);
+  apply();
+  if (!saved) requestAnimationFrame(function () { requestAnimationFrame(fitAll); });
+</script>
+</body>
+</html>
