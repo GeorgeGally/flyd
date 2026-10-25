@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRepeatGuard } from "../repeat-guard.js";
+import { createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } from "../repeat-guard.js";
 
 describe("repeat guard", () => {
   it("allows one retry, then stops the same call failing the same way", () => {
@@ -30,5 +30,26 @@ describe("repeat guard", () => {
     guard.record("grep", { pattern: "x" }, null);
     guard.record("grep", { pattern: "x" }, "Error: bad");
     expect(guard.blocked("grep", { pattern: "x" })).toBeNull();
+  });
+
+  it("counts identical failures and stops a launch loop with a non-retryable terminal error", () => {
+    const guard = createRepeatGuard(MAX_IDENTICAL_LAUNCH_FAILURES);
+    const launch = { home: "/fake/firstmate", runtimes: "claude" };
+    for (let attempt = 0; attempt < MAX_IDENTICAL_LAUNCH_FAILURES; attempt += 1) {
+      expect(guard.blocked("firstmate-session-launch", launch)).toBeNull();
+      guard.record("firstmate-session-launch", launch, "Error: usage limit reached");
+    }
+    expect(guard.attempts("firstmate-session-launch", launch)).toBe(3);
+    expect(guard.blocked("firstmate-session-launch", launch)).toMatch(/already failed 3 times/);
+    expect(guard.blocked("firstmate-session-launch", { ...launch, runtimes: "codex" })).toBeNull();
+
+    const session = { home: "/fake/firstmate", runtimes: "claude", request: "run-a" };
+    guard.record("firstmate-session-launch", session, '{"type":"result","is_error":true,"session_id":"3f2a9c1e-7b4d-4e8a-9c0f-a1b2c3d4e5f6"}');
+    guard.record("firstmate-session-launch", session, '{"type":"result","is_error":true,"session_id":"c0ffee12-ab34-4cde-8f90-fedcba987654"}');
+    expect(guard.attempts("firstmate-session-launch", session)).toBe(2);
+
+    const terminal = new RepeatedLoopError("stopped after 3 identical attempts", 3);
+    expect(terminal.retryable).toBe(false);
+    expect(terminal.attempts).toBe(3);
   });
 });
