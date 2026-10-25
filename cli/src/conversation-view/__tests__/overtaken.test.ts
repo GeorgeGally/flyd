@@ -148,6 +148,10 @@ describe("a call's headline", () => {
     expect(callHeadline("Merge CapFive PR https://github.com/GeorgeGally/capfive/pull/9? The Connect deals CSV export (previously uncommitted work, incl. dropdown filter facets, Year filter, spinner, cached lists) lands with the filename and first line named after the active filters."))
       .toBe("Merge CapFive PR #9?");
     expect(callHeadline("Pick a hero photo")).toBe("Pick a hero photo");
+    expect(callHeadline("Which /new version(s) from lab round 2 to build (recommended: V10 Edit the thing in place, with the photo first)"))
+      .toBe("Which /new versions from lab round 2 to build?");
+    expect(callHeadline("Which /new version(s) from lab round 2 to build (recommended: V10 Edit the page or V2 Live page), or another lab round; and keep today's switch or adopt the No/Yes words."))
+      .toBe("Which /new versions from lab round 2 to build, or another lab round?");
   });
 
   it("never says the stock line: the task's own title stands in", async () => {

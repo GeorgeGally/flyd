@@ -141,8 +141,10 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .devices.one .art { width: auto; height: auto; max-width: 100cqw; max-height: 100cqh; }
 .devices.one .art img { width: auto; height: auto; max-width: 100cqw; max-height: 100cqh; }
 /* The pair: the browser behind, the phone in front of its right edge. */
-.devices.pair .desk { left: 0; top: 4cqh; width: min(86cqw, 137.6cqh); height: min(53.75cqw, 86cqh); }
-.devices.pair .phone { right: 0; bottom: 0; width: min(36cqh, 34cqw); height: min(78cqh, 73.7cqw); }
+/* The pair is one composition: the box keeps the pair's own shape, so the phone always stands in front of the desktop's lower right. */
+.devices.pair { height: auto; aspect-ratio: 10 / 7; width: min(100%, calc(min(66vh, calc(100vh - 300px)) * 10 / 7)); margin-inline: auto; }
+.devices.pair .desk { left: 0; top: 0; width: 86cqw; height: 53.75cqw; }
+.devices.pair .phone { right: 0; bottom: 0; width: 23.5cqw; height: 51cqw; }
 /* A scene's foot: a question's options, one tap each, then the chat box every artefact has. */
 .scene-ask { display: grid; gap: 14px; margin-top: 28px; max-width: 640px; }
 /* The pattern's body: the question, the findings, the document itself, the operation. */

@@ -51,6 +51,20 @@ export const SHOW_SCRIPT = `
     return node;
   }
   function withToken(src) { return src + (src.indexOf("?") < 0 ? "?" : "&") + "token=" + encodeURIComponent(VIEW_TOKEN); }
+  // A call's headline is its question alone; a "Recommended: …" riding on it is said under it, in Flyd's words.
+  function headOf(title) {
+    var text = String(title || "").replace(/\\s+/g, " ").trim();
+    var m = /^(.{12,}?\\?)\\s+(?:recommended|i recommend|recommend)[:\\s]+(.+)$/i.exec(text);
+    if (m) return { head: m[1], rec: m[2] };
+    var rec = "";
+    m = /\\s*\\((?:recommended|recommend)[:\\s]+([^)]*)\\)?/i.exec(text);
+    if (m) { rec = m[1]; text = text.slice(0, m.index) + text.slice(m.index + m[0].length); }
+    // One question heads the card: the first clause of a compound one, with its question mark.
+    var head = text.replace(/\\b(\\w+)\\(s\\)/g, "$1s").split(/;\\s/)[0].trim();
+    if (head !== text.trim()) head = head.replace(/[\\s,.…]+$/, "");
+    if (/^(which|what|should|do|does|is|are|can|how|when|where|who)\\b/i.test(head) && !/[?!]$/.test(head)) head += "?";
+    return { head: head || text, rec: rec };
+  }
   function sentence(text) { text = String(text || "").trim(); return text && !/[.!?…:]$/.test(text) ? text + "." : text; }
   function capital(text) { text = String(text || ""); return text.charAt(0).toUpperCase() + text.slice(1); }
 
@@ -170,7 +184,10 @@ export const SHOW_SCRIPT = `
       }
       if (block.kind === "metrics") {
         var metrics = el("dl", "screen-metrics");
+        // The line above the headline already says the project and the state; a fact is listed once.
+        var shown = [box.project, box.status, box.state].filter(Boolean).map(function (value) { return String(value).toLowerCase(); });
         (block.items || []).forEach(function (metric) {
+          if (shown.indexOf(String(metric.value || "").toLowerCase()) >= 0 || /^(state|status)$/i.test(metric.label || "") || (/^project$/i.test(metric.label || "") && box.project)) return;
           metrics.appendChild(el("dt", "", metric.label));
           metrics.appendChild(el("dd", "", metric.value));
         });
@@ -203,8 +220,9 @@ export const SHOW_SCRIPT = `
     sceneEl.dataset.pattern = screen ? screen.pattern : "";
     if (sceneEl.dataset.id !== box.id) sceneEl.parentElement.scrollTop = 0;
     sceneEl.dataset.id = box.id;
-    sceneHead.textContent = box.title;
-    sceneHead.classList.toggle("long", box.title.length > 80);
+    var headed = headOf(box.title);
+    sceneHead.textContent = headed.head;
+    sceneHead.classList.toggle("long", headed.head.length > 80);
     if (box.ref || box.semantic) {
       sceneHead.setAttribute("role", "button");
       sceneHead.tabIndex = 0;
@@ -221,6 +239,7 @@ export const SHOW_SCRIPT = `
     var hasDocument = !!(screen && screen.blocks && screen.blocks.some(function (block) { return block.kind === "document"; }));
     // Each sentence once on the card: the headline, then only what the line adds, then only what the body adds.
     var said = [];
+    unsaid(headed.head, said);
     unsaid(box.title, said);
     var line = !hasDocument ? unsaid(box.line, said) : "";
     sceneLine.textContent = line ? sentence(capital(line)) : "";
@@ -234,6 +253,11 @@ export const SHOW_SCRIPT = `
     if (oldBody) oldBody.remove();
     var body = screenBody(box, said);
     if (body) sceneLine.after(body);
+    // The recommendation taken off the headline is said once: unless the line or the body already says it.
+    var recWord = headed.rec.split(/[\\s(]/)[0];
+    if (headed.rec && recWord && (sceneLine.textContent + (body ? body.textContent : "")).indexOf(recWord) < 0) {
+      sceneLine.textContent = "I'd go with " + headed.rec.replace(/[…]+$/, "").replace(/\\s*\\([^)]*$/, "") + "." + (sceneLine.textContent ? " " + sceneLine.textContent : "");
+    }
     // Every scene takes his words about it at its foot; a question's options answer it in one tap.
     var oldAsk = sceneEl.querySelector(".scene-ask");
     var askKey = askKeyFor(box);

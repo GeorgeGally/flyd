@@ -190,6 +190,13 @@ export function callHeadline(text: string | undefined, fallback?: string): strin
   if (!line || STOCK_ASK.test(line)) line = (fallback ?? "").replace(/\s+/g, " ").trim();
   line = line.replace(new RegExp(`(?:\\bPR\\s+)?${PR_URL.source}`, "g"), (_url, _repo: string, number: string) => `PR #${number}`)
     .replace(/https?:\/\/(?:www\.)?([^/\s]+)\S*/g, "$1");
+  // The question alone heads the card: a "(recommended: …)" aside belongs to the recommendation, said under it.
+  const aside = /\s*\((?:recommended|recommend)[:\s][^)]*\)?/i.exec(line);
+  if (aside) {
+    // One question heads the card: the first clause of a compound one, with its question mark.
+    const asked = (line.slice(0, aside.index) + line.slice(aside.index + aside[0].length)).replace(/\b(\w+)\(s\)/g, "$1s").split(/;\s/)[0]!.replace(/[\s,.…]+$/, "").trim();
+    if (asked) line = /^(which|what|should|do|does|is|are|can|how|when|where|who)\b/i.test(asked) && !/[?!]$/.test(asked) ? `${asked}?` : asked;
+  }
   if (line.length <= HEADLINE_MAX) return line;
   const first = /^.{12,}?[?.!](?=\s|$)/.exec(line)?.[0];
   if (first && first.length <= HEADLINE_MAX + 30) return first;
