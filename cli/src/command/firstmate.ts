@@ -376,6 +376,10 @@ function launchInput(home: string, runtimes: SessionRuntime[], request: string):
   return { home, runtimes: runtimes.join(","), request };
 }
 
+function forgetLaunchFailures(home: string, request: string): void {
+  launchRepeats.record(SESSION_LAUNCH_OPERATION, launchInput(home, sessionRuntimes(), request), null);
+}
+
 function repeatedLaunchFailure(attempts: number): string {
   return `I stopped starting the work: ${attempts} identical launch attempts failed the same way, so another one won't change that.`;
 }
@@ -527,7 +531,7 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
 
 function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now(), terminal?: RepeatedLoopError): DomainRun {
   const current = readDomainRun(run.id) ?? run;
-  if (["completed", "failed", "cancelled"].includes(current.status)) return current;
+  if (current.status !== "queued") return current;
   if (terminal) {
     const { launchRetry: _retry, ...rest } = current;
     const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, updatedAt: new Date(nowMs).toISOString() };
@@ -704,6 +708,7 @@ export async function syncFirstmateDomainRuns(options: {
     if (!own.length) continue;
     const original = own.find((item) => item.request_id === run.transport.requestId || item.id === run.transport.externalId);
     let next: DomainRun = run;
+    if (original?.acknowledged) forgetLaunchFailures(transport.home, run.id);
     if (original?.acknowledged && run.status === "queued") {
       next = { ...next, status: "accepted", updatedAt: (options.now ?? (() => new Date()))().toISOString() };
     }

@@ -1061,6 +1061,46 @@ describe("FirstMate domain transport", () => {
     expect(repeated).toEqual([]);
   });
 
+  it("never fails a run whose note was picked up, and an acknowledgement resets its launch count", async () => {
+    const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
+    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
+    try {
+      saveDomainRun(queuedRun());
+      let acknowledged = false;
+      let canReceive = false;
+      let launches = 0;
+      const exec: FirstmateExec = async (_script, args) => {
+        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+        if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: canReceive, lock: { live_harness: false } }), stderr: "" };
+        launches += 1;
+        throw new Error("claude: usage limit reached");
+      };
+      const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate-acknowledged"), script: "/fake/fm-inbox.sh", exec });
+      const start = Date.parse("2026-10-09T01:00:00.000Z");
+      const tick = (hour: number) => syncFirstmateDomainRuns({ transport, now: () => new Date(start + hour * 60 * 60_000) });
+
+      await tick(0);
+      await tick(1);
+      expect(launches).toBe(2);
+      expect(listDomainRuns()[0]!.status).toBe("queued");
+
+      acknowledged = true;
+      canReceive = true;
+      await tick(2);
+      expect(listDomainRuns()[0]!.status).toBe("accepted");
+
+      canReceive = false;
+      for (let hour = 3; hour < 8; hour += 1) await tick(hour);
+      expect(launches).toBe(7);
+      const [run] = listDomainRuns();
+      expect(run!.status).toBe("accepted");
+      expect(run!.failure).not.toMatch(/identical launch attempts/);
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
+      else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
+    }
+  });
+
   it("counts identical launch failures per request, so a new run still gets its own attempts", async () => {
     const calls: string[] = [];
     const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
