@@ -139,6 +139,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .art-meta { display: flex; margin: 3px 0 0; font: 400 13px/1.4 var(--sans); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .art-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .art-ago { flex: none; white-space: pre; }
+.art-line + .art-ago::before { content: " · "; }
 .art-card .art-meta { margin-top: 3px; }
 .art-card .brief-meta { margin-top: 6px; }
 .art-frame-open { position: absolute; inset: 0; }

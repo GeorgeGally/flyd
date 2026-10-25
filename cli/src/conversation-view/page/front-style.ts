@@ -17,13 +17,14 @@ export const FRONT_STYLE = `
   --accent: var(--ink); --link: #1F5F99; --sel-bg: #ECE5D8; --sel-fg: var(--ink);
   background: var(--paper);
 }
+:root[data-layout="front"][data-theme="dark"] .job .frame img, :root[data-layout="front"][data-theme="dark"] .rail .art-pic img { outline-color: rgba(255, 255, 255, .1); }
 :root[data-layout="front"][data-theme="dark"] {
   --paper: #111110; --card: #1A1A18; --sheet: #1F1F1D; --ink: #F1EFEA; --ink2: #C9C6BF; --mute: #8E8B83;
   --line: #2F2E2B; --mat: #2A2926; --well: #272624; --well-on: #2E2D2A;
   --fg: #DEDBD4; --link: #9CC3E6; --sel-bg: #3D372D; --sel-fg: #FFF6E6;
 }
 .jobs, .sheet, .sheet-foot, .stage-head, .job-view, .front-date { display: none; }
-:root[data-layout="front"] body { background: transparent; font-size: 20px; }
+:root[data-layout="front"] body { background: transparent; font-size: 20px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-wrap: pretty; }
 
 /* The top line: who and what day. The controls stay, smaller. */
 :root[data-layout="front"] header { height: var(--top); padding: 0 calc(var(--gut) + 4px); background: var(--paper); backdrop-filter: none; -webkit-backdrop-filter: none; gap: 20px; }
@@ -63,13 +64,15 @@ export const FRONT_STYLE = `
 .job.on { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
 .job:focus-visible, .ver:focus-visible, .fbtn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .job .frame { margin: -4px -6px 12px; padding: 8px 8px 0; border-radius: 7px; background: var(--mat); aspect-ratio: 16 / 9; overflow: hidden; }
-.job .frame img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 4px 4px 0 0; }
+.job .frame img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 4px 4px 0 0; outline: 1px solid rgba(0, 0, 0, .1); outline-offset: -1px; }
 .job.on .frame { display: none; }
-.job .t { font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.job .t { font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: pretty; }
 .job .m { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--mute); white-space: nowrap; min-width: 0; }
 .job .m .s { color: var(--ink2); }
 .job .m .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.job .m .w { margin-left: auto; padding-left: 8px; }
+.job .m .w { margin-left: auto; padding-left: 8px; font-variant-numeric: tabular-nums; }
+/* The conversation card is just its title: who it's with goes without saying. */
+.job.talk .m { display: none; }
 .fnew { color: var(--hot); }
 .job.done .t, .job.talk .t { font-weight: 400; color: var(--ink2); }
 .job.talk.on .t { color: var(--ink); }
@@ -86,9 +89,11 @@ export const FRONT_STYLE = `
 }
 .crumb { display: flex; align-items: center; gap: 8px; margin: 0; font: 400 13px/1.4 var(--sans); color: var(--mute); white-space: nowrap; overflow: hidden; }
 .crumb .s { color: var(--ink); }
+:root[data-layout="front"]:not([data-job]) .crumb { display: none; }
+:root[data-layout="front"]:not([data-job]) .stage-head h1 { margin-top: 0; }
 .crumb .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .stage-head h1 {
-  margin: 8px 0 0; font: 500 26px/1.22 var(--sans); letter-spacing: -0.015em; color: var(--ink); text-wrap: balance;
+  margin: 8px 0 0; font: 500 22px/1.25 var(--sans); letter-spacing: -0.015em; color: var(--ink); text-wrap: balance;
   overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
 }
 :root[data-layout="front"] .front-fade { opacity: 0; }
@@ -100,10 +105,14 @@ export const FRONT_STYLE = `
   transition: opacity .2s ease;
 }
 :root[data-layout="front"] .msg.fresh { animation: choice-in 280ms ease both; }
+/* What needs him lives in the left column; the conversation doesn't repeat it. */
+:root[data-layout="front"]:not([data-screen="show"]) #show, :root[data-layout="front"] .inline-screen { display: none !important; }
 /* The decision the conversation carries: the same quiet well as the message box, a hairline of the dot's colour. */
 :root[data-layout="front"] .inline-card { border: 0; border-left: 2px solid var(--line); background: var(--well); }
 :root[data-layout="front"] .inline-card.k-call { border-left-color: var(--hot); }
 :root[data-layout="front"] .inline-kind { letter-spacing: .04em; }
+/* A card's kind in plain case: a quiet word, not a shouted label. */
+:root[data-layout="front"] .msg .card-meta { font: 400 13px/1.4 var(--sans); letter-spacing: 0; text-transform: none; }
 :root[data-layout="front"] .empty { margin-top: 18vh; }
 :root[data-layout="front"] .composer {
   left: var(--c-left); right: var(--c-right); bottom: var(--gut); z-index: 4;
@@ -114,7 +123,8 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .composer .field:focus-within { background: var(--well-on); }
 :root[data-layout="front"] .composer #send { height: 32px; padding: 0 12px; border-radius: 8px; font: 600 12px/1 var(--mono); letter-spacing: 0.02em; color: var(--sheet); background: var(--ink); }
 :root[data-layout="front"] .composer .about, :root[data-layout="front"] .composer .unread, :root[data-layout="front"] .composer .attachments { margin-left: 0; }
-:root[data-layout="front"] .composer .hint { margin-top: 8px; padding-left: 2px; font-size: 11.5px; }
+:root[data-layout="front"] .composer .hint { margin-top: 8px; padding-left: 2px; font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .2s ease; }
+:root[data-layout="front"] .composer:hover .hint, :root[data-layout="front"] .composer:focus-within .hint { opacity: 1; }
 :root[data-layout="front"] .jump { right: calc(var(--c-right) + 32px); bottom: calc(var(--composer-h, 130px) + var(--gut) + 12px); }
 
 /* One job, open: what it is, its pictures large enough to judge, its words and a box. */
@@ -185,10 +195,10 @@ export const FRONT_STYLE = `
 }
 :root[data-layout="front"] .rail .art-card:hover { background: var(--sheet); }
 :root[data-layout="front"] .rail .art-pic { margin: 0 0 11px; padding: 8px 8px 0; border-radius: 0; background: var(--mat); }
-:root[data-layout="front"] .rail .art-pic img { border-radius: 4px 4px 0 0; }
+:root[data-layout="front"] .rail .art-pic img { border-radius: 4px 4px 0 0; outline: 1px solid rgba(0, 0, 0, .1); outline-offset: -1px; }
 :root[data-layout="front"] .rail .art-frame iframe { top: 8px; left: 8px; border-radius: 4px 4px 0 0; background: #fff; }
 :root[data-layout="front"] .rail .art-card > :not(.art-pic) { margin-left: 12px; margin-right: 12px; }
-:root[data-layout="front"] .rail .art-card .art-title { font: 500 14px/1.35 var(--sans); color: var(--ink); }
+:root[data-layout="front"] .rail .art-card .art-title { font: 500 14px/1.35 var(--sans); color: var(--ink); text-wrap: balance; }
 :root[data-layout="front"] .rail .art-grid > .art-card:first-child .art-title { font-size: 15px; }
 :root[data-layout="front"] .rail .art-plain { gap: 8px; margin-top: 8px; }
 :root[data-layout="front"] .rail .art-grid + .art-plain { padding-top: 0; border-top: 0; }
@@ -197,6 +207,10 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .rail .brief-line { font: 500 14px/1.4 var(--sans); color: var(--ink); }
 :root[data-layout="front"] .rail .brief-meta, :root[data-layout="front"] .rail .art-meta { font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-open { color: var(--ink2); }
+/* The card itself opens the piece: no "open" under it, and no file name beside its age. */
+:root[data-layout="front"] .rail .art-card .brief-open, :root[data-layout="front"] .rail .art-card .art-line:not(.down) { display: none; }
+:root[data-layout="front"] .rail .art-card .art-line:not(.down) + .art-ago::before { content: none; }
+:root[data-layout="front"] .rail .art-card .art-ago { font-variant-numeric: tabular-nums; }
 :root[data-layout="front"] .rail .brief-more { margin: 4px 0 0; padding: 6px 4px; font: 400 13px/1.3 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-more:hover { color: var(--ink); }
 /* News: each story a quiet card under the edition's line. */

@@ -176,6 +176,26 @@ const capitalise = (text: string): string => text.charAt(0).toUpperCase() + text
 
 const PR_URL = /https:\/\/github\.com\/[\w.-]+\/([\w.-]+)\/pull\/(\d+)\b/g;
 
+/** The stock line an unreadable ask used to get: it says nothing, so it is never a headline. */
+const STOCK_ASK = /^an unresolved choice needs clarification\.?$/i;
+const HEADLINE_MAX = 110;
+
+/**
+ * A call's headline in a glance: its own words (the task's title when the
+ * words say nothing), a pull request as "PR #9" and any other link as its
+ * site, and a long ask cut to its first sentence. Pure.
+ */
+export function callHeadline(text: string | undefined, fallback?: string): string {
+  let line = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!line || STOCK_ASK.test(line)) line = (fallback ?? "").replace(/\s+/g, " ").trim();
+  line = line.replace(new RegExp(`(?:\\bPR\\s+)?${PR_URL.source}`, "g"), (_url, _repo: string, number: string) => `PR #${number}`)
+    .replace(/https?:\/\/(?:www\.)?([^/\s]+)\S*/g, "$1");
+  if (line.length <= HEADLINE_MAX) return line;
+  const first = /^.{12,}?[?.!](?=\s|$)/.exec(line)?.[0];
+  if (first && first.length <= HEADLINE_MAX + 30) return first;
+  return `${line.slice(0, HEADLINE_MAX).replace(/\s+\S*$/, "")}…`;
+}
+
 function linkLabel(url: string): string {
   const pr = url.match(/github\.com\/[\w.-]+\/([\w.-]+)\/pull\/(\d+)/);
   if (pr) return `${pr[1]} #${pr[2]}`;
@@ -1506,6 +1526,7 @@ export class ArtefactFeed {
           return [];
         }), heldForAttention())
         : enriched;
+      decided.calls = decided.calls.map((row) => ({ ...row, label: callHeadline(row.label, row.task ? entries.get(row.task)?.title : undefined) }));
       for (const row of decided.calls) {
         const entry = row.ledgerOnly ? undefined : this.ledger.get(ledgerKey("calls", row) ?? "");
         if (entry) Object.assign(entry, { asked: true, row });

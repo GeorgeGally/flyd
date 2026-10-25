@@ -33,6 +33,11 @@ export const FRONT_SCRIPT = `
     return String(text == null ? "" : text).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
   }
   function frontText(text) { return String(text || "").replace(/[ \\t\\r\\n]+/g, " ").trim(); }
+  // A card's title in his words: no backstage preamble, and a raw link shown as its site.
+  function frontTitle(text) {
+    return frontText(text).replace(/^self-improvement for flyd:\\s*/i, "")
+      .replace(/https?:\\/\\/(?:www\\.)?([^\\/\\s]+)\\S*/g, "$1");
+  }
   function frontProject(project) {
     var name = shortName(project || "");
     if (name.charAt(0) === "/") name = name.split("/").filter(Boolean).pop() || name;
@@ -105,7 +110,7 @@ export const FRONT_SCRIPT = `
     return {
       id: object.id, group: group || (frontNeeds(object) ? "needs" : FRONT_PHASE[phase] || "working"),
       state: lab ? "Lab ready for review" : object.status || (phase ? capital(String(phase).replace(/_/g, " ")) : "Needs you"),
-      title: frontText(object.subject), project: frontProject(object.project),
+      title: frontTitle(object.subject), project: frontProject(object.project),
       at: object.updatedAt || object.activity && object.activity.started || object.createdAt,
       shots: frontEvidenceShots(object.evidence), detail: frontText(object.detail || object.summary),
       links: (object.evidence || []).filter(function (one) { return one.kind === "web" && !one.closed; }).map(function (one) { return { label: one.label, url: one.ref }; }),
@@ -127,7 +132,7 @@ export const FRONT_SCRIPT = `
     var calls = {};
     (show.calls || []).forEach(function (call) { calls[call.id] = call; });
     function callJob(call) {
-      return { id: call.id, group: "needs", state: call.status || "Needs your choice", title: frontText(call.headline), project: frontProject(call.project),
+      return { id: call.id, group: "needs", state: call.status || "Needs your choice", title: frontTitle(call.headline), project: frontProject(call.project),
         at: call.at, shots: frontShots(call.shots), detail: frontText(call.detail), links: call.links || [], decision: call.decision || null, task: call.task || "" };
     }
     // What needs him is one list (the corner, the count and the drill read it too): the focus, then the rest.
@@ -143,7 +148,7 @@ export const FRONT_SCRIPT = `
     }
     [show.underway, show.ready, show.held, show.next].forEach(function (list) {
       (list || []).forEach(function (item) {
-        add({ id: item.id, group: "working", state: FRONT_WORKING[item.kind] || capital(item.status || "Working"), title: frontText(item.headline), project: frontProject(item.project),
+        add({ id: item.id, group: "working", state: FRONT_WORKING[item.kind] || capital(item.status || "Working"), title: frontTitle(item.headline), project: frontProject(item.project),
           at: item.at || item.started, shots: frontShots(item.shots), detail: frontText(item.detail || item.why), links: item.links || [], decision: item.decision || null, task: item.task || "" });
       });
     });
@@ -158,7 +163,7 @@ export const FRONT_SCRIPT = `
     // New: Flyd first saw it after he last looked at Done (the same record the Done list keeps).
     var doneSeen = cardRead("flyd-done-seen");
     landed.forEach(function (item) {
-      add({ id: item.id, group: "done", state: "Landed", title: frontText(item.headline), project: frontProject(item.project), at: item.at,
+      add({ id: item.id, group: "done", state: "Landed", title: frontTitle(item.headline), project: frontProject(item.project), at: item.at,
         shots: frontShots(item.shots), detail: frontText(item.detail || item.why), links: item.links || [], decision: null, task: item.task || "",
         fresh: isNew(item, doneSeen) });
     });
@@ -175,10 +180,10 @@ export const FRONT_SCRIPT = `
     var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
     return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
       + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
-      + '<div class="t">' + frontEsc(job.title) + '</div><div class="m">' + dot + frontMeta([job.group === "needs" && job.state === "Needs your choice" ? "" : job.state, job.project])
+      + '<div class="t">' + frontEsc(job.title) + '</div><div class="m">' + dot + frontMeta([job.group === "needs" && /^needs\\b/i.test(job.state) ? "" : job.state, job.project])
       + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div></button>';
   }
-  // A card's state and project, as many as it has; under "Needs you" the plain "Needs your choice" goes without saying.
+  // A card's state and project, as many as it has; under "Needs you" a plain "needs …" goes without saying (the dot says it).
   function frontMeta(parts) {
     return parts.map(function (part, index) { return part ? '<span class="' + (index ? "p" : "s") + '">' + frontEsc(part) + '</span>' : ""; })
       .filter(Boolean).join('<span aria-hidden="true">·</span>');

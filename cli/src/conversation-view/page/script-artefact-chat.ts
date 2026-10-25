@@ -190,6 +190,11 @@ export const ARTEFACT_CHAT_SCRIPT = `
       // Only the newest few dozen are kept: old ones have long scrolled off the card anyway.
       var entry = { text: text };
       state.thread = (state.thread || []).concat([entry]).slice(-50);
+      // The box empties as he sends, and so does the saved draft: a redraw while it is on its way
+      // must not bring his words back into the box. They come back only if nothing went.
+      // (A choice button sends its own words: a draft in the box is left alone.)
+      var draft = input.value.trim() === text ? input.value : "";
+      if (draft) { input.value = ""; state.text = ""; save(); }
       paintThread();
       paint();
       var sending = takesImages ? images.slice() : [];
@@ -212,8 +217,9 @@ export const ARTEFACT_CHAT_SCRIPT = `
         .catch(function (error) {
           state.receipt = "";
           state.error = error.message || "Not delivered; try again.";
-          // Nothing went, so it is not in the thread: his words stay in the box to try again.
+          // Nothing went, so it is not in the thread: his words go back in the box to try again.
           state.thread = (state.thread || []).filter(function (one) { return one !== entry; });
+          if (draft && !input.value) { input.value = draft; state.text = draft; save(); }
           paintThread();
           paint();
         });
@@ -226,7 +232,8 @@ export const ARTEFACT_CHAT_SCRIPT = `
       event.preventDefault();
       var text = input.value.trim();
       if (send.disabled) return;
-      deliver(text, function () { input.value = ""; state.text = ""; });
+      // The box already emptied as it went; something typed since stays.
+      deliver(text);
     });
     // One field: his pasted images over his words, Send inside it on the same row.
     var field = el("div", "art-chat-field");

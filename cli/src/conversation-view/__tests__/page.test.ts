@@ -1569,6 +1569,32 @@ describe("conversation page", () => {
     expect(JSON.parse(String(sent[1]!.body))).toEqual({ session: "latest", decision: "a", text: "/design-review" });
   });
 
+  // George, 2026-10-25: "i send a message to flyd and it keeps my message in the textbox":
+  // the page redrew the card while the message was on its way and refilled the box from the draft.
+  it("empties a card's box as he sends, and a redraw while it goes never brings his words back", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const update = {
+      order: [], messages: [], working: false,
+      show: { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [], calls: [{ id: "call:a", kind: "call", headline: "Choose a layout", why: "", decision: { task: "a", question: "Which layout?", choices: ["A", "B"] } }] },
+      boxes: [{ id: "work-state", kind: "bars", size: "small", title: "Where the work stands", why: "", bars: [{ label: "need you", value: 1, tone: "call" }] }],
+    };
+    stream.emit("update", update);
+    document.getElementById("flip")!.click();
+    document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
+    const original = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation(((url: string, init?: RequestInit) => url === "/api/send" ? new Promise(() => {}) : original!(url, init)) as typeof fetch);
+    const input = document.getElementById("calls")!.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+    input.value = "all bad";
+    input.dispatchEvent(new Event("input"));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(input.value).toBe("");
+    stream.emit("update", update);
+    await settle();
+    expect(Array.from(document.querySelectorAll<HTMLTextAreaElement>(".art-chat-input")).map((box) => box.value)).not.toContain("all bad");
+  });
+
   it("completes a skill in a selected-passage comment and keeps its quote", async () => {
     load("");
     await settle();
@@ -2681,21 +2707,19 @@ describe("header and artefact view", () => {
     expect(document.querySelector("#scene-meta a")!.textContent).toBe("flyd #85");
     expect(document.querySelector(".scene-shot .device img")!.getAttribute("src")).toBe(`/api/artefact-shot?task=a&file=after.png&token=${"a".repeat(48)}`);
     expect(document.getElementById("scene")!.classList.contains("has-shot")).toBe(true);
-    // The pictured work, then the call, what Flyd sees coming (the plan limit), then the stories in words.
+    // The pictured work, what Flyd sees coming (the plan limit), then the stories in words. A call with
+    // nothing to see waits in Needs you rather than taking a scene (George, 2026-10-25).
     const ticks = Array.from(document.querySelectorAll("#ticks button")).map((tick) => tick.getAttribute("aria-label"));
     expect(ticks).toEqual([
       "under way: Header controls",
-      "needs you: Review the Jev decision log",
       "coming up: Claude weekly limit: 10% left.",
       "from your memory: Bloom gets finished",
     ]);
 
-    // The arrow brings the next scene up like a title card: the call, with its ask.
+    // The arrow brings the next scene up like a title card: what Flyd sees coming.
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(document.getElementById("scene-head")!.textContent).toBe("Review the Jev decision log");
-    expect(document.getElementById("scene-line")!.textContent).toBe("Captain decides keep or remove.");
-    expect(document.querySelector("#scene-meta .kind")!.textContent).toBe("needs you");
+    expect(document.getElementById("scene-head")!.textContent).toBe("Claude weekly limit: 10% left.");
     expect(document.getElementById("scene")!.classList.contains("has-shot")).toBe(false);
     expect((document.getElementById("show-nav") as HTMLElement).hidden).toBe(false);
     (document.getElementById("show-prev") as HTMLButtonElement).click();
@@ -3327,8 +3351,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
     const cards = [...document.querySelectorAll<HTMLElement>("#artefacts .art-card")];
     expect(cards.map((card) => card.dataset.key)).toEqual(["file:deck", "reply:r1"]);
     expect(cards[0]!.querySelector("img")!.getAttribute("src")).toMatch(/^\/api\/rail-image\?path=%2Ftmp%2Fdeck\.png&token=/);
-    // One line of what it is and when, then "open".
-    expect(cards[0]!.querySelector(".art-meta")!.textContent).toBe("gnm · HTML + PDF · 5m ago");
+    // One line of what it is and when (the separator is drawn by the page's style), then "open".
+    expect(cards[0]!.querySelector(".art-meta")!.textContent).toBe("gnm · HTML + PDF5m ago");
+    expect(cards[0]!.querySelector(".art-line + .art-ago")).not.toBeNull();
     expect(cards[0]!.querySelector(".brief-meta")!.textContent).toBe("open");
     expect([...cards[1]!.querySelectorAll(".art-steps li")].map((li) => li.textContent)).toEqual(["Open the page", "Pick a photo", "Save", "1 more"]);
   });

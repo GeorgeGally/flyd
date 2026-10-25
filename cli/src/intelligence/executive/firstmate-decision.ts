@@ -195,7 +195,8 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
     }
     if (change.kind === "decision" && proposal.kind === "unclear") {
       const original = text(change.detail || change.label, 800);
-      proposal = { kind: "question", summary: "An unresolved choice needs clarification.", question: original, questionEvidence: original, options: [], evidenceRefs: change.evidenceRefs };
+      // The ask in its own words, never a stock line: "An unresolved choice needs clarification." told George nothing.
+      proposal = { kind: "question", summary: text(change.label || original, 160), question: original, questionEvidence: original, options: [], evidenceRefs: change.evidenceRefs };
     }
     if (change.requested && change.verification?.status === "verified" && (proposal.kind === "routine" || proposal.kind === "unclear")) {
       proposal = { kind: "verified_result", summary: text(change.detail.split("\n")[0]), evidenceRefs: change.evidenceRefs };

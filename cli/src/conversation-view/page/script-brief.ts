@@ -462,10 +462,10 @@ export const BRIEF_SCRIPT = `
     if (line || card.at) {
       var meta = el("p", "art-meta");
       // The line gives way before the time does: "how long ago" is never cut.
-      if (line) meta.appendChild(el("span", "art-line", line));
+      if (line) meta.appendChild(el("span", "art-line" + (card.down ? " down" : ""), line));
       if (card.at) {
         // How long ago moves on with the clock; the card itself is not redrawn, so a framed page never reloads.
-        var when = el("span", "art-ago", (line ? " · " : "") + ago(card.at));
+        var when = el("span", "art-ago", ago(card.at));
         when.dataset.at = card.at;
         meta.appendChild(when);
       }
@@ -533,7 +533,7 @@ export const BRIEF_SCRIPT = `
   setInterval(function () {
     if (lastBrief) renderBrief(lastBrief);
     artefactsEl.querySelectorAll(".art-ago").forEach(function (span) {
-      span.textContent = (span.previousSibling ? " · " : "") + ago(span.dataset.at);
+      span.textContent = ago(span.dataset.at);
     });
   }, 60000);
 

@@ -772,6 +772,10 @@ export const SHOW_SCRIPT = `
     } else {
       document.getElementById("semantic-context").textContent = "";
     }
+    // The artefact view shows work to look at. A call with nothing to see (merge a PR, answer a
+    // question) is not a scene: it waits in Needs you.
+    var pictured = parts.stage.filter(function (box) { return box.tone !== "call" || shotsOf(box).length; });
+    if (pictured.length) parts.stage = pictured;
     var current = scenes[at] ? scenes[at].id : null;
     var sameSet = parts.stage.length === scenes.length && parts.stage.every(function (box, index) { return box.id === scenes[index].id; });
     scenes = parts.stage;

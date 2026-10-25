@@ -139,3 +139,20 @@ describe("Needs you, read against the record", () => {
     expect(callId({ ...raised, raised: "2026-10-15" })).not.toBe(callId(raised));
   });
 });
+
+// George, 2026-10-25: a scene headed by a whole paragraph and a raw pull-request link, and
+// another headed "An unresolved choice needs clarification." ("and this headline???!!!").
+describe("a call's headline", () => {
+  it("is a glance: a pull request as its number, a long ask cut to its first sentence", async () => {
+    const { callHeadline } = await import("../artefact.js");
+    expect(callHeadline("Merge CapFive PR https://github.com/GeorgeGally/capfive/pull/9? The Connect deals CSV export (previously uncommitted work, incl. dropdown filter facets, Year filter, spinner, cached lists) lands with the filename and first line named after the active filters."))
+      .toBe("Merge CapFive PR #9?");
+    expect(callHeadline("Pick a hero photo")).toBe("Pick a hero photo");
+  });
+
+  it("never says the stock line: the task's own title stands in", async () => {
+    const { callHeadline } = await import("../artefact.js");
+    expect(callHeadline("An unresolved choice needs clarification.", "CopyCopy: design lab, 6 directions for the sticky bezel"))
+      .toBe("CopyCopy: design lab, 6 directions for the sticky bezel");
+  });
+});
