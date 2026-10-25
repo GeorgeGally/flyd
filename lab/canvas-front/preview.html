@@ -111,6 +111,53 @@
   .solo .art .pic img { border-radius: 4px; }
   .solo .art .t, .solo .art .meta { margin-left: 0; padding-left: 0; }
   .solo .art.text { padding: 0; }
+
+  /* Conversation as a tab in the right column; the middle shows the chosen job. */
+  .tabs { display: flex; gap: 22px; margin: 14px 0 22px; font-size: 14px; }
+  .tabs button { color: var(--mute); padding-bottom: 6px; }
+  .tabs button.on { color: var(--ink); box-shadow: inset 0 -1.5px 0 var(--ink); }
+  .pane { display: none; } .pane.on { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+  .side { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .side .thread { overflow: auto; }
+  .side .msg { font-size: 15px; margin-bottom: 22px; }
+  .side .call h2 { font-size: 17px; }
+  .side .composer { height: 46px; margin-top: 12px; }
+  .side .composer input { font-size: 15px; }
+  .side .usage { margin: 8px 0 18px; font-size: 11px; }
+
+  .stage { display: flex; flex-direction: column; min-height: 0; max-width: 760px; width: 100%; justify-self: center; overflow: auto; scrollbar-width: none; }
+  .stage .k { margin: 14px 0 0; font-size: 13px; color: var(--mute); }
+  .stage h1 { margin: 6px 0 22px; font: 500 30px/1.18 var(--sans); letter-spacing: -.02em; text-wrap: balance; }
+  .stage .mat { padding: 14px; border-radius: 12px; background: var(--mat); }
+  .stage .mat img { width: 100%; aspect-ratio: 16/9.4; object-fit: cover; object-position: top; border-radius: 5px; }
+  .stage .five { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 12px; }
+  .stage .five img { width: 100%; aspect-ratio: 16/10; object-fit: cover; object-position: top; border-radius: 4px; opacity: .5; cursor: pointer; transition: opacity .2s; }
+  .stage .five img:hover { opacity: .8; }
+  .stage .five img.on { opacity: 1; outline: 1.5px solid var(--ink); outline-offset: 2px; }
+  .stage .cap { margin: 14px 0 0; font-size: 14px; color: var(--mute); min-height: 21px; }
+  .stage .say { margin: 22px 0 0; font-size: 18px; line-height: 1.5; color: var(--ink2); max-width: 620px; }
+  .stage .acts { display: flex; gap: 10px; margin: 22px 0 40px; }
+  .stage .acts button { height: 34px; padding: 0 14px; border-radius: 8px; font-size: 14px; box-shadow: 0 0 0 1px var(--line); }
+  .stage .acts button.go { background: var(--ink); color: var(--paper); box-shadow: none; }
+
+  /* Artefacts, reworked. Gallery: the work large, one per row; news as lines with a small picture. */
+  .gal .work { display: block; width: 100%; margin-bottom: 28px; }
+  .gal .work .pic { padding: 8px; border-radius: 10px; background: var(--mat); }
+  .gal .work .pic img { width: 100%; aspect-ratio: 16/10; object-fit: cover; object-position: top; border-radius: 4px; }
+  .gal .work .t { margin-top: 10px; font-size: 15px; }
+  .gal .work .meta, .gal .nrow .meta { padding: 0; margin-top: 1px; }
+  .sub { margin: 8px 0 10px; font-size: 13px; color: var(--mute); }
+  .nrow { display: flex; gap: 12px; align-items: center; width: 100%; padding: 9px 0; }
+  .nrow img { flex: none; width: 48px; height: 48px; border-radius: 6px; object-fit: cover; }
+  .nrow .t { font-size: 14px; line-height: 1.35; }
+  /* Lead: the newest work as one picture, then headlines only. */
+  .lead-a .work { display: block; width: 100%; margin-bottom: 30px; }
+  .lead-a .work .pic { padding: 10px; border-radius: 10px; background: var(--mat); }
+  .lead-a .work .pic img { width: 100%; aspect-ratio: 4/3; object-fit: cover; object-position: top; border-radius: 4px; }
+  .lead-a .work .t { margin-top: 12px; font: 500 17px/1.3 var(--sans); }
+  .lead-a .work .meta { padding: 0; }
+  .lead-a .line { display: block; width: 100%; padding: 10px 0; font-size: 15px; line-height: 1.35; }
+  .lead-a .line span { display: block; font-size: 13px; color: var(--mute); margin-top: 1px; }
 </style>
 </head>
 <body>
@@ -187,6 +234,36 @@
   document.getElementById("left").innerHTML = (left[v] || left.today)();
   document.getElementById("right").innerHTML = rightHTML;
   if (v !== "today") document.getElementById("page").style.setProperty("--gap", "56px");
+  // Conversation as a tab: the middle holds the chosen job, the right holds tabs.
+  if (q.get("layout") === "tabs") {
+    var main = document.querySelector(".main"), conv = main.innerHTML, job = needs[0], pick = job.pick || 0;
+    var stage = document.createElement("section"); stage.className = "stage";
+    stage.innerHTML = '<div class="k"><i class="dot"></i>' + esc(job.project) + " · " + esc(job.state) + " · " + esc(job.when) + "</div><h1>" + esc(job.title) + '</h1><div class="mat"><img id="big" src="' + src(job.shots[pick]) + '" alt=""></div><div class="five">' +
+      job.shots.map(function (s, i) { return '<img data-i="' + i + '" class="' + (i === pick ? "on" : "") + '" src="' + src(s) + '" alt="Version ' + (i + 1) + '">'; }).join("") + '</div><p class="cap" id="cap">' + esc(job.shotLabels[pick]) + '</p><p class="say">I\'d build V2. It brings back the closed-deal tombstone as the lead story, in CapFive\'s own style.</p><div class="acts"><button class="go">Build V2</button><button>Open the lab</button></div>';
+    stage.querySelector(".five").addEventListener("click", function (e) {
+      var i = e.target.dataset && e.target.dataset.i; if (i == null) return;
+      stage.querySelector("#big").src = src(job.shots[i]); stage.querySelector("#cap").textContent = job.shotLabels[i];
+      stage.querySelectorAll(".five img").forEach(function (im) { im.classList.toggle("on", im.dataset.i === i); });
+    });
+    main.replaceWith(stage);
+
+    var news = arts.filter(function (a) { return a.kind === "news"; }), work = arts.filter(function (a) { return a.kind === "design"; });
+    var artsHTML = q.get("arts") === "lead"
+      ? '<div class="lead-a"><button class="work"><div class="pic"><img src="' + src(work[0].img) + '" alt=""></div><div class="t">' + esc(work[0].title) + '</div><div class="meta"><span>' + esc(work[0].meta) + "</span></div></button>" +
+        work.slice(1).map(function (a) { return '<button class="line">' + esc(a.title) + "<span>" + esc(a.meta) + "</span></button>"; }).join("") +
+        '<div class="sub" style="margin-top:28px">News · 9 today</div>' + news.slice(0, 4).map(function (a) { return '<button class="line">' + esc(a.title) + "<span>" + esc(a.meta) + "</span></button>"; }).join("") + "</div>"
+      : '<div class="gal">' + work.map(function (a) { return '<button class="work"><div class="pic"><img src="' + src(a.img) + '" alt=""></div><div class="t">' + esc(a.title) + '</div><div class="meta"><span>' + esc(a.meta) + "</span></div></button>"; }).join("") +
+        '<div class="sub">News · 9 today</div>' + news.slice(0, 4).map(function (a) { return '<button class="nrow"><img src="' + src(a.img) + '" alt=""><span><div class="t">' + esc(a.title) + '</div><div class="meta"><span>' + esc(a.meta) + "</span></div></span></button>"; }).join("") + "</div>";
+
+    var tab = q.get("tab") || "conversation", side = document.getElementById("right");
+    side.className = "side";
+    side.innerHTML = '<div class="tabs"><button data-t="conversation">Conversation</button><button data-t="artefacts">Artefacts</button></div>' +
+      '<div class="pane" data-p="conversation">' + conv.replace('<div class="label">Conversation</div>', "") + '</div><div class="pane col" data-p="artefacts">' + artsHTML + "</div>";
+    var show = function (t) { side.querySelectorAll("[data-t]").forEach(function (b) { b.classList.toggle("on", b.dataset.t === t); }); side.querySelectorAll("[data-p]").forEach(function (p) { p.classList.toggle("on", p.dataset.p === t); }); };
+    side.querySelector(".tabs").addEventListener("click", function (e) { if (e.target.dataset.t) show(e.target.dataset.t); });
+    show(tab);
+    document.getElementById("page").style.setProperty("--gap", "64px");
+  }
 </script>
 </body>
 </html>
