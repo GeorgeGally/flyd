@@ -38,15 +38,18 @@ export interface JobContract {
 export type JobCheck = AcceptanceCheck;
 
 /** ok: every done_when point met with evidence; blocked: an honest, evidenced blocker; short: anything else unmet. */
-export type JobStatus = "running" | "verifying" | "ok" | "short" | "blocked" | "failed" | "interrupted";
+export type JobStatus = "queued" | "running" | "verifying" | "ok" | "short" | "blocked" | "failed" | "interrupted";
 
 export interface JobRecord {
   id: string;
   contract: JobContract;
+  prompt: string;
   status: JobStatus;
   pid: number;
   startedAt: string;
   updatedAt: string;
+  progress: string;
+  lastError?: string;
   attempts: number;
   checks: JobCheck[];
   /** Each point not done and why, kept instead of a success. */
@@ -60,6 +63,7 @@ export interface JobResult { id: string; task: string; status: JobOutcomeStatus 
 
 export const jobEvents = new EventEmitter();
 const running = new Map<string, string>();
+const activeJobs = new Map<string, { job: JobRecord; dir?: string }>();
 
 /** One repair round after the first check; more is paying to repeat a failure. */
 export const MAX_JOB_ATTEMPTS = 2;
@@ -90,6 +94,16 @@ export function listJobs(dir = jobsDir()): JobRecord[] {
     })
     .filter((job) => typeof job.startedAt === "string" && job.contract?.task !== undefined)
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+}
+
+export function checkpointBackgroundJobs(dir?: string): void {
+  for (const { job, dir: jobDir } of activeJobs.values()) {
+    if (dir && dir !== jobDir) continue;
+    job.updatedAt = new Date().toISOString();
+    try { saveJob(job, jobDir); } catch (error) {
+      console.warn("[jobs] shutdown checkpoint failed:", error instanceof Error ? error.message : error);
+    }
+  }
 }
 
 /** Recent jobs in plain lines: what George (or Flyd) sees when asking how the work is going. */
@@ -265,17 +279,19 @@ async function runJob(job: JobRecord, deps: JobDependencies): Promise<JobOutcome
     Object.assign(job, update, { updatedAt: new Date().toISOString() });
     saveJob(job, deps.dir);
   };
-  let report = await deps.run(jobMessage(job.contract), job.id, job.contract.background);
+  save({ status: "running", pid: process.pid, progress: job.progress || "Building deliverable" });
+  let report = await deps.run(job.prompt || jobMessage(job.contract), job.id, job.contract.background);
   for (;;) {
     // Nothing came back: that is a failed job, not a finished one to check.
     if (!report.trim()) throw new Error("the work came back empty");
-    save({ status: "verifying", attempts: job.attempts + 1 });
+    save({ status: "verifying", progress: "Checking the result", attempts: job.attempts + 1 });
     const { checks, repairable } = await checkJob(job.contract, report, job.id, deps);
-    save({ checks });
+    save({ checks, progress: "Result checked" });
     const unmet = unmetChecks(checks);
     if (!unmet.length || !repairable || job.attempts >= MAX_JOB_ATTEMPTS) return jobOutcome(report, checks);
-    save({ status: "running" });
-    report = await deps.run(repairMessage(job.contract, report, unmet), job.id, job.contract.background);
+    const prompt = repairMessage(job.contract, report, unmet);
+    save({ status: "running", progress: "Repairing unmet requirements", prompt });
+    report = await deps.run(prompt, job.id, job.contract.background);
   }
 }
 
@@ -300,44 +316,65 @@ export function startBackgroundJob(contract: JobContract, deps: JobDependencies)
   if (running.size >= MAX_RUNNING_JOBS) throw new Error(`already running ${running.size} background jobs; finish or wait for one first`);
   const id = randomUUID().slice(0, 8);
   const now = new Date().toISOString();
-  const job: JobRecord = { id, contract, status: "running", pid: process.pid, startedAt: now, updatedAt: now, attempts: 0, checks: [] };
+  const job: JobRecord = { id, contract, prompt: jobMessage(contract), status: "running", pid: process.pid, startedAt: now, updatedAt: now, progress: "Building deliverable", attempts: 0, checks: [] };
   saveJob(job, deps.dir);
   running.set(id, contract.task);
-  void runJob(job, deps)
-    .catch((error: unknown): JobOutcome | { status: "failed"; result: string; unresolved?: string[] } => (
-      { status: "failed", result: `Couldn't finish: ${error instanceof Error ? error.message : String(error)}` }
-    ))
-    .then(async (outcome) => {
-      running.delete(id);
-      jobGroups.delete(id);
-      Object.assign(job, { status: outcome.status, result: outcome.result, updatedAt: new Date().toISOString() }, outcome.unresolved ? { unresolved: outcome.unresolved } : {});
-      try { saveJob(job, deps.dir); } catch { /* the result still reaches George */ }
-      const done: JobResult = { id, task: contract.task, status: outcome.status, result: outcome.result };
-      await deps.deliver?.(done).catch(() => undefined);
-      jobEvents.emit("done", done);
-    });
+  activeJobs.set(id, { job, dir: deps.dir });
+  void executeJob(job, deps);
   return id;
 }
 
-/**
- * Jobs whose process died mid-run (Core or chat restarted) are marked
- * interrupted and reported, never silently lost. They are not re-run: the work
- * may have had effects, so George decides.
- */
-export function recoverInterruptedJobs(deps: Pick<JobDependencies, "deliver" | "dir"> & { isAlive?: (pid: number) => boolean } = {}): JobResult[] {
-  const isAlive = deps.isAlive ?? processIsAlive;
-  const recovered: JobResult[] = [];
-  for (const job of listJobs(deps.dir)) {
-    if (job.status !== "running" && job.status !== "verifying") continue;
-    if (job.pid === process.pid || isAlive(job.pid)) continue;
-    const result = "This got cut off when I restarted, before I could finish and check it. Say if you want me to start it again.";
-    saveJob({ ...job, status: "interrupted", result, updatedAt: new Date().toISOString() }, deps.dir);
-    const done: JobResult = { id: job.id, task: job.contract.task, status: "failed", result };
-    void deps.deliver?.(done).catch(() => undefined);
-    recovered.push(done);
-  }
-  return recovered;
+async function executeJob(job: JobRecord, deps: JobDependencies): Promise<void> {
+  let lastError: string | undefined;
+  const outcome = await runJob(job, deps).catch((error: unknown): JobOutcome | { status: "failed"; result: string; unresolved?: string[] } => {
+    lastError = error instanceof Error ? error.message : String(error);
+    return { status: "failed", result: `Couldn't finish: ${lastError}` };
+  });
+  running.delete(job.id);
+  activeJobs.delete(job.id);
+  jobGroups.delete(job.id);
+  Object.assign(job, {
+    status: outcome.status,
+    result: outcome.result,
+    progress: outcome.status === "failed" ? "Failed" : "Completed",
+    updatedAt: new Date().toISOString(),
+    ...(lastError ? { lastError } : {}),
+  }, outcome.unresolved ? { unresolved: outcome.unresolved } : {});
+  try { saveJob(job, deps.dir); } catch { /* the result still reaches George */ }
+  const done: JobResult = { id: job.id, task: job.contract.task, status: outcome.status, result: outcome.result };
+  await deps.deliver?.(done).catch(() => undefined);
+  jobEvents.emit("done", done);
 }
+
+export function resumeBackgroundJobs(deps: Partial<JobDependencies> & { isAlive?: (pid: number) => boolean } = {}): string[] {
+  const isAlive = deps.isAlive ?? processIsAlive;
+  const runtimeDeps: JobDependencies = {
+    ...deps,
+    run: deps.run ?? runJobTurn,
+    verify: deps.verify ?? verifyJobTurn,
+    deliver: deps.deliver ?? deliverJob,
+  };
+  const resumed: string[] = [];
+  for (const job of listJobs(deps.dir)) {
+    if (job.status !== "running" && job.status !== "verifying" && job.status !== "queued") continue;
+    if (isAlive(job.pid)) continue;
+    Object.assign(job, {
+      prompt: job.prompt || jobMessage(job.contract),
+      progress: job.progress || (job.status === "verifying" ? "Checking the result" : "Building deliverable"),
+      status: "queued" as const,
+      updatedAt: new Date().toISOString(),
+    });
+    saveJob(job, deps.dir);
+    console.info(`[jobs] requeued ${job.id} after restart at ${job.progress}`);
+    running.set(job.id, job.contract.task);
+    activeJobs.set(job.id, { job, dir: runtimeDeps.dir });
+    resumed.push(job.id);
+    void executeJob(job, runtimeDeps);
+  }
+  return resumed;
+}
+
+process.on("beforeExit", () => checkpointBackgroundJobs());
 
 async function unattendedTurn(message: string, sessionId: string, readOnly: boolean, background = false): Promise<string> {
   const [{ respondToConversation }, { retrieveAgentMemory, loadAgentSituation }, { refreshRepoRegistry }] = await Promise.all([

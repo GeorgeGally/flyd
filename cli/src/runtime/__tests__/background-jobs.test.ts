@@ -9,7 +9,8 @@ import {
   jobMessage,
   listJobs,
   normalizeContract,
-  recoverInterruptedJobs,
+  checkpointBackgroundJobs,
+  resumeBackgroundJobs,
   startBackgroundJob,
   verifyMessage,
   type JobContract,
@@ -202,7 +203,46 @@ describe("background jobs", () => {
     const done = nextDone();
     startBackgroundJob(contract, { run: async () => "  ", verify, dir });
     expect(await done).toMatchObject({ status: "failed", result: "Couldn't finish: the work came back empty" });
+    expect(listJobs(dir)[0]?.lastError).toBe("the work came back empty");
     expect(verify).not.toHaveBeenCalled();
+  });
+
+  it("requeues persisted in-flight jobs after restart without losing prompt or progress", async () => {
+    let finishOriginal: (value: string) => void = () => {};
+    const originalDone = new Promise<void>((resolve) => jobEvents.once("done", resolve));
+    const id = startBackgroundJob(contract, {
+      run: () => new Promise<string>((resolve) => { finishOriginal = resolve; }),
+      verify: async () => { throw new Error("offline"); },
+      dir,
+    });
+    await vi.waitFor(() => expect(listJobs(dir)[0]?.progress).toBe("Building deliverable"));
+    const checkpoint = listJobs(dir)[0]!;
+    expect(checkpoint.prompt).toBe(jobMessage(contract));
+    checkpointBackgroundJobs(dir);
+
+    vi.resetModules();
+    const restartedManager = await import("../background-jobs.js");
+    const resumedDone = new Promise<void>((resolve) => restartedManager.jobEvents.once("done", resolve));
+    let finishResumed: (value: string) => void = () => {};
+    const run = vi.fn(() => new Promise<string>((resolve) => { finishResumed = resolve; }));
+    expect(restartedManager.resumeBackgroundJobs({
+      dir,
+      run,
+      verify: async () => "MET 1: the paths show two sets\nMET 2: compare.md ranks the second over the last",
+      isAlive: () => false,
+    })).toEqual([id]);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    expect(run).toHaveBeenCalledWith(checkpoint.prompt, id, undefined);
+    expect(listJobs(dir)[0]).toMatchObject({
+      id,
+      status: "running",
+      prompt: checkpoint.prompt,
+      progress: checkpoint.progress,
+    });
+
+    finishOriginal("Two sets in ~/DIR/mixes/set-3 and set-4; ~/DIR/mixes/compare.md judges each against the last.");
+    finishResumed("Two sets in ~/DIR/mixes/set-3 and set-4; ~/DIR/mixes/compare.md judges each against the last.");
+    await Promise.all([originalDone, resumedDone]);
   });
 
   it("caps how many jobs run at once", async () => {
@@ -220,21 +260,23 @@ describe("background jobs", () => {
     await finished;
   });
 
-  it("reports jobs a restart cut off instead of losing them", async () => {
+  it("requeues interrupted jobs and leaves completed or failed jobs terminal", async () => {
     const other = mkdtempSync(join(tmpdir(), "flyd-jobs-"));
     try {
-      const { writeFileSync, readdirSync, readFileSync } = await import("node:fs");
-      const orphan = { id: "deadbeef", contract, status: "running", pid: 999_999, startedAt: "2026-09-28T09:00:00Z", updatedAt: "2026-09-28T09:00:00Z", attempts: 0, checks: [] };
-      writeFileSync(join(other, "deadbeef.json"), JSON.stringify(orphan));
-      const deliver = vi.fn(async () => undefined);
-      const recovered = recoverInterruptedJobs({ dir: other, deliver, isAlive: () => false });
-      expect(recovered).toEqual([expect.objectContaining({ id: "deadbeef", status: "failed" })]);
-      expect(recovered[0].result).toContain("cut off when I restarted");
-      expect(deliver).toHaveBeenCalledOnce();
-      expect(JSON.parse(readFileSync(join(other, readdirSync(other)[0]), "utf8")).status).toBe("interrupted");
-      expect(recoverInterruptedJobs({ dir: other, isAlive: () => false })).toEqual([]);
+      const { writeFileSync, readFileSync } = await import("node:fs");
+      const savedJob = (id: string, status: string) => ({ id, contract, prompt: jobMessage(contract), status, progress: "Building deliverable", pid: 999_999, startedAt: "2026-09-28T09:00:00Z", updatedAt: "2026-09-28T09:00:00Z", attempts: 0, checks: [] });
+      writeFileSync(join(other, "deadbeef.json"), JSON.stringify(savedJob("deadbeef", "running")));
+      writeFileSync(join(other, "complete1.json"), JSON.stringify(savedJob("complete1", "ok")));
+      writeFileSync(join(other, "failed001.json"), JSON.stringify(savedJob("failed001", "failed")));
+      const run = vi.fn(async () => "Two sets in ~/DIR/mixes/set-3 and set-4; ~/DIR/mixes/compare.md judges each against the last.");
+      const resumed = resumeBackgroundJobs({ dir: other, run, verify: async () => "MET 1: paths show both sets\nMET 2: compare.md judges each", isAlive: () => false });
+      expect(resumed).toEqual(["deadbeef"]);
+      expect(run).toHaveBeenCalledOnce();
+      expect(listJobs(other).find((job) => job.id === "complete1")?.status).toBe("ok");
+      expect(listJobs(other).find((job) => job.id === "failed001")?.status).toBe("failed");
+      await vi.waitFor(() => expect(JSON.parse(readFileSync(join(other, "deadbeef.json"), "utf8")).status).toBe("ok"));
       writeFileSync(join(other, "torn.json"), JSON.stringify({ id: "torn", status: "running" }));
-      expect(() => recoverInterruptedJobs({ dir: other, isAlive: () => false })).not.toThrow();
+      expect(() => resumeBackgroundJobs({ dir: other, run, isAlive: () => false })).not.toThrow();
     } finally {
       rmSync(other, { recursive: true, force: true });
     }

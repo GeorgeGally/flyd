@@ -430,7 +430,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
   }
 
   // Work Flyd took on in the background reports back here the moment it's done.
-  const { jobEvents, recoverInterruptedJobs, deliverJob } = await import("./background-jobs.js");
+  const { jobEvents, resumeBackgroundJobs, deliverJob, runJobTurn, verifyJobTurn } = await import("./background-jobs.js");
   const onJobDone = (job: { id: string; task: string; status: string; result: string }) => {
     const about = `${paint(`  ↳ ${job.task.length > 70 ? `${job.task.slice(0, 69)}…` : job.task}`, DIM)}\n`;
     const reply = formatChatReply(job.result);
@@ -439,9 +439,8 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     void import("./agenda.js").then(({ markInboxItemRead }) => markInboxItemRead(`job-${job.id}`)).catch(() => undefined);
   };
   jobEvents.on("done", onJobDone);
-  // Work a restart cut off is reported, not lost.
   try {
-    for (const job of recoverInterruptedJobs({ deliver: deliverJob })) onJobDone(job);
+    resumeBackgroundJobs({ deliver: deliverJob, run: runJobTurn, verify: verifyJobTurn });
   } catch (error) {
     console.warn("[jobs] restart recovery failed:", error instanceof Error ? error.message : error);
   }
