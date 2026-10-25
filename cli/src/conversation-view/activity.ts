@@ -1,7 +1,12 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, sep } from "node:path";
 import { checkSaid } from "../council/chief-of-staff.js";
+import { labAwaitingReview } from "../command/design.js";
+import { commandDir, listDomainRuns } from "../command/store.js";
+import type { DomainRun } from "../command/types.js";
 import { FLYD_DIR } from "../lib/config.js";
+import { firstmateHome } from "../lib/firstmate-home.js";
+import { railImageSrc } from "./rail.js";
 import { clip, inline, sentences } from "./summaries.js";
 import type { DayCount } from "./artefact.js";
 import { monitorObjectsFromSources, type SemanticObject } from "./semantic.js";
@@ -55,6 +60,8 @@ export interface ActivityPanel {
   semantic?: SemanticObject[];
   /** Durable watches. Quiet watches remain here even when no check is running. */
   monitors?: SemanticObject[];
+  /** Finished design labs waiting for his look, as Activities ready for review. */
+  reviews?: SemanticObject[];
 }
 
 /**
@@ -298,6 +305,46 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
   return { now: live, done };
 }
 
+/** How long a finished lab he never answered keeps asking for his look. */
+export const LAB_REVIEW_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const IMAGE = /\.(?:png|jpe?g|webp|gif)$/i;
+
+/**
+ * Finished design labs he has not answered yet, each one Activity ready for
+ * his review: the lab's own link to open it and its screenshots to look at.
+ * Screenshots are offered only from where the window may serve them. Pure.
+ */
+export function labReviews(runs: readonly DomainRun[], now: number, imageRoots: readonly string[] = [firstmateHome(), FLYD_DIR]): SemanticObject[] {
+  return runs.flatMap((run): SemanticObject[] => {
+    const at = stamp(run.updatedAt) ?? stamp(run.createdAt);
+    if (!at || now - Date.parse(at) > LAB_REVIEW_WINDOW_MS || !labAwaitingReview(run, runs)) return [];
+    const pointers = [...(run.result?.artifacts ?? []), ...(run.result?.evidence ?? [])].map((pointer) => pointer.trim()).filter(Boolean);
+    const link = pointers.find((pointer) => /^https?:\/\//i.test(pointer));
+    const shots = [...new Set(pointers.filter((pointer) => isAbsolute(pointer) && IMAGE.test(pointer) && imageRoots.some((root) => pointer.startsWith(root + sep))))];
+    const asked = plainLine(run.request.intendedOutcome)?.replace(/\.$/, "");
+    const summary = "Ready for your review.";
+    const detail = detailBehind(run.result?.brief, summary);
+    return [{
+      id: `lab:${run.id}`,
+      kind: "activity",
+      lifecycle: "active",
+      subject: asked ?? "The design lab",
+      summary,
+      ...(detail ? { detail } : {}),
+      ...(run.request.project?.name ? { project: run.request.project.name } : {}),
+      evidence: [
+        ...(link ? [{ kind: "web" as const, ref: link, label: "Open the lab" }] : []),
+        ...shots.map((shot) => ({ kind: "image" as const, ref: railImageSrc(shot), label: shot.split("/").pop()! })),
+      ],
+      actions: [],
+      source: { showItemId: `lab:${run.id}`, ref: run.id },
+      activity: { phase: "ready", started: run.createdAt },
+      createdAt: run.createdAt,
+      updatedAt: at,
+    }];
+  });
+}
+
 export interface ActivityInputs {
   log: string[];
   jobs: JobFile[];
@@ -305,6 +352,8 @@ export interface ActivityInputs {
   records: unknown[];
   /** The stories behind today's news cards: the day's edition, and the watch's must-knows. */
   news?: NewsStories;
+  /** Flyd's handed-off domain runs: finished design labs among them wait for his review. */
+  runs?: DomainRun[];
 }
 
 /** The stories a news card opens onto, each bound to the day it belongs to. */
@@ -404,6 +453,7 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
   live.push(...written.now);
   done.push(...written.done);
   const monitors = monitorsFromActivityRecords(inputs.records);
+  const reviews = labReviews(inputs.runs ?? [], now);
   const liveIds = new Set(live.map((item) => item.id));
   const cutoff = now - RECENT_WINDOW_MS;
   const nowItems = live.sort(byNewest);
@@ -413,6 +463,7 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
     recent: windowed.slice(0, MAX_RECENT),
     week: activityByDay([...nowItems, ...windowed], now),
     monitors,
+    ...(reviews.length ? { reviews } : {}),
   };
 }
 
@@ -445,6 +496,8 @@ function oneJson(path: string): unknown {
 
 export interface ActivityReaderOptions {
   dir?: string;
+  /** Where Flyd's domain runs are kept: the command layer's own by default, `<dir>/command` when dir is given. */
+  commandDir?: string;
   pollMs?: number;
   now?: () => number;
 }
@@ -452,6 +505,7 @@ export interface ActivityReaderOptions {
 /** Reads the records Flyd already keeps and tells the page when the panel changed. */
 export class ActivityReader {
   private readonly dir: string;
+  private readonly commandDir: string;
   private readonly pollMs: number;
   private readonly now: () => number;
   private panel: ActivityPanel | null = null;
@@ -461,6 +515,7 @@ export class ActivityReader {
 
   constructor(options: ActivityReaderOptions = {}) {
     this.dir = options.dir ?? FLYD_DIR;
+    this.commandDir = options.commandDir ?? (options.dir ? join(options.dir, "command") : commandDir());
     this.pollMs = options.pollMs ?? 15_000;
     this.now = options.now ?? Date.now;
   }
@@ -496,6 +551,7 @@ export class ActivityReader {
         edition: editionStories(oneJson(join(scout, "edition-latest.json")), day),
         watch: flashStories(jsonLines(join(scout, "flash.jsonl"), 200), day),
       },
+      runs: listDomainRuns(this.commandDir),
     }, now);
     const signature = JSON.stringify(panel);
     this.panel = panel;

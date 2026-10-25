@@ -188,9 +188,11 @@ export const LEFT_SCRIPT = `
     var key = activity.id + "|semantic|" + phase;
     var when = phase === "working" && at ? "Started " + ago(at) : phase === "finished" && at ? ago(at) : "";
     var open = phase === "ready" ? (activity.evidence || []).find(function (object) { return object.kind === "web" && !object.closed; }) : null;
+    // A finished design lab: his to look at and pick from, and his to put away once he has.
+    var lab = activity.id.indexOf("lab:") === 0;
     var card = visualCard({
       kind: visual,
-      title: phase === "ready" ? "Review: " + activity.subject : activity.subject,
+      title: lab ? "Lab ready for review: " + activity.subject : phase === "ready" ? "Review: " + activity.subject : activity.subject,
       line: activity.detail || activity.summary || "",
       at: at,
       url: open ? open.ref : "",
@@ -204,7 +206,7 @@ export const LEFT_SCRIPT = `
       line: "",
       detail: activity.detail || activity.summary || "",
       detailWhen: at ? dayOf(at) + ", " + clock(at) : "",
-      dismiss: phase === "finished",
+      dismiss: phase === "finished" || lab,
       onHide: drawActivity,
       chat: true,
     }, chatOpts({ key: key, kind: visual, title: activity.subject, when: when, line: activity.summary || "", detail: activity.decision && phase === "needs_you" ? activity.decision.question : activity.detail || "", evidence: activity.evidence, detailWhen: at ? dayOf(at) + ", " + clock(at) : "" })));

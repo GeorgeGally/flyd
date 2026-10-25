@@ -606,10 +606,11 @@ export class SnapshotDiffer {
     // so the native manifestation never resurrects a dead decision link.
     if (show.calls) show.calls = show.calls.map((call) => (call.links ? { ...call, links: closedLinks(call.links, live) } : call));
     const visibleSemantic = show.semantic ?? semanticObjectsFromShow(show.items);
-    show.activities = activityObjectsFromShow(show);
+    const left = this.show?.leftColumn?.();
+    // A finished design lab is work waiting for his look, beside the fleet's own.
+    show.activities = [...activityObjectsFromShow(show), ...(left?.reviews ?? [])];
     show.decisions = decisionObjectsFromShow(show);
     show.artifacts = artifactObjectsFromShow(show);
-    const left = this.show?.leftColumn?.();
     show.monitors = left?.monitors ?? [];
     const semantic = composeSemanticSnapshot({
       visible: visibleSemantic,
@@ -619,7 +620,7 @@ export class SnapshotDiffer {
       monitors: show.monitors,
     });
     show.events = semanticEvents(this.semantic, semantic);
-    // The Screen team owns the shape: every object carries the reviewed pattern
+    // The pattern catalog owns the shape: every object carries the reviewed pattern
     // its meaning selects, filled with its own words. The page renders it.
     const screens = semantic.map((object) => ({ ...object, screen: fillScreen(object) }));
     show.semantic = screens;

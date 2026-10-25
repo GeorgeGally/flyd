@@ -10,6 +10,7 @@ import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage, Exchange } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ActivityReader } from "../activity.js";
+import { saveDomainRun } from "../../command/store.js";
 import { artefactAsk } from "../replies.js";
 import { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, replyCards, SnapshotDiffer } from "../server.js";
@@ -1066,6 +1067,25 @@ describe("ConversationViewServer", () => {
     viewToken = JSON.parse((await get(bare, "/api/token")).body).token;
     const without = JSON.parse((await get(bare, "/api/stream")).body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
     expect(without.leftColumn).toBeUndefined();
+  });
+
+  it("puts a finished design lab in the left column and the needs list, for his review", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-view-labs-"));
+    const home = join(dir, "flyd-home");
+    const at = new Date(Date.now() - 5 * 60_000).toISOString();
+    saveDomainRun({
+      id: "domain-lab", owner: "FirstMate", status: "completed", createdAt: at, updatedAt: at,
+      transport: { kind: "firstmate", requestId: "domain-lab" },
+      request: { id: "domain-lab", domain: "coding", originalMessage: "make a lab for the hero", intendedOutcome: "Five versions of the landing hero", doneWhen: ["five versions"], createdAt: at, skill: { name: "design-lab", body: "…" } },
+      result: { format: "structured", brief: "Five heroes.", detailedReport: "", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: ["http://localhost:5173/labs/hero.html"], specialistOutputs: [], raw: [], informationLossRisk: "low" },
+    }, join(home, "command"));
+    writeFileSync(join(dir, "s1.jsonl"), [captain("hello"), assistantText("Hi.")].join("\n") + "\n");
+    server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, assistantLabel: "firstmate" }), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, new ActivityReader({ dir: home }));
+    const port = await server.listen(0);
+    viewToken = JSON.parse((await get(port, "/api/token")).body).token;
+    const update = JSON.parse((await get(port, "/api/stream")).body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    expect(update.leftColumn.semantic).toMatchObject([{ id: "lab:domain-lab", subject: "Five versions of the landing hero", activity: { phase: "ready" }, evidence: [{ kind: "web", ref: "http://localhost:5173/labs/hero.html" }] }]);
+    expect(update.show.needs.map((object: { id: string }) => object.id).concat(update.show.focus?.id ?? [])).toContain("lab:domain-lab");
   });
 
   it("rejects an unauthenticated stream before exposing artefact data", async () => {
