@@ -147,6 +147,6 @@ See the full implementation in:
 
 ## Related
 
-- `docs/product/flyd-overlay-prd.md` — authoritative overlay PRD, M0-M5 milestone definitions
+- `docs/product/flyd-overlay-prd.md` — overlay PRD (since superseded by `flyd-personal-intelligence-prd.md`), M0-M5 milestone definitions
 - `docs/product/flyd-personal-agent-platform-prd.md` — platform PRD (overlay is a second wedge)
 - `docs/architecture/intelligence-surface-foundation.md` — Rails surface rendering architecture

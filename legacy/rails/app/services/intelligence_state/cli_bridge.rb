@@ -8,14 +8,14 @@ module IntelligenceState
 
     TIMEOUT = 30.seconds
 
-    def initialize(command_runner: Open3.method(:capture3), bridge_path: Rails.root.join("cli/dist/bridge.js"))
+    def initialize(command_runner: Open3.method(:capture3), bridge_path: Rails.root.join("../../cli/dist/bridge.js"))
       @command_runner = command_runner
       @bridge_path = bridge_path
     end
 
     def retrieve(query)
       stdout, stderr, status = Timeout.timeout(TIMEOUT) do
-        @command_runner.call(*command(query), chdir: Rails.root.join("cli").to_s)
+        @command_runner.call(*command(query), chdir: Rails.root.join("../../cli").to_s)
       end
       raise Error, "CLI brain retrieval failed: #{stderr.presence || stdout}" unless status.success?
 

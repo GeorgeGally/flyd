@@ -2,7 +2,7 @@
 
 Flyd is a native macOS overlay — ambient intelligence that acts inside whatever app you're already using, invoked with a keyboard shortcut rather than opened as a separate destination. `mac-adapter/` is the Swift app; `cli/` runs its TypeScript intelligence backend ("Flyd Core").
 
-This repository also contains the retired Rails surface from an earlier Flyd product. The TypeScript coding/runtime substrate under `cli/src/runtime/` is still active and shared by the Mac product and CLI dogfood surface; Rails under `app/`, `bin/rails`, `db/`, `lib/`, and `test/` is legacy only.
+This repository also contains the retired Rails surface from an earlier Flyd product. The TypeScript coding/runtime substrate under `cli/src/runtime/` is still active and shared by the Mac product and CLI dogfood surface; Rails is archived under `legacy/rails/` (legacy only, kept for history).
 
 If you're an agent navigating this repo cold: start in `mac-adapter/`, `cli/src/server.ts`, and `cli/src/cognition/`. The active brain is the TypeScript Cognitive Core; Mac, LIVE, CLI conversation, task planning, coding memory, and Work Intelligence consume the same compiled context path.
 
@@ -131,7 +131,7 @@ cd cli && npm run lint
 cd cli && npm run build
 ```
 
-The overlay's product definition is `docs/product/flyd-overlay-prd.md`.
+Product authority: `docs/product/flyd-personal-intelligence-prd.md` (the overlay detail in `docs/product/flyd-overlay-prd.md` is superseded reference).
 
 Run `flyd scorecard` to inspect reply self-review results. The [chief-of-staff standard](docs/product/flyd-chief-of-staff-standard.md) owns review behavior, configuration and result storage.
 
@@ -144,7 +144,7 @@ An earlier, separate Flyd product: a persistent conversational and coding agent 
 Prerequisites: PostgreSQL, Node 20+, Ruby 3.4+, Codex CLI 0.144.x or 0.145.0-alpha.x, and OpenCode 1.17.x.
 
 ```bash
-bin/rails db:prepare
+(cd legacy/rails && bin/rails db:prepare)
 cd cli
 npm install
 npm run build
@@ -189,6 +189,7 @@ The five-working-day control trial begins with real worker activity. A measured 
 ### Rails surface
 
 ```bash
+cd legacy/rails
 redis-server &
 bundle exec sidekiq &
 bin/rails flyd:runtime_listener &
@@ -210,6 +211,7 @@ The runtime listener verifies the TypeScript bridge, replays committed task even
 ### Coding-agent-platform testing
 
 ```bash
+cd legacy/rails
 bin/rails test
 bin/rails test:all
 ```

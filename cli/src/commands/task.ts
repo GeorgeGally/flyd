@@ -165,12 +165,18 @@ export function normalizeRailsAcceptanceReport(value: unknown): ReleaseAcceptanc
   return transform(value) as ReleaseAcceptanceReport;
 }
 
+// The retired Rails tree lives under legacy/rails/; its acceptance checks run there.
+export function legacyRailsRoot(repositoryRoot: string): string {
+  return join(repositoryRoot, "legacy", "rails");
+}
+
 async function loadRailsAcceptanceReport(repositoryRoot: string): Promise<ReleaseAcceptanceReport> {
-  const ruby = await resolveRepositoryRuby(repositoryRoot);
+  const railsRoot = legacyRailsRoot(repositoryRoot);
+  const ruby = await resolveRepositoryRuby(railsRoot);
   const result = await execFileAsync(ruby, [
     "bin/rails", "runner", "puts JSON.generate(ReleaseAcceptance::Report.call)",
   ], {
-    cwd: repositoryRoot,
+    cwd: railsRoot,
     env: cleanRubyEnvironment(process.env),
     encoding: "utf8",
     timeout: 30_000,
@@ -329,12 +335,13 @@ export async function runTaskAcceptanceVerification(): Promise<void> {
   if (packageJson.name !== "@radarboy/flyd") {
     throw new Error("Automated Release 1 acceptance must run from the Flyd repository");
   }
-  const ruby = await resolveRepositoryRuby(repository.root);
+  const railsRoot = legacyRailsRoot(repository.root);
+  const ruby = await resolveRepositoryRuby(railsRoot);
   const checks = [
     await runAcceptanceCommand(
       ruby,
       ["bin/rails", "test:all"],
-      repository.root,
+      railsRoot,
       cleanRubyEnvironment(process.env),
     ),
     await runAcceptanceCommand("npm", ["test"], join(repository.root, "cli")),

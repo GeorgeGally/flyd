@@ -1,5 +1,7 @@
 # Flyd Work Intelligence PRD
 
+> **Superseded — not a product authority.** [`flyd-personal-intelligence-prd.md`](flyd-personal-intelligence-prd.md) is Flyd's single product authority. This document is kept as a detailed reference for the overlay work loop (ground → diagnose → intervene, work sessions, closeouts) and as history; where it conflicts with the personal-intelligence PRD, that PRD wins.
+
 ## Status
 
 **Proposed product reset — 2026-08-01**
@@ -7,7 +9,7 @@
 **Owner:** George Galanakis  
 **Product:** Flyd  
 **Primary platform:** macOS  
-**Document role:** Product authority for the next Flyd phase. Once approved, this supersedes `flyd-overlay-prd.md` as the product definition. The older document remains useful implementation history.
+**Document role (historical):** Was the product authority for the 2026-08 phase; it superseded `flyd-overlay-prd.md` as the product definition. The older document remains useful implementation history.
 
 **Superseded for direction — 2026-08-22:** `flyd-personal-intelligence-prd.md` is now the product authority for Flyd's overall direction (personal intelligence, LEARN consent plane, event runtime, action authority, policy promotion). This document remains the authority for the overlay work loop (ground → diagnose → intervene, work sessions, closeouts). See the supersession map in the personal-intelligence PRD.
 

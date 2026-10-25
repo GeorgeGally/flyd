@@ -1,7 +1,7 @@
 import type pg from "pg";
 
 // Operational runtime schema, owned by TypeScript Core. Mirrors the legacy
-// Rails tables (db/schema.rb) exactly for the tables the runtime reads or
+// Rails tables (legacy/rails/db/schema.rb) exactly for the tables the runtime reads or
 // writes, so a fresh machine needs no Rails db:prepare. Idempotent: safe to
 // run on every pool. CREATE TABLE IF NOT EXISTS never alters an existing
 // table; the legacy Rails tree stays authoritative for migrations.

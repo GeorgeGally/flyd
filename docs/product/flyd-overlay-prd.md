@@ -1,5 +1,7 @@
 # Flyd Overlay PRD
 
+> **Superseded — not a product authority.** [`flyd-personal-intelligence-prd.md`](flyd-personal-intelligence-prd.md) is Flyd's single product authority. This document is kept as a detailed reference for the overlay interaction model and invocation modes, and as history; where it conflicts with the personal-intelligence PRD, that PRD wins. Rails mentioned here is retired and archived under `legacy/rails/`.
+
 ## Status
 
 **Shipped: 2026-07-28.** M0-M3 including text INVOKED, voice INVOKED, LIVE mode (real-time voice with gpt-realtime-2.1 via Ctrl×3), memory gate, and user agency configuration. DELEGATED server infrastructure dormant behind feature flag.
