@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { ProjectionEngine } from "../../intelligence/projections.js";
-import { deriveWorldState, worldModelProjector, type DerivedWorldState } from "../../intelligence/world/world-model.js";
+import { replayWorldModel } from "../../intelligence/world/replay-cache.js";
+import { deriveWorldState, type DerivedWorldState } from "../../intelligence/world/world-model.js";
 
 export interface KnowledgeProjectionPaths {
   root: string;
@@ -83,9 +83,7 @@ export function rebuildKnowledgeProjections(store?: IntelligenceEventStore): Der
   const owned = !store;
   const eventStore = store ?? new IntelligenceEventStore();
   try {
-    const engine = new ProjectionEngine(eventStore, worldModelProjector);
-    const snapshot = engine.rebuild(0);
-    const state = deriveWorldState(snapshot.state);
+    const state = deriveWorldState(replayWorldModel(eventStore));
     const paths = knowledgeProjectionPaths();
     write(paths.profile, renderProfile(state));
     write(paths.now, renderNow(state));

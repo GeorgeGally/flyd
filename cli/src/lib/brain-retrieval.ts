@@ -16,6 +16,7 @@ import {
   type BaseEntry,
 } from "./retrieval.js";
 import { getStaleness } from "./staleness.js";
+import { walkWikiFiles } from "./wiki.js";
 import { isPollutedCapture } from "./brain-state.js";
 import { classifyRecallIntent, type RecallIntent } from "./recall-intent.js";
 import { buildPresentModel, type PresentModel } from "./present-model.js";
@@ -123,6 +124,22 @@ export function createResilientLexicalSearchRaw(
 const resilientLexicalDefaults: BrainRetrievalDependencies = {
   ...defaults,
   searchRaw: createResilientLexicalSearchRaw(),
+};
+
+/**
+ * The parts of the wiki still written to: runtime corrections (turn-repair).
+ * The rest is the June 2026 wiki, frozen since; MEMORY.md and USER.md carry
+ * what it knew, so a chat turn no longer walks and re-reads it.
+ */
+export const LIVE_WIKI_DIRS = ["corrections"] as const;
+
+export function searchLiveWiki(query: string, keywords: string[], wikiDir: string = WIKI_DIR): BaseEntry[] {
+  return defaultSearchWiki(query, keywords, LIVE_WIKI_DIRS.flatMap((dir) => walkWikiFiles(join(wikiDir, dir))));
+}
+
+const liveRecallDefaults: BrainRetrievalDependencies = {
+  ...resilientLexicalDefaults,
+  searchWiki: (query, keywords) => searchLiveWiki(query, keywords),
 };
 
 function stableId(path: string, body: string): string {
@@ -235,6 +252,11 @@ export async function retrieveLexicalBrainEvidence(query: string, projectRoot?: 
 
 export async function retrieveResilientLexicalBrainEvidence(query: string, projectRoot?: string): Promise<BrainRetrievalResult> {
   return retrieveBrainEvidence(query, resilientLexicalDefaults, projectRoot);
+}
+
+/** Per-turn recall for conversation: resilient lexical search over raw captures and the live wiki only. */
+export async function retrieveLiveBrainEvidence(query: string, projectRoot?: string): Promise<BrainRetrievalResult> {
+  return retrieveBrainEvidence(query, liveRecallDefaults, projectRoot);
 }
 
 export async function retrieveRankedLexicalBrainEvidence(query: string, projectRoot?: string): Promise<RankedBrainRetrieval> {

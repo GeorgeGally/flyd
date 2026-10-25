@@ -264,6 +264,19 @@ export class IntelligenceEventStore {
   }
 
   /**
+   * What a replay depends on, in one cheap query: the head, how many events
+   * exist and how many are erased. Appends move only the head and count;
+   * an erasure or a purge changes the rest, so a cached replay can tell
+   * whether extending it is still the same as replaying from zero.
+   */
+  replayFingerprint(): { file: string; head: number; count: number; erased: number } {
+    const row = this.db.prepare(
+      `SELECT COALESCE(MAX(sequence), 0) AS head, COUNT(*) AS n, COALESCE(SUM(erased), 0) AS erased FROM personal_events`,
+    ).get() as { head: number; n: number; erased: number };
+    return { file: this.db.name, head: row.head, count: row.n, erased: row.erased };
+  }
+
+  /**
    * Source erasure (PRD §3.2): destroy every readable payload for the
    * source, write a non-identifying tombstone (count + time only), queue
    * sweeps for every derived surface, and exclude content from replay.
