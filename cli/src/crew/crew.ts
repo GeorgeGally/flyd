@@ -61,8 +61,10 @@ export interface CrewTask {
   /** Steps beyond the crew that George approved at dispatch, run when he lands it. */
   afterLand?: AfterLandStep[];
   afterLandResults?: Array<{ step: AfterLandStep; ok: boolean; detail: string }>;
-  /** The OpenCode model the crewmate ran on ("provider/model"); unset means OpenCode's own default. */
+  /** The model the crewmate runs on ("provider/model"; "cursor/…" runs Cursor's agent); unset means the crew default. */
   model?: string;
+  /** Models this task already ran on before its provider refused and it moved to a backup. */
+  triedModels?: string[];
   /** How far into the log Claude spend has been counted. */
   spendOffset?: number;
   /** Set once a failed or discarded task's worktree is gone from disk (its branch is kept while it holds commits). */
@@ -222,7 +224,7 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
   const { resolveTasteProject, tastePromptText } = await import("../council/taste.js");
   const tasteProject = resolveTasteProject(repo);
   const brief = crewBrief(outcome, verification, branch, doneWhen, (() => { try { return tastePromptText({ projects: tasteProject ? [tasteProject] : [] }); } catch { return null; } })());
-  const pid = (options.launch ?? launchOpenCode)(task, brief);
+  const pid = (options.launch ?? launchCrewmate)(task, brief);
   saveTask({ ...task, ...(pid ? { pid } : {}) }, dir);
   return readTask(id, dir)!;
 }
@@ -232,6 +234,38 @@ export function openCodePath(): string {
   if (configured) return configured;
   const home = join(homedir(), ".opencode", "bin", "opencode");
   return existsSync(home) ? home : "opencode";
+}
+
+/** Start the crewmate on its model: Cursor's agent for a "cursor/…" model, OpenCode for the rest. */
+export function launchCrewmate(task: CrewTask, brief: string): number | undefined {
+  return (task.model ?? crewModel()).startsWith(CURSOR_PREFIX) ? launchCursor(task, brief) : launchOpenCode(task, brief);
+}
+
+const CURSOR_PREFIX = "cursor/";
+
+export function cursorAgentPath(): string {
+  const configured = process.env.FLYD_CURSOR_AGENT_PATH?.trim();
+  if (configured) return configured;
+  const home = join(homedir(), ".local", "bin", "cursor-agent");
+  return existsSync(home) ? home : "cursor-agent";
+}
+
+/** Start `cursor-agent --print` detached in the worktree on George's Cursor login; its JSON events stream to the task log. */
+export function launchCursor(task: CrewTask, brief: string): number | undefined {
+  if (process.env.VITEST && process.env.FLYD_CREW_ALLOW_LAUNCH !== "1") {
+    throw new Error("refusing to launch a real Cursor crewmate under tests");
+  }
+  const out = openSync(task.log, "a");
+  const model = (task.model ?? crewModel()).slice(CURSOR_PREFIX.length) || "auto";
+  const child = spawn(cursorAgentPath(), ["--print", "--output-format", "stream-json", "--force", "--trust", "--model", model, brief], {
+    cwd: task.worktree,
+    detached: true,
+    stdio: ["ignore", out, out],
+    env: process.env,
+  });
+  child.unref();
+  closeSync(out);
+  return child.pid;
 }
 
 /** Start `opencode run` detached in the worktree; its JSON events stream to the task log. */
@@ -277,6 +311,24 @@ export function crewModel(): string {
 }
 
 /**
+ * Where a crewmate goes when its model's provider refuses the work (out of credits,
+ * a usage limit): FLYD_CREW_BACKUP_MODELS, comma-separated, else George's Cursor plan.
+ * "none" turns the switch off.
+ */
+export const DEFAULT_CREW_BACKUP_MODELS = ["cursor/auto"];
+export function crewBackupModels(): string[] {
+  const configured = process.env.FLYD_CREW_BACKUP_MODELS?.trim();
+  if (configured === "none") return [];
+  return configured ? configured.split(",").map((model) => model.trim()).filter(Boolean) : DEFAULT_CREW_BACKUP_MODELS;
+}
+
+/** The next model to try after a refusal: the first backup this task hasn't run on yet. */
+export function nextBackupModel(task: CrewTask): string | undefined {
+  const tried = new Set([...(task.triedModels ?? []), task.model ?? crewModel()]);
+  return crewBackupModels().find((model) => !tried.has(model));
+}
+
+/**
  * Count a Claude crewmate's new steps against the monthly spend, from the
  * token usage OpenCode logs on each step. Returns the new log offset.
  */
@@ -317,8 +369,11 @@ export function lastSummary(logPath: string): string {
   for (const line of readFileSync(logPath, "utf8").split("\n")) {
     if (!line.trim().startsWith("{")) continue;
     try {
-      const event = JSON.parse(line) as { type?: string; part?: { type?: string; text?: string }; text?: string };
-      const text = event.part?.type === "text" ? event.part.text : event.type === "text" ? event.text : undefined;
+      const event = JSON.parse(line) as { type?: string; part?: { type?: string; text?: string }; text?: string; message?: { content?: Array<{ type?: string; text?: string }> } };
+      const text = event.part?.type === "text" ? event.part.text
+        : event.type === "text" ? event.text
+        : event.type === "assistant" ? event.message?.content?.filter((item) => item.type === "text").map((item) => item.text ?? "").join("")
+        : undefined;
       if (text?.trim()) texts.push(text.trim());
     } catch { /* not an event */ }
   }
@@ -328,7 +383,12 @@ export function lastSummary(logPath: string): string {
 function completedIterations(logPath: string): number {
   if (!existsSync(logPath)) return 0;
   return readFileSync(logPath, "utf8").split("\n").reduce((count, line) => {
-    try { return count + Number((JSON.parse(line) as { type?: string }).type === "step_finish"); } catch { return count; }
+    try {
+      const event = JSON.parse(line) as { type?: string; subtype?: string };
+      // OpenCode ends each step with step_finish. Cursor runs tool calls in parallel bursts,
+      // so a step there is one of its messages, not each file it read.
+      return count + Number(event.type === "step_finish" || event.type === "assistant");
+    } catch { return count; }
   }, 0);
 }
 
@@ -371,10 +431,10 @@ export function providerFailure(logPath: string): string | undefined {
       try { event = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
       const type = typeof event.type === "string" ? event.type : "";
       const part = (event.part && typeof event.part === "object" ? event.part : {}) as Record<string, unknown>;
-      const isError = /error/i.test(type) || /error/i.test(typeof part.type === "string" ? part.type : "") || (event.error !== undefined && event.error !== null);
+      const isError = /error/i.test(type) || /error/i.test(typeof part.type === "string" ? part.type : "") || (event.error !== undefined && event.error !== null) || event.is_error === true;
       // A run that carried on after an error recovered from it: only an error it ended on counts.
       if (!isError) { found = undefined; continue; }
-      const message = errorMessage(event) || type;
+      const message = errorMessage(event) || (typeof event.result === "string" ? event.result.trim() : "") || type;
       // A session error event is the run itself failing; any other error counts only in a provider's own words.
       if (message && (type === "error" || PROVIDER_REFUSAL.test(message))) found = message;
       continue;
@@ -422,6 +482,15 @@ export function reviewPrompt(task: CrewTask, diff: string): string {
     `The diff:\n\`\`\`diff\n${diff}\n\`\`\``,
     "Judge each point from the diff alone: an easier version of the outcome, a stub, a test that asserts nothing, or a point the diff never touches is UNMET.",
     ...VERDICT_FORMAT,
+  ].join("\n");
+}
+
+/** The brief for a backup model picking up where a refused one stopped, in the same worktree. */
+export function crewBackupBrief(task: CrewTask, verification: string[]): string {
+  return [
+    crewBrief(task.outcome, verification, task.branch, task.doneWhen ?? []),
+    "",
+    "Another agent started this and was cut off by its model provider. Anything it already changed or committed in this worktree is yours to keep, fix or replace.",
   ].join("\n");
 }
 
@@ -724,6 +793,28 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     // A crewmate whose provider refused the work (no credits, a usage limit, a bad key) did not fail at the work: say so.
     const refused = verified ? undefined : providerFailure(task.log);
     const noProgress = commits === 0 && !dirty && !refused;
+    // A refusal is the provider's problem, not the work's: carry on in the same worktree on the next backup model.
+    const backup = refused ? nextBackupModel(observed) : undefined;
+    if (backup) {
+      const moved: CrewTask = { ...observed, model: backup, triedModels: [...(observed.triedModels ?? []), observed.model ?? crewModel()] };
+      let pid: number | undefined;
+      try {
+        const commands = verification.length ? verification.map((step) => step.command) : await verificationCommandsForRepository(observed.worktree).catch(() => []);
+        pid = (deps.launch ?? launchCrewmate)(moved, crewBackupBrief(moved, commands));
+      } catch (error) {
+        console.warn("[crew] backup relaunch failed:", error instanceof Error ? error.message : error);
+      }
+      if (pid) {
+        const again: CrewTask = {
+          ...moved, status: "running", pid, commits, diffStat,
+          progressSignature: await worktreeSignature(observed.worktree, observed.baseCommit).catch(() => observed.progressSignature),
+          completedIterations: completedIterations(observed.log), noProgressIterations: 0, attemptStartedAt: now.toISOString(),
+        };
+        saveTask(again, dir);
+        changed.push(again);
+        continue;
+      }
+    }
     // Passing checks is necessary, not sufficient: an independent reviewer
     // holds the diff to what was asked, and unmet points go back to the
     // crewmate once before George hears about it.
@@ -745,7 +836,7 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
         const commands = verification.map((step) => step.command);
         let pid: number | undefined;
         try {
-          pid = (deps.launch ?? launchOpenCode)(task, crewRepairBrief(task, unmet, commands));
+          pid = (deps.launch ?? launchCrewmate)(task, crewRepairBrief(task, unmet, commands));
         } catch (error) {
           console.warn("[crew] repair relaunch failed:", error instanceof Error ? error.message : error);
         }

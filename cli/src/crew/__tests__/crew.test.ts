@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, MAX_NO_PROGRESS_ITERATIONS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew, pruneCrewTasks, saveTask } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, MAX_NO_PROGRESS_ITERATIONS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, crewBackupModels, discardCrewTask, nextBackupModel, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew, pruneCrewTasks, saveTask } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -13,6 +13,8 @@ beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "flyd-crew-"));
   process.env.FLYD_CREW_DIR = join(home, "crew");
   process.env.FLYD_CREW_WORKTREES = join(home, "worktrees");
+  // Refusals fail outright unless a test asks for the switch to a backup model.
+  process.env.FLYD_CREW_BACKUP_MODELS = "none";
   repo = join(home, "app");
   execFileSync("git", ["init", "-q", "-b", "main", repo]);
   git(repo, "config", "user.email", "t@t.test");
@@ -212,6 +214,52 @@ describe("crew", () => {
       .toEqual(["FAIL src/a.test.ts > A > b", "src/x.ts TS2554 Expected 1 arguments."]);
     expect(onlyPreExistingFailures("src/x.ts(40,1): error TS2554: Expected 1 arguments.", "src/x.ts(12,5): error TS2554: Expected 1 arguments.")).toBe(true);
     expect(onlyPreExistingFailures("Segmentation fault", "Segmentation fault")).toBe(false);
+  });
+
+  it("moves a refused crewmate onto the next backup model in the same worktree, and only George's last resort fails", async () => {
+    process.env.FLYD_CREW_BACKUP_MODELS = "cursor/auto";
+    const refuse = (launched: { log: string }) => {
+      writeFileSync(launched.log, `${JSON.stringify({ type: "error", error: { name: "APIError", data: { message: "Insufficient credits", statusCode: 402 } } })}\n`, { flag: "a" });
+      return 424242;
+    };
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: vi.fn(refuse) });
+    const launch = vi.fn((_task: { model?: string; log: string }, _brief: string) => refuse(_task));
+    const notify = vi.fn(async () => undefined);
+    const [moved] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify, launch });
+    expect(moved).toMatchObject({ status: "running", model: "cursor/auto", triedModels: [task.model], pid: 424242 });
+    expect(launch.mock.calls[0][1]).toContain("cut off by its model provider");
+    expect(existsSync(task.worktree)).toBe(true);
+    expect(notify).not.toHaveBeenCalled();
+
+    // Cursor refuses too: nothing left to try, so George hears it's blocked.
+    const [failed] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify, launch });
+    expect(failed).toMatchObject({ status: "failed", model: "cursor/auto", failure: "provider error: Insufficient credits" });
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the backup list, with Cursor as the default and none turning it off", () => {
+    expect(crewBackupModels()).toEqual([]);
+    delete process.env.FLYD_CREW_BACKUP_MODELS;
+    expect(crewBackupModels()).toEqual(["cursor/auto"]);
+    expect(nextBackupModel({ model: "cursor/auto" } as never)).toBeUndefined();
+    process.env.FLYD_CREW_BACKUP_MODELS = "opencode-go/kimi-k3, cursor/auto";
+    expect(nextBackupModel({ model: "opencode-go/gpt-6-luna" } as never)).toBe("opencode-go/kimi-k3");
+    expect(nextBackupModel({ model: "cursor/auto", triedModels: ["opencode-go/gpt-6-luna", "opencode-go/kimi-k3"] } as never)).toBeUndefined();
+  });
+
+  it("reads a Cursor log: its last words and a refused result", () => {
+    const log = join(home, "cursor.log");
+    writeFileSync(log, [
+      JSON.stringify({ type: "system", subtype: "init", model: "Auto" }),
+      JSON.stringify({ type: "tool_call", subtype: "completed", call_id: "1" }),
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Added the feature file and ran the tests." }] } }),
+      "",
+    ].join("\n"));
+    expect(lastSummary(log)).toBe("Added the feature file and ran the tests.");
+    expect(providerFailure(log)).toBeUndefined();
+    writeFileSync(log, `${JSON.stringify({ type: "result", subtype: "error", is_error: true, result: "You've hit your usage limit" })}\n`, { flag: "a" });
+    expect(providerFailure(log)).toBe("You've hit your usage limit");
   });
 
   it("records a provider refusal as the failure, says it plainly to George, and clears the empty worktree", async () => {
