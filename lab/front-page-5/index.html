@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd front page lab 5</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Lab 5, round 3: Flyd in the Elasti mood. One top line at y=120 for every
+     column; nav beside the wordmark; titles in Inter Tight sentence case, mono
+     (untracked) only for small metadata. The open job's choice is the hero: a
+     large preview of the recommended version, five named frames under it, and
+     one primary action that matches Flyd's advice. V1 and V4 keep the frosted
+     sheet from the reference; V2, V3 and V5 set the job straight on the page. */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #0b0b0b; }
+  body { font: 400 15px/1.5 "Inter Tight", system-ui, sans-serif; -webkit-font-smoothing: antialiased; text-wrap: pretty; }
+  .tag { margin: 0; padding: 26px 40px 14px; font: 400 13px/1.4 "JetBrains Mono", monospace; color: #9b9790; background: #0b0b0b; }
+  .tag b { color: #f2efe9; font-weight: 500; }
+  .only .tag { display: none; }
+  .only .v { height: 100vh; min-height: 900px; }
+
+  .v { position: relative; height: 1000px; overflow: hidden; isolation: isolate; color: var(--ink); background: var(--base, #000); }
+  .bg { position: absolute; inset: -80px; z-index: -2; background: var(--bgimg, none) var(--bgpos, center) / cover; filter: blur(var(--blur, 40px)) saturate(var(--sat, 1.2)); }
+  .tint { position: absolute; inset: 0; z-index: -1; background: var(--tint, none); }
+  .mono { font: 400 11.5px/1.6 "JetBrains Mono", monospace; letter-spacing: 0; }
+
+  .top { position: absolute; top: 40px; left: 40px; right: 40px; display: flex; align-items: baseline; gap: 36px; }
+  .brand { display: flex; align-items: center; gap: 9px; font: 500 17px/1 "Inter Tight", sans-serif; align-self: center; }
+  .brand svg { width: 16px; height: 16px; }
+  .nav { display: flex; gap: 20px; color: var(--ink3); font: 400 13.5px/1 "Inter Tight", sans-serif; }
+  .nav span:first-child { color: var(--ink); }
+  .clock { margin-left: auto; color: var(--ink2); font-variant-numeric: tabular-nums; }
+
+  .jobs { position: absolute; top: 120px; left: 40px; width: 236px; }
+  .jobs h3 { margin: 34px 0 10px; font-weight: 400; color: var(--ink3); }
+  .jobs h3:first-child { margin-top: 0; }
+  .jobs ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+  .jobs li { position: relative; font-size: 14px; line-height: 1.32; color: var(--ink2); cursor: pointer; transition: color .2s; }
+  .jobs li.done { color: var(--ink3); font-size: 13.5px; }
+  .jobs li:hover, .jobs li.on { color: var(--ink); }
+  .jobs li.on::before { content: ""; position: absolute; left: -16px; top: 3px; height: 13px; width: 2px; background: var(--hot); }
+
+  .sheet { position: absolute; top: 120px; display: flex; flex-direction: column; }
+  .glass .sheet { top: 104px; padding: 16px 32px 30px; border-radius: 14px; background: var(--glass);
+    backdrop-filter: blur(30px) saturate(1.15); -webkit-backdrop-filter: blur(30px) saturate(1.15); box-shadow: inset 0 0 0 1px var(--edge); }
+  .sheet h1 { margin: 0; font: 400 38px/1.08 "Inter Tight", sans-serif; letter-spacing: -.02em; text-wrap: balance; }
+  .sheet .meta { margin-top: 14px; color: var(--ink3); }
+  .shot { margin: 28px 0 0; }
+  .shot img { display: block; width: 100%; aspect-ratio: var(--shot-ratio, 2/1); object-fit: cover; object-position: top; border-radius: 6px; outline: 1px solid var(--line); outline-offset: -1px; }
+  .vers { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+  .vers div { cursor: pointer; color: var(--ink3); transition: color .2s; }
+  .vers img { display: block; width: 100%; aspect-ratio: 16/10; object-fit: cover; object-position: top; border-radius: 4px; opacity: .6; outline: 1px solid var(--line); outline-offset: -1px; transition: opacity .2s; }
+  .vers .on { color: var(--ink); }
+  .vers .on img { opacity: 1; outline: 1.5px solid var(--ink); outline-offset: 2px; }
+  .vers span { display: block; margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thread { margin-top: 26px; }
+  .thread p { margin: 0; font-size: 15px; color: var(--ink2); max-width: 58ch; }
+  .thread p b { display: block; margin-bottom: 3px; font-weight: 400; color: var(--ink3); }
+  .acts { display: flex; align-items: center; gap: 18px; margin-top: 18px; }
+  .acts button { height: 34px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--btn); color: var(--btn-ink); font: 500 13.5px/1 "Inter Tight", sans-serif; cursor: pointer; }
+  .acts a { color: var(--ink2); font-size: 13.5px; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 4px; }
+  .box { margin-top: 22px; padding: 11px 14px; border-radius: 8px; background: var(--field); color: var(--ink3); font-size: 14.5px; }
+
+  /* Artefacts: one crop, one treatment, a label that says what they are. */
+  .arts { position: absolute; top: 120px; }
+  .arts h3 { margin: 0 0 10px; font-weight: 400; color: var(--ink3); }
+  .arts ul { margin: 0; padding: 0; list-style: none; display: grid; }
+  .fr { overflow: hidden; border-radius: 4px; background: var(--tone, #222); }
+  .fr img { display: block; width: 100%; aspect-ratio: var(--art-ratio, 4/3); object-fit: cover; object-position: center top; filter: var(--art-filter, none); }
+  .arts .t { margin-top: 7px; font-size: 13px; line-height: 1.3; color: var(--ink2); }
+
+  /* V1 · Dusk. Seed a513a5: hue 21°. Centred glass sheet over an autumn photograph; quiet plates right. */
+  .v1 { --bgimg: url(shared/assets/news-turbine.jpg); --blur: 30px; --sat: 1.35; --bgpos: 30% 40%;
+    --tint: linear-gradient(180deg, rgba(90,30,10,.30), rgba(40,14,6,.55) 70%, rgba(14,8,6,.8));
+    --ink: #fff7f0; --ink2: rgba(255,247,240,.86); --ink3: rgba(255,247,240,.6); --hot: #ffb98a; --line: rgba(255,240,228,.2);
+    --glass: rgba(36,14,6,.42); --edge: rgba(255,240,228,.14); --field: rgba(255,240,228,.08); --btn: #fff7f0; --btn-ink: #2a1408; --tone: #2a140a; --art-filter: grayscale(.6) brightness(.9); }
+  .v1 .sheet { left: 50%; width: 600px; margin-left: -300px; }
+  .v1 .arts { right: 40px; width: 150px; } .v1 .arts ul { gap: 18px; }
+  .v1 .arts li:nth-child(n+4) { display: none; }
+
+  /* V2 · Night broadcast. Seed 92e911: hue 218°. Flat night navy, the job set full-width like a lower third, filmstrip under it. */
+  .v2 { --base: #0a1222; --ink: #eef3fb; --ink2: rgba(238,243,251,.84); --ink3: rgba(238,243,251,.54); --hot: #7fb0ff; --line: rgba(200,215,240,.18);
+    --field: rgba(200,215,240,.07); --btn: #eef3fb; --btn-ink: #0b1426; --shot-ratio: 3/1; --art-ratio: 16/10; }
+  .v2 .sheet { left: 340px; right: 40px; padding-top: 0; }
+  .v2 .sheet h1 { max-width: 24ch; }
+  .v2 .shot { display: none; }
+  .v2 .vers { gap: 14px; margin-top: 30px; }
+  .v2 .vers img { opacity: .72; }
+  .v2 .thread, .v2 .acts, .v2 .box { max-width: 720px; }
+  .v2 .arts { left: 340px; right: 40px; padding-top: 24px; border-top: 1px solid var(--line); } .v2 .arts ul { grid-template-columns: repeat(6, 1fr); gap: 14px; }
+  .v2 .arts li:nth-child(n+7) { display: none; }
+
+  /* V3 · Darkroom. Seed d80368: a black room; safelight red is only the accent; artefacts hang as black-and-white prints. */
+  .v3 { --base: #0b0908; --ink: #f6eee9; --ink2: rgba(246,238,233,.82); --ink3: rgba(246,238,233,.5); --hot: #e8412a; --line: rgba(246,238,233,.14);
+    --field: rgba(246,238,233,.06); --btn: #e8412a; --btn-ink: #fff; --art-ratio: 1; --art-filter: grayscale(1) contrast(1.1); }
+  .v3 .sheet { left: 340px; width: 580px; }
+  .v3 .arts { left: 980px; right: 40px; } .v3 .arts ul { grid-template-columns: repeat(3, 1fr); gap: 18px 12px; }
+  .v3 .arts .t { font-size: 12px; color: var(--ink3); }
+  .v3 .arts li:nth-child(n+10) { display: none; }
+
+  /* V4 · Fog. Seed 4b1684: sage at low saturation. A field photograph under white mist, near-opaque white sheet, dark ink. */
+  .v4 { --bgimg: url(shared/assets/news-crossbow.jpg); --blur: 26px; --sat: .75; --bgpos: center 60%;
+    --tint: linear-gradient(180deg, rgba(240,242,236,.58), rgba(230,234,224,.42) 50%, rgba(238,240,234,.7));
+    --ink: #161a14; --ink2: rgba(22,26,20,.82); --ink3: rgba(22,26,20,.55); --hot: #c4501f; --line: rgba(22,26,20,.12);
+    --glass: rgba(250,251,248,.78); --edge: rgba(255,255,255,.9); --field: rgba(22,26,20,.05); --btn: #161a14; --btn-ink: #f4f5f0; --tone: #fff; }
+  .v4 .sheet { left: 340px; width: 660px; }
+  .v4 .arts { left: 1080px; right: 40px; --art-ratio: 16/10; } .v4 .arts ul { gap: 20px; }
+  .v4 .arts li:nth-child(n+4) { display: none; }
+
+  /* V5 · Split. Seed d8c547: one flat dark ground; the recommended version stands framed as a tall plate between the jobs and the conversation. */
+  .v5 { --base: #121110; --ink: #f4f1ea; --ink2: rgba(244,241,234,.84); --ink3: rgba(244,241,234,.52); --hot: #ffb547; --line: rgba(255,250,240,.14);
+    --field: rgba(255,250,240,.06); --btn: #f4f1ea; --btn-ink: #14120e; --art-ratio: 16/10; }
+  .v5 .plate { position: absolute; top: 120px; bottom: 96px; left: 316px; width: 520px; margin: 0; display: flex; flex-direction: column; }
+  .v5 .plate img { flex: 1; min-height: 0; width: 100%; object-fit: cover; object-position: left top; border-radius: 6px; outline: 1px solid var(--line); outline-offset: -1px; }
+  .v5 .plate figcaption { margin-top: 10px; color: var(--ink3); }
+  .v5 .sheet { left: 880px; right: 40px; }
+  .v5 .sheet .shot { display: none; }
+  .v5 .vers { margin-top: 28px; }
+  .v5 .vers em { display: none; }
+  .vers em { font-style: normal; }
+  .v5 .arts { left: 880px; right: 40px; padding-top: 24px; border-top: 1px solid var(--line); } .v5 .arts ul { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .v5 .arts li:nth-child(n+5), .v5 .arts .t { display: none; }
+
+  /* Tablet: the job takes everything right of the jobs column; artefacts follow it. */
+  @media (min-width: 761px) and (max-width: 1279px) {
+    .sheet, .glass .sheet { left: 300px !important; right: 40px !important; width: auto !important; margin-left: 0 !important; }
+    .arts { left: 300px !important; right: 40px !important; width: auto !important; }
+    .arts ul { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; gap: 12px !important; }
+    .arts li { display: block !important; } .arts li:nth-child(n+5) { display: none !important; }
+    .vers em { display: none; }
+    .v5 .plate { display: none; } .v5 .sheet .shot { display: block; }
+  }
+  @media (max-width: 760px) {
+    .v, .only .v { display: flex; flex-direction: column; height: auto; min-height: 100vh; padding: 92px 16px 40px; }
+    .v5 .plate { order: 1; } .sheet { order: 2; } .jobs { order: 3; } .arts { order: 4; }
+    .jobs li.on::before { left: -10px; }
+    .top { left: 16px; right: 16px; top: 28px; gap: 18px; } .nav { display: none; }
+    .jobs, .arts, .sheet, .v5 .plate { position: static !important; width: auto !important; margin: 0 0 32px !important; }
+    .glass .sheet { padding: 22px !important; }
+    .sheet h1 { font-size: 28px; }
+    .vers span { display: none; }
+    .arts ul { grid-template-columns: repeat(3, 1fr) !important; gap: 10px !important; }
+    .arts li { display: block !important; }
+    .v5 .plate img { height: 260px; flex: none; }
+  }
+</style>
+</head>
+<body>
+<div id="lab"></div>
+<script src="shared/data.js"></script>
+<script>
+  var F = window.FLYD;
+  var VERSIONS = [
+    { cls: "v1 glass", tag: "V1 · Dusk.", line: "Closest to the reference: an autumn photograph blurred behind everything, the open job on one frosted sheet in the middle, and its five versions as the biggest thing on it." },
+    { cls: "v2", tag: "V2 · Night broadcast.", line: "Flat night navy. The job runs full width like a broadcast lower third, and artefacts follow it as a filmstrip under one rule." },
+    { cls: "v3", tag: "V3 · Darkroom.", line: "A black room. Safelight red is only the accent and the one button; artefacts hang beside the job as black-and-white prints." },
+    { cls: "v4 glass", tag: "V4 · Fog.", line: "The light one: a field photograph under white mist, a near-opaque white sheet, dark ink." },
+    { cls: "v5", tag: "V5 · Split.", line: "Flyd's recommended design stands framed as a tall plate between the jobs and the conversation." },
+  ];
+  var active = F.jobs[0];
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+  var mark = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M12 2v20M3.3 7l17.4 10M3.3 17L20.7 7"/></svg>';
+  var counts = { needs: 0, working: 0, done: 0 };
+  F.jobs.forEach(function (j) { counts[j.group] = (counts[j.group] || 0) + 1; });
+  // Flyd recommends V2 in the thread, so V2 is selected and the primary action builds it.
+  var pick = 1, shots = active.shots || [], labels = active.shotLabels || [];
+  var shortName = function (i) { var m = (labels[i] || "").match(/^V\d · ([^.]+)\./); return "V" + (i + 1) + (m ? "<em> · " + esc(m[1]) + "</em>" : ""); };
+
+  function topBar() {
+    var d = new Date();
+    return '<div class="top"><div class="brand">' + mark + 'Flyd</div><div class="nav"><span>Today</span><span>Artefacts</span><span>Preferences</span></div>'
+      + '<div class="clock mono">' + d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) + " · " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + "</div></div>";
+  }
+  function jobsList() {
+    var groups = [["needs", "Needs you"], ["working", "Working"], ["done", "Done"]];
+    return '<div class="jobs">' + groups.map(function (g) {
+      return '<h3 class="mono">' + g[1] + " · " + counts[g[0]] + "</h3><ul>" + F.jobs.filter(function (j) { return j.group === g[0]; }).map(function (j) {
+        return '<li class="' + (j === active ? "on " : "") + (j.group === "done" ? "done" : "") + '">' + esc(j.title) + "</li>";
+      }).join("") + "</ul>";
+    }).join("") + "</div>";
+  }
+  function sheet() {
+    var j = active, last = (j.thread || []).slice(-1)[0];
+    return '<section class="sheet"><h1>' + esc(j.title) + '</h1><div class="meta mono">' + esc(j.project) + " · " + esc(j.state) + " · " + esc(j.when) + "</div>"
+      + '<figure class="shot"><img src="shared/' + esc(shots[pick]) + '" alt=""></figure>'
+      + '<div class="vers">' + shots.map(function (s, i) { return '<div class="' + (i === pick ? "on" : "") + '"><img src="shared/' + esc(s) + '" alt=""><span class="mono">' + shortName(i) + "</span></div>"; }).join("") + "</div>"
+      + (last ? '<div class="thread"><p><b class="mono">Flyd · ' + esc(last.at) + "</b>" + esc(last.text) + "</p></div>" : "")
+      + '<div class="acts"><button>Build version ' + (pick + 1) + '</button><a href="#">Open the lab</a></div>'
+      + '<div class="box">Reply to Flyd</div></section>';
+  }
+  function arts() {
+    var list = F.artefacts.filter(function (a) { return a.img; });
+    return '<div class="arts"><h3 class="mono">Artefacts · ' + list.length + "</h3><ul>" + list.map(function (a) {
+      return '<li><div class="fr"><img src="shared/' + esc(a.img) + '" alt=""></div><div class="t">' + esc(a.title) + "</div></li>";
+    }).join("") + "</ul></div>";
+  }
+  // #v3 shows that version alone (for screenshots and links).
+  var only = (location.hash.match(/^#(v\d)$/) || [])[1];
+  if (only) document.body.classList.add("only");
+  document.getElementById("lab").innerHTML = VERSIONS.filter(function (v) { return !only || v.cls.split(" ")[0] === only; }).map(function (v) {
+    var plate = v.cls === "v5" ? '<figure class="plate"><img src="shared/' + esc(shots[pick]) + '" alt=""><figcaption class="mono">' + esc(labels[pick] || "") + "</figcaption></figure>" : "";
+    return '<p class="tag"><b>' + v.tag + "</b> " + v.line + '</p><section class="v ' + v.cls + '"><div class="bg"></div><div class="tint"></div>'
+      + topBar() + jobsList() + plate + sheet() + arts() + "</section>";
+  }).join("");
+  // V2 and V5 hang the artefacts directly under the job.
+  // On tablets every version does, and the section grows to fit.
+  function flow() {
+    var narrow = innerWidth < 1280;
+    document.querySelectorAll(".v").forEach(function (v) {
+      var sh = v.querySelector(".sheet"), a = v.querySelector(".arts");
+      a.style.top = ""; v.style.height = "";
+      if (getComputedStyle(a).position !== "absolute" || !(narrow || v.matches(".v2, .v5"))) return;
+      a.style.top = (sh.offsetTop + sh.offsetHeight + 40) + "px";
+      if (narrow) v.style.height = Math.max(v.offsetHeight, a.offsetTop + a.offsetHeight + 60) + "px";
+    });
+  }
+  window.addEventListener("load", flow); window.addEventListener("resize", flow);
+</script>
+</body>
+</html>
