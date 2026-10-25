@@ -3,8 +3,8 @@ import type { ScreenMeaning } from "./meaning.js";
 
 /**
  * One real fixture per meaning: the object the pattern is designed against and
- * the plan a shaped answer declares. The Screen team reviews each pattern with
- * its fixture, and the runtime test fills every pattern from it.
+ * the plan a shaped answer declares. A new pattern is reviewed against its
+ * fixture (a design lab, when it needs directions), and the runtime test fills every pattern from it.
  */
 export interface ScreenFixture {
   meaning: ScreenMeaning;
