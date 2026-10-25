@@ -532,9 +532,9 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
 function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now(), terminal?: RepeatedLoopError): DomainRun {
   const current = readDomainRun(run.id) ?? run;
   if (["completed", "failed", "cancelled"].includes(current.status)) return current;
-  if (terminal && current.status === "queued") {
+  if (terminal) {
     const { launchRetry: _retry, ...rest } = current;
-    const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, updatedAt: new Date(nowMs).toISOString() };
+    const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, result: parseDomainResult(terminal.message).result, updatedAt: new Date(nowMs).toISOString() };
     saveDomainRun(stopped);
     return stopped;
   }
@@ -686,11 +686,15 @@ export async function syncFirstmateDomainRuns(options: {
           runlessRetry.set(transport.home, { attempts, nextAt: nowMs + delay, capped });
         }
         const request = waitingRun?.id ?? oldPending.map((note) => note.request_id ?? note.id).sort().join(",");
-        const session = await transport.startSession(request, readiness, waitingRun ? (failure, terminal) => suspendFirstmateRun(waitingRun, failure, Date.now(), terminal) : undefined).catch(() => ({ started: false, failure: undefined, terminal: undefined }));
+        const suspend = async (run: DomainRun, failure: string, at: number, terminal?: RepeatedLoopError): Promise<void> => {
+          const next = suspendFirstmateRun(run, failure, at, terminal);
+          if (terminal && next.status === "failed") await options.onChanged?.(next);
+        };
+        const session = await transport.startSession(request, readiness, waitingRun ? (failure, terminal) => void suspend(waitingRun, failure, Date.now(), terminal).catch(() => undefined) : undefined).catch(() => ({ started: false, failure: undefined, terminal: undefined }));
         if (session.started && waitingRun?.launchRetry) {
           saveDomainRun({ ...waitingRun, failure: undefined, updatedAt: new Date(nowMs).toISOString() });
         } else if (session.failure && waitingRun) {
-          suspendFirstmateRun(waitingRun, session.failure, nowMs, session.terminal);
+          await suspend(waitingRun, session.failure, nowMs, session.terminal);
         }
       }
     }

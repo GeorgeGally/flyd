@@ -1061,7 +1061,7 @@ describe("FirstMate domain transport", () => {
     expect(repeated).toEqual([]);
   });
 
-  it("never fails a run whose note was picked up, but keeps backing off its relaunches", async () => {
+  it("backs off a picked-up run's relaunches, then fails it at the third identical failure", async () => {
     const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
     process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
     try {
@@ -1078,9 +1078,10 @@ describe("FirstMate domain transport", () => {
       const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate-acknowledged"), script: "/fake/fm-inbox.sh", exec });
       const start = Date.parse("2026-10-09T01:00:00.000Z");
       const launchedAt: number[] = [];
+      const changed: DomainRun[] = [];
       const tick = async (minute: number) => {
         const before = launches;
-        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000) });
+        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000), onChanged: (run) => { changed.push(run); } });
         if (launches > before) launchedAt.push(minute);
       };
 
@@ -1098,8 +1099,10 @@ describe("FirstMate domain transport", () => {
       for (let minute = 7; minute <= 70; minute += 1) await tick(minute);
       expect(launchedAt).toEqual([0, 5, 10, 18, 34]);
       const [run] = listDomainRuns();
-      expect(run!.status).toBe("accepted");
-      expect(Date.parse(run!.launchRetry!.nextAt)).toBeGreaterThan(start + 70 * 60_000);
+      expect(run!.status).toBe("failed");
+      expect(run!.launchRetry).toBeUndefined();
+      expect(run!.failure).toMatch(/3 identical launch attempts/);
+      expect(changed.filter((item) => item.status === "failed").map((item) => item.result?.brief)).toEqual([run!.failure]);
     } finally {
       if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
       else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
