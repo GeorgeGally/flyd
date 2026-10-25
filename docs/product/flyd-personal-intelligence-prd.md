@@ -2,12 +2,12 @@
 
 ## Status
 
-**Product authority — 2026-08-22**
+**The single product authority — 2026-08-22 (sole authority since 2026-10-25)**
 
 **Owner:** George Galanakis
 **Product:** Flyd
 **Primary platform:** macOS
-**Document role:** Product authority for Flyd as a personal intelligence. This document supersedes `flyd-work-intelligence-prd.md` for product direction (see the supersession map at the end). The work-intelligence PRD remains the authority for the overlay work loop and remains useful implementation history.
+**Document role:** The one product authority for Flyd. It supersedes `flyd-work-intelligence-prd.md` and `flyd-overlay-prd.md`; those, and every other product doc, are subordinate references for detail (see the supersession map at the end). Where any document conflicts with this one, this one wins.
 
 ---
 
@@ -96,11 +96,13 @@ Candidates (prompts, retrieval, scheduling, ranking, tool routing) promote only 
 
 ## 8. Supersession map
 
-| Area | Authority |
-|---|---|
-| Personal intelligence direction, LEARN, event runtime, authority ledger, policy promotion | this document |
-| Overlay work loop (ground → diagnose → intervene), work sessions, closeouts | `flyd-work-intelligence-prd.md` |
-| Overlay interaction model, invocation modes, adapter gotchas | `flyd-overlay-prd.md` |
-| External evidence adapters and deep research bounds | `flyd-evidence-engine-prd.md` |
+This document is the only product authority. The documents below hold detail for their area and are subordinate to it.
 
-Where documents conflict on personal-intelligence scope, this document wins. The work-intelligence PRD's §14 exclusions continue to apply to the overlay work loop; the specialist roster and skill-capability layer (`docs/solutions/architecture-patterns/skill-capability-layer-for-specialists-2026-08-19.md`) operate within it and inherit this document's consent and authority rules.
+| Area | Authority | Detailed reference (subordinate) |
+|---|---|---|
+| Personal intelligence direction, LEARN, event runtime, authority ledger, policy promotion | this document | — |
+| Overlay work loop (ground → diagnose → intervene), work sessions, closeouts | this document | `flyd-work-intelligence-prd.md` (superseded) |
+| Overlay interaction model, invocation modes, adapter gotchas | this document | `flyd-overlay-prd.md` (superseded) |
+| External evidence adapters and deep research bounds | this document | `flyd-evidence-engine-prd.md` |
+
+Where any document conflicts with this one, this document wins. The work-intelligence PRD's §14 exclusions continue to apply to the overlay work loop; the specialist roster and skill-capability layer (`docs/solutions/architecture-patterns/skill-capability-layer-for-specialists-2026-08-19.md`) operate within it and inherit this document's consent and authority rules.

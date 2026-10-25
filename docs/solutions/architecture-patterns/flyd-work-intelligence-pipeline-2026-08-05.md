@@ -224,7 +224,7 @@ bump(sessionId: string, now = Date.now()): WorkSession | null {
 
 ## Related
 
-- `docs/product/flyd-work-intelligence-prd.md` — product authority for the work-intelligence loop
+- `docs/product/flyd-work-intelligence-prd.md` — work-intelligence loop PRD (since superseded by `flyd-personal-intelligence-prd.md`)
 - `docs/solutions/architecture-patterns/flyd-overlay-thin-adapter-typescript-core-2026-07-23.md` — foundational adapter/Core split
 - `docs/solutions/architecture-patterns/flyd-architectural-realignment-2026-07-28.md` — three-axis separation, observation protocol
 - `docs/plans/2026-08-02-001-feat-work-intelligence-loop-plan.md` — implementation plan

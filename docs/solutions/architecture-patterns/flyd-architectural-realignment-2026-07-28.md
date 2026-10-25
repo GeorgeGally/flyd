@@ -240,7 +240,7 @@ if !reasons.isEmpty {
 - `docs/solutions/security-issues/overlay-deep-review-auth-bypass-orphaned-tasks-2026-07-23.md` — auth bypass, orphaned Tasks, CGEvent flood patterns
 - `docs/plans/2026-07-28-002-refactor-architectural-realignment-plan.md` — full 15-unit implementation plan
 - `docs/architecture/continuous-intelligence.md` — daemon/overlay pipeline reconciliation
-- `docs/product/flyd-overlay-prd.md` — authoritative overlay PRD
+- `docs/product/flyd-overlay-prd.md` — overlay PRD (since superseded by `flyd-personal-intelligence-prd.md`)
 - `AGENTS.md` — canonical architecture documentation
 - `mac-adapter/Sources/Capture/ShortcutRouter.swift` — shortcut routing with rising-edge detection
 - `mac-adapter/Sources/Execution/ConfirmationDecision.swift` — combined confirmation predicate
