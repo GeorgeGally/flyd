@@ -117,7 +117,7 @@ export function isMutatingToolCall(name: string, input: Record<string, unknown>)
   if (name === "edit_file" || name === "write_file" || name === "bash" || name === "remember") return true;
   if (name === "schedule" || name === "todos") return input.action !== "list";
   if (name === "work_model") return workModelAction(input) === "correct";
-  if (name === "speaking_style" || name === "start_coding_task" || name === "start_knowledge_task" || name === "background_task" || name === "pass_on_question") return true;
+  if (name === "speaking_style" || name === "start_coding_task" || name === "start_knowledge_task" || name === "start_design_task" || name === "background_task" || name === "pass_on_question") return true;
   if (name === "domain_work" && input.action === "ask") return true;
   if (name === "crew") return input.action === "land" || input.action === "discard";
   if (name === "flyd") return input.action === "run_briefing" || input.action === "skillify" || input.action === "improve";

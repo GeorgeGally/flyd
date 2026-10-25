@@ -68,8 +68,8 @@ export interface TurnPlan {
 // hidden on routes that shouldn't change anything, so the model isn't
 // tempted; tools with a read action (todos list, schedule list, reminders
 // list) stay visible and the gate stops their writes.
-const CHANGE_ONLY = ["whatsapp_draft", "whatsapp_send", "email_draft", "drive_compose", "edit_file", "write_file", "remember", "speaking_style", "background_task", "start_coding_task", "start_knowledge_task", "pass_on_question"];
-const HANDOFFS = ["background_task", "start_coding_task", "start_knowledge_task"];
+const CHANGE_ONLY = ["whatsapp_draft", "whatsapp_send", "email_draft", "drive_compose", "edit_file", "write_file", "remember", "speaking_style", "background_task", "start_coding_task", "start_knowledge_task", "start_design_task", "pass_on_question"];
+const HANDOFFS = ["background_task", "start_coding_task", "start_knowledge_task", "start_design_task"];
 // A question Flyd can't answer from what it can look up goes to the agent who
 // can (code and repos to the coding boss, research to the knowledge boss) in
 // the same turn, rather than an offer to look that leaves him to ask again.
@@ -111,11 +111,14 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domai
           ? new Set(["start_coding_task"])
           : domain === "knowledge"
             ? new Set(["start_knowledge_task"])
-            : domain === "creative" || domain === "life"
-              ? new Set(["background_task"])
+            : domain === "creative"
+              // A lab, versions or a redesign goes to the designers; other creative one-offs stay a background job.
+              ? new Set(["start_design_task", "background_task"])
+              : domain === "life"
+                ? new Set(["background_task"])
               : new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },
         hidden: null,
-        instruction: "This is work to hand off now, not to do or research inline: whoever takes it reads the code and does the work. Turn what he asked into a clear outcome and done_when points that can be checked, in his terms, and hand it off in your first step: a change to code in one of his repos goes to start_coding_task (repo = that project's path); substantial research, retrieval, fact-checking or synthesis goes to start_knowledge_task; other one-off work goes to background_task. Then tell him in a line what you started.",
+        instruction: "This is work to hand off now, not to do or research inline: whoever takes it reads the code and does the work. Turn what he asked into a clear outcome and done_when points that can be checked, in his terms, and hand it off in your first step: a change to code in one of his repos goes to start_coding_task (repo = that project's path); substantial research, retrieval, fact-checking or synthesis goes to start_knowledge_task; a design lab, N versions or a redesign of a page, screen or component goes to start_design_task; other one-off work goes to background_task. Then tell him in a line what you started.",
       };
     case "act":
       return {
