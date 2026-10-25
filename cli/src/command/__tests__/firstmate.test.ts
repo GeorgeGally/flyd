@@ -1109,6 +1109,38 @@ describe("FirstMate domain transport", () => {
     }
   });
 
+  it("blocks an unread note outside any run after three identical failures, then relaunches it once the backoff reaches its cap", async () => {
+    const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
+    process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
+    try {
+      const home = join(dir, "firstmate-runless");
+      let launches = 0;
+      const exec: FirstmateExec = async (_script, args) => {
+        if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "view-note", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
+        if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
+        launches += 1;
+        throw new Error("claude: usage limit reached");
+      };
+      const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
+      const start = Date.parse("2026-10-09T01:00:00.000Z");
+      const launchedAt: number[] = [];
+      for (let minute = 0; minute <= 70; minute += 1) {
+        const before = launches;
+        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000) });
+        if (launches > before) launchedAt.push(minute);
+      }
+
+      expect(launchedAt).toEqual([0, 5, 10, 34, 64]);
+      const repeated = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl"), "utf8")
+        .trim().split("\n").map((line) => JSON.parse(line) as { outcome?: string; home?: string })
+        .filter((entry) => entry.home === home && entry.outcome === "repeated_loop");
+      expect(repeated).toHaveLength(1);
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
+      else process.env.FLYD_FIRSTMATE_RUNTIMES = previous;
+    }
+  });
+
   it("counts identical launch failures per request, so a new run still gets its own attempts", async () => {
     const calls: string[] = [];
     const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
