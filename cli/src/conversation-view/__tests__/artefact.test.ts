@@ -140,6 +140,10 @@ describe("the decision-backed fleet projection", () => {
       .toEqual([expect.objectContaining({ task: "broken", label: "Admin redesign", status: "failed", detail: undefined })]);
     expect(projectFleetDecisions(withFailure, [], [{ label: "Add a turn-end guard", task: "domain-1", status: "needs attention" }]).held.map((row) => row.status))
       .toEqual(["failed", "needs attention"]);
+    // A held run that already finished is done work under its own result, never a call on him.
+    const finished = projectFleetDecisions(withFailure, [], [{ label: "Merged: blocked reasons now come from the run's evidence.", task: "domain-2", status: "landed" }]);
+    expect(finished.held.map((row) => row.task)).toEqual(["broken"]);
+    expect(finished.landed.map((row) => row.label)).toEqual(["Merged: blocked reasons now come from the run's evidence."]);
     const publicFleet = projectFleetDecisions(fleet, [
       decision({ taskId: "choice", disposition: "ask_george", question: "Close it or add the tools?", options: ["close it", "add the tools"], recommendation: { option: "add the tools", rationale: "They remain required." }, show: true, notify: true }),
       decision({ taskId: "paused", disposition: "backstage", summary: "Worker paused", show: false }),

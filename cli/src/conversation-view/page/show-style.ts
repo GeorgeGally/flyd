@@ -84,7 +84,8 @@ export const SHOW_STYLE = `
   margin: 0; max-width: 14em; font: 800 clamp(40px, 5.6vw, 96px)/1.02 var(--display); letter-spacing: -0.032em;
   color: var(--strong); text-wrap: balance; overflow-wrap: anywhere;
 }
-.scene-head.long { max-width: 18em; font-size: clamp(32px, 4vw, 64px); line-height: 1.06; letter-spacing: -0.026em; }
+.scene-head { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.scene-head.long { -webkit-line-clamp: 3; max-width: 18em; font-size: clamp(32px, 4vw, 64px); line-height: 1.06; letter-spacing: -0.026em; }
 .scene.has-shot .scene-head { font-size: clamp(34px, 3.9vw, 66px); }
 .scene.has-shot .scene-head.long { font-size: clamp(28px, 2.9vw, 46px); }
 .scene-head[role="button"] { cursor: pointer; }

@@ -549,7 +549,9 @@ export function heldForAttention(): ArtefactRow[] {
     const task = verdict.source.slice("domain:".length);
     const run = readDomainRun(task);
     if (!run?.notified || run.updatedAt > verdict.at) continue;
-    rows.set(task, { label: run.request.intendedOutcome, task, status: "needs attention", at: verdict.at });
+    // A run that finished has nothing left for him: it is done work, told in its own result, not a call.
+    const brief = run.status === "completed" ? run.result?.brief?.trim() : "";
+    rows.set(task, brief ? { label: brief, task, status: "landed", at: run.updatedAt } : { label: run.request.intendedOutcome, task, status: "needs attention", at: verdict.at });
   }
   return [...rows.values()];
 }
@@ -599,7 +601,9 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
   });
   const asking = new Set(calls.map((row) => row.task));
   const failed = fleet.held.flatMap((row) => row.status === "failed" && !asking.has(row.task) ? [{ ...row, detail: undefined }] : []);
-  return { ...emptyFleet(), ...(fleet.generated ? { generated: fleet.generated } : {}), ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}), calls, landed: verified, held: [...failed, ...attention] };
+  const finished = attention.filter((row) => row.status === "landed");
+  const open = attention.filter((row) => row.status !== "landed");
+  return { ...emptyFleet(), ...(fleet.generated ? { generated: fleet.generated } : {}), ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}), calls, landed: [...verified, ...finished], held: [...failed, ...open] };
 }
 
 /** The firstmate data directories a backlog row's words point at ("report data/gnm-lab/report.md"). Pure. */
