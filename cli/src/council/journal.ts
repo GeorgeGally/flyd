@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from
 import { join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
-import { defaultIntelligenceDbPath, IntelligenceEventStore } from "../intelligence/event-store.js";
+import { defaultIntelligenceDbPath, IntelligenceEventStore, type StoredEvent } from "../intelligence/event-store.js";
 
 // One continuous record of what George and Flyd said, across launches. Chat
 // sessions are disposable; the journal is what the Archivist curates from and
@@ -75,33 +75,54 @@ function turnsFromFile(sinceIso: string | null, dir: string, limit: number): Jou
 /** Words that open a turn Flyd wrote for itself (a background job, a review, a scheduled task), not George. */
 const FLYD_OWN_TURN = /^(?:Background job you took on for George:|You are checking work someone else did for George|You are reviewing work|Scheduled task George set up)/;
 
+/** One conversation turn from the spine, or nothing when it isn't George talking to Flyd. */
+function spineTurn(event: StoredEvent): JournalTurn | null {
+  if (event.erased || !event.payload) return null;
+  const value = event.payload.conversation;
+  if (!value || typeof value !== "object") return null;
+  const conversation = value as Record<string, unknown>;
+  if (typeof conversation.user !== "string" || typeof conversation.assistant !== "string") return null;
+  // Every conversation George had with Flyd (the window, the terminal, mobile), never the
+  // turns Flyd ran for itself: scheduled jobs and background work it briefed in his name.
+  const sessionId = typeof conversation.sessionId === "string" ? conversation.sessionId : "";
+  if (sessionId.startsWith("agenda-") || FLYD_OWN_TURN.test(conversation.user)) return null;
+  return {
+    id: event.id,
+    at: event.capturedAt,
+    user: conversation.user,
+    assistant: conversation.assistant,
+    ...(sessionId ? { sessionId } : {}),
+    ...(typeof conversation.turnNumber === "number" ? { turnNumber: conversation.turnNumber } : {}),
+    ...(Array.isArray(conversation.projectIds) ? { projectIds: conversation.projectIds.filter((id): id is string => typeof id === "string") } : {}),
+    surface: sessionId.startsWith("view:") ? "conversation-view" : "cli",
+  };
+}
+
+/**
+ * Conversation turns from the event spine, read a page at a time in SQL: after
+ * `sinceIso` the oldest `limit`, else the newest `limit`. Never the whole log.
+ */
 function viewTurnsFromEventSpine(sinceIso: string | null, limit: number): JournalTurn[] {
   const path = defaultIntelligenceDbPath();
   if (!existsSync(path)) return [];
   const store = new IntelligenceEventStore({ path });
   try {
-    return store.readSource("chat.cognition").flatMap((event) => {
-      if (event.erased || !event.payload) return [];
-      const value = event.payload.conversation;
-      if (!value || typeof value !== "object") return [];
-      const conversation = value as Record<string, unknown>;
-      if (typeof conversation.user !== "string" || typeof conversation.assistant !== "string") return [];
-      // Every conversation George had with Flyd (the window, the terminal, mobile), never the
-      // turns Flyd ran for itself: scheduled jobs and background work it briefed in his name.
-      const sessionId = typeof conversation.sessionId === "string" ? conversation.sessionId : "";
-      if (sessionId.startsWith("agenda-") || FLYD_OWN_TURN.test(conversation.user)) return [];
-      if (sinceIso && event.capturedAt <= sinceIso) return [];
-      return [{
-        id: event.id,
-        at: event.capturedAt,
-        user: conversation.user,
-        assistant: conversation.assistant,
-        ...(sessionId ? { sessionId } : {}),
-        ...(typeof conversation.turnNumber === "number" ? { turnNumber: conversation.turnNumber } : {}),
-        ...(Array.isArray(conversation.projectIds) ? { projectIds: conversation.projectIds.filter((id): id is string => typeof id === "string") } : {}),
-        surface: sessionId.startsWith("view:") ? "conversation-view" : "cli",
-      }];
-    }).sort((a, b) => a.at.localeCompare(b.at)).slice(-limit);
+    const turns: JournalTurn[] = [];
+    const page = Math.min(Math.max(limit * 2, 50), 1000);
+    let after = sinceIso ?? undefined;
+    let before: string | undefined;
+    while (turns.length < limit) {
+      const events = store.readSourcePage("chat.cognition", sinceIso ? { after: after!, limit: page } : { ...(before ? { before } : {}), limit: page });
+      for (const event of events) {
+        const turn = spineTurn(event);
+        if (turn) turns.push(turn);
+      }
+      if (events.length < page) break;
+      if (sinceIso) after = events.at(-1)!.capturedAt;
+      else before = events.at(-1)!.capturedAt;
+    }
+    const sorted = turns.sort((x, y) => x.at.localeCompare(y.at));
+    return sinceIso ? sorted.slice(0, limit) : sorted.slice(-limit);
   } finally {
     store.close();
   }
@@ -114,7 +135,7 @@ function viewTurnsFromEventSpine(sinceIso: string | null, limit: number): Journa
  */
 export function readJournalSince(sinceIso: string | null, dir?: string, limit = 400): JournalTurn[] {
   const legacy = turnsFromFile(sinceIso, dir ?? journalDir(), sinceIso ? Infinity : limit);
-  const view = dir === undefined ? viewTurnsFromEventSpine(sinceIso, sinceIso ? Infinity : limit) : [];
+  const view = dir === undefined ? viewTurnsFromEventSpine(sinceIso, limit) : [];
   const turns = [...legacy, ...view].sort((a, b) => a.at.localeCompare(b.at));
   return sinceIso ? turns.slice(0, limit) : turns.slice(-limit);
 }

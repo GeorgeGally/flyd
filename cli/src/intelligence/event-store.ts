@@ -228,6 +228,15 @@ export class IntelligenceEventStore {
     return rows.map((row) => this.mapRow(row));
   }
 
+  /** One page of a source's live events after a time, oldest first, or before a time, newest first: readers walk pages instead of loading the whole source. */
+  readSourcePage(sourceId: string, options: { after?: string; before?: string; limit: number }): StoredEvent[] {
+    const newest = options.after === undefined;
+    const rows = this.db
+      .prepare(`SELECT * FROM personal_events WHERE source_id = ? AND erased = 0 AND captured_at > ? AND captured_at < ? ORDER BY captured_at ${newest ? "DESC" : "ASC"}, sequence ${newest ? "DESC" : "ASC"} LIMIT ?`)
+      .all(sourceId, options.after ?? "", options.before ?? "\uffff", Math.max(1, Math.floor(options.limit))) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.mapRow(row));
+  }
+
   /** A source family, using an indexed lexical range instead of replaying unrelated memory. */
   readSourcePrefix(prefix: string): StoredEvent[] {
     if (!prefix || !/^[a-zA-Z0-9_.:-]+$/.test(prefix)) throw new Error("Invalid source prefix");

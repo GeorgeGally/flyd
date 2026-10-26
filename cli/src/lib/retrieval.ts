@@ -15,6 +15,8 @@ export interface BaseEntry {
   score: number;
   metadata: Record<string, unknown>;
   source: "raw" | "wiki";
+  /** How strongly the knowledge graph ties this entry to the question, 0–1 (augmentWithGraph). */
+  associationStrength?: number;
 }
 
 const STOP_WORDS = new Set([
@@ -190,15 +192,16 @@ export function augmentWithGraph(
     for (const entry of entries) {
       const entryLower = entry.path.toLowerCase();
       if (entryLower.includes(gr.from) || entryLower.includes(gr.to)) {
-        const boost = gr.confidence * 0.2;
-        pathBoost.set(entry.path, Math.max(pathBoost.get(entry.path) ?? 0, boost));
+        pathBoost.set(entry.path, Math.max(pathBoost.get(entry.path) ?? 0, Math.min(1, Math.max(0, gr.confidence))));
       }
     }
   }
 
+  // The graph's tie is a ranking feature of its own (the librarian score reads it), and still nudges the raw score.
   const boosted = entries.map(e => ({
     ...e,
-    score: Math.min(100, e.score + Math.round((pathBoost.get(e.path) ?? 0) * 100)),
+    score: Math.min(100, e.score + Math.round((pathBoost.get(e.path) ?? 0) * 0.2 * 100)),
+    ...(pathBoost.has(e.path) ? { associationStrength: pathBoost.get(e.path)! } : {}),
   }));
 
   if (process.env.FLYD_GRAPHDISCOVERY_ENABLED === "false") return boosted;

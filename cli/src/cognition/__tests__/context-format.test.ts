@@ -82,3 +82,34 @@ describe("bounded NOW projection", () => {
     expect(clampText("short", 100)).toBe("short");
   });
 });
+
+describe("one current value", () => {
+  const conflicted = (temporalFrame: string) => ({
+    ...context,
+    interpretation: { temporalFrame },
+    memory: {
+      ...context.memory,
+      relevant: [
+        { id: "a", content: "Timeout is 5 seconds.", source: "raw", relevance: 0.9, epistemicStatus: "observation", freshness: 0.95, temporalStatus: "background" },
+        { id: "b", content: "Old note.", source: "raw", relevance: 0.5, epistemicStatus: "observation", freshness: 0.05, temporalStatus: "background" },
+      ],
+      conflicts: [{ entityId: "api", attribute: "timeout", claims: ["5s", "30s"] }],
+    },
+  }) as unknown as CompiledContext;
+
+  it("keeps a replaced value out of a present-tense answer", () => {
+    const text = formatCompiledContext(conflicted("present"));
+    expect(text).not.toContain("30s");
+  });
+
+  it("shows what a value replaced only when he asks about the past, current first", () => {
+    expect(formatCompiledContext(conflicted("past"))).toContain("api.timeout is now 5s; earlier: 30s");
+  });
+
+  it("says how fresh a recalled memory is instead of calling it background", () => {
+    const text = formatCompiledContext(conflicted("present"));
+    expect(text).toContain("[recent; relevance=0.90] Timeout is 5 seconds.");
+    expect(text).toContain("[old, check before relying on it; relevance=0.50] Old note.");
+    expect(text).not.toContain("[background;");
+  });
+});

@@ -11,6 +11,8 @@ export interface EvidenceEntry {
   score: number;
   metadata: Record<string, unknown>;
   staleness: StalenessResult | null;
+  /** The knowledge graph's tie to the question, 0–1. */
+  associationStrength?: number;
 }
 
 export interface ConfidenceProfile {
@@ -65,14 +67,14 @@ export function scoreEvidence(entry: EvidenceEntry, keywords: string[], question
   const activeInterests = getActiveInterests();
   const interestAffinity = activeInterests.some(
     (i) => entry.body.toLowerCase().includes(i.topic.toLowerCase()) || i.keywords.some((k) => entry.body.toLowerCase().includes(k.toLowerCase())),
-  ) ? 0.15 : 0;
+  ) ? 1 : 0;
 
   const cleanBody = entry.body.toLowerCase();
   const questionWords = question.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
   const keywordHits = questionWords.filter((w) => cleanBody.includes(w)).length;
   const keywordDensity = questionWords.length > 0 ? keywordHits / questionWords.length : 0;
   const retrievalUtility = 0.5;
-  const associationStrength = 0.0;
+  const associationStrength = Math.min(1, Math.max(0, entry.associationStrength ?? 0));
 
   const librarianScore = weightedScore(epistemicConfidence, freshness, keywordDensity, interestAffinity, associationStrength);
   return applyTailPreservation({

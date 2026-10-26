@@ -12,6 +12,18 @@ export function meaningfulConflicts(conflicts: CompiledContext["memory"]["confli
     .slice(0, 8);
 }
 
+/** How fresh a recalled memory is, in words, from the freshness its own kind decays at. */
+function ageLabel(freshness: number | undefined): string {
+  if (freshness === undefined) return "background";
+  return freshness >= 0.7 ? "recent" : freshness >= 0.25 ? "older" : "old, check before relying on it";
+}
+
+/** Whether the question looks back in time: only then do replaced values and their history earn a place. */
+function lookingBack(context: CompiledContext): boolean {
+  const { temporalFrame, needsDeepMemory } = context.interpretation ?? {};
+  return temporalFrame === "past" || temporalFrame === "mixed" || Boolean(needsDeepMemory);
+}
+
 /** Longest span of text for one memory line in a prompt; the full record stays in the store. */
 const MAX_LINE_CHARS = 240;
 const MAX_NOW_CHARS = 4000;
@@ -110,13 +122,15 @@ export function formatCompiledContext(context: CompiledContext, options: FormatC
     Object.keys(context.conversation.referents).length ? `Referents: ${JSON.stringify(context.conversation.referents)}` : "",
     "</conversation-state>",
     "<relevant-memory>",
-    ...context.memory.relevant.slice(0,8).map((m) => `- [${m.temporalStatus}; relevance=${m.relevance.toFixed(2)}] ${clampLine(m.content, 600)}`),
+    ...context.memory.relevant.slice(0,8).map((m) => `- [${ageLabel(m.freshness)}; relevance=${m.relevance.toFixed(2)}] ${clampLine(m.content, 600)}`),
     "</relevant-memory>",
     "<historical-memory>",
     ...context.memory.historical.slice(0,10).map((c) => clampLine(historicalLine(c))),
     "</historical-memory>",
     "<uncertainty>",
-    ...meaningfulConflicts(context.memory.conflicts).slice(0, 3).map((c) => clampLine(`- conflict ${c.entityId}.${c.attribute}: ${c.claims.join(" vs ")}`)),
+    // One current value: the world model's winner is already in <now>. The value it replaced is only
+    // worth showing when he asks about the past; beside the answer it is what a model wrongly reaches for.
+    ...(lookingBack(context) ? meaningfulConflicts(context.memory.conflicts).slice(0, 3).map((c) => clampLine(`- ${c.entityId}.${c.attribute} is now ${c.claims[0]}; earlier: ${c.claims.slice(1).join("; ")}`)) : []),
     ...context.memory.gaps.map((g) => `- gap: ${g}`),
     ...context.present.gaps.map((g) => `- present gap: ${g}`),
     "</uncertainty>",
