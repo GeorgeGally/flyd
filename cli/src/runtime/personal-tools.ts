@@ -1,3 +1,4 @@
+import { redactSensitiveText } from "./context-redactor.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { FetchLike } from "../evidence/adapters/common.js";
@@ -133,7 +134,7 @@ export interface PersonalToolDependencies {
   /** Nobody asked for this run (investigator, agenda, council): never open an app George has closed. A job he asked for may. */
   background?: boolean;
   appRunning?: (app: string, byId?: boolean) => Promise<boolean>;
-  capture?: (text: string) => Promise<string>;
+  capture?: (text: string, options?: { outside?: boolean }) => Promise<string>;
   /** Legacy injection seam, deliberately unused: model tools cannot edit USER.md. */
   appendProfileFact?: (text: string, section?: string) => boolean;
   recall?: (query: string) => Promise<string>;
@@ -206,9 +207,14 @@ async function defaultOsascript(script: string, args: string[], background = fal
   }
 }
 
-async function defaultCapture(text: string): Promise<string> {
+/** A note kept from outside content: secrets taken out, and marked so no later turn reads it as George's own words. */
+export function outsideNote(text: string): string {
+  return `(From outside content Flyd read, not George's own words.) ${redactSensitiveText(text)}`;
+}
+
+async function defaultCapture(text: string, options?: { outside?: boolean }): Promise<string> {
   const { runCapture } = await import("../commands/capture.js");
-  const path = await runCapture(text, { quiet: true, deferIndex: true });
+  const path = await runCapture(text, { quiet: true, deferIndex: true, ...(options?.outside ? { outside: true } : {}) });
   // Lexical indexing is cheap; embeddings stay with the background queue.
   void import("../lib/qmd.js").then(({ updateRaw }) => updateRaw()).catch(() => undefined);
   return path;
@@ -547,10 +553,13 @@ export async function runPersonalTool(
       return webSearch(query, count, deps.fetchFn);
     }
     case "remember": {
-      const text = String(input.text ?? "").trim();
-      if (!text) return "Error: remember needs text";
+      const said = String(input.text ?? "").trim();
+      if (!said) return "Error: remember needs text";
+      const outside = input.from_outside === true;
+      const text = outside ? outsideNote(said) : said;
       try {
-        await (deps.capture ?? defaultCapture)(text);
+        const capture = deps.capture ?? defaultCapture;
+        await (outside ? capture(text, { outside: true }) : capture(text));
         // Old tool payloads may contain about_george/section. Neither a model
         // flag nor a remembered note confers authority to edit his profile.
         return `Saved to Flyd memory: ${text.slice(0, 120)}`;

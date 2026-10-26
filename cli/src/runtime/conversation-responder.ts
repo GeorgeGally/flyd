@@ -765,8 +765,11 @@ function createToolHandler(
     }
   };
 
-  return async (name: string, input: Record<string, unknown>): Promise<string> => {
+  return async (name: string, given: Record<string, unknown>): Promise<string> => {
     signal?.throwIfAborted();
+    // Flyd decides what to keep, but a note saved after web, mail or message content was read
+    // is kept as outside content: never as George's own words, and never above what he confirmed.
+    const input = name === "remember" && policy.tainted ? { ...given, from_outside: true } : given;
     const decision = decideToolCall(name, input, policy);
     let semanticAction = semanticActionForToolCall(name, input, policy);
     if (semanticAction) onAction?.(semanticAction);

@@ -137,6 +137,15 @@ describe("personal tools", () => {
       .toBe("hit for seats");
   });
 
+  it("keeps a note saved after outside content as outside content: secrets out, never his own words", async () => {
+    const capture = vi.fn(async (_text: string, _options?: { outside?: boolean }) => "/raw/x.md");
+    await runPersonalTool("remember", { text: "The vendor portal key is sk-abcdefghijklmnopqrstuvwx1234", from_outside: true }, { capture });
+    const [text, options] = capture.mock.calls[0]!;
+    expect(text).toMatch(/^\(From outside content Flyd read, not George's own words\.\) /);
+    expect(text).not.toContain("sk-abcdefghijklmnopqrstuvwx1234");
+    expect(options).toEqual({ outside: true });
+  });
+
   it("remembers personal facts without promoting model flags into profile authority", async () => {
     const capture = vi.fn(async () => "/raw/x.md");
     const appendProfileFact = vi.fn(() => true);

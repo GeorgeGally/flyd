@@ -10,6 +10,8 @@ export interface CaptureOptions {
   quiet?: boolean;
   /** Write the file but leave QMD indexing to the caller. */
   deferIndex?: boolean;
+  /** Kept from outside content (a page, mail, a message): ranked below George's own notes. */
+  outside?: boolean;
 }
 
 function nextCapturePath(stamp: string): string {
@@ -39,6 +41,7 @@ export async function runCapture(text: string, options: CaptureOptions = {}): Pr
       project: PROJECT.name,
       project_path: PROJECT.path,
       timestamp,
+      ...(options.outside ? { provenance: "outside", confidence: 0.3 } : {}),
     },
     text
   );
@@ -48,7 +51,8 @@ export async function runCapture(text: string, options: CaptureOptions = {}): Pr
 
   addToQueue(filename);
   // A newer note retires the older ones it replaces (the raw files themselves never change).
-  supersedeInBackground(filepath, text);
+  // Outside content never retires one of George's own notes.
+  if (!options.outside) supersedeInBackground(filepath, text);
 
   if (!options.deferIndex && !process.env.VITEST) {
     await updateRaw();
