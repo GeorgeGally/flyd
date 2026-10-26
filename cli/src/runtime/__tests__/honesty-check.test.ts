@@ -12,6 +12,39 @@ describe("honesty check", () => {
     expect(checkGrounding("It ships Friday, October 25 and 2026-10-25.", "")).toEqual(["Friday, October 25", "2026-10-25"]);
   });
 
+  it("grounds a person's name only when the context contains it, never by allowlist", () => {
+    expect(checkGrounding("I'll ask George about it.", "Ask Sam.")).toEqual(["George"]);
+    expect(checkGrounding("I'll ask George about it.", "You are Flyd, George's chief of staff.")).toEqual([]);
+    expect(checkGrounding("It was George Gally who signed it.", "George asked about the deck.")).toEqual(["George Gally"]);
+    // The capitalised first word of a sentence is not part of the name that follows it.
+    expect(checkGrounding("Morning George, the deck is ready.", "is the deck ready?")).toEqual(["Morning George"]);
+    expect(checkGrounding("Morning George, the deck is ready.", "George's chief of staff")).toEqual([]);
+  });
+
+  it("keeps a capitalised run as one span even when it contains an allowlisted word", () => {
+    expect(checkGrounding("Also read the Sunday Times piece.", "")).toEqual(["Sunday Times"]);
+    expect(checkGrounding("The Bank Of Bloom called.", "")).toEqual(["The Bank Of Bloom"]);
+    expect(checkGrounding("The Bank Of Bloom called.", "the bank of bloom")).toEqual([]);
+    expect(checkGrounding("Capfive And Bloom merged.", "capfive and bloom are merging")).toEqual([]);
+    expect(checkGrounding("Capfive And Bloom merged.", "capfive merged with bloom")).toEqual(["Capfive And Bloom"]);
+    // Sentence-function words around a name are not the name: "Bloom" in context grounds "Today Bloom".
+    expect(checkGrounding("Today Bloom shipped. Capfive Monday.", "bloom and capfive")).toEqual([]);
+    expect(checkGrounding("Today Bloom shipped.", "nothing shipped")).toEqual(["Today Bloom"]);
+    // A run of nothing but sentence-function words is not a candidate.
+    expect(checkGrounding("Yes. The Monday After. Okay Well", "")).toEqual([]);
+  });
+
+  it("flags ungrounded dates in every written form, and accepts those in context", () => {
+    expect(checkGrounding("It is due 24 October 2026.", "")).toEqual(["24 October 2026"]);
+    expect(checkGrounding("It is due 24 October 2026.", "Due 24 October 2026.")).toEqual([]);
+    expect(checkGrounding("It is due October 24.", "October 24 is the deadline.")).toEqual([]);
+    expect(checkGrounding("It is due October 24.", "October 25 is the deadline.")).toEqual(["October 24"]);
+    expect(checkGrounding("It is due 2026-10-24.", "due 2026-10-24")).toEqual([]);
+    expect(checkGrounding("It is due 2026-10-24.", "")).toEqual(["2026-10-24"]);
+    expect(checkGrounding("It ships Friday, October 24, 2026, so October 2026.", "")).toEqual(["Friday, October 24, 2026", "October 2026"]);
+    expect(checkGrounding("We meet at 10am Monday.", "")).toEqual([]);
+  });
+
   it("requires an artefact for long enumerations, but not short replies or artefact references", () => {
     expect(artefactRequiredViolation(Array.from({ length: 10 }, (_, index) => `${index + 1}. Item ${index + 1}`).join("\n"))).toEqual({ requirement: "artefact_required", count: 10 });
     expect(artefactRequiredViolation("1. One\n2. Two\n3. Three")).toBeNull();

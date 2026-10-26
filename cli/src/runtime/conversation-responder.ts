@@ -33,14 +33,14 @@ import { morningPromptBlock } from "../council/morning.js";
 import { projectNamed, projectsPromptBlock } from "../council/projects.js";
 import type { Skill } from "./skills.js";
 import { CODE_TOOLS, offCode, offRoute, planBudget, planTurn, visibleTools, type TurnPlan } from "./turn-plan.js";
-import { defaultRouteTurn, finishInFlydsVoice, gatherTurnKnowledge, groundingProblems, hedgeUngroundedAnswer, readRoomStage, turnBriefParts, turnExtras, type FastRouteReading, type ReadRoom, type RouteTurn } from "./turn-stages.js";
+import { defaultRouteTurn, finishInFlydsVoice, gatherTurnKnowledge, groundingProblems, hedgeUngroundedAnswer, readRoomStage, turnBriefParts, turnExtras, ungroundedSpans, type FastRouteReading, type ReadRoom, type RouteTurn } from "./turn-stages.js";
 import { contractError } from "./tool-contracts.js";
 import { flydSetupReport, isFlydSetupQuestion } from "./flyd-setup.js";
 import { advanceSemanticAction, allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, semanticActionForToolCall, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
 import type { MemoryEvidence } from "./types.js";
-import { persistTurnReceipt, type TurnReceipt, type TurnToolCall } from "./turn-receipt.js";
+import { persistTurnReceipt, type GroundingOutcome, type TurnReceipt, type TurnToolCall } from "./turn-receipt.js";
 import { crossRepoContext, type BriefRepo } from "./repo-registry.js";
 import { formatChatReply } from "./terminal.js";
 import { resolveMentionedProject } from "./project-mention.js";
@@ -969,6 +969,7 @@ export async function respondToConversation(
   };
   const persist = dependencies.persistReceipt ?? persistTurnReceipt;
   let turnPlan: TurnPlan | null = null;
+  let grounding: GroundingOutcome | undefined;
   let understanding: TurnUnderstanding | undefined;
   let turnSkill: string | null = null;
   let routingTrace: RoutingTrace | undefined;
@@ -1026,6 +1027,7 @@ export async function respondToConversation(
       ...(decisionPolicyVersion() ? { decisionPolicy: decisionPolicyVersion() } : {}),
       ...(routingTrace ? { routing: routingTrace } : {}),
       ...(understanding ? { understanding } : {}),
+      ...(grounding ? { grounding } : {}),
       ...(error ? { error } : {}),
       plan: { ...(turnPlan ? { route: turnPlan.route, source: turnPlan.source, cover: turnPlan.cover } : { route: "unplanned", cover: [] }), ...(turnSkill ? { skill: turnSkill } : {}) },
     }).catch((persistError: unknown) => {
@@ -1262,8 +1264,14 @@ export async function respondToConversation(
     let final = extractFinal(answer);
     const retired = retiredPhrasesIn(final);
     if (retired.length) console.warn(`[his-voice] rejected a candidate answer that used a ruled-out phrase: ${retired.join(", ")}`);
-    const groundingText = [input.message, ...toolOutputs].join("\n");
-    const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final), ...groundingProblems(final, groundingText)];
+    // A name or date is grounded by what this turn actually supplied: his
+    // message, who he and Flyd are, the knowledge in the room, and what tools
+    // returned. Earlier turns don't count (an answer can't lean on them), and
+    // no allowlist can wave a name through.
+    const knownFacts = [readSoul(), roomContext.core, ...roomContext.knowledge.map((item) => item.text), input.weather ?? ""];
+    const groundingText = [input.message, ...knownFacts, ...toolOutputs].join("\n");
+    const flagged = ungroundedSpans(final, groundingText);
+    const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final), ...groundingProblems(flagged)];
     if (problems.length) {
       // One honest rewrite; if that fails, the original stands rather than nothing.
       const rewrite = dependencies.rewrite ?? (async (prompt: string) => (process.env.VITEST ? "" : (await import("../lib/llm.js")).query(prompt, usedModel)));
@@ -1271,7 +1279,15 @@ export async function respondToConversation(
       if (fixed.trim()) final = extractFinal(fixed).replace(/^"""|"""$/g, "").trim();
     }
     final = finishInFlydsVoice(final);
-    final = hedgeUngroundedAnswer(final, groundingText);
+    // An ungrounded name or date never goes out as written: the rewrite
+    // dropped or grounded it, or the answer says it can't be verified. Either
+    // way the receipt records what was flagged and what became of it.
+    const remaining = ungroundedSpans(final, groundingText);
+    if (flagged.length || remaining.length) {
+      grounding = remaining.length ? { flagged, outcome: "hedged", remaining } : { flagged, outcome: "rewritten" };
+      console.warn(`[grounding] ${grounding.outcome}: ${flagged.join(", ")}${remaining.length ? ` (still ungrounded: ${remaining.join(", ")})` : ""}`);
+    }
+    final = hedgeUngroundedAnswer(final, remaining);
     if (containsProviderToolProtocol(final)) {
       throw new Error("Flyd's configured model returned tool protocol markup instead of a user-facing answer");
     }

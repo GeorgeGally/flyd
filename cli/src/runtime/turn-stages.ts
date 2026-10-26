@@ -173,13 +173,18 @@ export function finishInFlydsVoice(answer: string): string {
   return final;
 }
 
-export function groundingProblems(answer: string, groundingText: string): string[] {
-  const spans = checkGrounding(stripInternalNarration(answer).cleaned, groundingText);
+/** Names and dates the answer uses that this turn's context (his message, what Flyd knows, tool output) does not contain. */
+export function ungroundedSpans(answer: string, groundingText: string): string[] {
+  return checkGrounding(stripInternalNarration(answer).cleaned, groundingText);
+}
+
+export function groundingProblems(spans: string[]): string[] {
   return spans.length ? [`These spans were not found in context — remove or ground these: ${spans.join(", ")}.`] : [];
 }
 
-export function hedgeUngroundedAnswer(answer: string, groundingText: string): string {
-  return checkGrounding(answer, groundingText).length
+/** An answer that still carries ungrounded names or dates never goes out as-is: it says so. */
+export function hedgeUngroundedAnswer(answer: string, remaining: string[]): string {
+  return remaining.length
     ? `${answer}\n\nI can't verify those names or dates from the context I have.`
     : answer;
 }

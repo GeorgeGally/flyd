@@ -40,6 +40,17 @@ export interface TurnReceipt {
   understanding?: TurnUnderstanding;
   /** Overlay/LIVE resolutions: the response mode the Mac adapter got and the resolve stage that produced it. */
   resolution?: { mode: string; path: string; workSessionId?: string };
+  /** Names or dates the candidate answer used without context, and what happened to them before the answer went out. Absent when nothing was flagged. */
+  grounding?: GroundingOutcome;
+}
+
+export interface GroundingOutcome {
+  /** Spans the first candidate answer used that the context did not contain. */
+  flagged: string[];
+  /** rewritten: the rewrite grounded or dropped every span. hedged: some remained, so the answer carries a hedge. */
+  outcome: "rewritten" | "hedged";
+  /** The spans still ungrounded after the rewrite; present when hedged. */
+  remaining?: string[];
 }
 
 type TurnReceiptInput = Omit<TurnReceipt, "version" | "id" | "recordedAt">;
