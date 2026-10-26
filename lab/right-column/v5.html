@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V5 · Half and half</title>
+<link rel="stylesheet" href="shared/frame.css">
+<style>
+/* V5 · Half and half: the column takes half the screen and leads with the next call, set huge, its two options shown as pictures to pick from. */
+:root { --col: 50vw; }
+.col { background: var(--sheet); padding: 36px 48px 48px; }
+.next > p { margin: 0 0 12px; font: 600 15px var(--sans); color: var(--hot); }
+.next h2 { margin: 0 0 22px; font: 700 42px/1.1 var(--sans); letter-spacing: -0.028em; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.opt { padding: 10px; border: 0; border-radius: 14px; background: #EEEBE5; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.opt img { border-radius: 8px; aspect-ratio: 2 / 1; object-fit: cover; }
+.opt b { display: block; padding: 10px 4px 2px; font: 700 18px var(--sans); }
+.advice { margin: 0 0 34px; font: 700 23px/1.3 var(--sans); letter-spacing: -0.014em; }
+.advice span { display: block; margin-bottom: 6px; font: 600 14px var(--sans); color: var(--mute); letter-spacing: 0; }
+.then { border-top: 2px solid var(--ink); padding-top: 14px; }
+.then h3 { margin: 0 0 10px; font: 600 14px var(--sans); color: var(--mute); }
+.then ul { list-style: none; margin: 0 0 30px; padding: 0; }
+.then li { margin-bottom: 14px; font: 700 21px/1.3 var(--sans); letter-spacing: -0.01em; }
+.then li span { display: block; font: 400 14px var(--sans); color: var(--mute); letter-spacing: 0; }
+@media (max-width: 760px) {
+  .col { padding: 20px 16px 40px; }
+  .next h2 { font-size: 32px; }
+  .opts { gap: 8px; }
+  .opt { padding: 6px; }
+  .opt b { font-size: 15px; padding: 8px 2px 2px; }
+}
+</style></head>
+<body>
+<aside class="col" id="col"></aside>
+<script src="shared/data.js"></script>
+<script src="shared/frame.js"></script>
+<script>
+var D = FLYD, c = document.getElementById("col");
+c.innerHTML =
+  '<p class="advice"><span>My advice</span>' + esc(D.advice[0]) + '</p>' +
+  '<section class="next"><p>Your call · CopyCopy</p><h2>Which bezel: V2 Spindle or V6 Numeral?</h2>' +
+  '<div class="opts"><button class="opt"><img src="img/bezel-v2-spindle.png" alt=""><b>V2 Spindle</b></button><button class="opt"><img src="img/bezel-v6-numeral.png" alt=""><b>V6 Numeral</b></button></div>' +
+  '</section>' +
+  '<section class="then"><h3>Also waiting on you</h3><ul>' + D.needs.slice(1).map(function (n) { return '<li>' + esc(n.q) + '<span>' + n.who + ' · ' + n.when + '</span></li>'; }).join("") + '</ul>' +
+  '<h3>News</h3><ul>' + D.news.map(function (n) { return '<li>' + esc(n.t) + '<span>' + n.src + '</span></li>'; }).join("") + '</ul></section>';
+</script>
+</body></html>

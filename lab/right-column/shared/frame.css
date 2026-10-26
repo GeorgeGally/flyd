@@ -1,0 +1,42 @@
+/* The page around the right column: today's front page, unchanged in spirit. */
+:root {
+  --paper: #ECEAE5; --card: #F5F4F1; --sheet: #FFFFFF; --ink: #161615; --ink2: #4A4945; --mute: #76746E;
+  --line: #E2DFD9; --hot: #F04E1A; --link: #1F5F99;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --col: 460px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--paper); color: var(--ink); font: 400 16px/1.5 var(--sans); -webkit-font-smoothing: antialiased; overflow: hidden; }
+a { color: inherit; }
+.top { position: fixed; inset: 0 0 auto 0; height: 64px; display: flex; align-items: center; gap: 20px; padding: 0 28px; z-index: 5; }
+.top b { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.top .date { color: var(--mute); font-size: 16px; }
+.top .links { margin-left: auto; display: flex; gap: 22px; color: var(--mute); font-size: 15px; }
+.mid { position: fixed; top: 64px; bottom: 0; left: 0; right: var(--col); padding: 32px max(40px, calc((100vw - var(--col) - 760px) / 2)) 0; display: flex; flex-direction: column; }
+.mid h1 { margin: 0 0 28px; font: 500 24px/1.25 var(--sans); letter-spacing: -0.015em; }
+.call { padding: 22px 24px; border-radius: 14px; background: var(--card); }
+.call .k { margin: 0 0 6px; font-size: 14px; color: var(--ink2); }
+.call .k::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--ink); vertical-align: 2px; }
+.call h2 { margin: 0 0 6px; font: 500 19px/1.35 var(--sans); }
+.call p { margin: 0; color: var(--mute); }
+.box { margin-top: auto; margin-bottom: 28px; display: flex; align-items: center; padding: 8px 8px 8px 18px; border-radius: 12px; background: var(--sheet); box-shadow: 0 0 0 1px var(--line); color: var(--mute); }
+.box span { flex: 1; }
+.box button { height: 34px; padding: 0 14px; border: 0; border-radius: 8px; background: var(--ink); color: #fff; font: 600 13px var(--sans); }
+.col { position: fixed; top: 64px; right: 0; bottom: 0; width: var(--col); overflow-y: auto; }
+.col img { display: block; width: 100%; }
+.fade { animation: fade .35s ease both; }
+@keyframes fade { from { opacity: 0; } }
+/* Phone: the column is the page; the conversation is one tab of it. */
+.pbox { display: none; }
+@media (max-width: 760px) {
+  body { overflow: auto; }
+  .top { position: static; height: 56px; padding: 0 16px; }
+  .top .links { display: none; }
+  .top .date { font-size: 15px; }
+  .mid { display: none; }
+  .col { position: static; width: 100%; overflow: visible; padding-bottom: 110px !important; }
+  .pbox { display: flex; align-items: center; position: fixed; left: 12px; right: 12px; bottom: 12px; padding: 8px 8px 8px 18px; border-radius: 14px; background: var(--sheet); box-shadow: 0 0 0 1px var(--line), 0 8px 24px rgba(0,0,0,.08); color: var(--mute); z-index: 6; }
+  .pbox span { flex: 1; }
+  .pbox button { height: 36px; padding: 0 14px; border: 0; border-radius: 9px; background: var(--ink); color: #fff; font: 600 14px var(--sans); }
+}
