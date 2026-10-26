@@ -723,9 +723,24 @@ export function deviceOf(path: string): Device | undefined {
  * device, the best desktop and phone shots lead so the screen can show the
  * pair. Pure.
  */
-export function pickShots(files: Array<{ path: string; mtime: number; size?: number }>): string[] {
+const MAX_HASHED_SHOT_BYTES = 8_000_000;
+
+/** A lab's review set: one named shot per version and device ("review/v2-front-page-desktop.png"). */
+const REVIEW_SHOT = /^review\/v\d+[-_]/i;
+/** Every version of a lab, desktop and phone, but never a wall of them. */
+export const REVIEW_SHOTS_MAX = 12;
+
+export function pickShots(files: Array<{ path: string; mtime: number; size?: number; hash?: string }>): string[] {
   // What the captain sent in (his screenshots, his artwork) is the ask, not the work.
-  const images = files.filter((file) => IMAGE.has(extname(file.path).toLowerCase()) && (file.size === undefined || file.size >= MIN_SHOT_BYTES) && !/captain/i.test(file.path));
+  const all = files.filter((file) => IMAGE.has(extname(file.path).toLowerCase()) && (file.size === undefined || file.size >= MIN_SHOT_BYTES) && !/captain/i.test(file.path));
+  // A lab that left a review set is judged on it alone: every version, in version order, so
+  // the choice is between the versions themselves, not whichever crops were taken last.
+  const review = all.filter((file) => REVIEW_SHOT.test(file.path))
+    .sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+  if (review.length) return review.slice(0, REVIEW_SHOTS_MAX).map((file) => file.path);
+  // The same picture saved twice (a copy under another name) is shown once.
+  const seen = new Set<string>();
+  const images = all.filter((file) => !file.hash || (!seen.has(file.hash) && Boolean(seen.add(file.hash))));
   // "Before" shots and references come last: they are not the work.
   const score = (path: string) => (/\bafter\b|after[-_]/i.test(path) ? 0 : /\bbefore\b|before[-_]|reference|inspiration/i.test(path) ? 2 : 1);
   const ranked = [...images].sort((a, b) => score(a.path) - score(b.path) || b.mtime - a.mtime).map((file) => file.path);
@@ -1469,7 +1484,9 @@ export class ArtefactFeed {
           .filter((name) => IMAGE.has(extname(name).toLowerCase()) && name.split(sep).length <= 3)
           .map(async (name) => {
             const info = await stat(join(dir, name));
-            return { path: relative(dir, join(dir, name)).split(sep).join("/"), mtime: info.mtimeMs, size: info.size };
+            // Same bytes under two names is one picture: hashed so the card never shows it twice.
+            const hash = info.size <= MAX_HASHED_SHOT_BYTES ? createHash("sha1").update(await readFile(join(dir, name))).digest("hex") : undefined;
+            return { path: relative(dir, join(dir, name)).split(sep).join("/"), mtime: info.mtimeMs, size: info.size, ...(hash ? { hash } : {}) };
           }));
         const shots = pickShots(files);
         if (shots.length) {

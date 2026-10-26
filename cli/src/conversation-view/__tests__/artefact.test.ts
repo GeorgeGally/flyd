@@ -302,6 +302,21 @@ describe("the backlog", () => {
     expect(entries.get("bad")).toEqual({ title: "Broken hold" });
   });
 
+  it("judges a lab on its review set alone, every version in order, and never shows the same picture twice", () => {
+    expect(pickShots([
+      { path: "shots/desk-v5.png", mtime: 20, size: 400_000 },
+      { path: "review/v10-extra-desktop.png", mtime: 1, size: 400_000 },
+      { path: "review/v2-front-page-desktop.png", mtime: 1, size: 400_000 },
+      { path: "review/v1-title-card-phone.png", mtime: 1, size: 300_000 },
+      { path: "review/v1-title-card-desktop.png", mtime: 1, size: 400_000 },
+    ])).toEqual(["review/v1-title-card-desktop.png", "review/v1-title-card-phone.png", "review/v2-front-page-desktop.png", "review/v10-extra-desktop.png"]);
+    expect(pickShots([
+      { path: "shots/desk-v5.png", mtime: 3, size: 400_000, hash: "same" },
+      { path: "shots/final2-v5.png", mtime: 2, size: 400_000, hash: "same" },
+      { path: "shots/phone2.png", mtime: 1, size: 300_000, hash: "other" },
+    ])).toEqual(["shots/desk-v5.png", "shots/phone2.png"]);
+  });
+
   it("shows after shots first, then the newest", () => {
     expect(pickShots([
       { path: "shots/before-home.png", mtime: 3 },
@@ -551,7 +566,7 @@ describe("ArtefactFeed", () => {
       `- [x] gnm-words - Good Neighbours: copy only (repo: good_neighbours) (merged ${today})`,
     ].join("\n"));
     writeFileSync(join(home, "data", "gnm-tickets", "shots", "final-phone-invite.png"), Buffer.alloc(20_000));
-    writeFileSync(join(home, "data", "gnm-tickets", "shots", "final-desktop-invite.png"), Buffer.alloc(20_000));
+    writeFileSync(join(home, "data", "gnm-tickets", "shots", "final-desktop-invite.png"), Buffer.alloc(20_000, 1));
     const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
     await feed.refresh();
     const landed = feed.current().fleet!.landed.find((row) => row.task === "gnm-tickets")!;

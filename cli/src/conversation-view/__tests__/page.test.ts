@@ -3614,7 +3614,7 @@ describe("the front page", () => {
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
     expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
     expect(document.getElementById("stage-title")!.textContent).toBe("Which bezel should CopyCopy build?");
-    expect(Array.from(document.querySelectorAll(".job-view .ver .n")).map((name) => name.textContent)).toEqual(["V2 spindle", "V6 numeral"]);
+    expect(Array.from(document.querySelectorAll(".job-view .ver .n")).map((name) => name.textContent)).toEqual(["V2 · Spindle", "V6 · Numeral"]);
     expect(Array.from(document.querySelectorAll(".job-view .choice-pick")).map((button) => button.textContent)).toEqual(["V2 Spindle", "V6 Numeral"]);
     expect(document.querySelector(".job-view .jv-msg p")!.textContent).toBe("Both read well at small sizes.");
     expect(document.querySelector(".job-view .art-chat")).not.toBeNull();

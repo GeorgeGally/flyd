@@ -80,7 +80,14 @@ export const FRONT_SCRIPT = `
   }
   function frontAge(iso) { var d = frontDay(iso); return isNaN(d) ? Infinity : Date.now() - d.getTime(); }
   function frontShotName(label) {
-    return capital(String(label || "").replace(/[.][a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim());
+    var base = String(label || "").replace(/[.][a-z0-9]+$/i, "");
+    // A lab's review shot names its version: "v2-front-page-desktop" reads "V2 · Front page".
+    var version = /^v(\\d+)[-_](.+?)(?:[-_](desktop|phone|mobile|tablet))?$/i.exec(base);
+    if (version) {
+      var device = (version[3] || "").toLowerCase();
+      return "V" + version[1] + " · " + capital(version[2].replace(/[-_]+/g, " ")) + (device && device !== "desktop" ? " · " + device : "");
+    }
+    return capital(base.replace(/[-_]+/g, " ").trim());
   }
   function frontShots(list) {
     return (list || []).filter(function (shot) { return shot && shot.src; }).map(function (shot) {

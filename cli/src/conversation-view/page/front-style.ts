@@ -145,8 +145,9 @@ export const FRONT_STYLE = `
 .jv-lead { margin: 0 0 20px; max-width: 64ch; color: var(--ink2); overflow-wrap: anywhere; }
 .jv-work { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 20px; }
 .jv-work.one { grid-template-columns: minmax(0, 1fr); }
-.jv-view { display: block; width: 100%; height: min(52vh, 470px); margin: 0; padding: 20px 24px 0; border: 0; border-radius: 12px; background: var(--mat); overflow: hidden; cursor: zoom-in; }
-.jv-view img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 5px 5px 0 0; box-shadow: 0 2px 14px rgba(0, 0, 0, .12); transition: opacity .2s ease; }
+/* The whole picture, never a crop: a choice is made on what the work actually looks like. */
+.jv-view { display: flex; align-items: center; justify-content: center; width: 100%; margin: 0; padding: 20px 24px; border: 0; border-radius: 12px; background: var(--mat); overflow: hidden; cursor: zoom-in; }
+.jv-view img { display: block; max-width: 100%; max-height: min(64vh, 620px); width: auto; height: auto; border-radius: 5px; box-shadow: 0 2px 14px rgba(0, 0, 0, .12); transition: opacity .2s ease; }
 .jv-view img.fade { opacity: 0; }
 .jv-vers { display: flex; flex-direction: column; gap: 2px; }
 .ver {
@@ -281,7 +282,7 @@ export const FRONT_STYLE = `
   :root[data-layout="front"] .composer { left: 0; right: 0; bottom: 0; padding: 10px var(--gut) calc(12px + env(safe-area-inset-bottom)); border-radius: 0; }
   :root[data-layout="front"] .jump { right: var(--gut); }
   .jv-work { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .jv-view { height: 300px; padding: 12px 14px 0; }
+  .jv-view { padding: 12px 14px; }
   .jv-vers { flex-direction: row; overflow-x: auto; gap: 6px; }
   .ver { grid-template-columns: 44px; width: auto; flex: none; padding: 6px; }
   .ver .i, .ver .n { display: none; }
