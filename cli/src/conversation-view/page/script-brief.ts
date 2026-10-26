@@ -391,7 +391,18 @@ export const BRIEF_SCRIPT = `
       if (item.line) newsEl.appendChild(el("p", "brief-outcome", item.line));
       newsEl.appendChild(storiesNode(item.stories));
     });
+    newsShown = cards.length ? JSON.stringify(Object.keys(titles)) : "";
     fillBrief();
+  }
+  // Once he has actually seen today's news on the page, Flyd counts it as told and stops leading with it.
+  var newsShown = "";
+  var newsToldFor = "";
+  if (SEND_TOKEN && window.IntersectionObserver) {
+    new IntersectionObserver(function (seen) {
+      if (!seen.some(function (entry) { return entry.isIntersecting; }) || !newsShown || newsShown === newsToldFor || document.visibilityState !== "visible") return;
+      newsToldFor = newsShown;
+      tokenFetch("/api/news-told", { method: "POST" }, true).catch(function () { newsToldFor = ""; });
+    }, { threshold: 0.2 }).observe(newsEl);
   }
   // What Flyd made or was shown: each artefact with its picture when it has one, its title in plain words,
   // a short line, and "open". Redrawn only when it changes, so a framed page never reloads under him.

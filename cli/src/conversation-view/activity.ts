@@ -5,6 +5,7 @@ import { labAwaitingReview } from "../command/design.js";
 import { commandDir, listDomainRuns } from "../command/store.js";
 import type { DomainRun } from "../command/types.js";
 import { FLYD_DIR } from "../lib/config.js";
+import { sourceLabel } from "../lib/source-label.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { railImageSrc } from "./rail.js";
 import { clip, inline, sentences } from "./summaries.js";
@@ -372,7 +373,7 @@ function storyOf(raw: unknown): ActivityStory | null {
   if (!title || !["http:", "https:"].includes(parsedUrl.protocol) || parsedUrl.hostname === "example.com" || parsedUrl.hostname.endsWith(".example.com")) return null;
   const said = typeof item?.why === "string" ? item.why : typeof item?.gist === "string" ? item.gist : "";
   const gist = said.replace(/\s+/g, " ").trim();
-  const source = typeof item?.source === "string" ? item.source.trim() : "";
+  const source = typeof item?.source === "string" ? sourceLabel(item.source.trim(), url) : "";
   const mark = typeof item?.kind === "string" ? STORY_MARKS[item.kind] : undefined;
   return { title, url, ...(mark ? { mark } : {}), ...(gist ? { gist } : {}), ...(source ? { source } : {}) };
 }

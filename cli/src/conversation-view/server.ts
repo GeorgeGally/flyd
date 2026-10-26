@@ -842,6 +842,10 @@ export class ConversationViewServer {
       await this.scoutFeedback(req, res);
       return;
     }
+    if (req.method === "POST" && url.pathname === "/api/news-told") {
+      await this.newsTold(req, res);
+      return;
+    }
     if (req.method !== "GET") {
       sendJson(res, 405, { error: "method not allowed" });
       return;
@@ -1254,6 +1258,18 @@ export class ConversationViewServer {
   }
 
   /** George rewords, vetoes or restores a learned taste rule from the taste page. */
+  /** He has seen today's news on the page: Flyd stops leading with it, as after a morning brief that carried it. */
+  private async newsTold(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    const { markNewsTold } = await import("../runtime/session-briefing.js");
+    await markNewsTold();
+    sendJson(res, 200, { ok: true });
+  }
+
   /** "More like this" or "less like this" on a story in today's news: the same verdict `flyd scout more|less` records. */
   private async scoutFeedback(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const origin = req.headers.origin;

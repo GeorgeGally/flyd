@@ -385,3 +385,13 @@ describe("the edition draws on the whole day", () => {
     expect(readSources(dir).find((source) => source.target === "IndustrialDesign")?.name).toBe("r/IndustrialDesign");
   });
 });
+
+describe("sourceLabel", () => {
+  it("names where a searched story came from instead of a bare channel", async () => {
+    const { sourceLabel } = await import("../scout.js");
+    expect(sourceLabel("github", "https://github.com/acme/rotor/issues/3")).toBe("GitHub · acme/rotor");
+    expect(sourceLabel("reddit", "https://old.reddit.com/r/vjing/comments/x")).toBe("r/vjing");
+    expect(sourceLabel("web", "https://www.core77.com/posts/1")).toBe("core77.com");
+    expect(sourceLabel("Hackaday", "https://hackaday.com/x")).toBe("Hackaday");
+  });
+});

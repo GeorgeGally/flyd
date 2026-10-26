@@ -1,3 +1,5 @@
+import { sourceLabel } from "../lib/source-label.js";
+export { sourceLabel };
 import { execFile } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -258,7 +260,7 @@ export function parseLast30days(stdout: string, topic: string, sourceIdValue = s
     const engagement = item.engagement ? Object.entries(item.engagement).map(([key, value]) => `${value} ${key}`).join(", ") : undefined;
     return [{
       id: url, url, title, topic, sourceId: sourceIdValue,
-      source: String(item.source ?? "web"),
+      source: sourceLabel(String(item.source ?? "web"), String(item.url ?? "")),
       summary: String(item.summary ?? "").replace(/\s+/g, " ").trim().slice(0, 280),
       ...(item.published_at ? { published: item.published_at } : {}),
       ...(engagement ? { engagement } : {}),
