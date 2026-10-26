@@ -109,7 +109,9 @@ describe("one current value", () => {
   it("says how fresh a recalled memory is instead of calling it background", () => {
     const text = formatCompiledContext(conflicted("present"));
     expect(text).toContain("[recent; relevance=0.90] Timeout is 5 seconds.");
-    expect(text).toContain("[old, check before relying on it; relevance=0.50] Old note.");
+    // An old note can still be true: it is dated, never doubted.
+    expect(text).toContain("[from a while ago; relevance=0.50] Old note.");
+    expect(text).not.toMatch(/stale|check before/);
     expect(text).not.toContain("[background;");
   });
 });

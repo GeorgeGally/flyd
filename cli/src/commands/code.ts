@@ -64,13 +64,12 @@ export async function retrieveRuntimeMemory(query: string): Promise<MemoryEviden
     outcome: "unknown" as const,
     updatedAt: claim.observedAt ?? claim.capturedAt,
   }));
-  const STALE_FRESHNESS = 0.25;
   const recalled = memory.relevant.map((item) => ({
     id: item.id,
     path: item.source,
     excerpt: item.content,
-    // Archive memory is background, not stale: only an old one is flagged, by the freshness its own kind decays at.
-    stale: item.temporalStatus === "expired" || item.temporalStatus === "superseded" || (item.freshness ?? 1) < STALE_FRESHNESS,
+    // Age alone never makes a memory stale (an old note can still be true): only being replaced or expiring does.
+    stale: item.temporalStatus === "expired" || item.temporalStatus === "superseded",
     kind: "archive" as const,
     authority: item.epistemicStatus === "user_confirmed" || item.epistemicStatus === "verified"
       ? "user_confirmed" as const

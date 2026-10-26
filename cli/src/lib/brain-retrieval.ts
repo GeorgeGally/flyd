@@ -18,6 +18,7 @@ import {
 import { getStaleness } from "./staleness.js";
 import { walkWikiFiles } from "./wiki.js";
 import { isPollutedCapture } from "./brain-state.js";
+import { withoutReplaced } from "./raw-supersession.js";
 import { classifyRecallIntent, type RecallIntent } from "./recall-intent.js";
 import { buildPresentModel, type PresentModel } from "./present-model.js";
 import { gateCurrentness } from "./currentness-gate.js";
@@ -275,7 +276,8 @@ export async function retrieveRankedBrainEvidence(
     dependencies.searchRaw(searchQuery, keywords),
     Promise.resolve(dependencies.searchWiki(searchQuery, keywords)),
   ]);
-  const cleanRaw = rawEntries.filter((entry) => !isPollutedCapture({ body: entry.body, metadata: entry.metadata }));
+  // A note a newer one replaced is history: it answers only a question about the past.
+  const cleanRaw = withoutReplaced(rawEntries.filter((entry) => !isPollutedCapture({ body: entry.body, metadata: entry.metadata })), query);
   let entries = mergeEntries(cleanRaw, wikiEntries);
   const graphResults = dependencies.searchGraph(searchQuery);
   entries = augmentWithGraph(entries, graphResults);

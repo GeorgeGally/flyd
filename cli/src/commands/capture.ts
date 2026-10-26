@@ -4,6 +4,7 @@ import { RAW_DIR, PROJECT } from "../lib/config.js";
 import { serialize } from "../lib/frontmatter.js";
 import { updateRaw, embedRaw } from "../lib/qmd.js";
 import { addToQueue } from "../lib/ingest.js";
+import { supersedeInBackground } from "../lib/raw-supersession.js";
 
 export interface CaptureOptions {
   quiet?: boolean;
@@ -46,6 +47,8 @@ export async function runCapture(text: string, options: CaptureOptions = {}): Pr
   if (!options.quiet) console.log(`captured ${timestamp}`);
 
   addToQueue(filename);
+  // A newer note retires the older ones it replaces (the raw files themselves never change).
+  supersedeInBackground(filepath, text);
 
   if (!options.deferIndex && !process.env.VITEST) {
     await updateRaw();

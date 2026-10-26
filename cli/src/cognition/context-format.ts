@@ -12,10 +12,14 @@ export function meaningfulConflicts(conflicts: CompiledContext["memory"]["confli
     .slice(0, 8);
 }
 
-/** How fresh a recalled memory is, in words, from the freshness its own kind decays at. */
+/**
+ * How recent a recalled memory is, in words, never a warning: an old note can
+ * still be true ("I lived in Cape Town"). What makes a memory wrong is a newer
+ * one replacing it, and replaced memories never reach the prompt as current.
+ */
 function ageLabel(freshness: number | undefined): string {
   if (freshness === undefined) return "background";
-  return freshness >= 0.7 ? "recent" : freshness >= 0.25 ? "older" : "old, check before relying on it";
+  return freshness >= 0.7 ? "recent" : "from a while ago";
 }
 
 /** Whether the question looks back in time: only then do replaced values and their history earn a place. */
