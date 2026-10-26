@@ -458,5 +458,119 @@
       "judge": "The full ten-item answer is delivered as a Flyd artefact, while the chat shows only a concise summary of at most two sentences plus a reference to the artefact. The ten-item list must not appear as a wall of chat text.",
       "maxSeconds": 90
     }
+  },
+  {
+    "id": "revision-current",
+    "category": "memory-revision",
+    "history": [
+      {
+        "role": "user",
+        "content": "note for later: the studio gate code is 4417, and the studio wifi password is lantern-77"
+      },
+      {
+        "role": "assistant",
+        "content": "Got it: studio gate code 4417, wifi password lantern-77."
+      },
+      {
+        "role": "user",
+        "content": "the landlord changed the studio gate code to 8802"
+      },
+      {
+        "role": "assistant",
+        "content": "Noted, the studio gate code is now 8802."
+      },
+      {
+        "role": "user",
+        "content": "scratch that, he changed it again this morning, it's 8820 now"
+      },
+      {
+        "role": "assistant",
+        "content": "Updated: the studio gate code is 8820."
+      }
+    ],
+    "ask": "what's the studio gate code?",
+    "expect": {
+      "answer": [
+        "8820"
+      ],
+      "notAnswer": [
+        "4417"
+      ],
+      "maxSeconds": 20
+    }
+  },
+  {
+    "id": "revision-previous",
+    "category": "memory-revision",
+    "history": [
+      {
+        "role": "user",
+        "content": "note for later: the studio gate code is 4417, and the studio wifi password is lantern-77"
+      },
+      {
+        "role": "assistant",
+        "content": "Got it: studio gate code 4417, wifi password lantern-77."
+      },
+      {
+        "role": "user",
+        "content": "the landlord changed the studio gate code to 8802"
+      },
+      {
+        "role": "assistant",
+        "content": "Noted, the studio gate code is now 8802."
+      },
+      {
+        "role": "user",
+        "content": "scratch that, he changed it again this morning, it's 8820 now"
+      },
+      {
+        "role": "assistant",
+        "content": "Updated: the studio gate code is 8820."
+      }
+    ],
+    "ask": "what was the gate code before this morning's change?",
+    "expect": {
+      "answer": [
+        "8802"
+      ],
+      "maxSeconds": 20
+    }
+  },
+  {
+    "id": "revision-unrelated",
+    "category": "memory-revision",
+    "history": [
+      {
+        "role": "user",
+        "content": "note for later: the studio gate code is 4417, and the studio wifi password is lantern-77"
+      },
+      {
+        "role": "assistant",
+        "content": "Got it: studio gate code 4417, wifi password lantern-77."
+      },
+      {
+        "role": "user",
+        "content": "the landlord changed the studio gate code to 8802"
+      },
+      {
+        "role": "assistant",
+        "content": "Noted, the studio gate code is now 8802."
+      },
+      {
+        "role": "user",
+        "content": "scratch that, he changed it again this morning, it's 8820 now"
+      },
+      {
+        "role": "assistant",
+        "content": "Updated: the studio gate code is 8820."
+      }
+    ],
+    "ask": "and the studio wifi password?",
+    "expect": {
+      "answer": [
+        "lantern-77"
+      ],
+      "maxSeconds": 20
+    }
   }
 ]
