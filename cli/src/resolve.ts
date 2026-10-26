@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { ConversationTurn } from "./conversation-history.js";
 import { query } from "./lib/llm.js";
 import { decisionPolicyBlock } from "./lib/decision-policy.js";
-import { readContextBundles, type ContextBundle } from "./lib/context-bundles.js";
+import type { ContextBundle } from "./lib/context-bundles.js";
 import { buildIntelligenceState, IntelligenceState } from "./export-state.js";
 import type { Resolution, NativeOperation, ResolutionMode, AugmentOperation } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
@@ -1126,14 +1126,9 @@ async function resolveManifest(
   // this used to be two independently drifting regexes.
   const needsPersonalContext = classified?.needsPersonalContext ?? shouldInjectPersonalContext(intent, route);
 
-  let personalContext: ContextBundle[] = [];
-  if (needsPersonalContext) {
-    try {
-      personalContext = readContextBundles();
-    } catch {
-      // bundles unavailable — retrieval and MEMORY STATUS still cover the prompt
-    }
-  }
+  // The July context bundles were compiled from the frozen wiki and never regenerated; who he is and what
+  // he is working on now reach the overlay through the compiled context (USER.md, MEMORY.md, NOW), as in chat.
+  const personalContext: ContextBundle[] = [];
 
   if (classified) {
     recordRouteSource("classifier");
