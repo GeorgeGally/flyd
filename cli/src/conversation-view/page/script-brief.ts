@@ -339,7 +339,7 @@ export const BRIEF_SCRIPT = `
       a.rel = "noopener noreferrer";
       li.appendChild(a);
       if (story.gist) li.appendChild(el("p", "card-story-line", story.gist));
-      var rate = story.n && SEND_TOKEN ? storyRate(story) : null;
+      var rate = story.url && SEND_TOKEN ? storyRate(story) : null;
       if (story.source || rate) {
         var src = el("p", "card-story-src", story.source || "");
         if (rate) src.appendChild(rate);
@@ -363,7 +363,7 @@ export const BRIEF_SCRIPT = `
       button.setAttribute("aria-label", (verdict === "more" ? "More" : "Less") + " like " + story.title);
       button.addEventListener("click", function () {
         wrap.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
-        tokenFetch("/api/scout-feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ n: story.n, url: story.url, verdict: verdict }) }, true).then(function (response) {
+        tokenFetch("/api/scout-feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(story.n ? { n: story.n, url: story.url, verdict: verdict } : { url: story.url, verdict: verdict }) }, true).then(function (response) {
           if (!response.ok) throw new Error(String(response.status));
           storyTold[story.url] = verdict;
           wrap.textContent = "";

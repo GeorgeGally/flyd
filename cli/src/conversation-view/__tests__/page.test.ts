@@ -3176,7 +3176,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
     stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories, at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
     await settle();
     const items = [...document.querySelectorAll("#news .card-stories > li")];
-    expect(items[1]!.querySelector(".story-rate")).toBeNull();
+    // A hot story the watch kept has no edition number, but he can rate it all the same, by its link.
+    expect(items[1]!.querySelectorAll(".story-rate button")).toHaveLength(2);
     const buttons = [...items[0]!.querySelectorAll<HTMLButtonElement>(".story-rate button")];
     expect(buttons.map((button) => button.textContent)).toEqual(["more", "less"]);
     buttons[1]!.click();

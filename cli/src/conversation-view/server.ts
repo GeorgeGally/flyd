@@ -1285,17 +1285,18 @@ export class ConversationViewServer {
       return;
     }
     const { n, url, verdict } = payload;
-    if (typeof n !== "number" || !Number.isInteger(n) || typeof url !== "string" || (verdict !== "more" && verdict !== "less")) {
-      sendJson(res, 400, { error: "expected { n, url, verdict: more|less }" });
+    if (typeof url !== "string" || !/^https?:\/\//i.test(url) || (verdict !== "more" && verdict !== "less") || (n !== undefined && (typeof n !== "number" || !Number.isInteger(n)))) {
+      sendJson(res, 400, { error: "expected { url, verdict: more|less, n? }" });
       return;
     }
     const scout = await import("../council/scout.js");
-    // The story must still be that number in the latest edition: a newer edition renumbers its stories.
-    if (scout.latestEdition()?.items.find((item) => item.n === n)?.url !== url) {
-      sendJson(res, 404, { error: "not in the latest edition" });
+    // Any story he was shown this week, today's edition or a hot one the watch kept, is found by its link.
+    const rated = scout.recordScoutFeedback({ url }, verdict);
+    if (!rated) {
+      sendJson(res, 404, { error: "not a story from this week's news" });
       return;
     }
-    sendJson(res, 200, { ok: Boolean(scout.recordScoutFeedback(n, verdict)), verdict });
+    sendJson(res, 200, { ok: true, verdict });
   }
 
   private async editTaste(req: IncomingMessage, res: ServerResponse): Promise<void> {
