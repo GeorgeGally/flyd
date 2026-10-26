@@ -453,6 +453,7 @@ export const BRIEF_SCRIPT = `
     li.dataset.key = card.id;
     var picture = artefactPicture(card);
     if (picture) li.appendChild(picture);
+    if (card.label) li.appendChild(el("p", "art-kind", card.label));
     li.appendChild(el("p", "brief-line art-title", card.title));
     // The line says only what the title does not ("Bearings - fleet board" under "Review board: Bearings - fleet board" goes).
     var said = [];

@@ -7,7 +7,7 @@ import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import { semanticObjectFromShow } from "../semantic.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, heldItems, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
-  pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
+  adviceHighlights, pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
   callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, type FleetArtefact,
 } from "../artefact.js";
 import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
@@ -315,6 +315,21 @@ describe("the backlog", () => {
       { path: "shots/final2-v5.png", mtime: 2, size: 400_000, hash: "same" },
       { path: "shots/phone2.png", mtime: 1, size: 300_000, hash: "other" },
     ])).toEqual(["shots/desk-v5.png", "shots/phone2.png"]);
+  });
+
+  it("carries open advice as cards, most pressing first, and drops what expired or was dismissed", () => {
+    const advice = adviceHighlights([
+      { id: "a", text: "Send the GNM vendor email.", whyNow: "The market waits on it.", urgency: "normal", status: "open", expires: "2026-11-01", createdAt: "2026-10-26T01:00:00Z" },
+      { id: "b", text: "Publish Roger.", urgency: "high", status: "shown", expires: "2026-11-01", createdAt: "2026-10-25T01:00:00Z" },
+      { id: "c", text: "Old advice.", urgency: "high", status: "open", expires: "2026-10-20", createdAt: "2026-10-10T01:00:00Z" },
+      { id: "d", text: "Dismissed advice.", urgency: "high", status: "dismissed", expires: "2026-11-01" },
+    ], "2026-10-26");
+    expect(advice.map((item) => item.id)).toEqual(["b", "a"]);
+    const items = composeArtefact({ memories: [], news: [], taste: [], advice });
+    expect(items.map((item) => [item.headline, item.status, item.detail])).toEqual([
+      ["Publish Roger.", "advice", undefined],
+      ["Send the GNM vendor email.", "advice", "The market waits on it."],
+    ]);
   });
 
   it("shows after shots first, then the newest", () => {

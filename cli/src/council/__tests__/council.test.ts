@@ -222,12 +222,15 @@ describe("advisors", () => {
     expect(parsed[0]).toMatchObject({ advisor: "critic", urgency: "high", topics: ["cleanx", "launch"], expires: "2026-10-03", status: "open" });
     expect(parseAdvisories("critic", JSON.stringify({ advisories: [{ text: "x", evidence: ["j:1"], expires: "2027-12-01" }] }), now)[0].expires).toBe("2026-10-27");
 
-    const complete = vi.fn(async (prompt: string) => prompt.includes("Critic") ? reply : '{"advisories": []}');
+    // One call carries both advisors, each answering in its own list.
+    const joint = JSON.stringify({ critic: JSON.parse(reply).advisories, strategist: [] });
+    const complete = vi.fn(async (prompt: string) => prompt.includes("Critic") && prompt.includes("Strategist") ? joint : "{}");
     const first = await runAdvisors({ profile: null, memory: null, recentTurns: [], observations: [] }, { complete, now: () => now });
     expect(first).toHaveLength(1);
-    expect(complete).toHaveBeenCalledTimes(2);
+    expect(first[0]!.advisor).toBe("critic");
+    expect(complete).toHaveBeenCalledTimes(1);
     expect(await runAdvisors({ profile: null, memory: null, recentTurns: [], observations: [] }, { complete, now: () => now })).toEqual([]);
-    expect(complete.mock.calls[2][0]).toContain("Already open (do not repeat)");
+    expect(complete.mock.calls[1][0]).toContain("Already open (do not repeat)");
     updateAdvisoryStatus(first[0].id, "dismissed", now);
     expect(openAdvisories(now)).toEqual([]);
     expect(readAdvisories(advisoriesPath())[0].status).toBe("dismissed");
@@ -381,9 +384,9 @@ describe("council pass", () => {
         return JSON.stringify({ memory_ops: [{ op: "add", section: "Commitments", text: "CleanX launch on 3 October 2026", tier: "perishable" }], observations: ["Store review not submitted"] });
       }
       if (prompt.includes("George's Critic")) {
-        return JSON.stringify({ advisories: [{ text: "Submit CleanX for store review today or 3 Oct slips", why_now: "review takes up to 7 days", evidence: ["j:x"], urgency: "high", topics: ["cleanx"], expires: "2026-10-03" }] });
+        return JSON.stringify({ critic: [{ text: "Submit CleanX for store review today or 3 Oct slips", why_now: "review takes up to 7 days", evidence: ["j:x"], urgency: "high", topics: ["cleanx"], expires: "2026-10-03" }], strategist: [] });
       }
-      return '{"advisories": []}';
+      return "{}";
     });
     const result = await runCouncilPass({ complete, notify, force: true, now: () => at("2026-09-27T10:00:00Z") });
     expect(result.librarian?.turns).toBe(1);

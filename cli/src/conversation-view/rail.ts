@@ -63,6 +63,8 @@ export type RailState = "done" | "underway" | "needs";
 
 export interface RailArtefact {
   id: string;
+  /** What kind of card it is, when the title alone doesn't say ("Advice"). */
+  label?: string;
   title: string;
   line?: string;
   steps?: string[];

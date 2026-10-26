@@ -150,16 +150,25 @@ export interface AdvisorInput {
   projects?: string;
 }
 
-export function advisorPrompt(advisor: AdvisorName, input: AdvisorInput): string {
+/**
+ * Both advisors in one call: the same reading of the same week, two voices kept apart.
+ * One call instead of two reads the context once; each voice still answers on its own.
+ */
+export function advisorPrompt(input: AdvisorInput): string {
   const turns = input.recentTurns.map((turn) => `[j:${turn.id}] ${turn.at.slice(0, 10)} George: ${turn.user.slice(0, 600)}`).join("\n");
   return [
-    PERSONA[advisor],
+    "You answer as two advisors to George, one after the other. Keep their voices apart: each judges on its own, and neither softens the other.",
+    "",
+    `--- Advisor "critic" ---\n${PERSONA.critic}`,
+    "",
+    `--- Advisor "strategist" ---\n${PERSONA.strategist}`,
+    "",
     `Today is ${input.today}.`,
     "",
     "Rules:",
     "- Most of the time the right answer is nothing. Only raise what George would thank you for within the week.",
     "- Never restate an open advisory in new words; if yours makes the same point, say nothing.",
-    "- At most 2 advisories. Each must cite evidence ids you were shown ([j:…] turns or memory lines quoted verbatim).",
+    "- At most 2 advisories per advisor. Each must cite evidence ids you were shown ([j:…] turns or memory lines quoted verbatim).",
     "- Do not repeat an open advisory; do not restate facts he obviously knows.",
     "- 'why_now' says why this matters in the next days, not in general.",
     "- 'expires' is the date after which the advisory is no longer useful (YYYY-MM-DD).",
@@ -167,7 +176,7 @@ export function advisorPrompt(advisor: AdvisorName, input: AdvisorInput): string
     "- urgency 'high' only for something that will cost him if not handled within ~48 hours.",
     "- Advise George about his life, work, money and people. Never about Flyd itself (its voice, bugs, what it forgot): that is not his to fix.",
     "",
-    'Reply with JSON only: {"advisories": [{"text": "...", "why_now": "...", "evidence": ["..."], "confidence": "low|medium|high", "urgency": "low|normal|high", "topics": ["..."], "expires": "YYYY-MM-DD"}]}',
+    'Reply with JSON only, one list per advisor (an empty list is the usual answer): {"critic": [ADVISORY…], "strategist": [ADVISORY…]} where ADVISORY is {"text": "...", "why_now": "...", "evidence": ["..."], "confidence": "low|medium|high", "urgency": "low|normal|high", "topics": ["..."], "expires": "YYYY-MM-DD"}',
     "",
     `--- George's profile ---\n${input.profile ?? "(empty)"}`,
     `--- Memory ---\n${input.memory ?? "(empty)"}`,
@@ -219,7 +228,7 @@ export interface AdvisorDependencies {
   path?: string;
 }
 
-/** Ask both advisors in parallel; store new, non-duplicate advisories. */
+/** Ask both advisors in one call; store new, non-duplicate advisories. */
 export async function runAdvisors(input: Omit<AdvisorInput, "open" | "today">, deps: AdvisorDependencies): Promise<Advisory[]> {
   const now = (deps.now ?? (() => new Date()))();
   const path = deps.path ?? advisoriesPath();
@@ -229,13 +238,14 @@ export async function runAdvisors(input: Omit<AdvisorInput, "open" | "today">, d
   writeAdvisories(all, path);
   const open = all.filter((advisory) => advisory.status === "open");
   const known = new Set(all.map((advisory) => advisory.id));
-  const results = await Promise.all((["critic", "strategist"] as const).map(async (advisor) => {
-    try {
-      return parseAdvisories(advisor, await deps.complete(advisorPrompt(advisor, { ...input, open, today })), now);
-    } catch {
-      return [];
-    }
-  }));
+  let reply: Record<string, unknown> = {};
+  try {
+    reply = JSON.parse((await deps.complete(advisorPrompt({ ...input, open, today }))).match(/\{[\s\S]*\}/)?.[0] ?? "{}") as Record<string, unknown>;
+  } catch {
+    reply = {};
+  }
+  const results = (["critic", "strategist"] as const).map((advisor) =>
+    Array.isArray(reply[advisor]) ? parseAdvisories(advisor, JSON.stringify({ advisories: reply[advisor] }), now) : []);
   const fresh = results.flat().filter((advisory) => !known.has(advisory.id));
   if (fresh.length) {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
