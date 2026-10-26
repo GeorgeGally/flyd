@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 import { randomUUID } from "node:crypto";
 import { join, dirname, resolve, sep, basename } from "node:path";
-import { apiModelId, chatModelChain, resolveModelConnection, type ModelConnection } from "../lib/config.js";
+import { apiModelId, chatModelChain, FLYD_DIR, resolveModelConnection, type ModelConnection } from "../lib/config.js";
 import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, agentLoopWithFailover, PROMPT_CACHE_BREAK, type AgentTool, type ToolHandler } from "../lib/llm.js";
@@ -1096,6 +1096,28 @@ export async function respondToConversation(
     } catch {
       domainDeliveryNote = "The active-work fast path was unavailable. Do not claim the message was forwarded; handle it as Flyd.";
     }
+  }
+  // George correcting Flyd itself is the learning signal the dream cycle clusters into
+  // self-improvement: tied to the turn he corrected, never changing this reply.
+  if (!mobile && !dependencies.readOnly && fast?.commandKind === "correction" && (!fast.domain || fast.domain === "general")) {
+    void (async () => {
+      const { loadLatestTurnReceipt } = await import("./turn-receipt.js");
+      // The turn he corrected, when it left a receipt; the correction counts either way.
+      const previous = await loadLatestTurnReceipt({ sessionId: input.sessionId }).catch(() => null);
+      const { recordExperienceFeedback } = await import("./experience-trace.js");
+      const recordedAt = new Date().toISOString();
+      recordExperienceFeedback({
+        version: 1,
+        receiptId: previous?.id ?? `session:${input.sessionId ?? "unknown"}`,
+        repairId: `chat:${previous?.id ?? `${input.sessionId ?? "unknown"}:${recordedAt}`}`,
+        recordedAt,
+        source: "chat_correction",
+        signal: "correction",
+        feedback: input.message.slice(0, 500),
+        failureClasses: ["corrected_in_chat"],
+        repairTargets: [previous?.plan?.route ?? "unknown route"],
+      }, { flydDir: FLYD_DIR });
+    })().catch(() => undefined);
   }
 
   input.signal?.throwIfAborted();

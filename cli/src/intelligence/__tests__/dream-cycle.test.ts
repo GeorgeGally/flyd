@@ -115,6 +115,27 @@ describe("Dream Cycle", () => {
     }
   });
 
+  it("learns from George correcting Flyd in chat, the signal a reply's own words carry", async () => {
+    const flydDir = await mkdtemp(join(tmpdir(), "flyd-dream-chat-"));
+    directories.push(flydDir);
+    const { recordExperienceFeedback } = await import("../../runtime/experience-trace.js");
+    for (const index of [1, 2, 3]) {
+      recordExperienceFeedback({
+        version: 1, receiptId: `receipt-${index}`, repairId: `chat:receipt-${index}`, recordedAt: `2026-10-19T0${index}:00:00.000Z`,
+        source: "chat_correction", signal: "correction", feedback: "that's ai slop, talk like a person",
+        failureClasses: ["corrected_in_chat"], repairTargets: ["answer"],
+      }, { flydDir });
+    }
+    const result = await runDreamCycle({ flydDir, force: true, now: () => new Date("2026-10-19T06:00:00.000Z") });
+    const store = new IntelligenceEventStore({ path: join(flydDir, "intelligence.sqlite") });
+    try {
+      expect(result.status).toBe("consolidated");
+      expect((dreamInsights(store)[0]?.payload as { insight?: Record<string, unknown> }).insight).toMatchObject({ kind: "correction_cluster", supportCount: 3 });
+    } finally {
+      store.close();
+    }
+  });
+
   it("detects repeated objective tool failures without needing user feedback", async () => {
     const flydDir = await mkdtemp(join(tmpdir(), "flyd-dream-failures-"));
     directories.push(flydDir);

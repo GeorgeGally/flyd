@@ -60,7 +60,7 @@ export interface ExperienceFeedback {
   receiptId: string;
   repairId: string;
   recordedAt: string;
-  source: "explicit_command" | "foreground_feedback";
+  source: "explicit_command" | "foreground_feedback" | "chat_correction";
   signal: "correction";
   feedback: string;
   failureClasses: string[];
