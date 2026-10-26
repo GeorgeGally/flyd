@@ -150,6 +150,8 @@ export interface AdvisorInput {
   today: string;
   /** His projects, one line each: what advice is grounded in. */
   projects?: string;
+  /** His learned taste rules, one per line: how he is likely to react. */
+  taste?: string;
 }
 
 /**
@@ -178,12 +180,15 @@ export function advisorPrompt(input: AdvisorInput): string {
     "- 'topics' are 2-5 lowercase keywords (people, project names, places) that would make this relevant in a conversation.",
     "- urgency 'high' only for something that will cost him if not handled within ~48 hours.",
     "- Advise George about his life, work, money and people. Never about Flyd itself (its voice, bugs, what it forgot): that is not his to fix.",
+    "- Before you keep any advisory, look at it six ways and keep only what survives: the facts (is the evidence real and current?), the upside (what he gains), the risk (what could go wrong), another way (a better or cheaper move), his gut (how George himself will react, judged from his profile and taste), and the order (is this the next thing, or does something come first?).",
+    "- The headline is one recommendation, never a list of those six. Name a risk or his likely reaction only when it changes the advice (\"Ship V2 Spindle: V6's numeral fights the type you prefer.\").",
     "",
     'Reply with JSON only, one list per advisor (an empty list is the usual answer): {"critic": [ADVISORY…], "strategist": [ADVISORY…]} where ADVISORY is {"headline": "...", "text": "...", "why_now": "...", "evidence": ["..."], "confidence": "low|medium|high", "urgency": "low|normal|high", "topics": ["..."], "expires": "YYYY-MM-DD"}',
     "",
     `--- George's profile ---\n${input.profile ?? "(empty)"}`,
     `--- Memory ---\n${input.memory ?? "(empty)"}`,
     `--- His projects ---\n${input.projects ?? "(none yet)"}`,
+    `--- His taste (learned from his corrections and approvals) ---\n${input.taste ?? "(none yet)"}`,
     `--- Librarian's notes from this pass ---\n${input.observations.map((note) => `- ${note}`).join("\n") || "(none)"}`,
     `--- Recent conversation (George's side) ---\n${turns || "(none)"}`,
     `--- Already open (do not repeat) ---\n${input.open.map((advisory) => `- [${advisory.advisor}] ${advisory.text}`).join("\n") || "(none)"}`,

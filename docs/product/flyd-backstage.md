@@ -26,7 +26,7 @@ Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Cor
 
 - Librarian curates journal + captures into tiered MEMORY.md/USER.md and closes commitments that finished work shows done (commits in his repos, landed crew work, successful jobs and agenda runs).
 - It also keeps George's projects (`~/.flyd/projects.json`, `cli/src/council/projects.ts`): anything he's making, running or owed, with or without code, each linked to its repos. Chat answers project talk from that list.
-- Critic (measured) and Strategist advise it; the Muse speaks after chat turns when it can help (`/useful`, `/dismiss`).
+- Critic (measured) and Strategist advise it, in one call: each advisory is checked six ways (facts, upside, risk, another way, George's likely reaction from his taste rules, order) and kept as one recommendation; the Muse speaks after chat turns when it can help (`/useful`, `/dismiss`).
 - Runs on the agenda/Core tick. `FLYD_COUNCIL=0` / `FLYD_MUSE=0` disable.
 
 ## Scout (`flyd scout [show|run|watch|evolve|more N|less N|sources|taste]`, `cli/src/council/scout.ts`)

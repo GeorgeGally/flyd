@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CognitiveCurator } from "../../cognition/curator/curator.js";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { advisoriesPath, openAdvisories, parseAdvisories, pruneAdvisories, readAdvisories, runAdvisors, sameIdea, updateAdvisoryStatus, type Advisory, adviceHeadline } from "../advisors.js";
+import { advisoriesPath, openAdvisories, parseAdvisories, pruneAdvisories, readAdvisories, runAdvisors, sameIdea, updateAdvisoryStatus, type Advisory, adviceHeadline, advisorPrompt } from "../advisors.js";
 import { appendJournalTurn, readJournalSince } from "../journal.js";
 import { collectNewCaptures, parseLibrarianProposal, readLibrarianState, runLibrarian } from "../librarian.js";
 import { applyMemoryOps, entryId, readMemoryEntries } from "../memory-store.js";
@@ -404,5 +404,14 @@ describe("advice headline", () => {
     const clipped = adviceHeadline(long, "");
     expect(clipped.split(" ")).toHaveLength(30);
     expect(clipped.endsWith("…")).toBe(true);
+  });
+});
+
+describe("advice judged six ways", () => {
+  it("weighs facts, upside, risk, another way, his gut and order, and sees his taste", () => {
+    const prompt = advisorPrompt({ profile: null, memory: null, recentTurns: [], observations: [], open: [], today: "2026-10-26", taste: "- Fades only, never movement." });
+    for (const angle of ["the facts", "the upside", "the risk", "another way", "his gut", "the order"]) expect(prompt).toContain(angle);
+    expect(prompt).toContain("never a list of those six");
+    expect(prompt).toContain("Fades only, never movement.");
   });
 });

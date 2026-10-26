@@ -7,6 +7,7 @@ import { readJournalSince, recentJournal } from "./journal.js";
 import { collectNewCaptures, readLibrarianState, runLibrarian, tasteCurationDue, type LibrarianRunResult } from "./librarian.js";
 import { localDay, memoryPromptText } from "./memory-store.js";
 import { describeProject, liveProjects } from "./projects.js";
+import { readTaste } from "./taste.js";
 import { syncTasteSkills } from "./taste-skills.js";
 
 // A council pass: the Librarian curates what is new, then the Critic and the
@@ -87,6 +88,16 @@ function readNotifyState(today: string): NotifyState {
   }
 }
 
+/** His taste rules as plain lines, for judging how he will react; empty when none or unreadable. */
+function tasteForAdvice(): string | undefined {
+  try {
+    const lines = readTaste().rules.slice(0, 40).map((rule) => `- ${rule.text}`);
+    return lines.length ? lines.join("\n") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function runCouncilPass(deps: CouncilDependencies): Promise<CouncilPassResult> {
   const now = (deps.now ?? (() => new Date()))();
   if (!deps.force && !councilPassDue(now)) return { skipped: "not_due", advisories: [], notified: [] };
@@ -104,6 +115,7 @@ export async function runCouncilPass(deps: CouncilDependencies): Promise<Council
       profile: readUserProfile(),
       memory: memoryPromptText(),
       projects: liveProjects().map((project) => `- ${describeProject(project)}`).join("\n"),
+      taste: tasteForAdvice(),
       recentTurns: recentJournal(40),
       observations: librarian.observations,
     }, { complete: deps.complete, now: () => now });
