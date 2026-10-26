@@ -80,7 +80,6 @@ Copyright (c) 2026 Kit Langton, under the MIT license. The full notice is in
 | `FLYD_MODEL` | required | Canonical model for chat, resolution, attention judgment, and memory distillation |
 | `FLYD_MODEL_BASE_URL` | OpenAI for GPT models | OpenAI-compatible base URL for the configured model |
 | `FLYD_TRANSCRIPTION_MODEL` | `gpt-4o-mini-transcribe-2025-12-15` | Voice transcription model |
-| `FLYD_VOICE_MODE` | `dictation` | How the mic becomes text: `dictation` transcribes after you stop and answers as a text turn; `live` streams the audio to an OpenAI realtime session while you speak, the expensive live-conversation mode, billed per utterance |
 | `FLYD_REALTIME_MODEL` | `gpt-realtime-2.1` | LIVE session model |
 | `FLYD_MODEL_API_KEY` | (from env) | OpenAI API key — `resolve()` fails closed and falls back to `requires_compose` without this set in `cli/.env` |
 | `FLYD_CLI_DIR` | (auto-detected) | Path to cli/ directory — overrides the baked-in repo path if set |

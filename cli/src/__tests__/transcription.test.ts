@@ -1,19 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const opened = vi.hoisted(() => vi.fn(() => ({ append() {}, finish: async () => "", close() {} })));
+const sockets = vi.hoisted(() => [] as string[]);
+const posts = vi.hoisted(() => vi.fn(async (_url: string, _init?: RequestInit) =>
+  new Response(JSON.stringify({ text: "hello there" }), { status: 200 })));
 
-vi.mock("../dictation/stream.js", () => ({
-  REALTIME_TRANSCRIPTION_URL: "wss://api.openai.com/v1/realtime?intent=transcription",
-  openStreamingTranscriber: opened,
-}));
+vi.mock("ws", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ws")>();
+  class RecordingWebSocket extends actual.WebSocket {
+    constructor(...args: ConstructorParameters<typeof actual.WebSocket>) {
+      sockets.push(String(args[0]));
+      super(...args);
+    }
+  }
+  return { ...actual, WebSocket: RecordingWebSocket, default: RecordingWebSocket };
+});
+
+vi.mock("../dictation/http.js", () => ({ dictationFetch: posts, warmDictationHosts() {} }));
 
 const {
-  openTranscriptionStream,
   pcm16ToWav,
   sendTranscriptionReady,
+  transcribeBufferedAudio,
   transcriptionModelForPushToTalk,
   transcriptionModelsForPushToTalk,
-  voiceMode,
   voiceSetupMessageForStatus,
 } = await import("../transcription.js");
 
@@ -72,23 +81,17 @@ describe("transcription relay", () => {
     expect(voiceSetupMessageForStatus(500)).toBe("Voice setup could not be checked");
   });
 
-  it("defaults to dictation and opens no realtime session for a voice turn", () => {
-    vi.stubEnv("FLYD_VOICE_MODE", "");
+  it("transcribes a voice turn by upload after stop, never over a realtime socket", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    vi.stubEnv("FLYD_TRANSCRIPTION_MODEL", "");
+    const sent: string[] = [];
 
-    expect(voiceMode()).toBe("dictation");
-    expect(openTranscriptionStream({ kind: "conversation" })).toBeNull();
-    expect(opened).not.toHaveBeenCalled();
-  });
+    await transcribeBufferedAudio([Buffer.alloc(24000 * 2)], { send: (data: string) => sent.push(data) }, { kind: "conversation" });
 
-  it("streams over the realtime socket only when FLYD_VOICE_MODE=live", () => {
-    vi.stubEnv("FLYD_VOICE_MODE", "live");
-    vi.stubEnv("OPENAI_API_KEY", "sk-test");
-
-    expect(voiceMode()).toBe("live");
-    expect(openTranscriptionStream({ kind: "conversation" })).not.toBeNull();
-    expect(opened).toHaveBeenCalledWith(expect.objectContaining({
-      model: "gpt-4o-mini-transcribe-2025-12-15",
-    }));
+    expect(posts).toHaveBeenCalledTimes(1);
+    expect(posts.mock.calls[0]![0]).toBe("https://api.openai.com/v1/audio/transcriptions");
+    expect((posts.mock.calls[0]![1]!.body as FormData).get("model")).toBe("gpt-4o-mini-transcribe-2025-12-15");
+    expect(sockets).toEqual([]);
+    expect(JSON.parse(sent[0]!)).toMatchObject({ type: "complete" });
   });
 });
