@@ -974,6 +974,20 @@ describe("ArtefactFeed", () => {
   });
 });
 
+it("says each row in Flyd's own words when the executive decides what shows, as it did before it", async () => {
+  const home = mkdtempSync(join(tmpdir(), "artefact-decided-voice-"));
+  mkdirSync(join(home, "bin"));
+  writeFileSync(join(home, "snapshot.json"), JSON.stringify({ in_flight: [{ id: "a", state: "failed", repo: "dir", name: "feat: station idents between sets", doing: "tests red" }] }));
+  writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat '${join(home, "snapshot.json")}'\n`, { mode: 0o700 });
+  const asked: string[] = [];
+  const voice = new ArtefactVoice({ cacheFile: join(home, "voice.json"), profile: () => null, complete: async (prompt) => { asked.push(prompt); return "[]"; } });
+  const feed = new ArtefactFeed({ home, voice, decideChanges: async () => [], memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+  await feed.refresh();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(feed.current().fleet!.held.map((row) => row.task)).toEqual(["a"]);
+  expect(asked.join("\n")).toContain("station idents");
+});
+
 it("sends every current question and its original evidence to the production decision owner before legacy filtering", async () => {
   const home = mkdtempSync(join(tmpdir(), "artefact-decision-order-"));
   mkdirSync(join(home, "bin"));

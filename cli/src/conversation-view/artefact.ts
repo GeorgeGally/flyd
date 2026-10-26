@@ -1545,7 +1545,9 @@ export class ArtefactFeed {
       this.saveLedger();
       const voice = this.options.voice;
       const generation = ++this.generation;
-      const { fleet, unsaid } = voice && !this.options.decideChanges ? this.voiced(voice, decided) : { fleet: decided, unsaid: [] };
+      // Flyd's own words for each row, after the executive has decided what may show: its wording
+      // never changes what reaches George, only how it reads (no commit subjects, no task ids).
+      const { fleet, unsaid } = voice ? this.voiced(voice, decided) : { fleet: decided, unsaid: [] };
       this.inputs = {
         fleet,
         ...(bearings.unavailable ? {} : { landedByDay: landedByDay(entries, Date.now()), landedWeek: weekLandedRows(entries, Date.now()) }),
@@ -1555,7 +1557,7 @@ export class ArtefactFeed {
         plans: planArtefacts(readPlans(plansDir), Date.now()),
       };
       for (const listener of this.listeners) listener();
-      if (voice && !this.options.decideChanges && unsaid.length) void this.say(voice, decided, unsaid, generation);
+      if (voice && unsaid.length) void this.say(voice, decided, unsaid, generation);
     } finally {
       this.refreshing = false;
       if (this.again) this.refreshSoon();

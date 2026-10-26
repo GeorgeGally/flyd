@@ -176,7 +176,9 @@ export class ArtefactVoice {
       }
       if (said.size) this.save();
       return said.size > 0;
-    } catch {
+    } catch (error) {
+      // Never thrown to the page, but never silent either: a voice that stops must show in the log.
+      console.warn("[artefact-voice] couldn't say", batch.length, "rows:", error instanceof Error ? error.message : error);
       for (const item of batch) this.failed.set(item.id, now);
       return false;
     } finally {
