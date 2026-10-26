@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { georgeInbox } from "../../runtime/agenda.js";
 import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, MAX_NO_PROGRESS_ITERATIONS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, crewBackupModels, discardCrewTask, nextBackupModel, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew, pruneCrewTasks, saveTask } from "../crew.js";
 
 let home: string;
@@ -13,6 +14,7 @@ beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "flyd-crew-"));
   process.env.FLYD_CREW_DIR = join(home, "crew");
   process.env.FLYD_CREW_WORKTREES = join(home, "worktrees");
+  process.env.FLYD_AGENDA_DIR = join(home, "agenda");
   // Refusals fail outright unless a test asks for the switch to a backup model.
   process.env.FLYD_CREW_BACKUP_MODELS = "none";
   repo = join(home, "app");
@@ -456,7 +458,9 @@ describe("crew review against done_when", () => {
     const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, notify });
     expect(done.status).toBe("landed");
     expect(existsSync(join(repo, "feature.txt"))).toBe(true);
-    expect(notify).toHaveBeenCalledWith("Flyd", "Add a feature file is merged into main: its tests pass and it does everything you asked.", "deliverable");
+    // Flyd's own fix never rings him: it waits in the chat inbox.
+    expect(notify).not.toHaveBeenCalled();
+    expect(georgeInbox().map((entry) => entry.result)).toContain("Add a feature file is merged into main: its tests pass and it does everything you asked.");
   });
 
   it("leaves a self-improvement fix for George when a point is unmet, and work from chat always", async () => {
@@ -474,7 +478,8 @@ describe("crew review against done_when", () => {
     const notify = vi.fn(async () => {});
     const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, notify });
     expect(done.status).toBe("ready");
-    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/couldn't merge it myself: .*uncommitted changes.*Say \/land once that's sorted\.$/), "deliverable");
+    expect(notify).not.toHaveBeenCalled();
+    expect(georgeInbox().at(-1)!.result).toMatch(/couldn't merge it myself: .*uncommitted changes.*Say \/land once that's sorted\.$/);
   });
 
   it("sends unmet points back to the crewmate once in the same worktree, then reports what is still short", async () => {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  rangRecently,
   addAgendaItem, agendaPaths, cancelAgendaItem, deliverNotification, markInboxRead, nextOccurrence, parseLocalDateTime,
   readAgenda, runDueAgenda, unreadInbox, upcomingAgenda, type AgendaPaths,
 } from "../agenda.js";
@@ -108,10 +109,10 @@ describe("agenda", () => {
     try {
       expect(await deliverNotification("Flyd", "FirstMate merged the crew branch. The sidebar opens on Artefacts.")).toBe("backstage");
       expect(await deliverNotification("Flyd", "Logo refresh: Firstmate will decide whether to merge the crew branch.", "deliverable", "Logo refresh")).toBe("backstage");
-      expect(await deliverNotification("Logo", "Firstmate needs your call on the logo.", "decision")).toBe("shown");
+      // A call it can't name waits in the chat inbox instead of ringing.
+      expect(await deliverNotification("Logo", "Firstmate needs your call on the logo.", "decision")).toBe("backstage");
       expect(await deliverNotification("Flyd", "Logo refresh: the crew branch is stuck.", "blocker", "Logo refresh")).toBe("shown");
       expect(bodies).toEqual([
-        { title: "Logo", message: "I need your decision on some of your work.", kind: "decision" },
         { title: "Flyd", message: 'I need your decision on "Logo refresh".', kind: "blocker" },
       ]);
     } finally {
@@ -203,5 +204,18 @@ describe("agenda", () => {
     expect(late).toHaveBeenCalledTimes(1);
     expect(result.ran[0]!.status).toBe("failed");
     expect(seen).toEqual([{ message: "\"Draft the reply\" is blocked: it stopped partway, so I didn't run it twice. Tell me whether to try another way or drop it.", kind: "blocker" }]);
+  });
+
+  it("rings the same line once a day, counts aside", () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-rang-"));
+    try {
+      const at = Date.parse("2026-10-26T09:00:00Z");
+      expect(rangRecently("Nobody has been looking after your coding work for 1 h.", dir, at)).toBe(false);
+      expect(rangRecently("Nobody has been looking after your coding work for 3 h.", dir, at + 3_600_000)).toBe(true);
+      expect(rangRecently("Dark mode is merged.", dir, at)).toBe(false);
+      expect(rangRecently("Dark mode is merged.", dir, at + 25 * 3_600_000)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

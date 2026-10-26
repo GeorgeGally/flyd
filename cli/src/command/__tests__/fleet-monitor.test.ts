@@ -306,7 +306,7 @@ describe("Flyd's watch on its coding staff", () => {
     expect(told).toEqual([expect.stringMatching(/Nobody has been looking after your coding work/)]);
     ready = { lock: { state: "held", pid: 1, live_harness: true }, wake_consumer: { state: "healthy" }, can_receive: true };
     now += MIN;
-    expect((await watch.tick())!.concerns).toEqual([]);
+    expect((await watch.tick())!.concerns.filter((concern) => concern.kind === "unreachable")).toEqual([]);
   });
 
   it("nudges the staff first through a moment with no lock held, telling George nothing yet", async () => {

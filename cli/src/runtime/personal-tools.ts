@@ -493,6 +493,7 @@ async function runMacAction(
         if (outcome === "backstage") return "Notification not delivered: it named internal machinery (say the outcome in plain words instead)";
         if (outcome === "idle") return "Notification not delivered: it only said a coding session is waiting at its prompt (say what needs him instead)";
         if (outcome === "placeholder") return "Notification not delivered: it only said work is under way (say what was done instead)";
+        if (outcome === "repeat") return "Notification not delivered: he was told the same thing today already";
         return "Notification not delivered: Flyd.app isn't connected";
       }
       case "clipboard_read": {

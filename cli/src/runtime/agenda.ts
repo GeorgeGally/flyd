@@ -221,8 +221,23 @@ export async function notifyMac(title: string, message: string, kind: GeorgeKind
   await deliverNotification(title, message, kind, work);
 }
 
-/** What became of a notification: shown, kept as Flyd's own to handle, dropped as a coding session idle at its prompt, held for naming backstage or only saying work is under way, or not delivered. */
-export type NotificationOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "undelivered";
+/** What became of a notification: shown, kept as Flyd's own to handle, dropped as a coding session idle at its prompt, held for naming backstage or only saying work is under way, dropped as a repeat of one he heard today, or not delivered. */
+export type NotificationOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered";
+
+const REPEAT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Whether this line already rang him within a day; records it when not. Lines differing only in a count ("for 1 h", "for 3 h") are the same line. */
+export function rangRecently(message: string, dir = process.env.FLYD_AGENDA_DIR?.trim() || FLYD_DIR, now = Date.now()): boolean {
+  const path = join(dir, "notified.json");
+  const key = message.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
+  let rung: Record<string, number> = {};
+  try { rung = JSON.parse(readFileSync(path, "utf8")) as Record<string, number>; } catch { /* first ring */ }
+  rung = Object.fromEntries(Object.entries(rung).filter(([, at]) => now - at < REPEAT_WINDOW_MS));
+  if (rung[key]) return true;
+  rung[key] = now;
+  atomicWrite(path, JSON.stringify(rung));
+  return false;
+}
 
 /** `work` names what the notification is about, for the line he hears when a held decision or blocker still needs his call. */
 export async function deliverNotification(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string): Promise<NotificationOutcome> {
@@ -248,7 +263,13 @@ export async function deliverNotification(title: string, message: string, kind: 
     recordHeld({ surface: "notification", source: "notification", text: message }, backstage);
     if (kind !== "decision" && kind !== "blocker") return "backstage";
     const { quotedWork } = await import("../command/notice.js");
-    message = `I need your decision on ${(work && quotedWork(work)) || "some of your work"}.`;
+    const named = work && quotedWork(work);
+    // A call he can't tell apart from any other is no use pushed at him: it waits in the chat inbox, where Flyd can say what it is.
+    if (!named) {
+      recordInbox({ itemId: `held:${randomUUID().slice(0, 8)}`, task: "A decision", status: kind === "blocker" ? "blocked" : "short", result: message });
+      return "backstage";
+    }
+    message = `I need your decision on ${named}.`;
   }
   message = notificationLine(message);
   // A notification that only says work is happening carries nothing: kept
@@ -259,6 +280,8 @@ export async function deliverNotification(title: string, message: string, kind: 
     recordHeld({ surface: "notification", source: "notification", text: message }, placeholder);
     return "placeholder";
   }
+  // The same line twice in a day is noise: he heard it the first time.
+  if (rangRecently(message)) return "repeat";
   if (process.platform !== "darwin") return "undelivered";
   noteSaid({ surface: "notification", text: message });
   try {

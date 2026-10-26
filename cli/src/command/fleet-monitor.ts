@@ -25,8 +25,8 @@ export const STALE_HANDOFF_MS = 2 * 60 * 60_000;
 export const WORKER_WAIT_MS = 30 * 60_000;
 /** While a handoff stays quiet or a worker stays waiting, Flyd asks the staff again this often. */
 export const RENUDGE_MS = 6 * 60 * 60_000;
-/** The staff unreachable this long, with work open, is told to George. */
-export const UNREACHABLE_MS = 30 * 60_000;
+/** The staff unreachable this long, with work open, is told to George: long enough that a restart or a quiet night is not his news. */
+export const UNREACHABLE_MS = 4 * 60 * 60_000;
 /** How often Core reads the staff's state. */
 export const STAFF_CHECK_MS = 60_000;
 

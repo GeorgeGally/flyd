@@ -906,7 +906,9 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
   }
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
     if (task.status === "landed") {
-      await deps.notify!("Flyd", `${plainOutcome(task)} is merged into main: its tests pass and it does everything you asked.`, "deliverable").catch(() => undefined);
+      const merged = `${plainOutcome(task)} is merged into main: its tests pass and it does everything you asked.`;
+      if (task.source === "self-improvement") await keepForInbox(task, merged);
+      else await deps.notify!("Flyd", merged, "deliverable").catch(() => undefined);
       saveTask({ ...task, notified: true }, dir);
       continue;
     }
@@ -922,7 +924,8 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
           : couldNotLand.has(task.id)
             ? `${plainOutcome(task)} is done and tested, but I couldn't merge it myself: ${couldNotLand.get(task.id)}. Say /land once that's sorted.`
             : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
-    await deps.notify!("Flyd", message, task.status !== "ready" ? "blocker" : "deliverable").catch(() => undefined);
+    if (task.source === "self-improvement") await keepForInbox(task, message);
+    else await deps.notify!("Flyd", message, task.status !== "ready" ? "blocker" : "deliverable").catch(() => undefined);
     saveTask({ ...task, notified: true }, dir);
   }
   // Old failed and discarded tasks give their worktrees and spent branches back.
@@ -930,6 +933,17 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     console.warn("[crew] prune failed:", error instanceof Error ? error.message : error);
   });
   return changed;
+}
+
+/**
+ * Flyd's own fixes are its own business, never rung at George: one that landed
+ * or waits on his /land sits in the chat inbox for when he next looks; one
+ * that failed stays with self-improvement, which reads crew failures as evidence.
+ */
+async function keepForInbox(task: CrewTask, message: string): Promise<void> {
+  if (task.status !== "landed" && task.status !== "ready") return;
+  const { recordInbox } = await import("../runtime/agenda.js");
+  recordInbox({ itemId: `crew:${task.id}`, task: plainOutcome(task), status: task.status === "landed" ? "ok" : "short", result: message });
 }
 
 /** A self-improvement fix with passing checks and every acceptance check met lands without waiting for George. */

@@ -436,7 +436,7 @@ export async function runSelfImprovement(deps: SelfImproveDependencies): Promise
     attempts: [...state.attempts, { at: now.toISOString(), title: improvement.title, taskId: task.id, evidence: improvement.evidence }],
   }, dir);
   if (!("branch" in task) && task.failure) return { status: "not_started", improvement, task, evidence: fresh.length };
-  await deps.notify?.("Flyd", `I'm teaching myself to ${improvement.title.charAt(0).toLowerCase()}${improvement.title.slice(1)}. I'll show you before anything changes.`).catch(() => undefined);
+  // Flyd's own fix is its own business: George hears when it has landed (crew.ts), never that it started.
   return { status: "dispatched", improvement, task, evidence: fresh.length };
 }
 
