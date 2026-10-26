@@ -213,7 +213,7 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
 
   const transcription = transcriptionModelsForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL);
   add({
-    job: "Transcribing push-to-talk and dictation",
+    job: "Transcribing push-to-talk and dictation after he stops (no realtime session)",
     model: transcription[0]!,
     ...(transcription.length > 1 ? { fallbacks: transcription.slice(1) } : {}),
     settings: ["FLYD_TRANSCRIPTION_MODEL"],

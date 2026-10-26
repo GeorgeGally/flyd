@@ -552,11 +552,14 @@ describe("buildConversationPrompt", () => {
 
   it("regenerates once for ungrounded names and dates, then hedges if they remain", async () => {
     let rewrites = 0;
+    const receipts: Array<Record<string, unknown>> = [];
     const answer = await respondToConversation({
       message: "When is the release?",
       history: [],
       memory: { verdict: "insufficient", matches: [] },
       situation: null,
+      sessionId: "grounding-hedged",
+      turnNumber: 1,
       onToken: () => undefined,
     }, {
       readOnly: true,
@@ -569,11 +572,85 @@ describe("buildConversationPrompt", () => {
         expect(prompt).toContain("not found in context — remove or ground these");
         return "<final>The launch for Bloom and Capfive is on October 25.</final>";
       },
-      persistReceipt: async (input) => input as never,
+      persistReceipt: async (input) => { receipts.push(input as never); return input as never; },
     });
 
     expect(rewrites).toBe(1);
     expect(answer).toBe("The launch for Bloom and Capfive is on October 25.\n\nI can't verify those names or dates from the context I have.");
+    expect(receipts[0]?.grounding).toEqual({ flagged: ["Bloom", "Capfive", "October 25"], outcome: "hedged", remaining: ["Bloom", "Capfive", "October 25"] });
+  });
+
+  it("never sends an ungrounded name as written: the rewrite drops it and the receipt records it", async () => {
+    const receipts: Array<Record<string, unknown>> = [];
+    const answer = await respondToConversation({
+      message: "Who is handling the deck?",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: null,
+      sessionId: "grounding-rewritten",
+      turnNumber: 1,
+      onToken: () => undefined,
+    }, {
+      readOnly: true,
+      runAgentLoop: async () => "<final>Priya is handling the deck, George.</final>",
+      rewrite: async (prompt) => {
+        // Priya is flagged; George, known from who Flyd is, is not.
+        expect(prompt).toContain("remove or ground these: Priya.");
+        return "<final>I don't know who is handling the deck, George.</final>";
+      },
+      persistReceipt: async (input) => { receipts.push(input as never); return input as never; },
+    });
+
+    expect(answer).toBe("I don't know who is handling the deck, George.");
+    expect(receipts[0]?.grounding).toEqual({ flagged: ["Priya"], outcome: "rewritten" });
+  });
+
+  it("grounds George's own name and Flyd's from who they are, not from an allowlist", async () => {
+    let rewrites = 0;
+    const receipts: Array<Record<string, unknown>> = [];
+    const answer = await respondToConversation({
+      message: "morning",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: null,
+      sessionId: "grounding-known",
+      turnNumber: 1,
+      onToken: () => undefined,
+    }, {
+      readOnly: true,
+      runAgentLoop: async () => "<final>Morning George. Flyd is all yours today.</final>",
+      rewrite: async () => { rewrites += 1; return ""; },
+      persistReceipt: async (input) => { receipts.push(input as never); return input as never; },
+    });
+
+    expect(rewrites).toBe(0);
+    expect(answer).toBe("Morning George. Flyd is all yours today.");
+    expect(receipts[0]?.grounding).toBeUndefined();
+  });
+
+  it("grounds the date and project names Flyd itself put in front of the model this turn", async () => {
+    let rewrites = 0;
+    const receipts: Array<Record<string, unknown>> = [];
+    const answer = await respondToConversation({
+      message: "what's the date, and what's on?",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: null,
+      weather: "Sunny in Lisbon",
+      now: () => new Date(2026, 9, 26, 10, 0),
+      sessionId: "grounding-own-context",
+      turnNumber: 1,
+      onToken: () => undefined,
+    }, {
+      readOnly: true,
+      runAgentLoop: async () => "<final>It's Monday 26 October, and it's sunny in Lisbon.</final>",
+      rewrite: async () => { rewrites += 1; return ""; },
+      persistReceipt: async (input) => { receipts.push(input as never); return input as never; },
+    });
+
+    expect(rewrites).toBe(0);
+    expect(answer).toBe("It's Monday 26 October, and it's sunny in Lisbon.");
+    expect(receipts[0]?.grounding).toBeUndefined();
   });
 
   it("does not ground an answer with names and dates from an earlier turn", async () => {

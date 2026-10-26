@@ -22,51 +22,159 @@ const DELEGATIONS = new Set(["background_task", "start_coding_task", "start_know
  */
 const PERFECT_CLAIM = /\bI(?:'ve| have)\s+(?:also\s+|already\s+)?(?!started\b|kicked\b|begun\b|queued\b|handed\b|passed\b|asked\b|got\b)[a-z]+(?:ed|en|t|de|ne|ft|ht)\b/i;
 const LOCAL_PATH = /(?:~|\/Users\/[^/\s]+)\/[^\s`'"),;:]+/g;
+// Capitalised words that are not names: sentence starters, greetings,
+// pronouns, days and months. No person or entity name belongs here — a name is grounded only when
+// the supplied context actually contains it, so the list can never wave one
+// through. "Today Bloom" is a candidate span; "Today" alone is not.
 const GROUNDING_ALLOWLIST = new Set([
-  "a", "actually", "after", "also", "an", "and", "are", "as", "at", "before", "because", "but", "can", "could", "did", "do", "does", "for", "from",
-  "george", "he", "hello", "here", "how", "i", "if", "in", "is", "it", "let", "my", "no", "not", "now", "of", "on", "or", "our",
-  "okay", "one", "right", "rows", "she", "so", "some", "started", "sure", "sunny", "that", "the", "their", "there", "these", "they", "this", "to", "two",
+  "a", "actually", "afternoon", "after", "also", "an", "and", "are", "as", "at", "before", "because", "but", "can", "could", "did", "do", "does", "done", "evening", "for", "from",
+  "he", "hello", "here", "hey", "hi", "how", "i", "if", "in", "is", "it", "let", "morning", "my", "night", "no", "not", "now", "of", "on", "or", "our",
+  "okay", "one", "right", "rows", "she", "so", "some", "started", "sure", "sunny", "thanks", "that", "the", "their", "there", "these", "they", "this", "to", "two",
   "today", "tomorrow", "we", "well", "what", "when", "where", "which", "who", "why", "will", "with", "yes", "you", "your",
   "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
   "jan", "january", "feb", "february", "mar", "march", "apr", "april", "may", "jun", "june", "jul", "july",
   "aug", "august", "sep", "sept", "september", "oct", "october", "nov", "november", "dec", "december",
 ]);
-const DATE_TOKEN = /(?<![\p{L}\p{N}])(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?(?:,\s+\d{4})?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])\d{4}-\d{2}-\d{2}(?![\p{L}\p{N}])/giu;
+const WEEKDAY = "(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)";
+const MONTH = "(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)";
+const DAY = "(?:0?[1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?";
+const YEAR = "(?:19|20)\\d{2}";
+// Every written date an answer or a tool produces: "24 October 2026",
+// "October 24", "Friday, October 24, 2026", "Friday 24th", "October 2026",
+// "2026-10-24", "2026-10-24T09:00:00".
+const DATE_TOKEN = new RegExp([
+  `(?:${WEEKDAY},?\\s+)?${DAY}\\s+${MONTH}(?:,?\\s+${YEAR})?`,
+  `(?:${WEEKDAY},?\\s+)?${MONTH}\\s+${DAY}(?:,?\\s+${YEAR})?`,
+  `${MONTH}\\s+${YEAR}`,
+  `${WEEKDAY},?\\s+${DAY}`,
+  `\\d{4}-\\d{2}-\\d{2}(?:T[\\d:.]+(?:Z|[+-]\\d{2}:?\\d{2})?)?`,
+].map((form) => `(?<![\\p{L}\\p{N}])${form}(?![\\p{L}\\p{N}])`).join("|"), "giu");
+// Words in his message that make a date the answer resolves itself
+// ("tomorrow" → Tuesday 27 October) legitimate. Read with every written date
+// taken out, so "Monday" in "Monday, 26 October" is not one.
+const RELATIVE_DATE = new RegExp(`\\b(?:today|tonight|tomorrow|yesterday|weekend|fortnight|${WEEKDAY}|(?:next|this|last|coming)\\s+(?:week|month)|in\\s+(?:\\d+|a|an|one|two|three|four|five|six|seven|eight)\\s+(?:days?|weeks?|months?)|(?:days?|weeks?)\\s+(?:ago|from now))\\b`, "i");
+const CLOCK_LINE = /^Local time:[^\n]*/m;
+const RELATIVE_WINDOW_DAYS = 60;
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+interface CalendarDate { year?: number; month?: number; day?: number; weekday?: number }
+
+function weekdayOf(year: number, month: number, day: number): number {
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+/** A zoned ISO timestamp is read as the local calendar date it falls on; one without a zone, as written. */
+function parseDate(span: string): CalendarDate {
+  const iso = span.match(/(\d{4})-(\d{2})-(\d{2})/);
+  const zoned = iso && /T[\d:.]+(?:Z|[+-]\d{2}:?\d{2})$/.test(span) ? new Date(span) : null;
+  const date: CalendarDate = zoned && !Number.isNaN(zoned.getTime())
+    ? { year: zoned.getFullYear(), month: zoned.getMonth() + 1, day: zoned.getDate() }
+    : iso ? { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) } : {};
+  if (!iso) {
+    const words: string[] = span.toLowerCase().match(/[a-z]+/g) ?? [];
+    const weekday = WEEKDAYS.findIndex((name) => words.includes(name));
+    if (weekday >= 0) date.weekday = weekday;
+    const month = words.find((word) => MONTHS.includes(word.slice(0, 3)));
+    if (month) date.month = MONTHS.indexOf(month.slice(0, 3)) + 1;
+    const year = span.match(/\b(?:19|20)\d{2}\b/);
+    if (year) date.year = Number(year[0]);
+    const day = span.replace(/\b(?:19|20)\d{2}\b/, "").match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
+    if (day) date.day = Number(day[1]);
+  }
+  if (date.weekday === undefined && date.year && date.month && date.day) date.weekday = weekdayOf(date.year, date.month, date.day);
+  return date;
+}
+
+/** Every day and month the span names is named the same in the other date; a year or weekday both name must agree. */
+function sameDate(span: CalendarDate, other: CalendarDate): boolean {
+  return (span.month === undefined || span.month === other.month)
+    && (span.day === undefined || span.day === other.day)
+    && (span.year === undefined || other.year === undefined || span.year === other.year)
+    && (span.weekday === undefined || other.weekday === undefined || span.weekday === other.weekday);
+}
+
+function shiftedDays(from: CalendarDate, days: number): CalendarDate {
+  const date = new Date(Date.UTC(from.year!, from.month! - 1, from.day! + days));
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate(), weekday: date.getUTCDay() };
+}
+
+/**
+ * A date is grounded when the context names the same calendar date in any
+ * written form (an ISO timestamp a tool returned counts), or when his message
+ * asks for a relative date and this one is the clock's date shifted by at
+ * most 60 days. Never by a bare day number or year found elsewhere, and never
+ * with a weekday its calendar date does not fall on.
+ */
+function isDateGrounded(groundingText: string, message: string, span: string): boolean {
+  const date = parseDate(span);
+  if (date.year && date.month && date.day && date.weekday !== weekdayOf(date.year, date.month, date.day)) return false;
+  if ([...groundingText.matchAll(DATE_TOKEN)].some((match) => sameDate(date, parseDate(match[0])))) return true;
+  const clockLine = groundingText.match(CLOCK_LINE)?.[0] ?? "";
+  const clock = parseDate(clockLine.match(DATE_TOKEN)?.[0] ?? "");
+  if (!clock.year || !clock.month || !clock.day) return false;
+  if (!RELATIVE_DATE.test(message.replace(DATE_TOKEN, " "))) return false;
+  for (let days = -RELATIVE_WINDOW_DAYS; days <= RELATIVE_WINDOW_DAYS; days += 1) {
+    if (sameDate(date, shiftedDays(clock, days))) return true;
+  }
+  return false;
+}
+// A run of capitalised words on one line: a name, or a sentence start that
+// leads into one. One span, never split at a word inside it.
+const CAPITALISED_RUN = /(?<![\p{L}\p{N}])\p{Lu}[\p{L}\p{N}]*(?:[^\S\n]+\p{Lu}[\p{L}\p{N}]*)*(?![\p{L}\p{N}])/gu;
 
 function groundingHas(groundingText: string, span: string): boolean {
   const escaped = span.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
   return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(groundingText);
 }
 
-export function checkGrounding(answer: string, groundingText: string): string[] {
-  const spans: Array<{ text: string; index: number }> = [];
-  const properNouns = /(?<![\p{L}\p{N}])\p{Lu}[\p{L}\p{N}]*(?:\s+\p{Lu}[\p{L}\p{N}]*)*(?![\p{L}\p{N}])/gu;
-  for (const match of answer.matchAll(properNouns)) {
-    const words = [...match[0].matchAll(/[\p{Lu}][\p{L}\p{N}]*/gu)];
-    let start: number | null = null;
-    let end = 0;
-    const add = () => {
-      if (start !== null) spans.push({ text: answer.slice(start, end), index: start });
-      start = null;
-    };
-    for (const word of words) {
-      const wordStart = match.index + word.index;
-      const wordEnd = wordStart + word[0].length;
-      if (GROUNDING_ALLOWLIST.has(word[0].toLowerCase())) add();
-      else {
-        if (start === null) start = wordStart;
-        end = wordEnd;
-      }
-    }
-    add();
+function isAllowlisted(word: string): boolean {
+  return GROUNDING_ALLOWLIST.has(word.toLowerCase());
+}
+
+function withoutLeadingFunctionWords(words: string[]): string[] {
+  let start = 0;
+  while (start < words.length && isAllowlisted(words[start])) start += 1;
+  return words.slice(start);
+}
+
+function withoutTrailingFunctionWords(words: string[]): string[] {
+  let end = words.length;
+  while (end > 0 && isAllowlisted(words[end - 1])) end -= 1;
+  return words.slice(0, end);
+}
+
+/**
+ * The span is in the context, or its name is. The sentence-function words a
+ * run can start or end with ("Today Bloom said", "Morning George", "Capfive
+ * Monday") are not part of a name, so "Bloom" in context grounds "Today
+ * Bloom". Words inside a run are never dropped: "Capfive And Bloom" and
+ * "Priya Patel" must appear as written.
+ */
+function isGrounded(groundingText: string, span: string): boolean {
+  if (groundingHas(groundingText, span)) return true;
+  const name = withoutTrailingFunctionWords(withoutLeadingFunctionWords(span.split(/\s+/))).join(" ");
+  return name.length > 0 && name !== span && groundingHas(groundingText, name);
+}
+
+/**
+ * Names and dates the answer uses that the supplied context does not contain,
+ * in order of appearance. A capitalised run is one span: it is left out only
+ * when every word in it is a sentence-function word, never cut at one.
+ */
+export function checkGrounding(answer: string, groundingText: string, message: string): string[] {
+  const spans: Array<{ text: string; index: number; date: boolean }> = [];
+  for (const match of answer.matchAll(CAPITALISED_RUN)) {
+    if (match[0].split(/\s+/).every(isAllowlisted)) continue;
+    spans.push({ text: match[0], index: match.index, date: false });
   }
-  for (const match of answer.matchAll(DATE_TOKEN)) spans.push({ text: match[0], index: match.index });
+  for (const match of answer.matchAll(DATE_TOKEN)) spans.push({ text: match[0], index: match.index, date: true });
   const seen = new Set<string>();
   return spans
     .sort((left, right) => left.index - right.index)
-    .filter(({ text }) => {
+    .filter(({ text, date }) => {
       const key = text.toLowerCase();
-      if (seen.has(key) || groundingHas(groundingText, text)) return false;
+      if (seen.has(key) || (date ? isDateGrounded(groundingText, message, text) : isGrounded(groundingText, text))) return false;
       seen.add(key);
       return true;
     })
