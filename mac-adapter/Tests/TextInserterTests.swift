@@ -15,19 +15,31 @@ final class TextInserterTests: XCTestCase {
     }
 
     func testPastesIntoTheAppThatWasFrontmostAtStop() {
-        XCTAssertEqual(TextInserter.route(secureInputEnabled: false, targetPid: 812, frontmostPid: 812), .paste)
+        XCTAssertEqual(TextInserter.route(secureTyping: .off, targetPid: 812, frontmostPid: 812), .paste)
     }
 
-    func testCopiesInsteadWhenSecureInputIsOn() {
+    func testCopiesInsteadIntoAPasswordBox() {
         XCTAssertEqual(
-            TextInserter.route(secureInputEnabled: true, targetPid: 812, frontmostPid: 812),
+            TextInserter.route(secureTyping: .passwordField, targetPid: 812, frontmostPid: 812),
             .copyOnly(.secureInput)
         )
     }
 
+    func testPastesWhenAnotherAppHoldsSecureTyping() {
+        XCTAssertEqual(TextInserter.route(secureTyping: .heldElsewhere, targetPid: 812, frontmostPid: 812), .paste)
+    }
+
+    func testSecureTypingIsOnlyAPasswordBoxWhenTheFieldIsOneOrCannotBeRead() {
+        XCTAssertEqual(TextInserter.secureTyping(enabled: false, focusedSubrole: .none), .off)
+        XCTAssertEqual(TextInserter.secureTyping(enabled: true, focusedSubrole: .some("AXSecureTextField")), .passwordField)
+        XCTAssertEqual(TextInserter.secureTyping(enabled: true, focusedSubrole: .none), .passwordField)
+        XCTAssertEqual(TextInserter.secureTyping(enabled: true, focusedSubrole: .some(nil)), .heldElsewhere)
+        XCTAssertEqual(TextInserter.secureTyping(enabled: true, focusedSubrole: .some("AXTextArea")), .heldElsewhere)
+    }
+
     func testCopiesInsteadWhenGeorgeSwitchedApps() {
         XCTAssertEqual(
-            TextInserter.route(secureInputEnabled: false, targetPid: 812, frontmostPid: 97),
+            TextInserter.route(secureTyping: .off, targetPid: 812, frontmostPid: 97),
             .copyOnly(.targetChanged)
         )
     }

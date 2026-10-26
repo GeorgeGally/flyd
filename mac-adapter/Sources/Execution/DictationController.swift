@@ -234,7 +234,7 @@ final class DictationController {
         case .pasted, .typed:
             return .inserted
         case .copiedOnly(.secureInput):
-            return .notice("Secure input is on — copied instead")
+            return .notice("Password box active — copied, paste with ⌘V")
         case .copiedOnly:
             return .notice("Copied — paste with ⌘V")
         }

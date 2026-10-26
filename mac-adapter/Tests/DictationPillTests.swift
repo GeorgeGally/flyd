@@ -232,7 +232,7 @@ final class DictationPillTests: XCTestCase {
         )
         XCTAssertEqual(
             DictationController.pillPhase(for: .copiedOnly(reason: .secureInput)),
-            .notice("Secure input is on — copied instead")
+            .notice("Password box active — copied, paste with ⌘V")
         )
     }
 

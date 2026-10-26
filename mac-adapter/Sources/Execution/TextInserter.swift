@@ -31,8 +31,24 @@ enum TextInserter {
     private static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
     private static let typingChunkCharacters = 16
 
-    static func route(secureInputEnabled: Bool, targetPid: pid_t?, frontmostPid: pid_t?) -> Route {
-        if secureInputEnabled { return .copyOnly(.secureInput) }
+    /// Where macOS secure typing stands for this paste. Any app can hold it (Chrome often keeps
+    /// it after a password box closes), and it blocks the whole Mac; only a password box we
+    /// would type into, or one we cannot rule out, is a reason not to paste.
+    enum SecureTyping: Equatable {
+        case off
+        case heldElsewhere
+        case passwordField
+    }
+
+    static func secureTyping(enabled: Bool, focusedSubrole: String??) -> SecureTyping {
+        guard enabled else { return .off }
+        // The focused field could not be read at all: it may be a password box.
+        guard let subrole = focusedSubrole else { return .passwordField }
+        return subrole == "AXSecureTextField" ? .passwordField : .heldElsewhere
+    }
+
+    static func route(secureTyping: SecureTyping, targetPid: pid_t?, frontmostPid: pid_t?) -> Route {
+        if secureTyping == .passwordField { return .copyOnly(.secureInput) }
         if let targetPid, targetPid != frontmostPid { return .copyOnly(.targetChanged) }
         return .paste
     }
@@ -61,7 +77,7 @@ enum TextInserter {
     static func insert(_ text: String, targetPid: pid_t?) async -> InsertOutcome {
         let pasteboard = NSPasteboard.general
         let route = route(
-            secureInputEnabled: IsSecureEventInputEnabled(),
+            secureTyping: currentSecureTyping(),
             targetPid: targetPid,
             frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier
         )
@@ -86,6 +102,20 @@ enum TextInserter {
             }
         }
         return pasted ? .pasted : .copiedOnly(reason: .pasteFailed)
+    }
+
+    @MainActor
+    private static func currentSecureTyping() -> SecureTyping {
+        guard IsSecureEventInputEnabled() else { return .off }
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return .passwordField }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.15)
+        guard let focused = DictationContextCapture.elementAttribute(app, kAXFocusedUIElementAttribute) else {
+            return secureTyping(enabled: true, focusedSubrole: .none)
+        }
+        AXUIElementSetMessagingTimeout(focused, 0.15)
+        // A field with no subrole is an ordinary field, not an unreadable one.
+        return secureTyping(enabled: true, focusedSubrole: .some(DictationContextCapture.text(focused, kAXSubroleAttribute)))
     }
 
     private static func write(_ text: String, to pasteboard: NSPasteboard, transient: Bool) -> Bool {
