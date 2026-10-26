@@ -715,7 +715,7 @@ const MIN_EXPOSURE_TO_PRUNE = 6;
 const PRUNE_BELOW = 0.3;
 
 /**
- * Weekly mutation: pause sources that keep missing, breed new ones from what
+ * Daily mutation: pause sources that keep missing, breed new ones from what
  * worked, try one from the reserve, and revise the taste profile. Every
  * change is logged and shown to George in the next briefing.
  */
@@ -771,7 +771,7 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
   try {
     const reply = await deps.complete(evolvePrompt(sources, feedback, taste, readUserProfile(), memoryPromptText(), localDay(now)));
     const parsed = JSON.parse(reply.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as { add?: Array<Record<string, unknown>>; taste?: string; taste_change?: string };
-    for (const raw of (parsed.add ?? []).slice(0, 4)) {
+    for (const raw of (parsed.add ?? []).slice(0, NEW_SOURCES_PER_EVOLUTION)) {
       const kind = String(raw.kind) as SourceKind;
       const target = String(raw.target ?? "").trim().replace(/^r\//i, "");
       if (!["reddit", "rss", "topic"].includes(kind) || !target) continue;
@@ -798,9 +798,14 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
   return changes;
 }
 
+export const EVOLVE_EVERY_MS = 20 * 60 * 60 * 1000;
+/** New sources one evolution may add: a few a day, so the edition keeps its footing. */
+export const NEW_SOURCES_PER_EVOLUTION = 2;
+
 export function evolutionDue(now = new Date(), dir = scoutDir()): boolean {
   const last = readJson<{ lastEvolvedAt?: string }>(join(dir, "evolution-state.json"), {}).lastEvolvedAt;
-  return !last || now.getTime() - Date.parse(last) >= 7 * 86_400_000;
+  // Daily: Flyd keeps looking for new sources as it learns who George is, not once a week.
+  return !last || now.getTime() - Date.parse(last) >= EVOLVE_EVERY_MS;
 }
 
 /** Unread evolution notes for the briefing ("Scout adjusted: …"); marks them read. */
@@ -862,20 +867,20 @@ export async function runScoutLocked(deps: ScoutDependencies): Promise<ScoutRunR
   return result === "locked" ? { skipped: "locked", failedTopics: [] } : result;
 }
 
-/** The background tick: evolve weekly, edition daily, watch every few hours. */
+/** The background tick: evolve and edition daily, watch every few hours. */
 export async function scoutTick(deps: ScoutDependencies): Promise<string[]> {
   const now = (deps.now ?? (() => new Date()))();
   const dir = deps.dir ?? scoutDir();
   const log: string[] = [];
   const result = await withLock(dir, async () => {
     if (process.env.FLYD_SCOUT === "0") return;
-    // Failure-paused sources get their retry without waiting for the weekly evolution.
+    // Failure-paused sources get their retry without waiting for the daily evolution.
     const revival = reviveFailedSources(readSources(dir, now), now);
     if (revival.revived.length) {
       writeSources(revival.sources, dir);
       log.push(`retrying ${revival.revived.map((source) => source.name).join(", ")}`);
     }
-    // Weekly, with or without feedback: revive, explore the reserve, replan topics, refine taste.
+    // Daily, with or without feedback: look for new sources, revive, explore the reserve, replan topics, refine taste.
     if (evolutionDue(now, dir)) {
       const changes = await evolveScout(deps);
       log.push(`evolved: ${changes.map((change) => change.kind).join(", ") || "no changes"}`);

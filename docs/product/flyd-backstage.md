@@ -32,7 +32,7 @@ Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Cor
 ## Scout (`flyd scout [show|run|watch|evolve|more N|less N|sources|taste]`, `cli/src/council/scout.ts`)
 
 - Personal news: last30days topics + RSS + subreddits as an evolving source population with fitness; taste seeded from George's Hermes curator.
-- Daily edition, 3-hourly must-know watch, weekly evolution. Engine pinned at `~/.flyd/vendor/last30days-skill`.
+- Daily edition, 3-hourly must-know watch, daily evolution (looks for up to 2 new sources from his profile and memory). Engine pinned at `~/.flyd/vendor/last30days-skill`.
 - Reddit: `www.reddit.com/r/<sub>/.rss`, sequential, no bot UA.
 
 ## Crew (`flyd crew [list|dispatch <outcome> [--done <point>]…|show|supervise|land|discard]`, `cli/src/crew/crew.ts`)
