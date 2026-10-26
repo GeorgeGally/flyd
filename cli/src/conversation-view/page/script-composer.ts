@@ -137,7 +137,8 @@ export const COMPOSER_SCRIPT = `
             ? { name: a.name, data: a.data, draftId: a.id }
             : { url: "data:" + a.mediaType + ";base64," + a.data, mediaType: a.mediaType, data: a.data, draftId: a.id, scrawlPointer: a.scrawlPointer };
         }).slice(0, MAX_ATTACHMENTS);
-        if (!newer.text && !restored.length) return;
+        // A draft with no words in it (a stray " -") is not his: the box opens empty.
+        if (!/[a-z0-9]/i.test(newer.text || "") && !restored.length) return;
         // The words that just went never come back; an older, different draft does.
         if (newer.text.trim() && sentSinceLoad.indexOf(newer.text.trim()) !== -1) return;
         input.value = newer.text;

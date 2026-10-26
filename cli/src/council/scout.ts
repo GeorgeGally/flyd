@@ -726,7 +726,7 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
   sources = sources.map((source) => {
     // Silence is not a verdict: only a source George has marked down can be paused for missing.
     if (source.status === "active" && source.dislikes > 0 && source.shown >= MIN_EXPOSURE_TO_PRUNE && fitness(source) < PRUNE_BELOW) {
-      changes.push({ kind: "paused", detail: `${source.name} (fit ${fitness(source).toFixed(2)} after ${source.shown} shown)` });
+      changes.push({ kind: "paused", detail: `${source.name}: you passed on most of the ${source.shown} stories it brought` });
       return { ...source, status: "paused" as const, note: `paused by evolution ${localDay(now)}`, pausedAt: now.toISOString() };
     }
     return source;

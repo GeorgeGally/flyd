@@ -14,7 +14,13 @@ export async function verifyStaffOutcome(
       && /^[0-9a-f]{40}$/.test(item.metadata.mergeCommitSha));
     if (!merged) continue;
     return { status: "verified", evidenceRefs: [locator, `github-merge:${merged.metadata?.mergeCommitSha}`],
-      summary: `The change is merged${merged.title ? `: ${merged.title}` : "."}` };
+      summary: merged.title ? `Merged: ${plainTitle(merged.title)}` : "The change is merged." };
   }
   return { status: "unknown", evidenceRefs: [] };
+}
+
+/** A pull request's title as a person would say it: no "feat(view):" prefix, no "(#231)", first letter up. */
+export function plainTitle(title: string): string {
+  const plain = title.replace(/^\s*\w+(?:\([^)]*\))?!?:\s*/, "").replace(/\s*\(#\d+\)\s*$/, "").trim();
+  return plain ? plain.charAt(0).toUpperCase() + plain.slice(1) : title;
 }

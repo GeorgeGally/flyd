@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GitHubRestAdapter } from "../../../evidence/adapters/github-rest.js";
 import { verifyStaffOutcome } from "../verify-outcome.js";
 
@@ -11,7 +11,7 @@ it("checks the forge through the existing evidence adapter instead of trusting a
   } });
   const result = await verifyStaffOutcome(["completed", "Checks green", locator], (url) => adapter.read({ locator: url }));
   expect(calls).toEqual(["https://api.github.com/repos/example/project/pulls/5"]);
-  expect(result).toEqual({ status: "verified", evidenceRefs: [locator, `github-merge:${"a".repeat(40)}`], summary: "The change is merged: Keep the launch date visible" });
+  expect(result).toEqual({ status: "verified", evidenceRefs: [locator, `github-merge:${"a".repeat(40)}`], summary: "Merged: Keep the launch date visible" });
 });
 
 it("keeps an open PR and unsupported or local evidence unverified without following arbitrary addresses", async () => {
@@ -21,4 +21,12 @@ it("keeps an open PR and unsupported or local evidence unverified without follow
   const locator = "https://github.com/example/project/pull/5";
   const adapter = new GitHubRestAdapter({ fetchFn: async () => new Response(JSON.stringify({ id: 5, number: 5, html_url: locator, merged: false }), { status: 200 }) });
   expect(await verifyStaffOutcome([locator], (url) => adapter.read({ locator: url }))).toEqual({ status: "unknown", evidenceRefs: [] });
+});
+
+describe("plainTitle", () => {
+  it("says a pull request's title the way a person would", async () => {
+    const { plainTitle } = await import("../verify-outcome.js");
+    expect(plainTitle("feat(view): station idents play between songs (#231)")).toBe("Station idents play between songs");
+    expect(plainTitle("Keep the launch date visible")).toBe("Keep the launch date visible");
+  });
 });

@@ -229,7 +229,7 @@ describe("evolution", () => {
     expect(readTaste(dir)).toContain("generative audio");
     expect(readFileSync(join(dir, "taste-history.jsonl"), "utf8")).toContain("crypto art");
     expect(takeEvolutionNotes(dir)).toEqual([
-      "paused: Dull (fit 0.17 after 10 shown)", "revived: trying FlowingData",
+      "paused: Dull: you passed on most of the 10 stories it brought", "revived: trying FlowingData",
       "added: r/algorithmicmusic — He liked on-chain generative audio", "taste: now favours generative audio",
     ]);
     expect(takeEvolutionNotes(dir)).toEqual([]);

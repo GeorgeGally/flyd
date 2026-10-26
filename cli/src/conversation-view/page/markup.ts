@@ -106,7 +106,7 @@ ${FRONT_HTML}
         <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>
       </div>
       <button class="prediction-toggle" id="prediction-toggle" type="button" aria-label="Toggle typing suggestions" aria-pressed="true">↹</button>
-      <button id="send" type="submit" disabled aria-label="Send to ${label}">AHOY</button>
+      <button id="send" type="submit" disabled aria-label="Send to ${label}">Send</button>
     </div>
     <div class="hint" id="usage"></div>
   </div>
