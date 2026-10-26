@@ -150,7 +150,7 @@ export const SESSION_SCRIPT = `
         button.addEventListener("click", function () {
           explicit = session.id;
           window.history.replaceState(null, "", "?session=" + encodeURIComponent(explicit));
-          if (window.matchMedia && window.matchMedia("(max-width: 720px)").matches) {
+          if (!frontLayout && window.matchMedia && window.matchMedia("(max-width: 720px)").matches) {
             railMobileDismissed = true;
             showRail();
           }

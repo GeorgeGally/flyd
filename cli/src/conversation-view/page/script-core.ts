@@ -29,7 +29,10 @@ var __name = function (f) { return f; };
     } catch (_) {}
     return fresh;
   })();
-  var railMobileDismissed = !!(window.matchMedia && window.matchMedia("(max-width: 720px)").matches);
+  // A narrow window starts with the side column folded away, except the front page, whose phone
+  // layout runs the artefacts as a strip of cards above the conversation (with no tab to reopen them).
+  var frontLayout = document.documentElement.dataset.layout === "front";
+  var railMobileDismissed = !frontLayout && !!(window.matchMedia && window.matchMedia("(max-width: 720px)").matches);
   var historyDrawn = "";
   var lastActivity = null;
   var isWorking = false;
