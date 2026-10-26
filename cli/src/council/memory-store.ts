@@ -50,6 +50,12 @@ export const PERISHABLE_DAYS = 7;
 /** Hard ceiling so MEMORY.md stays a map, not a journal. */
 export const MEMORY_BUDGET_CHARS = 16_000;
 
+/**
+ * "Shipped" is history the repos also keep, and it grows every day: under one shared budget it
+ * filled half the file and pushed out Facts, Decisions and who George is. It keeps its own share.
+ */
+export const SHIPPED_BUDGET_CHARS = 3_000;
+
 /** Under budget pressure, what a friend would forget first: project detail before who George is. */
 const EVICTION_ORDER = ["Shipped", "Projects", "Facts", "Decisions", "Commitments", "Lately", "People", "Who he is"];
 
@@ -235,6 +241,14 @@ export function applyMemoryOps(ops: MemoryOp[], options: { now?: Date; paths?: M
   // cannot archive a new entry (say, a fresh "Shipped" note) the moment it lands.
   const touched = new Set(entries.filter((entry) => entry.date === today).map((entry) => entry.id));
   const rank = (entry: MemoryEntry) => { const index = EVICTION_ORDER.indexOf(entry.section); return (index === -1 ? 0 : index) + (touched.has(entry.id) ? EVICTION_ORDER.length : 0); };
+  const shippedChars = () => entries.filter((entry) => entry.section === "Shipped").reduce((sum, entry) => sum + entry.text.length + 20, 0);
+  while (shippedChars() > SHIPPED_BUDGET_CHARS) {
+    const shipped = entries.filter((entry) => entry.section === "Shipped");
+    const oldest = shipped.reduce((a, b) => (rank(b) < rank(a) || (rank(b) === rank(a) && b.date < a.date) ? b : a));
+    entries.splice(entries.indexOf(oldest), 1);
+    archived.push({ entry: oldest, reason: "over the Shipped share of memory (oldest confirmation)" });
+    receipt.archived += 1;
+  }
   while (renderMemory(entries).length > MEMORY_BUDGET_CHARS && entries.length > 0) {
     const oldest = entries.reduce((a, b) => (rank(b) < rank(a) || (rank(b) === rank(a) && b.date < a.date) ? b : a));
     entries.splice(entries.indexOf(oldest), 1);

@@ -91,6 +91,24 @@ describe("budget eviction", () => {
   });
 });
 
+describe("the Shipped share", () => {
+  it("keeps Shipped to its own share, oldest out first, so it never crowds out facts about George", async () => {
+    const { applyMemoryOps, readMemoryEntries, memoryPaths, SHIPPED_BUDGET_CHARS } = await import("../memory-store.js");
+    const paths = memoryPaths(mkdtempSync(join(tmpdir(), "flyd-shipped-share-")));
+    applyMemoryOps([{ op: "add", section: "Facts", text: "Star sign is Virgo." }], { now: new Date("2026-09-01T10:00:00"), paths });
+    const shipped = Array.from({ length: Math.ceil(SHIPPED_BUDGET_CHARS / 60) + 10 }, (_, index) => ({
+      op: "add" as const, section: "Shipped", text: `Shipped change number ${String(index).padStart(3, "0")} for some project.`,
+    }));
+    applyMemoryOps(shipped.slice(0, 10), { now: new Date("2026-09-02T10:00:00"), paths });
+    applyMemoryOps(shipped.slice(10), { now: new Date("2026-09-20T10:00:00"), paths });
+    const entries = readMemoryEntries(paths);
+    const kept = entries.filter((entry) => entry.section === "Shipped");
+    expect(kept.reduce((sum, entry) => sum + entry.text.length + 20, 0)).toBeLessThanOrEqual(SHIPPED_BUDGET_CHARS);
+    expect(kept.some((entry) => entry.text.includes("number 000"))).toBe(false);
+    expect(entries.some((entry) => entry.text === "Star sign is Virgo.")).toBe(true);
+  });
+});
+
 describe("memory in the prompt", () => {
   it("keeps every section of a full MEMORY.md and trims oldest entries within sections", async () => {
     const { MEMORY_SECTIONS, MEMORY_PROMPT_MAX_CHARS, memoryPromptText, memoryPaths } = await import("../memory-store.js");
