@@ -107,6 +107,18 @@ describe("executive decision step", () => {
     expect(store.readSource("executive.cycle")).toHaveLength(1);
   });
 
+  it("keeps a merged change as a done item and never notifies him of it, even when he asked for it", () => {
+    const decision = decideExecutiveStep({
+      sourceId: "firstmate.status",
+      sourceEventId: "task:idents:done",
+      sourceText: "Merged https://github.com/o/r/pull/231",
+      proposal: { kind: "verified_result", summary: "Merged: Station idents play between songs", evidenceRefs: ["task:idents"] },
+      verification: { status: "verified", evidenceRefs: ["https://github.com/o/r/pull/231", `github-merge:${"a".repeat(40)}`] },
+      requested: true,
+    });
+    expect(decision).toMatchObject({ show: true, notify: false });
+  });
+
   it("closes only an open ask after George's answer is recorded", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-decision-resolution-"));
     const store = new IntelligenceEventStore({ path: join(dir, "intelligence.sqlite") });

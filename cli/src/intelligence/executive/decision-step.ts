@@ -214,6 +214,8 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
 
   if (proposal.kind === "verified_result" && verification.status === "verified" && verification.evidenceRefs.length) {
     const notable = judgment?.notable === true || input.requested === true;
+    // Code merging is a work record, not news: it stays a done item under Jobs and never notifies him.
+    const merged = verification.evidenceRefs.some((ref) => ref.startsWith("github-merge:"));
     return {
       ...decision,
       disposition: "handle_internally",
@@ -221,7 +223,7 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
       evidenceRefs: [...new Set([...evidenceRefs, ...verification.evidenceRefs])],
       verification: { status: "verified", evidenceRefs: verification.evidenceRefs },
       show: true,
-      notify: notable,
+      notify: notable && !merged,
     };
   }
 
