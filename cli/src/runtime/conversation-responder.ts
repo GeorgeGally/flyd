@@ -1275,7 +1275,7 @@ export async function respondToConversation(
     // and what its tools returned. Earlier turns don't count, and no
     // allowlist can wave a name through.
     const groundingText = [facts, evidence, request.grounding, ...toolOutputs].join("\n");
-    const flagged = ungroundedSpans(final, groundingText);
+    const flagged = ungroundedSpans(final, groundingText, input.message);
     const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final), ...groundingProblems(flagged)];
     if (problems.length) {
       // One honest rewrite; if that fails, the original stands rather than nothing.
@@ -1287,7 +1287,7 @@ export async function respondToConversation(
     // An ungrounded name or date never goes out as written: the rewrite
     // dropped or grounded it, or the answer says it can't be verified. Either
     // way the receipt records what was flagged and what became of it.
-    const remaining = ungroundedSpans(final, groundingText);
+    const remaining = ungroundedSpans(final, groundingText, input.message);
     if (flagged.length || remaining.length) {
       grounding = remaining.length ? { flagged, outcome: "hedged", remaining } : { flagged, outcome: "rewritten" };
       console.warn(`[grounding] ${grounding.outcome}: ${flagged.join(", ")}${remaining.length ? ` (still ungrounded: ${remaining.join(", ")})` : ""}`);

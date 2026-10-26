@@ -174,8 +174,8 @@ export function finishInFlydsVoice(answer: string): string {
 }
 
 /** Names and dates the answer uses that this turn's context (his message, what Flyd knows, tool output) does not contain. */
-export function ungroundedSpans(answer: string, groundingText: string): string[] {
-  return checkGrounding(stripInternalNarration(answer).cleaned, groundingText);
+export function ungroundedSpans(answer: string, groundingText: string, message: string): string[] {
+  return checkGrounding(stripInternalNarration(answer).cleaned, groundingText, message);
 }
 
 export function groundingProblems(spans: string[]): string[] {

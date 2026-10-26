@@ -6,71 +6,101 @@ const mutating = (name: string) => name === "write_file" || name === "reminders"
 describe("honesty check", () => {
   it("flags names and explicit dates absent from context, but accepts supplied references", () => {
     const answer = "I spoke with Bloom and Capfive on October 25.";
-    expect(checkGrounding(answer, "The release is still being planned.")).toEqual(["Bloom", "Capfive", "October 25"]);
-    expect(checkGrounding(answer, "bloom and capfive are meeting on october 25.")).toEqual([]);
-    expect(checkGrounding("Today is Friday. Why not go in June?", "")).toEqual([]);
-    expect(checkGrounding("It ships Friday, October 25 and 2026-10-25.", "")).toEqual(["Friday, October 25", "2026-10-25"]);
+    expect(checkGrounding(answer, "The release is still being planned.", "")).toEqual(["Bloom", "Capfive", "October 25"]);
+    expect(checkGrounding(answer, "bloom and capfive are meeting on october 25.", "")).toEqual([]);
+    expect(checkGrounding("Today is Friday. Why not go in June?", "", "")).toEqual([]);
+    expect(checkGrounding("It ships Friday, October 25 and 2026-10-25.", "", "")).toEqual(["Friday, October 25", "2026-10-25"]);
   });
 
   it("grounds a person's name only when the context contains it, never by allowlist", () => {
-    expect(checkGrounding("I'll ask George about it.", "Ask Sam.")).toEqual(["George"]);
-    expect(checkGrounding("I'll ask George about it.", "You are Flyd, George's chief of staff.")).toEqual([]);
-    expect(checkGrounding("It was George Gally who signed it.", "George asked about the deck.")).toEqual(["George Gally"]);
+    expect(checkGrounding("I'll ask George about it.", "Ask Sam.", "")).toEqual(["George"]);
+    expect(checkGrounding("I'll ask George about it.", "You are Flyd, George's chief of staff.", "")).toEqual([]);
+    expect(checkGrounding("It was George Gally who signed it.", "George asked about the deck.", "")).toEqual(["George Gally"]);
     // A greeting before a name is not part of it.
-    expect(checkGrounding("Morning George, the deck is ready.", "is the deck ready?")).toEqual(["Morning George"]);
-    expect(checkGrounding("Morning George, the deck is ready.", "George's chief of staff")).toEqual([]);
+    expect(checkGrounding("Morning George, the deck is ready.", "is the deck ready?", "")).toEqual(["Morning George"]);
+    expect(checkGrounding("Morning George, the deck is ready.", "George's chief of staff", "")).toEqual([]);
     // A first name at the start of a sentence is part of the name: a known surname does not ground it.
-    expect(checkGrounding("Priya Patel is handling the deck.", "Raj Patel owns the deck.")).toEqual(["Priya Patel"]);
-    expect(checkGrounding("Priya Patel is handling the deck.", "Priya Patel owns the deck.")).toEqual([]);
+    expect(checkGrounding("Priya Patel is handling the deck.", "Raj Patel owns the deck.", "")).toEqual(["Priya Patel"]);
+    expect(checkGrounding("Priya Patel is handling the deck.", "Priya Patel owns the deck.", "")).toEqual([]);
   });
 
   it("keeps a capitalised run as one span even when it contains an allowlisted word", () => {
-    expect(checkGrounding("Also read the Sunday Times piece.", "")).toEqual(["Sunday Times"]);
-    expect(checkGrounding("The Bank Of Bloom called.", "")).toEqual(["The Bank Of Bloom"]);
-    expect(checkGrounding("The Bank Of Bloom called.", "the bank of bloom")).toEqual([]);
-    expect(checkGrounding("Capfive And Bloom merged.", "capfive and bloom are merging")).toEqual([]);
-    expect(checkGrounding("Capfive And Bloom merged.", "capfive merged with bloom")).toEqual(["Capfive And Bloom"]);
+    expect(checkGrounding("Also read the Sunday Times piece.", "", "")).toEqual(["Sunday Times"]);
+    expect(checkGrounding("The Bank Of Bloom called.", "", "")).toEqual(["The Bank Of Bloom"]);
+    expect(checkGrounding("The Bank Of Bloom called.", "the bank of bloom", "")).toEqual([]);
+    expect(checkGrounding("Capfive And Bloom merged.", "capfive and bloom are merging", "")).toEqual([]);
+    expect(checkGrounding("Capfive And Bloom merged.", "capfive merged with bloom", "")).toEqual(["Capfive And Bloom"]);
     // Sentence-function words around a name are not the name: "Bloom" in context grounds "Today Bloom".
-    expect(checkGrounding("Today Bloom shipped. Capfive Monday.", "bloom and capfive")).toEqual([]);
-    expect(checkGrounding("Today Bloom shipped.", "nothing shipped")).toEqual(["Today Bloom"]);
+    expect(checkGrounding("Today Bloom shipped. Capfive Monday.", "bloom and capfive", "")).toEqual([]);
+    expect(checkGrounding("Today Bloom shipped.", "nothing shipped", "")).toEqual(["Today Bloom"]);
     // A run of nothing but sentence-function words is not a candidate.
-    expect(checkGrounding("Yes. The Monday After. Okay Well", "")).toEqual([]);
+    expect(checkGrounding("Yes. The Monday After. Okay Well", "", "")).toEqual([]);
   });
 
   it("flags ungrounded dates in every written form, and accepts those in context", () => {
-    expect(checkGrounding("It is due 24 October 2026.", "")).toEqual(["24 October 2026"]);
-    expect(checkGrounding("It is due 24 October 2026.", "Due 24 October 2026.")).toEqual([]);
-    expect(checkGrounding("It is due October 24.", "October 24 is the deadline.")).toEqual([]);
-    expect(checkGrounding("It is due October 24.", "October 25 is the deadline.")).toEqual(["October 24"]);
-    expect(checkGrounding("It is due 2026-10-24.", "due 2026-10-24")).toEqual([]);
-    expect(checkGrounding("It is due 2026-10-24.", "")).toEqual(["2026-10-24"]);
-    expect(checkGrounding("It ships Friday, October 24, 2026, so October 2026.", "")).toEqual(["Friday, October 24, 2026", "October 2026"]);
-    expect(checkGrounding("We meet at 10am Monday.", "")).toEqual([]);
+    expect(checkGrounding("It is due 24 October 2026.", "", "")).toEqual(["24 October 2026"]);
+    expect(checkGrounding("It is due 24 October 2026.", "Due 24 October 2026.", "")).toEqual([]);
+    expect(checkGrounding("It is due October 24.", "October 24 is the deadline.", "")).toEqual([]);
+    expect(checkGrounding("It is due October 24.", "October 25 is the deadline.", "")).toEqual(["October 24"]);
+    expect(checkGrounding("It is due 2026-10-24.", "due 2026-10-24", "")).toEqual([]);
+    expect(checkGrounding("It is due 2026-10-24.", "", "")).toEqual(["2026-10-24"]);
+    expect(checkGrounding("It ships Friday, October 24, 2026, so October 2026.", "", "")).toEqual(["Friday, October 24, 2026", "October 2026"]);
+    expect(checkGrounding("We meet at 10am Monday.", "", "")).toEqual([]);
   });
 
   it("never grounds a date by a bare day number or year found elsewhere in the context", () => {
     const context = "Local time: Monday, 26 October 2026 at 10:00 (Europe/London, UTC+00:00)\nKeep it to 1-3 sentences.\nItem 14";
-    expect(checkGrounding("The launch is Friday, March 14.", context)).toEqual(["Friday, March 14"]);
-    expect(checkGrounding("The launch is Friday 14 November.", context)).toEqual(["Friday 14 November"]);
-    expect(checkGrounding("It ships in March 2026.", context)).toEqual(["March 2026"]);
-    expect(checkGrounding("It is due November 3.", context)).toEqual(["November 3"]);
-    expect(checkGrounding("Today is Monday 26 March.", context)).toEqual(["Monday 26 March"]);
+    expect(checkGrounding("The launch is Friday, March 14.", context, "")).toEqual(["Friday, March 14"]);
+    expect(checkGrounding("The launch is Friday 14 November.", context, "")).toEqual(["Friday 14 November"]);
+    expect(checkGrounding("It ships in March 2026.", context, "")).toEqual(["March 2026"]);
+    expect(checkGrounding("It is due November 3.", context, "")).toEqual(["November 3"]);
+    expect(checkGrounding("Today is Monday 26 March.", context, "")).toEqual(["Monday 26 March"]);
   });
 
   it("grounds a date by calendar date, in any written form the context uses", () => {
     const clock = "Local time: Monday 26 October 2026 at 10:00 (Europe/London, UTC+00:00)";
-    expect(checkGrounding("It's Monday 26 October, so October 26 and the 26th October.", clock)).toEqual([]);
-    expect(checkGrounding("It's due Thursday 29 October.", "reminders: [{\"due\":\"2026-10-29T09:00:00\"}]")).toEqual([]);
-    expect(checkGrounding("It's due Friday 29 October.", "reminders: [{\"due\":\"2026-10-29T09:00:00\"}]")).toEqual(["Friday 29 October"]);
+    expect(checkGrounding("It's Monday 26 October, so October 26 and the 26th October.", clock, "")).toEqual([]);
+    expect(checkGrounding("It's due Thursday 29 October.", "reminders: [{\"due\":\"2026-10-29T09:00:00\"}]", "")).toEqual([]);
+    expect(checkGrounding("It's due Friday 29 October.", "reminders: [{\"due\":\"2026-10-29T09:00:00\"}]", "")).toEqual(["Friday 29 October"]);
+    expect(checkGrounding("It's due Friday, 29 October 2026.", "reminders: [{\"due\":\"2026-10-29T09:00:00\"}]", "")).toEqual(["Friday, 29 October 2026"]);
   });
 
-  it("grounds a date resolved from the clock only when he asked for a relative date, within 60 days", () => {
+  it("grounds a date resolved from the clock only when his message asks for a relative date, within 60 days", () => {
     const clock = "Local time: Monday 26 October 2026 at 10:00 (Europe/London, UTC+00:00)";
-    expect(checkGrounding("Done, set for Tuesday 27 October at 9.", `${clock}\nGeorge: remind me tomorrow at 9`)).toEqual([]);
-    expect(checkGrounding("Done, set for Monday 16 November.", `${clock}\nGeorge: remind me in three weeks`)).toEqual([]);
-    expect(checkGrounding("Done, set for Thursday 18 March 2027.", `${clock}\nGeorge: remind me tomorrow at 9`)).toEqual(["Thursday 18 March 2027"]);
-    expect(checkGrounding("Done, set for Wednesday 27 October.", `${clock}\nGeorge: remind me tomorrow at 9`)).toEqual(["Wednesday 27 October"]);
-    expect(checkGrounding("It launches Tuesday 27 October.", `${clock}\nGeorge: when is the launch?`)).toEqual(["Tuesday 27 October"]);
+    const ask = (message: string) => `${clock}\nGeorge: ${message}`;
+    expect(checkGrounding("Done, set for Tuesday 27 October at 9.", ask("remind me tomorrow at 9"), "remind me tomorrow at 9")).toEqual([]);
+    expect(checkGrounding("Done, set for Monday 16 November.", ask("remind me in three weeks"), "remind me in three weeks")).toEqual([]);
+    expect(checkGrounding("Done, set for Thursday 18 March 2027.", ask("remind me tomorrow at 9"), "remind me tomorrow at 9")).toEqual(["Thursday 18 March 2027"]);
+    expect(checkGrounding("Done, set for Wednesday 27 October.", ask("remind me tomorrow at 9"), "remind me tomorrow at 9")).toEqual(["Wednesday 27 October"]);
+    expect(checkGrounding("Done, set for Monday 27 October 2026.", ask("remind me tomorrow at 9"), "remind me tomorrow at 9")).toEqual(["Monday 27 October 2026"]);
+    expect(checkGrounding("It launches Tuesday 27 October.", ask("when is the launch?"), "when is the launch?")).toEqual(["Tuesday 27 October"]);
+  });
+
+  it("opens the relative-date window only for his message, never for memory, agenda or tool text", () => {
+    const context = [
+      "Local time: Monday 26 October 2026 at 10:00 (Europe/London, UTC+00:00)",
+      "<personal-memory>",
+      "- [user_observation] George likes to plan tomorrow's work tonight.",
+      "- [durable] Every Friday he reviews the week; yesterday he moved the gym to Tuesday.",
+      "</personal-memory>",
+      "Agenda: today: send the invoice; next week: the dentist.",
+      "tool calendar_events: nothing scheduled this weekend",
+    ].join("\n");
+    expect(checkGrounding("It launches Tuesday 27 October.", `${context}\nGeorge: when is the launch?`, "when is the launch?")).toEqual(["Tuesday 27 October"]);
+    expect(checkGrounding("Done, set for Tuesday 27 October.", `${context}\nGeorge: remind me tomorrow`, "remind me tomorrow")).toEqual([]);
+  });
+
+  it("reads a zoned ISO timestamp as the local date it falls on", () => {
+    const zone = process.env.TZ;
+    process.env.TZ = "Asia/Singapore";
+    try {
+      const tool = "schedule: [{\"nextRunAt\":\"2026-10-27T23:00:00.000Z\"}]";
+      expect(checkGrounding("It runs Wednesday 28 October at 7.", tool, "")).toEqual([]);
+      expect(checkGrounding("It runs Tuesday 27 October at 7.", tool, "")).toEqual(["Tuesday 27 October"]);
+      expect(checkGrounding("It runs Tuesday 27 October at 11pm.", "schedule: [{\"at\":\"2026-10-27T23:00:00\"}]", "")).toEqual([]);
+    } finally {
+      if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+    }
   });
 
   it("requires an artefact for long enumerations, but not short replies or artefact references", () => {

@@ -49,8 +49,8 @@ const DATE_TOKEN = new RegExp([
   `${WEEKDAY},?\\s+${DAY}`,
   `\\d{4}-\\d{2}-\\d{2}(?:T[\\d:.]+(?:Z|[+-]\\d{2}:?\\d{2})?)?`,
 ].map((form) => `(?<![\\p{L}\\p{N}])${form}(?![\\p{L}\\p{N}])`).join("|"), "giu");
-// Words that make a date the answer resolves itself ("tomorrow" → Tuesday
-// 27 October) legitimate. Read with every written date and the clock line
+// Words in his message that make a date the answer resolves itself
+// ("tomorrow" → Tuesday 27 October) legitimate. Read with every written date
 // taken out, so "Monday" in "Monday, 26 October" is not one.
 const RELATIVE_DATE = new RegExp(`\\b(?:today|tonight|tomorrow|yesterday|weekend|fortnight|${WEEKDAY}|(?:next|this|last|coming)\\s+(?:week|month)|in\\s+(?:\\d+|a|an|one|two|three|four|five|six|seven|eight)\\s+(?:days?|weeks?|months?)|(?:days?|weeks?)\\s+(?:ago|from now))\\b`, "i");
 const CLOCK_LINE = /^Local time:[^\n]*/m;
@@ -60,11 +60,17 @@ const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "frida
 
 interface CalendarDate { year?: number; month?: number; day?: number; weekday?: number }
 
+function weekdayOf(year: number, month: number, day: number): number {
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+/** A zoned ISO timestamp is read as the local calendar date it falls on; one without a zone, as written. */
 function parseDate(span: string): CalendarDate {
   const iso = span.match(/(\d{4})-(\d{2})-(\d{2})/);
-  const date: CalendarDate = iso
-    ? { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) }
-    : {};
+  const zoned = iso && /T[\d:.]+(?:Z|[+-]\d{2}:?\d{2})$/.test(span) ? new Date(span) : null;
+  const date: CalendarDate = zoned && !Number.isNaN(zoned.getTime())
+    ? { year: zoned.getFullYear(), month: zoned.getMonth() + 1, day: zoned.getDate() }
+    : iso ? { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) } : {};
   if (!iso) {
     const words: string[] = span.toLowerCase().match(/[a-z]+/g) ?? [];
     const weekday = WEEKDAYS.findIndex((name) => words.includes(name));
@@ -76,7 +82,7 @@ function parseDate(span: string): CalendarDate {
     const day = span.replace(/\b(?:19|20)\d{2}\b/, "").match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
     if (day) date.day = Number(day[1]);
   }
-  if (date.year && date.month && date.day) date.weekday = new Date(Date.UTC(date.year, date.month - 1, date.day)).getUTCDay();
+  if (date.weekday === undefined && date.year && date.month && date.day) date.weekday = weekdayOf(date.year, date.month, date.day);
   return date;
 }
 
@@ -95,17 +101,19 @@ function shiftedDays(from: CalendarDate, days: number): CalendarDate {
 
 /**
  * A date is grounded when the context names the same calendar date in any
- * written form (an ISO timestamp a tool returned counts), or when the context
+ * written form (an ISO timestamp a tool returned counts), or when his message
  * asks for a relative date and this one is the clock's date shifted by at
- * most 60 days. Never by a bare day number or year found elsewhere.
+ * most 60 days. Never by a bare day number or year found elsewhere, and never
+ * with a weekday its calendar date does not fall on.
  */
-function isDateGrounded(groundingText: string, span: string): boolean {
+function isDateGrounded(groundingText: string, message: string, span: string): boolean {
   const date = parseDate(span);
+  if (date.year && date.month && date.day && date.weekday !== weekdayOf(date.year, date.month, date.day)) return false;
   if ([...groundingText.matchAll(DATE_TOKEN)].some((match) => sameDate(date, parseDate(match[0])))) return true;
   const clockLine = groundingText.match(CLOCK_LINE)?.[0] ?? "";
   const clock = parseDate(clockLine.match(DATE_TOKEN)?.[0] ?? "");
   if (!clock.year || !clock.month || !clock.day) return false;
-  if (!RELATIVE_DATE.test(groundingText.replace(CLOCK_LINE, "").replace(DATE_TOKEN, " "))) return false;
+  if (!RELATIVE_DATE.test(message.replace(DATE_TOKEN, " "))) return false;
   for (let days = -RELATIVE_WINDOW_DAYS; days <= RELATIVE_WINDOW_DAYS; days += 1) {
     if (sameDate(date, shiftedDays(clock, days))) return true;
   }
@@ -154,7 +162,7 @@ function isGrounded(groundingText: string, span: string): boolean {
  * in order of appearance. A capitalised run is one span: it is left out only
  * when every word in it is a sentence-function word, never cut at one.
  */
-export function checkGrounding(answer: string, groundingText: string): string[] {
+export function checkGrounding(answer: string, groundingText: string, message: string): string[] {
   const spans: Array<{ text: string; index: number; date: boolean }> = [];
   for (const match of answer.matchAll(CAPITALISED_RUN)) {
     if (match[0].split(/\s+/).every(isAllowlisted)) continue;
@@ -166,7 +174,7 @@ export function checkGrounding(answer: string, groundingText: string): string[] 
     .sort((left, right) => left.index - right.index)
     .filter(({ text, date }) => {
       const key = text.toLowerCase();
-      if (seen.has(key) || (date ? isDateGrounded(groundingText, text) : isGrounded(groundingText, text))) return false;
+      if (seen.has(key) || (date ? isDateGrounded(groundingText, message, text) : isGrounded(groundingText, text))) return false;
       seen.add(key);
       return true;
     })
