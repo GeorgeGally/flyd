@@ -1160,7 +1160,7 @@ describe("conversation action tools", () => {
       const out = await runToolCall("edit_file", {
         path: ".env", old_string: "1", new_string: "2",
       }, root);
-      expect(out).toBe("Access denied: .env");
+      expect(out).toMatch(/^(?:Access denied: \.env|Not approved: (?:edit|write) \.env \(credentials)/);
       expect(readFileSync(join(root, ".env"), "utf8")).toBe("SECRET=1\n");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1187,7 +1187,7 @@ describe("conversation action tools", () => {
       const out = await runToolCall("write_file", {
         path: ".env", content: "SECRET=1",
       }, root);
-      expect(out).toBe("Access denied: .env");
+      expect(out).toMatch(/^(?:Access denied: \.env|Not approved: (?:edit|write) \.env \(credentials)/);
       expect(existsSync(join(root, ".env"))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });

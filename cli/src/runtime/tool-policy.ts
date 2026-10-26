@@ -320,6 +320,33 @@ export function advanceSemanticAction(
   };
 }
 
+/**
+ * Credentials Flyd never reads into a conversation, at any autonomy level: the
+ * Core token, connector and WhatsApp/mobile secrets, .env files, private keys,
+ * the keychain, and a dump of the environment. Keys stay out of the model's sight.
+ */
+const SECRET = new RegExp([
+  String.raw`\.flyd/(?:overlay/)?auth-token`,
+  String.raw`\.flyd/(?:connectors|mobile)/`,
+  String.raw`\.secret\.json\b`,
+  String.raw`(?:^|[\s/'"=])\.env(?:\.[\w-]+)?(?=$|[\s'";|&)])`,
+  String.raw`\bid_(?:rsa|ed25519|ecdsa)\b`,
+  String.raw`\.pem\b`,
+  String.raw`\.(?:aws|ssh|gnupg)/`,
+  String.raw`\bsecurity\s+(?:find|dump)-(?:generic-password|internet-password|keychain)`,
+  String.raw`\bprintenv\b`,
+  String.raw`(?:^|[;&|(]\s*)(?:env|set|export\s+-p|declare\s+-x)\s*(?=$|[;&|)>])`,
+  String.raw`/proc/\S*environ`,
+].join("|"));
+
+export function touchesSecret(name: string, input: Record<string, unknown>): boolean {
+  const text = name === "bash" ? String(input.command ?? "")
+    : name === "mac" && input.action === "applescript" ? String(input.script ?? "")
+    : ["read_file", "edit_file", "write_file", "list_files", "grep", "glob"].includes(name) ? `${String(input.path ?? "")} ${String(input.pattern ?? "")}`
+    : "";
+  return Boolean(text) && SECRET.test(text);
+}
+
 export function decideToolCall(
   name: string,
   input: Record<string, unknown>,
@@ -327,6 +354,9 @@ export function decideToolCall(
   level: AutonomyLevel = autonomyLevel(),
 ): ToolDecision {
   const category = classifyToolCall(name, input);
+  if (touchesSecret(name, input)) {
+    return { kind: "deny", category, reason: `${describe(name, input)} (credentials stay out of the conversation; use the tool that needs them instead)` };
+  }
   // A WhatsApp draft goes out only on George's own "Send WhatsApp draft <id>" or the
   // People page's Send, after he has seen it; no autonomy level or "always" covers it.
   if (name === "whatsapp_send") {

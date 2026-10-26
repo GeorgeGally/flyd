@@ -1,3 +1,4 @@
+import { shellEnv } from "../lib/shell-env.js";
 import { execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -221,7 +222,7 @@ export function jobLeftovers(id: string, table: () => Array<LeftoverProcess & { 
  */
 export function runJobShell(id: string, command: string, options: { cwd: string; timeoutMs: number; maxBuffer: number }): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn("/bin/bash", ["-c", command], { cwd: options.cwd, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("/bin/bash", ["-c", command], { cwd: options.cwd, detached: true, stdio: ["ignore", "pipe", "pipe"], env: shellEnv() });
     if (child.pid) registerJobProcessGroup(id, child.pid);
     let stdout = "";
     let stderr = "";

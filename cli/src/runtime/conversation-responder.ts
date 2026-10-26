@@ -1,3 +1,4 @@
+import { shellEnv } from "../lib/shell-env.js";
 import { CONNECTOR_TOOL_NAMES } from "../connectors/tools.js";
 import { MOBILE_TOOLS } from "./mobile-capabilities.js";
 import { answerAccountIntent, isAccountIntent } from "../connectors/invocation.js";
@@ -701,7 +702,7 @@ function createToolHandler(
           const { stdout } = jobId
             ? await runJobShell(jobId, command, { cwd: repoRoot, timeoutMs: seconds * 1000, maxBuffer: 4 * 1024 * 1024 })
             : await execFileAsync("/bin/bash", ["-c", command], {
-              cwd: repoRoot, encoding: "utf8", timeout: seconds * 1000, maxBuffer: 4 * 1024 * 1024,
+              cwd: repoRoot, encoding: "utf8", timeout: seconds * 1000, maxBuffer: 4 * 1024 * 1024, env: shellEnv(),
             });
           return clipOutput(String(stdout ?? ""));
         } catch (e) {
