@@ -88,8 +88,8 @@ export async function notifyRun(
 ): Promise<void> {
   if (!run.result || run.notified || !["completed", "failed", "needs_decision"].includes(run.status)) return;
   // His own message from the conversation window: the reply is shown under it there, so a notice would say it twice.
-  // Flyd's own note to the staff is backstage: its reply settles it and is never his to hear.
-  if (run.request.source === "view" || run.request.source === "flyd") {
+  // Flyd's own note to the staff, and its own fixes, are backstage: their replies settle them and are never his to hear.
+  if (run.request.source === "view" || run.request.source === "flyd" || run.request.source === "self-improvement") {
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
     return;
   }

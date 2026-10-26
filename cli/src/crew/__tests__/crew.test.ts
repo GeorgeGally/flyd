@@ -451,16 +451,16 @@ describe("crew review against done_when", () => {
     expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/done and tested/), "deliverable");
   });
 
-  it("lands a self-improvement fix on its own once every point is met, and tells George afterwards", async () => {
+  it("lands a self-improvement fix on its own once every point is met, telling George nothing", async () => {
     await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, source: "self-improvement", launch: fakeCrewmate() });
     const review = vi.fn(async (_prompt: string) => "MET 1: feature.txt contains done\nMET 2: test added");
     const notify = vi.fn(async () => {});
     const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, notify });
     expect(done.status).toBe("landed");
     expect(existsSync(join(repo, "feature.txt"))).toBe(true);
-    // Flyd's own fix never rings him: it waits in the chat inbox.
+    // Flyd's own fix is its own to manage: no ring, no inbox line.
     expect(notify).not.toHaveBeenCalled();
-    expect(georgeInbox().map((entry) => entry.result)).toContain("Add a feature file is merged into main: its tests pass and it does everything you asked.");
+    expect(georgeInbox()).toEqual([]);
   });
 
   it("leaves a self-improvement fix for George when a point is unmet, and work from chat always", async () => {
@@ -471,7 +471,7 @@ describe("crew review against done_when", () => {
     expect(existsSync(join(repo, "feature.txt"))).toBe(false);
   });
 
-  it("says why when a self-improvement fix could not land itself", async () => {
+  it("keeps trying to land its own fix that could not merge, quietly, and drops it after a few days", async () => {
     await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, source: "self-improvement", launch: fakeCrewmate() });
     writeFileSync(join(repo, "README.md"), "edited by George\n");
     const review = vi.fn(async (_prompt: string) => "MET 1: feature.txt contains done\nMET 2: test added");
@@ -479,7 +479,34 @@ describe("crew review against done_when", () => {
     const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, notify });
     expect(done.status).toBe("ready");
     expect(notify).not.toHaveBeenCalled();
-    expect(georgeInbox().at(-1)!.result).toMatch(/couldn't merge it myself: .*uncommitted changes.*Say \/land once that's sorted\.$/);
+    expect(georgeInbox()).toEqual([]);
+    // George's tree is clean again: the next pass lands it.
+    git(repo, "checkout", "README.md");
+    await superviseCrew({ alive: () => false, runCommand: passing, review, notify });
+    expect(readTask(done.id)!.status).toBe("landed");
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("drops its own fix that stays unable to merge for days", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, source: "self-improvement", launch: fakeCrewmate() });
+    writeFileSync(join(repo, "README.md"), "edited by George\n");
+    const review = vi.fn(async (_prompt: string) => "MET 1: feature.txt contains done\nMET 2: test added");
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review });
+    await superviseCrew({ alive: () => false, runCommand: passing, review, now: () => new Date(Date.now() + 4 * 86_400_000) });
+    expect(readTask(done.id)!.status).toBe("discarded");
+  });
+
+  it("drops its own fix a review found short, keeping the review for self-improvement", async () => {
+    await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, source: "self-improvement", launch: fakeCrewmate() });
+    const notify = vi.fn(async () => {});
+    const review = vi.fn(async () => "MET 1: yes\nUNMET 2: no test in the diff");
+    let task = (await superviseCrew({ alive: () => false, runCommand: passing, review, launch: vi.fn(() => 1), notify }))[0]!;
+    for (let pass = 0; pass < MAX_CREW_ATTEMPTS && task.status === "running"; pass += 1) {
+      task = (await superviseCrew({ alive: () => false, runCommand: passing, review, launch: vi.fn(() => 1), notify }))[0]!;
+    }
+    expect(readTask(task.id)!.status).toBe("discarded");
+    expect(readTask(task.id)!.review!.some((check) => !check.met)).toBe(true);
+    expect(notify).not.toHaveBeenCalled();
   });
 
   it("sends unmet points back to the crewmate once in the same worktree, then reports what is still short", async () => {

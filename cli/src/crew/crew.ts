@@ -514,6 +514,8 @@ export function crewRepairBrief(task: CrewTask, unmet: AcceptanceCheck[], verifi
 
 const MAX_REVIEW_DIFF = 80_000;
 const MAX_REVIEW_RETRIES = 3;
+/** Days a fully checked fix of Flyd's own keeps trying to merge before it is dropped. */
+const OWN_FIX_LAND_DAYS = 3;
 const REVIEW_TIMEOUT_MS = Number(process.env.FLYD_CREW_REVIEW_TIMEOUT_MS) || 5 * 60_000;
 /** Generated and vendored files say nothing about whether the outcome was delivered. */
 const REVIEW_EXCLUDES = [":(exclude)**/package-lock.json", ":(exclude)**/yarn.lock", ":(exclude)**/pnpm-lock.yaml", ":(exclude)**/dist/**", ":(exclude)**/*.min.js"];
@@ -904,11 +906,39 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
       couldNotLand.set(task.id, error instanceof Error ? error.message : String(error));
     }
   }
+  // Flyd manages its own fixes like a line manager: George never hears of them.
+  // One that was fully checked but could not merge is tried again each pass and
+  // dropped after a few days; one a review found short, or that could never be
+  // reviewed, is dropped at once. A dropped fix keeps its review, so
+  // self-improvement still learns from what fell short.
+  for (const task of listTasks(dir).filter((item) => item.source === "self-improvement" && item.status === "ready")) {
+    const at = changed.findIndex((item) => item.id === task.id);
+    const current = at >= 0 ? changed[at]! : task;
+    if (current.status !== "ready") continue;
+    let settled: CrewTask | undefined;
+    if (landsOnItsOwn(current)) {
+      if (at < 0) {
+        try { settled = await landCrewTask(current.id, dir, run); } catch { /* still blocked; the next pass tries again */ }
+      }
+      if (!settled && now.getTime() - Date.parse(current.finishedAt ?? current.createdAt) > OWN_FIX_LAND_DAYS * 86_400_000) {
+        settled = await discardCrewTask(current.id, dir).catch(() => undefined);
+      }
+    } else {
+      const review = current.review ?? [];
+      const short = review.some((check) => !check.unchecked && !check.met);
+      const neverReviewed = !review.length || (review.some((check) => check.unchecked) && (current.reviewRetries ?? 0) >= MAX_REVIEW_RETRIES);
+      if (short || neverReviewed) settled = await discardCrewTask(current.id, dir).catch(() => undefined);
+    }
+    if (!settled) continue;
+    settled = { ...settled, notified: true };
+    saveTask(settled, dir);
+    if (at >= 0) changed[at] = settled;
+    else changed.push(settled);
+  }
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
     if (task.status === "landed") {
       const merged = `${plainOutcome(task)} is merged into main: its tests pass and it does everything you asked.`;
-      if (task.source === "self-improvement") await keepForInbox(task, merged);
-      else await deps.notify!("Flyd", merged, "deliverable").catch(() => undefined);
+      if (task.source !== "self-improvement") await deps.notify!("Flyd", merged, "deliverable").catch(() => undefined);
       saveTask({ ...task, notified: true }, dir);
       continue;
     }
@@ -924,8 +954,7 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
           : couldNotLand.has(task.id)
             ? `${plainOutcome(task)} is done and tested, but I couldn't merge it myself: ${couldNotLand.get(task.id)}. Say /land once that's sorted.`
             : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
-    if (task.source === "self-improvement") await keepForInbox(task, message);
-    else await deps.notify!("Flyd", message, task.status !== "ready" ? "blocker" : "deliverable").catch(() => undefined);
+    if (task.source !== "self-improvement") await deps.notify!("Flyd", message, task.status !== "ready" ? "blocker" : "deliverable").catch(() => undefined);
     saveTask({ ...task, notified: true }, dir);
   }
   // Old failed and discarded tasks give their worktrees and spent branches back.
@@ -933,17 +962,6 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     console.warn("[crew] prune failed:", error instanceof Error ? error.message : error);
   });
   return changed;
-}
-
-/**
- * Flyd's own fixes are its own business, never rung at George: one that landed
- * or waits on his /land sits in the chat inbox for when he next looks; one
- * that failed stays with self-improvement, which reads crew failures as evidence.
- */
-async function keepForInbox(task: CrewTask, message: string): Promise<void> {
-  if (task.status !== "landed" && task.status !== "ready") return;
-  const { recordInbox } = await import("../runtime/agenda.js");
-  recordInbox({ itemId: `crew:${task.id}`, task: plainOutcome(task), status: task.status === "landed" ? "ok" : "short", result: message });
 }
 
 /** A self-improvement fix with passing checks and every acceptance check met lands without waiting for George. */
