@@ -1,11 +1,32 @@
-import { describe, expect, it, vi } from "vitest";
-import {
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const sockets = vi.hoisted(() => [] as string[]);
+const posts = vi.hoisted(() => vi.fn(async (_url: string, _init?: RequestInit) =>
+  new Response(JSON.stringify({ text: "hello there" }), { status: 200 })));
+
+vi.mock("ws", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ws")>();
+  class RecordingWebSocket extends actual.WebSocket {
+    constructor(...args: ConstructorParameters<typeof actual.WebSocket>) {
+      sockets.push(String(args[0]));
+      super(...args);
+    }
+  }
+  return { ...actual, WebSocket: RecordingWebSocket, default: RecordingWebSocket };
+});
+
+vi.mock("../dictation/http.js", () => ({ dictationFetch: posts, warmDictationHosts() {} }));
+
+const {
   pcm16ToWav,
   sendTranscriptionReady,
+  transcribeBufferedAudio,
   transcriptionModelForPushToTalk,
   transcriptionModelsForPushToTalk,
   voiceSetupMessageForStatus,
-} from "../transcription.js";
+} = await import("../transcription.js");
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("transcription relay", () => {
   it("sends an explicit ready event so adapters can flush buffered audio", () => {
@@ -58,5 +79,19 @@ describe("transcription relay", () => {
     expect(voiceSetupMessageForStatus(401)).toBe("Voice setup needs a valid API key");
     expect(voiceSetupMessageForStatus(403)).toBe("Voice is not active for this key yet");
     expect(voiceSetupMessageForStatus(500)).toBe("Voice setup could not be checked");
+  });
+
+  it("transcribes a voice turn by upload after stop, never over a realtime socket", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    vi.stubEnv("FLYD_TRANSCRIPTION_MODEL", "");
+    const sent: string[] = [];
+
+    await transcribeBufferedAudio([Buffer.alloc(24000 * 2)], { send: (data: string) => sent.push(data) }, { kind: "conversation" });
+
+    expect(posts).toHaveBeenCalledTimes(1);
+    expect(posts.mock.calls[0]![0]).toBe("https://api.openai.com/v1/audio/transcriptions");
+    expect((posts.mock.calls[0]![1]!.body as FormData).get("model")).toBe("gpt-4o-mini-transcribe-2025-12-15");
+    expect(sockets).toEqual([]);
+    expect(JSON.parse(sent[0]!)).toMatchObject({ type: "complete" });
   });
 });
