@@ -1044,6 +1044,13 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   // Unlinked WhatsApp leads: it is one step only he can take, and it goes the moment it is done.
   if (inputs.whatsappLink) add("news", WHATSAPP_LINK.id, WHATSAPP_LINK.title, "only you can link it", { detail: WHATSAPP_LINK.line, links: [{ label: "Open the code", url: WHATSAPP_LINK.url }] });
   rowsOf("call", fleet?.calls);
+  // Advice is Flyd's own read of his week, next after what waits on his answer: it shows as
+  // advice, in Flyd's voice, never as work, and never falls behind the screen's item budget.
+  (inputs.advice ?? []).forEach((advice) => add("news", `advice-${advice.id}`, advice.text, "my advice", {
+    status: "advice",
+    ...(advice.whyNow ? { detail: advice.whyNow } : {}),
+    ...(advice.at ? { at: advice.at } : {}),
+  }));
   rowsOf("live", fleet?.live);
   rowsOf("ready", fleet?.ready);
   rowsOf("landed", fleet?.landed);
@@ -1053,12 +1060,6 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   inputs.memories.slice(0, 1).forEach((line, index) => add("news", `memory-${index}`, line, "from your memory"));
   const memoryCount = items.length - beforeMemory;
   inputs.news.slice(0, 1).forEach((item, index) => add("news", `news-${index}`, item.title, item.why || "from the news", withLink(item.url)));
-  // Advice is Flyd's own read of his week: it shows as advice, in Flyd's voice, never as work.
-  (inputs.advice ?? []).forEach((advice) => add("news", `advice-${advice.id}`, advice.text, "my advice", {
-    status: "advice",
-    ...(advice.whyNow ? { detail: advice.whyNow } : {}),
-    ...(advice.at ? { at: advice.at } : {}),
-  }));
   // Plans he made come last: they wait on his /land, so they never lead urgent work.
   (inputs.plans ?? []).slice(0, PLAN_LIMIT).forEach((plan) => add("plan", plan.id, plan.headline, "a plan you made", {
     ...(plan.points ? { detail: plan.points } : {}),

@@ -449,7 +449,7 @@ export const BRIEF_SCRIPT = `
   function pictured(card) { return !!(card.image || (card.preview && !card.down && !card.checking && !card.blocked)); }
   // One artefact: its picture first, then its title, one line of what it is and when, and "open".
   function artefactItem(card) {
-    var li = el("li", "art-card" + (pictured(card) ? " art-pictured" : ""));
+    var li = el("li", "art-card" + (pictured(card) ? " art-pictured" : "") + (card.label === "Advice" ? " art-advice" : ""));
     li.dataset.key = card.id;
     var picture = artefactPicture(card);
     if (picture) li.appendChild(picture);
@@ -506,13 +506,22 @@ export const BRIEF_SCRIPT = `
     // A merged change with no picture is already in Done, with its time: it is not drawn twice.
     var cards = all.filter(function (card) { return !(/^landed:/.test(card.id) && !pictured(card)); });
     // The pictures lead; work with no picture follows as a plain line, in the same order otherwise.
+    // Advice leads: it is the one card written for him to act on, and it has no picture to wait behind.
+    var advice = cards.filter(function (card) { return card.label === "Advice"; });
+    cards = cards.filter(function (card) { return card.label !== "Advice"; });
     cards = cards.filter(pictured).concat(cards.filter(function (card) { return !pictured(card); }));
-    var key = JSON.stringify([cards, artefactsAll]);
+    var key = JSON.stringify([advice, cards, artefactsAll]);
     if (key === artefactsDrawn) { fillBrief(); return; }
     artefactsDrawn = key;
     if (fitFrames) artefactsEl.querySelectorAll(".art-frame").forEach(function (box) { fitFrames.unobserve(box); });
     artefactsEl.textContent = "";
-    artefactsEl.hidden = !cards.length;
+    artefactsEl.hidden = !cards.length && !advice.length;
+    // Advice sits on top, outside the few the column shows of everything else: it never pushes the pictures out.
+    if (advice.length) {
+      var told = el("ul", "art-list art-plain");
+      advice.forEach(function (card) { told.appendChild(artefactItem(card)); });
+      artefactsEl.appendChild(told);
+    }
     if (cards.length) {
       artefactsEl.appendChild(briefTop("Artefacts"));
       var shown = artefactsAll ? cards : cards.slice(0, ARTEFACTS_FEW);

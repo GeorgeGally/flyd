@@ -137,6 +137,9 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .art-phone { border-radius: 8px; }
 .art-card .art-title { font-size: 15px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .art-kind { margin: 0 0 4px; font: 400 13px/1.4 var(--sans); color: var(--muted); }
+/* Advice is read whole: it is the card's whole point. */
+.art-card.art-advice .art-title { display: block; -webkit-line-clamp: unset; line-clamp: unset; overflow: visible; }
+.art-card.art-advice .art-meta { white-space: normal; }
 .art-meta { display: flex; margin: 3px 0 0; font: 400 13px/1.4 var(--sans); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .art-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .art-ago { flex: none; white-space: pre; }
