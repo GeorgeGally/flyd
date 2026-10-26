@@ -17,6 +17,8 @@ export type AdvisoryStatus = "open" | "shown" | "useful" | "dismissed" | "expire
 export interface Advisory {
   id: string;
   advisor: AdvisorName;
+  /** The advice itself in one sentence of at most 30 words: what the card says. */
+  headline?: string;
   text: string;
   whyNow: string;
   evidence: string[];
@@ -170,13 +172,14 @@ export function advisorPrompt(input: AdvisorInput): string {
     "- Never restate an open advisory in new words; if yours makes the same point, say nothing.",
     "- At most 2 advisories per advisor. Each must cite evidence ids you were shown ([j:…] turns or memory lines quoted verbatim).",
     "- Do not repeat an open advisory; do not restate facts he obviously knows.",
+    "- 'headline' is the advice itself in one plain sentence of at most 30 words, the action first (\"Send the GNM vendor email today: the sponsor ask waits on it.\"). 'text' holds the full reasoning.",
     "- 'why_now' says why this matters in the next days, not in general.",
     "- 'expires' is the date after which the advisory is no longer useful (YYYY-MM-DD).",
     "- 'topics' are 2-5 lowercase keywords (people, project names, places) that would make this relevant in a conversation.",
     "- urgency 'high' only for something that will cost him if not handled within ~48 hours.",
     "- Advise George about his life, work, money and people. Never about Flyd itself (its voice, bugs, what it forgot): that is not his to fix.",
     "",
-    'Reply with JSON only, one list per advisor (an empty list is the usual answer): {"critic": [ADVISORY…], "strategist": [ADVISORY…]} where ADVISORY is {"text": "...", "why_now": "...", "evidence": ["..."], "confidence": "low|medium|high", "urgency": "low|normal|high", "topics": ["..."], "expires": "YYYY-MM-DD"}',
+    'Reply with JSON only, one list per advisor (an empty list is the usual answer): {"critic": [ADVISORY…], "strategist": [ADVISORY…]} where ADVISORY is {"headline": "...", "text": "...", "why_now": "...", "evidence": ["..."], "confidence": "low|medium|high", "urgency": "low|normal|high", "topics": ["..."], "expires": "YYYY-MM-DD"}',
     "",
     `--- George's profile ---\n${input.profile ?? "(empty)"}`,
     `--- Memory ---\n${input.memory ?? "(empty)"}`,
@@ -185,6 +188,17 @@ export function advisorPrompt(input: AdvisorInput): string {
     `--- Recent conversation (George's side) ---\n${turns || "(none)"}`,
     `--- Already open (do not repeat) ---\n${input.open.map((advisory) => `- [${advisory.advisor}] ${advisory.text}`).join("\n") || "(none)"}`,
   ].join("\n");
+}
+
+/** At most this many words on an advice card. */
+export const HEADLINE_WORDS = 30;
+
+/** The card's one sentence: the advisor's headline, else the advice's first sentence, never past 30 words. Pure. */
+export function adviceHeadline(headline: string, text: string): string {
+  const sentence = (headline.replace(/\s+/g, " ").trim() || text.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+(?=[A-Z"“])/)[0] || "").trim();
+  const words = sentence.split(" ").filter(Boolean);
+  if (words.length <= HEADLINE_WORDS) return sentence;
+  return `${words.slice(0, HEADLINE_WORDS).join(" ").replace(/[\s,;:—–-]+$/, "")}…`;
 }
 
 export function parseAdvisories(advisor: AdvisorName, text: string, now: Date): Advisory[] {
@@ -209,6 +223,7 @@ export function parseAdvisories(advisor: AdvisorName, text: string, now: Date): 
     return [{
       id: createHash("sha1").update(`${advisor}:${text.toLowerCase()}`).digest("hex").slice(0, 8),
       advisor,
+      headline: adviceHeadline(String(raw.headline ?? ""), text),
       text,
       whyNow: String(raw.why_now ?? "").trim(),
       evidence,

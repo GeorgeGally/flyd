@@ -10,6 +10,7 @@ import { syncFleetFollowups } from "../runtime/fleet-followups.js";
 import { readPlans, type Plan } from "../lib/plans.js";
 import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
 import { recordKept } from "../council/reply-review.js";
+import { adviceHeadline } from "../council/advisors.js";
 import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
 import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision-step.js";
 import type { FirstmateChange } from "../intelligence/executive/firstmate-decision.js";
@@ -125,6 +126,8 @@ export interface DayCount {
 
 export interface ArtefactAdvice {
   id: string;
+  /** One sentence, at most 30 words: what the card says. */
+  headline: string;
   text: string;
   whyNow?: string;
   urgency?: string;
@@ -140,7 +143,7 @@ export function adviceHighlights(rows: Array<Record<string, unknown>>, today: st
   return rows
     // Advice he heard once in a greeting still stands until it expires; dismissed or used advice goes.
     .filter((row) => ["open", "shown"].includes(str(row.status)) && str(row.text) && (!str(row.expires) || str(row.expires) >= today))
-    .map((row) => ({ id: str(row.id), text: str(row.text), whyNow: str(row.whyNow) || undefined, urgency: str(row.urgency) || undefined, at: str(row.createdAt) || undefined }))
+    .map((row) => ({ id: str(row.id), headline: adviceHeadline(str(row.headline), str(row.text)), text: str(row.text), whyNow: str(row.whyNow) || undefined, urgency: str(row.urgency) || undefined, at: str(row.createdAt) || undefined }))
     .sort((a, b) => rank(a.urgency ?? "") - rank(b.urgency ?? "") || (b.at ?? "").localeCompare(a.at ?? ""))
     .slice(0, ADVICE_LIMIT);
 }
@@ -1046,9 +1049,10 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   rowsOf("call", fleet?.calls);
   // Advice is Flyd's own read of his week, next after what waits on his answer: it shows as
   // advice, in Flyd's voice, never as work, and never falls behind the screen's item budget.
-  (inputs.advice ?? []).forEach((advice) => add("news", `advice-${advice.id}`, advice.text, "my advice", {
+  (inputs.advice ?? []).forEach((advice) => add("news", `advice-${advice.id}`, advice.headline || advice.text, "my advice", {
     status: "advice",
-    ...(advice.whyNow ? { detail: advice.whyNow } : {}),
+    // The card says the one sentence; the reasoning travels with it, read when he moves it to the middle.
+    detail: [advice.headline && advice.headline !== advice.text ? advice.text : "", advice.whyNow ?? ""].filter(Boolean).join("\n\n") || undefined,
     ...(advice.at ? { at: advice.at } : {}),
   }));
   rowsOf("live", fleet?.live);

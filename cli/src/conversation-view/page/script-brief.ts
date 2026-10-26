@@ -448,6 +448,55 @@ export const BRIEF_SCRIPT = `
   // Whether a card has a picture to lead with: a screenshot, or a page that can be framed.
   function pictured(card) { return !!(card.image || (card.preview && !card.down && !card.checking && !card.blocked)); }
   // One artefact: its picture first, then its title, one line of what it is and when, and "open".
+  // Advice he moved to the middle, by id: it leaves the column and sits under the open job's heading until he sends it back.
+  var adviceMoved = (function () { try { return JSON.parse(store("flyd-advice-moved") || "[]"); } catch (e) { return []; } })();
+  function saveMoved() { store("flyd-advice-moved", JSON.stringify(adviceMoved)); }
+  // One piece of advice in the column: its one sentence, big. Clicking it moves it to the middle, where the reasoning is.
+  function adviceItem(card) {
+    var li = el("li", "art-card art-advice");
+    li.dataset.key = card.id;
+    li.appendChild(el("p", "art-kind", "Advice"));
+    li.appendChild(el("p", "art-advice-line", card.title));
+    if (!document.getElementById("stage-head") || !frontLayout) return li;
+    li.tabIndex = 0;
+    li.setAttribute("role", "button");
+    li.setAttribute("aria-label", "Move to the middle: " + card.title);
+    function move() {
+      if (adviceMoved.indexOf(card.id) === -1) adviceMoved.push(card.id);
+      saveMoved();
+      artefactsDrawn = "";
+      renderArtefacts(lastArtefacts);
+    }
+    li.addEventListener("click", move);
+    li.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); move(); } });
+    return li;
+  }
+  // The advice he moved, whole, at the top of the middle column: the sentence, then why.
+  function renderAdviceDesk(moved) {
+    var head = document.getElementById("stage-head");
+    if (!head) return;
+    var desk = document.getElementById("advice-desk");
+    if (!moved.length) { if (desk) desk.remove(); return; }
+    if (!desk) { desk = el("section", "advice-desk"); desk.id = "advice-desk"; desk.setAttribute("aria-label", "Advice"); head.appendChild(desk); }
+    desk.textContent = "";
+    moved.forEach(function (card) {
+      var item = el("article", "advice-full");
+      var back = el("button", "advice-back", "✕");
+      back.type = "button";
+      back.setAttribute("aria-label", "Put back in the right column");
+      back.addEventListener("click", function () {
+        adviceMoved = adviceMoved.filter(function (id) { return id !== card.id; });
+        saveMoved();
+        artefactsDrawn = "";
+        renderArtefacts(lastArtefacts);
+      });
+      item.appendChild(back);
+      item.appendChild(el("p", "art-kind", "Advice"));
+      item.appendChild(el("p", "advice-full-line", card.title));
+      String(card.line || "").split(/\\n\\n+/).filter(Boolean).forEach(function (part) { item.appendChild(el("p", "advice-full-why", part)); });
+      desk.appendChild(item);
+    });
+  }
   function artefactItem(card) {
     var li = el("li", "art-card" + (pictured(card) ? " art-pictured" : "") + (card.label === "Advice" ? " art-advice" : ""));
     li.dataset.key = card.id;
@@ -507,7 +556,12 @@ export const BRIEF_SCRIPT = `
     var cards = all.filter(function (card) { return !(/^landed:/.test(card.id) && !pictured(card)); });
     // The pictures lead; work with no picture follows as a plain line, in the same order otherwise.
     // Advice leads: it is the one card written for him to act on, and it has no picture to wait behind.
-    var advice = cards.filter(function (card) { return card.label === "Advice"; });
+    var allAdvice = cards.filter(function (card) { return card.label === "Advice"; });
+    // Advice that has gone (used, dismissed, expired) is forgotten as moved too.
+    var live = allAdvice.map(function (card) { return card.id; });
+    if (adviceMoved.some(function (id) { return live.indexOf(id) === -1; }) && allAdvice.length) { adviceMoved = adviceMoved.filter(function (id) { return live.indexOf(id) !== -1; }); saveMoved(); }
+    var advice = allAdvice.filter(function (card) { return adviceMoved.indexOf(card.id) === -1; });
+    renderAdviceDesk(allAdvice.filter(function (card) { return adviceMoved.indexOf(card.id) !== -1; }));
     cards = cards.filter(function (card) { return card.label !== "Advice"; });
     cards = cards.filter(pictured).concat(cards.filter(function (card) { return !pictured(card); }));
     var key = JSON.stringify([advice, cards, artefactsAll]);
@@ -519,7 +573,7 @@ export const BRIEF_SCRIPT = `
     // Advice sits on top, outside the few the column shows of everything else: it never pushes the pictures out.
     if (advice.length) {
       var told = el("ul", "art-list art-plain");
-      advice.forEach(function (card) { told.appendChild(artefactItem(card)); });
+      advice.forEach(function (card) { told.appendChild(adviceItem(card)); });
       artefactsEl.appendChild(told);
     }
     if (cards.length) {

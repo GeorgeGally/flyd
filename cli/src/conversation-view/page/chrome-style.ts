@@ -137,9 +137,18 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .art-phone { border-radius: 8px; }
 .art-card .art-title { font-size: 15px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .art-kind { margin: 0 0 4px; font: 400 13px/1.4 var(--sans); color: var(--muted); }
-/* Advice is read whole: it is the card's whole point. */
-.art-card.art-advice .art-title { display: block; -webkit-line-clamp: unset; line-clamp: unset; overflow: visible; }
-.art-card.art-advice .art-meta { white-space: normal; }
+/* Advice is one sentence, big: the reasoning waits in the middle column for when he moves it there. */
+.art-card.art-advice { cursor: default; }
+.art-card.art-advice[role="button"] { cursor: pointer; }
+.art-card.art-advice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.art-advice-line { font: 500 19px/1.35 var(--sans); letter-spacing: -0.01em; color: var(--ink, var(--fg)); text-wrap: pretty; }
+.advice-desk { display: grid; gap: 10px; margin-top: 16px; max-height: 42vh; overflow-y: auto; }
+.advice-full { position: relative; padding: 16px 44px 16px 18px; border-radius: 12px; background: var(--sheet); box-shadow: 0 0 0 1px var(--line); }
+.advice-full p { margin: 0; }
+.advice-full-line { font: 500 22px/1.3 var(--sans); letter-spacing: -0.015em; color: var(--ink, var(--fg)); text-wrap: balance; }
+.advice-full-why { margin-top: 10px !important; font: 400 15px/1.55 var(--sans); color: var(--ink2, var(--muted)); text-wrap: pretty; max-width: 68ch; }
+.advice-back { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; }
+.advice-back:hover { color: var(--ink, var(--fg)); background: var(--tint); }
 .art-meta { display: flex; margin: 3px 0 0; font: 400 13px/1.4 var(--sans); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .art-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .art-ago { flex: none; white-space: pre; }

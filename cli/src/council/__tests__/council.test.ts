@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CognitiveCurator } from "../../cognition/curator/curator.js";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { advisoriesPath, openAdvisories, parseAdvisories, pruneAdvisories, readAdvisories, runAdvisors, sameIdea, updateAdvisoryStatus, type Advisory } from "../advisors.js";
+import { advisoriesPath, openAdvisories, parseAdvisories, pruneAdvisories, readAdvisories, runAdvisors, sameIdea, updateAdvisoryStatus, type Advisory, adviceHeadline } from "../advisors.js";
 import { appendJournalTurn, readJournalSince } from "../journal.js";
 import { collectNewCaptures, parseLibrarianProposal, readLibrarianState, runLibrarian } from "../librarian.js";
 import { applyMemoryOps, entryId, readMemoryEntries } from "../memory-store.js";
@@ -393,5 +393,16 @@ describe("council pass", () => {
     expect(result.advisories.map((advisory) => advisory.advisor)).toEqual(["critic"]);
     expect(notify).toHaveBeenCalledWith("Flyd", "Submit CleanX for store review today or 3 Oct slips");
     expect(await runCouncilPass({ complete, notify, now: () => at("2026-09-27T10:05:00Z") })).toMatchObject({ skipped: "not_due" });
+  });
+});
+
+describe("advice headline", () => {
+  it("keeps the advisor's sentence, else takes the first, never past 30 words", () => {
+    expect(adviceHeadline("Send the GNM vendor email today.", "Long reasoning.")).toBe("Send the GNM vendor email today.");
+    expect(adviceHeadline("", "Send it today. Everything else waits on it.")).toBe("Send it today.");
+    const long = Array.from({ length: 40 }, (_, i) => `w${i}`).join(" ");
+    const clipped = adviceHeadline(long, "");
+    expect(clipped.split(" ")).toHaveLength(30);
+    expect(clipped.endsWith("…")).toBe(true);
   });
 });
