@@ -429,6 +429,22 @@ describe("crew review against done_when", () => {
     expect(existsSync(task.worktree)).toBe(true);
   });
 
+  it("treats a truncated review reply as unconfirmed: the task stays ready and no re-run is launched", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    const relaunch = vi.fn((_task: unknown, _brief: string) => 515151);
+    const review = vi.fn(async () => "MET 1: yes");
+    const notify = vi.fn(async () => {});
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, launch: relaunch, notify });
+    expect(relaunch).not.toHaveBeenCalled();
+    expect(done).toMatchObject({ id: task.id, status: "ready", attempts: 1 });
+    expect(done.failure).toBeUndefined();
+    expect(done.review).toEqual([
+      { criterion: "feature.txt says done", met: true, note: "yes" },
+      { criterion: "a test covers the feature", met: false, note: "the check couldn't confirm it", unchecked: true },
+    ]);
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/couldn't check it/), "deliverable");
+  });
+
   it("re-runs exactly once: a second short verdict ends the task failed, with no third crewmate", async () => {
     const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
     const relaunch = vi.fn((_task: unknown, _brief: string) => 515151);

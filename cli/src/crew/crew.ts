@@ -991,8 +991,8 @@ export function blockedBy(task: Pick<CrewTask, "failure" | "verification"> & Par
   if (task.reason === "no_progress") return task.noProgressIterations
     ? `it made no file changes for ${task.noProgressIterations} consecutive iterations`
     : "it finished without changing any files";
-  if (task.reason === "review_short" || failure.startsWith(REVIEW_SHORT_FAILURE)) {
-    const findings = failure.startsWith(REVIEW_SHORT_FAILURE) ? failure.slice(REVIEW_SHORT_FAILURE.length).replace(/^:\s*/, "") : "";
+  if (failure.startsWith(REVIEW_SHORT_FAILURE)) {
+    const findings = failure.slice(REVIEW_SHORT_FAILURE.length).replace(/^:\s*/, "");
     return `its tests pass but an independent review found the diff short of the brief${findings ? ` — ${findings}` : ""}`;
   }
   const failedCheck = (task.verification ?? []).some((step) => !step.ok);
