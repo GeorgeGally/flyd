@@ -16,9 +16,12 @@ describe("honesty check", () => {
     expect(checkGrounding("I'll ask George about it.", "Ask Sam.")).toEqual(["George"]);
     expect(checkGrounding("I'll ask George about it.", "You are Flyd, George's chief of staff.")).toEqual([]);
     expect(checkGrounding("It was George Gally who signed it.", "George asked about the deck.")).toEqual(["George Gally"]);
-    // The capitalised first word of a sentence is not part of the name that follows it.
+    // A greeting before a name is not part of it.
     expect(checkGrounding("Morning George, the deck is ready.", "is the deck ready?")).toEqual(["Morning George"]);
     expect(checkGrounding("Morning George, the deck is ready.", "George's chief of staff")).toEqual([]);
+    // A first name at the start of a sentence is part of the name: a known surname does not ground it.
+    expect(checkGrounding("Priya Patel is handling the deck.", "Raj Patel owns the deck.")).toEqual(["Priya Patel"]);
+    expect(checkGrounding("Priya Patel is handling the deck.", "Priya Patel owns the deck.")).toEqual([]);
   });
 
   it("keeps a capitalised run as one span even when it contains an allowlisted word", () => {

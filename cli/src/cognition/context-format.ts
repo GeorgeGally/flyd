@@ -81,6 +81,8 @@ export interface FormatContextOptions {
   includeProjects?: boolean;
   /** Design, code and work-state turns follow George's learned taste; companion chat, LIVE and resolve never see it. */
   includeTaste?: boolean;
+  /** Earlier turns' recap and referents; left out when the context is evidence for this turn alone. */
+  includeConversation?: boolean;
 }
 
 export function formatCompiledContext(context: CompiledContext, options: FormatContextOptions = {}): string {
@@ -105,10 +107,12 @@ export function formatCompiledContext(context: CompiledContext, options: FormatC
       ...context.projects.map((project) => `## ${project.id}\n${clampText(project.projection, 2500)}`),
       "</projects>",
     ] : []),
-    "<conversation-state>",
-    context.conversation.recap || "(none)",
-    Object.keys(context.conversation.referents).length ? `Referents: ${JSON.stringify(context.conversation.referents)}` : "",
-    "</conversation-state>",
+    ...(options.includeConversation ?? true ? [
+      "<conversation-state>",
+      context.conversation.recap || "(none)",
+      Object.keys(context.conversation.referents).length ? `Referents: ${JSON.stringify(context.conversation.referents)}` : "",
+      "</conversation-state>",
+    ] : []),
     "<relevant-memory>",
     ...context.memory.relevant.slice(0,8).map((m) => `- [${m.temporalStatus}; relevance=${m.relevance.toFixed(2)}] ${clampLine(m.content, 600)}`),
     "</relevant-memory>",

@@ -176,7 +176,7 @@ export function buildConversationPrompt(
   input: ConversationInput,
   compiledContext?: CompiledContext,
   options: { projectTurn?: boolean; room?: { core: string; brief: string }; plan?: string } = {},
-): { system: string; prompt: string } {
+): { system: string; prompt: string; grounding: string } {
   const projectTurn = options.projectTurn ?? true;
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
   const currentWorkQuestion = isCurrentWorkQuestion(input.message);
@@ -217,15 +217,20 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       ? crossRepoContext(input.crossRepo)
       : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
-  const cognitiveContext = compiledContext ? `\n${formatCompiledContext(compiledContext, { includeProjects: projectTurn, includeTaste: projectTurn })}\n` : "";
+  const cognitiveFor = (includeConversation: boolean) => compiledContext ? `\n${formatCompiledContext(compiledContext, { includeProjects: projectTurn, includeTaste: projectTurn, includeConversation })}\n` : "";
+  const cognitiveContext = cognitiveFor(true);
   let agenda = "";
   try { agenda = agendaPromptBlock(); } catch { agenda = ""; }
   let projects = "";
   try { projects = projectsPromptBlock(); } catch { projects = ""; }
   try { agenda += morningPromptBlock(input.now?.() ?? new Date()); } catch { /* no morning note */ }
 
+  const soul = readSoul();
+  // What this turn shows the model as fact, without earlier turns: a name or
+  // date in the answer is grounded only by this.
+  const groundingFor = (prompt: string) => [soul, options.room?.core ?? "", options.room?.brief ?? "", options.plan ?? "", projects, prompt.replace(history, "").replace(cognitiveContext, () => cognitiveFor(false))].join("\n");
   const voice = [
-    readSoul(),
+    soul,
     presenceEnabled() ? presenceInstructions() : [
       "## How you talk (this outranks every operating rule below)",
       "- Conversation first. When George shares a feeling, a doubt, an idea, or something he made, respond like a person who cares about him and his work — curiosity, taste, encouragement, an honest opinion — before any logistics. Don't turn feelings into to-do lists, check-ins, or schedules. Do help, though: a friend who can fix something doesn't just sympathise.",
@@ -291,6 +296,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         input.formPrompt ?? "",
       ].filter(Boolean).join("\n\n"),
       prompt: lean,
+      grounding: groundingFor(lean),
     };
   }
 
@@ -337,6 +343,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       input.formPrompt ?? "",
     ].filter(Boolean).join("\n\n"),
     prompt: promptBody,
+    grounding: groundingFor(promptBody),
   };
 }
 
@@ -1264,12 +1271,10 @@ export async function respondToConversation(
     let final = extractFinal(answer);
     const retired = retiredPhrasesIn(final);
     if (retired.length) console.warn(`[his-voice] rejected a candidate answer that used a ruled-out phrase: ${retired.join(", ")}`);
-    // A name or date is grounded by what this turn actually supplied: his
-    // message, who he and Flyd are, the knowledge in the room, and what tools
-    // returned. Earlier turns don't count (an answer can't lean on them), and
-    // no allowlist can wave a name through.
-    const knownFacts = [readSoul(), roomContext.core, ...roomContext.knowledge.map((item) => item.text), input.weather ?? ""];
-    const groundingText = [input.message, ...knownFacts, ...toolOutputs].join("\n");
+    // A name or date is grounded by what this turn actually showed the model
+    // and what its tools returned. Earlier turns don't count, and no
+    // allowlist can wave a name through.
+    const groundingText = [facts, evidence, request.grounding, ...toolOutputs].join("\n");
     const flagged = ungroundedSpans(final, groundingText);
     const problems = [...unsupportedClaims(final, toolCalls, isMutatingToolCall), ...styleProblems(final), ...retiredPhraseProblems(final), ...groundingProblems(flagged)];
     if (problems.length) {

@@ -628,6 +628,31 @@ describe("buildConversationPrompt", () => {
     expect(receipts[0]?.grounding).toBeUndefined();
   });
 
+  it("grounds the date and project names Flyd itself put in front of the model this turn", async () => {
+    let rewrites = 0;
+    const receipts: Array<Record<string, unknown>> = [];
+    const answer = await respondToConversation({
+      message: "what's the date, and what's on?",
+      history: [],
+      memory: { verdict: "insufficient", matches: [] },
+      situation: null,
+      weather: "Sunny in Lisbon",
+      now: () => new Date(2026, 9, 26, 10, 0),
+      sessionId: "grounding-own-context",
+      turnNumber: 1,
+      onToken: () => undefined,
+    }, {
+      readOnly: true,
+      runAgentLoop: async () => "<final>It's Monday 26 October, and it's sunny in Lisbon.</final>",
+      rewrite: async () => { rewrites += 1; return ""; },
+      persistReceipt: async (input) => { receipts.push(input as never); return input as never; },
+    });
+
+    expect(rewrites).toBe(0);
+    expect(answer).toBe("It's Monday 26 October, and it's sunny in Lisbon.");
+    expect(receipts[0]?.grounding).toBeUndefined();
+  });
+
   it("does not ground an answer with names and dates from an earlier turn", async () => {
     let rewrites = 0;
     const answer = await respondToConversation({

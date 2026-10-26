@@ -22,14 +22,14 @@ const DELEGATIONS = new Set(["background_task", "start_coding_task", "start_know
  */
 const PERFECT_CLAIM = /\bI(?:'ve| have)\s+(?:also\s+|already\s+)?(?!started\b|kicked\b|begun\b|queued\b|handed\b|passed\b|asked\b|got\b)[a-z]+(?:ed|en|t|de|ne|ft|ht)\b/i;
 const LOCAL_PATH = /(?:~|\/Users\/[^/\s]+)\/[^\s`'"),;:]+/g;
-// Capitalised words that are not names: sentence starters, pronouns, days and
-// months. No person or entity name belongs here — a name is grounded only when
+// Capitalised words that are not names: sentence starters, greetings,
+// pronouns, days and months. No person or entity name belongs here — a name is grounded only when
 // the supplied context actually contains it, so the list can never wave one
 // through. "Today Bloom" is a candidate span; "Today" alone is not.
 const GROUNDING_ALLOWLIST = new Set([
-  "a", "actually", "after", "also", "an", "and", "are", "as", "at", "before", "because", "but", "can", "could", "did", "do", "does", "for", "from",
-  "he", "hello", "here", "how", "i", "if", "in", "is", "it", "let", "my", "no", "not", "now", "of", "on", "or", "our",
-  "okay", "one", "right", "rows", "she", "so", "some", "started", "sure", "sunny", "that", "the", "their", "there", "these", "they", "this", "to", "two",
+  "a", "actually", "afternoon", "after", "also", "an", "and", "are", "as", "at", "before", "because", "but", "can", "could", "did", "do", "does", "done", "evening", "for", "from",
+  "he", "hello", "here", "hey", "hi", "how", "i", "if", "in", "is", "it", "let", "morning", "my", "night", "no", "not", "now", "of", "on", "or", "our",
+  "okay", "one", "right", "rows", "she", "so", "some", "started", "sure", "sunny", "thanks", "that", "the", "their", "there", "these", "they", "this", "to", "two",
   "today", "tomorrow", "we", "well", "what", "when", "where", "which", "who", "why", "will", "with", "yes", "you", "your",
   "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
   "jan", "january", "feb", "february", "mar", "march", "apr", "april", "may", "jun", "june", "jul", "july",
@@ -74,22 +74,17 @@ function withoutTrailingFunctionWords(words: string[]): string[] {
 }
 
 /**
- * The span is in the context, or its name is. The words a run can start or
- * end with that are not part of a name — sentence-function words ("Today
- * Bloom said", "Capfive Monday") or the capitalised first word of a sentence
- * ("Morning George") — do not need grounding on their own, so "Bloom" in
- * context grounds "Today Bloom". Words inside a run are never dropped:
- * "Capfive And Bloom" must appear as written.
+ * The span is in the context, or its name is. The sentence-function words a
+ * run can start or end with ("Today Bloom said", "Morning George", "Capfive
+ * Monday") are not part of a name, so "Bloom" in context grounds "Today
+ * Bloom". Words inside a run are never dropped: "Capfive And Bloom" and
+ * "Priya Patel" must appear as written.
  */
-function isGrounded(groundingText: string, span: string, sentenceInitial: boolean): boolean {
+function isGrounded(groundingText: string, span: string): boolean {
   if (groundingHas(groundingText, span)) return true;
-  const words = span.split(/\s+/);
-  const names = [withoutTrailingFunctionWords(withoutLeadingFunctionWords(words))];
-  if (sentenceInitial && words.length > 1) names.push(withoutTrailingFunctionWords(words.slice(1)));
-  return names.map((name) => name.join(" ")).some((name) => name.length > 0 && name !== span && groundingHas(groundingText, name));
+  const name = withoutTrailingFunctionWords(withoutLeadingFunctionWords(span.split(/\s+/))).join(" ");
+  return name.length > 0 && name !== span && groundingHas(groundingText, name);
 }
-
-const SENTENCE_START = /(?:^|[.!?…:;\n—–\-*•])["“'‘(\[]*$/;
 
 /**
  * Names and dates the answer uses that the supplied context does not contain,
@@ -97,19 +92,18 @@ const SENTENCE_START = /(?:^|[.!?…:;\n—–\-*•])["“'‘(\[]*$/;
  * when every word in it is a sentence-function word, never cut at one.
  */
 export function checkGrounding(answer: string, groundingText: string): string[] {
-  const spans: Array<{ text: string; index: number; sentenceInitial: boolean }> = [];
+  const spans: Array<{ text: string; index: number }> = [];
   for (const match of answer.matchAll(CAPITALISED_RUN)) {
     if (match[0].split(/\s+/).every(isAllowlisted)) continue;
-    const sentenceInitial = SENTENCE_START.test(answer.slice(0, match.index).trimEnd());
-    spans.push({ text: match[0], index: match.index, sentenceInitial });
+    spans.push({ text: match[0], index: match.index });
   }
-  for (const match of answer.matchAll(DATE_TOKEN)) spans.push({ text: match[0], index: match.index, sentenceInitial: false });
+  for (const match of answer.matchAll(DATE_TOKEN)) spans.push({ text: match[0], index: match.index });
   const seen = new Set<string>();
   return spans
     .sort((left, right) => left.index - right.index)
-    .filter(({ text, sentenceInitial }) => {
+    .filter(({ text }) => {
       const key = text.toLowerCase();
-      if (seen.has(key) || isGrounded(groundingText, text, sentenceInitial)) return false;
+      if (seen.has(key) || isGrounded(groundingText, text)) return false;
       seen.add(key);
       return true;
     })
