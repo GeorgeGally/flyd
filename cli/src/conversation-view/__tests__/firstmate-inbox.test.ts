@@ -56,6 +56,15 @@ afterEach(() => {
 });
 
 describe("FirstmateInbox", () => {
+  it("knows a task firstmate archived as done, so it is never chased back to life", () => {
+    mkdirSync(join(home, "data"), { recursive: true });
+    writeFileSync(join(home, "data", "done-archive.md"), "- [x] capfive-advisor-shaders-lab - CapFive lab (done 2026-10-24)\n- [ ] gnm-7 - still open\n");
+    const inbox = new FirstmateInbox({ home, script: join(home, "missing.sh") });
+    expect(inbox.taskClosed("capfive-advisor-shaders-lab")).toBe(true);
+    expect(inbox.taskClosed("capfive-advisor")).toBe(false);
+    expect(inbox.taskClosed("gnm-7")).toBe(false);
+  });
+
   it("takes Flyd's note about a task once, however often the task's status text changes, as a run of its own", async () => {
     // fm-inbox.sh replays a request id it already holds instead of queuing it again.
     const script = writeScript("fm-inbox.sh", `#!/usr/bin/env bash

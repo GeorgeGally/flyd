@@ -246,6 +246,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         if (!run) {
           const observedTask = prepared.find((change) => change.taskId === action.target && change.authority?.some((grant) => grant.grantId === action.grantId));
           if (!observedTask || !inbox.available()) return { status: "unknown", evidenceRefs: [] };
+          // Work firstmate already archived as done (George may have closed it) is not chased back to life.
+          if (inbox.taskClosed(action.target)) return { status: "verified", evidenceRefs: [`firstmate-task-closed:${action.target}`] };
           const { requestId, replayed } = await inbox.sendTaskNote(action.target, action.text);
           return replayed
             ? { status: "failed", evidenceRefs: [`${NOTE_ALREADY_SENT}${requestId}`] }

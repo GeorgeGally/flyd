@@ -352,6 +352,19 @@ export class FirstmateInbox implements CaptainInbox {
     }
   }
 
+  /**
+   * True when firstmate has archived the task as done (`- [x] <id> …` in data/done-archive.md):
+   * a closed task is never chased again, whatever a stale fleet read still says about it.
+   */
+  taskClosed(taskId: string): boolean {
+    try {
+      const archive = readFileSync(join(this.home, "data", "done-archive.md"), "utf8");
+      return archive.split("\n").some((line) => line.startsWith(`- [x] ${taskId} `));
+    } catch {
+      return false;
+    }
+  }
+
   /** Flyd's note about one task, keyed on the task and the note so the inbox takes each note at most once per task. */
   async sendTaskNote(taskId: string, text: string): Promise<{ requestId: string; replayed: boolean }> {
     const note = text.startsWith(`Task ${taskId}.`) ? text : `Task ${taskId}. ${text}`;

@@ -260,6 +260,21 @@ describe("FirstMate domain transport", () => {
     expect(changed[0]!.incompleteReason).toBeUndefined();
   });
 
+  it("keeps a replayed note's old question as history, never a fresh decision for George", async () => {
+    // The inbox replayed a note first sent on 22 Oct; Flyd rebuilt the run today and must not re-ask what was asked then.
+    const run: DomainRun = { ...queuedRun(), createdAt: "2026-10-25T13:29:50.428Z", updatedAt: "2026-10-25T13:29:50.428Z" };
+    saveDomainRun(run);
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
+      pending: [],
+      handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-22T08:06:45Z", body: JSON.stringify({ status: "needs_decision", brief: "Keep the lab on main, or drop it?" }), cursor: "000000000256" } }],
+      replies: [],
+      reply_cursor: "000000000256",
+    }), stderr: "" });
+    const [changed] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }) });
+    expect(changed).toMatchObject({ status: "cancelled", notified: true });
+    expect(changed!.result?.brief).toContain("drop it");
+  });
+
   it("never destroys detail when FirstMate replies with prose", async () => {
     const prose = "Short answer.\n\nA very specific technical finding follows here and must survive unchanged.";
     const run: DomainRun = {

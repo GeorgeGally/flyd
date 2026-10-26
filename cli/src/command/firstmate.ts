@@ -845,17 +845,21 @@ export async function syncFirstmateDomainRuns(options: {
       // Only a structured reply's own status or Flyd's model may settle a run;
       // prose words no model could read stay "unclear" rather than being guessed.
       const outcome: ProseOutcome = parsed.status ?? (parsed.result.format === "raw" ? await proseOutcome(reply.body!, run, judge) : "completed");
-      const status: DomainRunStatus = outcome === "unclear" ? "working" : outcome;
+      // A reply written before this run existed answered an earlier send of the same note
+      // (the inbox replayed it): its question was already put, or overtaken. It is history,
+      // never a fresh decision for George.
+      const predates = Boolean(reply.at) && Date.parse(reply.at!) < Date.parse(run.createdAt);
+      const status: DomainRunStatus = outcome === "unclear" ? "working" : predates && outcome === "needs_decision" ? "cancelled" : outcome;
       const { notified, failure, incompleteReason: _previous, launchRetry: _retry, statusAskedAt, ...rest } = next;
-      const news = status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result);
+      const news = !predates && (status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result));
       next = {
         ...rest,
         status,
         result: parsed.result,
         updatedAt: reply.at ?? (options.now ?? (() => new Date()))().toISOString(),
         transport: { ...next.transport, replyCursor: reply.cursor },
-        // A new outcome is announced again; the same one is not.
-        ...(notified !== undefined && !news ? { notified } : {}),
+        // A new outcome is announced again; the same one is not, nor an old reply replayed.
+        ...(predates ? { notified: true } : notified !== undefined && !news ? { notified } : {}),
         ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
         ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
         ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
