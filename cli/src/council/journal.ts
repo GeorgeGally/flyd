@@ -72,6 +72,9 @@ function turnsFromFile(sinceIso: string | null, dir: string, limit: number): Jou
   return turns.slice(-limit);
 }
 
+/** Words that open a turn Flyd wrote for itself (a background job, a review, a scheduled task), not George. */
+const FLYD_OWN_TURN = /^(?:Background job you took on for George:|You are checking work someone else did for George|You are reviewing work|Scheduled task George set up)/;
+
 function viewTurnsFromEventSpine(sinceIso: string | null, limit: number): JournalTurn[] {
   const path = defaultIntelligenceDbPath();
   if (!existsSync(path)) return [];
@@ -82,18 +85,21 @@ function viewTurnsFromEventSpine(sinceIso: string | null, limit: number): Journa
       const value = event.payload.conversation;
       if (!value || typeof value !== "object") return [];
       const conversation = value as Record<string, unknown>;
-      if (typeof conversation.sessionId !== "string" || !conversation.sessionId.startsWith("view:")
-        || typeof conversation.user !== "string" || typeof conversation.assistant !== "string") return [];
+      if (typeof conversation.user !== "string" || typeof conversation.assistant !== "string") return [];
+      // Every conversation George had with Flyd (the window, the terminal, mobile), never the
+      // turns Flyd ran for itself: scheduled jobs and background work it briefed in his name.
+      const sessionId = typeof conversation.sessionId === "string" ? conversation.sessionId : "";
+      if (sessionId.startsWith("agenda-") || FLYD_OWN_TURN.test(conversation.user)) return [];
       if (sinceIso && event.capturedAt <= sinceIso) return [];
       return [{
         id: event.id,
         at: event.capturedAt,
         user: conversation.user,
         assistant: conversation.assistant,
-        sessionId: conversation.sessionId,
+        ...(sessionId ? { sessionId } : {}),
         ...(typeof conversation.turnNumber === "number" ? { turnNumber: conversation.turnNumber } : {}),
         ...(Array.isArray(conversation.projectIds) ? { projectIds: conversation.projectIds.filter((id): id is string => typeof id === "string") } : {}),
-        surface: "conversation-view",
+        surface: sessionId.startsWith("view:") ? "conversation-view" : "cli",
       }];
     }).sort((a, b) => a.at.localeCompare(b.at)).slice(-limit);
   } finally {
@@ -101,10 +107,16 @@ function viewTurnsFromEventSpine(sinceIso: string | null, limit: number): Journa
   }
 }
 
+/**
+ * Turns after `sinceIso`, oldest first: a reader that advances a cursor to the last turn it
+ * took must take the oldest `limit`, or a backlog longer than one batch is skipped for good.
+ * With no cursor, the newest `limit`.
+ */
 export function readJournalSince(sinceIso: string | null, dir?: string, limit = 400): JournalTurn[] {
-  const legacy = turnsFromFile(sinceIso, dir ?? journalDir(), limit);
-  const view = dir === undefined ? viewTurnsFromEventSpine(sinceIso, limit) : [];
-  return [...legacy, ...view].sort((a, b) => a.at.localeCompare(b.at)).slice(-limit);
+  const legacy = turnsFromFile(sinceIso, dir ?? journalDir(), sinceIso ? Infinity : limit);
+  const view = dir === undefined ? viewTurnsFromEventSpine(sinceIso, sinceIso ? Infinity : limit) : [];
+  const turns = [...legacy, ...view].sort((a, b) => a.at.localeCompare(b.at));
+  return sinceIso ? turns.slice(0, limit) : turns.slice(-limit);
 }
 
 /** The most recent turns, for continuity across launches. */

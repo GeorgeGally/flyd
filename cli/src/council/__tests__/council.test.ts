@@ -67,6 +67,27 @@ describe("journal", () => {
   });
 });
 
+describe("journal across surfaces", () => {
+  it("reads George's terminal and mobile chats too, never Flyd's own scheduled or background turns", () => {
+    const store = new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") });
+    const curator = new CognitiveCurator(store);
+    try {
+      curator.recordConversationTurn({ sessionId: "7dbfa3f0-7e29-4cd7-a060-c7476d5705b0", turnNumber: 1, user: "you sound too much like a bot. why?", assistant: "Fair. I'll talk like a person." });
+      curator.recordConversationTurn({ sessionId: "agenda-ade9cf81", turnNumber: 1, user: "Scheduled task George set up earlier (weekdays): Morning brief", assistant: "Here's your morning." });
+      curator.recordConversationTurn({ sessionId: "bg-1", turnNumber: 1, user: "Background job you took on for George: Write a haiku", assistant: "Done." });
+    } finally {
+      curator.close();
+    }
+    expect(readJournalSince(null).map((turn) => [turn.user, turn.surface])).toEqual([["you sound too much like a bot. why?", "cli"]]);
+  });
+
+  it("takes the oldest turns after a cursor, so a backlog longer than one batch is never skipped", () => {
+    for (let day = 1; day <= 5; day += 1) appendJournalTurn({ user: `turn ${day}`, assistant: "ok", at: at(`2026-09-0${day}T10:00:00Z`) });
+    expect(readJournalSince("2026-09-01T12:00:00Z", undefined, 2).map((turn) => turn.user)).toEqual(["turn 2", "turn 3"]);
+    expect(readJournalSince(null, undefined, 2).map((turn) => turn.user)).toEqual(["turn 4", "turn 5"]);
+  });
+});
+
 describe("librarian", () => {
   it("curates a completed native conversation-view turn from the event spine", async () => {
     const store = new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") });
