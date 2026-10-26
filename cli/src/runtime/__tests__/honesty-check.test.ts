@@ -48,6 +48,31 @@ describe("honesty check", () => {
     expect(checkGrounding("We meet at 10am Monday.", "")).toEqual([]);
   });
 
+  it("never grounds a date by a bare day number or year found elsewhere in the context", () => {
+    const context = "Local time: Monday, 26 October 2026 at 10:00 (Europe/London, UTC+00:00)\nKeep it to 1-3 sentences.\nItem 14";
+    expect(checkGrounding("The launch is Friday, March 14.", context)).toEqual(["Friday, March 14"]);
+    expect(checkGrounding("The launch is Friday 14 November.", context)).toEqual(["Friday 14 November"]);
+    expect(checkGrounding("It ships in March 2026.", context)).toEqual(["March 2026"]);
+    expect(checkGrounding("It is due November 3.", context)).toEqual(["November 3"]);
+    expect(checkGrounding("Today is Monday 26 March.", context)).toEqual(["Monday 26 March"]);
+  });
+
+  it("grounds a date by calendar date, in any written form the context uses", () => {
+    const clock = "Local time: Monday 26 October 2026 at 10:00 (Europe/London, UTC+00:00)";
+    expect(checkGrounding("It's Monday 26 October, so October 26 and the 26th October.", clock)).toEqual([]);
+    expect(checkGrounding("It's due Thursday 29 October.", "reminders: [{\"due\":\"2026-10-29T09:00:00\"}]")).toEqual([]);
+    expect(checkGrounding("It's due Friday 29 October.", "reminders: [{\"due\":\"2026-10-29T09:00:00\"}]")).toEqual(["Friday 29 October"]);
+  });
+
+  it("grounds a date resolved from the clock only when he asked for a relative date, within 60 days", () => {
+    const clock = "Local time: Monday 26 October 2026 at 10:00 (Europe/London, UTC+00:00)";
+    expect(checkGrounding("Done, set for Tuesday 27 October at 9.", `${clock}\nGeorge: remind me tomorrow at 9`)).toEqual([]);
+    expect(checkGrounding("Done, set for Monday 16 November.", `${clock}\nGeorge: remind me in three weeks`)).toEqual([]);
+    expect(checkGrounding("Done, set for Thursday 18 March 2027.", `${clock}\nGeorge: remind me tomorrow at 9`)).toEqual(["Thursday 18 March 2027"]);
+    expect(checkGrounding("Done, set for Wednesday 27 October.", `${clock}\nGeorge: remind me tomorrow at 9`)).toEqual(["Wednesday 27 October"]);
+    expect(checkGrounding("It launches Tuesday 27 October.", `${clock}\nGeorge: when is the launch?`)).toEqual(["Tuesday 27 October"]);
+  });
+
   it("requires an artefact for long enumerations, but not short replies or artefact references", () => {
     expect(artefactRequiredViolation(Array.from({ length: 10 }, (_, index) => `${index + 1}. Item ${index + 1}`).join("\n"))).toEqual({ requirement: "artefact_required", count: 10 });
     expect(artefactRequiredViolation("1. One\n2. Two\n3. Three")).toBeNull();

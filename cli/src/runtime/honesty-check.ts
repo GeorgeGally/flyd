@@ -39,15 +39,78 @@ const WEEKDAY = "(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)";
 const MONTH = "(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)";
 const DAY = "(?:0?[1-9]|[12]\\d|3[01])(?:st|nd|rd|th)?";
 const YEAR = "(?:19|20)\\d{2}";
-// Every written date an answer produces: "24 October 2026", "October 24",
-// "Friday, October 24, 2026", "Friday 24th", "October 2026", "2026-10-24".
+// Every written date an answer or a tool produces: "24 October 2026",
+// "October 24", "Friday, October 24, 2026", "Friday 24th", "October 2026",
+// "2026-10-24", "2026-10-24T09:00:00".
 const DATE_TOKEN = new RegExp([
   `(?:${WEEKDAY},?\\s+)?${DAY}\\s+${MONTH}(?:,?\\s+${YEAR})?`,
   `(?:${WEEKDAY},?\\s+)?${MONTH}\\s+${DAY}(?:,?\\s+${YEAR})?`,
   `${MONTH}\\s+${YEAR}`,
   `${WEEKDAY},?\\s+${DAY}`,
-  `\\d{4}-\\d{2}-\\d{2}`,
+  `\\d{4}-\\d{2}-\\d{2}(?:T[\\d:.]+(?:Z|[+-]\\d{2}:?\\d{2})?)?`,
 ].map((form) => `(?<![\\p{L}\\p{N}])${form}(?![\\p{L}\\p{N}])`).join("|"), "giu");
+// Words that make a date the answer resolves itself ("tomorrow" → Tuesday
+// 27 October) legitimate. Read with every written date and the clock line
+// taken out, so "Monday" in "Monday, 26 October" is not one.
+const RELATIVE_DATE = new RegExp(`\\b(?:today|tonight|tomorrow|yesterday|weekend|fortnight|${WEEKDAY}|(?:next|this|last|coming)\\s+(?:week|month)|in\\s+(?:\\d+|a|an|one|two|three|four|five|six|seven|eight)\\s+(?:days?|weeks?|months?)|(?:days?|weeks?)\\s+(?:ago|from now))\\b`, "i");
+const CLOCK_LINE = /^Local time:[^\n]*/m;
+const RELATIVE_WINDOW_DAYS = 60;
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+interface CalendarDate { year?: number; month?: number; day?: number; weekday?: number }
+
+function parseDate(span: string): CalendarDate {
+  const iso = span.match(/(\d{4})-(\d{2})-(\d{2})/);
+  const date: CalendarDate = iso
+    ? { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) }
+    : {};
+  if (!iso) {
+    const words: string[] = span.toLowerCase().match(/[a-z]+/g) ?? [];
+    const weekday = WEEKDAYS.findIndex((name) => words.includes(name));
+    if (weekday >= 0) date.weekday = weekday;
+    const month = words.find((word) => MONTHS.includes(word.slice(0, 3)));
+    if (month) date.month = MONTHS.indexOf(month.slice(0, 3)) + 1;
+    const year = span.match(/\b(?:19|20)\d{2}\b/);
+    if (year) date.year = Number(year[0]);
+    const day = span.replace(/\b(?:19|20)\d{2}\b/, "").match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
+    if (day) date.day = Number(day[1]);
+  }
+  if (date.year && date.month && date.day) date.weekday = new Date(Date.UTC(date.year, date.month - 1, date.day)).getUTCDay();
+  return date;
+}
+
+/** Every day and month the span names is named the same in the other date; a year or weekday both name must agree. */
+function sameDate(span: CalendarDate, other: CalendarDate): boolean {
+  return (span.month === undefined || span.month === other.month)
+    && (span.day === undefined || span.day === other.day)
+    && (span.year === undefined || other.year === undefined || span.year === other.year)
+    && (span.weekday === undefined || other.weekday === undefined || span.weekday === other.weekday);
+}
+
+function shiftedDays(from: CalendarDate, days: number): CalendarDate {
+  const date = new Date(Date.UTC(from.year!, from.month! - 1, from.day! + days));
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate(), weekday: date.getUTCDay() };
+}
+
+/**
+ * A date is grounded when the context names the same calendar date in any
+ * written form (an ISO timestamp a tool returned counts), or when the context
+ * asks for a relative date and this one is the clock's date shifted by at
+ * most 60 days. Never by a bare day number or year found elsewhere.
+ */
+function isDateGrounded(groundingText: string, span: string): boolean {
+  const date = parseDate(span);
+  if ([...groundingText.matchAll(DATE_TOKEN)].some((match) => sameDate(date, parseDate(match[0])))) return true;
+  const clockLine = groundingText.match(CLOCK_LINE)?.[0] ?? "";
+  const clock = parseDate(clockLine.match(DATE_TOKEN)?.[0] ?? "");
+  if (!clock.year || !clock.month || !clock.day) return false;
+  if (!RELATIVE_DATE.test(groundingText.replace(CLOCK_LINE, "").replace(DATE_TOKEN, " "))) return false;
+  for (let days = -RELATIVE_WINDOW_DAYS; days <= RELATIVE_WINDOW_DAYS; days += 1) {
+    if (sameDate(date, shiftedDays(clock, days))) return true;
+  }
+  return false;
+}
 // A run of capitalised words on one line: a name, or a sentence start that
 // leads into one. One span, never split at a word inside it.
 const CAPITALISED_RUN = /(?<![\p{L}\p{N}])\p{Lu}[\p{L}\p{N}]*(?:[^\S\n]+\p{Lu}[\p{L}\p{N}]*)*(?![\p{L}\p{N}])/gu;
@@ -92,18 +155,18 @@ function isGrounded(groundingText: string, span: string): boolean {
  * when every word in it is a sentence-function word, never cut at one.
  */
 export function checkGrounding(answer: string, groundingText: string): string[] {
-  const spans: Array<{ text: string; index: number }> = [];
+  const spans: Array<{ text: string; index: number; date: boolean }> = [];
   for (const match of answer.matchAll(CAPITALISED_RUN)) {
     if (match[0].split(/\s+/).every(isAllowlisted)) continue;
-    spans.push({ text: match[0], index: match.index });
+    spans.push({ text: match[0], index: match.index, date: false });
   }
-  for (const match of answer.matchAll(DATE_TOKEN)) spans.push({ text: match[0], index: match.index });
+  for (const match of answer.matchAll(DATE_TOKEN)) spans.push({ text: match[0], index: match.index, date: true });
   const seen = new Set<string>();
   return spans
     .sort((left, right) => left.index - right.index)
-    .filter(({ text }) => {
+    .filter(({ text, date }) => {
       const key = text.toLowerCase();
-      if (seen.has(key) || isGrounded(groundingText, text)) return false;
+      if (seen.has(key) || (date ? isDateGrounded(groundingText, text) : isGrounded(groundingText, text))) return false;
       seen.add(key);
       return true;
     })
