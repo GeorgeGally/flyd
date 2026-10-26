@@ -84,7 +84,7 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     { queryExpansionModel },
     { summaryModels },
     { predictionModel },
-    { transcriptionModelsForPushToTalk },
+    { transcriptionModelsForPushToTalk, voiceMode },
     { dictationModel },
     { conversationLearnModel },
     { realtimeModel, REALTIME_TRANSCRIPTION_MODEL },
@@ -219,6 +219,13 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     settings: ["FLYD_TRANSCRIPTION_MODEL"],
   });
   add({
+    job: "How the mic becomes text",
+    model: voiceMode() === "live"
+      ? `live: streamed to an OpenAI realtime session while George speaks, then ${transcription[0]}`
+      : "dictation: transcribed after he stops, then answered as a text turn (no realtime session)",
+    settings: ["FLYD_VOICE_MODE"],
+  });
+  add({
     job: "Cleaning up dictation before it's pasted",
     model: dictationModel() ?? "none (rule-based cleanup only)",
     settings: ["FLYD_DICTATE_MODEL"],
@@ -251,6 +258,7 @@ const SWITCHES = [
   "FLYD_PROFILE_AUTOLEARN", "FLYD_ROUTING_CASCADE", "FLYD_ROUTING_LEARNING", "FLYD_ROOM", "FLYD_JEV_TURN_ROUTE",
   "FLYD_VIEW_SUMMARIES", "FLYD_SUMMARY_ALWAYS", "FLYD_AUTO_ANSWER", "FLYD_PREDICTIONS", "FLYD_FIRSTMATE",
   "FLYD_DELEGATION_ENABLED", "FLYD_TRANSITIONS_DISABLED", "FLYD_PROVIDER", "FLYD_CLAUDE", "FLYD_CLAUDE_MONTHLY_CAP_USD",
+  "FLYD_VOICE_MODE",
 ];
 
 /** Keys that turn providers on: named when present, never shown. */

@@ -23,7 +23,7 @@ Flyd Core is the intelligence runtime in TypeScript (`cli/src/server.ts` + frien
 |------|---------|--------|-------------|
 | PRESENT | Always on | Shipped | OS notification-based foreground observation. No cognition, no network, no persistence. |
 | INVOKED (text) | Double-tap fn key | Shipped | One-shot text invocation. Intent field → resolution → native/augment/compose. |
-| INVOKED (voice) | fn+Ctrl hold (>300ms) | Shipped | Push-to-talk → `gpt-realtime-whisper` transcription → Conversation window's message box, sent on release (routed like a typed message) (no `/manifest`, nothing raised or focused). |
+| INVOKED (voice) | fn+Ctrl hold (>300ms) | Shipped | Push-to-talk → `gpt-4o-mini-transcribe` transcription after release → Conversation window's message box, sent on release (routed like a typed message) (no `/manifest`, nothing raised or focused). |
 | DICTATE | fn tap (toggle) or fn hold | Shipped | Speech → Core cleanup over 4816 (`purpose: dictation`) → pasted into the focused app by `TextInserter`; fn-alone edges are swallowed at the HID tap. |
 | LIVE | Ctrl×3 (triple-press) | Shipped | Persistent realtime voice session with `gpt-realtime-2.1`. Tool calling routes through Core safety. Ctrl×3 again to exit. MVP requires headphones. |
 

@@ -1,11 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
-import {
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const opened = vi.hoisted(() => vi.fn(() => ({ append() {}, finish: async () => "", close() {} })));
+
+vi.mock("../dictation/stream.js", () => ({
+  REALTIME_TRANSCRIPTION_URL: "wss://api.openai.com/v1/realtime?intent=transcription",
+  openStreamingTranscriber: opened,
+}));
+
+const {
+  openTranscriptionStream,
   pcm16ToWav,
   sendTranscriptionReady,
   transcriptionModelForPushToTalk,
   transcriptionModelsForPushToTalk,
+  voiceMode,
   voiceSetupMessageForStatus,
-} from "../transcription.js";
+} = await import("../transcription.js");
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("transcription relay", () => {
   it("sends an explicit ready event so adapters can flush buffered audio", () => {
@@ -58,5 +70,25 @@ describe("transcription relay", () => {
     expect(voiceSetupMessageForStatus(401)).toBe("Voice setup needs a valid API key");
     expect(voiceSetupMessageForStatus(403)).toBe("Voice is not active for this key yet");
     expect(voiceSetupMessageForStatus(500)).toBe("Voice setup could not be checked");
+  });
+
+  it("defaults to dictation and opens no realtime session for a voice turn", () => {
+    vi.stubEnv("FLYD_VOICE_MODE", "");
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+
+    expect(voiceMode()).toBe("dictation");
+    expect(openTranscriptionStream({ kind: "conversation" })).toBeNull();
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it("streams over the realtime socket only when FLYD_VOICE_MODE=live", () => {
+    vi.stubEnv("FLYD_VOICE_MODE", "live");
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+
+    expect(voiceMode()).toBe("live");
+    expect(openTranscriptionStream({ kind: "conversation" })).not.toBeNull();
+    expect(opened).toHaveBeenCalledWith(expect.objectContaining({
+      model: "gpt-4o-mini-transcribe-2025-12-15",
+    }));
   });
 });

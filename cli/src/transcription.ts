@@ -15,6 +15,7 @@ export { transcriptionPurpose } from "./dictation/request.js";
 import { removePromptEcho } from "./dictation/echo.js";
 import { openStreamingTranscriber, type StreamingTranscriber } from "./dictation/stream.js";
 import { loadReplacementRules, loadVocabulary, transcriptionPrompt } from "./dictation/vocabulary.js";
+import { getKey } from "./lib/config.js";
 
 const TRANSCRIPTION_WS_PORT = 4816;
 const AUTH_TOKEN_PATH = join(homedir(), ".flyd", "overlay", "auth-token");
@@ -66,6 +67,16 @@ export function pcm16ToWav(pcm: Buffer, sampleRate = 24000): Buffer {
   header.writeUInt32LE(dataSize, 40);
 
   return Buffer.concat([header, pcm]);
+}
+
+/**
+ * How the mic becomes text. "dictation" (the default) transcribes after he
+ * stops and answers as a normal text turn; "live" streams the audio to an
+ * OpenAI realtime session while he speaks, which bills a realtime session per
+ * utterance for a faster stop-to-text only.
+ */
+export function voiceMode(): "dictation" | "live" {
+  return getKey("FLYD_VOICE_MODE")?.trim().toLowerCase() === "live" ? "live" : "dictation";
 }
 
 export function transcriptionModelForPushToTalk(configured?: string): string {
@@ -179,6 +190,7 @@ export function startTranscriptionServer(): Promise<void> {
             purpose = transcriptionPurpose(msg);
             if (purpose.kind === "dictation") warmDictationHosts();
             stream = openTranscriptionStream(purpose);
+            console.log(`[Flyd Core] Voice turn: ${voiceMode() === "live" ? "live (realtime socket)" : "dictation (transcribe after stop)"} with ${transcriptionModelForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL)}`);
             sendTranscriptionReady(ws);
             break;
           case "audio":
@@ -286,7 +298,9 @@ export function dictationVocabulary(target: DictationTarget): string[] {
   ])].slice(0, 40);
 }
 
-function openTranscriptionStream(purpose: TranscriptionPurpose): StreamingTranscriber | null {
+/** The realtime transcriber for a turn, or null on the default dictation path. */
+export function openTranscriptionStream(purpose: TranscriptionPurpose): StreamingTranscriber | null {
+  if (voiceMode() !== "live") return null;
   const apiKey = transcriptionApiKey();
   if (!apiKey) return null;
   try {
