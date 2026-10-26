@@ -12,8 +12,20 @@ const OPENAI_ORIGIN = "https://api.openai.com";
 const WARM_INTERVAL_MS = 30_000;
 const lastWarmed = new Map<string, number>();
 
-export function dictationFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(url, { ...init, dispatcher } as RequestInit);
+/**
+ * A pooled socket the server already closed fails as a bare "fetch failed" before
+ * any reply. Transcription and cleanup are safe to repeat, so that one failure is
+ * retried once on a fresh connection; an abort or timeout is not retried.
+ */
+export async function dictationFetch(url: string, init: RequestInit = {}, send: typeof fetch = fetch): Promise<Response> {
+  try {
+    return await send(url, { ...init, dispatcher } as RequestInit);
+  } catch (error) {
+    if (init.signal?.aborted || !(error instanceof TypeError)) throw error;
+    const cause = (error as { cause?: { code?: string; message?: string } }).cause;
+    console.warn(`[Flyd Core] Dictation request failed (${cause?.code ?? cause?.message ?? error.message}); retrying on a fresh connection`);
+    return send(url, init);
+  }
 }
 
 /** Hosts a dictation will talk to: transcription always, cleanup when a model is set. */

@@ -188,7 +188,8 @@ export function startTranscriptionServer(): Promise<void> {
             isTranscribing = true;
             transcribeBufferedAudio(pendingAudio, ws, purpose)
               .catch((error) => {
-                console.warn(`[Flyd Core] Transcription failed: ${error instanceof Error ? error.message : String(error)}`);
+                const cause = error instanceof Error ? (error as { cause?: { code?: string; message?: string } }).cause : undefined;
+                console.warn(`[Flyd Core] Transcription failed: ${error instanceof Error ? error.message : String(error)}${cause ? ` (${cause.code ?? cause.message})` : ""}`);
                 sendJson(ws, { type: "error", message: "Voice transcription failed" });
               })
               .finally(() => {
