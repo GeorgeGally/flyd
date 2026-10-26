@@ -15,7 +15,7 @@ describe("acceptance", () => {
     expect(checks).toEqual([
       { criterion: "a", met: true, note: "seen" },
       { criterion: "b", met: false, note: "missing" },
-      { criterion: "c", met: false, note: "the check couldn't confirm it" },
+      { criterion: "c", met: false, note: "the check couldn't confirm it", unchecked: true },
     ]);
     expect(shortfall(checks)).toBe("b (missing); c (the check couldn't confirm it)");
   });

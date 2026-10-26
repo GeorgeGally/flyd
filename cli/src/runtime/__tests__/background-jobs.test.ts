@@ -300,7 +300,7 @@ describe("job contracts", () => {
   it("counts points the checker didn't answer as unmet", () => {
     expect(parseVerdicts(contract.doneWhen, "**MET 1**: saw them\nsome chatter")).toEqual([
       { criterion: contract.doneWhen[0], met: true, note: "saw them" },
-      { criterion: contract.doneWhen[1], met: false, note: "the check couldn't confirm it" },
+      { criterion: contract.doneWhen[1], met: false, note: "the check couldn't confirm it", unchecked: true },
     ]);
   });
 });

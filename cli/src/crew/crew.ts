@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { claudeApiKey, claudeHeaders, recordClaudeUsage } from "../lib/claude-spend.js";
-import { normalizeCriteria, parseVerdicts, shortfall, unmetChecks, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
+import { normalizeCriteria, parseVerdicts, unmetChecks, unresolvedItems, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
 import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
 
 // Flyd as first mate. George states the outcome once; Flyd briefs an
@@ -41,7 +41,8 @@ export interface CrewTask {
   commits?: number;
   summary?: string;
   failure?: string;
-  reason?: "no_progress";
+  /** no_progress: the crewmate changed nothing; review_short: its tests passed but the independent review found the diff short of the brief. */
+  reason?: "no_progress" | "review_short";
   trace?: string;
   progressSignature?: string;
   completedIterations?: number;
@@ -154,7 +155,7 @@ export function acceptanceCriteria(task: Pick<CrewTask, "outcome" | "doneWhen">)
   return task.doneWhen?.length ? task.doneWhen : [task.outcome];
 }
 
-export function crewBrief(outcome: string, verification: string[], branch: string, doneWhen: string[] = [], taste: string | null = null): string {
+export function crewBrief(outcome: string, verification: string[], branch: string, doneWhen: string[] = [], taste: string | null = null, fresh = true): string {
   return [
     "You are a crewmate working for Flyd, George's personal agent. Deliver this outcome, unattended:",
     "",
@@ -167,9 +168,11 @@ export function crewBrief(outcome: string, verification: string[], branch: strin
     ] : []),
     ...(taste ? [taste, ""] : []),
     "Rules:",
-    `- You are on branch ${branch} in a dedicated git worktree. Work only here. Never push, never touch other branches.`,
+    `- You are on branch ${branch} in a dedicated git worktree${fresh ? "" : ", with your earlier commits"}. Work only here. Never push, never touch other branches.`,
     "- Read the repository's AGENTS.md / CLAUDE.md / README first and follow its conventions.",
-    "- This is a fresh worktree: dependencies are not installed. Install them (e.g. npm ci) before running checks.",
+    fresh
+      ? "- This is a fresh worktree: dependencies are not installed. Install them (e.g. npm ci) before running checks."
+      : "- Dependencies were installed on the first run; install again only if the checks can't find them.",
     "- Make the smallest complete change that delivers the outcome. Add or update tests for behaviour you change.",
     `- Before finishing, run and pass: ${verification.join(" && ") || "the project's own tests"}.`,
     "- Commit your work on this branch with a clear conventional commit message. Uncommitted work is lost.",
@@ -425,22 +428,69 @@ export function reviewPrompt(task: CrewTask, diff: string): string {
   ].join("\n");
 }
 
+/** The reviewer's unmet findings, one line each, in its own words: what the task record keeps and the re-run is told. */
+export function reviewFindings(review: AcceptanceCheck[]): string[] {
+  return unresolvedItems(review.filter((check) => !check.unchecked));
+}
+
+/** A review verdict: the diff is short of the brief. Checks that couldn't run are not a verdict. */
+export function reviewFoundShort(review: AcceptanceCheck[] | undefined): boolean {
+  return (review ?? []).some((check) => !check.met && !check.unchecked);
+}
+
+export const REVIEW_SHORT_FAILURE = "review found the diff short of the brief";
+
+/** The one re-run's brief: the original brief, with the reviewer's findings appended verbatim. */
 export function crewRepairBrief(task: CrewTask, unmet: AcceptanceCheck[], verification: string[]): string {
   return [
-    "You are a crewmate working for Flyd, George's personal agent, continuing unattended work on this outcome:",
+    crewBrief(task.outcome, verification, task.branch, task.doneWhen ?? [], null, false),
     "",
-    task.outcome,
+    "Your first run's tests passed, but an independent reviewer read the diff and found it short of the brief. Its findings, verbatim:",
+    ...reviewFindings(unmet).map((finding) => `- ${finding}`),
     "",
-    "An independent reviewer read your diff and found these points not met:",
-    ...unmet.map((check) => `- ${check.criterion}: ${check.note}`),
-    "",
-    "Rules:",
-    `- You are on branch ${task.branch} in a dedicated git worktree, with your earlier commits. Work only here. Never push, never touch other branches.`,
-    "- Fix the points above with the smallest complete change. If one can't be met, say exactly why.",
-    `- Before finishing, run and pass: ${verification.join(" && ") || "the project's own tests"}.`,
-    "- Commit your work on this branch. Uncommitted work is lost.",
-    "- End with a short plain-English summary: what changed, how you verified it, anything George must decide.",
+    "Fix these points with the smallest complete change. If one can't be met, say exactly why.",
   ].join("\n");
+}
+
+/** A task record without the previous round's verdict on it. */
+function withoutFailure(task: CrewTask): CrewTask {
+  const { failure, reason, ...rest } = task;
+  return rest;
+}
+
+/**
+ * The reviewer found the diff short of the brief: the task is failed, not
+ * ready, and the record keeps the findings in the reviewer's own words.
+ * The crewmate gets one re-run with those findings appended to its brief;
+ * `attempts` is kept on the task itself, so the bound holds across ticks and
+ * restarts and a second short verdict ends it.
+ */
+async function failShortReview(task: CrewTask, deps: SuperviseDependencies, now: Date): Promise<CrewTask> {
+  const review = task.review ?? [];
+  const failure = `${REVIEW_SHORT_FAILURE}: ${reviewFindings(review).join("; ")}`;
+  const attempts = task.attempts ?? 1;
+  if (attempts < MAX_CREW_ATTEMPTS) {
+    const commands = (task.verification ?? []).map((step) => step.command);
+    let pid: number | undefined;
+    try {
+      pid = (deps.launch ?? launchOpenCode)(task, crewRepairBrief(task, unmetChecks(review), commands));
+    } catch (error) {
+      console.warn("[crew] re-run after a short review failed to launch:", error instanceof Error ? error.message : error);
+    }
+    if (pid) {
+      // A fresh clock for the re-run; without a live pid there is nothing to wait for.
+      return {
+        ...task, status: "running", reason: "review_short", failure, attempts: attempts + 1, pid, notified: false,
+        progressSignature: await worktreeSignature(task.worktree, task.baseCommit).catch(() => task.progressSignature),
+        noProgressIterations: 0, attemptStartedAt: now.toISOString(),
+      };
+    }
+  }
+  const failed: CrewTask = { ...task, status: "failed", reason: "review_short", failure, finishedAt: now.toISOString(), notified: false };
+  delete failed.pid;
+  // The branch keeps the commits; only the worktree goes, as for any failed task.
+  const cleaned = await cleanupCrewWorktree(failed, { deleteBranch: false });
+  return cleaned ? { ...failed, worktreeRemoved: true } : failed;
 }
 
 const MAX_REVIEW_DIFF = 80_000;
@@ -681,7 +731,7 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
       if (now.getTime() - Date.parse(observed.attemptStartedAt ?? observed.createdAt) > MAX_RUNTIME_MS) {
         try { (deps.kill ?? ((pid: number) => process.kill(-pid, "SIGTERM")))(observed.pid!); } catch { /* already gone */ }
         const trace = lastSummary(observed.log);
-        const failed = { ...observed, status: "failed" as const, failure: "stopped after 2 hours without finishing", summary: trace, trace, finishedAt: now.toISOString() };
+        const failed = { ...withoutFailure(observed), status: "failed" as const, failure: "stopped after 2 hours without finishing", summary: trace, trace, finishedAt: now.toISOString() };
         saveTask(failed, dir);
         changed.push(failed);
       }
@@ -724,46 +774,29 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     // A crewmate whose provider refused the work (no credits, a usage limit, a bad key) did not fail at the work: say so.
     const refused = verified ? undefined : providerFailure(task.log);
     const noProgress = commits === 0 && !dirty && !refused;
-    // Passing checks is necessary, not sufficient: an independent reviewer
-    // holds the diff to what was asked, and unmet points go back to the
-    // crewmate once before George hears about it.
+    // Passing checks is necessary, not sufficient: the independent reviewer's
+    // verdict decides. A diff it finds short of the brief fails the task; the
+    // crewmate gets exactly one re-run with the findings before George hears about it.
     let review: AcceptanceCheck[] | undefined;
     if (verified) {
       const criteria = acceptanceCriteria(task);
-      let repairable = true;
       try {
         const reply = await (deps.review ?? defaultReview)(reviewPrompt({ ...task, summary }, await reviewDiff(task)));
         if (reply !== null) review = parseVerdicts(criteria, reply);
       } catch (error) {
         console.warn("[crew] independent review failed:", error instanceof Error ? error.message : error);
         review = criteria.map((criterion) => ({ criterion, met: false, note: "the review couldn't run", unchecked: true }));
-        repairable = false;
       }
-      const unmet = unmetChecks(review ?? []);
-      const attempts = task.attempts ?? 1;
-      if (unmet.length && repairable && attempts < MAX_CREW_ATTEMPTS) {
-        const commands = verification.map((step) => step.command);
-        let pid: number | undefined;
-        try {
-          pid = (deps.launch ?? launchOpenCode)(task, crewRepairBrief(task, unmet, commands));
-        } catch (error) {
-          console.warn("[crew] repair relaunch failed:", error instanceof Error ? error.message : error);
-        }
-        if (pid) {
-          // A fresh clock for the repair round; without a live pid there is nothing to wait for.
-          const again: CrewTask = {
-            ...observed, status: "running", attempts: attempts + 1, review, commits, diffStat, verification, summary, pid,
-            progressSignature: await worktreeSignature(observed.worktree, observed.baseCommit),
-            noProgressIterations: 0, attemptStartedAt: now.toISOString(),
-          };
-          saveTask(again, dir);
-          changed.push(again);
-          continue;
-        }
+      if (reviewFoundShort(review)) {
+        const short = await failShortReview({ ...withoutFailure(observed), commits, diffStat, verification, summary, review: review! }, deps, now);
+        saveTask(short, dir);
+        changed.push(short);
+        continue;
       }
     }
     const done: CrewTask = {
-      ...observed,
+      // A re-run that passes clears the first round's recorded shortfall.
+      ...withoutFailure(observed),
       status: verified ? "ready" : "failed",
       finishedAt: now.toISOString(),
       commits, diffStat, verification, summary,
@@ -794,8 +827,10 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
       const reply = await (deps.review ?? defaultReview)(reviewPrompt(unjudged, await reviewDiff(unjudged)));
       if (reply !== null) {
         const judged: CrewTask = { ...unjudged, review: parseVerdicts(acceptanceCriteria(unjudged), reply), reviewRetries: retries, notified: false };
-        saveTask(judged, dir);
-        changed.push(judged);
+        // The late verdict carries the same weight as a prompt one.
+        const settled = reviewFoundShort(judged.review) ? await failShortReview(judged, deps, now) : judged;
+        saveTask(settled, dir);
+        changed.push(settled);
       }
     } catch (error) {
       console.warn("[crew] review retry failed:", error instanceof Error ? error.message : error);
@@ -803,16 +838,13 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     }
   }
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
-    const judged = (task.review ?? []).filter((check) => !check.unchecked);
-    const short = unmetChecks(judged).length ? shortfall(judged) : "";
-    const unreviewed = judged.length < (task.review ?? []).length;
+    // A ready task's review is met or couldn't run: a short verdict never leaves a task ready.
+    const unreviewed = (task.review ?? []).some((check) => check.unchecked);
     const message = task.status !== "ready"
       ? `${plainOutcome(task)} is blocked: ${blockedBy(task)}. Tell me whether to try another way or drop it.`
-      : short
-        ? `${plainOutcome(task)} passes its tests but is still short on: ${short}. Your call whether to /land it.`
-        : unreviewed
-          ? `${plainOutcome(task)} passes its tests, but I couldn't check it against what you asked. Have a look before you /land it.`
-          : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
+      : unreviewed
+        ? `${plainOutcome(task)} passes its tests, but I couldn't check it against what you asked. Have a look before you /land it.`
+        : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
     await deps.notify!("Flyd", message, task.status !== "ready" ? "blocker" : "deliverable").catch(() => undefined);
     saveTask({ ...task, notified: true }, dir);
   }
@@ -959,6 +991,10 @@ export function blockedBy(task: Pick<CrewTask, "failure" | "verification"> & Par
   if (task.reason === "no_progress") return task.noProgressIterations
     ? `it made no file changes for ${task.noProgressIterations} consecutive iterations`
     : "it finished without changing any files";
+  if (failure.startsWith(REVIEW_SHORT_FAILURE)) {
+    const findings = failure.slice(REVIEW_SHORT_FAILURE.length).replace(/^:\s*/, "");
+    return `its tests pass but an independent review found the diff short of the brief${findings ? ` — ${findings}` : ""}`;
+  }
   const failedCheck = (task.verification ?? []).some((step) => !step.ok);
   if (failure.startsWith("provider error")) {
     const cause = PROVIDER_BUDGET.test(failure)

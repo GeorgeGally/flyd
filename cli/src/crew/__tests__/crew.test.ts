@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, MAX_NO_PROGRESS_ITERATIONS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew, pruneCrewTasks, saveTask } from "../crew.js";
+import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, REVIEW_SHORT_FAILURE, MAX_NO_PROGRESS_ITERATIONS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, discardCrewTask, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew, pruneCrewTasks, saveTask } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -401,20 +401,90 @@ describe("crew review against done_when", () => {
     expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/done and tested/), "deliverable");
   });
 
-  it("sends unmet points back to the crewmate once in the same worktree, then reports what is still short", async () => {
+  it("fails a diff the review finds short, records the findings verbatim, and re-runs once with them appended to the brief", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    const relaunch = vi.fn((_task: unknown, _brief: string) => 515151);
+    const finding = "no test in the diff; feature.txt is written but nothing asserts on it";
+    const review = vi.fn(async () => `MET 1: yes\nUNMET 2: ${finding}`);
+    const notify = vi.fn(async () => {});
+    const [again] = await superviseCrew({ alive: () => false, runCommand: passing, review, launch: relaunch, notify });
+    expect(again).toMatchObject({ status: "running", attempts: 2, pid: 515151, reason: "review_short", failure: `${REVIEW_SHORT_FAILURE}: a test covers the feature: ${finding}` });
+    expect(again.review).toEqual([{ criterion: "feature.txt says done", met: true, note: "yes" }, { criterion: "a test covers the feature", met: false, note: finding }]);
+    const brief = relaunch.mock.calls[0][1] as string;
+    expect(brief).toContain("Add a feature file");
+    expect(brief).toContain("2. a test covers the feature");
+    expect(brief.indexOf("Rules:")).toBeLessThan(brief.indexOf("found it short of the brief"));
+    expect(brief).toContain(`- a test covers the feature: ${finding}`);
+    expect(brief).toContain("with your earlier commits");
+    expect(notify).not.toHaveBeenCalled();
+
+    // The re-run meets the brief: the task completes as any passing task does, with no shortfall left on the record.
+    const passing2 = vi.fn(async () => "MET 1: yes\nMET 2: a test asserts on feature.txt");
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review: passing2, launch: relaunch, notify });
+    expect(relaunch).toHaveBeenCalledTimes(1);
+    expect(done).toMatchObject({ id: task.id, status: "ready", attempts: 2 });
+    expect(done.failure).toBeUndefined();
+    expect(done.reason).toBeUndefined();
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/done and tested/), "deliverable");
+    expect(existsSync(task.worktree)).toBe(true);
+  });
+
+  it("treats a truncated review reply as unconfirmed: the task stays ready and no re-run is launched", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    const relaunch = vi.fn((_task: unknown, _brief: string) => 515151);
+    const review = vi.fn(async () => "MET 1: yes");
+    const notify = vi.fn(async () => {});
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, launch: relaunch, notify });
+    expect(relaunch).not.toHaveBeenCalled();
+    expect(done).toMatchObject({ id: task.id, status: "ready", attempts: 1 });
+    expect(done.failure).toBeUndefined();
+    expect(done.review).toEqual([
+      { criterion: "feature.txt says done", met: true, note: "yes" },
+      { criterion: "a test covers the feature", met: false, note: "the check couldn't confirm it", unchecked: true },
+    ]);
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringMatching(/couldn't check it/), "deliverable");
+  });
+
+  it("re-runs exactly once: a second short verdict ends the task failed, with no third crewmate", async () => {
     const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
     const relaunch = vi.fn((_task: unknown, _brief: string) => 515151);
     const review = vi.fn(async () => "MET 1: yes\nUNMET 2: no test in the diff");
     const notify = vi.fn(async () => {});
-    const [again] = await superviseCrew({ alive: () => false, runCommand: passing, review, launch: relaunch, notify });
-    expect(again).toMatchObject({ status: "running", attempts: 2, pid: 515151 });
-    expect(relaunch.mock.calls[0][1]).toContain("a test covers the feature: no test in the diff");
-    expect(notify).not.toHaveBeenCalled();
-
+    await superviseCrew({ alive: () => false, runCommand: passing, review, launch: relaunch, notify });
     const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review, launch: relaunch, notify });
     expect(relaunch).toHaveBeenCalledTimes(MAX_CREW_ATTEMPTS - 1);
-    expect(done).toMatchObject({ id: task.id, status: "ready" });
-    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("still short on: a test covers the feature (no test in the diff). Your call whether to /land it."), "deliverable");
+    expect(done).toMatchObject({ id: task.id, status: "failed", attempts: MAX_CREW_ATTEMPTS, reason: "review_short", failure: `${REVIEW_SHORT_FAILURE}: a test covers the feature: no test in the diff` });
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("is blocked: its tests pass but an independent review found the diff short of the brief — a test covers the feature: no test in the diff."), "blocker");
+    await expect(landCrewTask(task.id)).rejects.toThrow("not ready to land");
+    // The branch keeps the work; the worktree goes like any failed task's.
+    expect(git(repo, "rev-list", "--count", `main..${task.branch}`)).toBe("1");
+    expect(existsSync(task.worktree)).toBe(false);
+
+    // Further passes find nothing to re-run: the bound holds across ticks.
+    for (let pass = 0; pass < 3; pass += 1) await superviseCrew({ alive: () => false, runCommand: passing, review, launch: relaunch, notify });
+    expect(relaunch).toHaveBeenCalledTimes(MAX_CREW_ATTEMPTS - 1);
+    expect(review).toHaveBeenCalledTimes(2);
+    expect(readTask(task.id)?.status).toBe("failed");
+  });
+
+  it("never re-runs a task already at the attempt bound, whatever its record says", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    saveTask({ ...readTask(task.id)!, attempts: MAX_CREW_ATTEMPTS });
+    const relaunch = vi.fn(() => 515151);
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing, review: async () => "UNMET 1: file says nothing\nUNMET 2: no test", launch: relaunch });
+    expect(relaunch).not.toHaveBeenCalled();
+    expect(done).toMatchObject({ status: "failed", reason: "review_short", attempts: MAX_CREW_ATTEMPTS });
+    expect(done.failure).toBe(`${REVIEW_SHORT_FAILURE}: feature.txt says done: file says nothing; a test covers the feature: no test`);
+  });
+
+  it("holds a late verdict to the same standard when the first review couldn't run", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
+    await superviseCrew({ alive: () => false, runCommand: passing, review: async () => { throw new Error("down"); } });
+    expect(readTask(task.id)?.status).toBe("ready");
+    const relaunch = vi.fn((_task: unknown, _brief: string) => 717171);
+    const [again] = await superviseCrew({ alive: () => false, runCommand: passing, review: async () => "MET 1: yes\nUNMET 2: still no test", launch: relaunch });
+    expect(again).toMatchObject({ id: task.id, status: "running", attempts: 2, reviewRetries: 1, reason: "review_short" });
+    expect(relaunch.mock.calls[0][1]).toContain("- a test covers the feature: still no test");
   });
 
   it("doesn't rebuild when the review itself breaks", async () => {
@@ -452,15 +522,15 @@ describe("crew review against done_when", () => {
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it("finishes as ready when the repair relaunch fails, instead of hanging", async () => {
+  it("fails the task when the re-run can't launch, instead of hanging or calling it ready", async () => {
     await dispatchCrewTask({ repo, outcome: "Add a feature file", doneWhen, launch: fakeCrewmate() });
     const notify = vi.fn(async () => {});
     const [done] = await superviseCrew({
       alive: () => false, runCommand: passing, notify, review: async () => "MET 1: y\nUNMET 2: no test",
       launch: () => { throw new Error("opencode missing"); },
     });
-    expect(done).toMatchObject({ status: "ready", attempts: 1 });
-    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("still short on: a test covers the feature (no test)"), "deliverable");
+    expect(done).toMatchObject({ status: "failed", attempts: 1, reason: "review_short", failure: `${REVIEW_SHORT_FAILURE}: a test covers the feature: no test` });
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("short of the brief — a test covers the feature: no test"), "blocker");
   });
 
   it("says so when it couldn't review, rather than calling the work short", async () => {

@@ -28,7 +28,8 @@ export const VERDICT_FORMAT = [
 const VERDICT_LINE = /^[*_\s-]*(MET|UNMET)\s*(\d+)[*_]*\s*[:.)-]\s*(.*)$/i;
 
 /**
- * Points the checker didn't answer count as unmet: silence is not evidence.
+ * Points the checker didn't answer are unconfirmed, not unmet: silence is
+ * neither evidence the work is done nor that it fell short.
  * A reply with no verdict lines at all is a broken check, not a failed one,
  * so it throws: the caller mustn't pay for a repair round on no feedback.
  */
@@ -44,7 +45,7 @@ export function parseVerdicts(criteria: string[], reply: string): AcceptanceChec
   }
   return criteria.map((criterion, index) => ({
     criterion,
-    ...(verdicts.get(index) ?? { met: false, note: "the check couldn't confirm it" }),
+    ...(verdicts.get(index) ?? { met: false, note: "the check couldn't confirm it", unchecked: true }),
   }));
 }
 
