@@ -3738,7 +3738,7 @@ describe("the front page", () => {
 
   it("lists the jobs as cards, and an unread fleet as unknown rather than empty", async () => {
     const stream = await opened();
-    expect(groups()).toEqual([["Conversation", 1], ["Needs you", "Not read yet."], ["Working", "Not read yet."], ["Done", "Not read yet."]]);
+    expect(groups()).toEqual([["Conversation", 1], ["Needs you", "The work list has not come in."], ["Working", "The work list has not come in."], ["Done", "The work list has not come in."]]);
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
     expect(groups()).toEqual([["Conversation", 1], ["Needs you", 1], ["Working", "Nothing is running right now."], ["Done", 1]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
@@ -3779,5 +3779,45 @@ describe("the front page", () => {
     after(() => card.click());
     expect(document.querySelector<HTMLAnchorElement>(".job-view .fbtn")!.href).toBe("https://example.test/lab.html");
     expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
+  });
+
+  it("renders stored job digests and says what an empty list actually is", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, jobs: [], jobsFleetKnown: false, show: { title: "", summary: "", items: [], counts: {}, live: false } });
+    expect(document.body.textContent).not.toContain("Not read yet");
+    expect(groups()).toEqual([
+      ["Conversation", 1],
+      ["Needs you", "No decision is waiting."],
+      ["Working", "No run has reported yet."],
+      ["Waiting", "Nothing is waiting."],
+      ["Done", "Nothing has landed lately."],
+    ]);
+    stream.emit("update", {
+      order: ["u1"], messages: [], working: false, jobsFleetKnown: true,
+      show: { title: "", summary: "", items: [], counts: {}, live: false },
+      jobs: [{
+        id: "cap5", group: "waiting", state: "Waiting", title: "Cap5", project: "Client", at: "2026-10-26T12:00:00.000Z",
+        next: "Send the revised deck", owner: "you", ask: "", because: "No open run",
+        shots: [], links: [{ label: "Deck", url: "https://example.com/deck" }], files: [{ label: "deck.pdf" }], threads: [],
+        digest: { changed: "The deck dropped the third pricing tier.", means: "Cap5 can review one offer.", needed: "Send it.", link: "https://example.com/deck" },
+      }, {
+        id: "pick", group: "needs", state: "Needs you", title: "Which hero", project: "Client", at: "2026-10-26T13:00:00.000Z",
+        next: "Pick a hero", owner: "you", ask: "Which hero should ship?", because: "decision",
+        shots: [], links: [], files: [], threads: [{ id: "s1", title: "Hero thread", at: "2026-10-26T13:00:00.000Z", kind: "conversation" }],
+        digest: null,
+      }],
+    });
+    const cap = document.querySelector<HTMLElement>('.job[data-job="cap5"]')!;
+    expect(cap.querySelector(".digest")!.textContent).toContain("The deck dropped the third pricing tier.");
+    expect(cap.querySelector(".digest")!.textContent).toContain("Send it.");
+    expect(cap.querySelector("a")).toBeNull();
+    expect(document.querySelector('.job[data-job="pick"] .next')!.textContent).toContain("Pick a hero");
+    after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
+    expect(document.querySelector(".jv-ask")!.textContent).toBe("Which hero should ship?");
+    expect(document.querySelector(".jv-thread")!.textContent).toBe("Hero thread");
+    after(() => document.querySelector<HTMLElement>('.job[data-job="cap5"]')!.click());
+    expect(document.querySelector(".jv-digest")!.textContent).toContain("Cap5 can review one offer.");
+    expect(document.querySelector<HTMLAnchorElement>(".jv-digest .fbtn")!.href).toBe("https://example.com/deck");
+    expect(document.querySelector(".jv-files")!.textContent).toBe("deck.pdf");
   });
 });

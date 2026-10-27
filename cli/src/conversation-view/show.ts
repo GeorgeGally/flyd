@@ -478,7 +478,15 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
     ...(next.length ? { next } : {}),
     ...(inputs.artefact?.landedByDay ? { landedByDay: inputs.artefact.landedByDay } : {}),
     ...(landedWeek.length ? { landedWeek } : {}),
-    ...(fleet?.generated ? { read: fleet.generated } : {}),
+    // `read` means this screen was produced from a fleet that answered, or from
+    // the conversation alone. A fleet that failed to answer leaves it unset, so
+    // the column does not claim the fleet is idle.
+    ...(() => {
+      const read = fleet?.generated
+        ?? (fleet && !fleet.unavailable ? new Date(inputs.now ?? Date.now()).toISOString() : undefined)
+        ?? (!inputs.artefact ? new Date(inputs.now ?? Date.now()).toISOString() : undefined);
+      return read ? { read } : {};
+    })(),
     live: status.working,
     ...(doing ? { doing } : {}),
   };
