@@ -3,7 +3,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
-import { FLYD_DIR } from "../lib/config.js";
+import { monthlyCapUsd, readSpendLedger } from "../lib/claude-spend.js";
+import { chatModelChain, claudeChatModel, FLYD_DIR } from "../lib/config.js";
 import { query, type QueryOptions } from "../lib/llm.js";
 import { readTaste } from "../council/taste.js";
 import { designLabSkill } from "./design.js";
@@ -197,7 +198,7 @@ async function judgeVersion(run: DomainRun, lab: Lab, version: LabVersion, taste
   let reply: { score?: number; critique?: string } | null;
   try {
     reply = jsonOf<{ score?: number; critique?: string }>(await ask(deps, critiquePrompt(run, version, taste), {
-      json: true, source: "design", images: [asImage(shots.desktop), asImage(shots.phone)],
+      json: true, source: "design-review", images: [asImage(shots.desktop), asImage(shots.phone)],
     }));
   } catch (error) {
     const problem = `V${version.n} · ${version.name} could not be judged: ${messageOf(error)}`;
@@ -605,7 +606,7 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
     const seeds = Array.from({ length: MAX_VERSIONS }, () => randomBytes(12).toString("hex"));
     const reply = jsonOf<{ brief?: string; versions?: Array<{ name?: string; idea?: string }> }>(
       await ask(deps, briefPrompt(run, images, taste, seeds, rejected?.flydNotes, context), {
-        json: true, source: "design", images: (context.shots ?? []).filter((path) => existsSync(path)).map(asImage),
+        json: true, source: "design-review", images: (context.shots ?? []).filter((path) => existsSync(path)).map(asImage),
       }));
     const versions = (reply?.versions ?? []).filter((item) => item.name && item.idea).slice(0, MAX_VERSIONS)
       .map((item, index): LabVersion => ({ n: index + 1, name: String(item.name).trim(), idea: String(item.idea).trim(), seed: seeds[index]! }));
@@ -659,7 +660,7 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
   if (run.phase === "presenting") {
     const desktops = lab.versions.map((version) => shotPaths(run.id, version, root).desktop);
     const reply = jsonOf<{ pick?: number; presentation?: string }>(await ask(deps, presentPrompt(run, lab), {
-      json: true, source: "design", images: desktops.map(asImage),
+      json: true, source: "design-review", images: desktops.map(asImage),
     }));
     const best = [...lab.versions].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0]!;
     lab.pick = lab.versions.some((version) => version.n === Number(reply?.pick)) ? Number(reply!.pick) : best.n;
@@ -708,7 +709,7 @@ interface FlydVerdict { verdict: "accept" | "changes" | "reject"; notes: string[
 /** Flyd looks at the work and the Creative Director's presentation, as the client George would be. */
 async function flydReview(run: DomainRun, deps: DesignMateDeps, presentation: string, taste: string, what: string, shots: string[]): Promise<FlydVerdict> {
   const reply = jsonOf<{ verdict?: string; notes?: unknown; versions?: unknown }>(await ask(deps, flydReviewPrompt(run, presentation, taste, what), {
-    json: true, source: "design", images: shots.filter((path) => existsSync(path)).map(asImage),
+    json: true, source: "design-review", images: shots.filter((path) => existsSync(path)).map(asImage),
   }));
   const verdict = reply?.verdict === "changes" || reply?.verdict === "reject" ? reply.verdict : "accept";
   const notes = Array.isArray(reply?.notes) ? reply!.notes.map(String).map((note) => note.trim()).filter(Boolean) : [];
@@ -747,7 +748,7 @@ async function advanceBuild(run: DomainRun, deps: DesignMateDeps, root: string, 
     }).join("\n\n");
     const shot = build.reference?.shot && existsSync(build.reference.shot) ? [asImage(build.reference.shot)] : [];
     const reply = jsonOf<{ score?: number; critique?: string; presentation?: string }>(await ask(deps, buildReviewPrompt(run, build, [tracked, untracked].filter(Boolean).join("\n\n"), taste), {
-      json: true, source: "design", images: shot,
+      json: true, source: "design-review", images: shot,
     }));
     build.score = files.length ? Math.max(0, Math.min(10, Number(reply?.score ?? 0))) : 0;
     build.critique = String(reply?.critique ?? "").trim();
@@ -938,8 +939,22 @@ async function drive(run: DomainRun, deps: DesignMateDeps, onChanged?: (run: Dom
   }
 }
 
+/**
+ * Which models a design call runs on. The Creative Director and Flyd's review judge on Claude while it is
+ * under its monthly cap (George's call); designers build on Claude only while the month's Claude spend is
+ * under half the cap, else on the default model. Undefined leaves the default chain.
+ */
+export function designChain(source: string | undefined, spentShare = readSpendLedger().usd / monthlyCapUsd()): string[] | undefined {
+  if (!claudeChatModel()) return undefined;
+  if (source === "design" && !(spentShare < 0.5)) return undefined;
+  return chatModelChain();
+}
+
 export const liveDesignDeps: DesignMateDeps = {
-  complete: (prompt, options) => query(prompt, undefined, undefined, undefined, undefined, options),
+  complete: (prompt, options = {}) => {
+    const chain = options.chain ?? designChain(options.source);
+    return query(prompt, undefined, undefined, undefined, undefined, chain ? { ...options, chain } : options);
+  },
   shoot: shootWithChrome,
 };
 

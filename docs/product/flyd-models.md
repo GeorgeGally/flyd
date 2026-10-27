@@ -22,6 +22,8 @@ nothing else.
 | Chat (Flyd window, TUI, overlay invocations) | Claude Sonnet 5.5, adaptive thinking at `medium` effort | `FLYD_CHAT_MODEL`, then `FLYD_CHAT_FALLBACK_MODELS`, then CommandCode |
 | Quick jobs: room reading/routing, query rewrites, the view's routing, retold answers and status lines | Claude Haiku 5.5, thinking off | `FLYD_MODEL`, then the same fallbacks |
 | Reply summaries in the Flyd window | Claude Haiku 5.5 | xAI Grok (`XAI_API_KEY` or the grok CLI's key) |
+| Design team: Creative Director and Flyd's review of a lab | Claude chat model (Sonnet 5.5), while under the monthly cap | the chat chain's next models |
+| Design team: Designers building lab pages | Claude chat model while this month's Claude spend is under half the cap | `FLYD_MODEL` and its fallbacks |
 | Typing prediction | Claude Haiku 5.5, conversation cached | `openrouter:inception/mercury-2.5` |
 | Coding crew (`flyd crew`, `start_coding_task`) | `opencode-go/gpt-6-luna`, or `FLYD_CREW_MODEL` (never OpenCode's own default) | `cursor/auto` (Cursor's agent on George's login) when the provider refuses; `FLYD_CREW_BACKUP_MODELS` |
 | Background learning, synthesis, curation | `FLYD_MODEL` chain, unchanged | — |
