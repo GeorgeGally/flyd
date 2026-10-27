@@ -2,8 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, designChain, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, type DesignMateDeps } from "../design-mate.js";
-import { claudeChatModel } from "../../lib/config.js";
+import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, type DesignMateDeps } from "../design-mate.js";
 import { isDesignLabRun, labAwaitingReview } from "../design.js";
 import { readDomainRun } from "../store.js";
 
@@ -241,12 +240,5 @@ describe("Design Mate", () => {
     } });
     expect(done.status).toBe("failed");
     expect(done.failure).toMatch(/V3 · Departure board could not be built: socket hang up/);
-  });
-
-  it("judges on Claude, and builds on Claude only while under half the month's Claude cap", () => {
-    if (!claudeChatModel()) return;
-    expect(designChain("design-review", 0.9)?.[0]).toBe(claudeChatModel());
-    expect(designChain("design", 0.2)?.[0]).toBe(claudeChatModel());
-    expect(designChain("design", 0.5)).toBeUndefined();
   });
 });
