@@ -51,6 +51,12 @@ describe("assistant tools", () => {
       expect(noticeSpy).not.toHaveBeenCalled();
       expect(await runAssistantTool("start_knowledge_task", { outcome: "send the GNM vendor email", done_when: ["done"] })).toContain("Knowledge work accepted");
       expect(dispatch).toHaveBeenCalledTimes(1);
+      process.env.FLYD_EVAL = "0";
+      expect(await runAssistantTool("start_knowledge_task", { outcome: "send the GNM vendor email", done_when: ["done"] })).toContain("Knowledge work accepted");
+      delete process.env.FLYD_EVAL;
+      expect(await runAssistantTool("start_knowledge_task", { outcome: "Shorten the Acme pitch summary to three sentences", done_when: ["done"] }, { userMessage: "make it shorter" })).toContain("Knowledge work accepted");
+      expect(dispatch).toHaveBeenCalledTimes(3);
+      expect(dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ originalMessage: "make it shorter" }));
     } finally {
       delete process.env.FLYD_EVAL;
       if (originalCommandDir === undefined) delete process.env.FLYD_COMMAND_DIR;

@@ -175,7 +175,7 @@ export async function runAssistantTool(
   const launches = ["start_coding_task", "start_knowledge_task", "start_design_task", "pass_on_question", "background_task"].includes(name)
     || (name === "domain_work" && input.action === "ask");
   if (launches) {
-    const refusal = refuseLeakedLaunch([context.userMessage ?? "", String(input.outcome ?? ""), String(input.question ?? ""), String(input.task ?? "")]);
+    const refusal = refuseLeakedLaunch([String(input.outcome ?? ""), String(input.question ?? ""), String(input.task ?? "")]);
     if (refusal) return refusal;
   }
   try {
