@@ -51,6 +51,8 @@ export const SHOW_SCRIPT = `
     return node;
   }
   function withToken(src) { return src + (src.indexOf("?") < 0 ? "?" : "&") + "token=" + encodeURIComponent(VIEW_TOKEN); }
+  // A lab page on disk opens through the window's file route, whose token sits in the path.
+  function openHref(ref) { return ref.indexOf("/rail-file/") === 0 ? "/rail-file/" + encodeURIComponent(VIEW_TOKEN) + ref.slice(10) : ref; }
   // A call's headline is its question alone; a "Recommended: …" riding on it is said under it, in Flyd's words.
   function headOf(title) {
     var text = String(title || "").replace(/\\s+/g, " ").trim();
@@ -199,7 +201,7 @@ export const SHOW_SCRIPT = `
           if (work.closed || known[work.ref]) return;
           known[work.ref] = true;
           var a = el("a", "screen-evidence", (work.label || "Open") + " ↗");
-          a.href = work.ref;
+          a.href = openHref(work.ref);
           a.target = "_blank";
           a.rel = "noopener noreferrer";
           wrap.appendChild(a);
@@ -696,8 +698,8 @@ export const SHOW_SCRIPT = `
       ref: object.source && object.source.ref,
       task: object.source && object.source.task,
       decision: decision,
-      open: web ? { label: web.label || "Open", url: web.ref } : undefined,
-      links: (object.evidence || []).filter(function (work) { return work.kind === "web"; }).map(function (work) { return { label: work.label || "Open", url: work.ref, closed: work.closed }; }),
+      open: web ? { label: web.label || "Open", url: openHref(web.ref) } : undefined,
+      links: (object.evidence || []).filter(function (work) { return work.kind === "web"; }).map(function (work) { return { label: work.label || "Open", url: openHref(work.ref), closed: work.closed }; }),
       children: children,
       semantic: true,
       semanticKind: object.kind,

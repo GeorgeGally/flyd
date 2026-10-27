@@ -47,10 +47,10 @@ describe("turn plan", () => {
     expect(offRoute(knowledge, "start_coding_task", { outcome: "build it" })).toMatch(/^Skipped/);
   });
 
-  it("hands a creative delegated turn to the designers, not only a generic background job", () => {
+  it("hands a creative delegated turn to the designers, never a generic background job", () => {
     const withDesign = [...tools, { name: "start_design_task" }];
     const creative = planTurn(jev("delegate", "creative"));
-    expect(visibleTools(withDesign, creative).map((tool) => tool.name)).toEqual(["background_task", "start_design_task"]);
+    expect(visibleTools(withDesign, creative).map((tool) => tool.name)).toEqual(["start_design_task"]);
     expect(offRoute(creative, "start_design_task", { outcome: "five landing heroes", done_when: ["five versions"] })).toBeNull();
     expect(planBrief(creative!)).toContain("a design lab, N versions or a redesign of a page, screen or component goes to start_design_task");
     expect(visibleTools(withDesign, planTurn(jev("delegate", "life"))).map((tool) => tool.name)).toEqual(["background_task"]);

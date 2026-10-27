@@ -52,6 +52,7 @@ import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
 import { concernKind, readStaffView, type StaffView } from "../command/fleet-monitor.js";
+import { labsDir } from "../command/design-mate.js";
 import { reachesGeorge } from "../lib/reaches-george.js";
 import { noteSaid, screenOutgoing } from "../council/reply-review.js";
 import { stripCommitIds } from "../runtime/honesty-check.js";
@@ -1206,12 +1207,14 @@ export class ConversationViewServer {
     let root: string;
     try {
       real = await realpath(file);
-      root = await realpath(join(firstmateHome(), "data"));
+      // Firstmate's data tree, or a lab Design Mate built.
+      const roots = await Promise.all([join(firstmateHome(), "data"), labsDir()].map((dir) => realpath(dir).catch(() => "")));
+      root = roots.find((dir) => dir && real.startsWith(dir + sep)) ?? roots[0]!;
     } catch {
       sendJson(res, 404, { error: "not found" });
       return;
     }
-    if (!real.startsWith(root + sep)) {
+    if (!root || !real.startsWith(root + sep)) {
       sendJson(res, 403, { error: "not allowed" });
       return;
     }

@@ -1,14 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CodingDispatchInput, CodingDomainDispatch } from "./coding.js";
+import type { CodingDispatchInput } from "./coding.js";
 import { bundledSkillsDir, loadSkills, parseSkill, skillsHome } from "../runtime/skills.js";
 import type { DomainRequest, DomainRun } from "./types.js";
 
 // Design is a real path: a lab, N versions of a page, a redesign of a screen.
-// The work is built (HTML, screenshots, a critic loop), so the coding boss owns
-// it and its design agents do it; what makes it design is the lab process riding
-// the handoff as the design-lab skill, and a finished lab coming back to George
-// as something to review rather than a reply to read.
+// Design Mate owns it (design-mate.ts), beside the coding boss rather than
+// through it; a finished lab comes back to George as something to review
+// rather than a reply to read.
 
 export const DESIGN_LAB_SKILL = "design-lab";
 
@@ -29,8 +28,8 @@ export function designLabSkill(home = skillsHome(), bundled = bundledSkillsDir()
 }
 
 /** A run that is a design lab: it carries the lab process, whichever handoff started it. */
-export function isDesignLabRun(run: Pick<DomainRun, "request">): boolean {
-  return run.request.skill?.name === DESIGN_LAB_SKILL;
+export function isDesignLabRun(run: Pick<DomainRun, "request"> & { owner?: string }): boolean {
+  return run.owner === "Design Mate" || run.request.skill?.name === DESIGN_LAB_SKILL;
 }
 
 /**
@@ -42,13 +41,23 @@ export function labAwaitingReview(run: DomainRun, runs: readonly DomainRun[]): b
   return !runs.some((other) => other.request.parentRequestId === run.id);
 }
 
-export type DesignDispatchInput = Omit<CodingDispatchInput, "skill"> & { skill?: DomainRequest["skill"] };
+export type DesignDispatchInput = Omit<CodingDispatchInput, "skill" | "transport"> & { skill?: DomainRequest["skill"]; transport?: unknown };
 
-/** Hands a design lab to the coding boss with the lab process attached and the review contract in done_when. */
-export async function dispatchDesignLab(input: DesignDispatchInput): Promise<CodingDomainDispatch | { status: "refused"; reason: "no_design_skill" }> {
-  const skill = input.skill?.name === DESIGN_LAB_SKILL ? input.skill : designLabSkill();
-  if (!skill) return { status: "refused", reason: "no_design_skill" };
+/** A design lab goes to Design Mate, whichever handoff started it; the review contract rides in done_when. */
+export async function dispatchDesignLab(input: DesignDispatchInput): Promise<{ status: "accepted"; run: DomainRun }> {
   const doneWhen = [...input.doneWhen, ...DESIGN_LAB_DONE_WHEN.filter((point) => !input.doneWhen.includes(point))];
-  const { dispatchCodingDomain } = await import("./coding.js");
-  return dispatchCodingDomain({ ...input, doneWhen, skill });
+  const { dispatchDesignMate } = await import("./design-mate.js");
+  return {
+    status: "accepted",
+    run: dispatchDesignMate({
+      originalMessage: input.originalMessage,
+      intendedOutcome: input.intendedOutcome,
+      doneWhen,
+      ...(input.source ? { source: input.source } : {}),
+      ...(input.parentRequestId ? { parentRequestId: input.parentRequestId } : {}),
+      ...(input.contextRefs ? { contextRefs: input.contextRefs } : {}),
+      ...(input.project ? { project: input.project } : {}),
+      ...(input.now ? { now: input.now } : {}),
+    }),
+  };
 }

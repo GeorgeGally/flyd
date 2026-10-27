@@ -1,6 +1,7 @@
 import { bossMessageKind, FENCE_HELD, HELD_FOR_ATTENTION, notesSentToBoss, recommendationText } from "../intelligence/executive/decision-step.js";
 import { recordHeld } from "../council/reply-review.js";
 import { syncFirstmateDomainRuns } from "./firstmate.js";
+import { syncDesignMateRuns } from "./design-mate.js";
 import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
 import { noticeKind } from "./notice.js";
@@ -116,6 +117,7 @@ export async function commandTick(): Promise<void> {
     await Promise.all([
       syncFirstmateDomainRuns({ onChanged: notifyRun }),
       syncLibrarianDomainRuns({ onChanged: notifyRun }),
+      syncDesignMateRuns({ onChanged: notifyRun }),
     ]);
   } finally {
     running = false;

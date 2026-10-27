@@ -44,21 +44,21 @@ describe("assistant tools", () => {
     }
   });
 
-  it("routes design work to the coding boss's domain path, never a real note from a test", async () => {
+  it("routes design work to Design Mate, never a note to the coding boss", async () => {
     const home = join(dir, "firstmate");
     mkdirSync(join(home, "bin"), { recursive: true });
     const calls = join(dir, "calls.log");
     writeFileSync(join(home, "bin", "fm-inbox.sh"), `#!/bin/sh\necho "$1" >> '${calls}'\nprintf '%s' '{"can_receive":true}'\n`, { mode: 0o755 });
-    const saved = { home: process.env.FLYD_FIRSTMATE_HOME, command: process.env.FLYD_COMMAND_DIR };
+    const saved = { home: process.env.FLYD_FIRSTMATE_HOME, command: process.env.FLYD_COMMAND_DIR, labs: process.env.FLYD_LABS_DIR };
     process.env.FLYD_FIRSTMATE_HOME = home;
     process.env.FLYD_COMMAND_DIR = join(dir, "command");
+    process.env.FLYD_LABS_DIR = join(dir, "labs");
     try {
-      // Refused by the test-worker guard on the domain path, which a generic background job would never reach.
       expect(await runAssistantTool("start_design_task", { outcome: "Five landing heroes", done_when: ["five versions"], repo: dir }))
-        .toBe("Design request refused: test_worker");
+        .toMatch(/^Design lab started \(run lab-/);
       expect(existsSync(calls) ? readFileSync(calls, "utf8") : "").not.toContain("note");
     } finally {
-      for (const [key, value] of [["FLYD_FIRSTMATE_HOME", saved.home], ["FLYD_COMMAND_DIR", saved.command]] as const) {
+      for (const [key, value] of [["FLYD_FIRSTMATE_HOME", saved.home], ["FLYD_COMMAND_DIR", saved.command], ["FLYD_LABS_DIR", saved.labs]] as const) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }

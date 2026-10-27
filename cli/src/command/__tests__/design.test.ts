@@ -47,36 +47,27 @@ describe("design lab path", () => {
     expect(designLabSkill(dir)).toEqual({ name: DESIGN_LAB_SKILL, body: "Three versions, always." });
   });
 
-  it("hands a lab to the coding boss with the lab process and the review contract on the note", async () => {
+  it("hands a lab to Design Mate with the lab process and the review contract, never to the coding boss", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-design-dispatch-"));
     process.env.FLYD_COMMAND_DIR = join(dir, "command");
     process.env.FLYD_SKILLS_DIR = join(dir, "skills");
-    vi.stubEnv("VITEST", "");
-    const exec = vi.fn(async (_script: string, args: string[], _options?: { input?: string }) => ({
-      stdout: args[0] === "ready" ? JSON.stringify({ can_receive: true }) : JSON.stringify({ id: "note-1", saved: true, acknowledged: true }), stderr: "",
-    }));
-    const result = await dispatchDesignLab({
-      originalMessage: "make a lab for the landing hero, five versions", intendedOutcome: "Five versions of the landing hero",
-      doneWhen: ["five versions"], source: "chat", project: { root: dir }, transport: new FirstmateDomainTransport({ exec }),
-    });
-    expect(result.status).toBe("accepted");
-    const [saved] = listDomainRuns();
-    expect(saved!.request.skill?.name).toBe(DESIGN_LAB_SKILL);
-    expect(saved!.request.doneWhen).toEqual(["five versions", ...DESIGN_LAB_DONE_WHEN]);
-    expect(isDesignLabRun(saved!)).toBe(true);
-    const note = exec.mock.calls.find(([, args]) => args[0] === "note")![2]!.input!;
-    expect(note).toContain("USE SKILL: design-lab");
-    expect(note).toContain("make a lab for the landing hero, five versions");
-    expect(note).toContain("screenshot of every version are listed in artifacts");
-  });
-
-  it("never reaches a real coding boss from a test worker", async () => {
-    dir = mkdtempSync(join(tmpdir(), "flyd-design-dispatch-"));
-    process.env.FLYD_COMMAND_DIR = join(dir, "command");
+    process.env.FLYD_LABS_DIR = join(dir, "labs");
     const exec = vi.fn(async () => ({ stdout: "", stderr: "" }));
-    const result = await dispatchDesignLab({ originalMessage: "lab", intendedOutcome: "lab", doneWhen: ["done"], transport: new FirstmateDomainTransport({ exec }) });
-    expect(result).toEqual({ status: "refused", reason: "test_worker" });
-    expect(exec).not.toHaveBeenCalled();
+    try {
+      const result = await dispatchDesignLab({
+        originalMessage: "make a lab for the landing hero, five versions", intendedOutcome: "Five versions of the landing hero",
+        doneWhen: ["five versions"], source: "chat", project: { root: dir }, transport: new FirstmateDomainTransport({ exec }),
+      });
+      expect(result.status).toBe("accepted");
+      const [saved] = listDomainRuns();
+      expect(saved!.owner).toBe("Design Mate");
+      expect(saved!.request.skill?.name).toBe(DESIGN_LAB_SKILL);
+      expect(saved!.request.doneWhen).toEqual(["five versions", ...DESIGN_LAB_DONE_WHEN]);
+      expect(isDesignLabRun(saved!)).toBe(true);
+      expect(exec).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.FLYD_LABS_DIR;
+    }
   });
 
   it("waits for his review until he answers the lab with a follow-up", () => {

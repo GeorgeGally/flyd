@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { dispatchCodingDomain, type CodingDomainDispatch } from "./coding.js";
 import { dispatchKnowledgeDomain } from "./librarian.js";
 import { readDomainRun } from "./store.js";
@@ -58,5 +59,38 @@ export async function dispatchDomainFollowup(input: {
       background: input.background,
     });
   }
+  if (parent.request.domain === "creative") return designFollowup(parent, question);
   throw new Error(`No domain boss supports follow-ups for ${parent.request.domain} yet`);
+}
+
+/**
+ * George's answer to a presented lab goes back to the Creative Director: naming
+ * a version with the project known builds it for real; anything else is
+ * another round, with his words and the last lab as the new brief.
+ */
+async function designFollowup(parent: DomainRun, question: string): Promise<DomainRun> {
+  const { dispatchDesignMate, labDir, readLab, shotPaths } = await import("./design-mate.js");
+  const lab = readLab(parent.id);
+  const named = question.match(/\bv(?:ersion)?\s*([1-9])\b/i) ?? question.match(/\b(?:build|go with|take|use|pick|keep)\b[^.]*?\b([1-9])\b/i);
+  const version = lab?.versions.find((item) => item.n === Number(named?.[1]));
+  const root = parent.request.project?.root;
+  const common = {
+    originalMessage: question,
+    parentRequestId: parent.id,
+    contextRefs: [`domain:${parent.id}`],
+    ...(parent.request.project ? { project: parent.request.project } : {}),
+  };
+  if (version && root) {
+    return dispatchDesignMate({
+      ...common,
+      intendedOutcome: `Build "${version.name}" (V${version.n} from the lab "${parent.request.intendedOutcome}") for real in the project. ${version.idea}`,
+      doneWhen: [`the project shows ${version.name} as designed`, "the project's own checks still pass"],
+      build: { reference: { page: join(labDir(parent.id), `v${version.n}.html`), shot: shotPaths(parent.id, version).desktop, name: version.name } },
+    });
+  }
+  return dispatchDesignMate({
+    ...common,
+    intendedOutcome: `${parent.request.intendedOutcome} - another round. George said: "${question}"${lab ? `\nLast round's brief: ${lab.brief}\nLast round: ${lab.versions.map((item) => `V${item.n} ${item.name} (${item.score}/10): ${item.idea}`).join("; ")}` : ""}`,
+    doneWhen: parent.request.doneWhen,
+  });
 }

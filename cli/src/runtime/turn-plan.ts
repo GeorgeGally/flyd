@@ -112,8 +112,8 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domai
           : domain === "knowledge"
             ? new Set(["start_knowledge_task"])
             : domain === "creative"
-              // A lab, versions or a redesign goes to the designers; other creative one-offs stay a background job.
-              ? new Set(["start_design_task", "background_task"])
+              // Creative work goes to Design Mate's lab, never a bare background job that skips the critic.
+              ? new Set(["start_design_task"])
               : domain === "life"
                 ? new Set(["background_task"])
               : new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },

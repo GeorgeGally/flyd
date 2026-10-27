@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statS
 import { isAbsolute, join, sep } from "node:path";
 import { checkSaid } from "../council/chief-of-staff.js";
 import { labAwaitingReview } from "../command/design.js";
+import { labsDir } from "../command/design-mate.js";
 import { commandDir, listDomainRuns } from "../command/store.js";
 import type { DomainRun } from "../command/types.js";
 import { FLYD_DIR } from "../lib/config.js";
@@ -320,7 +321,9 @@ export function labReviews(runs: readonly DomainRun[], now: number, imageRoots: 
     const at = stamp(run.updatedAt) ?? stamp(run.createdAt);
     if (!at || now - Date.parse(at) > LAB_REVIEW_WINDOW_MS || !labAwaitingReview(run, runs)) return [];
     const pointers = [...(run.result?.artifacts ?? []), ...(run.result?.evidence ?? [])].map((pointer) => pointer.trim()).filter(Boolean);
-    const link = pointers.find((pointer) => /^https?:\/\//i.test(pointer));
+    // A lab Design Mate keeps on disk opens through the window's file route; the page adds its token.
+    const page = pointers.find((pointer) => isAbsolute(pointer) && /\.html$/i.test(pointer) && pointer.startsWith(labsDir() + sep));
+    const link = pointers.find((pointer) => /^https?:\/\//i.test(pointer)) ?? (page ? `/rail-file${page.split("/").map((part) => encodeURIComponent(part)).join("/")}` : undefined);
     const shots = [...new Set(pointers.filter((pointer) => isAbsolute(pointer) && IMAGE.test(pointer) && imageRoots.some((root) => pointer.startsWith(root + sep))))];
     const asked = plainLine(run.request.intendedOutcome)?.replace(/\.$/, "");
     const summary = "Ready for your review.";

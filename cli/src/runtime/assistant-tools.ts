@@ -282,6 +282,19 @@ export async function runAssistantTool(
         const doneWhen = normalizeCriteria(input.done_when);
         if (!doneWhen.length) return "Error: start_coding_task needs done_when: the checkable points that mean it's done";
 
+        // A turn read as a design lab is Design Mate's, even when it arrived as code work.
+        if (context.skill?.name === "design-lab") {
+          const { dispatchDesignLab } = await import("../command/design.js");
+          const lab = await dispatchDesignLab({
+            originalMessage: context.userMessage ?? outcome,
+            intendedOutcome: outcome,
+            doneWhen,
+            source: "chat",
+            project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo },
+          });
+          return `Design lab started (run ${lab.run.id}). When it is ready it shows in his column for review. Tell George only what you started, not who builds it or the id.`;
+        }
+
         // FirstMate is the coding-domain boss when installed. Flyd keeps the
         // original request attached and receives a durable layered reply. The
         // old internal crew remains only as an installation-compatibility path;
@@ -290,9 +303,7 @@ export async function runAssistantTool(
         const firstmate = new FirstmateDomainTransport();
         if (process.env.FLYD_FIRSTMATE !== "0" && firstmate.available()) {
           const { dispatchCodingDomain } = await import("../command/coding.js");
-          // A turn read as a design lab keeps the lab's review contract even when it arrived as code work.
-          const dispatch = context.skill?.name === "design-lab" ? (await import("../command/design.js")).dispatchDesignLab : dispatchCodingDomain;
-          const run = await dispatch({
+          const run = await dispatchCodingDomain({
             originalMessage: context.userMessage ?? outcome,
             intendedOutcome: outcome,
             doneWhen,
@@ -339,31 +350,16 @@ export async function runAssistantTool(
         const doneWhen = normalizeCriteria(input.done_when);
         if (!doneWhen.length) return "Error: start_design_task needs done_when: the checkable points that mean the lab is ready";
         const repo = String(input.repo ?? "").trim() || context.situation?.projectRoot;
-        // A lab is built, so the coding boss owns it; the lab process rides the handoff as the design-lab skill.
-        const { FirstmateDomainTransport } = await import("../command/firstmate.js");
-        const firstmate = new FirstmateDomainTransport();
-        const { dispatchDesignLab, designLabSkill } = await import("../command/design.js");
-        if (process.env.FLYD_FIRSTMATE !== "0" && firstmate.available()) {
-          const run = await dispatchDesignLab({
-            originalMessage: context.userMessage ?? outcome,
-            intendedOutcome: outcome,
-            doneWhen,
-            source: "chat",
-            ...(context.skill?.name === "design-lab" ? { skill: context.skill } : {}),
-            ...(repo ? { project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo } } : {}),
-            transport: firstmate,
-          });
-          if (run.status === "refused") return `Design request refused: ${run.reason}`;
-          if (run.run.failure) return run.run.failure;
-          return `Design lab accepted (run ${run.run.id}). When it is ready it shows in his Needs you column for review. Tell George only what you started, not who builds it or the id.`;
-        }
-        // No coding staff connected: the lab still runs as a background job, with the same process.
-        const skill = designLabSkill();
-        const jobs = await import("./background-jobs.js");
-        const contract = jobs.normalizeContract({ task: [outcome, ...(repo ? [`Project: ${repo}`] : []), ...(skill ? ["", "Follow this process:", skill.body] : [])].join("\n"), done_when: doneWhen });
-        if (typeof contract === "string") return `Error: ${contract}`;
-        const id = jobs.startBackgroundJob(context.background ? { ...contract, background: true } : contract, { run: jobs.runJobTurn, verify: jobs.verifyJobTurn, deliver: jobs.deliverJob });
-        return `Started in the background (job ${id}). The lab will come back to George in the chat when it's done. Tell him in a few words what you're making; don't mention job ids.`;
+        // Design Mate owns labs: its own brief, designers and critic, beside the coding boss rather than through it.
+        const { dispatchDesignLab } = await import("../command/design.js");
+        const run = await dispatchDesignLab({
+          originalMessage: context.userMessage ?? outcome,
+          intendedOutcome: outcome,
+          doneWhen,
+          source: "chat",
+          ...(repo ? { project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo } } : {}),
+        });
+        return `Design lab started (run ${run.run.id}). When it is ready it shows in his column for review. Tell George only what you started, not who builds it or the id.`;
       }
       case "pass_on_question": {
         const question = String(input.question ?? "").replace(/\s+/g, " ").trim();

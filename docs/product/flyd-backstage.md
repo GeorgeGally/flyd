@@ -29,6 +29,15 @@ Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Cor
 - Critic (measured) and Strategist advise it, in one call: each advisory is checked six ways (facts, upside, risk, another way, George's likely reaction from his taste rules, order) and kept as one recommendation; the Muse speaks after chat turns when it can help (`/useful`, `/dismiss`).
 - Runs on the agenda/Core tick. `FLYD_COUNCIL=0` / `FLYD_MUSE=0` disable.
 
+## Design team (`cli/src/command/design-mate.ts`)
+
+- The design team sits beside FirstMate, not under it. `start_design_task` (and any turn read as a design lab) becomes its own run with a folder in `~/.flyd/labs/<id>/`.
+- The Creative Director is the team's voice to Flyd: it turns Flyd's brief into 3–5 seeded directions against George's taste, judges each version from its desktop and phone screenshots alone (out of 10, rebuilding under 9, at most 3 rounds), then presents the lab to Flyd with its pick and why.
+- Design Mate is the producer: it runs the schedule, the files and the Designers (one per version, each returning a whole HTML page), and never draws.
+- Flyd reviews the presentation as George's client: accept, ask for changes (named versions are rebuilt with its notes) or reject (the Creative Director starts the directions again). After 2 send-backs the work goes to George with Flyd's open notes named.
+- George sees an accepted lab as a client presentation (`index.html`): the recommended version first and full size with the reasoning beside it, then the alternatives.
+- Naming a version in a follow-up ("build V2") starts a build: a Designer (OpenCode on the crew model) edits George's own copy of the project, the Creative Director reviews the diff against the picked version, Flyd accepts, and Design Mate commits only the files the build changed — never what was already changed.
+
 ## Scout (`flyd scout [show|run|watch|evolve|more N|less N|sources|taste]`, `cli/src/council/scout.ts`)
 
 - Personal news: last30days topics + RSS + subreddits as an evolving source population with fitness; taste seeded from George's Hermes curator.

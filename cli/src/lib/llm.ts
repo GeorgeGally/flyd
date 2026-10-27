@@ -74,6 +74,8 @@ export interface QueryOptions {
   source?: string;
   /** Explicit failover order; overrides the model argument. */
   chain?: string[];
+  /** Output room for a long answer, such as a whole page of HTML; default 4096 (8192 for JSON). */
+  maxTokens?: number;
 }
 
 /**
@@ -577,7 +579,7 @@ async function queryOpenAIWithConfig(
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: openAIUserContent(prompt, options.images) });
-  const limit = options.json ? 8192 : 4096;
+  const limit = options.maxTokens ?? (options.json ? 8192 : 4096);
   const ask = (maxTokens: number) => client.chat.completions.create({
     model: apiModelId(model),
     ...openAICompletionLimit(maxTokens),
@@ -611,12 +613,16 @@ async function queryAnthropic(prompt: string, model: string, system?: string, op
   const shape = claudeShape(model, connection, "quick");
   const res = await client.messages.create({
     model: apiModelId(model),
-    max_tokens: options.json ? 8192 : 4096,
+    max_tokens: options.maxTokens ?? (options.json ? 8192 : 4096),
     ...shape.params,
     system,
     messages: [{ role: "user", content: anthropicUserContent(prompt, options.images) }],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any, { headers: shape.headers }) as import("@anthropic-ai/sdk").default.Message;
+  } as any, {
+    headers: shape.headers,
+    // The SDK refuses a large non-streamed budget unless the caller names how long it may wait.
+    ...(options.maxTokens && options.maxTokens > 16_000 ? { timeout: 20 * 60_000 } : {}),
+  }) as import("@anthropic-ai/sdk").default.Message;
   recordUsage(model, connection, res.usage, options.source ?? "quick");
   throwOnRefusal(res.stop_reason, model);
   if (!res.content.length) throw new Error("Anthropic returned empty content");
