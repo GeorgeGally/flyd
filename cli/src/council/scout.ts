@@ -568,8 +568,6 @@ export interface ScoutRunResult {
   failedTopics: string[];
 }
 
-const EVERGREEN_MEDIA = new Set<MediaKind>(["quote", "stat", "image"]);
-
 function blendEdition(ranked: EditionItem[], extras: InspirationItem[], focus: WorkFocus[], now: Date, dir: string): EditionItem[] {
   const byUrl = new Map(ranked.map((item) => [item.url, item]));
   const articles: InspirationItem[] = ranked.map((item) => ({
@@ -634,7 +632,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
     try { extras = await gatherInspiration(dir, focus, { now, fetchImpl: deps.fetchFn }); } catch { extras = []; }
   }
   const items = extras.length ? blendEdition(ranked, extras, focus, now, dir) : ranked;
-  const rotating = items.filter((item) => item.media && EVERGREEN_MEDIA.has(item.media)).map((item) => item.url);
+  const rotating = items.filter((item) => item.media).map((item) => item.url);
   if (rotating.length) markShown(dir, rotating, now);
 
   // Exposure counts toward fitness: a source that keeps being shown but never liked fades.

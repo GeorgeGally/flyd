@@ -74,6 +74,8 @@ export interface QueryOptions {
   source?: string;
   /** Explicit failover order; overrides the model argument. */
   chain?: string[];
+  /** Caps the completion. Omitted calls keep their existing budget. */
+  maxTokens?: number;
 }
 
 /**
@@ -577,7 +579,7 @@ async function queryOpenAIWithConfig(
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: openAIUserContent(prompt, options.images) });
-  const limit = options.json ? 8192 : 4096;
+  const limit = options.maxTokens ?? (options.json ? 8192 : 4096);
   const ask = (maxTokens: number) => client.chat.completions.create({
     model: apiModelId(model),
     ...openAICompletionLimit(maxTokens),
@@ -611,7 +613,7 @@ async function queryAnthropic(prompt: string, model: string, system?: string, op
   const shape = claudeShape(model, connection, "quick");
   const res = await client.messages.create({
     model: apiModelId(model),
-    max_tokens: options.json ? 8192 : 4096,
+    max_tokens: options.maxTokens ?? (options.json ? 8192 : 4096),
     ...shape.params,
     system,
     messages: [{ role: "user", content: anthropicUserContent(prompt, options.images) }],
