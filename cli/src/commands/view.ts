@@ -77,7 +77,7 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   const crossRepo = await refreshRepoRegistry(situation?.projectRoot).catch(() => []);
   onStep?.("Remembering what I know about this", memoryLookup(question));
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
-  const article = turn ? await articleForTurn(turn.source.sessionId) : undefined;
+  const article = turn ? await articleForTurn(turn.source.sessionId, question) : undefined;
   const text = await respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, ...(turn.askUser ? { askUser: turn.askUser } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: DIAGNOSIS_PROMPT });
   const declared = diagnosisFromText(text);
   if (declared) return declared;
@@ -87,13 +87,13 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   return (await reshapeAnswer(question, text, form, (prompt) => quickQuery(prompt, { json: true }))) ?? text;
 };
 
-async function articleForTurn(sessionId: string): Promise<{ title: string; url: string; text: string } | undefined> {
-  if (!/window:article-[a-f0-9]{16}$/.test(sessionId)) return undefined;
-  const [{ articleForSession }, { FLYD_DIR }] = await Promise.all([
+/** The article this turn is grounded in; none for an off-topic question or an unreadable page, so the turn takes the ordinary path with its tools. */
+async function articleForTurn(sessionId: string, question: string): Promise<{ title: string; url: string; text: string } | undefined> {
+  const [{ articleTurnFor }, { FLYD_DIR }] = await Promise.all([
     import("../conversation-view/article-chat.js"),
     import("../lib/config.js"),
   ]);
-  return articleForSession(FLYD_DIR, sessionId);
+  return articleTurnFor(FLYD_DIR, sessionId, question);
 }
 
 function runCouncilAfterTurn(turn: { sessionId: string; user: string; assistant: string; recordInCognition?: boolean }): void {

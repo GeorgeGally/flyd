@@ -27,6 +27,7 @@ interface ArticleCache {
   starters: string[];
   at: string;
   error?: boolean;
+  media?: string;
 }
 
 interface ChatIndex {
@@ -221,24 +222,27 @@ export interface ReadArticleOptions {
   /** Words already on the card: the quote, the stat, the thread line. Not a transcript. */
   text?: string;
   description?: string;
+  /** Read a page whose text could not be read before again instead of answering from an empty article. */
+  refresh?: boolean;
 }
 
 /** Read the article once and keep the text and the starter questions beside it. A second call does not fetch. */
 export async function readArticle(dir: string, pageUrl: string, options: ReadArticleOptions = {}): Promise<ArticleCache> {
   const key = storyKey(pageUrl);
   const cached = readCache(dir, key);
-  if (cached) return cached;
+  if (cached && !(options.refresh && !cached.text.trim())) return cached;
+  const media = options.media ?? cached?.media ?? "article";
   const blank = (error: boolean, title = options.title?.trim() || "", text = ""): ArticleCache => ({
-    url: pageUrl, title, text, starters: ARTICLE_STARTERS, at: new Date().toISOString(), ...(error || !text ? { error: true } : {}),
+    url: pageUrl, title, text, media, starters: ARTICLE_STARTERS, at: new Date().toISOString(), ...(error || !text ? { error: true } : {}),
   });
   const store = async (record: ArticleCache): Promise<ArticleCache> => {
-    const ask = options.ask ?? (process.env.VITEST || !record.text ? undefined : await liveAsk());
-    const starters = ask ? await starterQuestions({ title: record.title, text: record.text }, ask) : ARTICLE_STARTERS;
-    const kept = { ...record, starters };
-    writeCache(dir, key, kept);
-    return kept;
+    const reuse = options.refresh && cached ? cached.starters : null;
+    const ask = reuse ? undefined : options.ask ?? (process.env.VITEST || !record.text ? undefined : await liveAsk());
+    const starters = reuse ?? (ask ? await starterQuestions({ title: record.title, text: record.text }, ask) : ARTICLE_STARTERS);
+    const stored = { ...record, starters };
+    writeCache(dir, key, stored);
+    return stored;
   };
-  const media = options.media ?? "article";
   const supplied = clipText(options.text, 4_000);
   if (SUPPLIED_MEDIA.has(media) && (supplied || media === "gif")) {
     const title = options.title?.trim() || "";
@@ -281,9 +285,9 @@ export async function readArticle(dir: string, pageUrl: string, options: ReadArt
   return record;
 }
 
-async function liveAsk(): Promise<(prompt: string) => Promise<string>> {
+async function liveAsk(source = "article-starters"): Promise<(prompt: string) => Promise<string>> {
   const { quickQuery } = await import("../lib/llm.js");
-  return (prompt) => quickQuery(prompt, { source: "article-starters", json: true });
+  return (prompt) => quickQuery(prompt, { source, json: true });
 }
 
 export interface OpenedArticle {
@@ -345,4 +349,46 @@ export function articleForSession(dir: string, sessionId: string): ArticleText |
     url: record?.url || chat?.url || "",
     text: record?.text ?? "",
   };
+}
+
+export interface ArticleTurnOptions {
+  fetchImpl?: typeof fetch;
+  lookup?: HostLookup;
+  /** The cheap reading of whether his question is about the piece. Under tests, injected. */
+  ask?: (prompt: string) => Promise<string>;
+}
+
+/** Whether his question is about this piece, or about his own work, code, memory or the web. A reading that fails keeps the article. */
+async function aboutTheArticle(question: string, article: ArticleText, ask: (prompt: string) => Promise<string>): Promise<boolean> {
+  try {
+    const raw = await ask([
+      "George is in a conversation about one article.",
+      `Title: ${article.title}`,
+      article.text.slice(0, 700),
+      `His question: ${question.replace(/\s+/g, " ").slice(0, 800)}`,
+      "Does answering that question depend on this article, or on the rest of Flyd — his own projects, code, repositories, his history, memory, calendar, or the web? Do not look anything up.",
+      'Reply with JSON only: {"about": true} when it depends on this article, {"about": false} when it needs the rest of Flyd.',
+    ].join("\n\n"));
+    const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as { about?: unknown };
+    return parsed.about !== false && parsed.about !== "false";
+  } catch {
+    return true;
+  }
+}
+
+/** The article a turn in this chat is grounded in, or undefined when the question needs the rest of Flyd instead. */
+export async function articleTurnFor(dir: string, sessionId: string, question: string, options: ArticleTurnOptions = {}): Promise<ArticleText | undefined> {
+  const cached = articleForSession(dir, sessionId);
+  if (!cached) return undefined;
+  const article = cached.text.trim() ? cached : await readArticle(dir, cached.url, {
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    ...(options.lookup ? { lookup: options.lookup } : {}),
+    ...(cached.title ? { title: cached.title } : {}),
+    refresh: true,
+  }).then((record) => ({ title: record.title || cached.title, url: record.url || cached.url, text: record.text }))
+    .catch(() => cached);
+  // Still unreadable: Flyd answers with the tools it has, not from an article it never saw.
+  if (!article.text.trim()) return undefined;
+  const ask = options.ask ?? (process.env.VITEST ? undefined : await liveAsk("article-routing"));
+  return ask && !(await aboutTheArticle(question, article, ask)) ? undefined : article;
 }

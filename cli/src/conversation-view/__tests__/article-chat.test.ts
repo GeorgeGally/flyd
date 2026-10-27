@@ -8,6 +8,7 @@ import {
   ARTICLE_STARTERS,
   articleForSession,
   articleSessionId,
+  articleTurnFor,
   extractArticleText,
   extractTranscript,
   listArticleChats,
@@ -159,5 +160,44 @@ describe("an opened article thread", () => {
     await vi.waitFor(async () => expect((await source.read(session)).messages.at(-1)?.text).toBe("I won't save that."));
     expect((await source.read(session)).confirm).toBeUndefined();
     expect(desk.resolveConfirm("gone", true)).toBe(false);
+  });
+});
+
+describe("a question asked in an article chat", () => {
+  let dir: string;
+  afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); });
+
+  it("keeps the article for a question about it and hands the rest of Flyd an off-topic one", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-article-turn-"));
+    const html = page(`<article>${"The weights live beside the prompt. ".repeat(20)}</article>`);
+    const opened = await openArticleChat(dir, PAGE, { fetchImpl: fetcher(html), lookup });
+    const prompts: string[] = [];
+    const about = async (prompt: string) => { prompts.push(prompt); return '{"about": true}'; };
+    const elsewhere = async (prompt: string) => { prompts.push(prompt); return '{"about": false}'; };
+    expect((await articleTurnFor(dir, opened.session, "What's new here?", { ask: about }))?.text).toContain("weights");
+    expect(await articleTurnFor(dir, opened.session, "what ever happened to the changes in quotes for georgegalanakis?", { ask: elsewhere })).toBeUndefined();
+    expect(prompts[1]).toContain("georgegalanakis");
+    expect(prompts[1]).toContain("State that lasts");
+    expect(await articleTurnFor(dir, opened.session, "Anything at all?", { ask: async () => { throw new Error("model down"); } })).not.toBeUndefined();
+    expect(await articleTurnFor(dir, "window:another-session", "What's new here?", { ask: about })).toBeUndefined();
+  });
+
+  it("reads the page again when the first read failed, and answers with tools when it still cannot", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-article-reread-"));
+    let fetches = 0;
+    const down = (async () => { fetches += 1; throw new Error("down"); }) as typeof fetch;
+    const good = page(`<article>${"The weights live beside the prompt. ".repeat(20)}</article>`);
+    const working = (async () => { fetches += 1; return new Response(good, { status: 200, headers: { "content-type": "text/html" } }); }) as typeof fetch;
+    const opened = await openArticleChat(dir, PAGE, { fetchImpl: down, lookup });
+    expect(articleForSession(dir, opened.session)?.text).toBe("");
+    const read = await articleTurnFor(dir, opened.session, "What's new here?", { ask: async () => '{"about": true}', fetchImpl: working, lookup });
+    expect(fetches).toBe(2);
+    expect(read?.text).toContain("weights");
+    const stillDown = await articleTurnFor(dir, opened.session, "What's new here?", { ask: async () => '{"about": true}', fetchImpl: down, lookup });
+    expect(stillDown?.text).toContain("weights");
+    expect(fetches).toBe(2);
+
+    const missing = await openArticleChat(dir, "https://magazine.example/gone", { fetchImpl: down, lookup, title: "Gone" });
+    expect(await articleTurnFor(dir, missing.session, "What's new here?", { ask: async () => '{"about": true}', fetchImpl: down, lookup })).toBeUndefined();
   });
 });
