@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderBriefing } from "../executive.js";
-import { composeRail, conversationPreviews, MAX_RAIL_ARTEFACTS, loopbackPage, negationsIn, normalizeLoopback, outcomeFirst, phoneCommentNote, phoneWork, plainNote, previewCard, previewsIn, railState, changeNotice, RAIL_CARD_TITLES, railServer, spoken, whoseFolder, type RailArtefact } from "../rail.js";
+import { composeRail, conversationPreviews, MAX_RAIL_ARTEFACTS, loopbackPage, negationsIn, normalizeLoopback, outcomeFirst, phoneCommentNote, phoneWork, plainNote, previewCard, previewsIn, railImageSrc, railState, changeNotice, RAIL_CARD_TITLES, railServer, spoken, whoseFolder, type RailArtefact } from "../rail.js";
 import type { ConversationMessage } from "../types.js";
 
 const user = (id: string, text: string, at = "2026-10-10T17:24:00Z"): ConversationMessage => ({ id, role: "user", text, timestamp: at });
@@ -201,6 +201,11 @@ describe("composeRail", () => {
   it("shows a plain answer leading with what changed, without the salutation", () => {
     const rail = composeRail([{ question: user("q", "move bunny up"), answer: assistant("a", "Captain, done on Visit → Hours:\n- **Position:** Mr Christmas now sits level with the green card.", "q") }], []);
     expect(rail.conversations[0]!.answer).toBe("Mr Christmas now sits level with the green card.");
+  });
+
+  it("shows a saved file's screenshot in place of a frame, and a file with neither as a plain line", () => {
+    expect(previewCard({ id: "file:/d/deck", kind: "file", url: "/rail-file/t/d/deck.html", frame: "/rail-file/t/d/deck.html", image: "/d/deck-desktop.png" })).toMatchObject({ image: railImageSrc("/d/deck-desktop.png") });
+    expect(previewCard({ id: "file:/d/deck", kind: "file", url: "/rail-file/t/d/deck.html" }).preview).toBeUndefined();
   });
 
   it("shows a review board through its own page, and a reply naming the board gets the same card", () => {

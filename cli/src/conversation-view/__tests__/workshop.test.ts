@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { htmlTitle, openBoards, recentDeliverables, Workshop } from "../workshop.js";
+import { htmlTitle, loopbackAssets, openBoards, recentDeliverables, Workshop } from "../workshop.js";
 
 function tree(): string {
   const data = join(mkdtempSync(join(tmpdir(), "flyd-workshop-")), "data");
@@ -53,6 +53,30 @@ describe("recentDeliverables", () => {
     const data = tree();
     const found = recentDeliverables(data, Date.now(), new Set([join(data, "gnm-decks", "review.html"), join(data, "gnm-decks", "sponsor-deck.html"), join(data, "gnm-decks", "sponsor-deck.pdf")]));
     expect(found.map((entry) => entry.title)).toEqual(["Bintang deck"]);
+  });
+});
+
+describe("recentDeliverables: what a card can show", () => {
+  function pages(): string {
+    const data = join(mkdtempSync(join(tmpdir(), "flyd-workshop-")), "data");
+    mkdirSync(join(data, "cap5-profile"), { recursive: true });
+    const dump = `<title>Alpax | CapFive</title><link rel='stylesheet' href='http://127.0.0.1:8110/wp-content/style.css'><img src="http://localhost:8110/logo.svg">`;
+    for (const name of ["alpax-before", "alpax-after", "alpax-restored"]) writeFileSync(join(data, "cap5-profile", `${name}.html`), dump);
+    writeFileSync(join(data, "cap5-profile", "deck.html"), "<title>Deck</title>");
+    writeFileSync(join(data, "cap5-profile", "deck-desktop.png"), "png");
+    return data;
+  }
+
+  it("shows saves of one page once, and names the test server its styles came from", () => {
+    const found = recentDeliverables(pages(), Date.now());
+    expect(found.filter((entry) => entry.title === "Alpax | CapFive")).toHaveLength(1);
+    expect(found.find((entry) => entry.title === "Alpax | CapFive")!.assets).toEqual(["http://127.0.0.1:8110/"]);
+  });
+
+  it("leads with a screenshot the task saved beside the page", () => {
+    const data = pages();
+    expect(recentDeliverables(data, Date.now()).find((entry) => entry.title === "Deck")).toMatchObject({ shot: join(data, "cap5-profile", "deck-desktop.png") });
+    expect(loopbackAssets(join(data, "cap5-profile", "deck.html"))).toEqual([]);
   });
 });
 

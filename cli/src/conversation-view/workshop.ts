@@ -15,6 +15,7 @@ export const DELIVERABLE_DAYS = 3;
 export const MAX_DELIVERABLES = 16;
 export const MAX_BOARDS = 8;
 const TITLE_BYTES = 16 * 1024;
+const ASSET_BYTES = 256 * 1024;
 
 export interface ReviewBoard {
   key: string;
@@ -37,6 +38,10 @@ export interface Deliverable {
   html?: string;
   kinds: Array<"pdf" | "html">;
   mtimeMs: number;
+  /** A screenshot the task saved beside the page (`<name>.png` or `<name>-desktop.png`), which leads the card. */
+  shot?: string;
+  /** Local test servers the page loads its styles and images from; once one stops, the page shows nothing. */
+  assets?: string[];
 }
 
 export function defaultLavishState(): string {
@@ -54,6 +59,26 @@ export function htmlTitle(file: string): string | undefined {
     return title?.replace(/\s+/g, " ").trim() || undefined;
   } catch {
     return undefined;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/** The loopback origins an HTML file loads from (`http://127.0.0.1:8110/`), read from its first part only. */
+export function loopbackAssets(file: string): string[] {
+  let fd: number | undefined;
+  try {
+    fd = openSync(file, "r");
+    const buffer = Buffer.alloc(ASSET_BYTES);
+    const read = readSync(fd, buffer, 0, ASSET_BYTES, 0);
+    const text = buffer.subarray(0, read).toString("utf8");
+    const origins = new Set<string>();
+    for (const match of text.matchAll(/(?:src|href)\s*=\s*["']?(https?):\/\/(127\.0\.0\.1|localhost):(\d{2,5})\//gi)) {
+      origins.add(`${match[1]!.toLowerCase()}://127.0.0.1:${match[3]}/`);
+    }
+    return [...origins];
+  } catch {
+    return [];
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
@@ -113,7 +138,9 @@ export function recentDeliverables(dataDir: string, now: number, skip: Set<strin
     try {
       // A task untouched for days holds nothing new; skip reading it.
       if (statSync(dir).mtimeMs < since) continue;
-      for (const name of readdirSync(dir)) {
+      const names = readdirSync(dir);
+      const pictures = new Set(names.filter((name) => extname(name).toLowerCase() === ".png"));
+      for (const name of names) {
         const kind = extname(name).toLowerCase() === ".pdf" ? "pdf" : extname(name).toLowerCase() === ".html" ? "html" : null;
         if (!kind || name.startsWith(".")) continue;
         const path = join(dir, name);
@@ -124,6 +151,8 @@ export function recentDeliverables(dataDir: string, now: number, skip: Set<strin
         const entry = found.get(stem) ?? { id: `file:${stem}`, title: "", task, open: path, kinds: [], mtimeMs };
         entry.kinds.push(kind);
         entry.mtimeMs = Math.max(entry.mtimeMs, mtimeMs);
+        const own = [`${basename(name, extname(name))}.png`, `${basename(name, extname(name))}-desktop.png`].find((picture) => pictures.has(picture));
+        if (own) entry.shot = join(dir, own);
         if (kind === "pdf") entry.open = path;
         else {
           entry.html = path;
@@ -135,14 +164,26 @@ export function recentDeliverables(dataDir: string, now: number, skip: Set<strin
       // A task directory that vanished mid-read: nothing to show from it.
     }
   }
+  // Saves of one page at several moments (before, after, a probe) are one card: the newest.
+  const seen = new Set<string>();
   return [...found.values()]
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .slice(0, cap)
-    .map((entry) => ({
-      ...entry,
-      kinds: [...new Set(entry.kinds)].sort().reverse() as Deliverable["kinds"],
-      title: (entry.html ? htmlTitle(entry.html) : undefined) ?? humanize(basename(entry.open, extname(entry.open))),
-    }));
+    .map((entry): Deliverable => {
+      const assets = entry.html ? loopbackAssets(entry.html) : [];
+      return {
+        ...entry,
+        kinds: [...new Set(entry.kinds)].sort().reverse() as Deliverable["kinds"],
+        title: (entry.html ? htmlTitle(entry.html) : undefined) ?? humanize(basename(entry.open, extname(entry.open))),
+        ...(assets.length ? { assets } : {}),
+      };
+    })
+    .filter((entry) => {
+      const key = `${entry.task}\0${entry.title}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, cap);
 }
 
 /** Boards and deliverables from disk, re-read at most every few seconds. */

@@ -1128,15 +1128,20 @@ export class ConversationViewServer {
     const workshop: RailPreview[] = [
       // A board whose server stopped is gone, not "not running".
       ...[...board.values()].filter((preview) => this.previews.state(preview.url) !== "down"),
-      ...deliverables.map((entry): RailPreview => ({
-        id: entry.id,
-        kind: "file",
-        url: this.railFileSrc(entry.open),
-        title: entry.title,
-        line: `${entry.task} · ${entry.kinds.map((kind) => kind.toUpperCase()).join(" + ")}`,
-        ...(entry.html ? { frame: this.railFileSrc(entry.html) } : {}),
-        at: new Date(entry.mtimeMs).toISOString(),
-      })),
+      ...deliverables.map((entry): RailPreview => {
+        // A saved page whose styles and images came from a local test server is a white box once that server
+        // stops: it is listed, not framed. A screenshot the task saved needs no server.
+        const stopped = !entry.shot && (entry.assets ?? []).some((origin) => ["down", "checking"].includes(this.previews.state(origin)));
+        return {
+          id: entry.id,
+          kind: "file",
+          url: this.railFileSrc(entry.open),
+          title: entry.title,
+          line: stopped ? `${entry.task} · saved page, not viewable: its test server has stopped` : `${entry.task} · ${entry.kinds.map((kind) => kind.toUpperCase()).join(" + ")}`,
+          ...(entry.shot ? { image: entry.shot } : entry.html && !stopped ? { frame: this.railFileSrc(entry.html) } : {}),
+          at: new Date(entry.mtimeMs).toISOString(),
+        };
+      }),
     ];
     // A question still under way says in the column what its line says in the window.
     const lines = new Map(snapshot.messages.filter((message) => message.role === "user" && message.waiting).map((message) => [message.id, message.waiting!]));

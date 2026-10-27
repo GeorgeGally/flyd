@@ -26,6 +26,8 @@ export interface RailPreview {
   line?: string;
   /** A same-origin src to frame in place of the URL: a review board's own page, a deck's HTML. */
   frame?: string;
+  /** An absolute local screenshot of the work, shown in place of a frame. */
+  image?: string;
   at?: string;
 }
 
@@ -310,7 +312,8 @@ export function previewCard(preview: RailPreview, state: PreviewState = "up", se
     return { id: preview.id, title: preview.title ?? "Screenshot", line: preview.line ?? name, image: railImageSrc(preview.url), url: railImageSrc(preview.url), ...at };
   }
   if (preview.kind === "file") {
-    return { id: preview.id, title: preview.title ?? preview.url.split("/").pop() ?? preview.url, ...(preview.line ? { line: preview.line } : {}), url: preview.url, ...(preview.frame ? { preview: preview.frame } : {}), ...at };
+    const picture = preview.image ? { image: railImageSrc(preview.image) } : preview.frame ? { preview: preview.frame } : {};
+    return { id: preview.id, title: preview.title ?? preview.url.split("/").pop() ?? preview.url, ...(preview.line ? { line: preview.line } : {}), url: preview.url, ...picture, ...at };
   }
   const line = preview.line ?? preview.url.replace(/^https?:\/\//, "");
   const title = preview.title ?? "Live preview";
