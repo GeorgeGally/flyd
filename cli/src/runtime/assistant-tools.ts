@@ -1,3 +1,4 @@
+import { refuseLeakedLaunch } from "./launch-guard.js";
 import type { AgentTool } from "../lib/llm.js";
 import { formatWorkModelResult, parseWorkModelArgs, workModelTool } from "./work-model-tool.js";
 
@@ -171,6 +172,12 @@ export async function runAssistantTool(
   input: Record<string, unknown>,
   context: AssistantToolContext = {},
 ): Promise<string> {
+  const launches = ["start_coding_task", "start_knowledge_task", "start_design_task", "pass_on_question", "background_task"].includes(name)
+    || (name === "domain_work" && input.action === "ask");
+  if (launches) {
+    const refusal = refuseLeakedLaunch([String(input.outcome ?? ""), String(input.question ?? ""), String(input.task ?? "")]);
+    if (refusal) return refusal;
+  }
   try {
     switch (name) {
       case "todos": {
