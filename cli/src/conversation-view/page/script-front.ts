@@ -2,13 +2,12 @@
  * The front page: the one open job (or the conversation) in the middle; the
  * right column is two tabs, the jobs as cards and the page's own artefact
  * column (#rail: artefacts, notices, news), restyled as cards by front-style.ts.
- * Every job comes from the stream's own update: show.needs and show.focus (one
- * list of what needs him, a finished design lab among them), the fleet's
- * working and landed work, and the left column's activities; a group with
- * nothing in it says so. Runs inside the page script's closure and borrows its
- * helpers (el, ago, clock, withToken, sceneAsk, artefactChat, openImage, store,
- * cardRead, itemKey). Job kinds are mapped in one place (frontJobsOf), so a new
- * kind of card is one more mapping there.
+ * When the stream sends update.jobs, those are the cards: a project George is
+ * moving, with the digest already stored on it. The page never asks for a new
+ * reading while drawing. Without that list it still maps the fleet (frontJobsOf).
+ * A group with nothing in it says something true. Runs inside the page script's
+ * closure and borrows its helpers (el, ago, clock, withToken, sceneAsk,
+ * artefactChat, openImage, store, cardRead, itemKey, connect).
  */
 export const FRONT_SCRIPT = `
   // The front page: jobs, the one open job, artefacts.
@@ -190,13 +189,23 @@ export const FRONT_SCRIPT = `
       project: frontProject(update.project), at: lastActivity || "" };
   }
 
+  function frontDigest(job) {
+    var digest = job.digest;
+    if (!digest || !(digest.changed || digest.means || digest.needed)) return "";
+    return '<p class="digest">' + [digest.changed, digest.means, digest.needed].filter(Boolean).map(frontEsc).join("<br>") + '</p>';
+  }
   function frontJobCard(job) {
     var pic = job.group === "needs" && job.shots.length
       ? '<div class="frame"><img src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy"></div>' : "";
     var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
+    var reading = frontDigest(job);
+    if (!reading && job.next) {
+      var who = job.owner && job.owner !== "you" ? ' <span class="own">' + frontEsc(job.owner) + '</span>' : "";
+      reading = '<p class="next">' + frontEsc(job.next) + who + '</p>';
+    }
     return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
       + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
-      + '<div class="t">' + frontEsc(job.title) + '</div><div class="m">' + dot + frontMeta([job.group === "needs" && /^needs\\b/i.test(job.state) ? "" : job.state, job.project])
+      + '<div class="t">' + frontEsc(job.title) + '</div>' + reading + '<div class="m">' + dot + frontMeta([job.group === "needs" && /^needs\\b/i.test(job.state) ? "" : job.state, job.project])
       + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div></button>';
   }
   // A card's state and project, as many as it has; under "Needs you" a plain "needs …" goes without saying (the dot says it).
@@ -209,20 +218,28 @@ export const FRONT_SCRIPT = `
       + '<div class="fstrip">' + body + '</div>' + (extra || "") + '</section>';
   }
   function frontDrawJobs(talk, jobs) {
-    // Until the fleet has been read, an empty group is unknown, not empty.
-    var known = !!(frontUpdate && frontUpdate.show && frontUpdate.show.read);
-    var unread = '<p class="fempty">Not read yet.</p>';
+    // A jobs array is the list. Until one arrives, an empty fleet group is unknown.
+    var listed = !!(frontUpdate && Array.isArray(frontUpdate.jobs));
+    var known = listed || !!(frontUpdate && frontUpdate.show && frontUpdate.show.read);
+    var fleetKnown = listed ? !!frontUpdate.jobsFleetKnown : known;
+    var unread = '<p class="fempty">The work list has not come in.</p>';
     var needs = jobs.filter(function (job) { return job.group === "needs"; });
     var working = jobs.filter(function (job) { return job.group === "working"; });
+    var waiting = jobs.filter(function (job) { return job.group === "waiting"; });
     var done = jobs.filter(function (job) { return job.group === "done"; });
     var shownDone = frontOpen.done ? done : done.slice(0, DONE_FEW_FRONT);
+    var needsEmpty = listed ? "No decision is waiting." : "Nothing waits on you.";
+    var workingEmpty = listed && !fleetKnown ? "No run has reported yet." : "Nothing is running right now.";
+    var doneEmpty = listed ? "Nothing has landed lately." : "Nothing landed this week.";
     rtabDot.hidden = !needs.length;
     var html = frontGroup("Conversation", "", frontJobCard(talk))
-      + (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">Nothing waits on you.</p>' : unread))
-      + (working.length ? frontGroup("Working", working.length, working.map(frontJobCard).join("")) : frontGroup("Working", known ? 0 : "", "", known ? '<p class="fempty">Nothing is running right now.</p>' : unread))
+      + (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
+      + (working.length ? frontGroup("Working", working.length, working.map(frontJobCard).join("")) : frontGroup("Working", known ? 0 : "", "", known ? '<p class="fempty">' + workingEmpty + '</p>' : unread))
+      + (listed ? (waiting.length ? frontGroup("Waiting", waiting.length, waiting.map(frontJobCard).join("")) : frontGroup("Waiting", 0, "", '<p class="fempty">Nothing is waiting.</p>')) : "")
       + (done.length ? frontGroup("Done", done.length, shownDone.map(frontJobCard).join(""),
           done.length > DONE_FEW_FRONT ? '<button type="button" class="fmore" data-more="done">' + (frontOpen.done ? "Show fewer" : "Show all " + done.length) + '</button>' : "")
-        : frontGroup("Done", known ? 0 : "", "", known ? '<p class="fempty">Nothing landed this week.</p>' : unread));
+        : frontGroup("Done", known ? 0 : "", "", known ? '<p class="fempty">' + doneEmpty + '</p>' : unread))
+      + (listed && VIEW_TOKEN ? '<form class="job-new"><input name="name" maxlength="60" placeholder="New job" aria-label="New job"><button type="submit">Add</button></form>' : "");
     if (html === frontDrawn.jobs) return;
     frontDrawn.jobs = html;
     jobsList.innerHTML = html;
@@ -287,12 +304,37 @@ export const FRONT_SCRIPT = `
     }
     return work;
   }
+  function frontHttp(url) { return /^https?:\\/\\//i.test(url || "") ? url : ""; }
   function frontJobView(job) {
     var parts = [];
     var split = frontSplit(job.title);
     if (split.rest) parts.push(el("p", "jv-lead", split.rest));
+    if (job.ask) parts.push(el("p", "jv-ask", job.ask));
+    if (job.digest && (job.digest.changed || job.digest.means || job.digest.needed)) {
+      var block = el("div", "jv-digest");
+      [["Changed", job.digest.changed], ["Means", job.digest.means], ["Needed", job.digest.needed]].forEach(function (pair) {
+        if (!pair[1]) return;
+        var line = el("p");
+        line.appendChild(el("b", "", pair[0]));
+        line.appendChild(document.createTextNode(" " + pair[1]));
+        block.appendChild(line);
+      });
+      var href = frontHttp(job.digest.link);
+      if (href) {
+        var full = el("a", "fbtn", "Open the full artifact");
+        full.href = href;
+        full.target = "_blank";
+        full.rel = "noopener noreferrer";
+        block.appendChild(full);
+      }
+      parts.push(block);
+    } else if (job.next) {
+      var next = el("p", "jv-next", job.next);
+      if (job.owner) next.appendChild(el("span", "own", job.owner === "you" ? " · you" : " · " + job.owner));
+      parts.push(next);
+    }
     // With no picture, the words are the work; a block only repeats the state when there are none.
-    if (job.shots.length || !(split.rest || job.detail)) parts.push(frontWork(job));
+    if (job.shots.length || !(split.rest || job.detail || job.ask || job.next || (job.digest && job.digest.changed))) parts.push(frontWork(job));
     var links = (job.links || []).filter(function (link) { return link && link.url && !link.closed; });
     if (links.length) {
       var acts = el("div", "jv-acts");
@@ -304,6 +346,41 @@ export const FRONT_SCRIPT = `
         acts.appendChild(a);
       });
       parts.push(acts);
+    }
+    (job.threads || []).forEach(function (thread, index) {
+      if (!index) {
+        var time = el("div", "jv-time");
+        time.appendChild(el("p", "jv-k", "Timeline"));
+        parts.push(time);
+      }
+      var row = thread.kind === "conversation" ? el("button", "jv-thread", thread.title || "Conversation") : el("p", "jv-thread", thread.title || "Run");
+      if (row.tagName === "BUTTON") {
+        row.type = "button";
+        row.addEventListener("click", function () { connect(thread.id); frontSelect("talk"); });
+      }
+      parts[parts.length - 1].appendChild(row);
+    });
+    if (job.files && job.files.length) parts.push(el("p", "jv-files", job.files.map(function (file) { return file.label; }).join(" · ")));
+    if (VIEW_TOKEN && Array.isArray(frontUpdate.jobs)) {
+      var edit = el("form", "jv-edit");
+      var name = el("input");
+      name.name = "name";
+      name.value = job.title;
+      name.maxLength = 60;
+      name.setAttribute("aria-label", "Rename this job");
+      var rename = el("button", "fbtn", "Rename");
+      rename.type = "submit";
+      var close = el("button", "fbtn", "Close");
+      close.type = "button";
+      close.addEventListener("click", function () { frontPostJob({ op: "close", id: job.id }); });
+      edit.appendChild(name);
+      edit.appendChild(rename);
+      edit.appendChild(close);
+      edit.addEventListener("submit", function (event) {
+        event.preventDefault();
+        frontPostJob({ op: "rename", id: job.id, name: name.value });
+      });
+      parts.push(edit);
     }
     if (job.detail) {
       var talk = el("div", "jv-talk");
@@ -342,7 +419,7 @@ export const FRONT_SCRIPT = `
     }
     frontRoot.setAttribute("data-job", job.id);
     frontHead(job);
-    var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.links, job.decision]);
+    var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.links, job.decision, job.next, job.ask, job.digest, job.threads, job.files]);
     // A job already open stays as he left it while he is typing in it.
     if (drawn === frontDrawn.view || (frontDrawn.viewId === job.id && jobView.contains(document.activeElement))) return;
     frontDrawn.view = drawn;
@@ -373,10 +450,32 @@ export const FRONT_SCRIPT = `
     }, 200);
   }
 
+  function frontListedJob(job) {
+    return {
+      id: job.id, group: job.group, state: job.state || "", title: frontTitle(job.title), project: job.project || "",
+      at: job.at || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", because: job.because || "",
+      digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
+      threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "",
+    };
+  }
+  function frontPostJob(body) {
+    if (!VIEW_TOKEN) return;
+    fetch("/api/jobs", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify(body) })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        if (!frontUpdate || !Array.isArray(frontUpdate.jobs) || !data.job) return;
+        frontUpdate.jobs = frontUpdate.jobs.filter(function (job) { return job.id !== data.job.id && job.id !== body.id; }).concat([data.job]);
+        frontDrawn.jobs = "";
+        frontDrawn.view = "";
+        if (body.op === "close" && frontActive === body.id) frontActive = "talk";
+        renderFront();
+      })
+      .catch(function () {});
+  }
   function renderFront(update) {
     if (update) frontUpdate = update;
     if (!frontUpdate) return;
-    var jobs = frontJobsOf(frontUpdate);
+    var jobs = Array.isArray(frontUpdate.jobs) ? frontUpdate.jobs.map(frontListedJob) : frontJobsOf(frontUpdate);
     frontJobs = new Map(jobs.map(function (job) { return [job.id, job]; }));
     frontDrawJobs(frontTalk(frontUpdate), jobs);
     frontStage();
@@ -387,6 +486,14 @@ export const FRONT_SCRIPT = `
     if (more) { frontOpen[more.dataset.more] = !frontOpen[more.dataset.more]; renderFront(); return; }
     var card = event.target.closest(".job");
     if (card) frontSelect(card.dataset.job);
+  });
+  jobsEl.addEventListener("submit", function (event) {
+    var form = event.target.closest("form.job-new");
+    if (!form) return;
+    event.preventDefault();
+    var name = form.name.value;
+    form.name.value = "";
+    frontPostJob({ op: "create", name: name });
   });
   // Past conversations sit under the jobs; opening one brings the conversation back to the middle.
   (function () {
