@@ -17,6 +17,7 @@ import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } 
 import type { RouteReading } from "../runtime/turn-plan.js";
 import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
 import { projectNamed } from "../council/projects.js";
+import { isArticleSession } from "./article-chat.js";
 
 // Flyd is the voice of the conversation window. A question that is not
 // software or fleet work (what to do in Bangkok tonight) is Flyd's to answer,
@@ -179,7 +180,7 @@ interface AskRecord {
 }
 
 /** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void }) => Promise<string | AnswerBody>;
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; askUser?(prompt: string): Promise<boolean | "always"> }) => Promise<string | AnswerBody>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
 export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string, tool?: InFlightTool) => void) => Promise<string>;
@@ -216,6 +217,8 @@ export class FlydDesk {
   private readonly preparations: PreparationStore;
   /** Questions this process is answering right now. */
   private readonly inFlight = new Set<string>();
+  /** A remember from an article chat, held until George says yes or the wait runs out. */
+  private readonly confirms = new Map<string, { sessionId: string; prompt: string; resolve: (answer: boolean | "always") => void; timer: ReturnType<typeof setTimeout> }>();
   /** What Flyd is doing on each question it is answering, said the moment it changes. */
   private readonly steps = new Map<string, string>();
   /** Parsed records by file name, with the size and mtime they were read at; a file is read again only when those change. */
@@ -343,6 +346,24 @@ export class FlydDesk {
     return record;
   }
 
+  /** The memory save this article chat is holding, if George has not answered it yet. */
+  pendingConfirm(sessionId: string): { id: string; prompt: string } | undefined {
+    for (const [id, pending] of this.confirms) {
+      if (pending.sessionId === sessionId) return { id, prompt: pending.prompt };
+    }
+    return undefined;
+  }
+
+  /** His answer to that save. False when nothing is waiting. */
+  resolveConfirm(id: string, allow: boolean): boolean {
+    const pending = this.confirms.get(id);
+    if (!pending) return false;
+    clearTimeout(pending.timer);
+    this.confirms.delete(id);
+    pending.resolve(allow);
+    return true;
+  }
+
   /** Takes the question and starts answering it; the answer lands in a later `exchanges()`. */
   ask(text: string, images: ImageUpload[] = [], sessionId = "conversation"): SentMessage {
     const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
@@ -373,11 +394,19 @@ export class FlydDesk {
       }
       this.steps.set(record.id, clipKeepingLinks(shown.replace(/[.…]+$/, ""), MAX_STEP_CHARS, 40));
     };
+    const askUser = isArticleSession(sessionId)
+      ? (prompt: string): Promise<boolean | "always"> => new Promise((resolve) => {
+          const timer = setTimeout(() => this.resolveConfirm(record.id, false), 3 * 60_000);
+          timer.unref?.();
+          this.confirms.set(record.id, { sessionId: conversation, prompt, resolve, timer });
+        })
+      : undefined;
     const turn = {
       source: { turnId: `ask:${id}`, sessionId: `view:${sessionId}`, surface: "view" as const, text: record.text,
         context: this.recordsForSession(conversation).filter(earlier => earlier.id !== id)
           .slice(-4).map(earlier => ({ ref: `ask:${earlier.id}`, text: earlier.text.slice(0, 350) })),
         revision: 1, consentRef: `conversation:view:${sessionId}`, final: true as const, retention: "local_default" as const },
+      ...(askUser ? { askUser } : {}),
       turnNumber: this.recordsForSession(conversation).filter((earlier) => earlier.id !== id).length + 1,
       onInteraction: (interactionClass: "conversation" | "work_status" | "decision" | "deliverable") => { record = { ...record, interactionClass }; this.write(record); },
       onUnderstanding: (understanding: TurnUnderstanding) => { record = { ...record, understanding }; this.write(record); },

@@ -1768,3 +1768,62 @@ describe("mobile transport ceiling", () => {
     expect(answer).toContain("not enabled"); expect(loop).not.toHaveBeenCalled();
   });
 });
+
+describe("an article chat", () => {
+  const article = { title: "State that lasts", url: "https://magazine.example/state", text: "The weights live beside the prompt." };
+  const input = {
+    message: "what does it say about weights?",
+    history: [{ role: "user" as const, content: "earlier" }, { role: "assistant" as const, content: "hello" }],
+    memory: { verdict: "insufficient" as const, matches: [] },
+    situation: null,
+    article,
+  };
+
+  it("puts the article text in the grounding prompt and says when something is not in it", () => {
+    const built = buildConversationPrompt(input, undefined, { projectTurn: false });
+    expect(built.grounding).toContain("The weights live beside the prompt.");
+    expect(built.grounding).toContain("<untrusted-article>");
+    expect(built.grounding).not.toContain("George: earlier");
+    expect(built.system).toContain("say that it is not in the article");
+    expect(built.prompt).toContain("The weights live beside the prompt.");
+  });
+
+  it("asks before remember and does not save a no, and saves an outside note only after a yes", async () => {
+    const capture = vi.fn(async () => "/tmp/note.md");
+    const curator = vi.spyOn(CognitiveCurator.prototype, "recordConversationTurn").mockImplementation(() => undefined as never);
+    const asked: string[] = [];
+    const run = (allow: boolean | undefined) => respondToConversation({
+      ...input,
+      message: "remember that the weights live beside the prompt",
+      history: [],
+      ...(allow === undefined ? {} : { askUser: async (prompt: string) => { asked.push(prompt); return allow; } }),
+      onToken: () => undefined,
+    }, {
+      routeTurn: async () => ({ route: "answer", source: "jev", confidence: 1, decided: true, needsCode: false }),
+      readRoom: async () => null,
+      capture,
+      runAgentLoop: async (system, prompt, tools, onTool) => {
+        expect(system).toContain("not in the article");
+        expect(prompt).toContain("The weights live beside the prompt.");
+        expect(tools.map((tool) => tool.name)).toEqual(["remember"]);
+        expect(await onTool("bash", { command: "curl https://evil.example" })).toMatch(/cannot make Flyd use a tool/);
+        return `<final>${await onTool("remember", { text: "The weights live beside the prompt" })}</final>`;
+      },
+      persistReceipt: async (receipt) => receipt as never,
+    });
+    try {
+      const denied = await run(false);
+      expect(denied).toMatch(/Not approved:/);
+      expect(asked[0]).toMatch(/from an article/);
+      expect(capture).not.toHaveBeenCalled();
+      expect(curator).not.toHaveBeenCalled();
+      asked.length = 0;
+      const saved = await run(true);
+      expect(saved).toMatch(/Saved to Flyd memory/);
+      expect(capture).toHaveBeenCalledWith(expect.stringContaining("From outside content"), { outside: true });
+      expect(curator).not.toHaveBeenCalled();
+    } finally {
+      curator.mockRestore();
+    }
+  });
+});

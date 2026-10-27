@@ -41,6 +41,7 @@ import type { Rail, RailState } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailNotice, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import type { ActivityPanel, ActivityReader } from "./activity.js";
+import { openArticleChat } from "./article-chat.js";
 import { storyAsset, toggleSavedStory } from "./story-media.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
@@ -187,6 +188,8 @@ interface StreamUpdate {
   project?: string;
   /** While working: what the assistant is doing now, in a few plain words. */
   activity?: string;
+  /** A memory save from an article chat, waiting on him. Absent once he has answered. */
+  confirm?: { id: string; prompt: string };
   lastActivity?: string;
   context?: { tokens: number; window: number };
   /** Show mode's screen: Flyd's few things, picked from this snapshot. */
@@ -638,6 +641,7 @@ export class SnapshotDiffer {
       working: snapshot.working,
       ...(snapshot.project ? { project: snapshot.project } : {}),
       ...(snapshot.working && snapshot.activity ? { activity: snapshot.activity } : {}),
+      ...(snapshot.confirm ? { confirm: snapshot.confirm } : {}),
       ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
       ...(snapshot.context ? { context: snapshot.context } : {}),
       // The calls sheet says a closed review page in words too.
@@ -849,6 +853,14 @@ export class ConversationViewServer {
     }
     if (req.method === "POST" && url.pathname === "/api/story-save") {
       await this.storySave(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/article-chat") {
+      await this.articleChat(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/article-confirm") {
+      await this.articleConfirm(req, res);
       return;
     }
     if (req.method !== "GET") {
@@ -1309,6 +1321,55 @@ export class ConversationViewServer {
     }
     const saved = toggleSavedStory(this.activity?.directory() ?? FLYD_DIR, payload.url);
     sendJson(res, 200, { ok: true, saved });
+  }
+
+  /** Open the existing conversation on one article: read it once, then hand back the thread. */
+  private async articleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!this.viewPost(req)) { sendJson(res, 403, { error: "forbidden" }); return; }
+    let payload: { url?: unknown; title?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, 8 * 1024)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    if (typeof payload.url !== "string" || !/^https?:\/\//i.test(payload.url) || payload.url.length > 2_000) {
+      sendJson(res, 400, { error: "expected { url }" });
+      return;
+    }
+    const title = typeof payload.title === "string" ? payload.title.slice(0, 300) : undefined;
+    try {
+      const opened = await openArticleChat(this.activity?.directory() ?? FLYD_DIR, payload.url, title ? { title } : {});
+      sendJson(res, 200, opened);
+    } catch (error) {
+      sendJson(res, 502, { error: error instanceof Error ? error.message : "could not open that article" });
+    }
+  }
+
+  /** His yes or no to remembering something from an article chat. */
+  private async articleConfirm(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!this.viewPost(req)) { sendJson(res, 403, { error: "forbidden" }); return; }
+    let payload: { id?: unknown; allow?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, 4 * 1024)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    if (typeof payload.id !== "string" || payload.id.length > 80 || typeof payload.allow !== "boolean") {
+      sendJson(res, 400, { error: "expected { id, allow }" });
+      return;
+    }
+    if (!this.source.resolveConfirm?.(payload.id, payload.allow)) {
+      sendJson(res, 404, { error: "nothing is waiting for that" });
+      return;
+    }
+    sendJson(res, 200, { ok: true });
+  }
+
+  private viewPost(req: IncomingMessage): boolean {
+    const origin = req.headers.origin;
+    return (origin === undefined || isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) && sameToken(req.headers["x-flyd-view-token"], this.token);
   }
 
   /** "More like this" or "less like this" on a story in today's news: the same verdict `flyd scout more|less` records. */

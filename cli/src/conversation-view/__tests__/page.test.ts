@@ -3148,10 +3148,12 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(news.hidden).toBe(false);
     expect(news.querySelector(".brief-label")!.textContent).toBe("Put together today's news");
     expect(news.textContent).toContain("14 stories from your sources.");
-    const links = Array.from(news.querySelectorAll<HTMLAnchorElement>("a.card-story-head"));
-    expect(links.map((a) => a.textContent)).toEqual(stories.map((story) => story.title));
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(stories.map((story) => story.url));
-    expect(links.every((a) => a.target === "_blank" && a.rel === "noopener noreferrer")).toBe(true);
+    const titles = Array.from(news.querySelectorAll("button.card-story-head"));
+    expect(titles.map((button) => button.textContent)).toEqual(stories.map((story) => story.title));
+    const opens = Array.from(news.querySelectorAll<HTMLAnchorElement>("a.story-open"));
+    expect(opens.map((a) => a.getAttribute("href"))).toEqual(stories.map((story) => story.url));
+    expect(opens.every((a) => a.target === "_blank" && a.rel === "noopener noreferrer")).toBe(true);
+    expect(news.querySelectorAll("button.story-ask")).toHaveLength(stories.length);
     expect(Array.from(news.querySelectorAll(".card-story-mark")).map((mark) => mark.textContent)).toEqual(["Hot", "Rabbit hole"]);
     update([{ id: "log:memory", kind: "memory", title: "Tidied memory", at: "2026-10-21T05:00:00.000Z" }]);
     await settle();
@@ -3216,6 +3218,81 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(save.textContent).toBe("saved");
     const posted = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/story-save");
     expect(posted?.[1]).toEqual(expect.objectContaining({ method: "POST", body: JSON.stringify({ url: plain.url }) }));
+  });
+
+  it("opens an article conversation from Ask or the card, with starter questions and a link back", async () => {
+    load("");
+    await settle();
+    const opened = { session: "window:article-0123456789abcdef", title: "State that lasts", url: "https://magazine.example/state", starters: ["What's new here?", "How does this apply to Flyd?"], link: { href: "https://magazine.example/state", label: "Article" } };
+    vi.mocked(fetch).mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/article-chat") return json(opened);
+      if (url === "/api/send") return json(sendResponse);
+      if (url === "/api/sessions") return json({ sessions: [{ ...opened, id: opened.session, updatedAt: "2026-10-21T06:00:00.000Z" }, ...SESSIONS] });
+      return json({ assistantLabel: "Flyd", sessions: SESSIONS });
+    });
+    const stream = open("latest", []);
+    const story = { title: "State that lasts", url: "https://magazine.example/state", source: "Magazine", gist: "The machinery, not a wrapper." };
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    document.querySelector<HTMLButtonElement>("#news .story-ask")!.click();
+    await settle();
+    const post = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/article-chat");
+    expect(post?.[1]).toEqual(expect.objectContaining({ method: "POST", body: JSON.stringify({ url: story.url, title: story.title }) }));
+    expect(FakeEventSource.instances.at(-1)!.url).toContain(encodeURIComponent(opened.session));
+    FakeEventSource.instances.at(-1)!.emit("session", { id: opened.session, title: opened.title, link: opened.link, starters: opened.starters, assistantLabel: "Flyd" });
+    FakeEventSource.instances.at(-1)!.emit("update", { order: [], messages: [], working: false });
+    await settle();
+    expect(document.getElementById("conversation-title")!.textContent).toBe("State that lasts");
+    expect(document.getElementById("article-back")!.getAttribute("href")).toBe(story.url);
+    const starters = [...document.querySelectorAll<HTMLButtonElement>("#article-starters button")];
+    expect(starters.map((button) => button.textContent)).toEqual(opened.starters);
+    starters[0]!.click();
+    await settle();
+    const sent = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/send");
+    expect(String(sent?.[1]?.body)).toContain("What's new here?");
+    stream.emit("session", { id: "latest", title: "Current thread", assistantLabel: "Flyd" });
+    await settle();
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story, { title: "Other", url: "https://magazine.example/other", source: "Magazine", gist: "Another." }], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    document.querySelectorAll("#news .card-story-line")[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter((call) => call[0] === "/api/article-chat")).toHaveLength(2);
+  });
+
+  it("lists an article conversation under earlier ones and links back to the piece", async () => {
+    vi.mocked(fetch).mockImplementation(async (url: string) => (url === "/api/sessions" ? json({ sessions: [
+      { id: "latest", title: "Current thread", updatedAt: "2026-10-05T20:00:00.000Z" },
+      { id: "window:article-0123456789abcdef", title: "State that lasts", updatedAt: "2026-10-04T20:00:00.000Z", link: { href: "https://magazine.example/state", label: "Article" } },
+    ] }) : json({})));
+    load("");
+    await settle();
+    open("latest", []);
+    await settle();
+    const row = document.querySelector(".history-item")!;
+    expect(row.querySelector(".history-item-title")!.textContent).toBe("State that lasts");
+    const link = row.parentElement!.querySelector<HTMLAnchorElement>("a.history-article")!;
+    expect(link.getAttribute("href")).toBe("https://magazine.example/state");
+    expect(link.target).toBe("_blank");
+  });
+
+  it("asks in the conversation before remembering something from an article", async () => {
+    load("");
+    await settle();
+    const posted: unknown[] = [];
+    vi.mocked(fetch).mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/article-confirm") posted.push(JSON.parse(String(init?.body)));
+      return json({ ok: true, sessions: SESSIONS });
+    });
+    const stream = open("window:article-0123456789abcdef", []);
+    stream.emit("update", { order: [], messages: [], working: true, confirm: { id: "ask-1", prompt: "Flyd wants to save to memory: \"weights\" (from an article; confirm before saving). Allow?" } });
+    await settle();
+    const bar = document.getElementById("article-confirm")!;
+    expect(bar.hidden).toBe(false);
+    expect(bar.textContent).toContain("from an article");
+    document.getElementById("article-confirm-no")!.click();
+    await settle();
+    expect(posted).toEqual([{ id: "ask-1", allow: false }]);
+    expect(bar.hidden).toBe(true);
   });
 
   it("counts what needs him on the header button and never forces the column open on a narrow window", async () => {

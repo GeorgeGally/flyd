@@ -23,6 +23,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
   <span class="front-date" id="front-date"></span>
   <span class="project-badge" id="project-badge" hidden></span>
   <span class="picker" id="conversation-title" aria-label="Current conversation"></span>
+  <a class="article-back" id="article-back" hidden target="_blank" rel="noopener noreferrer"></a>
   <span class="air" id="air">standby</span>
   <a class="site" id="site" hidden target="_blank" rel="noopener noreferrer"><span class="site-kind" id="site-kind"></span><span class="site-host" id="site-host"></span><span class="site-path" id="site-path"></span></a>
   <span class="when" id="when"></span>
@@ -59,6 +60,7 @@ ${FRONT_HTML}
 </aside>
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>
+  <div class="article-starters" id="article-starters" hidden></div>
   <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span></div>
   <section class="inline-screen" id="inline-screen" hidden aria-label="The artefact"></section>
 </main>
@@ -100,6 +102,11 @@ ${FRONT_HTML}
     <section class="about" id="about" aria-label="What this message is about" hidden><button class="about-clear" type="button" id="about-clear" aria-label="Not about this">✕</button><div class="about-head" id="about-head"></div><p class="about-title" id="about-title"></p><div id="about-body"></div></section>
     <p class="notice" id="notice" role="status" aria-live="polite" hidden></p>
     <div class="attachments" id="attachments" hidden></div>
+    <div class="article-confirm" id="article-confirm" hidden>
+      <p id="article-confirm-q"></p>
+      <button type="button" id="article-confirm-yes">Remember</button>
+      <button type="button" id="article-confirm-no">Not now</button>
+    </div>
     <div class="field">
       <div class="typing">
         <div class="prediction-layer" id="prediction-layer" aria-hidden="true" hidden><span class="prediction-prefix" id="prediction-prefix"></span><span class="prediction-suffix" id="prediction-suffix"></span></div>

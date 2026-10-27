@@ -104,6 +104,8 @@ export interface ConversationSnapshot {
   lastActivity?: string;
   /** How full the assistant's context window is, when the source knows. */
   context?: { tokens: number; window: number };
+  /** A memory save from an article chat, waiting for him to say yes. */
+  confirm?: { id: string; prompt: string };
 }
 
 export interface SessionSummary {
@@ -113,6 +115,10 @@ export interface SessionSummary {
   updatedAt: string;
   /** Human project name for the history column; absent conversations appear under General. */
   project?: string;
+  /** A page this conversation is about, shown beside the title. */
+  link?: { href: string; label: string };
+  /** Questions offered when the thread is still empty. */
+  starters?: string[];
 }
 
 /** An image the captain attaches in the view: base64 bytes and their type. */
@@ -181,6 +187,8 @@ export interface ConversationSource {
   image(sessionId: string, imageId: string): Promise<ImageData | null>;
   /** Every question asked from the window, to firstmate or to Flyd, for the right column. */
   exchanges?(): Exchange[];
+  /** His yes or no to a memory save the article chat is holding. */
+  resolveConfirm?(id: string, allow: boolean): boolean;
   /**
    * Firstmate's own-chat answer to one note, when it answered in its own chat
    * rather than with a formal reply: read from the session that was live when

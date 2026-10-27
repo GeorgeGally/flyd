@@ -105,6 +105,18 @@ describe("decideToolCall (trusted autonomy by default)", () => {
     expect(decideToolCall("bash", { command: "git status" }, tainted, "trusted")).toEqual({ kind: "allow" });
   });
 
+  it("asks before remembering from an article, and refuses every other tool the article might call", () => {
+    const article = { tainted: true, article: true };
+    expect(decideToolCall("remember", { text: "The weights live beside the prompt" }, article, "full")).toMatchObject({
+      kind: "confirm", reason: expect.stringContaining("from an article"),
+    });
+    expect(decideToolCall("remember", { text: "x" }, article, "trusted").kind).toBe("confirm");
+    expect(decideToolCall("bash", { command: "ls" }, article, "full").kind).toBe("deny");
+    expect(decideToolCall("web_search", { query: "x" }, article, "trusted").kind).toBe("deny");
+    // A normal chat still saves a note he asked for without a prompt.
+    expect(decideToolCall("remember", { text: "x" }, tainted, "trusted")).toEqual({ kind: "allow" });
+  });
+
   it("honours full and ask autonomy levels", () => {
     expect(decideToolCall("bash", { command: "rm -rf build" }, tainted, "full")).toEqual({ kind: "allow" });
     expect(decideToolCall("edit_file", { path: "a" }, clean, "ask").kind).toBe("confirm");

@@ -245,9 +245,9 @@ export const FRONT_STYLE = `
   margin: 11px 0 0; font: 500 11px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute);
 }
 :root[data-layout="front"] .rail .news .card-story-head {
-  display: block; margin: 6px 0 0; font: 500 18px/1.22 var(--sans); letter-spacing: -0.02em; color: var(--ink); text-decoration: none;
+  display: block; width: 100%; margin: 6px 0 0; padding: 0; border: 0; background: none; cursor: pointer; text-align: left;
+  font: 500 18px/1.22 var(--sans); letter-spacing: -0.02em; color: var(--ink); text-decoration: none;
 }
-:root[data-layout="front"] .rail .news .card-story-head::after { content: ""; position: absolute; inset: 0; }
 :root[data-layout="front"] .rail .news .card-story-head:hover { color: var(--ink); }
 :root[data-layout="front"] .rail .news .card-story-line { margin: 7px 0 0; font: 400 14px/1.4 var(--sans); color: var(--ink2); }
 :root[data-layout="front"] .rail .news .card-story-src {
@@ -259,7 +259,7 @@ export const FRONT_STYLE = `
 }
 :root[data-layout="front"] .rail .news .story-mono { background: var(--ink); color: var(--paper); font: 600 8px/13px var(--sans); text-align: center; }
 :root[data-layout="front"] .rail .news .story-go { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
-:root[data-layout="front"] .rail .news .story-open, :root[data-layout="front"] .rail .news .story-save {
+:root[data-layout="front"] .rail .news .story-open, :root[data-layout="front"] .rail .news .story-save, :root[data-layout="front"] .rail .news .story-ask {
   border: 0; background: none; padding: 0; font: 500 12.5px/1 var(--sans); color: var(--ink); text-decoration: none; cursor: pointer; text-transform: capitalize;
 }
 :root[data-layout="front"] .rail .news .story-rate button { text-transform: capitalize; }
@@ -271,7 +271,22 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .rail .news .story-rate,
 :root[data-layout="front"] .rail .news .story-open,
 :root[data-layout="front"] .rail .news .story-save,
+:root[data-layout="front"] .rail .news .story-ask,
 :root[data-layout="front"] .rail .news .story-rate button { position: relative; z-index: 1; }
+.article-back { margin-left: 12px; font: 500 13px/1 var(--sans); color: var(--ink2, var(--muted)); text-decoration: none; white-space: nowrap; }
+.article-back[hidden] { display: none; }
+.article-back:hover { color: var(--ink, var(--fg)); }
+.article-starters { max-width: 40em; margin: 12vh auto 0; padding: 0 8px; }
+.article-starters[hidden] { display: none; }
+.article-starters p { margin: 0 0 12px; font: 400 14px/1.4 var(--sans); color: var(--mute, var(--muted)); }
+.article-starters button { display: block; margin: 0 0 10px; padding: 0; border: 0; background: none; cursor: pointer; font: 500 18px/1.35 var(--sans); color: var(--ink, var(--fg)); text-align: left; }
+.article-starters button:hover { color: var(--hot, var(--accent)); }
+.composer .article-confirm { max-width: calc(36em * 1.25); margin: 0 auto 10px; padding: 0 1.875em; }
+.composer .article-confirm[hidden] { display: none; }
+.composer .article-confirm p { margin: 0 0 8px; font: 400 15px/1.4 var(--sans); color: var(--ink2, var(--fg)); }
+.composer .article-confirm button { margin: 0 14px 0 0; padding: 0; border: 0; background: none; cursor: pointer; font: 500 14px/1 var(--sans); color: var(--ink, var(--fg)); }
+.history-article { display: inline-block; margin: 0 0 4px 8px; font: 400 12px/1.3 var(--sans); color: var(--mute, var(--muted)); text-decoration: none; }
+.history-article:hover { color: var(--ink, var(--fg)); }
 
 /* Past conversations, under the jobs: a quiet list. */
 .fhistory:has(> .history[hidden]) { display: none; }
