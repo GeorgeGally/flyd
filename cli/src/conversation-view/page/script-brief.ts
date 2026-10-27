@@ -327,24 +327,156 @@ export const BRIEF_SCRIPT = `
     briefFilled = !briefEl.hidden || !briefNewsEl.hidden;
     showRail();
   }
-  // The stories behind a news card: how each was marked, the headline as a link, a line of gist, and where it came from.
+  // A letter big enough to be the picture, when the article has no image we can show.
+  function storyLetter(story) {
+    var match = String(story.source || story.title || "").match(/[A-Za-z0-9]/);
+    return match ? match[0].toUpperCase() : "A";
+  }
+  function storyType(story) {
+    var block = el("div", "story-type");
+    block.appendChild(el("b", "", storyLetter(story)));
+    if (story.source) block.appendChild(el("span", "", story.source));
+    return block;
+  }
+  function storyMonogram(story) {
+    return el("span", "story-mono", storyLetter(story));
+  }
+  // Only a picture we fetched and kept. A remote address, or one that fails to load, becomes the letter.
+  var MEDIA_LABEL = { stat: "Stat", gif: "GIF", video: "Video", image: "Image", quote: "Quote", thread: "Thread" };
+  function storyPicture(story) {
+    if (story.media === "stat" && story.figure) {
+      var stat = el("div", "story-stat");
+      stat.appendChild(el("b", "", story.figure));
+      return stat;
+    }
+    if (story.media === "quote" && story.quote) return null;
+    var node;
+    if (!story.image || story.image.indexOf("/api/story-image?") !== 0) node = storyType(story);
+    else {
+      var pic = el("div", "story-pic");
+      var img = document.createElement("img");
+      img.alt = "";
+      img.addEventListener("error", function () {
+        if (pic.parentNode) pic.replaceWith(storyType(story));
+      });
+      img.src = withToken(story.image);
+      pic.appendChild(img);
+      node = pic;
+    }
+    if (story.media === "video") node.appendChild(el("span", "story-play"));
+    return node;
+  }
+  function storyWhen(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return d.getUTCDate() + " " + months[d.getUTCMonth()];
+  }
+  var storySaved = {};
+  function storySave(story) {
+    var on = storySaved[story.url] !== undefined ? storySaved[story.url] : !!story.saved;
+    var button = el("button", "story-save", on ? "saved" : "save");
+    button.type = "button";
+    button.setAttribute("aria-label", on ? "Saved" : "Save " + story.title);
+    button.addEventListener("click", function () {
+      var next = !(storySaved[story.url] !== undefined ? storySaved[story.url] : !!story.saved);
+      storySaved[story.url] = next;
+      button.textContent = next ? "saved" : "save";
+      button.setAttribute("aria-label", next ? "Saved" : "Save " + story.title);
+      tokenFetch("/api/story-save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: story.url }) }, true).then(function (response) {
+        if (!response.ok) throw new Error(String(response.status));
+      }).catch(function () {
+        storySaved[story.url] = !next;
+        button.textContent = next ? "save" : "saved";
+      });
+    });
+    return button;
+  }
+  // The stories behind a news card: the picture or a letter, the headline, why it matters, and where it came from.
   function storiesNode(stories) {
     var list = el("ul", "card-stories");
     stories.forEach(function (story) {
-      var li = el("li", "");
-      if (story.mark) li.appendChild(el("p", "card-story-mark", story.mark));
-      var a = el("a", "card-story-head", story.title);
-      a.href = story.url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
+      var li = el("li", story.media ? "story-" + story.media : "");
+      var lead = storyPicture(story);
+      if (lead) li.appendChild(lead);
+      var label = story.mark && story.mark !== "Worth a look" ? story.mark : (MEDIA_LABEL[story.media] || story.mark);
+      if (label) li.appendChild(el("p", "card-story-mark", label));
+      var a = story.media === "quote" && story.quote ? el("button", "card-story-head story-quote") : el("button", "card-story-head", story.title);
+      a.type = "button";
+      if (story.media === "quote" && story.quote) {
+        a.appendChild(el("p", "", "\u201C" + story.quote + "\u201D"));
+        if (story.attribution) a.appendChild(el("span", "", story.attribution));
+      }
+      a.addEventListener("click", function (event) {
+        event.stopPropagation();
+        openArticle(story);
+      });
       li.appendChild(a);
+      if (story.media === "gif" && story.clip && String(story.clip).indexOf("/api/story-clip?") === 0) {
+        li.addEventListener("mouseenter", function () {
+          var frame = li.querySelector(".story-pic, .story-type");
+          if (!frame) return;
+          var img = frame.querySelector("img");
+          if (!img) {
+            frame.className = "story-pic";
+            frame.textContent = "";
+            img = document.createElement("img");
+            img.alt = "";
+            frame.appendChild(img);
+          }
+          if (!img.getAttribute("data-still")) img.setAttribute("data-still", img.getAttribute("src") || "");
+          img.src = withToken(story.clip);
+        });
+        li.addEventListener("mouseleave", function () {
+          var img = li.querySelector(".story-pic img");
+          var still = img && img.getAttribute("data-still");
+          if (img && still) img.src = still;
+        });
+      }
+      li.addEventListener("click", function (event) {
+        if (event.target.closest("a, button")) return;
+        openArticle(story);
+      });
       if (story.gist) li.appendChild(el("p", "card-story-line", story.gist));
-      var rate = story.url && SEND_TOKEN ? storyRate(story) : null;
-      if (story.source || rate) {
-        var src = el("p", "card-story-src", story.source || "");
-        if (rate) src.appendChild(rate);
+      var bits = [story.source || "", storyWhen(story.published), story.minutes ? story.minutes + " min" : ""].filter(Boolean);
+      if (bits.length || story.url) {
+        var src = el("p", "card-story-src");
+        var fav = el("span", "story-fav");
+        if (story.icon && story.icon.indexOf("/api/story-icon?") === 0) {
+          var icon = document.createElement("img");
+          icon.alt = "";
+          icon.addEventListener("error", function () { icon.replaceWith(storyMonogram(story)); });
+          icon.src = withToken(story.icon);
+          fav.appendChild(icon);
+        } else fav.appendChild(storyMonogram(story));
+        src.appendChild(fav);
+        if (bits.length) src.appendChild(document.createTextNode(bits.join(" · ")));
+        if (story.url) {
+          var go = el("span", "story-go");
+          if (SEND_TOKEN) {
+            var ask = el("button", "story-ask", "ask");
+            ask.type = "button";
+            ask.setAttribute("aria-label", "Ask about " + story.title);
+            ask.addEventListener("click", function (event) {
+              event.stopPropagation();
+              openArticle(story);
+            });
+            go.appendChild(ask);
+            go.appendChild(document.createTextNode(" · "));
+          }
+          var open = el("a", "story-open", "open");
+          open.href = story.url;
+          open.target = "_blank";
+          open.rel = "noopener noreferrer";
+          go.appendChild(open);
+          go.appendChild(document.createTextNode(" · "));
+          if (SEND_TOKEN) go.appendChild(storySave(story));
+          src.appendChild(go);
+        }
         li.appendChild(src);
       }
+      if (story.url && SEND_TOKEN) li.appendChild(storyRate(story));
       list.appendChild(li);
     });
     return list;
@@ -352,29 +484,47 @@ export const BRIEF_SCRIPT = `
   // "more" or "less" like a story teaches the news what he wants; once told, the story says so instead.
   var storyTold = {};
   function storyRate(story) {
-    var wrap = el("span", "story-rate");
+    var wrap = el("p", "story-taste");
+    var rate = el("span", "story-rate");
+    wrap.appendChild(rate);
     if (storyTold[story.url]) {
-      wrap.appendChild(el("span", "story-told", storyTold[story.url] === "more" ? "More like this" : "Less like this"));
+      rate.appendChild(el("span", "story-told", storyTold[story.url] === "more" ? "More like this" : "Less like this"));
       return wrap;
     }
-    ["more", "less"].forEach(function (verdict) {
+    ["more", "less"].forEach(function (verdict, index) {
+      if (index) rate.appendChild(document.createTextNode(" · "));
       var button = el("button", "", verdict);
       button.type = "button";
       button.setAttribute("aria-label", (verdict === "more" ? "More" : "Less") + " like " + story.title);
       button.addEventListener("click", function () {
-        wrap.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+        rate.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
         tokenFetch("/api/scout-feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(story.n ? { n: story.n, url: story.url, verdict: verdict } : { url: story.url, verdict: verdict }) }, true).then(function (response) {
           if (!response.ok) throw new Error(String(response.status));
           storyTold[story.url] = verdict;
-          wrap.textContent = "";
-          wrap.appendChild(el("span", "story-told", verdict === "more" ? "More like this" : "Less like this"));
+          rate.textContent = "";
+          rate.appendChild(el("span", "story-told", verdict === "more" ? "More like this" : "Less like this"));
         }).catch(function () {
-          wrap.querySelectorAll("button").forEach(function (b) { b.disabled = false; });
+          rate.querySelectorAll("button").forEach(function (b) { b.disabled = false; });
         });
       });
-      wrap.appendChild(button);
+      rate.appendChild(button);
     });
     return wrap;
+  }
+  // Ask opens the existing conversation on this article. Open still goes to the page.
+  function openArticle(story) {
+    if (!SEND_TOKEN || !story || !story.url || story._opening) return;
+    story._opening = true;
+    tokenFetch("/api/article-chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: story.url, title: story.title || "", media: story.media || "article", text: story.quote || story.gist || "", description: story.gist || "", figure: story.figure || "", attribution: story.attribution || "" }) }, true).then(function (response) {
+      story._opening = false;
+      if (!response.ok) return null;
+      return response.json();
+    }).then(function (data) {
+      if (!data || !data.session) return;
+      explicit = data.session;
+      if (window.history && window.history.replaceState) window.history.replaceState(null, "", "?session=" + encodeURIComponent(explicit));
+      connect(explicit);
+    }).catch(function () { story._opening = false; });
   }
   // The news: the newest card of each kind that carries its stories, every story a working link.
   function drawNews(recent) {

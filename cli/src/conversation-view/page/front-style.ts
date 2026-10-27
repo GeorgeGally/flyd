@@ -81,6 +81,11 @@ export const FRONT_STYLE = `
 .job .frame img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 4px 4px 0 0; outline: 1px solid rgba(0, 0, 0, .1); outline-offset: -1px; }
 .job.on .frame { display: none; }
 .job .t { font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: pretty; }
+.job .digest, .job .next { margin: 8px 0 0; font: 400 13px/1.45 var(--sans); color: var(--ink2); white-space: normal; }
+.job .next .own { color: var(--mute); }
+.job-new { display: flex; gap: 8px; margin: 4px 0 24px; }
+.job-new input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
+.job-new button { height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--ink); color: var(--sheet); font: 500 13px/1 var(--sans); cursor: pointer; }
 .job .m { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--mute); white-space: nowrap; min-width: 0; }
 .job .m .s { color: var(--ink2); }
 .job .m .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -143,6 +148,19 @@ export const FRONT_STYLE = `
   font: 400 15px/1.5 var(--sans); color: var(--ink); transition: opacity .2s ease;
 }
 .jv-lead { margin: 0 0 20px; max-width: 64ch; color: var(--ink2); overflow-wrap: anywhere; }
+.jv-ask { margin: 0 0 16px; max-width: 40ch; font: 500 18px/1.35 var(--sans); }
+.jv-digest { margin: 0 0 18px; display: grid; gap: 6px; max-width: 62ch; }
+.jv-digest p { margin: 0; }
+.jv-digest b { font-weight: 500; }
+.jv-next { margin: 0 0 16px; max-width: 62ch; color: var(--ink2); }
+.jv-next .own { color: var(--mute); }
+.jv-time { margin-top: 22px; display: grid; gap: 4px; }
+.jv-k { margin: 0 0 4px; font-size: 13px; color: var(--mute); }
+.jv-thread { display: block; width: 100%; margin: 0; padding: 6px 0; border: 0; background: none; text-align: left; font: 400 14px/1.4 var(--sans); color: var(--ink); }
+button.jv-thread { cursor: pointer; }
+.jv-files { margin: 14px 0 0; font-size: 13px; color: var(--mute); }
+.jv-edit { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; align-items: center; }
+.jv-edit input { flex: 1; min-width: 12ch; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--well); color: var(--ink); font: inherit; }
 .jv-work { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 20px; }
 .jv-work.one { grid-template-columns: minmax(0, 1fr); }
 /* The whole picture, never a crop: a choice is made on what the work actually looks like. */
@@ -217,19 +235,94 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .rail .brief-line { font: 500 14px/1.4 var(--sans); color: var(--ink); }
 :root[data-layout="front"] .rail .brief-meta, :root[data-layout="front"] .rail .art-meta { font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-open { color: var(--ink2); }
-/* The card itself opens the piece: no "open" under it, and no file name beside its age. */
-:root[data-layout="front"] .rail .art-card .brief-open, :root[data-layout="front"] .rail .art-card .art-line:not(.down) { display: none; }
-:root[data-layout="front"] .rail .art-card .art-line:not(.down) + .art-ago::before { content: none; }
+/* The card itself opens the piece: no "open" under it. The one-line explanation stays. */
+:root[data-layout="front"] .rail .art-card .brief-open { display: none; }
+:root[data-layout="front"] .rail .art-card .art-meta { white-space: normal; align-items: baseline; }
+:root[data-layout="front"] .rail .art-card .art-line { white-space: normal; }
 :root[data-layout="front"] .rail .art-card .art-ago { font-variant-numeric: tabular-nums; }
 :root[data-layout="front"] .rail .brief-more { margin: 4px 0 0; padding: 6px 4px; font: 400 13px/1.3 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-more:hover { color: var(--ink); }
-/* News: each story a quiet card under the edition's line. */
-:root[data-layout="front"] .rail .news .brief-outcome { margin: 0 4px 10px; font-size: 14px; color: var(--ink2); }
-:root[data-layout="front"] .rail .news .card-stories { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-:root[data-layout="front"] .rail .news .card-stories > li { padding: 13px 14px 14px; border-radius: 10px; background: var(--card); }
+/* News: a picture, then the story, on the paper. A hairline between them. No card chrome. */
+:root[data-layout="front"] .rail .news .brief-outcome { margin: 0 0 4px; font-size: 14px; color: var(--ink2); }
+:root[data-layout="front"] .rail .news .card-stories { display: block; margin: 0; padding: 0; list-style: none; }
+:root[data-layout="front"] .rail .news .card-stories > li {
+  position: relative; margin: 0; padding: 16px 0 18px; border: 0; border-radius: 0; background: transparent; overflow: visible; cursor: pointer;
+}
+:root[data-layout="front"] .rail .news .card-stories > li + li { margin-top: 0; padding-top: 16px; border-top: 1px solid var(--line); }
+:root[data-layout="front"] .rail .news .story-pic, :root[data-layout="front"] .rail .news .story-type {
+  display: block; height: 168px; margin: 0; overflow: hidden; position: relative; background: var(--mat);
+}
+:root[data-layout="front"] .rail .news .story-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+:root[data-layout="front"] .rail .news .story-image .story-pic,
+:root[data-layout="front"] .rail .news .story-image .story-type { height: 220px; }
+:root[data-layout="front"] .rail .news .story-stat {
+  display: flex; align-items: flex-end; height: 168px; margin: 0; background: var(--mat); overflow: hidden;
+}
+:root[data-layout="front"] .rail .news .story-stat b {
+  margin: 0 0 -0.12em; font: 500 92px/0.8 var(--sans); letter-spacing: -0.05em; color: var(--ink);
+}
+:root[data-layout="front"] .rail .news .story-quote.card-story-head { margin-top: 0; font: 500 22px/1.3 var(--sans); letter-spacing: -0.02em; }
+:root[data-layout="front"] .rail .news .story-quote p { margin: 0; }
+:root[data-layout="front"] .rail .news .story-quote span { display: block; margin-top: 12px; font: 400 12px/1.3 var(--sans); letter-spacing: 0; color: var(--mute); }
+:root[data-layout="front"] .rail .news .story-play {
+  position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(22, 22, 21, .72);
+}
+:root[data-layout="front"] .rail .news .story-play::after {
+  content: ""; position: absolute; left: 18px; top: 14px; border-style: solid; border-width: 9px 0 9px 14px; border-color: transparent transparent transparent #F7F6F3;
+}
+:root[data-layout="front"] .rail .news .story-type b {
+  position: absolute; left: -0.07em; bottom: -0.34em; margin: 0; font: 500 260px/0.8 var(--sans); letter-spacing: -0.06em; color: var(--ink);
+}
+:root[data-layout="front"] .rail .news .story-type span {
+  position: absolute; top: 12px; right: 12px; font: 500 11px/1 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink2);
+}
 :root[data-layout="front"] .rail .news .card-stories + .brief-top { margin-top: 22px; }
-:root[data-layout="front"] .rail .card-story-head { color: var(--ink); font-weight: 500; text-decoration: none; }
-:root[data-layout="front"] .rail .card-story-mark, :root[data-layout="front"] .rail .card-story-src { color: var(--mute); letter-spacing: 0; text-transform: none; }
+:root[data-layout="front"] .rail .news .card-story-mark {
+  margin: 11px 0 0; font: 500 11px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute);
+}
+:root[data-layout="front"] .rail .news .card-story-head {
+  display: block; width: 100%; margin: 6px 0 0; padding: 0; border: 0; background: none; cursor: pointer; text-align: left;
+  font: 500 18px/1.22 var(--sans); letter-spacing: -0.02em; color: var(--ink); text-decoration: none;
+}
+:root[data-layout="front"] .rail .news .card-story-head:hover { color: var(--ink); }
+:root[data-layout="front"] .rail .news .card-story-line { margin: 7px 0 0; font: 400 14px/1.4 var(--sans); color: var(--ink2); }
+:root[data-layout="front"] .rail .news .card-story-src {
+  display: flex; align-items: center; gap: 7px; margin: 12px 0 0; font: 400 12px/1.2 var(--sans); letter-spacing: 0; text-transform: none; color: var(--mute);
+}
+:root[data-layout="front"] .rail .news .story-fav { width: 13px; height: 13px; flex: none; display: inline-flex; }
+:root[data-layout="front"] .rail .news .story-fav img, :root[data-layout="front"] .rail .news .story-mono {
+  width: 13px; height: 13px; border-radius: 2px; display: block; object-fit: cover;
+}
+:root[data-layout="front"] .rail .news .story-mono { background: var(--ink); color: var(--paper); font: 600 8px/13px var(--sans); text-align: center; }
+:root[data-layout="front"] .rail .news .story-go { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
+:root[data-layout="front"] .rail .news .story-open, :root[data-layout="front"] .rail .news .story-save, :root[data-layout="front"] .rail .news .story-ask {
+  border: 0; background: none; padding: 0; font: 500 12.5px/1 var(--sans); color: var(--ink); text-decoration: none; cursor: pointer; text-transform: capitalize;
+}
+:root[data-layout="front"] .rail .news .story-rate button { text-transform: capitalize; }
+:root[data-layout="front"] .rail .news .story-taste { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font: 400 12px/1 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .news .story-rate { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+:root[data-layout="front"] .rail .news .story-rate button { padding: 0; border-radius: 0; font: 400 12px/1 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .news .story-go,
+:root[data-layout="front"] .rail .news .story-taste,
+:root[data-layout="front"] .rail .news .story-rate,
+:root[data-layout="front"] .rail .news .story-open,
+:root[data-layout="front"] .rail .news .story-save,
+:root[data-layout="front"] .rail .news .story-ask,
+:root[data-layout="front"] .rail .news .story-rate button { position: relative; z-index: 1; }
+.article-back { margin-left: 12px; font: 500 13px/1 var(--sans); color: var(--ink2, var(--muted)); text-decoration: none; white-space: nowrap; }
+.article-back[hidden] { display: none; }
+.article-back:hover { color: var(--ink, var(--fg)); }
+.article-starters { max-width: 40em; margin: 12vh auto 0; padding: 0 8px; }
+.article-starters[hidden] { display: none; }
+.article-starters p { margin: 0 0 12px; font: 400 14px/1.4 var(--sans); color: var(--mute, var(--muted)); }
+.article-starters button { display: block; margin: 0 0 10px; padding: 0; border: 0; background: none; cursor: pointer; font: 500 18px/1.35 var(--sans); color: var(--ink, var(--fg)); text-align: left; }
+.article-starters button:hover { color: var(--hot, var(--accent)); }
+.composer .article-confirm { max-width: calc(36em * 1.25); margin: 0 auto 10px; padding: 0 1.875em; }
+.composer .article-confirm[hidden] { display: none; }
+.composer .article-confirm p { margin: 0 0 8px; font: 400 15px/1.4 var(--sans); color: var(--ink2, var(--fg)); }
+.composer .article-confirm button { margin: 0 14px 0 0; padding: 0; border: 0; background: none; cursor: pointer; font: 500 14px/1 var(--sans); color: var(--ink, var(--fg)); }
+.history-article { display: inline-block; margin: 0 0 4px 8px; font: 400 12px/1.3 var(--sans); color: var(--mute, var(--muted)); text-decoration: none; }
+.history-article:hover { color: var(--ink, var(--fg)); }
 
 /* Past conversations, under the jobs: a quiet list. */
 .fhistory:has(> .history[hidden]) { display: none; }
@@ -263,6 +356,9 @@ export const FRONT_STYLE = `
   :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
   :root[data-layout="front"] .rail { display: block; margin-bottom: 18px; }
+  :root[data-layout="front"] .rail .news .story-pic, :root[data-layout="front"] .rail .news .story-type,
+  :root[data-layout="front"] .rail .news .story-stat { height: 188px; }
+  :root[data-layout="front"] .rail .news .story-image .story-pic, :root[data-layout="front"] .rail .news .story-image .story-type { height: 220px; }
   :root[data-layout="front"] .rail[hidden] { display: none; }
   /* The artefacts run as a strip of cards, like the jobs. */
   :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }

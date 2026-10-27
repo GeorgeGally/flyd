@@ -460,7 +460,10 @@ export const MESSAGES_SCRIPT = `
     });
     main.querySelectorAll(".msg.pending").forEach(function (el) { main.appendChild(el); });
     main.appendChild(working);
-    document.getElementById("empty").hidden = update.order.length > 0 || !!main.querySelector(".msg.pending");
+    var spoken = update.order.length > 0 || !!main.querySelector(".msg.pending");
+    document.getElementById("empty").hidden = spoken;
+    if (typeof paintStarters === "function") paintStarters(spoken);
+    if (typeof paintConfirm === "function") paintConfirm(update.confirm);
     isWorking = update.working;
     var projectBadge = document.getElementById("project-badge");
     if (projectBadge.textContent !== (update.project || "")) {

@@ -3148,10 +3148,12 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(news.hidden).toBe(false);
     expect(news.querySelector(".brief-label")!.textContent).toBe("Put together today's news");
     expect(news.textContent).toContain("14 stories from your sources.");
-    const links = Array.from(news.querySelectorAll<HTMLAnchorElement>("a.card-story-head"));
-    expect(links.map((a) => a.textContent)).toEqual(stories.map((story) => story.title));
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(stories.map((story) => story.url));
-    expect(links.every((a) => a.target === "_blank" && a.rel === "noopener noreferrer")).toBe(true);
+    const titles = Array.from(news.querySelectorAll("button.card-story-head"));
+    expect(titles.map((button) => button.textContent)).toEqual(stories.map((story) => story.title));
+    const opens = Array.from(news.querySelectorAll<HTMLAnchorElement>("a.story-open"));
+    expect(opens.map((a) => a.getAttribute("href"))).toEqual(stories.map((story) => story.url));
+    expect(opens.every((a) => a.target === "_blank" && a.rel === "noopener noreferrer")).toBe(true);
+    expect(news.querySelectorAll("button.story-ask")).toHaveLength(stories.length);
     expect(Array.from(news.querySelectorAll(".card-story-mark")).map((mark) => mark.textContent)).toEqual(["Hot", "Rabbit hole"]);
     update([{ id: "log:memory", kind: "memory", title: "Tidied memory", at: "2026-10-21T05:00:00.000Z" }]);
     await settle();
@@ -3184,6 +3186,144 @@ describe("what Flyd shows of its staff, at a glance", () => {
     await settle();
     expect(posted).toEqual([{ url: "/api/scout-feedback", body: { n: 4, url: stories[0]!.url, verdict: "less" } }]);
     expect(document.querySelector("#news .story-told")!.textContent).toBe("Less like this");
+  });
+
+  it("shows a fetched picture, a letter when there is none, and never a remote image address", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const pictured = { title: "A course", url: "https://magazine.example/course", source: "Magazine", gist: "The machinery, not a wrapper.", image: "/api/story-image?id=abc123abc123abcd", published: "2026-10-12T08:00:00.000Z", minutes: 18 };
+    const plain = { title: "A paper", url: "https://www.nature.com/articles/x", source: "Nature", gist: "State that outlives the prompt." };
+    const remote = { title: "A remote picture", url: "https://cdn.example/story", source: "CDN", gist: "Not ours to point at.", image: "https://cdn.example/a.jpg" };
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [pictured, plain, remote], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    const items = [...document.querySelectorAll("#news .card-stories > li")];
+    const img = items[0]!.querySelector("img")!;
+    expect(img.getAttribute("src")).toContain("/api/story-image?id=abc123abc123abcd");
+    expect(img.getAttribute("src")).toContain("token=");
+    expect(items[0]!.textContent).toContain("Magazine · 12 Oct · 18 min");
+    expect(items[0]!.querySelector(".story-open")!.getAttribute("href")).toBe(pictured.url);
+    expect(items[0]!.querySelector(".story-rate .story-save, .story-rate .story-open")).toBeNull();
+    img.dispatchEvent(new Event("error"));
+    expect(items[0]!.querySelector("img")).toBeNull();
+    expect(items[0]!.querySelector(".story-type")!.textContent).toContain("M");
+    expect(items[1]!.querySelector("img")).toBeNull();
+    expect(items[1]!.querySelector(".story-type b")!.textContent).toBe("N");
+    expect(items[2]!.querySelector("img")).toBeNull();
+    expect(items[2]!.querySelector(".story-type")).not.toBeNull();
+    const save = items[1]!.querySelector<HTMLButtonElement>(".story-save")!;
+    expect(save.textContent).toBe("save");
+    save.click();
+    await settle();
+    expect(save.textContent).toBe("saved");
+    const posted = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/story-save");
+    expect(posted?.[1]).toEqual(expect.objectContaining({ method: "POST", body: JSON.stringify({ url: plain.url }) }));
+  });
+
+  it("opens an article conversation from Ask or the card, with starter questions and a link back", async () => {
+    load("");
+    await settle();
+    const opened = { session: "window:article-0123456789abcdef", title: "State that lasts", url: "https://magazine.example/state", starters: ["What's new here?", "How does this apply to Flyd?"], link: { href: "https://magazine.example/state", label: "Article" } };
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      if (url === "/api/article-chat") return json(opened);
+      if (url === "/api/send") return json(sendResponse);
+      if (url === "/api/sessions") return json({ sessions: [{ ...opened, id: opened.session, updatedAt: "2026-10-21T06:00:00.000Z" }, ...SESSIONS] });
+      return json({ assistantLabel: "Flyd", sessions: SESSIONS });
+    });
+    const stream = open("latest", []);
+    const story = { title: "State that lasts", url: "https://magazine.example/state", source: "Magazine", gist: "The machinery, not a wrapper." };
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    document.querySelector<HTMLButtonElement>("#news .story-ask")!.click();
+    await settle();
+    const post = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/article-chat");
+    expect(post?.[1]).toEqual(expect.objectContaining({ method: "POST", body: JSON.stringify({ url: story.url, title: story.title, media: "article", text: story.gist, description: story.gist, figure: "", attribution: "" }) }));
+    expect(FakeEventSource.instances.at(-1)!.url).toContain(encodeURIComponent(opened.session));
+    FakeEventSource.instances.at(-1)!.emit("session", { id: opened.session, title: opened.title, link: opened.link, starters: opened.starters, assistantLabel: "Flyd" });
+    FakeEventSource.instances.at(-1)!.emit("update", { order: [], messages: [], working: false });
+    await settle();
+    expect(document.getElementById("conversation-title")!.textContent).toBe("State that lasts");
+    expect(document.getElementById("article-back")!.getAttribute("href")).toBe(story.url);
+    const starters = [...document.querySelectorAll<HTMLButtonElement>("#article-starters button")];
+    expect(starters.map((button) => button.textContent)).toEqual(opened.starters);
+    starters[0]!.click();
+    await settle();
+    const sent = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/send");
+    expect(String(sent?.[1]?.body)).toContain("What's new here?");
+    stream.emit("session", { id: "latest", title: "Current thread", assistantLabel: "Flyd" });
+    await settle();
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story, { title: "Other", url: "https://magazine.example/other", source: "Magazine", gist: "Another." }], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    document.querySelectorAll("#news .card-story-line")[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.filter((call) => call[0] === "/api/article-chat")).toHaveLength(2);
+  });
+
+  it("lists an article conversation under earlier ones and links back to the piece", async () => {
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (url === "/api/sessions" ? json({ sessions: [
+      { id: "latest", title: "Current thread", updatedAt: "2026-10-05T20:00:00.000Z" },
+      { id: "window:article-0123456789abcdef", title: "State that lasts", updatedAt: "2026-10-04T20:00:00.000Z", link: { href: "https://magazine.example/state", label: "Article" } },
+    ] }) : json({})));
+    load("");
+    await settle();
+    open("latest", []);
+    await settle();
+    const row = document.querySelector(".history-item")!;
+    expect(row.querySelector(".history-item-title")!.textContent).toBe("State that lasts");
+    const link = row.parentElement!.querySelector<HTMLAnchorElement>("a.history-article")!;
+    expect(link.getAttribute("href")).toBe("https://magazine.example/state");
+    expect(link.target).toBe("_blank");
+  });
+
+  it("asks in the conversation before remembering something from an article", async () => {
+    load("");
+    await settle();
+    const posted: unknown[] = [];
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      if (url === "/api/article-confirm") posted.push(JSON.parse(String(init?.body)));
+      return json({ ok: true, sessions: SESSIONS });
+    });
+    const stream = open("window:article-0123456789abcdef", []);
+    stream.emit("update", { order: [], messages: [], working: true, confirm: { id: "ask-1", prompt: "Flyd wants to save to memory: \"weights\" (from an article; confirm before saving). Allow?" } });
+    await settle();
+    const bar = document.getElementById("article-confirm")!;
+    expect(bar.hidden).toBe(false);
+    expect(bar.textContent).toContain("from an article");
+    document.getElementById("article-confirm-no")!.click();
+    await settle();
+    expect(posted).toEqual([{ id: "ask-1", allow: false }]);
+    expect(bar.hidden).toBe(true);
+  });
+
+  it("draws a stat, a quote, a video, a gif, an image and a thread as their own cards", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const stories = [
+      { title: "Studios shipping", url: "https://en.wikipedia.org/wiki/Studio", source: "Wikipedia", media: "stat", figure: "12%", gist: "12% of studios shipped a tool." },
+      { title: "A line", url: "https://en.wikiquote.org/wiki/Line", source: "Wikiquote", media: "quote", quote: "The weights live beside the prompt.", attribution: "A note", gist: "A line worth keeping." },
+      { title: "A talk", url: "https://archive.org/details/talk", source: "Internet Archive", media: "video", image: "/api/story-image?id=abc123abc123abcd", gist: "A talk." },
+      { title: "A loop", url: "https://commons.wikimedia.org/wiki/File:Loop.gif", source: "Wikimedia Commons", media: "gif", clip: "/api/story-clip?id=abc123abc123abcd", gist: "A loop." },
+      { title: "A print", url: "https://commons.wikimedia.org/wiki/File:Print.jpg", source: "Wikimedia Commons", media: "image", image: "/api/story-image?id=def123def123def1", gist: "A print." },
+      { title: "A thread", url: "https://news.ycombinator.com/item?id=1", source: "Hacker News", media: "thread", gist: "Thread about a small host." },
+    ];
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories, at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    const news = document.getElementById("news")!;
+    expect(news.querySelector(".story-stat b")!.textContent).toBe("12%");
+    expect(news.querySelector(".story-quote")!.textContent).toContain("The weights live beside the prompt.");
+    expect(news.querySelector(".story-quote span")!.textContent).toBe("A note");
+    expect(news.querySelector(".story-video .story-play")).toBeTruthy();
+    expect(news.querySelector(".story-image .story-pic img")!.getAttribute("src")).toContain("/api/story-image?id=def123def123def1");
+    expect(news.querySelector(".story-thread .card-story-mark")!.textContent).toBe("Thread");
+    expect(news.querySelectorAll("button.story-ask")).toHaveLength(stories.length);
+    const gif = news.querySelector<HTMLElement>(".story-gif")!;
+    gif.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(gif.querySelector("img")!.getAttribute("src")).toContain("/api/story-clip?id=abc123abc123abcd");
+    news.querySelector<HTMLButtonElement>(".story-stat .story-ask")!.click();
+    await settle();
+    const post = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/article-chat");
+    expect(JSON.parse(String((post?.[1] as RequestInit | undefined)?.body))).toMatchObject({ media: "stat", figure: "12%" });
   });
 
   it("counts what needs him on the header button and never forces the column open on a narrow window", async () => {
@@ -3598,7 +3738,7 @@ describe("the front page", () => {
 
   it("lists the jobs as cards, and an unread fleet as unknown rather than empty", async () => {
     const stream = await opened();
-    expect(groups()).toEqual([["Conversation", 1], ["Needs you", "Not read yet."], ["Working", "Not read yet."], ["Done", "Not read yet."]]);
+    expect(groups()).toEqual([["Conversation", 1], ["Needs you", "The work list has not come in."], ["Working", "The work list has not come in."], ["Done", "The work list has not come in."]]);
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
     expect(groups()).toEqual([["Conversation", 1], ["Needs you", 1], ["Working", "Nothing is running right now."], ["Done", 1]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
@@ -3639,5 +3779,45 @@ describe("the front page", () => {
     after(() => card.click());
     expect(document.querySelector<HTMLAnchorElement>(".job-view .fbtn")!.href).toBe("https://example.test/lab.html");
     expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
+  });
+
+  it("renders stored job digests and says what an empty list actually is", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, jobs: [], jobsFleetKnown: false, show: { title: "", summary: "", items: [], counts: {}, live: false } });
+    expect(document.body.textContent).not.toContain("Not read yet");
+    expect(groups()).toEqual([
+      ["Conversation", 1],
+      ["Needs you", "No decision is waiting."],
+      ["Working", "No run has reported yet."],
+      ["Waiting", "Nothing is waiting."],
+      ["Done", "Nothing has landed lately."],
+    ]);
+    stream.emit("update", {
+      order: ["u1"], messages: [], working: false, jobsFleetKnown: true,
+      show: { title: "", summary: "", items: [], counts: {}, live: false },
+      jobs: [{
+        id: "cap5", group: "waiting", state: "Waiting", title: "Cap5", project: "Client", at: "2026-10-26T12:00:00.000Z",
+        next: "Send the revised deck", owner: "you", ask: "", because: "No open run",
+        shots: [], links: [{ label: "Deck", url: "https://example.com/deck" }], files: [{ label: "deck.pdf" }], threads: [],
+        digest: { changed: "The deck dropped the third pricing tier.", means: "Cap5 can review one offer.", needed: "Send it.", link: "https://example.com/deck" },
+      }, {
+        id: "pick", group: "needs", state: "Needs you", title: "Which hero", project: "Client", at: "2026-10-26T13:00:00.000Z",
+        next: "Pick a hero", owner: "you", ask: "Which hero should ship?", because: "decision",
+        shots: [], links: [], files: [], threads: [{ id: "s1", title: "Hero thread", at: "2026-10-26T13:00:00.000Z", kind: "conversation" }],
+        digest: null,
+      }],
+    });
+    const cap = document.querySelector<HTMLElement>('.job[data-job="cap5"]')!;
+    expect(cap.querySelector(".digest")!.textContent).toContain("The deck dropped the third pricing tier.");
+    expect(cap.querySelector(".digest")!.textContent).toContain("Send it.");
+    expect(cap.querySelector("a")).toBeNull();
+    expect(document.querySelector('.job[data-job="pick"] .next')!.textContent).toContain("Pick a hero");
+    after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
+    expect(document.querySelector(".jv-ask")!.textContent).toBe("Which hero should ship?");
+    expect(document.querySelector(".jv-thread")!.textContent).toBe("Hero thread");
+    after(() => document.querySelector<HTMLElement>('.job[data-job="cap5"]')!.click());
+    expect(document.querySelector(".jv-digest")!.textContent).toContain("Cap5 can review one offer.");
+    expect(document.querySelector<HTMLAnchorElement>(".jv-digest .fbtn")!.href).toBe("https://example.com/deck");
+    expect(document.querySelector(".jv-files")!.textContent).toBe("deck.pdf");
   });
 });

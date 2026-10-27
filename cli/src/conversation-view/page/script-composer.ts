@@ -83,6 +83,26 @@ export const COMPOSER_SCRIPT = `
       throw error;
     });
   }
+  function paintConfirm(confirm) {
+    var box = document.getElementById("article-confirm");
+    if (!box) return;
+    if (!confirm || !confirm.id) { box.hidden = true; delete box.dataset.id; return; }
+    box.hidden = false;
+    box.dataset.id = confirm.id;
+    var q = document.getElementById("article-confirm-q");
+    if (q.textContent !== (confirm.prompt || "")) q.textContent = confirm.prompt || "";
+  }
+  function answerConfirm(allow) {
+    var box = document.getElementById("article-confirm");
+    var id = box && box.dataset.id;
+    if (!id) return;
+    box.hidden = true;
+    tokenFetch("/api/article-confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: id, allow: allow }) }, true).catch(function () { box.hidden = false; });
+  }
+  var confirmYes = document.getElementById("article-confirm-yes");
+  var confirmNo = document.getElementById("article-confirm-no");
+  if (confirmYes) confirmYes.addEventListener("click", function () { answerConfirm(true); });
+  if (confirmNo) confirmNo.addEventListener("click", function () { answerConfirm(false); });
   function tokenFetch(path, init, retry) {
     var headers = Object.assign({}, init.headers || {}, { "x-flyd-view-token": SEND_TOKEN });
     return fetch(path, Object.assign({}, init, { headers: headers })).then(function (response) {

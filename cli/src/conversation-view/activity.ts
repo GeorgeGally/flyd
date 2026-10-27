@@ -9,6 +9,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { sourceLabel } from "../lib/source-label.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { railImageSrc } from "./rail.js";
+import { applyStoryMedia, scheduleStoryClips, scheduleStoryMedia, storyClips, storyUrls } from "./story-media.js";
 import { clip, inline, sentences } from "./summaries.js";
 import type { DayCount } from "./artefact.js";
 import { monitorObjectsFromSources, type SemanticObject } from "./semantic.js";
@@ -31,6 +32,25 @@ export interface ActivityStory {
   source?: string;
   /** Its number in the latest edition: only an edition story can be told "more" or "less" like it. */
   n?: number;
+  /** Same-origin picture, once the article's og:image has been fetched and kept. Never a remote URL. */
+  image?: string;
+  /** Same-origin favicon, when one was fetched. */
+  icon?: string;
+  /** When the article says it was published. */
+  published?: string;
+  /** Reading time in minutes, when the article says. */
+  minutes?: number;
+  /** He asked to keep it. */
+  saved?: boolean;
+  /** How the card should show it. Absent on an ordinary article. */
+  media?: "stat" | "gif" | "video" | "image" | "quote" | "thread";
+  /** The number on a stat card. */
+  figure?: string;
+  /** The words on a quote card. */
+  quote?: string;
+  attribution?: string;
+  /** Same-origin GIF, played on hover. Never a remote URL. */
+  clip?: string;
 }
 
 export type StoryMark = "Hot" | "Worth a look" | "Rabbit hole";
@@ -378,7 +398,15 @@ function storyOf(raw: unknown): ActivityStory | null {
   const gist = said.replace(/\s+/g, " ").trim();
   const source = typeof item?.source === "string" ? sourceLabel(item.source.trim(), url) : "";
   const mark = typeof item?.kind === "string" ? STORY_MARKS[item.kind] : undefined;
-  return { title, url, ...(mark ? { mark } : {}), ...(gist ? { gist } : {}), ...(source ? { source } : {}) };
+  const media = typeof item?.media === "string" && item.media !== "article" && ["stat", "gif", "video", "image", "quote", "thread"].includes(item.media)
+    ? item.media as ActivityStory["media"] : undefined;
+  const figure = typeof item?.figure === "string" ? item.figure.replace(/\s+/g, " ").trim().slice(0, 32) : "";
+  const quote = typeof item?.quote === "string" ? item.quote.replace(/\s+/g, " ").trim().slice(0, 280) : "";
+  const attribution = typeof item?.attribution === "string" ? item.attribution.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+  return {
+    title, url, ...(mark ? { mark } : {}), ...(gist ? { gist } : {}), ...(source ? { source } : {}),
+    ...(media ? { media } : {}), ...(figure ? { figure } : {}), ...(quote ? { quote } : {}), ...(attribution ? { attribution } : {}),
+  };
 }
 
 /** The stories a record carries for its card, kept only when each has a headline and a real link. */
@@ -541,22 +569,34 @@ export class ActivityReader {
     });
   }
 
+  /** Where this reader's records live, including cached story pictures. */
+  directory(): string {
+    return this.dir;
+  }
+
   /** Re-reads everything; returns whether the panel changed. */
   refresh(): boolean {
     const now = this.now();
     const day = localDay(new Date(now));
     const scout = join(this.dir, "scout");
-    const panel = composeActivity({
+    const editionFile = oneJson(join(scout, "edition-latest.json"));
+    const composed = composeActivity({
       log: lines(join(this.dir, "logs", "agenda.log"), 600),
       jobs: this.jobs(),
       advice: jsonLines(join(this.dir, "council", "advisories.jsonl"), 4) as ActivityInputs["advice"],
       records: jsonLines(activityRecordPath(this.dir), 300),
       news: {
-        edition: editionStories(oneJson(join(scout, "edition-latest.json")), day),
+        edition: editionStories(editionFile, day),
         watch: flashStories(jsonLines(join(scout, "flash.jsonl"), 200), day),
       },
       runs: listDomainRuns(this.commandDir),
     }, now);
+    const panel = applyStoryMedia(composed, this.dir);
+    const onStored = () => {
+      if (this.refresh()) for (const each of this.listeners) each();
+    };
+    scheduleStoryMedia(storyUrls(panel), { dir: this.dir, onStored });
+    scheduleStoryClips(storyClips(editionFile), { dir: this.dir, onStored });
     const signature = JSON.stringify(panel);
     this.panel = panel;
     if (signature === this.signature) return false;

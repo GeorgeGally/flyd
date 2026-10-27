@@ -42,6 +42,7 @@ Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Cor
 
 - Personal news: last30days topics + RSS + subreddits as an evolving source population with fitness; taste seeded from George's Hermes curator.
 - Daily edition, 3-hourly must-know watch, daily evolution (looks for up to 2 new sources from his profile and memory). Engine pinned at `~/.flyd/vendor/last30days-skill`.
+- The edition mixes articles with a stat, a GIF, a video, an image, a quote and a thread (`cli/src/council/inspiration.ts`). Terms come from a lexical digest of his open jobs, expanded by one cheap call (or an n-gram fallback) and fetched from HN, Wikimedia, Wikipedia, Wikiquote, plus Giphy, Pexels, Reddit, ZenQuotes, Google Trends, Brave and World Bank / Our World in Data when those need no secret or the key is set (`inspiration-sources.ts`). A shown-log recycles the oldest. No logged-in social search.
 - Reddit: `www.reddit.com/r/<sub>/.rss`, sequential, no bot UA.
 
 ## Crew (`flyd crew [list|dispatch <outcome> [--done <point>]…|show|supervise|land|discard]`, `cli/src/crew/crew.ts`)

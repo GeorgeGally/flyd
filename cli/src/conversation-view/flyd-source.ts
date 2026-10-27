@@ -1,3 +1,4 @@
+import { articleChat, listArticleChats } from "./article-chat.js";
 import type { FlydDesk } from "./flyd-desk.js";
 import type { ConversationFollower, ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
 
@@ -14,6 +15,8 @@ export class FlydConversationSource implements ConversationSource {
   constructor(private readonly options: {
     desk: FlydDesk;
     pollMs?: number;
+    /** Where opened article threads are kept. Absent, the history is only what he has said. */
+    articlesDir?: string;
     resolveDecision?: (decisionId: string, taskId: string, answer: string) => Promise<void>;
   }) {
     this.pollMs = options.pollMs ?? 400;
@@ -21,8 +24,18 @@ export class FlydConversationSource implements ConversationSource {
 
   async listSessions(): Promise<SessionSummary[]> {
     const sessions = this.options.desk.historySessions();
-    this.knownSessions = new Set(sessions.map((session) => session.id));
-    return sessions;
+    const articles = this.options.articlesDir ? listArticleChats(this.options.articlesDir) : [];
+    const byId = new Map(sessions.map((session) => [session.id, session]));
+    for (const article of articles) {
+      const existing = byId.get(article.id);
+      // A thread he has already spoken in keeps the article's title and the link back, not the first question.
+      byId.set(article.id, existing
+        ? { ...existing, title: article.title, ...(article.link ? { link: article.link } : {}) }
+        : article);
+    }
+    const merged = [...byId.values()].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    this.knownSessions = new Set(merged.map((session) => session.id));
+    return merged;
   }
 
   async read(sessionId: string): Promise<ConversationSnapshot> {
@@ -31,10 +44,12 @@ export class FlydConversationSource implements ConversationSource {
     const messages = messagesForFlyd(exchanges);
     const active = exchanges.filter((exchange) => !exchange.answer && !exchange.waitingFailed).at(-1);
     const project = this.options.desk.project(sessionId);
+    const confirm = this.options.desk.pendingConfirm(sessionId);
     return {
       messages,
       working: active !== undefined,
       ...(project ? { project } : {}),
+      ...(confirm ? { confirm } : {}),
       ...(active?.question.timestamp ? { lastActivity: active.question.timestamp } : {}),
     };
   }
@@ -86,7 +101,13 @@ export class FlydConversationSource implements ConversationSource {
   }
 
   newSession(sessionId: string): SessionSummary | undefined {
+    const article = this.options.articlesDir ? articleChat(this.options.articlesDir, sessionId) : undefined;
+    if (article) return article;
     return WINDOW_SESSION.test(sessionId) ? { id: sessionId, title: "New conversation", updatedAt: new Date().toISOString() } : undefined;
+  }
+
+  resolveConfirm(id: string, allow: boolean): boolean {
+    return this.options.desk.resolveConfirm(id, allow);
   }
 
   exchanges(): Exchange[] {

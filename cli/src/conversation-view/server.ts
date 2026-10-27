@@ -6,6 +6,7 @@ import { renderRoutinesPage } from "./routines-page.js";
 import { renderWhatsAppPage } from "./whatsapp-page.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { existsSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { homedir } from "node:os";
@@ -18,7 +19,8 @@ import { renderPage } from "./page.js";
 import { currentPage, type CurrentPage } from "./site-changes.js";
 import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
 import { syncTasteSkills } from "../council/taste-skills.js";
-import { readProjects } from "../council/projects.js";
+import { applyProjectOps, projectsPath, readProjects } from "../council/projects.js";
+import { listDomainRuns } from "../command/store.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { IslandRung, islandStatusOf, statusOf } from "./status.js";
@@ -34,6 +36,8 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
+import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
+import { readDigests, scheduleDigest } from "./job-digest.js";
 import { ArtefactFeed, composeArtefact, WHATSAPP_LINK, type ArtefactInputs } from "./artefact.js";
 import type { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
@@ -41,6 +45,8 @@ import type { Rail, RailState } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailNotice, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import type { ActivityPanel, ActivityReader } from "./activity.js";
+import { isArticleSession, openArticleChat } from "./article-chat.js";
+import { storyAsset, toggleSavedStory } from "./story-media.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
 import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote, undoNote } from "./replies.js";
@@ -176,6 +182,11 @@ export interface ShowOptions {
   live?: (url: string) => string;
   /** Whether WhatsApp still needs linking: the offer card is shown in the timeline and the panel only while it does. */
   whatsappUnlinked?: () => boolean;
+  /**
+   * Durable jobs for the right column. Set only by the live view. A differ
+   * under test does not read the project list or attach jobs.
+   */
+  jobs?: (snapshot: ConversationSnapshot, show: ShowScreen) => { jobs: Job[]; fleetKnown: boolean };
 }
 
 interface StreamUpdate {
@@ -187,6 +198,8 @@ interface StreamUpdate {
   project?: string;
   /** While working: what the assistant is doing now, in a few plain words. */
   activity?: string;
+  /** A memory save from an article chat, waiting on him. Absent once he has answered. */
+  confirm?: { id: string; prompt: string };
   lastActivity?: string;
   context?: { tokens: number; window: number };
   /** Show mode's screen: Flyd's few things, picked from this snapshot. */
@@ -199,6 +212,10 @@ interface StreamUpdate {
   leftColumn?: ActivityPanel;
   /** The page the work is on now, kept in the header whenever there is one. */
   page?: CurrentPage;
+  /** Jobs George is moving. Present only when the view built them. The page renders these and does not invent a second reading. */
+  jobs?: Job[];
+  /** Whether a fleet snapshot answered. An empty Working group says so differently when this is false. */
+  jobsFleetKnown?: boolean;
 }
 
 /**
@@ -632,12 +649,14 @@ export class SnapshotDiffer {
     const found = currentPage(snapshot.messages);
     // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
     const page = found?.local && live(found.url) === "down" ? undefined : found;
+    const board = this.show?.jobs?.(snapshot, show);
     return {
       order,
       messages: changed,
       working: snapshot.working,
       ...(snapshot.project ? { project: snapshot.project } : {}),
       ...(snapshot.working && snapshot.activity ? { activity: snapshot.activity } : {}),
+      ...(snapshot.confirm ? { confirm: snapshot.confirm } : {}),
       ...(snapshot.lastActivity ? { lastActivity: snapshot.lastActivity } : {}),
       ...(snapshot.context ? { context: snapshot.context } : {}),
       // The calls sheet says a closed review page in words too.
@@ -646,6 +665,7 @@ export class SnapshotDiffer {
       ...(this.show?.rail ? { rail: this.show.rail(snapshot) } : {}),
       ...(left ? { leftColumn: { ...left, semantic: show.activities } } : {}),
       ...(page ? { page } : {}),
+      ...(board ? { jobs: board.jobs, jobsFleetKnown: board.fleetKnown } : {}),
     };
   }
 }
@@ -710,6 +730,10 @@ export class ConversationViewServer {
   readonly notices = new NoticeBoard();
   /** Island items already rung (see IslandRung). */
   private readonly islandRung = new IslandRung();
+  /** Sessions known to the open view, so a job can group a conversation on the first paint. */
+  private listedSessions: Array<{ id: string; title: string; project?: string; updatedAt: string }> = [];
+  /** Open streams redraw once a stored digest lands. Render itself never asks a model. */
+  private readonly jobWake = new Set<() => void>();
 
   constructor(
     private readonly source: ConversationSource,
@@ -847,6 +871,22 @@ export class ConversationViewServer {
       await this.newsTold(req, res);
       return;
     }
+    if (req.method === "POST" && url.pathname === "/api/story-save") {
+      await this.storySave(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/article-chat") {
+      await this.articleChat(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/article-confirm") {
+      await this.articleConfirm(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/jobs") {
+      await this.jobAction(req, res);
+      return;
+    }
     if (req.method !== "GET") {
       sendJson(res, 405, { error: "method not allowed" });
       return;
@@ -957,6 +997,21 @@ export class ConversationViewServer {
         return;
       }
       await this.railImage(res, url.searchParams.get("path") ?? "");
+      return;
+    }
+    if (url.pathname === "/api/story-image" || url.pathname === "/api/story-icon" || url.pathname === "/api/story-clip") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
+      const kind = url.pathname === "/api/story-image" ? "image" : url.pathname === "/api/story-icon" ? "icon" : "clip";
+      const asset = storyAsset(this.activity?.directory() ?? FLYD_DIR, kind, url.searchParams.get("id") ?? "");
+      if (!asset) {
+        sendJson(res, 404, { error: "not found" });
+        return;
+      }
+      res.writeHead(200, { "content-type": asset.type, "cache-control": "private, max-age=86400", "x-content-type-options": "nosniff" });
+      res.end(asset.bytes);
       return;
     }
     if (url.pathname === "/api/status") {
@@ -1276,6 +1331,85 @@ export class ConversationViewServer {
     const { markNewsTold } = await import("../runtime/session-briefing.js");
     await markNewsTold();
     sendJson(res, 200, { ok: true });
+  }
+
+  /** Keep or drop a story he saved from the news. The card already shows the new word; the next read of the column agrees. */
+  private async storySave(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    let payload: { url?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, 4 * 1024)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    if (typeof payload.url !== "string" || !/^https?:\/\//i.test(payload.url)) {
+      sendJson(res, 400, { error: "expected { url }" });
+      return;
+    }
+    const saved = toggleSavedStory(this.activity?.directory() ?? FLYD_DIR, payload.url);
+    sendJson(res, 200, { ok: true, saved });
+  }
+
+  /** Open the existing conversation on one article: read it once, then hand back the thread. */
+  private async articleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!this.viewPost(req)) { sendJson(res, 403, { error: "forbidden" }); return; }
+    let payload: { url?: unknown; title?: unknown; media?: unknown; text?: unknown; description?: unknown; figure?: unknown; attribution?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, 8 * 1024)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    if (typeof payload.url !== "string" || !/^https?:\/\//i.test(payload.url) || payload.url.length > 2_000) {
+      sendJson(res, 400, { error: "expected { url }" });
+      return;
+    }
+    const title = typeof payload.title === "string" ? payload.title.slice(0, 300) : undefined;
+    const media = typeof payload.media === "string" && ["quote", "stat", "gif", "video", "image", "thread"].includes(payload.media) ? payload.media : "article";
+    const cardText = typeof payload.text === "string" ? payload.text.slice(0, 4_000) : "";
+    const figure = typeof payload.figure === "string" ? payload.figure.slice(0, 32) : "";
+    const attribution = typeof payload.attribution === "string" ? payload.attribution.slice(0, 80) : "";
+    const text = media === "stat" && figure ? `${figure}\n\n${cardText}` : media === "quote" && attribution ? `${cardText}\n\n— ${attribution}` : cardText;
+    try {
+      const opened = await openArticleChat(this.activity?.directory() ?? FLYD_DIR, payload.url, {
+        ...(title ? { title } : {}),
+        ...(media !== "article" ? { media, text, description: typeof payload.description === "string" ? payload.description.slice(0, 500) : cardText } : {}),
+      });
+      sendJson(res, 200, opened);
+    } catch (error) {
+      sendJson(res, 502, { error: error instanceof Error ? error.message : "could not open that article" });
+    }
+  }
+
+  /** His yes or no to remembering something from an article chat. */
+  private async articleConfirm(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!this.viewPost(req)) { sendJson(res, 403, { error: "forbidden" }); return; }
+    let payload: { id?: unknown; allow?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, 4 * 1024)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    if (typeof payload.id !== "string" || payload.id.length > 80 || typeof payload.allow !== "boolean") {
+      sendJson(res, 400, { error: "expected { id, allow }" });
+      return;
+    }
+    if (!this.source.resolveConfirm?.(payload.id, payload.allow)) {
+      sendJson(res, 404, { error: "nothing is waiting for that" });
+      return;
+    }
+    sendJson(res, 200, { ok: true });
+  }
+
+  private viewPost(req: IncomingMessage): boolean {
+    const origin = req.headers.origin;
+    return (origin === undefined || isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) && sameToken(req.headers["x-flyd-view-token"], this.token);
   }
 
   /** "More like this" or "less like this" on a story in today's news: the same verdict `flyd scout more|less` records. */
@@ -1783,10 +1917,106 @@ export class ConversationViewServer {
     req.on("close", stop);
   }
 
+  /** George's create, rename or close. Writes the project list and wakes open streams. */
+  private async jobAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    let edit: { op?: string; id?: string; name?: string };
+    try {
+      edit = JSON.parse(await readBody(req, 8 * 1024)) as { op?: string; id?: string; name?: string };
+    } catch {
+      sendJson(res, 400, { error: "expected a JSON object" });
+      return;
+    }
+    if (edit.op !== "create" && edit.op !== "rename" && edit.op !== "close") {
+      sendJson(res, 400, { error: "expected create, rename or close" });
+      return;
+    }
+    const result = editJob({ op: edit.op, ...(edit.id ? { id: edit.id } : {}), ...(edit.name ? { name: edit.name } : {}) }, { path: projectsPath() });
+    if (result.error || !result.job) {
+      sendJson(res, 400, { error: result.error ?? "That job is not on the list." });
+      return;
+    }
+    for (const wake of this.jobWake) wake();
+    sendJson(res, 200, { job: result.job });
+  }
+
+  /** One board for the column. Inferred names are written once, outside tests. One digest is scheduled, never drawn here. */
+  private jobBoard(snapshot: ConversationSnapshot, show: ShowScreen): { jobs: Job[]; fleetKnown: boolean } {
+    try {
+      const projects = readProjects();
+      const runs = listDomainRuns().map(jobRunFromDomain);
+      const sessions = this.listedSessions.map((session) => ({
+        id: session.id,
+        title: session.title,
+        ...(session.project ? { project: session.project } : {}),
+        updatedAt: session.updatedAt,
+      }));
+      const reports = this.jobReports(snapshot);
+      const exists = (ref: string) => this.jobFileExists(ref);
+      let board = jobsFrom({ projects, runs, sessions, reports, show, digests: readDigests(), exists });
+      if (!process.env.VITEST && board.inferred.length) {
+        applyProjectOps(board.inferred.map((item) => ({ op: "upsert", name: item.name, kind: item.kind, status: "active", what: "" })), { knownRepos: [] });
+        board = jobsFrom({ projects: readProjects(), runs, sessions, reports, show, digests: readDigests(), exists });
+      }
+      scheduleDigest(board.pending, { onStored: () => { for (const wake of this.jobWake) wake(); } });
+      return { jobs: board.jobs, fleetKnown: board.fleetKnown };
+    } catch (error) {
+      console.error(`[jobs] ${error instanceof Error ? error.message : String(error)}`);
+      return { jobs: [], fleetKnown: false };
+    }
+  }
+
+  /** The newest long reply or Claude artefact in this conversation, plus a lab review with something to read. */
+  private jobReports(snapshot: ConversationSnapshot): JobReport[] {
+    const reports: JobReport[] = [];
+    const project = snapshot.project;
+    if (project) {
+      for (const message of [...snapshot.messages].reverse()) {
+        if (message.role !== "assistant") continue;
+        const artefact = message.artefact?.trim() ?? "";
+        const text = message.text?.trim() ?? "";
+        const body = artefact.length >= 240 ? artefact : text;
+        if (artefact.length < 240 && text.length < 800) continue;
+        reports.push({
+          project,
+          title: artefact.length >= 240 ? "Artifact" : "From the conversation",
+          text: body,
+          ...(message.timestamp ? { at: message.timestamp } : {}),
+        });
+        if (reports.length >= 2) break;
+      }
+    }
+    for (const review of this.activity?.current().reviews ?? []) {
+      const text = [review.summary, review.detail].filter((part): part is string => Boolean(part?.trim())).join("\n\n");
+      if (text.length < 240) continue;
+      const name = review.project || project;
+      if (!name) continue;
+      const link = review.evidence.find((item) => item.kind === "web" && item.ref)?.ref;
+      reports.push({
+        project: name,
+        title: review.subject || "Lab",
+        text,
+        ...(link ? { link } : {}),
+        ...(review.updatedAt ? { at: review.updatedAt } : {}),
+      });
+    }
+    return reports;
+  }
+
+  private jobFileExists(ref: string): boolean {
+    const path = ref.startsWith("~/") ? join(homedir(), ref.slice(2)) : ref;
+    try { return existsSync(path); } catch { return false; }
+  }
+
   private async stream(req: IncomingMessage, res: ServerResponse, requested: string | null): Promise<void> {
     // A session he chose by hand stays; no choice (or "latest") follows whichever holds the lock now.
     const chosen = requested && requested !== "latest" ? requested : null;
     const sessions = await this.source.listSessions();
+    this.listedSessions = sessions;
     const session = chosen ? sessions.find((candidate) => candidate.id === chosen) ?? this.source.newSession?.(chosen) : sessions[0];
     if (!session) {
       sendJson(res, 404, { error: chosen ? `No such session: ${chosen}` : "No sessions found" });
@@ -1835,7 +2065,9 @@ export class ConversationViewServer {
         rail: (snapshot) => this.rail(snapshot),
         ...(this.activity ? { leftColumn: () => this.activity!.current() } : {}),
         live: (url) => this.previews.state(url),
-        whatsappUnlinked: () => this.whatsappUnlinked(),
+        // A chat about one article is about the article: the WhatsApp offer stays out of it.
+        whatsappUnlinked: () => !isArticleSession(session.id) && this.whatsappUnlinked(),
+        jobs: (shot, screen) => this.jobBoard(shot, screen),
       });
     const emitUpdate = (snapshot: ConversationSnapshot) => {
       const update = differ.next(snapshot);
@@ -1879,6 +2111,8 @@ export class ConversationViewServer {
     const stopPairing = this.whatsapp?.onChange(() => {
       if (!closed && latest) emitUpdate(latest);
     });
+    const wakeJobs = () => { if (!closed && latest) emitUpdate(latest); };
+    this.jobWake.add(wakeJobs);
     emitStaff();
     const heartbeat = setInterval(() => {
       res.write(": keep-alive\n\n");
@@ -1890,7 +2124,9 @@ export class ConversationViewServer {
     let moved: ReturnType<typeof setInterval> | null = null;
     if (!chosen) {
       moved = setInterval(() => {
-        void this.source.listSessions().then(([newest]) => {
+        void this.source.listSessions().then((all) => {
+          this.listedSessions = all;
+          const newest = all[0];
           if (!newest || newest.id === session.id) return;
           if (moved) clearInterval(moved);
           res.end();
@@ -1907,6 +2143,7 @@ export class ConversationViewServer {
       stopMemory?.();
       stopActivity?.();
       stopPairing?.();
+      this.jobWake.delete(wakeJobs);
       stopNotices();
       follower.close();
       this.predictionContexts.delete(session.id);

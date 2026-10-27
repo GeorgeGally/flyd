@@ -9,7 +9,10 @@ import { FLYD_DIR } from "../lib/config.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import { RssAdapter } from "../evidence/adapters/rss.js";
 import type { ActivityRecord } from "../conversation-view/activity.js";
+import { classifyMedia, mixInspiration, workFocusFromProjects, type InspirationItem, type MediaKind, type WorkFocus } from "./inspiration.js";
+import { gatherInspiration, markShown, readShown } from "./inspiration-sources.js";
 import { localDay, memoryPromptText } from "./memory-store.js";
+import { liveProjects } from "./projects.js";
 
 // The Scout: what's happening in the world that George would want to know —
 // found, ranked for him, delivered before he asks, and evolving.
@@ -52,7 +55,10 @@ export interface ScoutSource {
 
 export interface ScoutCandidate { id: string; title: string; url: string; source: string; sourceId: string; summary: string; published?: string; engagement?: string; topic: string }
 export type ItemKind = "must" | "relevant" | "rabbit_hole";
-export interface EditionItem { n: number; title: string; url: string; source: string; sourceId?: string; topic: string; why: string; kind: ItemKind | "wildcard" }
+export interface EditionItem {
+  n: number; title: string; url: string; source: string; sourceId?: string; topic: string; why: string; kind: ItemKind | "wildcard";
+  media?: MediaKind; figure?: string; quote?: string; attribution?: string; mediaUrl?: string;
+}
 export interface Edition { date: string; generatedAt: string; topics: string[]; items: EditionItem[] }
 export interface ScoutFeedback { at: string; verdict: "more" | "less"; title: string; topic: string; source: string; sourceId?: string; why: string }
 
@@ -550,12 +556,51 @@ export interface ScoutDependencies {
   /** Records the day's brief with Flyd's activity feed, so its card opens to the whole brief. */
   record?: (edition: Edition) => void;
   redditSpacingMs?: number;
+  /** Live projects and jobs the deck should lean toward. Tests pass this; production reads his projects. */
+  focus?: WorkFocus[];
+  /** Extra finds (stats, pictures, quotes, threads). Tests pass them; production gathers a cached set. */
+  inspiration?: InspirationItem[];
 }
 
 export interface ScoutRunResult {
   skipped?: "already_today" | "no_sources" | "locked";
   edition?: Edition;
   failedTopics: string[];
+}
+
+function blendEdition(ranked: EditionItem[], extras: InspirationItem[], focus: WorkFocus[], now: Date, dir: string): EditionItem[] {
+  const byUrl = new Map(ranked.map((item) => [item.url, item]));
+  const articles: InspirationItem[] = ranked.map((item) => ({
+    url: item.url,
+    title: item.title,
+    source: item.source,
+    sourceId: item.sourceId ?? item.source,
+    summary: item.why,
+    media: classifyMedia({ url: item.url, title: item.title, summary: item.why }),
+    published: now.toISOString(),
+  }));
+  const mixed = mixInspiration([...articles, ...extras], focus, { now: now.getTime(), seen: seenUrls(dir), lastShown: readShown(dir) });
+  const must = mixed.filter((item) => byUrl.get(item.url)?.kind === "must");
+  const rest = mixed.filter((item) => byUrl.get(item.url)?.kind !== "must");
+  return [...must, ...rest].map((item, index) => {
+    const prior = byUrl.get(item.url);
+    const media = item.media === "article" ? undefined : item.media;
+    const base: EditionItem = prior
+      ? { ...prior, ...(media ? { media } : {}) }
+      : {
+          n: index + 1, title: item.title, url: item.url, source: item.source, sourceId: item.sourceId,
+          topic: item.match ?? item.source, why: item.summary.slice(0, 280), kind: "relevant",
+          ...(media ? { media } : {}),
+        };
+    return {
+      ...base,
+      n: index + 1,
+      ...(item.figure ? { figure: item.figure } : {}),
+      ...(item.quote ? { quote: item.quote } : {}),
+      ...(item.attribution ? { attribution: item.attribution } : {}),
+      ...(item.mediaUrl ? { mediaUrl: item.mediaUrl } : {}),
+    };
+  });
 }
 
 /** Build today's edition from every active source, ranked for George. */
@@ -580,7 +625,15 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   sources = recordFailures(sources, failed, now);
   const seen = seenUrls(dir);
   const fresh = interleaveBySource(candidates.filter((candidate, index) => !seen.has(candidate.url) && candidates.findIndex((other) => other.url === candidate.url) === index)).slice(0, 150);
-  const items = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh, BRIEF_MAX, EDITION_PER_SOURCE) : [];
+  const ranked = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh, BRIEF_MAX, EDITION_PER_SOURCE) : [];
+  const focus = deps.focus ?? (process.env.VITEST ? [] : workFocusFromProjects(liveProjects()));
+  let extras = deps.inspiration ?? [];
+  if (!deps.inspiration && !process.env.VITEST) {
+    try { extras = await gatherInspiration(dir, focus, { now, fetchImpl: deps.fetchFn }); } catch { extras = []; }
+  }
+  const items = extras.length ? blendEdition(ranked, extras, focus, now, dir) : ranked;
+  const rotating = items.filter((item) => item.media).map((item) => item.url);
+  if (rotating.length) markShown(dir, rotating, now);
 
   // Exposure counts toward fitness: a source that keeps being shown but never liked fades.
   sources = sources.map((source) => ({ ...source, shown: source.shown + items.filter((item) => item.sourceId === source.id).length }));
@@ -601,7 +654,13 @@ export function editionActivityRecord(edition: Edition): ActivityRecord {
     kind: "news",
     title: "Put together today's news",
     line: `${edition.items.length} ${edition.items.length === 1 ? "story" : "stories"} from your sources.`,
-    stories: edition.items.map(({ title, url, why, source, kind }) => ({ title, url, kind, ...(why ? { gist: why } : {}), ...(source ? { source } : {}) })),
+    stories: edition.items.map(({ title, url, why, source, kind, media, figure, quote, attribution }) => ({
+      title, url, kind, ...(why ? { gist: why } : {}), ...(source ? { source } : {}),
+      ...(media && media !== "article" ? { media } : {}),
+      ...(figure ? { figure } : {}),
+      ...(quote ? { quote } : {}),
+      ...(attribution ? { attribution } : {}),
+    })),
     state: "done",
     at: edition.generatedAt,
   };

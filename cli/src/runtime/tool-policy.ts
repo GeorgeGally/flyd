@@ -24,6 +24,8 @@ export type ToolDecision =
 export interface ToolPolicyState {
   /** True once web or other external content has been read this turn. */
   tainted: boolean;
+  /** The turn is a chat about an article. The article cannot make Flyd use a tool, and remember waits for him. */
+  article?: boolean;
   /** Kinds of action George said no to this turn. A no holds for the turn: no rephrased retry, no second ask. */
   declined?: Set<ActionCategory>;
 }
@@ -354,6 +356,15 @@ export function decideToolCall(
   level: AutonomyLevel = autonomyLevel(),
 ): ToolDecision {
   const category = classifyToolCall(name, input);
+  // An article is already in the prompt, so it is tainted before any tool runs.
+  // Nothing it says may call a tool. Remembering from that chat waits for George,
+  // even at full autonomy, where a web page would otherwise be saved in silence.
+  if (state.article) {
+    if (name === "remember") {
+      return { kind: "confirm", category, reason: `${describe(name, input)} (from an article; confirm before saving)` };
+    }
+    return { kind: "deny", category, reason: `${describe(name, input)} (an article cannot make Flyd use tools)` };
+  }
   if (touchesSecret(name, input)) {
     return { kind: "deny", category, reason: `${describe(name, input)} (credentials stay out of the conversation; use the tool that needs them instead)` };
   }

@@ -100,9 +100,42 @@ export const SESSION_SCRIPT = `
     });
   }
 
+  var articleStarters = [];
   function showTitle(session) {
     conversationTitle.textContent = session.title || "Conversation";
-    document.title = session.title + " · " + assistant;
+    document.title = (session.title || "Conversation") + " · " + assistant;
+    var back = document.getElementById("article-back");
+    if (back) {
+      if (session.link && session.link.href) {
+        back.href = session.link.href;
+        back.textContent = session.link.label || "Article";
+        back.hidden = false;
+      } else back.hidden = true;
+    }
+    articleStarters = Array.isArray(session.starters) ? session.starters.slice(0, 3) : [];
+    paintStarters(!!main.querySelector(".msg:not(.pending)"));
+  }
+  function paintStarters(hasMessages) {
+    var box = document.getElementById("article-starters");
+    if (!box) return;
+    if (hasMessages || !articleStarters.length) { box.hidden = true; box.textContent = ""; delete box.dataset.drawn; return; }
+    var drawn = articleStarters.join("\\n");
+    if (box.dataset.drawn === drawn && !box.hidden) return;
+    box.dataset.drawn = drawn;
+    box.textContent = "";
+    box.hidden = false;
+    box.appendChild(el("p", "", "Ask about this article"));
+    articleStarters.forEach(function (question) {
+      var button = el("button", "", question);
+      button.type = "button";
+      button.addEventListener("click", function () {
+        var field = document.getElementById("input");
+        field.value = question;
+        field.dispatchEvent(new Event("input"));
+        document.getElementById("composer").dispatchEvent(new Event("submit", { cancelable: true }));
+      });
+      box.appendChild(button);
+    });
   }
 
   var HISTORY_FEW = 5;
@@ -111,7 +144,7 @@ export const SESSION_SCRIPT = `
   function renderHistory(sessions) {
     lastSessions = sessions;
     var past = sessions.filter(function (session) { return session.id !== current; });
-    var drawn = JSON.stringify([current, past.map(function (session) { return [session.id, session.title, session.project, ago(session.updatedAt)]; })]);
+    var drawn = JSON.stringify([current, past.map(function (session) { return [session.id, session.title, session.project, session.link && session.link.href, ago(session.updatedAt)]; })]);
     if (drawn === historyDrawn) return;
     historyDrawn = drawn;
     var expanded = new Map(Array.from(historyList.querySelectorAll("details")).map(function (details) {
@@ -157,6 +190,15 @@ export const SESSION_SCRIPT = `
           connect(explicit);
         });
         item.appendChild(button);
+        if (session.link && session.link.href) {
+          var back = document.createElement("a");
+          back.className = "history-article";
+          back.href = session.link.href;
+          back.target = "_blank";
+          back.rel = "noopener noreferrer";
+          back.textContent = session.link.label || "Article";
+          item.appendChild(back);
+        }
         list.appendChild(item);
       });
       details.appendChild(list);

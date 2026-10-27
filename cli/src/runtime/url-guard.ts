@@ -65,14 +65,29 @@ export interface GuardedFetchOptions {
   headers?: Record<string, string>;
   lookup?: HostLookup;
   maxRedirects?: number;
+  /** POST is used for a token exchange. Redirects are not followed. */
+  method?: "GET" | "POST";
+  body?: string;
 }
 
-/** GET a public URL, following redirects manually so each hop is checked. */
+/** Fetch a public URL. GET follows redirects manually so each hop is checked. */
 export async function fetchPublicUrl(
   fetchFn: (input: string, init?: RequestInit) => Promise<Response>,
   raw: string,
   options: GuardedFetchOptions = {},
 ): Promise<Response> {
+  if (options.method === "POST") {
+    const problem = await publicUrlProblem(raw, options.lookup);
+    if (problem) throw new Error(`Blocked ${raw}: ${problem}. read_url only fetches the public web.`);
+    return fetchFn(raw, {
+      method: "POST",
+      body: options.body,
+      signal: options.signal,
+      redirect: "manual",
+      credentials: "omit",
+      headers: options.headers,
+    });
+  }
   let current = raw;
   for (let hop = 0; hop <= (options.maxRedirects ?? 5); hop += 1) {
     const problem = await publicUrlProblem(current, options.lookup);

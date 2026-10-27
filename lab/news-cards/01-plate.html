@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plate</title>
+<style>
+  :root { --paper:#ECEAE5; --ink:#161615; --ink2:#4A4945; --mute:#76746E; --line:#D9D4CC; --mat:#CFCAC1; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 400 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+  .stack { width: min(352px, 100%); margin: 0 auto; padding: 8px 0 12px; }
+  @media (max-width: 395px) { .stack { width: auto; padding: 6px 16px 16px; } }
+  article { position: relative; padding: 16px 0 18px; }
+  article + article { border-top: 1px solid var(--line); }
+  .pic, .type { display: block; height: 168px; background: var(--mat); overflow: hidden; position: relative; }
+  @media (max-width: 395px) { .pic, .type { height: 188px; } }
+  .pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .type b { position: absolute; left: -0.07em; bottom: -0.34em; font: 520 292px/0.8 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: -0.06em; color: var(--ink); }
+  .type span { position: absolute; top: 12px; right: 12px; font: 500 11px/1 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink2); }
+  .mark { margin: 11px 0 0; font: 500 11px/1 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); }
+  h2 { margin: 6px 0 0; font: 560 18px/1.22 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: -0.02em; text-wrap: pretty; }
+  h2 a { color: inherit; text-decoration: none; }
+  h2 a::after { content: ""; position: absolute; inset: 0; }
+  .why { margin: 7px 0 0; font-size: 14px; line-height: 1.4; color: var(--ink2); text-wrap: pretty; }
+  .meta { display: flex; align-items: center; gap: 7px; margin: 12px 0 0; font-size: 12px; color: var(--mute); }
+  .fav { width: 13px; height: 13px; border-radius: 2px; background: var(--ink); color: var(--paper); display: inline-flex; align-items: center; justify-content: center; font: 600 8px/1 sans-serif; flex: none; }
+  .go { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--ink); position: relative; z-index: 1; }
+  .go a, .go button { position: relative; z-index: 1; border: 0; background: none; padding: 0; font: 560 12.5px/1 inherit; color: var(--ink); text-decoration: none; cursor: pointer; }
+  .taste { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 12px; color: var(--mute); position: relative; z-index: 1; }
+  .taste button { position: relative; z-index: 1; border: 0; background: none; padding: 0; font: 400 12px/1 inherit; color: var(--mute); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="stack">
+  <article>
+    <div class="pic"><img src="img/desk.png" alt=""></div>
+    <p class="mark">Worth a look</p>
+    <h2><a href="https://magazine.sebastianraschka.com/">Sebastian Raschka's from-scratch video course on building reasoning models</a></h2>
+    <p class="why">A from-scratch video build of a reasoning model — the rare course that shows the machinery instead of a wrapper call.</p>
+    <p class="meta"><span class="fav">M</span> Raschka · 12 Oct · 18 min<span class="go"><a href="https://magazine.sebastianraschka.com/">Open</a><span>·</span><button type="button">Save</button></span></p>
+    <p class="taste"><button type="button">More</button><span>·</span><button type="button">Less</button></p>
+  </article>
+  <article>
+    <div class="pic"><img src="img/shelf.png" alt=""></div>
+    <p class="mark">Hot</p>
+    <h2><a href="https://www.theguardian.com/">The small press that still sets type by hand</a></h2>
+    <p class="why">A shop in Lisbon is taking commissions again. The constraint is the point: one face, one size, no reprints.</p>
+    <p class="meta"><span class="fav">G</span> Guardian · Yesterday · 6 min<span class="go"><a href="https://www.theguardian.com/">Open</a><span>·</span><button type="button">Save</button></span></p>
+    <p class="taste"><button type="button">More</button><span>·</span><button type="button">Less</button></p>
+  </article>
+  <article>
+    <div class="type"><b>N</b><span>Nature</span></div>
+    <p class="mark">Rabbit hole</p>
+    <h2><a href="https://www.nature.com/">What a cell remembers after the signal is gone</a></h2>
+    <p class="why">A short paper on persistence. Worth it if you are still thinking about state that outlives the prompt.</p>
+    <p class="meta"><span class="fav">N</span> Nature · 3 Oct<span class="go"><a href="https://www.nature.com/">Open</a><span>·</span><button type="button">Save</button></span></p>
+    <p class="taste"><button type="button">More</button><span>·</span><button type="button">Less</button></p>
+  </article>
+</div>
+</body>
+</html>
