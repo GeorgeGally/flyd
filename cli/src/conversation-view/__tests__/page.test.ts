@@ -3188,7 +3188,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(document.querySelector("#news .story-told")!.textContent).toBe("Less like this");
   });
 
-  it("shows a fetched picture, a letter when there is none, and never a remote image address", async () => {
+  it("shows a fetched picture, a bigger headline when there is none, and never a remote image address", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
@@ -3206,11 +3206,12 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(items[0]!.querySelector(".story-rate .story-save, .story-rate .story-open")).toBeNull();
     img.dispatchEvent(new Event("error"));
     expect(items[0]!.querySelector("img")).toBeNull();
-    expect(items[0]!.querySelector(".story-type")!.textContent).toContain("M");
-    expect(items[1]!.querySelector("img")).toBeNull();
-    expect(items[1]!.querySelector(".story-type b")!.textContent).toBe("N");
-    expect(items[2]!.querySelector("img")).toBeNull();
-    expect(items[2]!.querySelector(".story-type")).not.toBeNull();
+    expect(items[0]!.querySelector(".story-pic")).toBeNull();
+    expect(items[0]!.classList.contains("story-bare")).toBe(true);
+    expect(items[1]!.querySelector("img, .story-pic")).toBeNull();
+    expect(items[1]!.classList.contains("story-bare")).toBe(true);
+    expect(items[2]!.querySelector("img, .story-pic")).toBeNull();
+    expect(items[2]!.classList.contains("story-bare")).toBe(true);
     const save = items[1]!.querySelector<HTMLButtonElement>(".story-save")!;
     expect(save.textContent).toBe("save");
     save.click();
@@ -3303,7 +3304,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
       { title: "Studios shipping", url: "https://en.wikipedia.org/wiki/Studio", source: "Wikipedia", media: "stat", figure: "12%", gist: "12% of studios shipped a tool." },
       { title: "A line", url: "https://en.wikiquote.org/wiki/Line", source: "Wikiquote", media: "quote", quote: "The weights live beside the prompt.", attribution: "A note", gist: "A line worth keeping." },
       { title: "A talk", url: "https://archive.org/details/talk", source: "Internet Archive", media: "video", image: "/api/story-image?id=abc123abc123abcd", gist: "A talk." },
-      { title: "A loop", url: "https://commons.wikimedia.org/wiki/File:Loop.gif", source: "Wikimedia Commons", media: "gif", clip: "/api/story-clip?id=abc123abc123abcd", gist: "A loop." },
+      { title: "A loop", url: "https://commons.wikimedia.org/wiki/File:Loop.gif", source: "Wikimedia Commons", media: "gif", image: "/api/story-image?id=fed123fed123fed1", clip: "/api/story-clip?id=abc123abc123abcd", gist: "A loop." },
       { title: "A print", url: "https://commons.wikimedia.org/wiki/File:Print.jpg", source: "Wikimedia Commons", media: "image", image: "/api/story-image?id=def123def123def1", gist: "A print." },
       { title: "A thread", url: "https://news.ycombinator.com/item?id=1", source: "Hacker News", media: "thread", gist: "Thread about a small host." },
     ];
@@ -3320,6 +3321,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
     const gif = news.querySelector<HTMLElement>(".story-gif")!;
     gif.dispatchEvent(new MouseEvent("mouseenter"));
     expect(gif.querySelector("img")!.getAttribute("src")).toContain("/api/story-clip?id=abc123abc123abcd");
+    gif.dispatchEvent(new MouseEvent("mouseleave"));
+    expect(gif.querySelector("img")!.getAttribute("src")).toContain("/api/story-image?id=fed123fed123fed1");
     news.querySelector<HTMLButtonElement>(".story-stat .story-ask")!.click();
     await settle();
     const post = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/article-chat");

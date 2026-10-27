@@ -327,21 +327,15 @@ export const BRIEF_SCRIPT = `
     briefFilled = !briefEl.hidden || !briefNewsEl.hidden;
     showRail();
   }
-  // A letter big enough to be the picture, when the article has no image we can show.
+  // The source's first letter, for the little mark beside its name when it has no icon.
   function storyLetter(story) {
     var match = String(story.source || story.title || "").match(/[A-Za-z0-9]/);
     return match ? match[0].toUpperCase() : "A";
   }
-  function storyType(story) {
-    var block = el("div", "story-type");
-    block.appendChild(el("b", "", storyLetter(story)));
-    if (story.source) block.appendChild(el("span", "", story.source));
-    return block;
-  }
   function storyMonogram(story) {
     return el("span", "story-mono", storyLetter(story));
   }
-  // Only a picture we fetched and kept. A remote address, or one that fails to load, becomes the letter.
+  // Only a picture we fetched and kept. With none, or one that fails to load, the headline carries the story alone.
   var MEDIA_LABEL = { stat: "Stat", gif: "GIF", video: "Video", image: "Image", quote: "Quote", thread: "Thread" };
   function storyPicture(story) {
     if (story.media === "stat" && story.figure) {
@@ -350,21 +344,20 @@ export const BRIEF_SCRIPT = `
       return stat;
     }
     if (story.media === "quote" && story.quote) return null;
-    var node;
-    if (!story.image || story.image.indexOf("/api/story-image?") !== 0) node = storyType(story);
-    else {
-      var pic = el("div", "story-pic");
-      var img = document.createElement("img");
-      img.alt = "";
-      img.addEventListener("error", function () {
-        if (pic.parentNode) pic.replaceWith(storyType(story));
-      });
-      img.src = withToken(story.image);
-      pic.appendChild(img);
-      node = pic;
-    }
-    if (story.media === "video") node.appendChild(el("span", "story-play"));
-    return node;
+    if (!story.image || story.image.indexOf("/api/story-image?") !== 0) return null;
+    var pic = el("div", "story-pic");
+    var img = document.createElement("img");
+    img.alt = "";
+    img.addEventListener("error", function () {
+      var li = pic.parentNode;
+      if (!li) return;
+      li.removeChild(pic);
+      li.classList.add("story-bare");
+    });
+    img.src = withToken(story.image);
+    pic.appendChild(img);
+    if (story.media === "video") pic.appendChild(el("span", "story-play"));
+    return pic;
   }
   function storyWhen(iso) {
     if (!iso) return "";
@@ -393,13 +386,14 @@ export const BRIEF_SCRIPT = `
     });
     return button;
   }
-  // The stories behind a news card: the picture or a letter, the headline, why it matters, and where it came from.
+  // The stories behind a news card: the picture (or a bigger headline), the headline, why it matters, and where it came from.
   function storiesNode(stories) {
     var list = el("ul", "card-stories");
     stories.forEach(function (story) {
       var li = el("li", story.media ? "story-" + story.media : "");
       var lead = storyPicture(story);
       if (lead) li.appendChild(lead);
+      else if (!(story.media === "quote" && story.quote)) li.classList.add("story-bare");
       var label = story.mark && story.mark !== "Worth a look" ? story.mark : (MEDIA_LABEL[story.media] || story.mark);
       if (label) li.appendChild(el("p", "card-story-mark", label));
       var a = story.media === "quote" && story.quote ? el("button", "card-story-head story-quote") : el("button", "card-story-head", story.title);
@@ -415,16 +409,8 @@ export const BRIEF_SCRIPT = `
       li.appendChild(a);
       if (story.media === "gif" && story.clip && String(story.clip).indexOf("/api/story-clip?") === 0) {
         li.addEventListener("mouseenter", function () {
-          var frame = li.querySelector(".story-pic, .story-type");
-          if (!frame) return;
-          var img = frame.querySelector("img");
-          if (!img) {
-            frame.className = "story-pic";
-            frame.textContent = "";
-            img = document.createElement("img");
-            img.alt = "";
-            frame.appendChild(img);
-          }
+          var img = li.querySelector(".story-pic img");
+          if (!img) return;
           if (!img.getAttribute("data-still")) img.setAttribute("data-still", img.getAttribute("src") || "");
           img.src = withToken(story.clip);
         });
