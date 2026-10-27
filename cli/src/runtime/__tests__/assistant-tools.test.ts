@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeDb, resetWorkIndexPath, useWorkIndexPath } from "../../work/database.js";
 import { runAssistantTool } from "../assistant-tools.js";
 
@@ -15,6 +15,48 @@ describe("assistant tools", () => {
     closeDb();
     resetWorkIndexPath();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses leaked fixture launches before dispatch or notice while allowing real work", async () => {
+    const librarian = await import("../../command/librarian.js");
+    const notice = await import("../../command/notice.js");
+    const dispatch = vi.spyOn(librarian, "dispatchKnowledgeDomain").mockReturnValue({ id: "test-run" } as ReturnType<typeof librarian.dispatchKnowledgeDomain>);
+    const noticeSpy = vi.spyOn(notice, "captainNotice");
+    const originalCommandDir = process.env.FLYD_COMMAND_DIR;
+    process.env.FLYD_COMMAND_DIR = join(dir, "command");
+    const fixtures = ["fix the GNM checkout bug", "tidy the hero spacing", "the good neighbours market hero is too tall", "Christmas Nuanu map", 'He prefers "calm" UI', 'About the artefact "Map"', 'About the artefact "Christmas Nuanu map"', "look at this", "Read what George attached and act on it"];
+    try {
+      for (const fixture of fixtures) {
+        const result = await runAssistantTool("start_knowledge_task", { outcome: fixture, done_when: ["done"] }, { userMessage: fixture });
+        expect(result).toContain("fixture_request");
+        expect(result).toContain("non-retryable");
+      }
+      for (const [name, input] of [
+        ["start_coding_task", { outcome: " LOOK  AT THIS ", done_when: ["done"] }],
+        ["start_design_task", { outcome: "look at this", done_when: ["done"] }],
+        ["pass_on_question", { question: "look at this" }],
+        ["background_task", { task: "look at this", done_when: ["done"] }],
+        ["domain_work", { action: "ask", question: "look at this" }],
+      ] as const) expect(await runAssistantTool(name, input)).toContain("fixture_request");
+      process.env.FLYD_EVAL = "1";
+      expect(await runAssistantTool("start_knowledge_task", { outcome: "send the GNM vendor email", done_when: ["done"] })).toContain("test_process (non-retryable): FLYD_EVAL");
+      delete process.env.FLYD_EVAL;
+      const cases = JSON.parse(readFileSync(new URL("../../evals/chat/cases.json", import.meta.url), "utf8")) as Array<{ id: string; ask: string }>;
+      for (const item of cases) {
+        const result = await runAssistantTool("start_knowledge_task", { outcome: item.ask, done_when: ["done"] });
+        expect(result).toContain(`fixture_request (non-retryable): ${item.id}`);
+      }
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(existsSync(join(dir, "command"))).toBe(false);
+      expect(noticeSpy).not.toHaveBeenCalled();
+      expect(await runAssistantTool("start_knowledge_task", { outcome: "send the GNM vendor email", done_when: ["done"] })).toContain("Knowledge work accepted");
+      expect(dispatch).toHaveBeenCalledTimes(1);
+    } finally {
+      delete process.env.FLYD_EVAL;
+      if (originalCommandDir === undefined) delete process.env.FLYD_COMMAND_DIR;
+      else process.env.FLYD_COMMAND_DIR = originalCommandDir;
+      vi.restoreAllMocks();
+    }
   });
 
   it("tells chat what the coding staff is doing, read live from a fake staff home", async () => {

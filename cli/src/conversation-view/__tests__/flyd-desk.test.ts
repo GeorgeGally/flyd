@@ -377,12 +377,12 @@ esac
     await source.send("s1", "How is Atomise doing?", undefined, undefined, "flyd");
     await until(() => desk.project("s1"));
     expect((await source.read("s1")).project).toBe("Atomise");
-    await source.send("s1", "fix the GNM checkout bug", undefined, undefined, "firstmate");
+    await source.send("s1", "fix the GNM checkout button", undefined, undefined, "firstmate");
     expect((await source.read("s1")).project).toBe("GNM");
     await source.send("s1", "how's that going?", undefined, undefined, "flyd");
     await until(() => desk.exchanges().length === 2 && desk.exchanges()[1]?.answer);
     expect((await source.read("s1")).project).toBe("GNM");
-    await source.send("s1", "tidy the hero spacing", undefined, undefined, "firstmate");
+    await source.send("s1", "tidy the footer spacing", undefined, undefined, "firstmate");
     expect((await source.read("s1")).project).toBe("GNM");
     const reloaded = new ClaudeCodeTranscriptSource({ projectDir: project, inbox: new FirstmateInbox({ home, script }), desk: { desk: new FlydDesk({ dir: join(dir, "asks"), answer }), complete: async () => "FIRSTMATE" }, pollMs: 15 });
     expect((await reloaded.read("s1")).project).toBe("GNM");
@@ -403,7 +403,7 @@ esac
     const asks = join(dir, "asks");
     mkdirSync(join(asks, "routed-projects.jsonl"), { recursive: true });
     const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox: new FirstmateInbox({ home, script }), desk: { desk: new FlydDesk({ dir: asks, answer: async () => "unused" }), complete: async () => "FIRSTMATE" }, pollMs: 15 });
-    const sent = await source.send("s1", "fix the GNM checkout bug", undefined, undefined, "firstmate");
+    const sent = await source.send("s1", "fix the GNM checkout button", undefined, undefined, "firstmate");
     expect(sent.id).toMatch(/^note:/);
     expect(readdirSync(join(home, "state", "inbox")).filter((name) => name.endsWith(".note"))).toHaveLength(1);
   });
@@ -423,7 +423,7 @@ esac
       desk: { desk: new FlydDesk({ dir: join(dir, "asks"), answer: async () => "unused" }), complete: async () => "FIRSTMATE" },
       pollMs: 15,
     });
-    const sent = await source.send("s1", "the good neighbours market hero is too tall");
+    const sent = await source.send("s1", "the good neighbours market footer is too tall");
     expect(sent.waiting).toBe("");
     let snapshot = await source.read("s1");
     expect(snapshot.messages.find((message) => message.id === sent.id)?.waiting).toBe("");
