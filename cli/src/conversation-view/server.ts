@@ -45,7 +45,7 @@ import type { Rail, RailState } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailNotice, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import type { ActivityPanel, ActivityReader } from "./activity.js";
-import { openArticleChat } from "./article-chat.js";
+import { isArticleSession, openArticleChat } from "./article-chat.js";
 import { storyAsset, toggleSavedStory } from "./story-media.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
@@ -2057,7 +2057,8 @@ export class ConversationViewServer {
         rail: (snapshot) => this.rail(snapshot),
         ...(this.activity ? { leftColumn: () => this.activity!.current() } : {}),
         live: (url) => this.previews.state(url),
-        whatsappUnlinked: () => this.whatsappUnlinked(),
+        // A chat about one article is about the article: the WhatsApp offer stays out of it.
+        whatsappUnlinked: () => !isArticleSession(session.id) && this.whatsappUnlinked(),
         jobs: (shot, screen) => this.jobBoard(shot, screen),
       });
     const emitUpdate = (snapshot: ConversationSnapshot) => {
