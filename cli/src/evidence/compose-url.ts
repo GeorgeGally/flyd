@@ -1,4 +1,4 @@
-const EVIDENCE_SURFACE_ORIGIN = "http://127.0.0.1:3000";
+const EVIDENCE_SURFACE_ORIGIN = "http://127.0.0.1:4820";
 const SURFACE_PATH = /^\/surface(?:\/[a-f0-9-]+)?$/;
 
 export function evidenceSurfaceUrl(surfaceId?: string): string {
@@ -19,7 +19,7 @@ export function normalizeEvidenceSurfaceUrl(value: string | undefined): string {
     if (
       url.protocol !== "http:" ||
       url.hostname !== "127.0.0.1" ||
-      url.port !== "3000" ||
+      url.port !== "4820" ||
       url.username ||
       url.password ||
       url.search ||

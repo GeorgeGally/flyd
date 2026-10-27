@@ -9,7 +9,7 @@ import type {
 } from "./types.js";
 
 const SURFACE_HOST = "127.0.0.1";
-const SURFACE_PORT = 3000;
+const SURFACE_PORT = 4820;
 const SURFACE_TTL_MS = 30 * 60 * 1000;
 const surfaces = new Map<string, { surface: EvidenceComposeSurface; expiresAt: number }>();
 const surfaceAliases = new Map<string, string>();

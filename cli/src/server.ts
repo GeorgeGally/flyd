@@ -235,7 +235,7 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
-const COMPOSE_URL = "http://127.0.0.1:3000/surface";
+const COMPOSE_URL = "http://127.0.0.1:4820/surface";
 const COMPOSE_LIVENESS_TIMEOUT_MS = 800;
 
 interface ManifestRequestBody {

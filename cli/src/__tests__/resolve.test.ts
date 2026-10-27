@@ -31,9 +31,9 @@ describe("parseResolutionResponse", () => {
       mode: "requires_compose",
       rationale: "Needs evidence.",
       composeRationale: "Deep investigation.",
-      composeUrl: "http://127.0.0.1:3000/surface/surface-1",
+      composeUrl: "http://127.0.0.1:4820/surface/surface-1",
     }), "inv-1");
-    expect(resolution.composeUrl).toBe("http://127.0.0.1:3000/surface/surface-1");
+    expect(resolution.composeUrl).toBe("http://127.0.0.1:4820/surface/surface-1");
   });
 
   it("accepts camelCase compose rationale from the model prompt", () => {

@@ -886,7 +886,7 @@ func processInvocation(
                 NSWorkspace.shared.open(surfaceURL)
             } else {
                 print("[Flyd] No compose URL returned — opening surface")
-                if let surfaceURL = URL(string: "http://127.0.0.1:3000/surface") {
+                if let surfaceURL = URL(string: "http://127.0.0.1:4820/surface") {
                     NSWorkspace.shared.open(surfaceURL)
                 }
             }

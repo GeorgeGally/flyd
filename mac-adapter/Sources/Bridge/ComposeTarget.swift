@@ -1,7 +1,7 @@
 import Foundation
 
 enum ComposeTarget {
-    private static let origin = "http://127.0.0.1:3000"
+    private static let origin = "http://127.0.0.1:4820"
     private static let fallback = "\(origin)/surface"
 
     static func directURL(resolutionId: String) -> URL? {
@@ -25,7 +25,7 @@ enum ComposeTarget {
               let url = URL(string: value),
               url.scheme == "http",
               url.host == "127.0.0.1",
-              url.port == 3000,
+              url.port == 4820,
               url.user == nil,
               url.password == nil,
               url.query == nil,

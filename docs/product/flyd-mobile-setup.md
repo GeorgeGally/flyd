@@ -30,7 +30,7 @@ The checked-in `deploy/mobile` files are examples for a systemd/Nginx host, not 
 ## Start and pair
 
 1. Configure `/etc/flyd/mobile.env` privately from the example. Choose an exact HTTPS origin without trailing slash, a supported hosted model and its provider credentials. `OPENAI_API_KEY` is separately required for voice. Defaults leave accounts and voice disabled.
-2. Install the release at the reviewed code path, owned read-only to the service account. Ensure private state access and deny access to actual sibling application paths. Integrate only port 4819 through existing HTTPS ingress, preserving Host/Origin. Keep 4815–4818 and 3000 private. Validate proxy syntax and existing sites before reloading.
+2. Install the release at the reviewed code path, owned read-only to the service account. Ensure private state access and deny access to actual sibling application paths. Integrate only port 4819 through existing HTTPS ingress, preserving Host/Origin. Keep 4815–4818 and 4820 private. Validate proxy syntax and existing sites before reloading.
 3. Start `node /opt/flyd/current/cli/dist/mobile/entry.js serve` as the service user with its configured environment. `npm run mobile -- serve` is the source-development equivalent, not the production service.
 4. Over the existing private SSH admin connection, run the same entry with `pair` as the same service user/home. Enter its printed one-use code in the phone's login page. Do not paste the code into chat, URLs, source or service logs. Run `revoke` to invalidate all phones and outstanding pairing codes; Sign out revokes that phone.
 5. Add Flyd to Home Screen using Safari's Share menu and test its standalone session independently. Pairing supports additional devices without sharing the Core's bearer token.

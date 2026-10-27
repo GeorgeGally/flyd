@@ -57,7 +57,7 @@ External provider output is evidence supplied to Flyd, never direct UI instructi
 
 - Capabilities: `web.read`/`web.search` (Jina; `JINA_API_KEY`), `github.read/search` (`GITHUB_TOKEN`/`GH_TOKEN` optional), `rss.read` (native), `youtube.read/search` (`yt-dlp`), `hackernews.read/search` (anonymous), `reddit.read/search` (public JSON degraded; optional `REDDIT_ACCESS_TOKEN`), `x.read/search` (needs `X_BEARER_TOKEN`/`TWITTER_BEARER_TOKEN`).
 - E2 enriches INVOKED and LIVE questions that materially depend on current external facts; stable writing and personal recall do not browse. Required current claims fail closed when evidence cannot be retrieved.
-- E4 deep research is bounded: weighted primary/official/community/limitations/alternatives/recent lenses, then at most one two-query drill-down round. Explicit deep-research requests produce a short-lived dossier on loopback port 3000 — a transport compatibility point for the Mac adapter, served by TypeScript Core, never Rails.
+- E4 deep research is bounded: weighted primary/official/community/limitations/alternatives/recent lenses, then at most one two-query drill-down round. Explicit deep-research requests produce a short-lived dossier on loopback port 4820 (Flyd's own, beside 4815–4819; never 3000) — a transport compatibility point for the Mac adapter, served by TypeScript Core, never Rails.
 - PRESENT stays zero-network; external evidence is not automatically written into personal memory.
 
 ### Connectors and other presences

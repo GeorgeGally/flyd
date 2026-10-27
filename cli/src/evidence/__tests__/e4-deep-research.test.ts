@@ -115,7 +115,7 @@ describe("E4 deep research", () => {
     expect(result.surfaceId).toBe("surface-1");
     expect(result.prompt).toContain('Return mode "requires_compose"');
     expect(result.prompt).toContain("surfaceSynthesis");
-    expect(result.prompt).toContain('"composeUrl": "http://127.0.0.1:3000/surface/surface-1"');
+    expect(result.prompt).toContain('"composeUrl": "http://127.0.0.1:4820/surface/surface-1"');
   });
 
   it("projects a finalized dossier as one native semantic Investigation", async () => {
@@ -146,7 +146,7 @@ describe("E4 deep research", () => {
     // Claim the compatibility handoff so this test does not leak a ready
     // dossier into the next concurrency test; historical semantic projection
     // remains available by stable surface id.
-    const claim = await fetch("http://127.0.0.1:3000/surface", { redirect: "manual" });
+    const claim = await fetch("http://127.0.0.1:4820/surface", { redirect: "manual" });
     expect(claim.status).toBe(302);
 
     const semantic = evidenceSurfaceSemanticObject(published.surfaceId!);
@@ -190,19 +190,19 @@ describe("E4 deep research", () => {
     expect(evidenceSurfaceIdForResolution(firstResolution)).toBe(first.surfaceId);
     expect(evidenceSurfaceIdForResolution(secondResolution)).toBe(second.surfaceId);
 
-    const directProbe = await fetch(`http://127.0.0.1:3000/surface/${firstResolution}`, {
+    const directProbe = await fetch(`http://127.0.0.1:4820/surface/${firstResolution}`, {
       method: "HEAD",
       redirect: "manual",
     });
     expect(directProbe.status).toBe(200);
 
-    const compatibilityHandoff = await fetch("http://127.0.0.1:3000/surface", {
+    const compatibilityHandoff = await fetch("http://127.0.0.1:4820/surface", {
       redirect: "manual",
     });
     expect(compatibilityHandoff.status).toBe(302);
     expect(compatibilityHandoff.headers.get("location")).toBe(`/surface/${second.surfaceId}`);
 
-    const historicalLiveness = await fetch("http://127.0.0.1:3000/surface", {
+    const historicalLiveness = await fetch("http://127.0.0.1:4820/surface", {
       method: "HEAD",
       redirect: "manual",
     });
@@ -210,10 +210,10 @@ describe("E4 deep research", () => {
   });
 
   it("accepts only unique Core-owned loopback dossier URLs", () => {
-    expect(evidenceSurfaceUrl("abc-123")).toBe("http://127.0.0.1:3000/surface/abc-123");
-    expect(normalizeEvidenceSurfaceUrl("http://127.0.0.1:3000/surface/abc-123")).toBe("http://127.0.0.1:3000/surface/abc-123");
-    expect(normalizeEvidenceSurfaceUrl("https://evil.example/surface/abc-123")).toBe("http://127.0.0.1:3000/surface");
-    expect(normalizeEvidenceSurfaceUrl("http://user:pass@127.0.0.1:3000/surface/abc-123")).toBe("http://127.0.0.1:3000/surface");
+    expect(evidenceSurfaceUrl("abc-123")).toBe("http://127.0.0.1:4820/surface/abc-123");
+    expect(normalizeEvidenceSurfaceUrl("http://127.0.0.1:4820/surface/abc-123")).toBe("http://127.0.0.1:4820/surface/abc-123");
+    expect(normalizeEvidenceSurfaceUrl("https://evil.example/surface/abc-123")).toBe("http://127.0.0.1:4820/surface");
+    expect(normalizeEvidenceSurfaceUrl("http://user:pass@127.0.0.1:4820/surface/abc-123")).toBe("http://127.0.0.1:4820/surface");
   });
 
   it("never treats unrelated browser requests as dossier handoffs", () => {
