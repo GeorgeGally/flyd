@@ -41,6 +41,7 @@ import type { Rail, RailState } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailNotice, type RailPreview } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import type { ActivityPanel, ActivityReader } from "./activity.js";
+import { storyAsset, toggleSavedStory } from "./story-media.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
 import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote, undoNote } from "./replies.js";
@@ -846,6 +847,10 @@ export class ConversationViewServer {
       await this.newsTold(req, res);
       return;
     }
+    if (req.method === "POST" && url.pathname === "/api/story-save") {
+      await this.storySave(req, res);
+      return;
+    }
     if (req.method !== "GET") {
       sendJson(res, 405, { error: "method not allowed" });
       return;
@@ -956,6 +961,20 @@ export class ConversationViewServer {
         return;
       }
       await this.railImage(res, url.searchParams.get("path") ?? "");
+      return;
+    }
+    if (url.pathname === "/api/story-image" || url.pathname === "/api/story-icon") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
+      const asset = storyAsset(this.activity?.directory() ?? FLYD_DIR, url.pathname === "/api/story-image" ? "image" : "icon", url.searchParams.get("id") ?? "");
+      if (!asset) {
+        sendJson(res, 404, { error: "not found" });
+        return;
+      }
+      res.writeHead(200, { "content-type": asset.type, "cache-control": "private, max-age=86400", "x-content-type-options": "nosniff" });
+      res.end(asset.bytes);
       return;
     }
     if (url.pathname === "/api/status") {
@@ -1268,6 +1287,28 @@ export class ConversationViewServer {
     const { markNewsTold } = await import("../runtime/session-briefing.js");
     await markNewsTold();
     sendJson(res, 200, { ok: true });
+  }
+
+  /** Keep or drop a story he saved from the news. The card already shows the new word; the next read of the column agrees. */
+  private async storySave(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    let payload: { url?: unknown };
+    try {
+      payload = JSON.parse(await readBody(req, 4 * 1024)) as typeof payload;
+    } catch {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
+    if (typeof payload.url !== "string" || !/^https?:\/\//i.test(payload.url)) {
+      sendJson(res, 400, { error: "expected { url }" });
+      return;
+    }
+    const saved = toggleSavedStory(this.activity?.directory() ?? FLYD_DIR, payload.url);
+    sendJson(res, 200, { ok: true, saved });
   }
 
   /** "More like this" or "less like this" on a story in today's news: the same verdict `flyd scout more|less` records. */

@@ -223,13 +223,55 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .rail .art-card .art-ago { font-variant-numeric: tabular-nums; }
 :root[data-layout="front"] .rail .brief-more { margin: 4px 0 0; padding: 6px 4px; font: 400 13px/1.3 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-more:hover { color: var(--ink); }
-/* News: each story a quiet card under the edition's line. */
-:root[data-layout="front"] .rail .news .brief-outcome { margin: 0 4px 10px; font-size: 14px; color: var(--ink2); }
-:root[data-layout="front"] .rail .news .card-stories { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-:root[data-layout="front"] .rail .news .card-stories > li { padding: 13px 14px 14px; border-radius: 10px; background: var(--card); }
+/* News: a picture, then the story, on the paper. A hairline between them. No card chrome. */
+:root[data-layout="front"] .rail .news .brief-outcome { margin: 0 0 4px; font-size: 14px; color: var(--ink2); }
+:root[data-layout="front"] .rail .news .card-stories { display: block; margin: 0; padding: 0; list-style: none; }
+:root[data-layout="front"] .rail .news .card-stories > li {
+  position: relative; margin: 0; padding: 16px 0 18px; border: 0; border-radius: 0; background: transparent; overflow: visible; cursor: pointer;
+}
+:root[data-layout="front"] .rail .news .card-stories > li + li { margin-top: 0; padding-top: 16px; border-top: 1px solid var(--line); }
+:root[data-layout="front"] .rail .news .story-pic, :root[data-layout="front"] .rail .news .story-type {
+  display: block; height: 168px; margin: 0; overflow: hidden; position: relative; background: var(--mat);
+}
+:root[data-layout="front"] .rail .news .story-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+:root[data-layout="front"] .rail .news .story-type b {
+  position: absolute; left: -0.07em; bottom: -0.34em; margin: 0; font: 500 260px/0.8 var(--sans); letter-spacing: -0.06em; color: var(--ink);
+}
+:root[data-layout="front"] .rail .news .story-type span {
+  position: absolute; top: 12px; right: 12px; font: 500 11px/1 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink2);
+}
 :root[data-layout="front"] .rail .news .card-stories + .brief-top { margin-top: 22px; }
-:root[data-layout="front"] .rail .card-story-head { color: var(--ink); font-weight: 500; text-decoration: none; }
-:root[data-layout="front"] .rail .card-story-mark, :root[data-layout="front"] .rail .card-story-src { color: var(--mute); letter-spacing: 0; text-transform: none; }
+:root[data-layout="front"] .rail .news .card-story-mark {
+  margin: 11px 0 0; font: 500 11px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute);
+}
+:root[data-layout="front"] .rail .news .card-story-head {
+  display: block; margin: 6px 0 0; font: 500 18px/1.22 var(--sans); letter-spacing: -0.02em; color: var(--ink); text-decoration: none;
+}
+:root[data-layout="front"] .rail .news .card-story-head::after { content: ""; position: absolute; inset: 0; }
+:root[data-layout="front"] .rail .news .card-story-head:hover { color: var(--ink); }
+:root[data-layout="front"] .rail .news .card-story-line { margin: 7px 0 0; font: 400 14px/1.4 var(--sans); color: var(--ink2); }
+:root[data-layout="front"] .rail .news .card-story-src {
+  display: flex; align-items: center; gap: 7px; margin: 12px 0 0; font: 400 12px/1.2 var(--sans); letter-spacing: 0; text-transform: none; color: var(--mute);
+}
+:root[data-layout="front"] .rail .news .story-fav { width: 13px; height: 13px; flex: none; display: inline-flex; }
+:root[data-layout="front"] .rail .news .story-fav img, :root[data-layout="front"] .rail .news .story-mono {
+  width: 13px; height: 13px; border-radius: 2px; display: block; object-fit: cover;
+}
+:root[data-layout="front"] .rail .news .story-mono { background: var(--ink); color: var(--paper); font: 600 8px/13px var(--sans); text-align: center; }
+:root[data-layout="front"] .rail .news .story-go { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
+:root[data-layout="front"] .rail .news .story-open, :root[data-layout="front"] .rail .news .story-save {
+  border: 0; background: none; padding: 0; font: 500 12.5px/1 var(--sans); color: var(--ink); text-decoration: none; cursor: pointer; text-transform: capitalize;
+}
+:root[data-layout="front"] .rail .news .story-rate button { text-transform: capitalize; }
+:root[data-layout="front"] .rail .news .story-taste { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font: 400 12px/1 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .news .story-rate { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+:root[data-layout="front"] .rail .news .story-rate button { padding: 0; border-radius: 0; font: 400 12px/1 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .news .story-go,
+:root[data-layout="front"] .rail .news .story-taste,
+:root[data-layout="front"] .rail .news .story-rate,
+:root[data-layout="front"] .rail .news .story-open,
+:root[data-layout="front"] .rail .news .story-save,
+:root[data-layout="front"] .rail .news .story-rate button { position: relative; z-index: 1; }
 
 /* Past conversations, under the jobs: a quiet list. */
 .fhistory:has(> .history[hidden]) { display: none; }
@@ -263,6 +305,7 @@ export const FRONT_STYLE = `
   :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
   :root[data-layout="front"] .rail { display: block; margin-bottom: 18px; }
+  :root[data-layout="front"] .rail .news .story-pic, :root[data-layout="front"] .rail .news .story-type { height: 188px; }
   :root[data-layout="front"] .rail[hidden] { display: none; }
   /* The artefacts run as a strip of cards, like the jobs. */
   :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }

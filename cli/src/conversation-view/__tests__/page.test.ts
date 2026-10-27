@@ -3186,6 +3186,38 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(document.querySelector("#news .story-told")!.textContent).toBe("Less like this");
   });
 
+  it("shows a fetched picture, a letter when there is none, and never a remote image address", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const pictured = { title: "A course", url: "https://magazine.example/course", source: "Magazine", gist: "The machinery, not a wrapper.", image: "/api/story-image?id=abc123abc123abcd", published: "2026-10-12T08:00:00.000Z", minutes: 18 };
+    const plain = { title: "A paper", url: "https://www.nature.com/articles/x", source: "Nature", gist: "State that outlives the prompt." };
+    const remote = { title: "A remote picture", url: "https://cdn.example/story", source: "CDN", gist: "Not ours to point at.", image: "https://cdn.example/a.jpg" };
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [pictured, plain, remote], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    const items = [...document.querySelectorAll("#news .card-stories > li")];
+    const img = items[0]!.querySelector("img")!;
+    expect(img.getAttribute("src")).toContain("/api/story-image?id=abc123abc123abcd");
+    expect(img.getAttribute("src")).toContain("token=");
+    expect(items[0]!.textContent).toContain("Magazine · 12 Oct · 18 min");
+    expect(items[0]!.querySelector(".story-open")!.getAttribute("href")).toBe(pictured.url);
+    expect(items[0]!.querySelector(".story-rate .story-save, .story-rate .story-open")).toBeNull();
+    img.dispatchEvent(new Event("error"));
+    expect(items[0]!.querySelector("img")).toBeNull();
+    expect(items[0]!.querySelector(".story-type")!.textContent).toContain("M");
+    expect(items[1]!.querySelector("img")).toBeNull();
+    expect(items[1]!.querySelector(".story-type b")!.textContent).toBe("N");
+    expect(items[2]!.querySelector("img")).toBeNull();
+    expect(items[2]!.querySelector(".story-type")).not.toBeNull();
+    const save = items[1]!.querySelector<HTMLButtonElement>(".story-save")!;
+    expect(save.textContent).toBe("save");
+    save.click();
+    await settle();
+    expect(save.textContent).toBe("saved");
+    const posted = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/story-save");
+    expect(posted?.[1]).toEqual(expect.objectContaining({ method: "POST", body: JSON.stringify({ url: plain.url }) }));
+  });
+
   it("counts what needs him on the header button and never forces the column open on a narrow window", async () => {
     localStorage.setItem("flyd-left", "off");
     load("");

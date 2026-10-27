@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Folio</title>
+<style>
+  :root { --paper:#ECEAE5; --ink:#161615; --ink2:#4A4945; --mute:#76746E; --line:#D3CDC4; --mat:#C9C3B8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 400 15px/1.45 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; -webkit-font-smoothing: antialiased; }
+  .stack { width: min(352px, 100%); margin: 0 auto; padding: 6px 0 8px; }
+  @media (max-width: 395px) { .stack { width: auto; padding: 4px 16px 12px; } }
+  article { position: relative; padding: 18px 0 16px; border-bottom: 1px solid var(--line); }
+  .kicker { display: flex; justify-content: space-between; margin: 0 0 8px; font: 500 11px/1 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 0.09em; text-transform: uppercase; color: var(--mute); }
+  .cover { height: 176px; overflow: hidden; position: relative; background: var(--mat); }
+  @media (max-width: 395px) { .cover { height: 200px; } }
+  .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cover.type b { position: absolute; right: -0.12em; top: -0.42em; font: 500 340px/0.75 "Iowan Old Style", Palatino, Georgia, serif; letter-spacing: -0.05em; color: var(--ink); }
+  h2 { margin: 12px 0 0; font: 500 26px/1.12 "Iowan Old Style", Palatino, Georgia, serif; letter-spacing: -0.02em; text-wrap: pretty; }
+  h2 a { color: inherit; text-decoration: none; }
+  h2 a::after { content: ""; position: absolute; inset: 0; }
+  .why { margin: 8px 0 0; font-size: 16px; line-height: 1.35; color: var(--ink2); text-wrap: pretty; }
+  .meta { display: flex; align-items: center; gap: 7px; margin: 12px 0 0; font: 400 12px/1 -apple-system, BlinkMacSystemFont, sans-serif; color: var(--mute); }
+  .fav { width: 13px; height: 13px; border-radius: 2px; background: var(--ink); color: var(--paper); font: 600 8px/13px sans-serif; text-align: center; flex: none; }
+  .go { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; color: var(--ink); position: relative; z-index: 1; }
+  .go a, .go button { position: relative; z-index: 1; border: 0; background: none; padding: 0; font: 560 12px/1 -apple-system, BlinkMacSystemFont, sans-serif; color: var(--ink); text-decoration: none; cursor: pointer; }
+  .taste { display: flex; gap: 6px; align-items: center; margin: 8px 0 0; font: 400 12px/1 -apple-system, BlinkMacSystemFont, sans-serif; color: var(--mute); position: relative; z-index: 1; }
+  .taste button { position: relative; z-index: 1; border: 0; background: none; padding: 0; font: inherit; color: var(--mute); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="stack">
+  <article>
+    <p class="kicker"><span>Worth a look</span><span>18 min</span></p>
+    <div class="cover"><img src="img/desk.png" alt=""></div>
+    <h2><a href="https://magazine.sebastianraschka.com/">Sebastian Raschka's from-scratch course on reasoning models</a></h2>
+    <p class="why">A from-scratch video build of a reasoning model — the rare course that shows the machinery instead of a wrapper call.</p>
+    <p class="meta"><span class="fav">M</span> Raschka · 12 Oct<span class="go"><a href="https://magazine.sebastianraschka.com/">Open</a><span>·</span><button type="button">Save</button></span></p>
+    <p class="taste"><button type="button">More</button><span>·</span><button type="button">Less</button></p>
+  </article>
+  <article>
+    <p class="kicker"><span>Hot</span><span>6 min</span></p>
+    <div class="cover"><img src="img/shelf.png" alt=""></div>
+    <h2><a href="https://www.theguardian.com/">The small press that still sets type by hand</a></h2>
+    <p class="why">A shop in Lisbon is taking commissions again. The constraint is the point: one face, one size, no reprints.</p>
+    <p class="meta"><span class="fav">G</span> Guardian · Yesterday<span class="go"><a href="https://www.theguardian.com/">Open</a><span>·</span><button type="button">Save</button></span></p>
+    <p class="taste"><button type="button">More</button><span>·</span><button type="button">Less</button></p>
+  </article>
+  <article>
+    <p class="kicker"><span>Rabbit hole</span><span>3 Oct</span></p>
+    <div class="cover type"><b>N</b></div>
+    <h2><a href="https://www.nature.com/">What a cell remembers after the signal is gone</a></h2>
+    <p class="why">A short paper on persistence. Worth it if you are still thinking about state that outlives the prompt.</p>
+    <p class="meta"><span class="fav">N</span> Nature · 3 Oct<span class="go"><a href="https://www.nature.com/">Open</a><span>·</span><button type="button">Save</button></span></p>
+    <p class="taste"><button type="button">More</button><span>·</span><button type="button">Less</button></p>
+  </article>
+</div>
+</body>
+</html>
