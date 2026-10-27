@@ -118,22 +118,21 @@ printf '{"id":"%s","saved":true,"acknowledged":false,"outcome":"queued"}\\n' "$3
       else process.env.FLYD_COMMAND_DIR = commandDir;
     });
 
-    it("refuses leaked desk text without a run or notice but accepts a real attachment", async () => {
+    it("delivers his own words even when they match a fixture, and refuses only inside an eval process", async () => {
       const notice = await import("../../command/notice.js");
       const noticeSpy = vi.spyOn(notice, "captainNotice");
       const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
       try {
-        await expect(inbox.send("Read what George attached and act on it")).rejects.toThrow("fixture_request");
+        process.env.FLYD_EVAL = "1";
+        await expect(inbox.send("", [{ mediaType: "image/png", data: PNG }])).rejects.toThrow("test_process (non-retryable): FLYD_EVAL");
         expect(listDomainRuns()).toEqual([]);
         expect(existsSync(join(home, "state", "inbox"))).toBe(false);
         expect(noticeSpy).not.toHaveBeenCalled();
-        process.env.FLYD_EVAL = "1";
-        await expect(inbox.send("", [{ mediaType: "image/png", data: PNG }])).rejects.toThrow("test_process (non-retryable): FLYD_EVAL");
-        delete process.env.FLYD_EVAL;
+        process.env.FLYD_EVAL = "0";
         await inbox.send("", [{ mediaType: "image/png", data: PNG }]);
         expect(listDomainRuns()).toHaveLength(1);
-        expect(listDomainRuns()[0]?.request.originalMessage).toBe("Read what George attached and act on it");
-        await inbox.send("look at this", [{ mediaType: "image/png", data: PNG }]);
+        delete process.env.FLYD_EVAL;
+        await inbox.send("look at this");
         expect(listDomainRuns()).toHaveLength(2);
       } finally { delete process.env.FLYD_EVAL; noticeSpy.mockRestore(); }
     });
@@ -552,6 +551,17 @@ describe("ClaudeCodeTranscriptSource with an inbox", () => {
       follower.close();
     }
     expect(readFileSync(join(project, "s1.jsonl"), "utf8")).toBe(transcript);
+  });
+
+  it("passes on his own words that match an eval fixture: a message to firstmate and a decision answer", async () => {
+    const project = join(dir, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, "s1.jsonl"), captain("hello") + "\n");
+    const inbox = new FirstmateInbox({ home, script: writeScript("fm-inbox.sh", FAKE_SCRIPT) });
+    const source = new ClaudeCodeTranscriptSource({ projectDir: project, inbox, pollMs: 15 });
+    expect((await source.send("s1", "make it shorter")).id).toMatch(/^note:/);
+    expect((await source.sendDecision("book it")).id).toMatch(/^note:/);
+    expect(readdirSync(join(home, "state", "inbox")).filter((name) => name.endsWith(".note"))).toHaveLength(2);
   });
 
   it("marks only messages that start with a real skill or command", async () => {

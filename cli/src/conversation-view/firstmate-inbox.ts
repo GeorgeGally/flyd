@@ -383,7 +383,7 @@ export class FirstmateInbox implements CaptainInbox {
     if (!typed && images.length === 0 && files.length === 0) throw new Error("Nothing to send");
     if (typed.length > MAX_NOTE_CHARS) throw new Error(`Message is longer than ${MAX_NOTE_CHARS} characters`);
     const { refuseLeakedLaunch } = await import("../runtime/launch-guard.js");
-    const refusal = refuseLeakedLaunch(images.length || files.length ? [] : [typed]);
+    const refusal = refuseLeakedLaunch([]);
     if (refusal) throw new Error(refusal);
 
     const paths = this.saveImages(images);
