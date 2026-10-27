@@ -27,6 +27,8 @@ interface MediaRecord {
   imageType?: string;
   icon: "file" | "none";
   iconType?: string;
+  clip?: "file" | "none";
+  clipType?: string;
   published?: string;
   minutes?: number;
   error?: boolean;
@@ -179,11 +181,25 @@ async function pullAsset(fetchImpl: typeof fetch, url: string, max: number, look
 /** Fetch one article, keep a usable picture and icon, and remember the miss so it is not fetched again. */
 export async function collectStoryMedia(dir: string, pageUrl: string, fetchImpl: typeof fetch, lookup?: HostLookup): Promise<MediaRecord> {
   const key = storyKey(pageUrl);
-  const blank = (error = false): MediaRecord => ({ url: pageUrl, at: new Date().toISOString(), image: "none", icon: "none", ...(error ? { error } : {}) });
+  const previous = readIndex(dir)[key];
+  const blank = (error = false): MediaRecord => ({
+    url: pageUrl, at: new Date().toISOString(), image: "none", icon: "none", ...(error ? { error } : {}),
+    ...(previous?.clip ? { clip: previous.clip, ...(previous.clipType ? { clipType: previous.clipType } : {}) } : {}),
+  });
   let record = blank(true);
   try {
-    const response = await fetchPublicUrl(fetchImpl, pageUrl, { lookup, headers: { accept: "text/html" } });
+    const response = await fetchPublicUrl(fetchImpl, pageUrl, { lookup, headers: { accept: "text/html,image/*;q=0.8" } });
     const bytes = response.ok ? await readCapped(response, HTML_CAP) : null;
+    const direct = bytes ? imageKind(response.headers.get("content-type"), bytes) : null;
+    if (direct && bytes && direct !== "image/svg+xml") {
+      mkdirSync(mediaDir(dir), { recursive: true });
+      writeFileSync(join(mediaDir(dir), `${key}.img`), bytes);
+      record = { ...blank(false), image: "file", imageType: direct };
+      const index = readIndex(dir);
+      index[key] = record;
+      writeIndex(dir, index);
+      return record;
+    }
     const found = bytes ? extractStoryMedia(bytes.toString("utf8"), pageUrl) : undefined;
     record = blank(!found);
     if (found?.published) record.published = found.published;
@@ -257,15 +273,66 @@ function decorateStory(story: ActivityStory, dir: string, record: MediaRecord | 
   const key = storyKey(story.url);
   const image = record?.image === "file" && fileReady(dir, `${key}.img`) ? `/api/story-image?id=${key}` : undefined;
   const icon = record?.icon === "file" && fileReady(dir, `${key}.icon`) ? `/api/story-icon?id=${key}` : undefined;
-  if (!image && !icon && !record?.published && record?.minutes == null && !saved) return story;
+  const clip = story.media === "gif" && record?.clip === "file" && fileReady(dir, `${key}.clip`) ? `/api/story-clip?id=${key}` : undefined;
+  if (!image && !icon && !clip && !record?.published && record?.minutes == null && !saved) return story;
   return {
     ...story,
     ...(image ? { image } : {}),
     ...(icon ? { icon } : {}),
+    ...(clip ? { clip } : {}),
     ...(record?.published ? { published: record.published } : {}),
     ...(record?.minutes ? { minutes: record.minutes } : {}),
     ...(saved ? { saved: true } : {}),
   };
+}
+
+/** GIF urls sitting on an edition, so a card can play the file it already named. */
+export function storyClips(raw: unknown): Array<{ url: string; mediaUrl: string }> {
+  const items = (raw as { items?: unknown } | null)?.items;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item) => {
+    const row = item as { url?: unknown; mediaUrl?: unknown; media?: unknown };
+    if (row.media !== "gif" || typeof row.url !== "string" || typeof row.mediaUrl !== "string") return [];
+    if (!/^https?:\/\//i.test(row.url) || !/^https?:\/\//i.test(row.mediaUrl)) return [];
+    return [{ url: row.url, mediaUrl: row.mediaUrl }];
+  });
+}
+
+const CLIP_CAP = 4_000_000;
+
+async function collectStoryClip(dir: string, pageUrl: string, mediaUrl: string, fetchImpl: typeof fetch, lookup?: HostLookup): Promise<void> {
+  const key = storyKey(pageUrl);
+  const index = readIndex(dir);
+  if (index[key]?.clip === "file" || index[key]?.clip === "none") return;
+  const asset = await pullAsset(fetchImpl, mediaUrl, CLIP_CAP, lookup);
+  const previous = index[key] ?? { url: pageUrl, at: new Date().toISOString(), image: "none" as const, icon: "none" as const };
+  const gif = asset?.type === "image/gif";
+  if (gif && asset) {
+    mkdirSync(mediaDir(dir), { recursive: true });
+    writeFileSync(join(mediaDir(dir), `${key}.clip`), asset.bytes);
+  }
+  index[key] = { ...previous, clip: gif ? "file" : "none", ...(gif && asset ? { clipType: asset.type } : {}) };
+  writeIndex(dir, index);
+}
+
+/** One GIF at a time, after the picture queue. Under tests nothing is fetched unless a fetch is passed in. */
+export function scheduleStoryClips(jobs: Array<{ url: string; mediaUrl: string }>, options: ScheduleOptions): void {
+  if (process.env.VITEST && !options.fetchImpl) return;
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const index = readIndex(options.dir);
+  for (const job of jobs) {
+    const key = storyKey(job.url);
+    if (flying.has(`${key}:clip`) || index[key]?.clip) continue;
+    flying.add(`${key}:clip`);
+    tail = tail.then(async () => {
+      try {
+        await collectStoryClip(options.dir, job.url, job.mediaUrl, fetchImpl, options.lookup);
+        options.onStored?.();
+      } finally {
+        flying.delete(`${key}:clip`);
+      }
+    }).catch(() => undefined);
+  }
 }
 
 function savedPath(dir: string): string {
@@ -324,15 +391,16 @@ export function toggleSavedStory(dir: string, url: string): boolean {
 const KEY = /^[a-f0-9]{16}$/;
 
 /** Bytes for a cached picture or icon, or null when the id is unknown or the bytes are not an image. */
-export function storyAsset(dir: string, kind: "image" | "icon", id: string): { type: string; bytes: Buffer } | null {
+export function storyAsset(dir: string, kind: "image" | "icon" | "clip", id: string): { type: string; bytes: Buffer } | null {
   if (!KEY.test(id)) return null;
   const record = readIndex(dir)[id];
-  const ext = kind === "image" ? "img" : "icon";
-  const kept = kind === "image" ? record?.image === "file" : record?.icon === "file";
+  const ext = kind === "image" ? "img" : kind === "icon" ? "icon" : "clip";
+  const kept = kind === "image" ? record?.image === "file" : kind === "icon" ? record?.icon === "file" : record?.clip === "file";
   if (!record || !kept) return null;
   try {
     const bytes = readFileSync(join(mediaDir(dir), `${id}.${ext}`));
-    const type = imageKind(kind === "image" ? record.imageType ?? null : record.iconType ?? null, bytes);
+    const declared = kind === "image" ? record.imageType : kind === "icon" ? record.iconType : record.clipType;
+    const type = imageKind(declared ?? null, bytes);
     return type ? { type, bytes } : null;
   } catch {
     return null;

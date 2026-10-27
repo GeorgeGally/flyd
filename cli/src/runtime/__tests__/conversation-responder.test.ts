@@ -1785,6 +1785,7 @@ describe("an article chat", () => {
     expect(built.grounding).toContain("<untrusted-article>");
     expect(built.grounding).not.toContain("George: earlier");
     expect(built.system).toContain("say that it is not in the article");
+    expect(built.system).toContain("no transcript is available");
     expect(built.prompt).toContain("The weights live beside the prompt.");
   });
 

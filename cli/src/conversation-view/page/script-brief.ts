@@ -342,17 +342,29 @@ export const BRIEF_SCRIPT = `
     return el("span", "story-mono", storyLetter(story));
   }
   // Only a picture we fetched and kept. A remote address, or one that fails to load, becomes the letter.
+  var MEDIA_LABEL = { stat: "Stat", gif: "GIF", video: "Video", image: "Image", quote: "Quote", thread: "Thread" };
   function storyPicture(story) {
-    if (!story.image || story.image.indexOf("/api/story-image?") !== 0) return storyType(story);
-    var pic = el("div", "story-pic");
-    var img = document.createElement("img");
-    img.alt = "";
-    img.addEventListener("error", function () {
-      if (pic.parentNode) pic.replaceWith(storyType(story));
-    });
-    img.src = withToken(story.image);
-    pic.appendChild(img);
-    return pic;
+    if (story.media === "stat" && story.figure) {
+      var stat = el("div", "story-stat");
+      stat.appendChild(el("b", "", story.figure));
+      return stat;
+    }
+    if (story.media === "quote" && story.quote) return null;
+    var node;
+    if (!story.image || story.image.indexOf("/api/story-image?") !== 0) node = storyType(story);
+    else {
+      var pic = el("div", "story-pic");
+      var img = document.createElement("img");
+      img.alt = "";
+      img.addEventListener("error", function () {
+        if (pic.parentNode) pic.replaceWith(storyType(story));
+      });
+      img.src = withToken(story.image);
+      pic.appendChild(img);
+      node = pic;
+    }
+    if (story.media === "video") node.appendChild(el("span", "story-play"));
+    return node;
   }
   function storyWhen(iso) {
     if (!iso) return "";
@@ -385,16 +397,43 @@ export const BRIEF_SCRIPT = `
   function storiesNode(stories) {
     var list = el("ul", "card-stories");
     stories.forEach(function (story) {
-      var li = el("li", "");
-      li.appendChild(storyPicture(story));
-      if (story.mark) li.appendChild(el("p", "card-story-mark", story.mark));
-      var a = el("button", "card-story-head", story.title);
+      var li = el("li", story.media ? "story-" + story.media : "");
+      var lead = storyPicture(story);
+      if (lead) li.appendChild(lead);
+      var label = story.mark && story.mark !== "Worth a look" ? story.mark : (MEDIA_LABEL[story.media] || story.mark);
+      if (label) li.appendChild(el("p", "card-story-mark", label));
+      var a = story.media === "quote" && story.quote ? el("button", "card-story-head story-quote") : el("button", "card-story-head", story.title);
       a.type = "button";
+      if (story.media === "quote" && story.quote) {
+        a.appendChild(el("p", "", "\u201C" + story.quote + "\u201D"));
+        if (story.attribution) a.appendChild(el("span", "", story.attribution));
+      }
       a.addEventListener("click", function (event) {
         event.stopPropagation();
         openArticle(story);
       });
       li.appendChild(a);
+      if (story.media === "gif" && story.clip && String(story.clip).indexOf("/api/story-clip?") === 0) {
+        li.addEventListener("mouseenter", function () {
+          var frame = li.querySelector(".story-pic, .story-type");
+          if (!frame) return;
+          var img = frame.querySelector("img");
+          if (!img) {
+            frame.className = "story-pic";
+            frame.textContent = "";
+            img = document.createElement("img");
+            img.alt = "";
+            frame.appendChild(img);
+          }
+          if (!img.getAttribute("data-still")) img.setAttribute("data-still", img.getAttribute("src") || "");
+          img.src = withToken(story.clip);
+        });
+        li.addEventListener("mouseleave", function () {
+          var img = li.querySelector(".story-pic img");
+          var still = img && img.getAttribute("data-still");
+          if (img && still) img.src = still;
+        });
+      }
       li.addEventListener("click", function (event) {
         if (event.target.closest("a, button")) return;
         openArticle(story);
@@ -476,7 +515,7 @@ export const BRIEF_SCRIPT = `
   function openArticle(story) {
     if (!SEND_TOKEN || !story || !story.url || story._opening) return;
     story._opening = true;
-    tokenFetch("/api/article-chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: story.url, title: story.title || "" }) }, true).then(function (response) {
+    tokenFetch("/api/article-chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: story.url, title: story.title || "", media: story.media || "article", text: story.quote || story.gist || "", description: story.gist || "", figure: story.figure || "", attribution: story.attribution || "" }) }, true).then(function (response) {
       story._opening = false;
       if (!response.ok) return null;
       return response.json();

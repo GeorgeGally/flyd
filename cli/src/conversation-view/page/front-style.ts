@@ -234,6 +234,23 @@ export const FRONT_STYLE = `
   display: block; height: 168px; margin: 0; overflow: hidden; position: relative; background: var(--mat);
 }
 :root[data-layout="front"] .rail .news .story-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+:root[data-layout="front"] .rail .news .story-image .story-pic,
+:root[data-layout="front"] .rail .news .story-image .story-type { height: 220px; }
+:root[data-layout="front"] .rail .news .story-stat {
+  display: flex; align-items: flex-end; height: 168px; margin: 0; background: var(--mat); overflow: hidden;
+}
+:root[data-layout="front"] .rail .news .story-stat b {
+  margin: 0 0 -0.12em; font: 500 92px/0.8 var(--sans); letter-spacing: -0.05em; color: var(--ink);
+}
+:root[data-layout="front"] .rail .news .story-quote.card-story-head { margin-top: 0; font: 500 22px/1.3 var(--sans); letter-spacing: -0.02em; }
+:root[data-layout="front"] .rail .news .story-quote p { margin: 0; }
+:root[data-layout="front"] .rail .news .story-quote span { display: block; margin-top: 12px; font: 400 12px/1.3 var(--sans); letter-spacing: 0; color: var(--mute); }
+:root[data-layout="front"] .rail .news .story-play {
+  position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(22, 22, 21, .72);
+}
+:root[data-layout="front"] .rail .news .story-play::after {
+  content: ""; position: absolute; left: 18px; top: 14px; border-style: solid; border-width: 9px 0 9px 14px; border-color: transparent transparent transparent #F7F6F3;
+}
 :root[data-layout="front"] .rail .news .story-type b {
   position: absolute; left: -0.07em; bottom: -0.34em; margin: 0; font: 500 260px/0.8 var(--sans); letter-spacing: -0.06em; color: var(--ink);
 }
@@ -320,7 +337,9 @@ export const FRONT_STYLE = `
   :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
   :root[data-layout="front"] .rail { display: block; margin-bottom: 18px; }
-  :root[data-layout="front"] .rail .news .story-pic, :root[data-layout="front"] .rail .news .story-type { height: 188px; }
+  :root[data-layout="front"] .rail .news .story-pic, :root[data-layout="front"] .rail .news .story-type,
+  :root[data-layout="front"] .rail .news .story-stat { height: 188px; }
+  :root[data-layout="front"] .rail .news .story-image .story-pic, :root[data-layout="front"] .rail .news .story-image .story-type { height: 220px; }
   :root[data-layout="front"] .rail[hidden] { display: none; }
   /* The artefacts run as a strip of cards, like the jobs. */
   :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }

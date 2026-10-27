@@ -9,7 +9,9 @@ import {
   articleForSession,
   articleSessionId,
   extractArticleText,
+  extractTranscript,
   listArticleChats,
+  missingTranscript,
   openArticleChat,
   readArticle,
 } from "../article-chat.js";
@@ -36,6 +38,33 @@ describe("extractArticleText", () => {
     expect(extracted.text).toContain("The weights live beside the prompt.");
     expect(extracted.text).not.toContain("NAVONLY");
     expect(extracted.text).not.toContain("FOOTONLY");
+  });
+});
+
+describe("a video and a quote", () => {
+  let dir: string;
+  afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); });
+
+  it("keeps a quote without fetching, and says when a video has no transcript", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-article-media-"));
+    let fetches = 0;
+    const fetchImpl = (async () => {
+      fetches += 1;
+      return new Response("<html><title>A talk</title><body><p>Just a description of the picture.</p></body></html>", { status: 200, headers: { "content-type": "text/html" } });
+    }) as typeof fetch;
+    const quote = await readArticle(dir, "https://en.wikiquote.org/wiki/Ada", { media: "quote", title: "Ada", text: "The weights live beside the prompt.", fetchImpl });
+    const video = await readArticle(dir, "https://archive.org/details/talk", { media: "video", title: "A talk", fetchImpl, lookup });
+    const again = await readArticle(dir, "https://archive.org/details/talk", { media: "video", fetchImpl: (async () => { throw new Error("again"); }) as typeof fetch, lookup });
+    expect(fetches).toBe(1);
+    expect(quote.text).toContain("The weights live beside the prompt.");
+    expect(video.text).toContain("No transcript is available");
+    expect(again.text).toBe(video.text);
+  });
+
+  it("uses a transcript when the page has one", () => {
+    const html = `<html><div id="transcript"><p>${"The weights live beside the prompt. ".repeat(8)}</p></div></html>`;
+    expect(extractTranscript(html)).toContain("The weights live beside the prompt.");
+    expect(missingTranscript("A talk", "A short description")).toContain("No transcript is available");
   });
 });
 

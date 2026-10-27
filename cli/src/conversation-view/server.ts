@@ -975,12 +975,13 @@ export class ConversationViewServer {
       await this.railImage(res, url.searchParams.get("path") ?? "");
       return;
     }
-    if (url.pathname === "/api/story-image" || url.pathname === "/api/story-icon") {
+    if (url.pathname === "/api/story-image" || url.pathname === "/api/story-icon" || url.pathname === "/api/story-clip") {
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
         sendJson(res, 403, { error: "missing or wrong token" });
         return;
       }
-      const asset = storyAsset(this.activity?.directory() ?? FLYD_DIR, url.pathname === "/api/story-image" ? "image" : "icon", url.searchParams.get("id") ?? "");
+      const kind = url.pathname === "/api/story-image" ? "image" : url.pathname === "/api/story-icon" ? "icon" : "clip";
+      const asset = storyAsset(this.activity?.directory() ?? FLYD_DIR, kind, url.searchParams.get("id") ?? "");
       if (!asset) {
         sendJson(res, 404, { error: "not found" });
         return;
@@ -1326,7 +1327,7 @@ export class ConversationViewServer {
   /** Open the existing conversation on one article: read it once, then hand back the thread. */
   private async articleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!this.viewPost(req)) { sendJson(res, 403, { error: "forbidden" }); return; }
-    let payload: { url?: unknown; title?: unknown };
+    let payload: { url?: unknown; title?: unknown; media?: unknown; text?: unknown; description?: unknown; figure?: unknown; attribution?: unknown };
     try {
       payload = JSON.parse(await readBody(req, 8 * 1024)) as typeof payload;
     } catch {
@@ -1338,8 +1339,16 @@ export class ConversationViewServer {
       return;
     }
     const title = typeof payload.title === "string" ? payload.title.slice(0, 300) : undefined;
+    const media = typeof payload.media === "string" && ["quote", "stat", "gif", "video", "image", "thread"].includes(payload.media) ? payload.media : "article";
+    const cardText = typeof payload.text === "string" ? payload.text.slice(0, 4_000) : "";
+    const figure = typeof payload.figure === "string" ? payload.figure.slice(0, 32) : "";
+    const attribution = typeof payload.attribution === "string" ? payload.attribution.slice(0, 80) : "";
+    const text = media === "stat" && figure ? `${figure}\n\n${cardText}` : media === "quote" && attribution ? `${cardText}\n\n— ${attribution}` : cardText;
     try {
-      const opened = await openArticleChat(this.activity?.directory() ?? FLYD_DIR, payload.url, title ? { title } : {});
+      const opened = await openArticleChat(this.activity?.directory() ?? FLYD_DIR, payload.url, {
+        ...(title ? { title } : {}),
+        ...(media !== "article" ? { media, text, description: typeof payload.description === "string" ? payload.description.slice(0, 500) : cardText } : {}),
+      });
       sendJson(res, 200, opened);
     } catch (error) {
       sendJson(res, 502, { error: error instanceof Error ? error.message : "could not open that article" });

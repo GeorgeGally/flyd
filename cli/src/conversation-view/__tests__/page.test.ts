@@ -3237,7 +3237,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     document.querySelector<HTMLButtonElement>("#news .story-ask")!.click();
     await settle();
     const post = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/article-chat");
-    expect(post?.[1]).toEqual(expect.objectContaining({ method: "POST", body: JSON.stringify({ url: story.url, title: story.title }) }));
+    expect(post?.[1]).toEqual(expect.objectContaining({ method: "POST", body: JSON.stringify({ url: story.url, title: story.title, media: "article", text: story.gist, description: story.gist, figure: "", attribution: "" }) }));
     expect(FakeEventSource.instances.at(-1)!.url).toContain(encodeURIComponent(opened.session));
     FakeEventSource.instances.at(-1)!.emit("session", { id: opened.session, title: opened.title, link: opened.link, starters: opened.starters, assistantLabel: "Flyd" });
     FakeEventSource.instances.at(-1)!.emit("update", { order: [], messages: [], working: false });
@@ -3293,6 +3293,37 @@ describe("what Flyd shows of its staff, at a glance", () => {
     await settle();
     expect(posted).toEqual([{ id: "ask-1", allow: false }]);
     expect(bar.hidden).toBe(true);
+  });
+
+  it("draws a stat, a quote, a video, a gif, an image and a thread as their own cards", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const stories = [
+      { title: "Studios shipping", url: "https://en.wikipedia.org/wiki/Studio", source: "Wikipedia", media: "stat", figure: "12%", gist: "12% of studios shipped a tool." },
+      { title: "A line", url: "https://en.wikiquote.org/wiki/Line", source: "Wikiquote", media: "quote", quote: "The weights live beside the prompt.", attribution: "A note", gist: "A line worth keeping." },
+      { title: "A talk", url: "https://archive.org/details/talk", source: "Internet Archive", media: "video", image: "/api/story-image?id=abc123abc123abcd", gist: "A talk." },
+      { title: "A loop", url: "https://commons.wikimedia.org/wiki/File:Loop.gif", source: "Wikimedia Commons", media: "gif", clip: "/api/story-clip?id=abc123abc123abcd", gist: "A loop." },
+      { title: "A print", url: "https://commons.wikimedia.org/wiki/File:Print.jpg", source: "Wikimedia Commons", media: "image", image: "/api/story-image?id=def123def123def1", gist: "A print." },
+      { title: "A thread", url: "https://news.ycombinator.com/item?id=1", source: "Hacker News", media: "thread", gist: "Thread about a small host." },
+    ];
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories, at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    const news = document.getElementById("news")!;
+    expect(news.querySelector(".story-stat b")!.textContent).toBe("12%");
+    expect(news.querySelector(".story-quote")!.textContent).toContain("The weights live beside the prompt.");
+    expect(news.querySelector(".story-quote span")!.textContent).toBe("A note");
+    expect(news.querySelector(".story-video .story-play")).toBeTruthy();
+    expect(news.querySelector(".story-image .story-pic img")!.getAttribute("src")).toContain("/api/story-image?id=def123def123def1");
+    expect(news.querySelector(".story-thread .card-story-mark")!.textContent).toBe("Thread");
+    expect(news.querySelectorAll("button.story-ask")).toHaveLength(stories.length);
+    const gif = news.querySelector<HTMLElement>(".story-gif")!;
+    gif.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(gif.querySelector("img")!.getAttribute("src")).toContain("/api/story-clip?id=abc123abc123abcd");
+    news.querySelector<HTMLButtonElement>(".story-stat .story-ask")!.click();
+    await settle();
+    const post = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/article-chat");
+    expect(JSON.parse(String((post?.[1] as RequestInit | undefined)?.body))).toMatchObject({ media: "stat", figure: "12%" });
   });
 
   it("counts what needs him on the header button and never forces the column open on a narrow window", async () => {

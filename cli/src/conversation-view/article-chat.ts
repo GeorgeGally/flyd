@@ -30,7 +30,7 @@ interface ArticleCache {
 }
 
 interface ChatIndex {
-  [sessionId: string]: { url: string; title: string; at: string };
+  [sessionId: string]: { url: string; title: string; at: string; label?: string };
 }
 
 export function articleSessionId(url: string): string {
@@ -154,6 +154,31 @@ export function extractArticleText(html: string): { title: string; text: string 
   return { title: title.slice(0, 300), text };
 }
 
+/** Captions already in the page. A timed-text file or a transcript block. Nothing invented. */
+export function extractTranscript(html: string): string | null {
+  const block = html.match(/<(?:div|section|article)[^>]*(?:id|class)="[^"]*transcript[^"]*"[^>]*>([\s\S]*?)<\/(?:div|section|article)>/i);
+  const fromBlock = block ? toText(block[1] ?? "") : "";
+  if (fromBlock.length > 40) return fromBlock.slice(0, TEXT_CAP);
+  if (!/WEBVTT/.test(html)) return null;
+  const cues = html
+    .split(/\n+/)
+    .filter((line) => line.trim() && !/^WEBVTT|^NOTE|^STYLE|^[\d:.]+ --> /.test(line.trim()) && !/^\d+$/.test(line.trim()))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cues.length > 40 ? cues.slice(0, TEXT_CAP) : null;
+}
+
+export function missingTranscript(title: string, description = ""): string {
+  return ["No transcript is available for this video.", title.trim(), description.trim()].filter(Boolean).join("\n\n");
+}
+
+const SUPPLIED_MEDIA = new Set(["quote", "stat", "thread", "image", "gif"]);
+
+function clipText(value: string | undefined, max: number): string {
+  return (value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
 function cleanStarters(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const questions: string[] = [];
@@ -191,6 +216,11 @@ export interface ReadArticleOptions {
   /** Cheap question writer. Under tests, omitted, so the starters stay the two defaults and nothing is called. */
   ask?: (prompt: string) => Promise<string>;
   title?: string;
+  /** quote, stat, thread, image, gif, or video. An article is fetched as a page. */
+  media?: string;
+  /** Words already on the card: the quote, the stat, the thread line. Not a transcript. */
+  text?: string;
+  description?: string;
 }
 
 /** Read the article once and keep the text and the starter questions beside it. A second call does not fetch. */
@@ -198,9 +228,29 @@ export async function readArticle(dir: string, pageUrl: string, options: ReadArt
   const key = storyKey(pageUrl);
   const cached = readCache(dir, key);
   if (cached) return cached;
-  const blank = (error: boolean, title = options.title?.trim() || ""): ArticleCache => ({
-    url: pageUrl, title, text: "", starters: ARTICLE_STARTERS, at: new Date().toISOString(), ...(error ? { error } : {}),
+  const blank = (error: boolean, title = options.title?.trim() || "", text = ""): ArticleCache => ({
+    url: pageUrl, title, text, starters: ARTICLE_STARTERS, at: new Date().toISOString(), ...(error || !text ? { error: true } : {}),
   });
+  const store = async (record: ArticleCache): Promise<ArticleCache> => {
+    const ask = options.ask ?? (process.env.VITEST || !record.text ? undefined : await liveAsk());
+    const starters = ask ? await starterQuestions({ title: record.title, text: record.text }, ask) : ARTICLE_STARTERS;
+    const kept = { ...record, starters };
+    writeCache(dir, key, kept);
+    return kept;
+  };
+  const media = options.media ?? "article";
+  const supplied = clipText(options.text, 4_000);
+  if (SUPPLIED_MEDIA.has(media) && (supplied || media === "gif")) {
+    const title = options.title?.trim() || "";
+    const text = media === "gif"
+      ? ["This is a GIF. There is no article text and no transcript.", title, clipText(options.description, 500) || supplied].filter(Boolean).join("\n\n")
+      : supplied;
+    return store({ url: pageUrl, title, text, starters: ARTICLE_STARTERS, at: new Date().toISOString(), ...(!text ? { error: true } : {}) });
+  }
+  if (media === "video" && process.env.VITEST && !options.fetchImpl) {
+    const title = options.title?.trim() || "";
+    return store({ url: pageUrl, title, text: missingTranscript(title, clipText(options.description, 500)), starters: ARTICLE_STARTERS, at: new Date().toISOString() });
+  }
   if (process.env.VITEST && !options.fetchImpl) {
     const record = blank(true);
     writeCache(dir, key, record);
@@ -218,9 +268,11 @@ export async function readArticle(dir: string, pageUrl: string, options: ReadArt
     if (readable) {
       const extracted = extractArticleText(html);
       const title = extracted.title || options.title?.trim() || "";
-      const ask = options.ask ?? (process.env.VITEST ? undefined : await liveAsk());
-      const starters = ask ? await starterQuestions({ title, text: extracted.text }, ask) : ARTICLE_STARTERS;
-      record = { url: pageUrl, title, text: extracted.text, starters, at: new Date().toISOString(), ...(!extracted.text ? { error: true } : {}) };
+      const transcript = media === "video" ? extractTranscript(html) : null;
+      const text = media === "video"
+        ? (transcript ?? missingTranscript(title, clipText(options.description, 500) || extracted.text.slice(0, 400)))
+        : extracted.text;
+      return store({ url: pageUrl, title, text, starters: ARTICLE_STARTERS, at: new Date().toISOString(), ...(!text ? { error: true } : {}) });
     }
   } catch {
     record = blank(true);
@@ -249,20 +301,21 @@ export async function openArticleChat(dir: string, pageUrl: string, options: Rea
   try { host = new URL(pageUrl).host; } catch { /* keep the url */ }
   const title = shortConversationTitle(record.title || options.title?.trim() || host);
   const session = articleSessionId(pageUrl);
+  const label = { quote: "Quote", stat: "Stat", gif: "GIF", video: "Video", image: "Image", thread: "Thread" }[options.media ?? ""] ?? "Article";
   const index = readChats(dir);
-  index[session] = { url: pageUrl, title, at: record.at };
+  index[session] = { url: pageUrl, title, at: record.at, label };
   writeChats(dir, index);
-  return { session, title, url: pageUrl, starters: record.starters, link: { href: pageUrl, label: "Article" } };
+  return { session, title, url: pageUrl, starters: record.starters, link: { href: pageUrl, label } };
 }
 
-function summaryOf(dir: string, sessionId: string, chat: { url: string; title: string; at: string }, withStarters: boolean): SessionSummary {
+function summaryOf(dir: string, sessionId: string, chat: { url: string; title: string; at: string; label?: string }, withStarters: boolean): SessionSummary {
   const key = articleKey(sessionId);
   const record = key ? readCache(dir, key) : undefined;
   return {
     id: sessionId,
     title: shortConversationTitle(record?.title || chat.title),
     updatedAt: record?.at || chat.at,
-    link: { href: chat.url, label: "Article" },
+    link: { href: chat.url, label: chat.label || "Article" },
     ...(withStarters && record?.starters?.length ? { starters: record.starters } : {}),
   };
 }
