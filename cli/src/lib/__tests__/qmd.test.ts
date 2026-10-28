@@ -1,3 +1,6 @@
+import { mkdtempSync, existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -5,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   createStore: vi.fn(),
   listCollections: vi.fn(),
   mkdir: vi.fn(async () => undefined),
+  embed: vi.fn(async () => ({ errors: 0 })),
   update: vi.fn(async () => ({
     collections: 1,
     indexed: 1,
@@ -41,6 +45,7 @@ describe("QMD Flyd collections", () => {
       addCollection: mocks.addCollection,
       listCollections: mocks.listCollections,
       update: mocks.update,
+      embed: mocks.embed,
     });
   });
 
@@ -60,4 +65,18 @@ describe("QMD Flyd collections", () => {
     );
     expect(mocks.update).toHaveBeenCalledWith({ collections: [ "flyd-raw" ] });
   });
+  it("records partial embedding failures and clears them after a successful retry", async () => {
+    const root = mkdtempSync(join(tmpdir(), "qmd-failure-"));
+    vi.stubEnv("FLYD_DIR", root);
+    const { embedRawStrict } = await import("../qmd.js");
+    const marker = join(root, "index-status", "embed-failed");
+    try {
+      mocks.embed.mockResolvedValueOnce({ errors: 2 });
+      await expect(embedRawStrict()).rejects.toThrow("2 chunks");
+      expect(existsSync(marker)).toBe(true);
+      await embedRawStrict();
+      expect(existsSync(marker)).toBe(false);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
 });
