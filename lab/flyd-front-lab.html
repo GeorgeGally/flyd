@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flyd — command centre lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --lab-bg:#08080a; --lab-ink:#efece6; --lab-dim:#8b8780; --lab-line:#212124;
+    --sans:"Inter Tight",system-ui,-apple-system,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{background:var(--lab-bg)}
+  body{background:var(--lab-bg);color:var(--lab-ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;padding:96px 0 140px}
+  .lab{max-width:1440px;margin:0 auto}
+  .lab-head{padding:0 64px 80px}
+  .lab-head h1{font-size:48px;font-weight:500;letter-spacing:-.035em;line-height:1.04}
+  .lab-head p{margin-top:20px;font-size:17px;line-height:1.6;color:var(--lab-dim);max-width:700px}
+  .lab-head .meta{margin-top:32px;display:flex;gap:36px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#66625c;font-variant-numeric:tabular-nums;flex-wrap:wrap}
+
+  .labcap{display:grid;grid-template-columns:1fr auto auto;gap:40px;align-items:end;padding:26px 64px 22px;border-top:1px solid var(--lab-line)}
+  .labcap .idea{font-size:15px;line-height:1.55;color:var(--lab-dim);max-width:700px}
+  .labcap .tag{display:block;font-size:15px;font-weight:500;color:var(--lab-ink);letter-spacing:-.01em;margin-bottom:5px}
+  .labcap .tokens{font-family:var(--mono);font-size:10px;letter-spacing:.02em;color:#57534e;padding-bottom:3px}
+  .labcap .score{font-family:var(--mono);font-size:13px;color:var(--lab-ink);padding-bottom:1px;font-variant-numeric:tabular-nums}
+  .labcap .score span{color:#57534e;margin-right:6px}
+
+  .shot{width:1440px;margin:0 auto 104px}
+  .shot:last-child{margin-bottom:0}
+  .frame{position:relative;width:1440px;height:900px;overflow:hidden}
+  .frame>.fade{opacity:0}
+  .frame.seen>.fade{animation:fade .85s ease forwards}
+  .frame>.fade:nth-child(2){animation-delay:.07s}
+  .frame>.fade:nth-child(3){animation-delay:.14s}
+  @keyframes fade{to{opacity:1}}
+  @media (prefers-reduced-motion:reduce){.frame>.fade{opacity:1 !important;animation:none !important}}
+
+  .tiny{font-size:11px;line-height:1;letter-spacing:.04em;text-transform:uppercase;font-weight:500;font-variant-numeric:tabular-nums}
+  .clockf{font-family:var(--mono);font-size:10.5px;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+
+  /* ═════════ V1 · Signal — gradient field, one card ═════════ */
+  .v1{background:linear-gradient(157deg,hsl(24 94% 61%) 0%,hsl(19 86% 52%) 24%,hsl(14 62% 34%) 56%,hsl(11 32% 13%) 84%,hsl(10 24% 8%) 100%)}
+  .v1 .nav{position:absolute;left:60px;top:60px;display:flex;flex-direction:column;gap:24px}
+  .v1 .nav .w{font-size:15px;font-weight:600;letter-spacing:-.01em;color:#fff;margin-bottom:12px}
+  .v1 .nav a{color:rgba(255,255,255,.8);text-decoration:none}
+  .v1 .clock{position:absolute;right:60px;top:62px;color:rgba(255,255,255,.8)}
+  .v1 .card{position:absolute;left:60px;top:252px;width:648px;padding:42px 46px 42px;
+    background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.22);border-radius:22px;
+    -webkit-backdrop-filter:blur(30px) saturate(150%);backdrop-filter:blur(30px) saturate(150%);
+    box-shadow:0 40px 80px -40px rgba(60,20,0,.55)}
+  .v1 .who{display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.82)}
+  .v1 .who i{width:7px;height:7px;border-radius:50%;background:hsl(48 100% 66%);display:block}
+  .v1 h2{margin-top:26px;font-size:44px;line-height:1.1;font-weight:500;letter-spacing:-.03em;color:#fff}
+  .v1 .body{margin-top:16px;font-size:16.5px;line-height:1.55;color:rgba(255,255,255,.84)}
+  .v1 .opts{margin-top:34px;display:flex;gap:10px}
+  .v1 .opt{font-size:13.5px;font-weight:500;height:44px;line-height:42px;padding:0 18px;border-radius:22px;text-decoration:none;white-space:nowrap}
+  .v1 .opt.a{background:#fff;color:#3d1a06;border:1px solid #fff}
+  .v1 .opt.b{color:#fff;border:1px solid rgba(255,255,255,.42)}
+  .v1 .ask{margin-top:28px;font-size:12.5px;color:rgba(255,255,255,.62);text-decoration:none;display:inline-block}
+  .v1 .ledger{position:absolute;left:60px;bottom:56px;right:60px;display:flex;justify-content:space-between;
+    padding-top:18px;border-top:1px solid rgba(255,255,255,.2);color:rgba(255,255,255,.66)}
+  .v1 .ledger b{font-weight:500;color:#fff;font-variant-numeric:tabular-nums}
+  .v1 .thread{position:absolute;right:60px;top:252px;width:312px;display:flex;flex-direction:column;gap:10px}
+  .v1 .thread .row{display:flex;justify-content:space-between;align-items:baseline;padding:12px 0;
+    border-bottom:1px solid rgba(255,255,255,.16);color:rgba(255,255,255,.66);font-size:11.5px;letter-spacing:.01em}
+  .v1 .thread .row b{font-weight:500;color:rgba(255,255,255,.94);font-size:12.5px;letter-spacing:0}
+
+  /* ═════════ V2 · Desk — rail, card column, detail pane ═════════ */
+  .v2{background:#EDE7DE;color:#221A14}
+  .v2 .rail{position:absolute;left:0;top:0;bottom:0;width:84px;display:flex;flex-direction:column;align-items:center;gap:14px;padding:28px 0}
+  .v2 .rail .dot{width:44px;height:44px;border-radius:50%;background:#1C1712;display:flex;align-items:center;justify-content:center}
+  .v2 .rail .dot i{width:15px;height:15px;border:1.6px solid #F6F2EC;border-radius:3px;display:block}
+  .v2 .rail .ic{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;opacity:.42}
+  .v2 .rail .ic svg{width:17px;height:17px;stroke:#221A14;fill:none;stroke-width:1.6}
+  .v2 .col{position:absolute;left:84px;top:0;bottom:0;width:404px;padding:34px 8px 34px 8px}
+  .v2 .top{display:flex;justify-content:space-between;align-items:baseline;padding:0 20px 22px}
+  .v2 .top .w{font-size:15px;font-weight:600;letter-spacing:-.01em}
+  .v2 .top .d{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:#8A7E70;font-variant-numeric:tabular-nums}
+  .v2 .search{height:44px;margin:0 20px 18px;background:#fff;border-radius:14px;display:flex;align-items:center;
+    padding:0 16px;font-size:13.5px;color:#A99C8C;box-shadow:0 1px 2px rgba(60,40,20,.06)}
+  .v2 .stack{display:flex;flex-direction:column;gap:10px;padding:0 20px}
+  .v2 .c{background:#fff;border-radius:18px;padding:16px 18px 18px;box-shadow:0 2px 6px rgba(60,40,20,.05),0 12px 24px -18px rgba(60,40,20,.28)}
+  .v2 .c .h{display:flex;justify-content:space-between;font-size:11px;color:#8A7E70;letter-spacing:.02em}
+  .v2 .c .t{margin-top:8px;font-size:16px;font-weight:500;letter-spacing:-.015em;line-height:1.25}
+  .v2 .c .p{margin-top:6px;font-size:13px;line-height:1.45;color:#7C7062}
+  .v2 .c .k{display:inline-flex;align-items:center;gap:6px;margin-top:12px;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;color:#8A7E70}
+  .v2 .c .k i{width:6px;height:6px;border-radius:50%;display:block}
+  .v2 .c.want{outline:1.5px solid #221A14;outline-offset:-1.5px}
+  .v2 .c .shot2{margin-top:12px;height:96px;border-radius:12px;background:url(front-assets/nuanu.jpg) center 42%/cover no-repeat}
+  .v2 .pane{position:absolute;left:504px;right:16px;top:16px;bottom:16px;background:#fff;border-radius:26px;
+    box-shadow:0 24px 60px -34px rgba(60,40,20,.35);padding:40px 48px;display:flex;flex-direction:column}
+  .v2 .pane .inner{margin:44px 0 0}
+  .v2 .pane .meta{margin-top:34px;font-size:12px;color:#9A8E80;letter-spacing:.01em}
+  .v2 .pane .ph{display:flex;justify-content:space-between;align-items:center;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#9A8E80}
+  .v2 .pane h2{margin-top:34px;font-size:40px;line-height:1.12;font-weight:500;letter-spacing:-.03em;max-width:640px}
+  .v2 .pane .sub{margin-top:16px;font-size:16px;line-height:1.55;color:#6E6254;max-width:560px}
+  .v2 .pane .opts{margin-top:34px;display:flex;gap:10px}
+  .v2 .pane .opt{height:44px;line-height:42px;padding:0 18px;border-radius:12px;font-size:13.5px;font-weight:500;text-decoration:none}
+  .v2 .pane .opt.a{background:#1C1712;color:#F7F3EC}
+  .v2 .pane .opt.b{border:1px solid #D9D0C4;color:#4A4038}
+  .v2 .pane .reply{margin-top:auto;height:56px;border-radius:16px;border:1px solid #E4DCD1;display:flex;align-items:center;
+    justify-content:space-between;padding:0 18px;font-size:14px;color:#A99C8C}
+  .v2 .pane .reply .send{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#221A14;font-weight:500}
+
+  /* ═════════ V3 · Readout — bloom, floating cards, dark log band ═════════ */
+  .v3{background:#F7F3EC;color:#1E1A16}
+  .v3 .bloom{position:absolute;inset:0;
+    background:radial-gradient(64% 58% at 68% 26%,#FFE0BA 0%,#FFAE5C 18%,#F87D31 34%,#CE4B2C 52%,#7E4160 68%,rgba(247,243,236,0) 86%)}
+  .v3 .head{position:absolute;left:56px;right:56px;top:44px;display:flex;justify-content:space-between;align-items:center}
+  .v3 .head .w{font-size:15px;font-weight:600;letter-spacing:-.01em}
+  .v3 .tabs{display:flex;gap:6px}
+  .v3 .tabs span{font-size:12px;padding:8px 14px;border-radius:14px;color:#4A4038;background:rgba(255,255,255,.5)}
+  .v3 .tabs span.on{background:#1B1815;color:#FBF8F3}
+  .v3 .num{position:absolute;left:56px;top:150px}
+  .v3 .num .big{font-size:170px;line-height:.86;font-weight:500;letter-spacing:-.055em;font-variant-numeric:tabular-nums}
+  .v3 .num .cap{margin-top:18px;font-size:13px;color:#5E5246;letter-spacing:.01em}
+  .v3 .tiles{position:absolute;left:56px;top:470px;display:flex;gap:14px}
+  .v3 .tile{width:180px;height:132px;background:#fff;border-radius:20px;padding:20px 22px;
+    box-shadow:0 26px 44px -30px rgba(90,40,10,.55),0 2px 4px rgba(90,40,10,.06);display:flex;flex-direction:column;justify-content:space-between}
+  .v3 .tile .l{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:#6C6053}
+  .v3 .tile .n{font-size:38px;line-height:1;font-weight:500;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+  .v3 .tile .n small{font-size:13px;font-weight:400;letter-spacing:0;color:#6C6053;margin-left:8px}
+  .v3 .live{position:absolute;right:56px;top:120px;width:524px;height:452px;border-radius:26px;overflow:hidden;
+    background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.42);
+    -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
+    box-shadow:0 40px 80px -40px rgba(40,20,60,.45)}
+  .v3 .live .bar{position:relative;z-index:2;height:44px;display:flex;justify-content:space-between;align-items:center;padding:0 20px;
+    font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:rgba(255,255,255,.92);background:rgba(10,8,6,.55)}
+  .v3 .live .map{position:absolute;inset:44px 0 0;background:url(front-assets/hud.jpg) 50% 47%/165% auto no-repeat;opacity:.95}
+  .v3 .band{position:absolute;left:0;right:0;bottom:0;height:216px;background:#12100E;color:#EFE9E1;padding:34px 56px}
+  .v3 .band .bh{display:flex;justify-content:space-between;align-items:baseline;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:#8E857A}
+  .v3 .band .rows{margin-top:22px;display:grid;grid-template-columns:repeat(4,1fr);column-gap:32px;row-gap:0}
+  .v3 .band .r{display:flex;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid #262220;font-size:12.5px;line-height:1.35}
+  .v3 .band .r span{color:#9A9188}
+  .v3 .band .r b{font-weight:500;color:#EFE9E1;text-align:right}
+
+  /* ═════════ V4 · Console — kanban board ═════════ */
+  .v4{background:#0C0B0A;color:#EDE9E2}
+  .v4 .head{position:absolute;left:56px;right:56px;top:44px;display:flex;justify-content:space-between;align-items:baseline}
+  .v4 .head .w{font-size:15px;font-weight:600;letter-spacing:-.01em}
+  .v4 .head .d{font-family:var(--mono);font-size:10.5px;color:#9A9188;font-variant-numeric:tabular-nums;position:relative;z-index:2}
+  .v4 .board{position:absolute;left:56px;right:56px;top:120px;bottom:56px;display:grid;grid-template-columns:repeat(3,1fr);column-gap:28px}
+  .v4 .board:before,.v4 .board:after{content:'';position:absolute;top:0;bottom:0;width:1px;background:#1E1B19}
+  .v4 .board:before{left:calc(33.333% - 9px)}
+  .v4 .board:after{left:calc(66.666% + 9px)}
+  .v4 .col{display:flex;flex-direction:column}
+  .v4 .col .ch{display:flex;justify-content:space-between;align-items:baseline;padding-bottom:16px;border-bottom:1px solid #262220}
+  .v4 .col .ch span{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:#8E857A}
+  .v4 .col .ch b{font-size:13px;font-weight:500;font-variant-numeric:tabular-nums;color:#EDE9E2}
+  .v4 .card{margin-top:14px;border-radius:16px;padding:18px 20px;background:#161413;border:1px solid #262220}
+  .v4 .card .t{font-size:15.5px;line-height:1.4;letter-spacing:-.01em}
+  .v4 .card .m{margin-top:10px;font-size:11.5px;color:#A79D91;display:flex;gap:10px;align-items:center}
+  .v4 .card .m i{width:6px;height:6px;border-radius:50%;display:block;background:#5B534B}
+  .v4 .card.want{background:hsl(26 40% 14%);border-color:hsl(26 60% 32%)}
+  .v4 .card.want .t{color:#FFF3E6}
+  .v4 .card .opts{margin-top:16px;display:flex;gap:8px}
+  .v4 .card .opt{font-size:12px;height:34px;line-height:32px;padding:0 14px;border-radius:17px;border:1px solid #4A423A;color:#C9BFB3;text-decoration:none}
+  .v4 .card .opt.a{background:#EDE9E2;border-color:#EDE9E2;color:#171412}
+  .v4 .card.img{padding:0;overflow:hidden}
+  .v4 .card.img .thumb{height:112px;background:url(front-assets/nuanu.jpg) center 42%/cover no-repeat}
+  .v4 .card.img .txt{padding:16px 20px 18px}
+  .v4 .foot{position:absolute;left:56px;right:56px;bottom:0;padding:0 0 24px;display:flex;justify-content:space-between;color:#8A8078}
+
+  /* ═════════ V5 · Quiet — the screen earns nothing ═════════ */
+  .v5{background:linear-gradient(168deg,hsl(292 34% 26%) 0%,hsl(288 30% 17%) 38%,hsl(280 24% 9%) 72%,hsl(275 20% 6%) 100%)}
+  .v5 .nav{position:absolute;left:60px;top:60px;display:flex;align-items:baseline;gap:30px}
+  .v5 .nav .w{font-size:15px;font-weight:600;letter-spacing:-.01em;color:#F3EFF6}
+  .v5 .nav a{color:rgba(255,255,255,.7);text-decoration:none}
+  .v5 .clock{position:absolute;right:60px;top:62px;color:rgba(255,255,255,.56)}
+  .v5 .line{position:absolute;left:60px;top:352px;right:60px}
+  .v5 .line h2{font-size:64px;line-height:1.08;font-weight:400;letter-spacing:-.042em;color:#fff;max-width:700px}
+  .v5 .line p{margin-top:26px;font-size:17px;line-height:1.6;color:rgba(255,255,255,.68);max-width:420px}
+  .v5 .rule{position:absolute;left:60px;right:60px;top:300px;height:1px;background:rgba(255,255,255,.14)}
+  .v5 .foot{position:absolute;left:60px;right:60px;bottom:56px;display:flex;justify-content:space-between;color:rgba(255,255,255,.64)}
+  .v5 .dot{position:absolute;left:60px;top:266px;width:8px;height:8px;border-radius:50%;background:hsl(152 34% 62%)}
+
+  @media (max-width:900px){
+    body{padding:48px 0 72px}
+    .lab-head{padding:0 20px 48px}
+    .lab-head h1{font-size:30px}
+    .labcap{grid-template-columns:1fr;gap:12px;padding:20px 20px 18px}
+    .labcap .idea{max-width:none}
+    .shot{width:100%;height:900px;margin-bottom:56px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+  }
+</style>
+</head>
+<body>
+<div class="lab">
+
+  <div class="lab-head">
+    <h1>Five command centres.</h1>
+    <p>Flyd as the screen you live in, not a page you visit. Same warm gradient field in every version, real work on it: one decision waiting, one item under way, the things that landed while you were elsewhere. Numbers are the ones on the screen now.</p>
+    <div class="meta">
+      <span>Lab · October 2026</span>
+      <span>Desktop 1440 × 900</span>
+      <span>Critic score under each</span>
+    </div>
+  </div>
+
+  <div class="versions">
+
+    <!-- V1 -->
+    <div class="shot">
+      <div class="labcap">
+        <div class="idea"><span class="tag">V1 · Signal.</span>The warm field with one card on it: the single thing that needs a call, two ways to answer, and the rest of the day kept to a thread down the right.</div>
+        <div class="tokens">HUE 15° · 11 COL · 1.29 · R 18 · DARK</div>
+        <div class="score"><span>SCORE</span>5.0</div>
+      </div>
+      <div class="frame v1" id="v1">
+        <nav class="nav tiny fade">
+          <span class="w">Flyd</span>
+          <a href="#">Today</a>
+          <a href="#">Memory</a>
+          <a href="#">Artefacts</a>
+          <a href="#">Accounts</a>
+        </nav>
+        <div class="clock clockf fade" data-clock="full">—</div>
+        <div class="card fade">
+          <div class="who tiny"><i></i>Your move · waiting 6m</div>
+          <h2>The island filter is still paused on your call.</h2>
+          <p class="body">A keeps routine replies off the island. B shows them there, muted.</p>
+          <div class="opts">
+            <a class="opt a" href="#">A · Keep them off</a>
+            <a class="opt b" href="#">B · Show, muted</a>
+          </div>
+          <a class="ask" href="#">Answer in your own words</a>
+        </div>
+        <div class="thread fade">
+          <div class="row"><b>The setup card fix</b><span>merged · #74</span></div>
+          <div class="row"><b>Running the Swift tests</b><span>under way</span></div>
+          <div class="row"><b>Header now sticky</b><span>landed</span></div>
+          <div class="row"><b>Footer links and spacing</b><span>landed</span></div>
+          <div class="row"><b>The pricing page</b><span>landed</span></div>
+        </div>
+        <div class="ledger tiny fade">
+          <span><b>61</b> landed this week</span>
+          <span><b>7</b> need you</span>
+          <span><b>20</b> queued</span>
+          <span><b>2</b> under way</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- V2 -->
+    <div class="shot">
+      <div class="labcap">
+        <div class="idea"><span class="tag">V2 · Desk.</span>A triage desk: an app rail, a column of cards you can read at a glance, and the one you picked opened beside it with its answer waiting.</div>
+        <div class="tokens">HUE 342° · 12 COL · 1.26 · R 18 · LIGHT</div>
+        <div class="score"><span>SCORE</span>6.0</div>
+      </div>
+      <div class="frame v2" id="v2">
+        <div class="rail fade">
+          <div class="dot"><i></i></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></div>
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="M8 18v2M16 18v2"/></svg></div>
+        </div>
+        <div class="col fade">
+          <div class="top">
+            <span class="w">Today</span>
+            <span class="d" data-clock="short">—</span>
+          </div>
+          <div class="search">Search memory, artefacts, mail</div>
+          <div class="stack">
+            <div class="c want">
+              <div class="h"><span>Your move</span><span>waiting 6m</span></div>
+              <div class="t">Island filter paused on your call</div>
+              <div class="p">A keeps routine replies off the island. B shows them there, muted.</div>
+            </div>
+            <div class="c">
+              <div class="h"><span>Under way</span><span>now</span></div>
+              <div class="t">Running the Swift tests</div>
+              <div class="p">The footer fix merges when they are green.</div>
+              <div class="k"><i style="background:#3E8F63"></i>Flyd is on it</div>
+            </div>
+            <div class="c">
+              <div class="h"><span>Landed</span><span>9m ago</span></div>
+              <div class="t">Nuanu site map, rebuilt</div>
+              <div class="shot2"></div>
+            </div>
+            <div class="c">
+              <div class="h"><span>Landed</span><span>this morning</span></div>
+              <div class="t">Header now sticky</div>
+              <div class="p">Footer links fixed and the footer spacing is tighter now.</div>
+            </div>
+          </div>
+        </div>
+        <div class="pane fade">
+          <div class="ph"><span>Needs you · 1 of 7</span><span data-clock="long">—</span></div>
+          <div class="inner">
+            <h2>The island filter is still paused on your call.</h2>
+            <p class="sub">A keeps routine replies off the island. B shows them there, muted. Flyd will apply it to everything it answers from now on.</p>
+            <div class="opts">
+              <a class="opt a" href="#">A · Keep them off</a>
+              <a class="opt b" href="#">B · Show, muted</a>
+            </div>
+            <div class="meta">Waiting 6 minutes · applies to everything Flyd answers.</div>
+          </div>
+          <div class="reply"><span>Or answer in your own words</span><span class="send">Send</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- V3 -->
+    <div class="shot">
+      <div class="labcap">
+        <div class="idea"><span class="tag">V3 · Readout.</span>The day as one number over a warm bloom: four counters on floating cards, the live map behind glass, and everything that landed running along a dark band at the foot.</div>
+        <div class="tokens">HUE 159° · 11 COL · 1.28 · R 20 · LIGHT</div>
+        <div class="score"><span>SCORE</span>5.0</div>
+      </div>
+      <div class="frame v3" id="v3">
+        <div class="bloom fade"></div>
+        <div class="head fade">
+          <span class="w">Flyd</span>
+          <div class="tabs"><span class="on">Today</span><span>Week</span><span>All</span></div>
+        </div>
+        <div class="num fade">
+          <div class="big">61</div>
+          <div class="cap">things landed this week</div>
+        </div>
+        <div class="tiles fade">
+          <div class="tile"><span class="l">Need you</span><span class="n">7</span></div>
+          <div class="tile"><span class="l">Under way</span><span class="n">2</span></div>
+          <div class="tile"><span class="l">Held up</span><span class="n">3</span></div>
+          <div class="tile"><span class="l">Queued</span><span class="n">20</span></div>
+        </div>
+        <div class="live fade">
+          <div class="bar"><span>On the island now</span><span data-clock="short">—</span></div>
+          <div class="map"></div>
+        </div>
+        <div class="band fade">
+          <div class="bh"><span>Landed, most recent first</span><span>This week</span></div>
+          <div class="rows">
+            <div class="r"><b>The setup card fix merged into main</b><span>#74</span></div>
+            <div class="r"><b>Header now sticky</b><span>11:15</span></div>
+            <div class="r"><b>The pricing page is live</b><span>10:02</span></div>
+            <div class="r"><b>Footer links, and the footer spacing</b><span>09:47</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- V4 -->
+    <div class="shot">
+      <div class="labcap">
+        <div class="idea"><span class="tag">V4 · Console.</span>A board with three columns and nothing else: what needs you, what is moving, what has landed — every card carrying the work rather than a summary of it.</div>
+        <div class="tokens">HUE 135° · 9 COL · 1.29 · R 16 · DARK</div>
+        <div class="score"><span>SCORE</span>5.0</div>
+      </div>
+      <div class="frame v4" id="v4">
+        <div class="head fade">
+          <span class="w">Flyd</span>
+          <span class="d" data-clock="full">—</span>
+        </div>
+        <div class="board fade">
+          <div class="col">
+            <div class="ch"><span>Needs you</span><b>1</b></div>
+            <div class="card want">
+              <div class="t">The island filter is still paused on your call. A or B?</div>
+              <div class="m"><i style="background:hsl(12 70% 56%)"></i>waiting 6m</div>
+              <div class="opts">
+                <a class="opt a" href="#">A · Keep off</a>
+                <a class="opt b" href="#">B · Show, muted</a>
+              </div>
+            </div>
+            <div class="card">
+              <div class="t">Auth fix merged</div>
+              <div class="m"><i style="background:hsl(12 70% 56%)"></i>The migration failed on prod. Roll back or patch forward?</div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="ch"><span>Under way</span><b>2</b></div>
+            <div class="card">
+              <div class="t">Running the Swift tests</div>
+              <div class="m"><i style="background:hsl(200 70% 58%)"></i>firstmate is on it now · 4m</div>
+            </div>
+            <div class="card">
+              <div class="t">The footer fix is being updated, will merge when green</div>
+              <div class="m"><i style="background:hsl(200 70% 58%)"></i>1 of 2 checks passed</div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="ch"><span>Landed</span><b>3</b></div>
+            <div class="card img">
+              <div class="thumb"></div>
+              <div class="txt">
+                <div class="t">Nuanu site map, rebuilt</div>
+                <div class="m"><i style="background:hsl(145 55% 48%)"></i>just landed · 9m ago</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="t">The pricing page is live</div>
+              <div class="m"><i style="background:hsl(145 55% 48%)"></i>1h ago</div>
+            </div>
+            <div class="card">
+              <div class="t">The setup card fix merged into main: #74</div>
+              <div class="m"><i style="background:hsl(145 55% 48%)"></i>2h ago</div>
+            </div>
+          </div>
+        </div>
+        <div class="foot tiny fade">
+          <span>61 landed this week</span>
+          <span>20 queued</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- V5 -->
+    <div class="shot">
+      <div class="labcap">
+        <div class="idea"><span class="tag">V5 · Quiet.</span>Nothing has earned the screen, so the screen says so in one line — the violet field, a rule, and the counts kept to the foot where they cannot nag.</div>
+        <div class="tokens">HUE 297° · 8 COL · 1.28 · R 0 · DARK</div>
+        <div class="score"><span>SCORE</span>5.0</div>
+      </div>
+      <div class="frame v5" id="v5">
+        <nav class="nav tiny fade">
+          <span class="w">Flyd</span>
+          <a href="#">Today</a>
+          <a href="#">Memory</a>
+          <a href="#">Artefacts</a>
+        </nav>
+        <div class="clock clockf fade" data-clock="full">—</div>
+        <div class="dot fade"></div>
+        <div class="rule fade"></div>
+        <div class="line fade">
+          <h2>Nothing needs you<br>until the tests are green.</h2>
+          <p>Two things are moving on their own. Flyd will say so the moment one of them needs a call.</p>
+        </div>
+        <div class="foot tiny fade">
+          <span>61 landed this week</span>
+          <span>2 under way · 20 queued</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  (function () {
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    var days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+    var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    function tick() {
+      var d = new Date();
+      var full = days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()] + ' · ' +
+        pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+      var time = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+      var short = pad(d.getHours()) + ':' + pad(d.getMinutes());
+      var long = days[d.getDay()].charAt(0) + days[d.getDay()].slice(1).toLowerCase() + ' ' +
+        d.getDate() + ' ' + months[d.getMonth()].charAt(0) + months[d.getMonth()].slice(1).toLowerCase();
+      document.querySelectorAll('[data-clock]').forEach(function (el) {
+        var m = el.getAttribute('data-clock');
+        el.textContent = m === 'full' ? full : m === 'time' ? time : m === 'long' ? long : short;
+      });
+    }
+    tick();
+    setInterval(tick, 1000);
+
+    var frames = document.querySelectorAll('.frame');
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('seen'); io.unobserve(e.target); } });
+      }, { threshold: 0.15 });
+      frames.forEach(function (f) { io.observe(f); });
+    } else {
+      frames.forEach(function (f) { f.classList.add('seen'); });
+    }
+  })();
+</script>
+</body>
+</html>
