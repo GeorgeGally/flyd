@@ -1,5 +1,6 @@
 import { shellEnv } from "../lib/shell-env.js";
 import { writeContextTrace } from "./context-trace.js";
+import { budgetPersonalContext, budgetHistory, type ContextRoute } from "./context-budget.js";
 import { CONNECTOR_TOOL_NAMES } from "../connectors/tools.js";
 import { MOBILE_TOOLS } from "./mobile-capabilities.js";
 import { answerAccountIntent, isAccountIntent } from "../connectors/invocation.js";
@@ -195,17 +196,26 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     : "";
   // Repo state rides in memory as "current signals"; it is noise on a personal turn.
   const repoSignal = /^project:[^ ]+ · (?:branch|dirty|latest_commit|head|changed_files):/;
+  const route: ContextRoute = compiledContext?.interpretation.needsDeepMemory || /\b(?:recall|remember|what have i said)\b/i.test(input.message) ? "recall" : projectTurn ? "work" : "companion";
+  const memoryCap = route === "recall" ? 12_000 : 6_000;
+  let memorySize = 0;
+  const seenMemory = new Set<string>();
   const usableMemory = input.memory.matches.filter((item) =>
     item.authority !== "assistant_output" && item.outcome !== "rejected"
     && (projectTurn || !repoSignal.test(item.excerpt))
-  );
+  ).filter((item) => {
+    const key = item.excerpt.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!key || seenMemory.has(key) || memorySize + item.excerpt.length > memoryCap) return false;
+    seenMemory.add(key); memorySize += item.excerpt.length; return true;
+  });
   const memory = !repositoryQuestion && usableMemory.length
     ? `\n<personal-memory>\n${usableMemory.map((item) =>
         `- [${item.authority ?? "user_observation"}]${item.outcome && item.outcome !== "unknown" ? `[${item.outcome}]` : ""} ${item.stale ? "[possibly stale] " : ""}${item.excerpt} (${item.path})`
       ).join("\n")}\n</personal-memory>\n`
     : "";
-  const history = input.history.length
-    ? `\nConversation so far:\n${input.history.map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content}`).join("\n")}\n`
+  const historyTurns = budgetHistory(input.history, route);
+  const history = historyTurns.length
+    ? `\nConversation so far:\n${historyTurns.map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content}`).join("\n")}\n`
     : "";
   // The work model is repo telemetry; on a personal turn it only makes Flyd talk like a stand-up.
   const presentModel = input.presentHypothesis && (projectTurn || currentWorkQuestion)
@@ -219,7 +229,12 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       ? crossRepoContext(input.crossRepo)
       : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
-  const cognitiveFor = (includeConversation: boolean) => compiledContext ? `\n${formatCompiledContext(compiledContext, { includeProjects: projectTurn, includeTaste: projectTurn, includeConversation })}\n` : "";
+  const personal = compiledContext?.user.personal;
+  const roomCore = personal && options.room ? options.room.core.split("\n").filter((line) => !/^(?:About me|Preferences|How to be with me|Constraints):/.test(line)).join("\n") : options.room?.core;
+  const profileOverride = personal ? budgetPersonalContext({ profile: personal.profile, memory: personal.memory, query: input.message, route }) : undefined;
+  const shownMemory = new Set(usableMemory.map((item) => item.excerpt.replace(/\s+/g, " ").trim().toLowerCase()).filter(Boolean));
+  const contextForPrompt = compiledContext && !repositoryQuestion && (!options.room || projectTurn) ? { ...compiledContext, memory: { ...compiledContext.memory, relevant: compiledContext.memory.relevant.filter((item) => !shownMemory.has(item.content.replace(/\s+/g, " ").trim().toLowerCase())) } } : compiledContext;
+  const cognitiveFor = (includeConversation: boolean) => contextForPrompt ? `\n${formatCompiledContext(contextForPrompt, { includeProjects: projectTurn, includeTaste: projectTurn, tasteMaxChars: route === "recall" ? 4000 : 2000, includeConversation: includeConversation && historyTurns.length === 0, ...(profileOverride !== undefined ? { profileOverride } : {}) })}\n` : "";
   const cognitiveContext = cognitiveFor(true);
   let agenda = "";
   try { agenda = agendaPromptBlock(); } catch { agenda = ""; }
@@ -289,7 +304,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
           "- Local, reversible actions are yours to take; anything that leaves the machine or can't be undone, ask first.",
           repos ? `- ${repos}` : "",
         ].filter(Boolean).join("\n"),
-        options.room ? `## Who he is\n${options.room.core || "(little known yet)"}` : "",
+        options.room ? `## Who he is\n<profile>\n${roomCore || "(little known yet)"}\n${personal ? budgetPersonalContext({ profile: personal.profile, memory: "", query: input.message, route }) : ""}\n</profile>` : "",
         projects,
         options.room?.brief ?? "",
         options.plan ?? "",
@@ -1269,7 +1284,7 @@ export async function respondToConversation(
         route: plan?.route ?? "unplanned", system, prompt,
         profile: section("profile") || (room ? roomContext.core : ""),
         recalled: section("relevant-memory") + section("historical-memory") + section("personal-memory"),
-        history: input.history.map((turn) => turn.content).join("\n"),
+        history: budgetHistory(input.history, compiledContext.interpretation.needsDeepMemory || /\b(?:recall|remember|what have i said)\b/i.test(input.message) ? "recall" : projectTurn ? "work" : "companion").map((turn) => turn.content).join("\n"),
         tools: JSON.stringify(selectedTools),
         memoryMs: compiledContext.trace.timings.memory ?? 0,
         matches: compiledContext.memory.relevant.length,

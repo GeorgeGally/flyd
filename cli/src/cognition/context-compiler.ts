@@ -7,7 +7,7 @@ import { materializePresentFromWork } from "./present-materializer.js";
 import { readProjection, readProjectProjection } from "./projections/store.js";
 import type { CompiledContext } from "./types.js";
 import type { JevOptions } from "./system-one/types.js";
-import { readUserProfile } from "../lib/user-profile.js";
+import { fitProfile, readUserProfile } from "../lib/user-profile.js";
 import { memoryPromptText } from "../council/memory-store.js";
 import { resolveTasteProject, tastePromptText } from "../council/taste.js";
 import { clampText } from "./context-format.js";
@@ -100,10 +100,11 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
     .map((id) => ({ id, projection: readProjectProjection(id) }))
     .filter((item) => Boolean(item.projection));
   let ownProfile: string | null = null;
-  try { ownProfile = readUserProfile(); } catch { omissions.push("user_profile_unreadable"); }
+  try { ownProfile = readUserProfile(undefined, Infinity); } catch { omissions.push("user_profile_unreadable"); }
   if (ownProfile) sources.push("USER.md");
   let curated: string | null = null;
-  try { curated = memoryPromptText(); } catch { omissions.push("curated_memory_unreadable"); }
+  let boundedCurated: string | null = null;
+  try { curated = memoryPromptText(undefined, new Date(), Infinity); boundedCurated = memoryPromptText(); } catch { omissions.push("curated_memory_unreadable"); }
   if (curated) sources.push("MEMORY.md");
   // His taste, learned from his corrections: personal rules plus the rules of
   // the projects in play, so Flyd never makes him correct the same thing twice.
@@ -119,7 +120,7 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   // USER.md and MEMORY.md arrive already fitted section by section, so they
   // are never cut here by a plain prefix clamp.
   const profileCombined = [
-    personalPromptBlocks(ownProfile, curated),
+    personalPromptBlocks(ownProfile ? fitProfile(ownProfile) : null, boundedCurated),
     clampText(profile, 1500),
   ].filter(Boolean).join("\n\n");
 
@@ -140,7 +141,7 @@ export async function compileContext(input: CompileContextInput): Promise<Compil
   return {
     generatedAt: new Date().toISOString(),
     interpretation,
-    user: { profile: profileCombined, ...(taste ? { taste } : {}), autonomy: [], communication: [] },
+    user: { profile: profileCombined, personal: { profile: ownProfile ?? "", memory: curated ?? "", projection: profile }, ...(taste ? { taste } : {}), autonomy: [], communication: [] },
     present,
     projects,
     conversation,
