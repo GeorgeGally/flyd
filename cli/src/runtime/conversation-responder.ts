@@ -1,4 +1,5 @@
 import { shellEnv } from "../lib/shell-env.js";
+import { writeContextTrace } from "./context-trace.js";
 import { CONNECTOR_TOOL_NAMES } from "../connectors/tools.js";
 import { MOBILE_TOOLS } from "./mobile-capabilities.js";
 import { answerAccountIntent, isAccountIntent } from "../connectors/invocation.js";
@@ -1259,13 +1260,29 @@ export async function respondToConversation(
   const codingIntent = interpretAgentInput(input.message).kind;
   const budget = planBudget(turnBudget(input.message, codingIntent, input.sessionId), plan);
   const maxIterations = budget.iterations;
+  const selectedTools = chatToolSet(plan, codeTurn).filter(tool => !mobile || (MOBILE_TOOLS.has(tool.name) && (input.mobileAccounts || !CONNECTOR_TOOL_NAMES.has(tool.name))));
+  if (!dependencies.readOnly) {
+    try {
+      const sent = `${system}\n${prompt}`;
+      const section = (tag: string) => sent.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1] ?? "";
+      writeContextTrace({
+        route: plan?.route ?? "unplanned", system, prompt,
+        profile: section("profile") || (room ? roomContext.core : ""),
+        recalled: section("relevant-memory") + section("historical-memory") + section("personal-memory"),
+        history: input.history.map((turn) => turn.content).join("\n"),
+        tools: JSON.stringify(selectedTools),
+        memoryMs: compiledContext.trace.timings.memory ?? 0,
+        matches: compiledContext.memory.relevant.length,
+      });
+    } catch { /* Tracing must not interrupt a conversation. */ }
+  }
   input.onActivity?.("Thinking it through");
   try {
     const { answer, model: usedModel } = await agentLoopWithFailover(
       models,
       system,
       prompt,
-      chatToolSet(plan, codeTurn).filter(tool => !mobile || (MOBILE_TOOLS.has(tool.name) && (input.mobileAccounts || !CONNECTOR_TOOL_NAMES.has(tool.name)))),
+      selectedTools,
       observedHandler,
       maxIterations,
       {
