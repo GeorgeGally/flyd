@@ -78,6 +78,7 @@ async function main(): Promise<void> {
     process.env.FLYD_CLAUDE_CHAT_MODEL = model;
   }
   // The judge stays fixed across runs so model comparisons are apples to apples.
+  process.env.FLYD_EVAL = "1";
   const judgeModel = evalJudgeModel();
   const only = argValue("--only")?.split(",").map((id) => id.trim()).filter(Boolean);
   const suite = argValue("--suite") ?? "chat";
