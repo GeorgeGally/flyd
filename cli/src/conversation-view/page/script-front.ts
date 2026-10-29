@@ -171,6 +171,9 @@ export const FRONT_SCRIPT = `
     var decision = object.decision && (object.decision.alternatives || object.decision.choices) ? {
       decisionId: object.decision.decisionId, task: object.decision.target || object.decision.task || "", question: object.decision.question || object.subject,
       choices: object.decision.alternatives || object.decision.choices || [],
+      // Every decision the work puts to him, so the card says what they are and which is done.
+      decisions: object.decision.decisions,
+      recommended: object.decision.recommended,
     } : null;
     return {
       id: object.id, group: group || (frontNeeds(object) ? "needs" : FRONT_PHASE[phase] || "working"),
@@ -302,11 +305,18 @@ export const FRONT_SCRIPT = `
   }
 
   // The open job's heading: what the open job is, its state, where and when.
-  function frontHead(job) {
+  function frontHead(job, closable) {
     var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
     stageCrumb.innerHTML = dot + '<span class="s">' + frontEsc(job.state) + '</span>'
       + (job.project ? '<span aria-hidden="true">·</span><span class="p">' + frontEsc(job.project) + '</span>' : "")
       + (job.at ? '<span aria-hidden="true">·</span><span>' + frontEsc(frontWhen(job.at)) + '</span>' : "");
+    // A job on the board closes from its heading: one quiet action, never a row in its timeline.
+    if (closable) {
+      var close = el("button", "crumb-close", "Close");
+      close.type = "button";
+      close.addEventListener("click", function () { frontPostJob({ op: "close", id: job.id }); });
+      stageCrumb.appendChild(close);
+    }
     var title = frontSplit(job.title).title;
     if (stageTitle.textContent !== title) stageTitle.textContent = title;
   }
@@ -475,31 +485,10 @@ export const FRONT_SCRIPT = `
       parts[parts.length - 1].appendChild(row);
     });
     if (job.files && job.files.length) parts.push(el("p", "jv-files", job.files.map(function (file) { return file.label; }).join(" · ")));
-    if (VIEW_TOKEN && Array.isArray(frontUpdate.jobs)) {
-      var edit = el("form", "jv-edit");
-      var name = el("input");
-      name.name = "name";
-      name.value = job.title;
-      name.maxLength = 60;
-      name.setAttribute("aria-label", "Rename this job");
-      var rename = el("button", "fbtn", "Rename");
-      rename.type = "submit";
-      var close = el("button", "fbtn", "Close");
-      close.type = "button";
-      close.addEventListener("click", function () { frontPostJob({ op: "close", id: job.id }); });
-      edit.appendChild(name);
-      edit.appendChild(rename);
-      edit.appendChild(close);
-      edit.addEventListener("submit", function (event) {
-        event.preventDefault();
-        frontPostJob({ op: "rename", id: job.id, name: name.value });
-      });
-      parts.push(edit);
-    }
     if (job.detail && !(job.previews && job.previews.length)) parts.push(frontDetailTalk(job));
     if (VIEW_TOKEN) {
       if (job.decision) {
-        parts.push(sceneAsk({ title: job.title, decision: job.decision }, "flyd-decision:" + (job.decision.decisionId || job.decision.task) + ":" + job.decision.question));
+        parts.push(sceneAsk({ title: job.title, decision: job.decision }, "flyd-decision:" + (job.decision.decisionId || job.decision.task)));
       } else {
         var about = { title: job.title };
         if (job.task) about.task = job.task;
@@ -522,7 +511,7 @@ export const FRONT_SCRIPT = `
       return;
     }
     frontRoot.setAttribute("data-job", job.id);
-    frontHead(job);
+    frontHead(job, VIEW_TOKEN && Array.isArray(frontUpdate.jobs));
     var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.next, job.ask, job.digest, job.threads, job.files]);
     // A job already open stays as he left it while he is typing in it.
     if (drawn === frontDrawn.view || (frontDrawn.viewId === job.id && jobView.contains(document.activeElement))) return;

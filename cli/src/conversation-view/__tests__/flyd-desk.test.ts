@@ -182,6 +182,14 @@ describe("FlydDesk", () => {
     ]);
   });
 
+  // A card's note carries the window's own lines ("About the artefact …"): they name the card,
+  // never the conversation he sees it in.
+  it("names a conversation by his own words about a card, not by the window's lines above them", () => {
+    const desk = new FlydDesk({ dir, answer: async () => "Two: ship the fixes, then pick a direction." });
+    desk.ask('About the artefact "Flyd live activity"\n\nwhat are those decisions?', [], "conversation");
+    expect(desk.historySessions()[0]!.title).toMatch(/^what are those decisions\? · /);
+  });
+
   it("numbers each turn by every earlier question in the session, past the history it carries", async () => {
     const numbers: Array<number | undefined> = [];
     const desk = new FlydDesk({ dir, answer: async (_question, _history, _onStep, turn) => {

@@ -673,6 +673,7 @@ export const SHOW_SCRIPT = `
       choices: object.decision.alternatives || [],
       recommended: object.decision.recommended,
       replyTo: object.decision.replyTo,
+      decisions: object.decision.decisions,
     } : undefined;
     var actionNeedsApproval = object.kind === "action" && object.action && object.action.requiresApproval && object.lifecycle === "interrupted";
     if (actionNeedsApproval && !decision) {
@@ -711,7 +712,7 @@ export const SHOW_SCRIPT = `
     var shots = shotsOf(box);
     var aboutWork = box.decision || box.task || box.ref || box.open || (box.links && box.links.length) || shots.length;
     if (!VIEW_TOKEN || !aboutWork) return "";
-    return box.decision ? "flyd-decision:" + (box.decision.decisionId || box.decision.task) + ":" + box.decision.question : "flyd-about:" + box.id;
+    return box.decision ? "flyd-decision:" + (box.decision.decisionId || box.decision.task) : "flyd-about:" + box.id;
   }
 
   // The artefact lives in the conversation: the same reviewed pattern, drawn
@@ -855,7 +856,7 @@ export const SHOW_SCRIPT = `
         a.rel = "noopener noreferrer";
         item.appendChild(a);
       });
-      if (call.decision && VIEW_TOKEN) item.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + (call.decision.decisionId || call.decision.task) + ":" + call.decision.question));
+      if (call.decision && VIEW_TOKEN) item.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + (call.decision.decisionId || call.decision.task)));
       callsList.appendChild(item);
     });
   }

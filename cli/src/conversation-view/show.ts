@@ -4,8 +4,8 @@ import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
 import { withoutStubs } from "./executive.js";
 import { choiceOf, choiceTarget, openChoice, type ChoiceStep } from "./choices.js";
-import { callItems, composeArtefact, doneItems, fleetCounts, gatedItem, heldItems, nextItems, readyItems, underwayItems, weekLandedItems, type ArtefactInputs, type DayCount } from "./artefact.js";
-import { railImageSrc } from "./rail.js";
+import { callItems, composeArtefact, doneItems, fleetCounts, gatedItem, heldItems, nextItems, readyItems, underwayItems, weekLandedItems, type ArtefactInputs, type DayCount, type HoldDecision } from "./artefact.js";
+import { plainNote, railImageSrc } from "./rail.js";
 import { semanticObjectsFromShow, type SemanticEvent, type SemanticObject } from "./semantic.js";
 import type { ConversationMessage, ConversationSnapshot } from "./types.js";
 
@@ -49,7 +49,7 @@ export interface ShowItem {
    * task; a question a reply put to him names where his answer goes (replyTo),
    * and goes back the way a reply to an answer does.
    */
-  decision?: { task: string; decisionId?: string; question: string; choices: string[]; replyTo?: string; recommended?: string; steps?: ChoiceStep[] };
+  decision?: { task: string; decisionId?: string; question: string; choices: string[]; replyTo?: string; recommended?: string; decisions?: HoldDecision[]; steps?: ChoiceStep[] };
   /** Stable while it is the same thing, so the page animates only what is new. */
   id: string;
   kind: ShowKind;
@@ -370,7 +370,14 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   const since = messages.slice(lastCaptain + 1).filter((message) => fromFleet(message) && !routine(message));
   const open = openChoice(messages.filter((message) => message.role === "user" || fromFleet(message)), routine);
   // Flyd's own plumbing (its session, scripts, permissions) is Flyd's to sort out, never a call of his.
-  const call = open?.message ?? [...since].reverse().find((message) => (asksForDecision(message.text) || FOR_HIM.test(message.text)) && !isPlumbing(askLine(message.text) ?? headline(readingOf(message))));
+  let call = open?.message ?? [...since].reverse().find((message) => (asksForDecision(message.text) || FOR_HIM.test(message.text)) && !isPlumbing(askLine(message.text) ?? headline(readingOf(message))));
+  // A card's own note ("About the artefact …") is his words about that card, not a question put to
+  // him in the conversation: it belongs in the card's thread, never as a call of his own.
+  const onACard = (message: ConversationMessage): boolean => plainNote(message.text).about !== undefined;
+  if (call && onACard(call)) {
+    used.add(call.id);
+    call = undefined;
+  }
   if (call) {
     // A question with options is answerable on screen: the question leads, what it is about under it.
     const choice = open?.choice ?? choiceOf(call.text);

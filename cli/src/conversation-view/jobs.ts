@@ -53,6 +53,8 @@ export interface Job {
   files: Array<{ label: string }>;
   threads: JobThread[];
   digest: JobDigestView | null;
+  /** The show item's decision, when the job needs one, so the job opens on its decisions. */
+  decision?: ShowItem["decision"];
 }
 
 export interface JobRun {
@@ -130,6 +132,7 @@ interface Signal {
   owner: string;
   ask: string;
   because: string;
+  decision?: ShowItem["decision"];
 }
 
 function rank(group: JobGroup): number {
@@ -256,6 +259,7 @@ export function jobsFrom(input: {
       owner: group === "needs" ? "you" : "Flyd",
       ask,
       because: `Fleet ${item.kind}: ${item.id}`,
+      ...(group === "needs" && item.decision ? { decision: item.decision } : {}),
     });
     for (const shot of item.shots ?? []) if (shot.src) bucket.shots.push({ src: shot.src, label: shot.label });
     for (const link of [...(item.links ?? []), ...(item.open ? [item.open] : [])]) {
@@ -310,6 +314,7 @@ export function jobsFrom(input: {
       files: bucket.files.slice(0, 6),
       threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8),
       digest: digest ? { changed: digest.changed, means: digest.means, needed: digest.needed, ...(digest.link ? { link: digest.link } : {}) } : null,
+      ...(lead.decision ? { decision: lead.decision } : {}),
     });
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));

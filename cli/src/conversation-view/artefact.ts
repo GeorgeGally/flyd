@@ -70,6 +70,8 @@ export interface ArtefactRow {
   /** The shared decision step's question and recommendation, when George owns it. */
   executiveDecisionId?: string;
   question?: string;
+  /** The decisions a hold puts to him, in its own order, each with its alternatives and whether it is done. */
+  decisions?: HoldDecision[];
   recommendation?: { option?: string; rationale: string };
   notable?: boolean;
   /** The list still holds it but the latest read no longer reports it: a call shows as settled, never as asking him. */
@@ -242,7 +244,19 @@ export function callHeadline(text: string | undefined, fallback?: string): strin
   if (line.length <= HEADLINE_MAX) return line;
   const first = /^.{12,}?[?.!](?=\s|$)/.exec(line)?.[0];
   if (first && first.length <= HEADLINE_MAX + 30) return first;
-  return `${line.slice(0, HEADLINE_MAX).replace(/\s+\S*$/, "")}…`;
+  // A cut headline ends on a whole clause or word: never on a hanging "and", "or" or "to…".
+  const cut = line.slice(0, HEADLINE_MAX).replace(/\s+\S*$/, "");
+  const clause = Math.max(cut.lastIndexOf(", "), cut.lastIndexOf("; "));
+  const whole = clause > HEADLINE_MAX / 2 ? cut.slice(0, clause) : cut;
+  return `${withoutDanglingConnector(whole)}…`;
+}
+
+/** A line with any word joining it to something cut off taken away: "…from the report, and" → "…from the report". Pure. */
+export function withoutDanglingConnector(line: string): string {
+  const CONNECTORS = /\s+(?:and|or|but|plus|then|with|to|for|from|of|in|on|at|by|the|a|an|whether|as|than|that|which|who)$/i;
+  let kept = line.trim();
+  for (let word = CONNECTORS.exec(kept); word; word = CONNECTORS.exec(kept)) kept = kept.slice(0, word.index).trim();
+  return kept.replace(/[\s,;:.\-–—]+$/, "");
 }
 
 function linkLabel(url: string): string {
@@ -512,12 +526,33 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     if (entry && call) next = { ...next, label: entry.title, ...(entry.hold ? { detail: entry.hold, ...(options.includeUnclassifiedCalls ? { sourceDetail: [row.sourceDetail, entry.hold].filter(Boolean).join("\n") } : {}) } : {}) };
     else if (entry) next = { ...next, label: wholeLabel(row.label, entry.title) };
     if (entry?.repo) next.repo = entry.repo;
+    const related = next.repo ? [...backlog].filter(([task, other]) => task !== row.task && other.repo === next.repo) : [];
+    // A hold names its decisions in prose: each one in a plain line, with its own alternatives, and
+    // done when the record shows a landed task that names the same work. Only what still asks him stays.
     if (call && entry?.hold) {
-      next.choices = decisionChoices(entry.hold);
+      const held = holdDecisions(entry.hold);
+      const decisions = held.length ? decisionProgress(held, related.map(([, other]) => other), entry.since) : [];
+      const open = decisions.filter((decision) => !decision.done);
+      // Several decisions: the card says each in its own plain line and asks the first one still open.
+      // One decision keeps the card's own question, as it always has.
+      if (decisions.length > 1) {
+        const asked = (open[0] ?? decisions[0])!;
+        next.decisions = decisions;
+        next.question = asked.question;
+        next.choices = asked.options;
+        if (asked.recommended) {
+          // The hold's aside is a fragment ("island + one sheet"): said as its own short sentence.
+          const note = asked.note ? /[.!?]$/.test(asked.note) ? asked.note : `${capitalise(asked.note)}.` : "";
+          next.recommendation = { option: asked.recommended, rationale: note };
+        }
+      } else {
+        next.choices = decisionChoices(entry.hold);
+      }
+      // Nothing is left to answer: it leaves Needs you as settled, never as a decision.
+      if (decisions.length && !open.length) next.ledgerOnly = true;
       next.references = [...new Set(entry.hold.match(/https?:\/\/[^\s,)]+/g) ?? [])].map((url) => ({ label: /\/session\//.test(url) ? "Open design review" : "Open reference", url }));
     }
     if (next.repo) {
-      const related = [...backlog].filter(([task, other]) => task !== row.task && other.repo === next.repo);
       next.context = related.slice(-6).map(([, other]) => `${other.finished ? `Finished ${other.finished}` : "Still open"}: ${other.title}. ${other.notes ?? ""}`).join("\n").slice(0, 2400);
     }
     if (call && entry?.since) next.raised = entry.since;
@@ -736,6 +771,162 @@ export function decisionChoices(question: string): string[] {
   const choices = [...question.matchAll(/(?:^|:\s*|,\s*)(\d+)\s+(.+?)(?=,\s*\d+\s+|,?\s+or a mix\b|$)/g)]
     .map((match) => match[2]!.replace(/\s*\([^)]*\)/g, "").replace(/[.,;]+$/, "").trim());
   return choices.length >= 2 && choices.length <= 8 ? choices : [];
+}
+
+/** One decision a hold puts to him, in one plain line with its own alternatives. */
+export interface HoldDecision {
+  /** What it asks, in one line: "Ship fixes 1-3 from the report first". */
+  question: string;
+  /** What he can pick, plain: "Yes", "No", "V3 Notch". */
+  options: string[];
+  /** The option the work recommends, when it names one. */
+  recommended?: string;
+  /** The recommended option's own words, when it has them: "island + one sheet". */
+  note?: string;
+  /** What already answered it, from the record of what landed: "Done: … (flyd #238)". */
+  done?: string;
+}
+
+const RECOMMENDS = /\brecommend/i;
+
+/** Words a check of what a decision says compares: lower case, no punctuation, no bare dashes. */
+function words(text: string): string[] {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, " ").split(/\s+/).filter((word) => word && word !== "-");
+}
+
+/** Commas at the top level only, so a choice's own "(a, b)" stays whole. Pure. */
+function splitTop(text: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+    else if (character === "," && depth === 0) { parts.push(text.slice(start, index)); start = index + 1; }
+  }
+  parts.push(text.slice(start));
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+/** Where the question ends and its alternatives begin: the first colon outside any "(…)", or -1. Pure. */
+function topColon(text: string): number {
+  let depth = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+    else if (character === ":" && depth === 0) return index;
+  }
+  return -1;
+}
+
+/** An option's own aside, with the recommendation clause taken out: "island + one sheet". Pure. */
+function aside(raw: string): string | undefined {
+  const inside = /\(([^)]*)\)/.exec(raw)?.[1] ?? "";
+  const kept = inside.split(/;/)[0]!.replace(/recommend[^;]*/i, "").replace(/[;,\s]+$/, "").trim();
+  return kept || undefined;
+}
+
+/** One numbered decision out of a hold's prose, or undefined when there are no words to ask with. Pure. */
+function decisionFrom(body: string): HoldDecision | undefined {
+  // Where the hold says its material sits belongs to the artefact, not to the decision.
+  let text = body.trim();
+  for (let trimmed = ""; trimmed !== text;) {
+    trimmed = text;
+    text = text
+      .replace(/[\s,;.]+$/, "")
+      .replace(/\s*\(\s*(?:board|lab)\s+[^)\s]*[/.:][^)]*\)$/i, "")
+      .replace(/(?:^|[\s,;.]+)(?:board|lab)\s+\S*[/.:]\S*$/i, "");
+  }
+  text = text.replace(/https?:\/\/\S+/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  const options: string[] = [];
+  // "… - yes/no" asks him to go ahead or not.
+  const yesNo = /\s*[-–—]\s*yes\s*\/\s*no\s*$/i.exec(text);
+  if (yesNo) { text = text.slice(0, yesNo.index); options.push("Yes", "No"); }
+  const colon = yesNo ? -1 : topColon(text);
+  const listed = colon > 0 ? splitTop(text.slice(colon + 1)) : [];
+  const asked = colon > 0 ? text.slice(0, colon) : text;
+  let recommended: string | undefined;
+  let note: string | undefined;
+  // The alternatives after a colon are the choice; the words before it are the question.
+  if (listed.length >= 2) {
+    for (const raw of listed) {
+      const option = raw.replace(/\s*\([^)]*\)/g, "").replace(/[.;,]+$/, "").trim();
+      if (!option) continue;
+      options.push(option);
+      if (!recommended && RECOMMENDS.test(raw)) { recommended = option; note = aside(raw); }
+    }
+  }
+  const question = asked
+    .replace(/\s*\([^)]*\)/g, " ")
+    .replace(/^[\s,;:.-]+/, "")
+    .replace(/[\s,;:.-]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!question) return undefined;
+  return {
+    question: question.charAt(0).toUpperCase() + question.slice(1),
+    // One alternative is not a choice: his own words answer it.
+    options: options.length >= 2 ? options : [],
+    ...(recommended ? { recommended, ...(note ? { note } : {}) } : {}),
+  };
+}
+
+/**
+ * Every decision a hold puts to him, in the hold's own order: "(1) … ; (2) which … of V1, V2, V3"
+ * is two decisions, each with its own alternatives. A hold that numbers nothing is one decision. Pure.
+ */
+export function holdDecisions(hold: string): HoldDecision[] {
+  const numbered = [...hold.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\s*\(\d+\)\s|$)/g)].map((match) => match[2]!);
+  const bodies = numbered.length >= 2 ? numbered : [hold];
+  return bodies.map((body) => decisionFrom(body.replace(/^[\s;,-]+/, ""))).filter((decision): decision is HoldDecision => Boolean(decision));
+}
+
+/** Whether two lines share a run of words specific enough to say they are about the same thing. Pure. */
+export function sharesRun(a: string, b: string): boolean {
+  const one = words(a);
+  const other = words(b);
+  const shared = (length: number, pick: (slice: string[]) => boolean): boolean => {
+    for (let start = 0; start + length <= one.length; start += 1) {
+      const slice = one.slice(start, start + length);
+      if (!pick(slice)) continue;
+      for (let at = 0; at + length <= other.length; at += 1) {
+        if (slice.every((word, index) => other[at + index] === word)) return true;
+      }
+    }
+    return false;
+  };
+  // Three words carrying a number name one piece of work ("fixes 1-3 from"); so does a named
+  // thing with its number ("v3 notch"). A run of plain words is any two tasks' shared phrasing.
+  return shared(3, (slice) => slice.some((word) => /\d/.test(word)))
+    || shared(2, (slice) => slice.some((word) => /\d/.test(word) && /\p{L}/u.test(word)) && slice.every((word) => word.length > 1));
+}
+
+/** A report or lab the work wrote up for him to read: what raised a decision, never what answered it. Pure. */
+function writeUp(task: { title: string; notes?: string; url?: string }): boolean {
+  const said = `${task.title} ${task.notes ?? ""}`;
+  return /\(report \+ artefact\)|\bready to read\b/i.test(said)
+    || /^\s*(?:lab|report|research|scout)\b/i.test(task.title)
+    || /(?:^|\/)data\/\S+\.(?:md|html)$/i.test(task.url ?? "");
+}
+
+/**
+ * The decisions with whichever of them a landed change has already answered marked done: a
+ * task that landed (finished, with its PR or other link) on or after the day the hold was raised,
+ * and names the same work, says so plainly ("Done: … (flyd #238)") — from the backlog's own
+ * record, never invented. The report or lab that raised the decision never answers it. Pure.
+ */
+export function decisionProgress(decisions: readonly HoldDecision[], tasks: ReadonlyArray<{ title: string; notes?: string; url?: string; finished?: string }>, since?: string): HoldDecision[] {
+  const landed = tasks.filter((task) => task.finished && task.url && (!since || task.finished >= since) && !writeUp(task));
+  return decisions.map((decision) => {
+    // Its own words and the things it offers to pick: the landed work names one of them.
+    const about = [decision.question, ...decision.options].join(" ");
+    const answered = landed.find((task) => sharesRun(about, `${task.title} ${task.notes ?? ""}`));
+    if (!answered) return decision;
+    return { ...decision, done: `Done: ${answered.title}${answered.url ? ` (${linkLabel(answered.url)})` : ""}` };
+  });
 }
 
 /** The seven days "landed this week" covers, oldest first, as YYYY-MM-DD. Pure. */
@@ -1002,7 +1193,7 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
     ...(row.executiveDecisionId ? { executiveDecisionId: row.executiveDecisionId } : {}),
     headline,
     why: "",
-    ...(kind === "call" && row.task ? { decision: { task: row.task, ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}) } } : {}),
+    ...(kind === "call" && row.task ? { decision: { task: row.task, ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}), ...(row.decisions?.length ? { decisions: row.decisions } : {}) } } : {}),
     ...(asked ? { detail: row.recommendation?.option ? recommendationText(row.recommendation) : row.said?.line || sourceHeadline } : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
     ...(row.started ? { started: row.started } : {}),

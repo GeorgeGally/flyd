@@ -1,3 +1,4 @@
+import type { HoldDecision } from "./artefact.js";
 import type { ShowItem } from "./show.js";
 
 export const SEMANTIC_KINDS = [
@@ -83,6 +84,8 @@ export interface SemanticObject {
     alternatives: string[];
     recommended?: string;
     replyTo?: string;
+    /** Every decision the work puts to him, in its own order, each with its alternatives. */
+    decisions?: HoldDecision[];
   };
   /** Action is one intended state change across approval, execution and outcome. */
   action?: {
@@ -234,6 +237,7 @@ export function semanticObjectFromShow(item: ShowItem, override?: SemanticKind):
         alternatives: item.decision.choices,
         ...(item.decision.recommended ? { recommended: item.decision.recommended } : {}),
         ...(item.decision.replyTo ? { replyTo: item.decision.replyTo } : {}),
+        ...(item.decision.decisions?.length ? { decisions: item.decision.decisions } : {}),
       },
     } : {}),
     ...(item.at ? { createdAt: item.at, updatedAt: item.at } : {}),

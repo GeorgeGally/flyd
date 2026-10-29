@@ -57,6 +57,19 @@ describe("jobsFrom", () => {
     expect(board.jobs[0]).toMatchObject({ group: "needs", owner: "you", ask: "Which price should ship?" });
   });
 
+  it("carries a needs item's decisions onto its job, with what is already done", () => {
+    const decision = {
+      task: "flyd-live", question: "Two decisions are needed on Flyd live activity", choices: ["V1 Departures", "V2 Picture desk", "V3 Notch"], recommended: "V3 Notch",
+      decisions: [
+        { question: "Ship fixes 1-3 from the report first", options: ["Yes", "No"], done: "Done: fixes 1-3 landed (flyd #238)" },
+        { question: "Which direction to build on top", options: ["V1 Departures", "V2 Picture desk", "V3 Notch"], recommended: "V3 Notch" },
+      ],
+    };
+    const show = { ...screen, calls: [{ id: "call-1", kind: "call", headline: "Two decisions are needed on Flyd live activity", why: "", decision }] } as ShowScreen;
+    const board = jobsFrom({ show, now: NOW });
+    expect(board.jobs[0]).toMatchObject({ group: "needs", decision });
+  });
+
   it("keeps a pull request and a file that exists, and drops a file that does not", () => {
     const board = jobsFrom({
       runs: [run({

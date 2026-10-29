@@ -1964,8 +1964,167 @@ describe("header and artefact view", () => {
     }
   });
 
-  it("keeps a card's message out of its thread and back in the box when it does not go", async () => {
+  // George, 2026-10-29: "Why doesn't Flyd show me that it's working and give me information about
+  // what's happening? I typed something in and it just... nothing happens."
+  it("says what Flyd is doing about a card's message, then replaces that line with the answer in place", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+      const thread = ask.querySelector<HTMLElement>(".art-thread")!;
+      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+      chat.value = "what are those decisions?";
+      chat.dispatchEvent(new Event("input"));
+      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "ask:7" } : {}));
+      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+      // It is sent and nothing has come back: the card says what is happening, never just "Sent".
+      expect(thread.querySelector(".art-working")!.textContent).toBe("Queued");
+      // The step being taken replaces that one line, in place.
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "sent", doing: "Reading the report" } : {}));
+      vi.advanceTimersByTime(4000);
+      await settle();
+      expect(thread.querySelectorAll(".art-working")).toHaveLength(1);
+      expect(thread.querySelector(".art-working")!.textContent).toBe("Reading the report");
+      // Handed to the work that runs it: the card still says what is happening, not who has it.
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "read", handoff: "taken" } : {}));
+      vi.advanceTimersByTime(4000);
+      await settle();
+      expect(thread.querySelector(".art-working")!.textContent).toBe("Working on it");
+      // The answer takes its place: the working line is gone, the answer is under his words.
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "read", answer: { text: "Two: ship the fixes, then pick a direction.", timestamp: "2026-10-05T20:03:00.000Z" } } : {}));
+      vi.advanceTimersByTime(4000);
+      await settle();
+      expect(thread.querySelector(".art-working")).toBeNull();
+      expect(thread.querySelector(".art-msg--them")!.textContent).toBe("Two: ship the fixes, then pick a direction.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a failed answer as the card's error, with no working line, and stops asking about it", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+      chat.value = "what are those decisions?";
+      chat.dispatchEvent(new Event("input"));
+      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "ask:7" } : String(url).startsWith("/api/note?") ? { receipt: "sent", failed: "Flyd couldn't answer this: model timed out" } : {}));
+      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+      vi.advanceTimersByTime(4000);
+      await settle();
+      expect(ask.querySelector(".art-working")).toBeNull();
+      const receipt = ask.querySelector<HTMLElement>(".art-chat-receipt")!;
+      expect(receipt.textContent).toBe("Flyd couldn't answer this: model timed out");
+      expect(receipt.classList.contains("problem")).toBe(true);
+      const asked = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/note?")).length;
+      const before = asked();
+      vi.advanceTimersByTime(9000);
+      await settle();
+      expect(asked()).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets him answer an answer where it stands, in the card's own thread", async () => {
+    localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "A mix of the two", id: "note:1", answer: "A mix it is, sir." }]));
     load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+    const reply = ask.querySelector<HTMLButtonElement>(".art-reply")!;
+    expect(reply.textContent).toBe("Reply");
+    reply.click();
+    await settle();
+    // A box opens under the answer, and what he sends there goes back as a reply to it.
+    const box = ask.querySelector<HTMLTextAreaElement>(".art-chat--nested .art-chat-input")!;
+    box.value = "make it quieter";
+    box.dispatchEvent(new Event("input"));
+    ask.querySelector(".art-chat--nested")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    const body = JSON.parse(String((sent[1] as RequestInit).body));
+    expect(body.text).toBe("make it quieter");
+    expect(body.replyTo).toBe("note:1");
+  });
+
+  it("lets him reply to his own message too, and keeps a half-typed reply while the card redraws", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "A mix of the two", id: "note:1" }]));
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+      const reply = ask.querySelector<HTMLButtonElement>(".art-reply")!;
+      expect(reply.getAttribute("aria-label")).toBe("Reply to this message");
+      reply.click();
+      await settle();
+      const box = ask.querySelector<HTMLTextAreaElement>(".art-chat--nested .art-chat-input")!;
+      box.value = "and make it quieter";
+      box.dispatchEvent(new Event("input"));
+      // What Flyd is doing changes under his message: the card redraws, his reply box stays.
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "sent", doing: "Reading the lab" } : {}));
+      vi.advanceTimersByTime(4000);
+      await settle();
+      expect(ask.querySelector(".art-working")!.textContent).toBe("Reading the lab");
+      expect(ask.querySelector(".art-chat--nested .art-chat-input")).toBe(box);
+      expect(box.isConnected).toBe(true);
+      expect(box.value).toBe("and make it quieter");
+      expect(document.activeElement).toBe(box);
+      ask.querySelector(".art-chat--nested")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+      const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+      const body = JSON.parse(String((sent[1] as RequestInit).body));
+      expect(body.replyTo).toBe("note:1");
+      // His own words go back as his note, never as a question the session asked.
+      expect(body.questionText).toBeUndefined();
+      // The note he replied under leaves the inbox: his reply and its box stay where they are.
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: null } : {}));
+      for (let tick = 0; tick < 4; tick++) {
+        vi.advanceTimersByTime(4000);
+        await settle();
+      }
+      const nested = ask.querySelector<HTMLElement>(".art-chat--nested")!;
+      expect(nested.isConnected).toBe(true);
+      expect([...nested.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["and make it quieter"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("offers a reply under every sent message, its own words or an answer, whether or not the note is still in the inbox", async () => {
+    localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "Evergreen luxe", id: "decision:visuals" }, { text: "A mix of the two", id: "note:1" }, { text: "Gone from the inbox", id: "note:2", done: true }, { text: "Answered", id: "note:3", done: true, answer: "Done, sir." }]));
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const entries = [...document.querySelectorAll(".scene-ask .art-entry")];
+    expect(entries.map((entry) => Boolean(entry.querySelector(".art-reply")))).toEqual([true, true, true, true]);
+  });
+
+  it("keeps a card's message out of its thread and back in the box when it does not go", async () => {    load("");
     await settle();
     const stream = open("latest", []);
     const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
@@ -2000,7 +2159,7 @@ describe("header and artefact view", () => {
   it("keeps asking about a taken card note until it goes from the inbox, and keeps only the thread past the session", async () => {
     vi.useFakeTimers({ toFake: ["setInterval"] });
     try {
-      localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Gone", id: "note:2" }, { text: "Draining", id: "note:3" }]));
+      localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Gone", id: "note:2" }, { text: "Draining", id: "note:3" }]));
       load("");
       await settle();
       const stream = open("latest", []);
@@ -2022,9 +2181,9 @@ describe("header and artefact view", () => {
       }
       expect([asked("note%3A1"), asked("note%3A2"), asked("note%3A3")]).toEqual([5, 3, 2]);
       expect([...document.querySelectorAll(".scene-ask .art-msg--them")].map((node) => node.textContent)).toEqual(["Done, sir."]);
-      const kept = JSON.parse(localStorage.getItem("flyd-decision:visuals:Choose from the lab")!);
+      const kept = JSON.parse(localStorage.getItem("flyd-decision:visuals")!);
       expect(kept.map((entry: { text: string }) => entry.text)).toEqual(["A mix of the two", "Gone", "Draining"]);
-      expect(JSON.parse(sessionStorage.getItem("flyd-decision:visuals:Choose from the lab")!).thread).toBeUndefined();
+      expect(JSON.parse(sessionStorage.getItem("flyd-decision:visuals")!).thread).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
@@ -2033,7 +2192,7 @@ describe("header and artefact view", () => {
   it("folds in what another copy of the same card stored instead of writing over it", async () => {
     vi.useFakeTimers({ toFake: ["setInterval"] });
     try {
-      const key = "flyd-decision:visuals:Choose from the lab";
+      const key = "flyd-decision:visuals";
       localStorage.setItem(key, JSON.stringify([{ text: "A mix of the two", id: "note:1" }]));
       load("");
       await settle();
@@ -3963,6 +4122,17 @@ describe("the front page", () => {
     after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     expect(document.querySelector(".jv-ask")!.textContent).toBe("Which hero should ship?");
     expect(document.querySelector(".jv-thread")!.textContent).toBe("Hero thread");
+    // No rename row in the job: its one Close is a quiet action in the heading.
+    const view = document.querySelector(".job-view")!;
+    expect(view.querySelector('input[name="name"]')).toBeNull();
+    expect(Array.from(view.querySelectorAll("button")).map((button) => button.textContent)).not.toEqual(expect.arrayContaining(["Rename"]));
+    expect(Array.from(view.querySelectorAll("button")).map((button) => button.textContent)).not.toEqual(expect.arrayContaining(["Close"]));
+    const closes = document.querySelectorAll<HTMLButtonElement>("#stage-crumb button");
+    expect(Array.from(closes).map((button) => button.textContent)).toEqual(["Close"]);
+    vi.mocked(fetch).mockClear();
+    closes[0].click();
+    const posted = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/jobs")!;
+    expect(JSON.parse(String(posted[1]!.body))).toEqual({ op: "close", id: "pick" });
     after(() => document.querySelector<HTMLElement>('.job[data-job="cap5"]')!.click());
     expect(document.querySelector(".jv-digest")!.textContent).toContain("Cap5 can review one offer.");
     expect(document.querySelector<HTMLAnchorElement>(".jv-digest .fbtn")!.href).toBe("https://example.com/deck");
