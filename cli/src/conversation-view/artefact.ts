@@ -1638,10 +1638,10 @@ export class ArtefactFeed {
   }
 
   /** The workers the staff watch sees running and the snapshot left out, as rows for the Working group. */
-  private staffLive(known: readonly ArtefactRow[]): ArtefactRow[] {
-    const seen = new Set(known.flatMap((row) => (row.task ? [row.task] : [])));
+  private staffLive(fleet: FleetArtefact): ArtefactRow[] {
+    const seen = new Set(FLEET_FIELDS.flatMap((field) => fleet[field].flatMap((row) => (row.task ? [row.task] : []))));
     return (this.options.workers?.() ?? []).flatMap((worker): ArtefactRow[] => {
-      if (!worker.id || seen.has(worker.id) || DECIDING.has(worker.state) || STOPPED.has(worker.state)) return [];
+      if (!worker.id || seen.has(worker.id) || worker.state === "paused" || DECIDING.has(worker.state) || STOPPED.has(worker.state)) return [];
       seen.add(worker.id);
       return [{
         label: worker.name || worker.id,
@@ -1705,7 +1705,7 @@ export class ArtefactFeed {
         }), heldForAttention())
         : enriched;
       // Every worker the staff is running, not only the twenty the snapshot lists.
-      const running = decided.unavailable ? [] : this.staffLive(decided.live);
+      const running = decided.unavailable ? [] : this.staffLive(decided);
       if (running.length) decided.live = [...decided.live, ...running];
       decided.calls = decided.calls.map((row) => ({ ...row, label: callHeadline(row.label, row.task ? entries.get(row.task)?.title : undefined) }));
       for (const row of decided.calls) {

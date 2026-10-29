@@ -1128,16 +1128,24 @@ describe("ArtefactFeed fleet reads", () => {
   it("shows every worker the staff is running, not only the first twenty the snapshot lists", async () => {
     const { home, script } = fleetHome("artefact-workers-");
     const snapshot = join(home, "bearings.json");
-    writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "listed", state: "working", name: "Listed worker", doing: "harness busy" }] }));
+    writeFileSync(snapshot, JSON.stringify({
+      in_flight: [
+        { id: "listed", state: "working", name: "Listed worker", doing: "harness busy" },
+        { id: "finished", state: "done", name: "Finished worker", doing: "ready to land" },
+      ],
+    }));
     writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
     const workers = () => [
       { id: "listed", name: "Listed worker", state: "working" },
+      { id: "finished", name: "Finished worker", state: "working" },
+      { id: "paused-one", name: "Paused worker", state: "paused" },
       { id: "cut-off", name: "Cut off worker", state: "working", doing: "building the board", since: "2026-10-29T04:12:00.000Z" },
       { id: "held-up", name: "Held up worker", state: "needs-decision" },
     ];
     const feed = new ArtefactFeed({ home, workers, ...files(home) });
     await feed.refresh();
     expect(feed.current().fleet?.live.map((row) => row.task)).toEqual(["listed", "cut-off"]);
+    expect(feed.current().fleet?.ready.map((row) => row.task)).toEqual(["finished"]);
     expect(underwayItems(feed.current().fleet).map((item) => item.task)).toEqual(["cut-off", "listed"]);
   });
 
