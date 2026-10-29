@@ -255,6 +255,13 @@ export const ARTEFACT_CHAT_SCRIPT = `
               changed = true;
             }
             if (data.receipt === "read" && state.receipt === "sent") { state.receipt = "read"; changed = true; }
+            if (data.failed && !entry.answer) {
+              entry.done = true;
+              delete entry.doing;
+              state.error = data.failed;
+              changed = true;
+              return;
+            }
             // What Flyd is doing about it right now: replaced in place, never a growing log.
             if (!entry.answer) {
               var step = (data.doing || "").trim();

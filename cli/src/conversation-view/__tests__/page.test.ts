@@ -2007,6 +2007,38 @@ describe("header and artefact view", () => {
     }
   });
 
+  it("shows a failed answer as the card's error, with no working line, and stops asking about it", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+      chat.value = "what are those decisions?";
+      chat.dispatchEvent(new Event("input"));
+      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "ask:7" } : String(url).startsWith("/api/note?") ? { receipt: "sent", failed: "Flyd couldn't answer this: model timed out" } : {}));
+      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+      vi.advanceTimersByTime(4000);
+      await settle();
+      expect(ask.querySelector(".art-working")).toBeNull();
+      const receipt = ask.querySelector<HTMLElement>(".art-chat-receipt")!;
+      expect(receipt.textContent).toBe("Flyd couldn't answer this: model timed out");
+      expect(receipt.classList.contains("problem")).toBe(true);
+      const asked = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/note?")).length;
+      const before = asked();
+      vi.advanceTimersByTime(9000);
+      await settle();
+      expect(asked()).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lets him answer an answer where it stands, in the card's own thread", async () => {
     localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "A mix of the two", id: "note:1", answer: "A mix it is, sir." }]));
     load("");

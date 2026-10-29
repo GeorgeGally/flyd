@@ -688,6 +688,16 @@ describe("ConversationViewServer", () => {
       .toEqual({ receipt: "sent", doing: "Reading the report" });
   });
 
+  it("says a card's message failed as a failure, never as a step being taken", async () => {
+    const inbox = new MemoryInbox();
+    await inbox.send("what are those decisions?");
+    const notes = inbox.notes.bind(inbox);
+    inbox.notes = () => notes().map((exchange) => ({ ...exchange, waiting: "Flyd couldn't answer this: model timed out", waitingFailed: true }));
+    const port = await start(inbox);
+    expect(JSON.parse((await get(port, `/api/note?id=${encodeURIComponent("note:1")}&token=${viewToken}`)).body))
+      .toEqual({ receipt: "sent", failed: "Flyd couldn't answer this: model timed out" });
+  });
+
   it("keeps a note firstmate took but has not answered open, so a later reply still lands", async () => {
     const inbox = new MemoryInbox();
     await inbox.send("Make the pins bigger");

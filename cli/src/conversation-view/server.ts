@@ -957,11 +957,13 @@ export class ConversationViewServer {
       // With nothing back yet, the card says what is happening to it in the same plain
       // words the conversation uses, so it never sits on "Sent" with nothing after it.
       // A line that only reports the handoff is not progress: it goes through the same gate.
-      const doing = note && !answer ? liveWords(note.doing || note.waiting || "") : "";
+      const failed = note && !answer && note.waitingFailed ? note.waiting ?? "" : "";
+      const doing = note && !answer && !failed ? liveWords(note.doing || note.waiting || "") : "";
       sendJson(res, 200, {
         receipt: note ? (answer || note.handoff === "taken" || note.question.receipt === "read" ? "read" : "sent") : null,
         ...(answer ? { answer: { text: answer.text, ...(answer.timestamp ? { timestamp: answer.timestamp } : {}) } } : {}),
         ...(doing ? { doing } : {}),
+        ...(failed ? { failed } : {}),
         ...(note?.handoff ? { handoff: note.handoff } : {}),
       });
       return;
