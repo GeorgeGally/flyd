@@ -355,6 +355,8 @@ describe("the backlog", () => {
     ]);
     // No report, no names: the version alone still says which candidate it is.
     expect(labPreviews(shots, "").map((preview) => preview.label)).toEqual(["V1", "V2", "V10"]);
+    // A critic's score table after the versions table does not rename the versions.
+    expect(labPreviews(shots, "| V | Name |\n|---|---|\n| 1 | Photo first |\n| 10 | Edit the page |\n\n| V | Score |\n|---|---|\n| 1 | 7.0 |\n| 10 | 6.5 |").map((preview) => preview.label)).toEqual(["V1 · Photo first", "V2", "V10 · Edit the page"]);
   });
 
   it("carries open advice as cards, most pressing first, and drops what expired or was dismissed", () => {

@@ -790,7 +790,7 @@ export function labPreviews(shots: string[], report: string): CandidatePreview[]
   const names = new Map<string, string>();
   for (const row of report.split("\n")) {
     const cells = /^\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|/.exec(row);
-    if (cells) names.set(cells[1]!, cells[2]!.replace(/\s+/g, " ").trim());
+    if (cells && !names.has(cells[1]!)) names.set(cells[1]!, cells[2]!.replace(/\s+/g, " ").trim());
   }
   const versions = new Map<number, { desktop?: string; phone?: string }>();
   for (const shot of shots) {
