@@ -222,7 +222,7 @@ export const FRONT_STYLE = `
   display: flex; flex-direction: column; padding: var(--card-pad) var(--card-pad) 17px; border-radius: var(--card-radius);
   background: var(--card); overflow: hidden; transition: background-color .2s ease;
 }
-:root[data-layout="front"] .rail .art-advice[role="button"]:hover { background: var(--sheet); }
+:root[data-layout="front"] .rail .art-card:hover { background: var(--sheet); }
 :root[data-layout="front"] .rail .art-pic { order: 0; margin: 0 0 14px; padding: var(--mat-pad); border-radius: 8px; background: var(--mat); aspect-ratio: 16 / 10; }
 :root[data-layout="front"] .rail .art-pic img { border-radius: 5px; outline: 1px solid rgba(0, 0, 0, .08); outline-offset: -1px; }
 /* A page is scaled to the mat, not cropped to it. */
@@ -283,39 +283,34 @@ export const FRONT_STYLE = `
 @media (max-width: 1100px) {
   :root[data-layout="front"] { --gut: 18px; --card-pad: 14px; --mat-pad: 6px; }
 }
-/* A phone: one column, the cards stacked full width above the conversation. */
+/* A phone: one column. Jobs and artefacts run as strips of cards above the conversation. */
 @media (max-width: 760px) {
   :root[data-layout="front"] { --gut: 16px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); }
-  /* No tabs on a phone: one column, the conversation first and the cards under it. */
+  /* No tabs on a phone: jobs and artefacts both run as strips above the conversation. */
   :root[data-layout="front"] .rtabs { display: none; }
-  :root[data-layout="front"] body { display: flex; flex-direction: column; font-size: 18px; background: var(--paper); }
-  :root[data-layout="front"] header { order: 0; padding: 0 var(--gut); flex-wrap: nowrap; }
-  :root[data-layout="front"] .stage-head, :root[data-layout="front"] .job-view { order: 1; }
-  :root[data-layout="front"] main { order: 2; }
-  :root[data-layout="front"] .jobs { order: 3; }
-  :root[data-layout="front"] .rail { order: 4; }
   :root[data-layout="front"][data-rtab] .jobs, :root[data-layout="front"][data-rtab] .rail:not([hidden]) { display: block !important; }
+  :root[data-layout="front"] body { font-size: 18px; background: var(--paper); }
+  :root[data-layout="front"] header { padding: 0 var(--gut); flex-wrap: nowrap; }
   :root[data-layout="front"] header .controls { flex: none; margin-left: auto; }
   :root[data-layout="front"] header .controls { gap: 0; }
   :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
-  :root[data-layout="front"] .rail { display: block; margin-bottom: 22px; }
+  :root[data-layout="front"] .rail { display: block; margin-bottom: 18px; }
   :root[data-layout="front"] .rail[hidden] { display: none; }
-  /* Every card takes the whole width, one under the next: a strip of half-cards is not a layout. */
-  .fstrip { display: block; margin: 0; padding: 0; overflow: visible; }
-  .fstrip > * { flex: none; width: auto; min-width: 0; margin: 0 0 10px; }
-  :root[data-layout="front"] .rail .brief-list .art-grid { display: block; margin: 0; padding: 0; overflow: visible; }
-  :root[data-layout="front"] .rail .art-grid > .art-card { width: auto; flex: none; margin: 0 0 10px; scroll-snap-align: none; }
-  :root[data-layout="front"] .rail .art-grid > .art-card:last-child, .fstrip > *:last-child { margin-bottom: 0; }
-  /* The archive stays a list on a phone: its pictures would push the conversation a long way down. */
-  .jobs .job.done .frame { display: none; }
-  .fgroup { margin: 0 0 22px; }
+  /* The artefacts run as a strip of cards, like the jobs. */
+  :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
+  :root[data-layout="front"] .rail .art-grid::-webkit-scrollbar { display: none; }
+  :root[data-layout="front"] .rail .art-grid > .art-card { flex: 0 0 220px; width: 220px; scroll-snap-align: start; }
+  .fgroup { margin: 0 0 18px; }
+  .fstrip { display: flex; align-items: flex-start; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
   .jobs .history { max-height: 232px; overflow-y: auto; }
+  .fstrip::-webkit-scrollbar { display: none; }
+  .fstrip > * { flex: 0 0 248px; width: 248px; min-width: 0; margin: 0; scroll-snap-align: start; }
   .fhead, .fempty, .fmore { padding-left: 0; padding-right: 0; }
   .jobs, :root[data-layout="front"] .rail { padding: 0 var(--gut) !important; }
   :root[data-layout="front"] .stage-head { position: static; padding: 18px var(--gut) 0; margin: 4px 0 0; }
   .stage-head h1 { font-size: 22px; }
-  :root[data-layout="front"] main { margin: 0 !important; padding: 8px var(--gut) 26px !important; }
+  :root[data-layout="front"] main { margin: 0 !important; padding: 8px var(--gut) calc(var(--composer-h, 130px) + 24px) !important; min-height: 60vh; }
   :root[data-layout="front"][data-job] .job-view { margin: 0; padding: 14px var(--gut) 40px; }
   :root[data-layout="front"] .composer { left: 0; right: 0; bottom: 0; padding: 10px var(--gut) calc(12px + env(safe-area-inset-bottom)); border-radius: 0; }
   :root[data-layout="front"] .jump { right: var(--gut); }
