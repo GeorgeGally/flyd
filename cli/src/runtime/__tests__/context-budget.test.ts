@@ -63,17 +63,15 @@ it("states each room profile instruction once when the budgeted profile is prese
 
 it("keeps imperatives to Flyd and protected sections mandatory, but budgets life facts", async () => {
   const { isProfileInstruction } = await import("../context-budget.js");
-  expect(isProfileInstruction("- Never call me Georgie")).toBe(true);
-  expect(isProfileInstruction("- Only child, grew up in Durban")).toBe(false);
-  expect(isProfileInstruction("- Never owned a car")).toBe(false);
-  const imperatives = ["- Never call me Georgie", "- Never need to apologise", "- Always proceed without asking for local edits", "- Don't feed me platitudes", "- Be prepared to push back"];
+  const imperatives = ["- Never call me Georgie", "- Don't feed me platitudes", "- Avoid em dashes", "- Keep answers short", "- Use British spelling", "- Stop hedging", "- Never need to apologise", "- Always proceed without asking for local edits", "- Be prepared to push back"];
+  const facts = ["- Only child, grew up in Durban", "- Never owned a car", "- Always loved my grandmother's cooking", "- Never learned to swim, my dad tried"];
   for (const line of imperatives) expect(isProfileInstruction(line)).toBe(true);
-  const profile = ["# George", "## About me", "- George", "- Artist", "- Only child, grew up in Durban", "- Never owned a car", ...imperatives, "## Safety", "- My address stays private"].join("\n");
+  for (const line of facts) expect(isProfileInstruction(line)).toBe(false);
+  const profile = ["# George", "## About me", "- George", "- Artist", ...facts, ...imperatives, "## Safety", "- My address stays private"].join("\n");
   const selected = budgetPersonalContext({ profile, memory: "", query: "hello", route: "companion" });
   for (const line of imperatives) expect(selected).toContain(line.slice(2));
   expect(selected).toContain("My address stays private");
-  expect(selected).not.toContain("Durban");
-  expect(selected).not.toContain("owned a car");
+  for (const line of facts) expect(selected).not.toContain(line.slice(2));
   const relevant = budgetPersonalContext({ profile, memory: "", query: "where did I grow up in Durban", route: "companion" });
   expect(relevant).toContain("Only child, grew up in Durban");
 });

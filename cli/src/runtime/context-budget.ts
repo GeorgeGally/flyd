@@ -9,13 +9,10 @@ const LIMITS: Record<ContextRoute, { profile: number; memory: number }> = {
 
 // These sections are explicit instructions and must never be shortened.
 const PROTECTED = new Set(["constraints", "how to be with me", "instructions", "safety", "preferences"]);
-const IMPERATIVE = /^\s*[-*]?\s*(?:always|never|must|stop|avoid|do not|don['’]t|use|keep|give|be)\b(.*)$/i;
-const ADDRESSED_TO_FLYD = /\b(?:call|tell|ask|share|send|write|speak|say|mention|use|keep|give|stop|avoid|feed|push|proceed|apologi[sz]e|need|me|my|you|flyd)\b/i;
+const ASSISTANT_VERBS = "call|tell|ask|share|send|write|speak|say|mention|use|keep|give|stop|avoid|feed|push|proceed|apologi[sz]e|need|be";
+const INSTRUCTION = new RegExp(`^\\s*[-*]?\\s*(?:(?:always|never|must|do not|don['’]t)\\s+(?:${ASSISTANT_VERBS})|use|keep|give|stop|avoid|be)\\b`, "i");
 
-export function isProfileInstruction(text: string): boolean {
-  const predicate = IMPERATIVE.exec(text)?.[1];
-  return predicate !== undefined && ADDRESSED_TO_FLYD.test(predicate);
-}
+export function isProfileInstruction(text: string): boolean { return INSTRUCTION.test(text); }
 
 interface Line { section: string; text: string; mandatory: boolean; score: number }
 
