@@ -11,8 +11,8 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] {
   --paper: #ECEAE5; --card: #F5F4F1; --sheet: #FFFFFF; --ink: #161615; --ink2: #4A4945; --mute: #76746E;
   --line: #E2DFD9; --mat: #DEDAD2; --well: #F4F2EE; --well-on: #EEEBE5; --hot: #F04E1A;
-  --gut: 22px; --arts-w: clamp(280px, 33vw, 480px); --head-h: 56px; --top: var(--head-h); --tabs-h: 50px; --measure: 760px;
-  --card-pad: 16px; --card-radius: 14px; --mat-pad: 8px;
+  --gut: 22px; --arts-w: clamp(280px, 33vw, 480px); --head-h: 56px; --top: var(--head-h); --tabs-h: 56px; --measure: 760px;
+  --card-pad: 22px; --card-radius: 14px; --mat-pad: 10px;
   --c-left: var(--gut); --c-right: calc(var(--gut) * 2 + var(--arts-w));
   /* The conversation keeps a readable measure, centred in the room the right column leaves. */
   --pad-x: max(32px, calc((100vw - var(--c-left) - var(--c-right) - var(--measure)) / 2));
@@ -64,27 +64,27 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .rail[hidden] { display: none; }
 .jobs::-webkit-scrollbar, .rail::-webkit-scrollbar, .rail-pane::-webkit-scrollbar { display: none; }
 :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { right: var(--gut); width: var(--arts-w); }
-.fgroup { margin: 0 0 32px; }
-.fhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 0 var(--card-pad) 12px; font: 500 13px/1.3 var(--sans); color: var(--mute); }
+.fgroup { margin: 0 0 48px; }
+.fhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 0 var(--card-pad) 16px; font: 500 13px/1.3 var(--sans); color: var(--mute); }
 .fhead span:last-child { font-variant-numeric: tabular-nums; font-weight: 400; }
 .fempty { margin: 0; padding: 0 var(--card-pad); font-size: 14px; color: var(--mute); }
-.fmore { display: block; margin: 10px 0 0; padding: 8px var(--card-pad); border: 0; background: none; font: 500 13px/1.3 var(--sans); color: var(--mute); cursor: pointer; transition: color .2s; }
+.fmore { display: block; margin: 14px 0 0; padding: 8px var(--card-pad); border: 0; background: none; font: 500 13px/1.3 var(--sans); color: var(--mute); cursor: pointer; transition: color .2s; }
 .fmore:hover { color: var(--ink); }
 .fdot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--hot); }
 
 /* Job cards: a framed picture on a mat, then the title in his words, a line of what it is, and when. */
 .job {
-  display: block; width: 100%; margin: 0 0 10px; padding: var(--card-pad); border: 0; border-radius: var(--card-radius);
+  display: block; width: 100%; margin: 0 0 16px; padding: var(--card-pad); border: 0; border-radius: var(--card-radius);
   background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer;
   transition: background-color .2s ease, box-shadow .2s ease;
 }
 .job:hover { background: var(--sheet); }
 /* What waits on him is the brightest card in the column. */
-.job.needs { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); padding: 18px 20px; }
+.job.needs { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); padding: 24px 24px 26px; }
 .job.needs:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent); }
 .job.on { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent); }
 .job:focus-visible, .ver:focus-visible, .fbtn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.job .frame { margin: 0 0 14px; padding: var(--mat-pad); border-radius: 8px; background: var(--mat); aspect-ratio: 16 / 10; overflow: hidden; }
+.job .frame { margin: 0 0 20px; padding: var(--mat-pad); border-radius: 8px; background: var(--mat); aspect-ratio: 16 / 10; overflow: hidden; }
 .job .frame img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 5px; outline: 1px solid rgba(0, 0, 0, .08); outline-offset: -1px; }
 /* The open job's picture is already in the middle, large: the card does not show it twice. */
 .job.on .frame { display: none; }
@@ -94,10 +94,10 @@ export const FRONT_STYLE = `
 }
 .job.needs .t { font-size: 19px; line-height: 1.29; letter-spacing: -0.015em; }
 .job .d {
-  margin: 8px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); overflow-wrap: anywhere; text-wrap: pretty;
+  margin: 12px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); overflow-wrap: anywhere; text-wrap: pretty;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
 }
-.job .m { display: flex; align-items: center; gap: 6px; margin-top: 12px; font: 400 12.5px/1.4 var(--sans); color: var(--mute); white-space: nowrap; min-width: 0; }
+.job .m { display: flex; align-items: center; gap: 6px; margin-top: 18px; font: 400 12.5px/1.4 var(--sans); color: var(--mute); white-space: nowrap; min-width: 0; }
 .job .m .s { color: var(--ink2); }
 .job .m .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .job .m .w { margin-left: auto; padding-left: 8px; font-variant-numeric: tabular-nums; }
@@ -210,20 +210,20 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .rail-hide { display: none; }
 :root[data-layout="front"] .rail-pane { display: block; overflow: visible; }
 :root[data-layout="front"] .rail .brief { padding: 0; border: 0; }
-:root[data-layout="front"] .rail .brief > section, :root[data-layout="front"] .rail .brief > section + section { margin: 0 0 32px; }
+:root[data-layout="front"] .rail .brief > section, :root[data-layout="front"] .rail .brief > section + section { margin: 0 0 48px; }
 :root[data-layout="front"] .rail #done { display: none; }
-:root[data-layout="front"] .rail .brief-top { margin: 0; padding: 0 var(--card-pad) 12px; }
+:root[data-layout="front"] .rail .brief-top { margin: 0; padding: 0 var(--card-pad) 16px; }
 :root[data-layout="front"] .rail .brief-label { font: 500 13px/1.3 var(--sans); color: var(--mute); }
 /* One card a row: the column is wide enough for a picture to be worth looking at, never a mosaic of thumbnails. */
-:root[data-layout="front"] .rail .brief-list ul { gap: 10px; }
-:root[data-layout="front"] .rail .brief-list .art-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+:root[data-layout="front"] .rail .brief-list ul { gap: 16px; }
+:root[data-layout="front"] .rail .brief-list .art-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
 :root[data-layout="front"] .rail .art-grid > .art-card:first-child { grid-column: auto; }
 :root[data-layout="front"] .rail .art-card, :root[data-layout="front"] .rail .brief-list li:not(.art-card) {
-  display: flex; flex-direction: column; padding: var(--card-pad) var(--card-pad) 17px; border-radius: var(--card-radius);
+  display: flex; flex-direction: column; padding: var(--card-pad) var(--card-pad) 24px; border-radius: var(--card-radius);
   background: var(--card); overflow: hidden; transition: background-color .2s ease;
 }
 :root[data-layout="front"] .rail .art-card:hover { background: var(--sheet); }
-:root[data-layout="front"] .rail .art-pic { order: 0; margin: 0 0 14px; padding: var(--mat-pad); border-radius: 8px; background: var(--mat); aspect-ratio: 16 / 10; }
+:root[data-layout="front"] .rail .art-pic { order: 0; margin: 0 0 20px; padding: var(--mat-pad); border-radius: 8px; background: var(--mat); aspect-ratio: 16 / 10; }
 :root[data-layout="front"] .rail .art-pic img { border-radius: 5px; outline: 1px solid rgba(0, 0, 0, .08); outline-offset: -1px; }
 /* A page is scaled to the mat, not cropped to it. */
 :root[data-layout="front"] .rail .art-frame { overflow: hidden; }
@@ -233,33 +233,33 @@ export const FRONT_STYLE = `
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
 }
 /* The card's kind sits under its name as a quiet word, never a label over it. */
-:root[data-layout="front"] .rail .art-kind { order: 2; margin: 7px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .art-kind { order: 2; margin: 10px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .art-advice-line { order: 0; font: 500 19px/1.34 var(--sans); letter-spacing: -0.015em; text-wrap: pretty; }
-:root[data-layout="front"] .rail .art-plain { gap: 10px; margin-top: 0; }
-:root[data-layout="front"] .rail .art-plain + .brief-top { margin-top: 22px; }
+:root[data-layout="front"] .rail .art-plain { gap: 16px; margin-top: 0; }
+:root[data-layout="front"] .rail .art-plain + .brief-top { margin-top: 32px; }
 :root[data-layout="front"] .rail .art-grid + .art-plain { padding-top: 0; border-top: 0; }
 :root[data-layout="front"] .rail .art-steps { order: 3; }
 :root[data-layout="front"] .rail .brief-line { font: 500 17px/1.34 var(--sans); letter-spacing: -0.011em; color: var(--ink); }
 :root[data-layout="front"] .rail #notices .brief-line { font: 500 15px/1.4 var(--sans); letter-spacing: 0; }
-:root[data-layout="front"] .rail .brief-outcome { order: 2; margin: 8px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; }
-:root[data-layout="front"] .rail .brief-meta, :root[data-layout="front"] .rail .art-meta { order: 4; margin: 12px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .brief-outcome { order: 2; margin: 12px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; }
+:root[data-layout="front"] .rail .brief-meta, :root[data-layout="front"] .rail .art-meta { order: 4; margin: 18px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-open { color: var(--ink2); }
 /* The card itself opens the piece: no "open" under it, and no file name beside its age. */
 :root[data-layout="front"] .rail .art-card .brief-open, :root[data-layout="front"] .rail .art-card .art-line:not(.down) { display: none; }
 :root[data-layout="front"] .rail .art-card .art-line:not(.down) + .art-ago::before { content: none; }
 :root[data-layout="front"] .rail .art-card .art-ago { font-variant-numeric: tabular-nums; }
-:root[data-layout="front"] .rail .brief-more { margin: 16px 0 0; padding: 8px var(--card-pad); font: 500 13px/1.3 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .brief-more { margin: 22px 0 0; padding: 8px var(--card-pad); font: 500 13px/1.3 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-more:hover { color: var(--ink); }
 /* News: each story a quiet card under the edition's line. */
-:root[data-layout="front"] .rail .news .brief-outcome { margin: 0 var(--card-pad) 14px; font-size: 14.5px; line-height: 1.45; color: var(--ink2); }
-:root[data-layout="front"] .rail .news .card-stories { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-:root[data-layout="front"] .rail .news .card-stories > li { display: flex; flex-direction: column; padding: var(--card-pad) var(--card-pad) 17px; border-radius: var(--card-radius); background: var(--card); }
-:root[data-layout="front"] .rail .news .card-stories + .brief-top { margin-top: 32px; }
+:root[data-layout="front"] .rail .news .brief-outcome { margin: 0 var(--card-pad) 20px; font-size: 14.5px; line-height: 1.45; color: var(--ink2); }
+:root[data-layout="front"] .rail .news .card-stories { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+:root[data-layout="front"] .rail .news .card-stories > li { display: flex; flex-direction: column; padding: var(--card-pad) var(--card-pad) 24px; border-radius: var(--card-radius); background: var(--card); }
+:root[data-layout="front"] .rail .news .card-stories + .brief-top { margin-top: 48px; }
 :root[data-layout="front"] .rail .card-story-head { order: 0; color: var(--ink); font: 500 16px/1.36 var(--sans); letter-spacing: -0.008em; text-decoration: none; text-wrap: pretty; }
 :root[data-layout="front"] .rail .card-story-head:hover { color: var(--link); }
-:root[data-layout="front"] .rail .card-story-line { order: 1; margin: 8px 0 0; font: 400 14px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; }
-:root[data-layout="front"] .rail .card-story-mark { order: 2; margin: 10px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--hot); }
-:root[data-layout="front"] .rail .card-story-src { order: 3; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 8px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .card-story-line { order: 1; margin: 12px 0 0; font: 400 14px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; }
+:root[data-layout="front"] .rail .card-story-mark { order: 2; margin: 14px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--hot); }
+:root[data-layout="front"] .rail .card-story-src { order: 3; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 12px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .card-story-mark + .card-story-src { margin-top: 2px; }
 :root[data-layout="front"] .rail .story-rate { margin-left: auto; gap: 2px; }
 :root[data-layout="front"] .rail .story-rate button { padding: 6px 8px; font: 400 12.5px/1 var(--sans); }
@@ -269,9 +269,9 @@ export const FRONT_STYLE = `
 .jobs .history { display: block; max-height: none; padding: 0; border: 0; overflow: visible; }
 .jobs .history[hidden] { display: none; }
 .jobs .history-top { display: none; }
-.jobs .history-group summary { padding: 6px 4px; font: 400 14px/1.3 var(--sans); color: var(--ink2); }
+.jobs .history-group summary { padding: 10px 4px; font: 400 14px/1.3 var(--sans); color: var(--ink2); }
 .jobs .history-items { padding: 0 0 6px 4px; }
-.jobs .history-item { padding: 6px 4px; font-size: 14px; color: var(--ink2); }
+.jobs .history-item { padding: 9px 4px; font-size: 14px; color: var(--ink2); }
 .jobs .history-item:hover { color: var(--ink); }
 .jobs .history-item-age { font-size: 12.5px; }
 
@@ -281,11 +281,11 @@ export const FRONT_STYLE = `
 
 /* Narrower: the column gives up width with the window; the cards keep their shape. */
 @media (max-width: 1100px) {
-  :root[data-layout="front"] { --gut: 18px; --card-pad: 14px; --mat-pad: 6px; }
+  :root[data-layout="front"] { --gut: 18px; --card-pad: 20px; --mat-pad: 9px; }
 }
 /* A phone: one column. Jobs and artefacts run as strips of cards above the conversation. */
 @media (max-width: 760px) {
-  :root[data-layout="front"] { --gut: 16px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); }
+  :root[data-layout="front"] { --gut: 16px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); --card-pad: 16px; --mat-pad: 8px; }
   /* No tabs on a phone: jobs and artefacts both run as strips above the conversation. */
   :root[data-layout="front"] .rtabs { display: none; }
   :root[data-layout="front"][data-rtab] .jobs, :root[data-layout="front"][data-rtab] .rail:not([hidden]) { display: block !important; }
@@ -295,14 +295,14 @@ export const FRONT_STYLE = `
   :root[data-layout="front"] header .controls { gap: 0; }
   :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
-  :root[data-layout="front"] .rail { display: block; margin-bottom: 18px; }
+  :root[data-layout="front"] .rail { display: block; margin-bottom: 24px; }
   :root[data-layout="front"] .rail[hidden] { display: none; }
   /* The artefacts run as a strip of cards, like the jobs. */
-  :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
+  :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 10px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
   :root[data-layout="front"] .rail .art-grid::-webkit-scrollbar { display: none; }
   :root[data-layout="front"] .rail .art-grid > .art-card { flex: 0 0 220px; width: 220px; scroll-snap-align: start; }
-  .fgroup { margin: 0 0 18px; }
-  .fstrip { display: flex; align-items: flex-start; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
+  .fgroup { margin: 0 0 26px; }
+  .fstrip { display: flex; align-items: stretch; gap: 10px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
   .jobs .history { max-height: 232px; overflow-y: auto; }
   .fstrip::-webkit-scrollbar { display: none; }
   .fstrip > * { flex: 0 0 248px; width: 248px; min-width: 0; margin: 0; scroll-snap-align: start; }
