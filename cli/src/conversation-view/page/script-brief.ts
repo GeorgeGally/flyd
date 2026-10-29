@@ -338,7 +338,10 @@ export const BRIEF_SCRIPT = `
       a.target = "_blank";
       a.rel = "noopener noreferrer";
       li.appendChild(a);
-      if (story.gist) li.appendChild(el("p", "card-story-line", story.gist));
+      var told = [];
+      unsaid(story.title, told);
+      var gist = story.gist ? unsaid(story.gist, told) : "";
+      if (gist) li.appendChild(el("p", "card-story-line", gist));
       var rate = story.url && SEND_TOKEN ? storyRate(story) : null;
       if (story.source || rate) {
         var src = el("p", "card-story-src", story.source || "");
@@ -415,16 +418,25 @@ export const BRIEF_SCRIPT = `
   }) : null;
   // A same-origin picture or file carries the view's token; a page elsewhere is linked as it is.
   function ownSrc(src) { return /^\\/api\\//.test(src) ? withToken(src) : src; }
-  function artefactPicture(card) {
+  function artefactPicture(card, href) {
     if (card.image) {
       var src = ownSrc(card.image);
-      var shot = el("button", "art-pic");
-      shot.type = "button";
-      shot.setAttribute("aria-label", "Open image");
       var img = el("img", "");
       img.src = src;
       img.alt = "";
       img.loading = "lazy";
+      if (href) {
+        var linked = el("a", "art-pic");
+        linked.href = href;
+        linked.target = "_blank";
+        linked.rel = "noopener noreferrer";
+        linked.setAttribute("aria-label", "Open " + card.title);
+        linked.appendChild(img);
+        return linked;
+      }
+      var shot = el("button", "art-pic");
+      shot.type = "button";
+      shot.setAttribute("aria-label", "Open image");
       shot.appendChild(img);
       shot.addEventListener("click", function () { openImage(src); });
       return shot;
@@ -511,10 +523,19 @@ export const BRIEF_SCRIPT = `
   function artefactItem(card) {
     var li = el("li", "art-card" + (pictured(card) ? " art-pictured" : "") + (card.label === "Advice" ? " art-advice" : ""));
     li.dataset.key = card.id;
-    var picture = artefactPicture(card);
+    var href = card.url && !card.down ? ownSrc(card.url) : "";
+    var picture = artefactPicture(card, href);
     if (picture) li.appendChild(picture);
     if (card.label) li.appendChild(el("p", "art-kind", card.label));
-    li.appendChild(el("p", "brief-line art-title", card.title));
+    if (href) {
+      var head = el("a", "brief-line art-title", card.title);
+      head.href = href;
+      head.target = "_blank";
+      head.rel = "noopener noreferrer";
+      li.appendChild(head);
+    } else {
+      li.appendChild(el("p", "brief-line art-title", card.title));
+    }
     // The line says only what the title does not ("Bearings - fleet board" under "Review board: Bearings - fleet board" goes).
     var said = [];
     unsaid(card.title, said);
@@ -542,13 +563,7 @@ export const BRIEF_SCRIPT = `
     }
     var foot = el("p", "brief-meta");
     var reply = /^reply:/.test(card.id) ? nodes.get(card.id.slice(6)) : null;
-    if (card.url && !card.down) {
-      var a = el("a", "brief-open", "open");
-      a.href = ownSrc(card.url);
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      foot.appendChild(a);
-    } else if (reply) {
+    if (!href && reply) {
       // A reply's artefact opens at the reply it came from.
       var go = el("button", "brief-open art-goto", "open");
       go.type = "button";

@@ -8,6 +8,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { sourceLabel } from "../lib/source-label.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { railImageSrc } from "./rail.js";
+import { saysNothing } from "./plain-words.js";
 import { clip, inline, sentences } from "./summaries.js";
 import type { DayCount } from "./artefact.js";
 import { monitorObjectsFromSources, type SemanticObject } from "./semantic.js";
@@ -372,7 +373,8 @@ function storyOf(raw: unknown): ActivityStory | null {
   try { parsedUrl = new URL(url); } catch { return null; }
   if (!title || !["http:", "https:"].includes(parsedUrl.protocol) || parsedUrl.hostname === "example.com" || parsedUrl.hostname.endsWith(".example.com")) return null;
   const said = typeof item?.why === "string" ? item.why : typeof item?.gist === "string" ? item.gist : "";
-  const gist = said.replace(/\s+/g, " ").trim();
+  // A line that only names the story ("The thread itself.") is dropped: the card says nothing rather than filler.
+  const gist = saysNothing(said) ? "" : said.replace(/\s+/g, " ").trim();
   const source = typeof item?.source === "string" ? sourceLabel(item.source.trim(), url) : "";
   const mark = typeof item?.kind === "string" ? STORY_MARKS[item.kind] : undefined;
   return { title, url, ...(mark ? { mark } : {}), ...(gist ? { gist } : {}), ...(source ? { source } : {}) };

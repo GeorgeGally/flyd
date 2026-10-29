@@ -3122,8 +3122,11 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(artefacts.hidden).toBe(false);
     expect(artefacts.querySelector(".brief-label")!.textContent).toBe("Artefacts");
     expect(artefacts.querySelector<HTMLIFrameElement>(".art-frame iframe")!.getAttribute("src")).toBe("http://127.0.0.1:8097/");
-    expect(artefacts.querySelector(".brief-line")!.textContent).toBe("Live preview");
-    expect(artefacts.querySelector<HTMLAnchorElement>(".brief-meta a")!.getAttribute("href")).toBe("http://127.0.0.1:8097/");
+    // Its name is the link: no "open" word under it.
+    const previewName = artefacts.querySelector<HTMLAnchorElement>(".art-title")!;
+    expect(previewName.textContent).toBe("Live preview");
+    expect(previewName.getAttribute("href")).toBe("http://127.0.0.1:8097/");
+    expect(artefacts.querySelector(".brief-open")).toBeNull();
     expect(leftIds).not.toContain(done[0]!.dataset.key);
     expect(done.map((item) => item.textContent).join(" ")).not.toContain("Still building the page");
   });
@@ -3153,6 +3156,10 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(links.map((a) => a.getAttribute("href"))).toEqual(stories.map((story) => story.url));
     expect(links.every((a) => a.target === "_blank" && a.rel === "noopener noreferrer")).toBe(true);
     expect(Array.from(news.querySelectorAll(".card-story-mark")).map((mark) => mark.textContent)).toEqual(["Hot", "Rabbit hole"]);
+    // A line that only says the headline again ("Charlie Brown Halloween GIF") is not shown twice.
+    update([{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [{ title: "Charlie Brown Halloween GIF", gist: "Charlie Brown Halloween GIF", source: "reddit", url: "https://example.test/gif" }], at: "2026-10-21T06:00:00.000Z" }]);
+    await settle();
+    expect(document.getElementById("news")!.querySelectorAll(".card-story-line")).toHaveLength(0);
     update([{ id: "log:memory", kind: "memory", title: "Tidied memory", at: "2026-10-21T05:00:00.000Z" }]);
     await settle();
     expect(news.hidden).toBe(true);
@@ -3355,7 +3362,10 @@ describe("what Flyd shows of its staff, at a glance", () => {
     // One line of what it is and when (the separator is drawn by the page's style), then "open".
     expect(cards[0]!.querySelector(".art-meta")!.textContent).toBe("gnm · HTML + PDF5m ago");
     expect(cards[0]!.querySelector(".art-line + .art-ago")).not.toBeNull();
-    expect(cards[0]!.querySelector(".brief-meta")!.textContent).toBe("open");
+    // The picture and the name open it; there is no "open" word under the card.
+    expect(cards[0]!.querySelector<HTMLAnchorElement>("a.art-pic")!.getAttribute("href")).toMatch(/^\/rail-file\/x\/deck\.pdf&token=|^\/rail-file\/x\/deck\.pdf$/);
+    expect(cards[0]!.querySelector<HTMLAnchorElement>("a.art-title")!.textContent).toBe("The launch deck");
+    expect(cards[0]!.querySelector(".brief-open")).toBeNull();
     expect([...cards[1]!.querySelectorAll(".art-steps li")].map((li) => li.textContent)).toEqual(["Open the page", "Pick a photo", "Save", "1 more"]);
   });
 
@@ -3598,9 +3608,10 @@ describe("the front page", () => {
 
   it("lists the jobs as cards, and an unread fleet as unknown rather than empty", async () => {
     const stream = await opened();
-    expect(groups()).toEqual([["Conversation", 1], ["Needs you", "Not read yet."], ["Working", "Not read yet."], ["Done", "Not read yet."]]);
+    // The conversation is the middle of the page, not a card: he starts one by typing in it.
+    expect(groups()).toEqual([["Needs you", "Not read yet."], ["Working", "Not read yet."], ["Done", "Not read yet."]]);
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
-    expect(groups()).toEqual([["Conversation", 1], ["Needs you", 1], ["Working", "Nothing is running right now."], ["Done", 1]]);
+    expect(groups()).toEqual([["Needs you", 1], ["Working", "Nothing is running right now."], ["Done", 1]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
     expect(needs.querySelector(".frame img")).not.toBeNull();
     // Under "Needs you" the dot says it; the card names the project.
@@ -3621,6 +3632,20 @@ describe("the front page", () => {
     expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
     after(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
     expect(document.documentElement.hasAttribute("data-job")).toBe(false);
+  });
+
+  it("gives an open job a back button that returns to the conversation and forgets the job", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
+    after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
+    expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
+    expect(sessionStorage.getItem("flyd-front-job")).toBe("call:pick");
+    const back = document.querySelector<HTMLButtonElement>("#stage-head button#stage-back")!;
+    expect(back.textContent).toBe("Back to the conversation");
+    after(() => back.click());
+    expect(document.documentElement.hasAttribute("data-job")).toBe(false);
+    expect(sessionStorage.getItem("flyd-front-job")).toBe("talk");
+    expect(document.querySelector(".job.on")).toBeNull();
   });
 
   it("opens a decision that carries candidate previews: every design shown, its phone view beside it, and its choices with them", async () => {
@@ -3644,6 +3669,36 @@ describe("the front page", () => {
     expect(candidates[1]!.querySelector(".jv-phone img")).not.toBeNull();
     // The choice stays under the designs, so he picks without leaving the card.
     expect([...document.querySelectorAll(".job-view .choice-pick")].map((button) => button.textContent)).toEqual(["V2 Live page", "V10 Edit the pagerecommended"]);
+  });
+
+  it("states a working row in Flyd's words: no framing, no George, and one line of state and what happens next", async () => {
+    const stream = await opened();
+    stream.emit("update", {
+      order: ["u1"], messages: [], working: false,
+      show: {
+        ...SHOW, calls: [], counts: {},
+        underway: [{
+          id: "live:answer", kind: "live", project: "flyd", status: "Working",
+          // The shape Core used to hand firstmate: it is rewritten, not shown.
+          headline: "Act on George's answer to: Which one(s) to build for real, or another round?",
+          detail: "Building V5 with a framed hero. Then the editorial image goes in.",
+        }, {
+          id: "live:hero", kind: "waiting", project: "hftw",
+          headline: "The HFTW shop hero images currently use product shots, and V5 is ready for review with a framed hero and a plain product card row",
+          detail: "Waiting for your pick: V5 framed hero.",
+        }],
+      },
+    });
+    const answer = document.querySelector<HTMLElement>('.job[data-job="live:answer"]')!;
+    expect(answer.querySelector(".t")!.textContent).toBe("Carrying out your choice on flyd");
+    expect(answer.querySelector(".d")!.textContent).toBe("Building V5 with a framed hero.");
+    expect(answer.textContent).not.toMatch(/George|answer to:/);
+    const hero = document.querySelector<HTMLElement>('.job[data-job="live:hero"]')!;
+    // A long run-on gives the card its first sentence, cut; the line says the state and the next step.
+    const heroTitle = hero.querySelector(".t")!.textContent!;
+    expect(heroTitle.endsWith("…")).toBe(true);
+    expect(heroTitle.length).toBeLessThanOrEqual(93);
+    expect(hero.querySelector(".d")!.textContent).toBe("Waiting for your pick: V5 framed hero.");
   });
 
   it("lists what needs him from the one list, a finished design lab among them, led by its picture", async () => {

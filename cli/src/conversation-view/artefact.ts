@@ -18,6 +18,7 @@ import { readVerdicts } from "../council/reply-review.js";
 import { readDomainRun } from "../command/store.js";
 import type { StaffWorker } from "../command/fleet-monitor.js";
 import type { ShowItem, ShowKind } from "./show.js";
+import { plainTitle, saysNothing } from "./plain-words.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
 // fleet snapshot (the authoritative "everything going on"), Flyd's own memory,
@@ -227,8 +228,8 @@ const HEADLINE_MAX = 110;
  * site, and a long ask cut to its first sentence. Pure.
  */
 export function callHeadline(text: string | undefined, fallback?: string): string {
-  let line = (text ?? "").replace(/\s+/g, " ").trim();
-  if (!line || STOCK_ASK.test(line)) line = (fallback ?? "").replace(/\s+/g, " ").trim();
+  let line = plainTitle((text ?? "").replace(/\s+/g, " ").trim());
+  if (!line || STOCK_ASK.test(line)) line = plainTitle((fallback ?? "").replace(/\s+/g, " ").trim());
   line = line.replace(new RegExp(`(?:\\bPR\\s+)?${PR_URL.source}`, "g"), (_url, _repo: string, number: string) => `PR #${number}`)
     .replace(/https?:\/\/(?:www\.)?([^/\s]+)\S*/g, "$1");
   // The question alone heads the card: a "(recommended: …)" aside belongs to the recommendation, said under it.
@@ -988,12 +989,12 @@ function withoutProject(label: string, names: string[]): string {
 function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeOptions): ShowItem | undefined {
   const project = row.repo ? options.project?.(row.repo) ?? row.repo : undefined;
   const names = [project, row.repo].filter((name): name is string => Boolean(name));
-  const detail = row.said?.line || row.detail;
-  const sourceHeadline = withoutProject(row.label, names);
+  const detail = row.said?.line && !saysNothing(row.said.line) ? row.said.line : row.detail;
+  const sourceHeadline = plainTitle(withoutProject(row.label, names), project);
   // A question with options leads with the question in plain words, and under it the work it is about.
   const asked = kind === "call" ? row.question ?? (row.choices?.length && row.detail ? plainQuestion(row.detail) : "") : "";
   const recommended = row.recommendation?.option ?? (asked ? recommendedChoice(row.detail ?? "") : undefined);
-  const headline = asked || (row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline));
+  const headline = asked || plainTitle(row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline), project);
   if (!headline) return undefined;
   return {
     id: `${kind}:${id}`,
