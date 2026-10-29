@@ -16,6 +16,7 @@ import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision
 import type { FirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { readVerdicts } from "../council/reply-review.js";
 import { readDomainRun } from "../command/store.js";
+import { DECIDING, STOPPED, type StaffWorker } from "../command/fleet-monitor.js";
 import type { ShowItem, ShowKind } from "./show.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
@@ -618,21 +619,30 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
   const askedIn = new Set(fleet.calls.map((row) => row.task));
   const stateRows = [...fleet.live, ...fleet.ready, ...fleet.landed, ...fleet.held, ...fleet.next]
     .filter((row) => row.task && !askedIn.has(row.task) && askedIn.add(row.task));
-  const calls = [...fleet.calls, ...stateRows].flatMap((row) => {
+  // Firstmate's own open decision is a call by definition: its word is the
+  // source, and the executive only has a say in how the call is worded.
+  const candidates = [
+    ...fleet.calls.map((row) => ({ row, firstmate: true })),
+    ...stateRows.map((row) => ({ row, firstmate: false })),
+  ];
+  const calls = candidates.flatMap(({ row, firstmate }) => {
     if (row.ledgerOnly) return [row];
     const decision = row.task ? byTask.get(row.task) : undefined;
-    if (decision?.disposition !== "ask_george" || !decision.show || !decision.question) return [];
+    const asked = decision?.disposition === "ask_george" && decision.show && decision.question.trim() ? decision : undefined;
+    // A rewrite that never came or was not grounded is not a reason to drop
+    // Firstmate's decision: it still asks him, in Firstmate's own words.
+    if (!asked) return firstmate ? [row] : [];
     return [{
       ...row,
-      executiveDecisionId: decision.decisionId,
+      executiveDecisionId: asked.decisionId,
       status: "Needs your choice",
-      label: decision.question,
-      question: decision.question,
+      label: asked.question,
+      question: asked.question,
       // The executive decision's own grounded options win; a row that already
       // parsed its choices from the hold keeps them rather than losing them to
       // an empty list. A recommendation that names no option is not shown as one.
-      choices: decision.options?.length ? decision.options : (row.choices ?? []),
-      ...(decision.recommendation?.option ? { recommendation: decision.recommendation, detail: recommendationText(decision.recommendation) } : {}),
+      choices: asked.options?.length ? asked.options : (row.choices ?? []),
+      ...(asked.recommendation?.option ? { recommendation: asked.recommendation, detail: recommendationText(asked.recommendation) } : {}),
     }];
   });
   const verified = [...fleet.ready, ...fleet.landed].flatMap((row) => {
@@ -653,7 +663,23 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
   const failed = fleet.held.flatMap((row) => row.status === "failed" && !asking.has(row.task) ? [{ ...row, detail: undefined }] : []);
   const finished = attention.filter((row) => row.status === "landed");
   const open = attention.filter((row) => row.status !== "landed");
-  return { ...emptyFleet(), ...(fleet.generated ? { generated: fleet.generated } : {}), ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}), calls, landed: [...verified, ...finished], held: [...failed, ...open] };
+  // Work moving, waiting to land and queued next is shown as it was read: the
+  // executive's say is over notifying, never over what is happening. Only what
+  // the latest read still reports, and never a task already shown as a call or
+  // as verified work.
+  const showing = new Set([...calls, ...verified].flatMap((row) => (row.task ? [row.task] : [])));
+  const current = (rows: ArtefactRow[]) => rows.filter((row) => !row.ledgerOnly && (!row.task || !showing.has(row.task)));
+  return {
+    ...emptyFleet(),
+    ...(fleet.generated ? { generated: fleet.generated } : {}),
+    ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}),
+    calls,
+    live: current(fleet.live),
+    ready: current(fleet.ready),
+    next: current(fleet.next),
+    landed: [...verified, ...finished],
+    held: [...failed, ...open],
+  };
 }
 
 /** The firstmate data directories a backlog row's words point at ("report data/gnm-lab/report.md"). Pure. */
@@ -1367,6 +1393,8 @@ export class ArtefactFeed {
       decideChanges?: (changes: FirstmateChange[]) => Promise<ExecutiveDecisionRecord[]>;
       /** Reads whether old calls were overtaken; without it every call is shown. */
       overtaken?: OvertakenCheck;
+      /** Every worker the staff is running now (Core's staff watch): the snapshot itself lists only the first twenty. */
+      workers?: () => readonly StaffWorker[];
       intervalMs?: number;
       timeoutMs?: number;
     } = {},
@@ -1609,6 +1637,21 @@ export class ArtefactFeed {
     return extras;
   }
 
+  /** The workers the staff watch sees running and the snapshot left out, as rows for the Working group. */
+  private staffLive(known: readonly ArtefactRow[]): ArtefactRow[] {
+    const seen = new Set(known.flatMap((row) => (row.task ? [row.task] : [])));
+    return (this.options.workers?.() ?? []).flatMap((worker): ArtefactRow[] => {
+      if (!worker.id || seen.has(worker.id) || DECIDING.has(worker.state) || STOPPED.has(worker.state)) return [];
+      seen.add(worker.id);
+      return [{
+        label: worker.name || worker.id,
+        task: worker.id,
+        ...(worker.doing ? { detail: plainStep(worker.doing) } : {}),
+        ...(worker.since ? { started: worker.since } : {}),
+      }];
+    });
+  }
+
   async refresh(): Promise<void> {
     if (this.refreshing) {
       this.again = true;
@@ -1661,6 +1704,9 @@ export class ArtefactFeed {
           return [];
         }), heldForAttention())
         : enriched;
+      // Every worker the staff is running, not only the twenty the snapshot lists.
+      const running = decided.unavailable ? [] : this.staffLive(decided.live);
+      if (running.length) decided.live = [...decided.live, ...running];
       decided.calls = decided.calls.map((row) => ({ ...row, label: callHeadline(row.label, row.task ? entries.get(row.task)?.title : undefined) }));
       for (const row of decided.calls) {
         const entry = row.ledgerOnly ? undefined : this.ledger.get(ledgerKey("calls", row) ?? "");

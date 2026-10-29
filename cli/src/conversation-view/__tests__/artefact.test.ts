@@ -117,6 +117,17 @@ describe("the decision-backed fleet projection", () => {
     expect(asked.held).toEqual([]);
   });
 
+  it("keeps Firstmate's own open decision a call when the model's rewrite is not grounded", () => {
+    const fleet = parseBearings({ decisions_open: [{ id: "cap5-lab", summary: "Captain picks the direction for the lab" }] });
+    expect(projectFleetDecisions(fleet, []).calls).toEqual([expect.objectContaining({ task: "cap5-lab", label: "Captain picks the direction for the lab" })]);
+    const ungrounded = decision({ taskId: "cap5-lab", reason: "question or alternatives were not grounded in source evidence", summary: "A direction is needed", show: false });
+    const asked = projectFleetDecisions(fleet, [ungrounded]);
+    // Its own summary asks him, in Firstmate's words, with no executive decision to answer.
+    expect(asked.calls).toEqual([expect.objectContaining({ task: "cap5-lab", label: "Captain picks the direction for the lab" })]);
+    expect(asked.calls[0]!.executiveDecisionId).toBeUndefined();
+    expect(fleetCounts(asked).call).toBe(1);
+  });
+
   it("keeps a row's own parsed choices when the executive decision grounds none, and never shows a placeholder as a recommendation", () => {
     const fleet = parseBearings({ in_flight: [{ id: "gnm-9", state: "unknown", name: "Release gate", doing: "ship it today, or hold it for review?" }] });
     const withChoices = { ...fleet, calls: [{ label: "Release gate", task: "gnm-9", status: "needs attention", choices: ["ship it today", "hold it for review"] }] };
@@ -153,10 +164,14 @@ describe("the decision-backed fleet projection", () => {
 
     expect(publicFleet.calls).toEqual([expect.objectContaining({ task: "choice", question: "Close it or add the tools?", choices: ["close it", "add the tools"] })]);
     expect(publicFleet.landed).toEqual([expect.objectContaining({ task: "result", label: "Requested tests passed", status: "verified" })]);
-    expect(publicFleet.live).toEqual([]);
+    // Work moving is shown as it was read: the executive's say is over notifying, never over what is happening.
+    expect(publicFleet.live).toEqual([expect.objectContaining({ task: "working", label: "Worker is rebuilding it" })]);
+    // The verified result is done work in its own place, not shown a second time as waiting to land.
+    expect(publicFleet.ready).toEqual([]);
+    // Work that stopped is Flyd's to repair, and no row carries the run's machinery.
     expect(publicFleet.held).toEqual([]);
     expect(publicFleet.next).toEqual([]);
-    expect(JSON.stringify(publicFleet)).not.toMatch(/Paused|no-mistakes run|compiling project|working|paused/i);
+    expect(JSON.stringify(publicFleet)).not.toMatch(/Paused \[at=|no-mistakes run|Exit 1/i);
   });
 
   it("dates verified finished work by its own report time, else by when Flyd verified it, never inventing one", () => {
@@ -1076,7 +1091,7 @@ it("sends every current question and its original evidence to the production dec
     expect.objectContaining({ kind: "decision", taskId: "scope", detail: "Close the review, or finish the missing tools?" }),
     expect.objectContaining({ kind: "fleet_state", taskId: "cancelled", detail: original }),
   ]));
-  expect(feed.current().fleet?.calls).toEqual([]);
+  expect(feed.current().fleet?.calls).toEqual([expect.objectContaining({ task: "scope", label: "Close the review, or finish the missing tools?" })]);
   const legacy = enrichFleet(parseBearings({ decisions_open: [{ id: "scope", summary: "Close the review, or finish the missing tools?" }] }), new Map());
   expect(legacy.calls).toEqual([]);
 });
@@ -1109,6 +1124,22 @@ describe("ArtefactFeed fleet reads", () => {
       return false;
     }
   };
+
+  it("shows every worker the staff is running, not only the first twenty the snapshot lists", async () => {
+    const { home, script } = fleetHome("artefact-workers-");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "listed", state: "working", name: "Listed worker", doing: "harness busy" }] }));
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const workers = () => [
+      { id: "listed", name: "Listed worker", state: "working" },
+      { id: "cut-off", name: "Cut off worker", state: "working", doing: "building the board", since: "2026-10-29T04:12:00.000Z" },
+      { id: "held-up", name: "Held up worker", state: "needs-decision" },
+    ];
+    const feed = new ArtefactFeed({ home, workers, ...files(home) });
+    await feed.refresh();
+    expect(feed.current().fleet?.live.map((row) => row.task)).toEqual(["listed", "cut-off"]);
+    expect(underwayItems(feed.current().fleet).map((item) => item.task)).toEqual(["cut-off", "listed"]);
+  });
 
   it("names a timed-out read as one in Flyd's log, not 'no reason given'", async () => {
     const { home, script } = fleetHome("artefact-why-");

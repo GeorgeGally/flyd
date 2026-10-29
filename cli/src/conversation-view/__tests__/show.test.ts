@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ImportanceJudge } from "../importance-judge.js";
 import { SnapshotDiffer } from "../server.js";
+import { parseBearings, projectFleetDecisions } from "../artefact.js";
 import { MAX_SHOW_ITEMS, showOf, situationOf, titleOf } from "../show.js";
 import type { ConversationMessage, ConversationSnapshot } from "../types.js";
 
@@ -17,6 +18,14 @@ const fleet = (id: string, text: string, minutes: number, extra: Partial<Convers
   ({ id, role: "assistant", text, timestamp: minutesAgo(minutes), ...extra });
 
 describe("showOf", () => {
+  it("shows the work that is running, not only what the executive chose to notify about", () => {
+    const read = projectFleetDecisions(parseBearings({ in_flight: [{ id: "w1", state: "working", name: "Rebuilding the island", doing: "harness busy" }] }), []);
+    const screen = showOf(snapshot([]), { now: NOW, artefact: { fleet: read, memories: [], news: [], taste: [] } });
+    expect(screen.underway).toHaveLength(1);
+    expect(screen.underway?.[0]).toMatchObject({ kind: "live", headline: "Rebuilding the island" });
+    expect(screen.counts).toMatchObject({ live: 1 });
+  });
+
   it("leads with the call only he can make, then what landed, then what is moving", () => {
     const screen = showOf(snapshot([
       captain("u1", "how are the PRs?", 90),
