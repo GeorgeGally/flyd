@@ -11,9 +11,9 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] {
   --paper: #ECEAE5; --card: #F5F4F1; --sheet: #FFFFFF; --ink: #161615; --ink2: #4A4945; --mute: #76746E;
   --line: #E2DFD9; --mat: #DEDAD2; --well: #F4F2EE; --well-on: #EEEBE5; --hot: #F04E1A;
-  --gut: 22px; --arts-w: clamp(280px, 33vw, 480px); --head-h: 56px; --top: var(--head-h); --tabs-h: 56px; --measure: 760px;
-  --card-pad: 22px; --card-radius: 14px; --mat-pad: 10px;
-  --c-left: var(--gut); --c-right: calc(var(--gut) * 2 + var(--arts-w));
+  --gut: clamp(32px, 2.4vw, 48px); --arts-w: clamp(280px, 33vw, 480px); --head-h: 56px; --top: var(--head-h); --tabs-h: 56px; --measure: 760px;
+  --card-pad: 30px; --card-radius: 14px; --mat-pad: 10px;
+  --c-left: var(--gut); --c-right: calc(var(--gut) + var(--arts-w));
   /* The conversation keeps a readable measure, centred in the room the right column leaves. */
   --pad-x: max(32px, calc((100vw - var(--c-left) - var(--c-right) - var(--measure)) / 2));
   --bg: var(--sheet); --fg: #2B2A28; --strong: var(--ink); --muted: var(--mute); --faint: var(--line); --tint: var(--well);
@@ -80,7 +80,7 @@ export const FRONT_STYLE = `
 }
 .job:hover { background: var(--sheet); }
 /* What waits on him is the brightest card in the column. */
-.job.needs { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); padding: 24px 24px 26px; }
+.job.needs { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); padding: calc(var(--card-pad) + 2px) calc(var(--card-pad) + 2px) calc(var(--card-pad) + 4px); }
 .job.needs:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent); }
 .job.on { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent); }
 .job:focus-visible, .ver:focus-visible, .fbtn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
@@ -372,11 +372,11 @@ button.jv-thread { cursor: pointer; }
 
 /* Narrower: the column gives up width with the window; the cards keep their shape. */
 @media (max-width: 1100px) {
-  :root[data-layout="front"] { --gut: 18px; --card-pad: 20px; --mat-pad: 9px; }
+  :root[data-layout="front"] { --gut: 28px; --card-pad: 24px; --mat-pad: 9px; }
 }
 /* A phone: one column. Jobs and artefacts run as strips of cards above the conversation. */
 @media (max-width: 760px) {
-  :root[data-layout="front"] { --gut: 16px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); --card-pad: 16px; --mat-pad: 8px; }
+  :root[data-layout="front"] { --gut: 20px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); --card-pad: 18px; --mat-pad: 8px; }
   /* No tabs on a phone: jobs and artefacts both run as strips above the conversation. */
   :root[data-layout="front"] .rtabs { display: none; }
   :root[data-layout="front"][data-rtab] .jobs, :root[data-layout="front"][data-rtab] .rail:not([hidden]) { display: block !important; }
