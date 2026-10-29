@@ -533,6 +533,8 @@ export const COMPOSER_SCRIPT = `
     var text = input.value.trim();
     var sending = attachments.slice();
     if ((!text && !sending.length) || !current) return;
+    // Starting a conversation is typing here: a message shows the conversation itself, never the job left open.
+    if (typeof frontSelect === "function") frontSelect("talk");
     if (aboutInfo && text) {
       text = "About “" + aboutInfo.title + "”" + (aboutInfo.detail && aboutInfo.detail !== aboutInfo.title ? " (" + aboutInfo.detail + ")" : "") + ":\\n\\n" + text;
       chatAbout(null);
