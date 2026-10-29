@@ -66,9 +66,11 @@ it("keeps imperatives to Flyd and protected sections mandatory, but budgets life
   expect(isProfileInstruction("- Never call me Georgie")).toBe(true);
   expect(isProfileInstruction("- Only child, grew up in Durban")).toBe(false);
   expect(isProfileInstruction("- Never owned a car")).toBe(false);
-  const profile = ["# George", "## About me", "- George", "- Artist", "- Only child, grew up in Durban", "- Never owned a car", "- Never call me Georgie", "## Safety", "- My address stays private"].join("\n");
+  const imperatives = ["- Never call me Georgie", "- Never need to apologise", "- Always proceed without asking for local edits", "- Don't feed me platitudes", "- Be prepared to push back"];
+  for (const line of imperatives) expect(isProfileInstruction(line)).toBe(true);
+  const profile = ["# George", "## About me", "- George", "- Artist", "- Only child, grew up in Durban", "- Never owned a car", ...imperatives, "## Safety", "- My address stays private"].join("\n");
   const selected = budgetPersonalContext({ profile, memory: "", query: "hello", route: "companion" });
-  expect(selected).toContain("Never call me Georgie");
+  for (const line of imperatives) expect(selected).toContain(line.slice(2));
   expect(selected).toContain("My address stays private");
   expect(selected).not.toContain("Durban");
   expect(selected).not.toContain("owned a car");

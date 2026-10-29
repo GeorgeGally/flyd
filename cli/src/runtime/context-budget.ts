@@ -9,9 +9,13 @@ const LIMITS: Record<ContextRoute, { profile: number; memory: number }> = {
 
 // These sections are explicit instructions and must never be shortened.
 const PROTECTED = new Set(["constraints", "how to be with me", "instructions", "safety", "preferences"]);
-const INSTRUCTION = /^\s*[-*]?\s*(?:always|never|must|stop|avoid|do not|don['’]t|use|keep|give|be)\s+(?!(?:\w+ed|been|had|was|were|did|seen|gone|done|got|went|knew|met|grew|lived)\b)\w/i;
+const IMPERATIVE = /^\s*[-*]?\s*(?:always|never|must|stop|avoid|do not|don['’]t|use|keep|give|be)\b(.*)$/i;
+const ADDRESSED_TO_FLYD = /\b(?:call|tell|ask|share|send|write|speak|say|mention|use|keep|give|stop|avoid|feed|push|proceed|apologi[sz]e|need|me|my|you|flyd)\b/i;
 
-export function isProfileInstruction(text: string): boolean { return INSTRUCTION.test(text); }
+export function isProfileInstruction(text: string): boolean {
+  const predicate = IMPERATIVE.exec(text)?.[1];
+  return predicate !== undefined && ADDRESSED_TO_FLYD.test(predicate);
+}
 
 interface Line { section: string; text: string; mandatory: boolean; score: number }
 
@@ -24,7 +28,7 @@ function lines(text: string, keywords: string[], profile: boolean): Line[] {
     if (heading) { section = heading[1]!.trim(); continue; }
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
-    const mandatory = profile && (PROTECTED.has(section.toLowerCase()) || INSTRUCTION.test(line) || (section === "About me" && aboutCount++ < 2));
+    const mandatory = profile && (PROTECTED.has(section.toLowerCase()) || isProfileInstruction(line) || (section === "About me" && aboutCount++ < 2));
     const low = line.toLowerCase();
     const score = keywords.filter((word) => low.includes(word)).length;
     out.push({ section, text: line, mandatory, score });
