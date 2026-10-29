@@ -174,6 +174,19 @@ describe("the decision-backed fleet projection", () => {
     expect(JSON.stringify(publicFleet)).not.toMatch(/Paused \[at=|no-mistakes run|Exit 1/i);
   });
 
+  it("shows merged and landed work as it was read when no executive decision verified it, without notifying", () => {
+    const fleet = parseBearings({
+      in_flight: [{ id: "merged", state: "done", name: "Fix the login redirect", doing: "PR #3 merged" }],
+      landed: [{ id: "shipped", what: "The gallery is live", artifact: "https://github.com/example/flyd/pull/9" }],
+    });
+    const read = fleet.landed.map((row) => row.task);
+    expect(read).toEqual(expect.arrayContaining(["merged", "shipped"]));
+    const unverified = projectFleetDecisions(fleet, []);
+    expect(unverified.landed.map((row) => row.task)).toEqual(read);
+    expect(unverified.landed.some((row) => row.notable)).toBe(false);
+    expect(fleetCounts(unverified).landed).toBe(read.length);
+  });
+
   it("dates verified finished work by its own report time, else by when Flyd verified it, never inventing one", () => {
     const fleet = parseBearings({ in_flight: [{ id: "result", state: "done", name: "Review complete", doing: "Requested tests passed" }] });
     const verified = decision({ taskId: "result", disposition: "handle_internally", summary: "Requested tests passed", verification: { status: "verified", evidenceRefs: ["receipt:test-run"] }, show: true, createdAt: "2026-10-22T08:30:00.000Z" });

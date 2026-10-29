@@ -664,8 +664,8 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
   const failed = fleet.held.flatMap((row) => row.status === "failed" && !asking.has(row.task) ? [{ ...row, detail: undefined }] : []);
   const finished = attention.filter((row) => row.status === "landed");
   const open = attention.filter((row) => row.status !== "landed");
-  // Work moving, waiting to land and queued next is shown as it was read: the
-  // executive's say is over notifying, never over what is happening. Only what
+  // Work moving, waiting to land, landed and queued next is shown as it was read:
+  // the executive's say is over notifying, never over what is happening. Only what
   // the latest read still reports, and never a task already shown as a call or
   // as verified work.
   const showing = new Set([...calls, ...verified].flatMap((row) => (row.task ? [row.task] : [])));
@@ -678,7 +678,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     live: current(fleet.live),
     ready: current(fleet.ready),
     next: current(fleet.next),
-    landed: [...verified, ...finished],
+    landed: [...verified, ...current(fleet.landed), ...finished],
     held: [...failed, ...open],
   };
 }
