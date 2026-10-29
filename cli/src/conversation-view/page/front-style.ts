@@ -121,6 +121,8 @@ export const FRONT_STYLE = `
 .stage-back:hover, .stage-back:focus-visible { color: var(--ink); }
 :root[data-layout="front"]:not([data-job]) .stage-back { display: none; }
 :root[data-layout="front"]:not([data-job]) .stage-head h1 { margin-top: 0; }
+.crumb-close { margin-left: auto; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; color: var(--mute); }
+.crumb-close:hover, .crumb-close:focus-visible { color: var(--ink); }
 .crumb .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .stage-head h1 {
   margin: 8px 0 0; font: 500 22px/1.25 var(--sans); letter-spacing: -0.015em; color: var(--ink); text-wrap: balance;
@@ -178,8 +180,6 @@ export const FRONT_STYLE = `
 .jv-thread { display: block; width: 100%; margin: 0; padding: 6px 0; border: 0; background: none; text-align: left; font: 400 16px/1.45 var(--sans); color: var(--ink); }
 button.jv-thread { cursor: pointer; }
 .jv-files { margin: 14px 0 0; font-size: 14px; color: var(--mute); }
-.jv-edit { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; align-items: center; }
-.jv-edit input { flex: 1; min-width: 12ch; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--well); color: var(--ink); font: inherit; }
 .jv-work { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 20px; }
 .jv-work.one { grid-template-columns: minmax(0, 1fr); }
 /* The whole picture, never a crop: a choice is made on what the work actually looks like. */

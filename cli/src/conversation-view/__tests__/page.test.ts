@@ -4122,6 +4122,17 @@ describe("the front page", () => {
     after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     expect(document.querySelector(".jv-ask")!.textContent).toBe("Which hero should ship?");
     expect(document.querySelector(".jv-thread")!.textContent).toBe("Hero thread");
+    // No rename row in the job: its one Close is a quiet action in the heading.
+    const view = document.querySelector(".job-view")!;
+    expect(view.querySelector('input[name="name"]')).toBeNull();
+    expect(Array.from(view.querySelectorAll("button")).map((button) => button.textContent)).not.toEqual(expect.arrayContaining(["Rename"]));
+    expect(Array.from(view.querySelectorAll("button")).map((button) => button.textContent)).not.toEqual(expect.arrayContaining(["Close"]));
+    const closes = document.querySelectorAll<HTMLButtonElement>("#stage-crumb button");
+    expect(Array.from(closes).map((button) => button.textContent)).toEqual(["Close"]);
+    vi.mocked(fetch).mockClear();
+    closes[0].click();
+    const posted = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/jobs")!;
+    expect(JSON.parse(String(posted[1]!.body))).toEqual({ op: "close", id: "pick" });
     after(() => document.querySelector<HTMLElement>('.job[data-job="cap5"]')!.click());
     expect(document.querySelector(".jv-digest")!.textContent).toContain("Cap5 can review one offer.");
     expect(document.querySelector<HTMLAnchorElement>(".jv-digest .fbtn")!.href).toBe("https://example.com/deck");
