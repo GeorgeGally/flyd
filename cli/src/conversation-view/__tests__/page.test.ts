@@ -3239,6 +3239,8 @@ describe("what Flyd shows of its staff, at a glance", () => {
     await settle();
     document.querySelector<HTMLButtonElement>("#news .story-ask")!.click();
     await settle();
+    const ask = document.querySelector<HTMLButtonElement>("#news .story-ask");
+    console.log("DBG", JSON.stringify({ ask: !!ask, layout: document.documentElement.dataset.layout, newsHidden: document.getElementById("news")!.hidden, calls: vi.mocked(fetch).mock.calls.map((c) => String(c[0])), job: document.documentElement.getAttribute("data-job") }));
     const post = vi.mocked(fetch).mock.calls.find((call) => call[0] === "/api/article-chat");
     expect(post?.[1]).toEqual(expect.objectContaining({ method: "POST", body: JSON.stringify({ url: story.url, title: story.title, media: "article", text: story.gist, description: story.gist, figure: "", attribution: "" }) }));
     expect(FakeEventSource.instances.at(-1)!.url).toContain(encodeURIComponent(opened.session));
@@ -3783,6 +3785,26 @@ describe("the front page", () => {
     vi.useFakeTimers();
     try { act(); vi.advanceTimersByTime(250); } finally { vi.useRealTimers(); }
   }
+
+  it("leaves the open job for the article when Ask opens a piece from its card", async () => {
+    // The page's own markup puts the front layout on the root; the test's document has no such root.
+    document.documentElement.setAttribute("data-layout", "front");
+    const stream = await opened();
+    const story = { title: "State that lasts", url: "https://magazine.example/state", source: "Magazine", gist: "The machinery, not a wrapper." };
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
+    expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (
+      url === "/api/article-chat" ? json({ session: "window:article-0123456789abcdef", title: story.title, url: story.url, starters: [], link: { href: story.url, label: "Article" } }) : json({ assistantLabel: "Flyd", sessions: SESSIONS })
+    ));
+    document.querySelector<HTMLButtonElement>("#news .story-ask")!.click();
+    await settle();
+    // The conversation takes the middle back: the article is not opened behind the job.
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    expect(document.documentElement.hasAttribute("data-job")).toBe(false);
+    document.documentElement.removeAttribute("data-layout");
+  });
 
   it("lists the jobs as cards, and an unread fleet as unknown rather than empty", async () => {
     const stream = await opened();

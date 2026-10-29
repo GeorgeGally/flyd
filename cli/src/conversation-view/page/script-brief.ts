@@ -545,6 +545,8 @@ export const BRIEF_SCRIPT = `
       if (!data || !data.session) return;
       explicit = data.session;
       if (window.history && window.history.replaceState) window.history.replaceState(null, "", "?session=" + encodeURIComponent(explicit));
+      // The thread takes the middle: a job left open there would keep it out of sight.
+      if (frontLayout && typeof frontSelect === "function") frontSelect("talk");
       connect(explicit);
     }).catch(function () { story._opening = false; });
   }
