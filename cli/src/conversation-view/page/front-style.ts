@@ -280,7 +280,11 @@ button.jv-thread { cursor: pointer; }
   display: block; height: 168px; margin: 0; overflow: hidden; position: relative; background: var(--mat); border-radius: 8px;
 }
 :root[data-layout="front"] .rail .news .story-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
-:root[data-layout="front"] .rail .news .story-image .story-pic { height: 220px; }
+:root[data-layout="front"] .rail .news .story-image .story-pic { height: 260px; }
+:root[data-layout="front"] .rail .news .story-preview video { display: block; width: 100%; height: 100%; object-fit: cover; }
+:root[data-layout="front"] .rail .news .card-story-caption { margin: 14px 0 0; font: 400 12.5px/1.45 var(--sans); color: var(--mute); text-wrap: pretty; }
+:root[data-layout="front"] .rail .news .card-story-caption + .card-story-line { margin-top: 8px; }
+:root[data-layout="front"] .rail .news .story-mark { color: var(--ink); }
 :root[data-layout="front"] .rail .news .card-stories > li > .story-stat {
   display: flex; align-items: flex-end; height: 168px; margin: 0; background: var(--mat); border-radius: 8px; overflow: hidden;
 }
@@ -297,16 +301,12 @@ button.jv-thread { cursor: pointer; }
   content: ""; position: absolute; left: 18px; top: 14px; border-style: solid; border-width: 9px 0 9px 14px; border-color: transparent transparent transparent #F7F6F3;
 }
 :root[data-layout="front"] .rail .news .card-stories + .brief-top { margin-top: 48px; }
-:root[data-layout="front"] .rail .news .card-story-mark {
-  margin: 16px 0 0; font: 500 11px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute);
-}
 :root[data-layout="front"] .rail .news .card-story-head {
   display: block; width: 100%; margin: 8px 0 0; padding: 0; border: 0; background: none; cursor: pointer; text-align: left;
   font: 500 18px/1.22 var(--sans); letter-spacing: -0.02em; color: var(--ink); text-decoration: none;
 }
 :root[data-layout="front"] .rail .news .card-story-head:hover { color: var(--ink); }
 /* No picture: the headline is the picture. */
-:root[data-layout="front"] .rail .news .story-bare .card-story-mark { margin-top: 2px; }
 :root[data-layout="front"] .rail .news .story-bare .card-story-head { margin-top: 10px; font: 500 30px/1.1 var(--sans); letter-spacing: -0.03em; text-wrap: balance; }
 :root[data-layout="front"] .rail .news .card-story-line { margin: 12px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; }
 :root[data-layout="front"] .rail .news .card-story-src {
@@ -381,7 +381,7 @@ button.jv-thread { cursor: pointer; }
   :root[data-layout="front"] .rail { display: block; margin-bottom: 24px; }
   :root[data-layout="front"] .rail .news .story-pic,
   :root[data-layout="front"] .rail .news .card-stories > li > .story-stat { height: 188px; }
-  :root[data-layout="front"] .rail .news .story-image .story-pic { height: 220px; }
+  :root[data-layout="front"] .rail .news .story-image .story-pic { height: 240px; }
   :root[data-layout="front"] .rail[hidden] { display: none; }
   /* The artefacts run as a strip of cards, like the jobs. */
   :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 10px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }

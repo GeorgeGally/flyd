@@ -273,7 +273,7 @@ function decorateStory(story: ActivityStory, dir: string, record: MediaRecord | 
   const key = storyKey(story.url);
   const image = record?.image === "file" && fileReady(dir, `${key}.img`) ? `/api/story-image?id=${key}` : undefined;
   const icon = record?.icon === "file" && fileReady(dir, `${key}.icon`) ? `/api/story-icon?id=${key}` : undefined;
-  const clip = story.media === "gif" && record?.clip === "file" && fileReady(dir, `${key}.clip`) ? `/api/story-clip?id=${key}` : undefined;
+  const clip = (story.media === "gif" || story.media === "video") && record?.clip === "file" && fileReady(dir, `${key}.clip`) ? `/api/story-clip?id=${key}` : undefined;
   if (!image && !icon && !clip && !record?.published && record?.minutes == null && !saved) return story;
   return {
     ...story,
@@ -284,6 +284,40 @@ function decorateStory(story: ActivityStory, dir: string, record: MediaRecord | 
     ...(record?.minutes ? { minutes: record.minutes } : {}),
     ...(saved ? { saved: true } : {}),
   };
+}
+
+/** A story that carries its own media: the picture a photo came with, the file a video did, or the poster a page names. */
+export interface StorySource {
+  url: string;
+  image?: string;
+  clip?: string;
+}
+
+function youtubePoster(url: string): string | undefined {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const id = host === "youtu.be" ? parsed.pathname.replace(/^\//, "") : host.endsWith("youtube.com") ? parsed.searchParams.get("v") ?? "" : "";
+    return /^[A-Za-z0-9_-]{6,20}$/.test(id) ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The pictures and clips the edition itself names, so a photo card never has to be read as text. */
+export function storySources(raw: unknown): StorySource[] {
+  const items = (raw as { items?: unknown } | null)?.items;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item): StorySource[] => {
+    const row = item as { url?: unknown; mediaUrl?: unknown; media?: unknown };
+    if (typeof row.url !== "string" || !/^https?:\/\//i.test(row.url)) return [];
+    const mediaUrl = typeof row.mediaUrl === "string" && /^https?:\/\//i.test(row.mediaUrl) ? row.mediaUrl : "";
+    if (row.media === "image") return mediaUrl ? [{ url: row.url, image: mediaUrl }] : [];
+    if (row.media !== "video") return [];
+    if (mediaUrl) return [{ url: row.url, clip: mediaUrl }];
+    const poster = youtubePoster(row.url);
+    return poster ? [{ url: row.url, image: poster }] : [];
+  });
 }
 
 /** GIF urls sitting on an edition, so a card can play the file it already named. */
@@ -335,6 +369,89 @@ export function scheduleStoryClips(jobs: Array<{ url: string; mediaUrl: string }
   }
 }
 
+const VIDEO_CAP = 6_000_000;
+
+/** A kept video preview: an mp4 we will hand the page, never a link to somebody else's server. */
+function videoKind(contentType: string | null, bytes: Buffer): string | null {
+  if (bytes.length > 12 && bytes.toString("ascii", 4, 8) === "ftyp") return "video/mp4";
+  const declared = (contentType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  return declared.startsWith("video/") ? declared : null;
+}
+
+async function pullClip(fetchImpl: typeof fetch, url: string, lookup?: HostLookup): Promise<{ type: string; bytes: Buffer } | null> {
+  try {
+    const response = await fetchPublicUrl(fetchImpl, url, { lookup, headers: { accept: "video/mp4,video/*;q=0.9,*/*;q=0.5" } });
+    if (!response.ok) return null;
+    const bytes = await readCapped(response, VIDEO_CAP);
+    if (!bytes) return null;
+    const type = videoKind(response.headers.get("content-type"), bytes);
+    return type ? { type, bytes } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keep the picture or the preview a story came with. A page that refused to be read leaves no trace of it here. */
+export async function collectStorySource(dir: string, source: StorySource, fetchImpl: typeof fetch, lookup?: HostLookup): Promise<MediaRecord> {
+  const key = storyKey(source.url);
+  const index = readIndex(dir);
+  const previous = index[key];
+  const record: MediaRecord = {
+    url: source.url,
+    at: previous?.at ?? new Date().toISOString(),
+    image: previous?.image === "file" ? "file" : "none",
+    icon: previous?.icon ?? "none",
+    ...(previous?.imageType && previous.image === "file" ? { imageType: previous.imageType } : {}),
+    ...(previous?.iconType ? { iconType: previous.iconType } : {}),
+    ...(previous?.clip ? { clip: previous.clip } : {}),
+    ...(previous?.clipType ? { clipType: previous.clipType } : {}),
+    ...(previous?.published ? { published: previous.published } : {}),
+    ...(previous?.minutes != null ? { minutes: previous.minutes } : {}),
+  };
+  if (source.image && record.image !== "file") {
+    const image = await pullAsset(fetchImpl, source.image, IMAGE_CAP, lookup);
+    if (image) {
+      mkdirSync(mediaDir(dir), { recursive: true });
+      writeFileSync(join(mediaDir(dir), `${key}.img`), image.bytes);
+      record.image = "file";
+      record.imageType = image.type;
+    }
+  }
+  if (source.clip && record.clip !== "file") {
+    const clip = await pullClip(fetchImpl, source.clip, lookup);
+    if (clip) {
+      mkdirSync(mediaDir(dir), { recursive: true });
+      writeFileSync(join(mediaDir(dir), `${key}.clip`), clip.bytes);
+      record.clip = "file";
+      record.clipType = clip.type;
+    }
+  }
+  index[key] = record;
+  writeIndex(dir, index);
+  return record;
+}
+
+/** One story's own media at a time, after the article queue. Under tests nothing is fetched unless a fetch is passed in. */
+export function scheduleStorySources(sources: StorySource[], options: ScheduleOptions): void {
+  if (process.env.VITEST && !options.fetchImpl) return;
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const index = readIndex(options.dir);
+  for (const source of sources) {
+    const key = storyKey(source.url);
+    const done = (!source.image || index[key]?.image === "file") && (!source.clip || index[key]?.clip === "file");
+    if (done || flying.has(`${key}:source`)) continue;
+    flying.add(`${key}:source`);
+    tail = tail.then(async () => {
+      try {
+        await collectStorySource(options.dir, source, fetchImpl, options.lookup);
+        options.onStored?.();
+      } finally {
+        flying.delete(`${key}:source`);
+      }
+    }).catch(() => undefined);
+  }
+}
+
 function savedPath(dir: string): string {
   return join(dir, "scout", "saved.json");
 }
@@ -352,14 +469,18 @@ function readSaved(dir: string): Set<string> {
 export function applyStoryMedia(panel: ActivityPanel, dir: string): ActivityPanel {
   const index = readIndex(dir);
   const saved = readSaved(dir);
+  // A photo with no picture and a video with neither preview nor poster are not stories yet, and never text.
+  const showable = (story: ActivityStory): boolean =>
+    story.media === "image" ? !!story.image : story.media === "video" ? !!(story.clip || story.image) : true;
   const map = (stories?: ActivityStory[]): ActivityStory[] | undefined => {
     if (!stories) return stories;
     let changed = false;
-    const next = stories.map((story) => {
+    const next = stories.flatMap((story) => {
       const decorated = decorateStory(story, dir, index[storyKey(story.url)], saved.has(story.url));
       if (decorated !== story) changed = true;
-      return decorated;
+      return showable(decorated) ? [decorated] : [];
     });
+    if (next.length !== stories.length) changed = true;
     return changed ? next : stories;
   };
   const now = panel.now.map((item) => {
@@ -400,7 +521,7 @@ export function storyAsset(dir: string, kind: "image" | "icon" | "clip", id: str
   try {
     const bytes = readFileSync(join(mediaDir(dir), `${id}.${ext}`));
     const declared = kind === "image" ? record.imageType : kind === "icon" ? record.iconType : record.clipType;
-    const type = imageKind(declared ?? null, bytes);
+    const type = kind === "clip" ? videoKind(declared ?? null, bytes) ?? imageKind(declared ?? null, bytes) : imageKind(declared ?? null, bytes);
     return type ? { type, bytes } : null;
   } catch {
     return null;

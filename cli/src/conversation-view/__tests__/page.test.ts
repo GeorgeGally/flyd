@@ -3154,7 +3154,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(opens.map((a) => a.getAttribute("href"))).toEqual(stories.map((story) => story.url));
     expect(opens.every((a) => a.target === "_blank" && a.rel === "noopener noreferrer")).toBe(true);
     expect(news.querySelectorAll("button.story-ask")).toHaveLength(stories.length);
-    expect(Array.from(news.querySelectorAll(".card-story-mark")).map((mark) => mark.textContent)).toEqual(["Hot", "Rabbit hole"]);
+    // No eyebrow over a headline: what the scout judged of a story is a word in its source line.
+    expect(news.querySelector(".card-story-mark")).toBeNull();
+    expect(Array.from(news.querySelectorAll(".story-mark")).map((mark) => mark.textContent)).toEqual(["Hot", "Rabbit hole"]);
     update([{ id: "log:memory", kind: "memory", title: "Tidied memory", at: "2026-10-21T05:00:00.000Z" }]);
     await settle();
     expect(news.hidden).toBe(true);
@@ -3334,6 +3336,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
       { title: "Studios shipping", url: "https://en.wikipedia.org/wiki/Studio", source: "Wikipedia", media: "stat", figure: "12%", gist: "12% of studios shipped a tool." },
       { title: "A line", url: "https://en.wikiquote.org/wiki/Line", source: "Wikiquote", media: "quote", quote: "The weights live beside the prompt.", attribution: "A note", gist: "A line worth keeping." },
       { title: "A talk", url: "https://archive.org/details/talk", source: "Internet Archive", media: "video", image: "/api/story-image?id=abc123abc123abcd", gist: "A talk." },
+      { title: "A landing", url: "https://www.pexels.com/video/landing-1/", source: "Pexels", media: "video", clip: "/api/story-clip?id=9f9f9f9f9f9f9f9f", gist: "0:11 · UAVDrone youngman" },
       { title: "A loop", url: "https://commons.wikimedia.org/wiki/File:Loop.gif", source: "Wikimedia Commons", media: "gif", image: "/api/story-image?id=fed123fed123fed1", clip: "/api/story-clip?id=abc123abc123abcd", gist: "A loop." },
       { title: "A print", url: "https://commons.wikimedia.org/wiki/File:Print.jpg", source: "Wikimedia Commons", media: "image", image: "/api/story-image?id=def123def123def1", gist: "A print." },
       { title: "A thread", url: "https://news.ycombinator.com/item?id=1", source: "Hacker News", media: "thread", gist: "Thread about a small host." },
@@ -3344,9 +3347,21 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(news.querySelector(".story-stat b")!.textContent).toBe("12%");
     expect(news.querySelector(".story-quote")!.textContent).toContain("The weights live beside the prompt.");
     expect(news.querySelector(".story-quote span")!.textContent).toBe("A note");
-    expect(news.querySelector(".story-video .story-play")).toBeTruthy();
+    // A video plays itself, muted, in its own card; a video with only a poster shows the poster and no play mark.
+    const preview = news.querySelector<HTMLVideoElement>(".story-preview video")!;
+    expect(preview.getAttribute("src")).toContain("/api/story-clip?id=9f9f9f9f9f9f9f9f");
+    expect(preview.muted).toBe(true);
+    expect(preview.loop).toBe(true);
+    expect(preview.hasAttribute("playsinline")).toBe(true);
+    expect(news.querySelector(".story-preview .card-story-caption")).toBeNull();
+    expect(news.querySelector(".story-video .story-play")).toBeNull();
+    expect(news.querySelectorAll(".story-video .story-pic img")).toHaveLength(1);
     expect(news.querySelector(".story-image .story-pic img")!.getAttribute("src")).toContain("/api/story-image?id=def123def123def1");
-    expect(news.querySelector(".story-thread .card-story-mark")!.textContent).toBe("Thread");
+    // A photo is the card: its own words are a caption under it, not a headline over it.
+    expect(news.querySelector(".story-image .card-story-head")).toBeNull();
+    expect(news.querySelector(".story-image .card-story-caption")!.textContent).toBe("A print");
+    // A thread is a thread by its own words; nothing labels it.
+    expect(news.querySelector(".story-thread .card-story-mark")).toBeNull();
     expect(news.querySelectorAll("button.story-ask")).toHaveLength(stories.length);
     const gif = news.querySelector<HTMLElement>(".story-gif")!;
     gif.dispatchEvent(new MouseEvent("mouseenter"));

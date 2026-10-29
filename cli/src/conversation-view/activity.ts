@@ -9,7 +9,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { sourceLabel } from "../lib/source-label.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { railImageSrc } from "./rail.js";
-import { applyStoryMedia, scheduleStoryClips, scheduleStoryMedia, storyClips, storyUrls } from "./story-media.js";
+import { applyStoryMedia, scheduleStoryClips, scheduleStoryMedia, scheduleStorySources, storyClips, storySources, storyUrls } from "./story-media.js";
 import { clip, inline, sentences } from "./summaries.js";
 import type { DayCount } from "./artefact.js";
 import { monitorObjectsFromSources, type SemanticObject } from "./semantic.js";
@@ -596,6 +596,7 @@ export class ActivityReader {
       if (this.refresh()) for (const each of this.listeners) each();
     };
     scheduleStoryMedia(storyUrls(panel), { dir: this.dir, onStored });
+    scheduleStorySources(storySources(editionFile), { dir: this.dir, onStored });
     scheduleStoryClips(storyClips(editionFile), { dir: this.dir, onStored });
     const signature = JSON.stringify(panel);
     this.panel = panel;

@@ -900,7 +900,7 @@ export class ConversationViewServer {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
         // Inline page only; the right column may frame a loopback site it previews.
-        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-src 'self' http://127.0.0.1:* http://localhost:*",
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self' http://127.0.0.1:* http://localhost:*",
       });
       res.end(renderPage({
         assistantLabel: this.source.assistantLabel,

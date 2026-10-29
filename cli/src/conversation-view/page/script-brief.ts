@@ -336,8 +336,24 @@ export const BRIEF_SCRIPT = `
     return el("span", "story-mono", storyLetter(story));
   }
   // Only a picture we fetched and kept. With none, or one that fails to load, the headline carries the story alone.
-  var MEDIA_LABEL = { stat: "Stat", gif: "GIF", video: "Video", image: "Image", quote: "Quote", thread: "Thread" };
   function storyPicture(story) {
+    if (story.media === "video" && story.clip && String(story.clip).indexOf("/api/story-clip?") === 0) {
+      var box = el("div", "story-pic story-preview");
+      var video = document.createElement("video");
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.setAttribute("muted", "");
+      video.setAttribute("loop", "");
+      video.setAttribute("playsinline", "");
+      video.setAttribute("preload", "metadata");
+      video.setAttribute("aria-label", story.title);
+      video.src = withToken(story.clip) + "#t=0.1";
+      box.appendChild(video);
+      box.addEventListener("mouseenter", function () { var played = video.play(); if (played && played.catch) played.catch(function () {}); });
+      box.addEventListener("mouseleave", function () { video.pause(); });
+      return box;
+    }
     if (story.media === "stat" && story.figure) {
       var stat = el("div", "story-stat");
       stat.appendChild(el("b", "", story.figure));
@@ -356,7 +372,6 @@ export const BRIEF_SCRIPT = `
     });
     img.src = withToken(story.image);
     pic.appendChild(img);
-    if (story.media === "video") pic.appendChild(el("span", "story-play"));
     return pic;
   }
   function storyWhen(iso) {
@@ -399,19 +414,24 @@ export const BRIEF_SCRIPT = `
       var lead = storyPicture(story);
       if (lead) li.appendChild(lead);
       else if (!(story.media === "quote" && story.quote)) li.classList.add("story-bare");
-      var label = story.mark && story.mark !== "Worth a look" ? story.mark : (MEDIA_LABEL[story.media] || story.mark);
-      if (label) li.appendChild(el("p", "card-story-mark", label));
-      var a = story.media === "quote" && story.quote ? el("button", "card-story-head story-quote") : el("button", "card-story-head", story.title);
-      a.type = "button";
-      if (story.media === "quote" && story.quote) {
-        a.appendChild(el("p", "", "\u201C" + story.quote + "\u201D"));
-        if (story.attribution) a.appendChild(el("span", "", story.attribution));
+      var pictured = story.media === "image" || story.media === "video";
+      if (pictured) {
+        // A picture is the story: its own words are a caption under it, in the size a caption is set in.
+        // A video's own words are its duration and credit, which the line under it already carries.
+        if (story.media === "image" && story.title) li.appendChild(el("p", "card-story-caption", story.title));
+      } else {
+        var a = story.media === "quote" && story.quote ? el("button", "card-story-head story-quote") : el("button", "card-story-head", story.title);
+        a.type = "button";
+        if (story.media === "quote" && story.quote) {
+          a.appendChild(el("p", "", "\u201C" + story.quote + "\u201D"));
+          if (story.attribution) a.appendChild(el("span", "", story.attribution));
+        }
+        a.addEventListener("click", function (event) {
+          event.stopPropagation();
+          openStory(li);
+        });
+        li.appendChild(a);
       }
-      a.addEventListener("click", function (event) {
-        event.stopPropagation();
-        openStory(li);
-      });
-      li.appendChild(a);
       if (story.media === "gif" && story.clip && String(story.clip).indexOf("/api/story-clip?") === 0) {
         li.addEventListener("mouseenter", function () {
           var img = li.querySelector(".story-pic img");
@@ -442,6 +462,7 @@ export const BRIEF_SCRIPT = `
       var bits = [story.source || "", storyWhen(story.published), story.minutes ? story.minutes + " min" : ""].filter(Boolean);
       if (bits.length || story.url) {
         var src = el("p", "card-story-src");
+        if (story.mark && story.mark !== "Worth a look") src.appendChild(el("span", "story-mark", story.mark));
         var fav = el("span", "story-fav");
         if (story.icon && story.icon.indexOf("/api/story-icon?") === 0) {
           var icon = document.createElement("img");

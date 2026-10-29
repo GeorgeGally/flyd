@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActivityReader } from "../activity.js";
-import { applyStoryMedia, collectStoryMedia, extractStoryMedia, imageKind, storyAsset, storyKey, toggleSavedStory } from "../story-media.js";
+import { applyStoryMedia, collectStoryMedia, collectStorySource, extractStoryMedia, imageKind, storyAsset, storyKey, storySources, toggleSavedStory } from "../story-media.js";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 const PAGE = "https://magazine.example/course";
@@ -116,6 +116,43 @@ describe("collectStoryMedia", () => {
     const stories = new ActivityReader({ dir, now: () => Date.parse("2026-10-17T12:00:00.000Z") }).current().recent.find((item) => item.title === "Put together today's news")?.stories;
     expect(stories?.[0]?.image).toBe(`/api/story-image?id=${key}`);
     expect(stories?.[0]?.title).toBe("A course");
+  });
+
+  it("keeps the picture a photo came with, and the preview a video came with", async () => {
+    const photo = "https://www.pexels.com/photo/man-3811807/";
+    const video = "https://www.pexels.com/video/landing-10393579/";
+    const talk = "https://www.youtube.com/watch?v=8R0FGJCERtg";
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypisom", "ascii"), Buffer.alloc(24)]);
+    const sources = storySources({ items: [
+      { url: photo, media: "image", mediaUrl: "https://images.pexels.com/photos/1/photo.jpeg" },
+      { url: video, media: "video", mediaUrl: "https://videos.pexels.com/video-files/1/clip.mp4" },
+      { url: talk, media: "video" },
+      { url: "https://example.com/plain", media: "article" },
+    ] });
+    expect(sources).toEqual([
+      { url: photo, image: "https://images.pexels.com/photos/1/photo.jpeg" },
+      { url: video, clip: "https://videos.pexels.com/video-files/1/clip.mp4" },
+      { url: talk, image: "https://i.ytimg.com/vi/8R0FGJCERtg/hqdefault.jpg" },
+    ]);
+
+    await collectStorySource(dir, sources[0]!, fetcher({ "https://images.pexels.com/photos/1/photo.jpeg": { body: PNG, type: "image/png" } }), lookup);
+    await collectStorySource(dir, sources[1]!, fetcher({ "https://videos.pexels.com/video-files/1/clip.mp4": { body: mp4, type: "video/mp4" } }), lookup);
+    expect(storyAsset(dir, "image", storyKey(photo))?.type).toBe("image/png");
+    expect(storyAsset(dir, "clip", storyKey(video))?.type).toBe("video/mp4");
+
+    const stories = [
+      { title: "A surprised man", url: photo, media: "image" as const },
+      { title: "A landing", url: video, media: "video" as const },
+      { title: "No picture at all", url: "https://www.pexels.com/photo/missing-2/", media: "image" as const },
+      { title: "A plain story", url: "https://magazine.example/plain" },
+    ];
+    const panel = applyStoryMedia({ now: [], recent: [{ id: "news", kind: "news", title: "Today", stories, at: "2026-10-17T11:00:00.000Z" }], week: [] }, dir);
+    const shown = panel.recent[0]!.stories!;
+    // A photo with no picture is not a story with a headline: it leaves the edition instead.
+    expect(shown.map((story) => story.title)).toEqual(["A surprised man", "A landing", "A plain story"]);
+    expect(shown[0]?.image).toBe(`/api/story-image?id=${storyKey(photo)}`);
+    expect(shown[1]?.clip).toBe(`/api/story-clip?id=${storyKey(video)}`);
+    expect(shown[2]).toEqual({ title: "A plain story", url: "https://magazine.example/plain" });
   });
 
   it("toggles a saved story without inventing a picture", () => {
