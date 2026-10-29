@@ -48,10 +48,40 @@ export const FRONT_SCRIPT = `
     return String(text == null ? "" : text).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
   }
   function frontText(text) { return String(text || "").replace(/[ \\t\\r\\n]+/g, " ").trim(); }
-  // A card's title in his words: no backstage preamble, and a raw link shown as its site.
+  // A card's title in his words: no backstage preamble, nobody spoken of in the third person, a raw link as its site.
   function frontTitle(text) {
-    return frontText(text).replace(/^self-improvement for flyd:\\s*/i, "")
+    return frontText(text).replace(/^self-improvement for flyd[:.]?\\s*/i, "")
+      .replace(/^act on flyd's note about task \\S+[:.]?\\s*/i, "")
+      .replace(/\\bgeorge's\\b/gi, "your")
+      .replace(/\\bgeorge\\b/gi, "you")
+      .replace(/\\bthe captain's\\b/gi, "your")
+      .replace(/\\bthe captain\\b/gi, "you")
       .replace(/https?:\\/\\/(?:www\\.)?([^\\/\\s]+)\\S*/g, "$1");
+  }
+  // A card's title in his words: the framing gone, and a long run-on cut at its first sentence.
+  function frontHeading(text, project) {
+    if (/^act on\\s+(?:george's|the captain's|his|your)?\\s*answer\\b/i.test(frontText(text))) {
+      return "Carrying out your choice" + (project ? " on " + project : "");
+    }
+    var line = frontTitle(text);
+    if (line.length <= 92) return line;
+    var first = /^.{20,92}?[.!?](?=\\s|$)/.exec(line);
+    if (first) return first[0];
+    var cut = line.lastIndexOf(" ", 88);
+    return (cut > 40 ? line.slice(0, cut) : line.slice(0, 88)).replace(/[\\s,;:-]+$/, "") + "…";
+  }
+  // A working or waiting row says what happens next in one short sentence, never a run-on summary.
+  function frontNext(job) {
+    var said = frontTitle(job.detail);
+    if (!said) return "";
+    var parts = said.split(/(?<=[.!?])\\s+/);
+    // Where it stands, when a sentence says so ("Waiting for your pick: …"), heads the row; else what comes next.
+    var standing = parts.filter(function (part) { return /^(waiting|working|queued|ready|paused|running|landed|next)\\b/i.test(part); });
+    // One whole sentence, never a sentence cut in half: where it stands, else the shortest that fits a line.
+    var fits = parts.filter(function (part) { return part.length <= 90; });
+    var line = standing[0] || fits[0] || parts[0];
+    if (line.length > 90) line = line.slice(0, 88).replace(/\\s+\\S*$/, "") + "…";
+    return line.charAt(0).toUpperCase() + line.slice(1);
   }
   function frontProject(project) {
     var name = shortName(project || "");
@@ -145,7 +175,7 @@ export const FRONT_SCRIPT = `
     return {
       id: object.id, group: group || (frontNeeds(object) ? "needs" : FRONT_PHASE[phase] || "working"),
       state: lab ? "Lab ready for review" : object.status || (phase ? capital(String(phase).replace(/_/g, " ")) : "Needs you"),
-      title: frontTitle(object.subject), project: frontProject(object.project),
+      title: frontHeading(object.subject, frontProject(object.project)), project: frontProject(object.project),
       at: object.updatedAt || object.activity && object.activity.started || object.createdAt,
       shots: frontEvidenceShots(object.evidence), detail: frontText(object.detail || object.summary), previews: frontPreviews(object.previews),
       links: (object.evidence || []).filter(function (one) { return one.kind === "web" && !one.closed; }).map(function (one) { return { label: one.label, url: one.ref }; }),
@@ -167,7 +197,7 @@ export const FRONT_SCRIPT = `
     var calls = {};
     (show.calls || []).forEach(function (call) { calls[call.id] = call; });
     function callJob(call) {
-      return { id: call.id, group: "needs", state: call.status || "Needs your choice", title: frontTitle(call.headline), project: frontProject(call.project),
+      return { id: call.id, group: "needs", state: call.status || "Needs your choice", title: frontHeading(call.headline, frontProject(call.project)), project: frontProject(call.project),
         at: call.at, shots: frontShots(call.shots), previews: frontPreviews(call.previews), detail: frontText(call.detail), links: call.links || [], decision: call.decision || null, task: call.task || "" };
     }
     // What needs him is one list (the corner, the count and the drill read it too): the focus, then the rest.
@@ -183,7 +213,7 @@ export const FRONT_SCRIPT = `
     }
     [show.underway, show.ready, show.held, show.next].forEach(function (list) {
       (list || []).forEach(function (item) {
-        add({ id: item.id, group: "working", state: FRONT_WORKING[item.kind] || capital(item.status || "Working"), title: frontTitle(item.headline), project: frontProject(item.project),
+        add({ id: item.id, group: "working", state: FRONT_WORKING[item.kind] || capital(item.status || "Working"), title: frontHeading(item.headline, frontProject(item.project)), project: frontProject(item.project),
           at: item.at || item.started, shots: frontShots(item.shots), previews: frontPreviews(item.previews), detail: frontText(item.detail || item.why), links: item.links || [], decision: item.decision || null, task: item.task || "" });
       });
     });
@@ -198,7 +228,7 @@ export const FRONT_SCRIPT = `
     // New: Flyd first saw it after he last looked at Done (the same record the Done list keeps).
     var doneSeen = cardRead("flyd-done-seen");
     landed.forEach(function (item) {
-      add({ id: item.id, group: "done", state: "Landed", title: frontTitle(item.headline), project: frontProject(item.project), at: item.at,
+      add({ id: item.id, group: "done", state: "Landed", title: frontHeading(item.headline, frontProject(item.project)), project: frontProject(item.project), at: item.at,
         shots: frontShots(item.shots), previews: frontPreviews(item.previews), detail: frontText(item.detail || item.why), links: item.links || [], decision: null, task: item.task || "",
         fresh: isNew(item, doneSeen) });
     });
@@ -223,9 +253,16 @@ export const FRONT_SCRIPT = `
       var who = job.owner && job.owner !== "you" ? ' <span class="own">' + frontEsc(job.owner) + '</span>' : "";
       reading = '<p class="next">' + frontEsc(job.next) + who + '</p>';
     }
+    // With no digest or next line, one whole sentence says what the work is: a working row says what happens next.
+    if (!reading) {
+      var line = job.group === "working" ? frontNext(job) : frontTitle(job.detail);
+      if (line) reading = '<p class="next">' + frontEsc(line) + '</p>';
+    }
+    // "Landed" under "Done" says nothing the group has not; a plain "needs …" is the group's own word.
+    var state = job.group === "done" || /^needs\\b/i.test(job.state) ? "" : job.state;
     return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
       + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
-      + '<div class="t">' + frontEsc(job.title) + '</div>' + reading + '<div class="m">' + dot + frontMeta([job.group === "needs" && /^needs\\b/i.test(job.state) ? "" : job.state, job.project])
+      + '<div class="t">' + frontEsc(job.title) + '</div>' + reading + '<div class="m">' + dot + frontMeta([state, job.project])
       + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div></button>';
   }
   // A card's state and project, as many as it has; the group above it already says "needs you".
@@ -237,12 +274,12 @@ export const FRONT_SCRIPT = `
     return '<section class="fgroup"><h2 class="fhead"><span>' + frontEsc(label) + '</span><span>' + (count === "" ? "" : count) + '</span></h2>'
       + '<div class="fstrip">' + body + '</div>' + (extra || "") + '</section>';
   }
-  function frontDrawJobs(talk, jobs) {
+  function frontDrawJobs(jobs) {
     // A jobs array is the list. Until one arrives, an empty fleet group is unknown.
     var listed = !!(frontUpdate && Array.isArray(frontUpdate.jobs));
     var known = listed || !!(frontUpdate && frontUpdate.show && frontUpdate.show.read);
     var fleetKnown = listed ? !!frontUpdate.jobsFleetKnown : known;
-    var unread = '<p class="fempty">The work list has not come in.</p>';
+    var unread = '<p class="fempty">Not read yet.</p>';
     var needs = jobs.filter(function (job) { return job.group === "needs"; });
     var working = jobs.filter(function (job) { return job.group === "working"; });
     var waiting = jobs.filter(function (job) { return job.group === "waiting"; });
@@ -252,8 +289,7 @@ export const FRONT_SCRIPT = `
     var workingEmpty = listed && !fleetKnown ? "No run has reported yet." : "Nothing is running right now.";
     var doneEmpty = listed ? "Nothing has landed lately." : "Nothing landed this week.";
     rtabDot.hidden = !needs.length;
-    var html = frontGroup("Conversation", "", frontJobCard(talk))
-      + (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
+    var html = (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
       + (working.length ? frontGroup("Working", working.length, working.map(frontJobCard).join("")) : frontGroup("Working", known ? 0 : "", "", known ? '<p class="fempty">' + workingEmpty + '</p>' : unread))
       + (listed ? (waiting.length ? frontGroup("Waiting", waiting.length, waiting.map(frontJobCard).join("")) : frontGroup("Waiting", 0, "", '<p class="fempty">Nothing is waiting.</p>')) : "")
       + (done.length ? frontGroup("Done", done.length, shownDone.map(frontJobCard).join(""),
@@ -509,7 +545,7 @@ export const FRONT_SCRIPT = `
     fading.forEach(function (node) { node.classList.add("front-fade"); });
     setTimeout(function () {
       frontStage();
-      if (frontUpdate) frontDrawJobs(frontTalk(frontUpdate), Array.from(frontJobs.values()));
+      if (frontUpdate) frontDrawJobs(Array.from(frontJobs.values()));
       // On a phone the middle sits under the strips of cards: the job opens where its heading is.
       var stacked = getComputedStyle(stageHead).position !== "fixed";
       if (id === "talk") { if (pinned) toBottom(); }
@@ -545,7 +581,7 @@ export const FRONT_SCRIPT = `
     if (!frontUpdate) return;
     var jobs = Array.isArray(frontUpdate.jobs) ? frontUpdate.jobs.map(frontListedJob) : frontJobsOf(frontUpdate);
     frontJobs = new Map(jobs.map(function (job) { return [job.id, job]; }));
-    frontDrawJobs(frontTalk(frontUpdate), jobs);
+    frontDrawJobs(jobs);
     frontStage();
   }
 
@@ -573,6 +609,7 @@ export const FRONT_SCRIPT = `
     jobsEl.appendChild(group);
     historyList.addEventListener("click", function (event) { if (event.target.closest(".history-item")) frontSelect("talk"); });
   })();
+  document.getElementById("stage-back").addEventListener("click", function () { frontSelect("talk"); });
   window.addEventListener("keydown", function (event) {
     if (event.key !== "Escape" || event.defaultPrevented || frontActive === "talk" || !lightbox.hidden) return;
     var from = event.target;

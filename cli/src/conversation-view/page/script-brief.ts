@@ -365,10 +365,12 @@ export const BRIEF_SCRIPT = `
     var img = document.createElement("img");
     img.alt = "";
     img.addEventListener("error", function () {
-      var li = pic.parentNode;
-      if (!li) return;
-      li.removeChild(pic);
-      li.classList.add("story-bare");
+      var box = pic.parentNode;
+      if (!box) return;
+      var li = box.closest("li");
+      box.removeChild(pic);
+      if (box.tagName === "A" && !box.childNodes.length) box.remove();
+      if (li) li.classList.add("story-bare");
     });
     img.src = withToken(story.image);
     pic.appendChild(img);
@@ -401,10 +403,10 @@ export const BRIEF_SCRIPT = `
     });
     return button;
   }
-  // The whole card opens the piece, exactly as its Open link does: the link is the one thing that knows where it goes.
+  // The whole card opens the piece, exactly as its picture or its headline does.
   function openStory(li) {
-    var open = li.querySelector(".story-open");
-    if (open) open.click();
+    var link = li.querySelector("a[href]");
+    if (link) link.click();
   }
   // The stories behind a news card: the picture (or a bigger headline), the headline, why it matters, and where it came from.
   function storiesNode(stories) {
@@ -412,25 +414,35 @@ export const BRIEF_SCRIPT = `
     stories.forEach(function (story) {
       var li = el("li", story.media ? "story-" + story.media : "");
       var lead = storyPicture(story);
-      if (lead) li.appendChild(lead);
-      else if (!(story.media === "quote" && story.quote)) li.classList.add("story-bare");
+      if (lead) {
+        // The picture is the link to the piece, exactly as the headline is: no "open" under the card.
+        if (story.url) {
+          var media = el("a", "card-story-media");
+          media.href = story.url;
+          media.target = "_blank";
+          media.rel = "noopener noreferrer";
+          media.setAttribute("aria-label", "Open " + story.title);
+          media.appendChild(lead);
+          li.appendChild(media);
+        } else li.appendChild(lead);
+      } else if (!(story.media === "quote" && story.quote)) li.classList.add("story-bare");
       var pictured = story.media === "image" || story.media === "video";
       if (pictured) {
         // A picture is the story: its own words are a caption under it, in the size a caption is set in.
         // A video's own words are its duration and credit, which the line under it already carries.
         if (story.media === "image" && story.title) li.appendChild(el("p", "card-story-caption", story.title));
       } else {
-        var a = story.media === "quote" && story.quote ? el("button", "card-story-head story-quote") : el("button", "card-story-head", story.title);
-        a.type = "button";
-        if (story.media === "quote" && story.quote) {
-          a.appendChild(el("p", "", "\u201C" + story.quote + "\u201D"));
-          if (story.attribution) a.appendChild(el("span", "", story.attribution));
+        var head = story.media === "quote" && story.quote ? el("a", "card-story-head story-quote") : el("a", "card-story-head", story.title);
+        if (story.url) {
+          head.href = story.url;
+          head.target = "_blank";
+          head.rel = "noopener noreferrer";
         }
-        a.addEventListener("click", function (event) {
-          event.stopPropagation();
-          openStory(li);
-        });
-        li.appendChild(a);
+        if (story.media === "quote" && story.quote) {
+          head.appendChild(el("p", "", "\u201C" + story.quote + "\u201D"));
+          if (story.attribution) head.appendChild(el("span", "", story.attribution));
+        }
+        li.appendChild(head);
       }
       if (story.media === "gif" && story.clip && String(story.clip).indexOf("/api/story-clip?") === 0) {
         li.addEventListener("mouseenter", function () {
@@ -458,7 +470,11 @@ export const BRIEF_SCRIPT = `
           openStory(li);
         });
       }
-      if (story.gist) li.appendChild(el("p", "card-story-line", story.gist));
+      // A line that only says the headline again ("Charlie Brown Halloween GIF") is not shown twice.
+      var told = [];
+      unsaid(story.title, told);
+      var gist = story.gist ? unsaid(story.gist, told) : "";
+      if (gist) li.appendChild(el("p", "card-story-line", gist));
       var bits = [story.source || "", storyWhen(story.published), story.minutes ? story.minutes + " min" : ""].filter(Boolean);
       if (bits.length || story.url) {
         var src = el("p", "card-story-src");
@@ -473,26 +489,18 @@ export const BRIEF_SCRIPT = `
         } else fav.appendChild(storyMonogram(story));
         src.appendChild(fav);
         if (bits.length) src.appendChild(document.createTextNode(bits.join(" · ")));
-        if (story.url) {
+        if (story.url && SEND_TOKEN) {
           var go = el("span", "story-go");
-          if (SEND_TOKEN) {
-            var ask = el("button", "story-ask", "ask");
-            ask.type = "button";
-            ask.setAttribute("aria-label", "Ask about " + story.title);
-            ask.addEventListener("click", function (event) {
-              event.stopPropagation();
-              openArticle(story);
-            });
-            go.appendChild(ask);
-            go.appendChild(document.createTextNode(" · "));
-          }
-          var open = el("a", "story-open", "open");
-          open.href = story.url;
-          open.target = "_blank";
-          open.rel = "noopener noreferrer";
-          go.appendChild(open);
+          var ask = el("button", "story-ask", "ask");
+          ask.type = "button";
+          ask.setAttribute("aria-label", "Ask about " + story.title);
+          ask.addEventListener("click", function (event) {
+            event.stopPropagation();
+            openArticle(story);
+          });
+          go.appendChild(ask);
           go.appendChild(document.createTextNode(" · "));
-          if (SEND_TOKEN) go.appendChild(storySave(story));
+          go.appendChild(storySave(story));
           src.appendChild(go);
         }
         li.appendChild(src);
@@ -589,16 +597,25 @@ export const BRIEF_SCRIPT = `
   }) : null;
   // A same-origin picture or file carries the view's token; a page elsewhere is linked as it is.
   function ownSrc(src) { return /^\\/api\\//.test(src) ? withToken(src) : src; }
-  function artefactPicture(card) {
+  function artefactPicture(card, href) {
     if (card.image) {
       var src = ownSrc(card.image);
-      var shot = el("button", "art-pic");
-      shot.type = "button";
-      shot.setAttribute("aria-label", "Open image");
       var img = el("img", "");
       img.src = src;
       img.alt = "";
       img.loading = "lazy";
+      if (href) {
+        var linked = el("a", "art-pic");
+        linked.href = href;
+        linked.target = "_blank";
+        linked.rel = "noopener noreferrer";
+        linked.setAttribute("aria-label", "Open " + card.title);
+        linked.appendChild(img);
+        return linked;
+      }
+      var shot = el("button", "art-pic");
+      shot.type = "button";
+      shot.setAttribute("aria-label", "Open image");
       shot.appendChild(img);
       shot.addEventListener("click", function () { openImage(src); });
       return shot;
@@ -685,10 +702,19 @@ export const BRIEF_SCRIPT = `
   function artefactItem(card) {
     var li = el("li", "art-card" + (pictured(card) ? " art-pictured" : "") + (card.label === "Advice" ? " art-advice" : ""));
     li.dataset.key = card.id;
-    var picture = artefactPicture(card);
+    var href = card.url && !card.down ? ownSrc(card.url) : "";
+    var picture = artefactPicture(card, href);
     if (picture) li.appendChild(picture);
     if (card.label) li.appendChild(el("p", "art-kind", card.label));
-    li.appendChild(el("p", "brief-line art-title", card.title));
+    if (href) {
+      var head = el("a", "brief-line art-title", card.title);
+      head.href = href;
+      head.target = "_blank";
+      head.rel = "noopener noreferrer";
+      li.appendChild(head);
+    } else {
+      li.appendChild(el("p", "brief-line art-title", card.title));
+    }
     // The line says only what the title does not ("Bearings - fleet board" under "Review board: Bearings - fleet board" goes).
     var said = [];
     unsaid(card.title, said);
@@ -716,13 +742,7 @@ export const BRIEF_SCRIPT = `
     }
     var foot = el("p", "brief-meta");
     var reply = /^reply:/.test(card.id) ? nodes.get(card.id.slice(6)) : null;
-    if (card.url && !card.down) {
-      var a = el("a", "brief-open", "open");
-      a.href = ownSrc(card.url);
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      foot.appendChild(a);
-    } else if (reply) {
+    if (!href && reply) {
       // A reply's artefact opens at the reply it came from.
       var go = el("button", "brief-open art-goto", "open");
       go.type = "button";
