@@ -11,7 +11,8 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] {
   --paper: #ECEAE5; --card: #F5F4F1; --sheet: #FFFFFF; --ink: #161615; --ink2: #4A4945; --mute: #76746E;
   --line: #E2DFD9; --mat: #DEDAD2; --well: #F4F2EE; --well-on: #EEEBE5; --hot: #F04E1A;
-  --gut: 20px; --arts-w: 352px; --head-h: 56px; --top: var(--head-h); --tabs-h: 46px; --measure: 760px;
+  --gut: 22px; --arts-w: clamp(280px, 33vw, 480px); --head-h: 56px; --top: var(--head-h); --tabs-h: 50px; --measure: 760px;
+  --card-pad: 16px; --card-radius: 14px; --mat-pad: 8px;
   --c-left: var(--gut); --c-right: calc(var(--gut) * 2 + var(--arts-w));
   /* The conversation keeps a readable measure, centred in the room the right column leaves. */
   --pad-x: max(32px, calc((100vw - var(--c-left) - var(--c-right) - var(--measure)) / 2));
@@ -42,8 +43,8 @@ export const FRONT_STYLE = `
 
 /* The right column: two quiet tabs, then whichever one is open, scrolling on its own. */
 :root[data-layout="front"] .rtabs {
-  display: flex; gap: 22px; position: fixed; z-index: 3; top: var(--top); right: var(--gut); width: var(--arts-w); height: var(--tabs-h);
-  align-items: flex-start; padding: 6px 4px 0; background: var(--paper);
+  display: flex; gap: 24px; position: fixed; z-index: 3; top: var(--top); right: var(--gut); width: var(--arts-w); height: var(--tabs-h);
+  align-items: center; padding: 0 0 0 var(--card-pad); background: var(--paper);
 }
 .rtab {
   display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0; border: 0; background: none; cursor: pointer;
@@ -56,32 +57,47 @@ export const FRONT_STYLE = `
 :root[data-layout="front"][data-rtab="arts"] .jobs, :root[data-layout="front"][data-rtab="jobs"] .rail { display: none !important; }
 :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail {
   display: block; position: fixed; top: calc(var(--top) + var(--tabs-h)); bottom: 0; z-index: 3; overflow-y: auto; scrollbar-width: none;
-  padding: 0 0 24px; font: 400 15px/1.5 var(--sans); color: var(--ink); background: none;
+  padding: 0 0 28px; font: 400 15px/1.5 var(--sans); color: var(--ink); background: none;
+  animation: column-in .24s ease both;
 }
+@keyframes column-in { from { opacity: 0 } to { opacity: 1 } }
 :root[data-layout="front"] .rail[hidden] { display: none; }
 .jobs::-webkit-scrollbar, .rail::-webkit-scrollbar, .rail-pane::-webkit-scrollbar { display: none; }
 :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { right: var(--gut); width: var(--arts-w); }
-.fgroup { margin: 0 0 30px; }
-.fhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 6px 4px 10px; font: 400 13px/1.3 var(--sans); color: var(--mute); }
-.fempty { margin: 0; padding: 0 4px; font-size: 14px; color: var(--mute); }
-.fmore { display: block; margin: 2px 0 0; padding: 6px 4px; border: 0; background: none; font: 400 13px/1.3 var(--sans); color: var(--mute); cursor: pointer; transition: color .2s; }
+.fgroup { margin: 0 0 32px; }
+.fhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 0 var(--card-pad) 12px; font: 500 13px/1.3 var(--sans); color: var(--mute); }
+.fhead span:last-child { font-variant-numeric: tabular-nums; font-weight: 400; }
+.fempty { margin: 0; padding: 0 var(--card-pad); font-size: 14px; color: var(--mute); }
+.fmore { display: block; margin: 10px 0 0; padding: 8px var(--card-pad); border: 0; background: none; font: 500 13px/1.3 var(--sans); color: var(--mute); cursor: pointer; transition: color .2s; }
 .fmore:hover { color: var(--ink); }
 .fdot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--hot); }
 
-/* Job cards: quiet surfaces; the open one is white with a hairline. */
+/* Job cards: a framed picture on a mat, then the title in his words, a line of what it is, and when. */
 .job {
-  display: block; width: 100%; margin: 0 0 8px; padding: 14px 16px 15px; border: 0; border-radius: 10px;
+  display: block; width: 100%; margin: 0 0 10px; padding: var(--card-pad); border: 0; border-radius: var(--card-radius);
   background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer;
   transition: background-color .2s ease, box-shadow .2s ease;
 }
 .job:hover { background: var(--sheet); }
-.job.on { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
+/* What waits on him is the brightest card in the column. */
+.job.needs { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); padding: 18px 20px; }
+.job.needs:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent); }
+.job.on { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent); }
 .job:focus-visible, .ver:focus-visible, .fbtn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.job .frame { margin: -4px -6px 12px; padding: 8px 8px 0; border-radius: 7px; background: var(--mat); aspect-ratio: 16 / 9; overflow: hidden; }
-.job .frame img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 4px 4px 0 0; outline: 1px solid rgba(0, 0, 0, .1); outline-offset: -1px; }
+.job .frame { margin: 0 0 14px; padding: var(--mat-pad); border-radius: 8px; background: var(--mat); aspect-ratio: 16 / 10; overflow: hidden; }
+.job .frame img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 5px; outline: 1px solid rgba(0, 0, 0, .08); outline-offset: -1px; }
+/* The open job's picture is already in the middle, large: the card does not show it twice. */
 .job.on .frame { display: none; }
-.job .t { font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: pretty; }
-.job .m { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--mute); white-space: nowrap; min-width: 0; }
+.job .t {
+  font: 500 17px/1.34 var(--sans); letter-spacing: -0.011em; overflow-wrap: anywhere; text-wrap: pretty;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+.job.needs .t { font-size: 19px; line-height: 1.29; letter-spacing: -0.015em; }
+.job .d {
+  margin: 8px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); overflow-wrap: anywhere; text-wrap: pretty;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.job .m { display: flex; align-items: center; gap: 6px; margin-top: 12px; font: 400 12.5px/1.4 var(--sans); color: var(--mute); white-space: nowrap; min-width: 0; }
 .job .m .s { color: var(--ink2); }
 .job .m .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .job .m .w { margin-left: auto; padding-left: 8px; font-variant-numeric: tabular-nums; }
@@ -190,46 +206,63 @@ export const FRONT_STYLE = `
 .job-view .art-chat-send:not(:disabled):hover { background: var(--well-on); }
 .job-view .art-chat-receipt.sent::before { color: var(--ink); }
 
-/* The artefact column, as cards: each piece of work led by its picture on a mat. */
+/* The artefact column, as cards: each piece of work led by its picture on a mat, then its name and when. */
 :root[data-layout="front"] .rail-hide { display: none; }
 :root[data-layout="front"] .rail-pane { display: block; overflow: visible; }
 :root[data-layout="front"] .rail .brief { padding: 0; border: 0; }
-:root[data-layout="front"] .rail .brief > section, :root[data-layout="front"] .rail .brief > section + section { margin: 0 0 30px; }
+:root[data-layout="front"] .rail .brief > section, :root[data-layout="front"] .rail .brief > section + section { margin: 0 0 32px; }
 :root[data-layout="front"] .rail #done { display: none; }
-:root[data-layout="front"] .rail .brief-top { margin: 0; padding: 6px 4px 10px; }
-:root[data-layout="front"] .rail .brief-label { font: 400 13px/1.3 var(--sans); color: var(--mute); }
-:root[data-layout="front"] .rail .brief-list .art-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-:root[data-layout="front"] .rail .art-grid > .art-card:first-child { grid-column: 1 / -1; }
+:root[data-layout="front"] .rail .brief-top { margin: 0; padding: 0 var(--card-pad) 12px; }
+:root[data-layout="front"] .rail .brief-label { font: 500 13px/1.3 var(--sans); color: var(--mute); }
+/* One card a row: the column is wide enough for a picture to be worth looking at, never a mosaic of thumbnails. */
+:root[data-layout="front"] .rail .brief-list ul { gap: 10px; }
+:root[data-layout="front"] .rail .brief-list .art-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+:root[data-layout="front"] .rail .art-grid > .art-card:first-child { grid-column: auto; }
 :root[data-layout="front"] .rail .art-card, :root[data-layout="front"] .rail .brief-list li:not(.art-card) {
-  padding: 0 0 13px; border-radius: 10px; background: var(--card); overflow: hidden; transition: background-color .2s ease;
+  display: flex; flex-direction: column; padding: var(--card-pad) var(--card-pad) 17px; border-radius: var(--card-radius);
+  background: var(--card); overflow: hidden; transition: background-color .2s ease;
 }
-:root[data-layout="front"] .rail .art-card:hover { background: var(--sheet); }
-:root[data-layout="front"] .rail .art-pic { margin: 0 0 11px; padding: 8px 8px 0; border-radius: 0; background: var(--mat); }
-:root[data-layout="front"] .rail .art-pic img { border-radius: 4px 4px 0 0; outline: 1px solid rgba(0, 0, 0, .1); outline-offset: -1px; }
-:root[data-layout="front"] .rail .art-frame iframe { top: 8px; left: 8px; border-radius: 4px 4px 0 0; background: #fff; }
-:root[data-layout="front"] .rail .art-card > :not(.art-pic) { margin-left: 12px; margin-right: 12px; }
-:root[data-layout="front"] .rail .art-card .art-title { font: 500 14px/1.35 var(--sans); color: var(--ink); text-wrap: balance; }
-:root[data-layout="front"] .rail .art-grid > .art-card:first-child .art-title { font-size: 15px; }
-:root[data-layout="front"] .rail .art-plain { gap: 8px; margin-top: 8px; }
+:root[data-layout="front"] .rail .art-advice[role="button"]:hover { background: var(--sheet); }
+:root[data-layout="front"] .rail .art-pic { order: 0; margin: 0 0 14px; padding: var(--mat-pad); border-radius: 8px; background: var(--mat); aspect-ratio: 16 / 10; }
+:root[data-layout="front"] .rail .art-pic img { border-radius: 5px; outline: 1px solid rgba(0, 0, 0, .08); outline-offset: -1px; }
+/* A page is scaled to the mat, not cropped to it. */
+:root[data-layout="front"] .rail .art-frame { overflow: hidden; }
+:root[data-layout="front"] .rail .art-frame iframe { top: var(--mat-pad); left: var(--mat-pad); border-radius: 5px; background: #fff; }
+:root[data-layout="front"] .rail .art-card .art-title {
+  order: 1; font: 500 17px/1.34 var(--sans); letter-spacing: -0.011em; color: var(--ink); text-wrap: pretty;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+/* The card's kind sits under its name as a quiet word, never a label over it. */
+:root[data-layout="front"] .rail .art-kind { order: 2; margin: 7px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .art-advice-line { order: 0; font: 500 19px/1.34 var(--sans); letter-spacing: -0.015em; text-wrap: pretty; }
+:root[data-layout="front"] .rail .art-plain { gap: 10px; margin-top: 0; }
+:root[data-layout="front"] .rail .art-plain + .brief-top { margin-top: 22px; }
 :root[data-layout="front"] .rail .art-grid + .art-plain { padding-top: 0; border-top: 0; }
-:root[data-layout="front"] .rail .art-plain .art-card { padding: 13px 0; }
-:root[data-layout="front"] .rail .brief-list li:not(.art-card) { padding: 13px 14px; }
-:root[data-layout="front"] .rail .brief-line { font: 500 14px/1.4 var(--sans); color: var(--ink); }
-:root[data-layout="front"] .rail .brief-meta, :root[data-layout="front"] .rail .art-meta { font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .art-steps { order: 3; }
+:root[data-layout="front"] .rail .brief-line { font: 500 17px/1.34 var(--sans); letter-spacing: -0.011em; color: var(--ink); }
+:root[data-layout="front"] .rail #notices .brief-line { font: 500 15px/1.4 var(--sans); letter-spacing: 0; }
+:root[data-layout="front"] .rail .brief-outcome { order: 2; margin: 8px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; }
+:root[data-layout="front"] .rail .brief-meta, :root[data-layout="front"] .rail .art-meta { order: 4; margin: 12px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-open { color: var(--ink2); }
 /* The card itself opens the piece: no "open" under it, and no file name beside its age. */
 :root[data-layout="front"] .rail .art-card .brief-open, :root[data-layout="front"] .rail .art-card .art-line:not(.down) { display: none; }
 :root[data-layout="front"] .rail .art-card .art-line:not(.down) + .art-ago::before { content: none; }
 :root[data-layout="front"] .rail .art-card .art-ago { font-variant-numeric: tabular-nums; }
-:root[data-layout="front"] .rail .brief-more { margin: 4px 0 0; padding: 6px 4px; font: 400 13px/1.3 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .brief-more { margin: 16px 0 0; padding: 8px var(--card-pad); font: 500 13px/1.3 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-more:hover { color: var(--ink); }
 /* News: each story a quiet card under the edition's line. */
-:root[data-layout="front"] .rail .news .brief-outcome { margin: 0 4px 10px; font-size: 14px; color: var(--ink2); }
-:root[data-layout="front"] .rail .news .card-stories { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-:root[data-layout="front"] .rail .news .card-stories > li { padding: 13px 14px 14px; border-radius: 10px; background: var(--card); }
-:root[data-layout="front"] .rail .news .card-stories + .brief-top { margin-top: 22px; }
-:root[data-layout="front"] .rail .card-story-head { color: var(--ink); font-weight: 500; text-decoration: none; }
-:root[data-layout="front"] .rail .card-story-mark, :root[data-layout="front"] .rail .card-story-src { color: var(--mute); letter-spacing: 0; text-transform: none; }
+:root[data-layout="front"] .rail .news .brief-outcome { margin: 0 var(--card-pad) 14px; font-size: 14.5px; line-height: 1.45; color: var(--ink2); }
+:root[data-layout="front"] .rail .news .card-stories { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+:root[data-layout="front"] .rail .news .card-stories > li { display: flex; flex-direction: column; padding: var(--card-pad) var(--card-pad) 17px; border-radius: var(--card-radius); background: var(--card); }
+:root[data-layout="front"] .rail .news .card-stories + .brief-top { margin-top: 32px; }
+:root[data-layout="front"] .rail .card-story-head { order: 0; color: var(--ink); font: 500 16px/1.36 var(--sans); letter-spacing: -0.008em; text-decoration: none; text-wrap: pretty; }
+:root[data-layout="front"] .rail .card-story-head:hover { color: var(--link); }
+:root[data-layout="front"] .rail .card-story-line { order: 1; margin: 8px 0 0; font: 400 14px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; }
+:root[data-layout="front"] .rail .card-story-mark { order: 2; margin: 10px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--hot); }
+:root[data-layout="front"] .rail .card-story-src { order: 3; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 8px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .card-story-mark + .card-story-src { margin-top: 2px; }
+:root[data-layout="front"] .rail .story-rate { margin-left: auto; gap: 2px; }
+:root[data-layout="front"] .rail .story-rate button { padding: 6px 8px; font: 400 12.5px/1 var(--sans); }
 
 /* Past conversations, under the jobs: a quiet list. */
 .fhistory:has(> .history[hidden]) { display: none; }
@@ -246,38 +279,43 @@ export const FRONT_STYLE = `
 :root[data-screen="show"] .rtabs, :root[data-screen="show"] .jobs,
 :root[data-screen="show"] .stage-head, :root[data-screen="show"] .job-view { display: none !important; }
 
-/* Narrower: the right column gives up some width. */
+/* Narrower: the column gives up width with the window; the cards keep their shape. */
 @media (max-width: 1100px) {
-  :root[data-layout="front"] { --arts-w: 288px; }
+  :root[data-layout="front"] { --gut: 18px; --card-pad: 14px; --mat-pad: 6px; }
 }
-/* A phone: one column. Jobs and artefacts are strips of cards above the conversation. */
+/* A phone: one column, the cards stacked full width above the conversation. */
 @media (max-width: 760px) {
   :root[data-layout="front"] { --gut: 16px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); }
-  /* No tabs on a phone: jobs and artefacts both run as strips above the conversation. */
+  /* No tabs on a phone: one column, the conversation first and the cards under it. */
   :root[data-layout="front"] .rtabs { display: none; }
+  :root[data-layout="front"] body { display: flex; flex-direction: column; font-size: 18px; background: var(--paper); }
+  :root[data-layout="front"] header { order: 0; padding: 0 var(--gut); flex-wrap: nowrap; }
+  :root[data-layout="front"] .stage-head, :root[data-layout="front"] .job-view { order: 1; }
+  :root[data-layout="front"] main { order: 2; }
+  :root[data-layout="front"] .jobs { order: 3; }
+  :root[data-layout="front"] .rail { order: 4; }
   :root[data-layout="front"][data-rtab] .jobs, :root[data-layout="front"][data-rtab] .rail:not([hidden]) { display: block !important; }
-  :root[data-layout="front"] body { font-size: 18px; background: var(--paper); }
-  :root[data-layout="front"] header { padding: 0 var(--gut); flex-wrap: nowrap; }
   :root[data-layout="front"] header .controls { flex: none; margin-left: auto; }
   :root[data-layout="front"] header .controls { gap: 0; }
   :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
-  :root[data-layout="front"] .rail { display: block; margin-bottom: 18px; }
+  :root[data-layout="front"] .rail { display: block; margin-bottom: 22px; }
   :root[data-layout="front"] .rail[hidden] { display: none; }
-  /* The artefacts run as a strip of cards, like the jobs. */
-  :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
-  :root[data-layout="front"] .rail .art-grid::-webkit-scrollbar { display: none; }
-  :root[data-layout="front"] .rail .art-grid > .art-card { flex: 0 0 220px; width: 220px; scroll-snap-align: start; }
-  .fgroup { margin: 0 0 18px; }
-  .fstrip { display: flex; align-items: flex-start; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
+  /* Every card takes the whole width, one under the next: a strip of half-cards is not a layout. */
+  .fstrip { display: block; margin: 0; padding: 0; overflow: visible; }
+  .fstrip > * { flex: none; width: auto; min-width: 0; margin: 0 0 10px; }
+  :root[data-layout="front"] .rail .brief-list .art-grid { display: block; margin: 0; padding: 0; overflow: visible; }
+  :root[data-layout="front"] .rail .art-grid > .art-card { width: auto; flex: none; margin: 0 0 10px; scroll-snap-align: none; }
+  :root[data-layout="front"] .rail .art-grid > .art-card:last-child, .fstrip > *:last-child { margin-bottom: 0; }
+  /* The archive stays a list on a phone: its pictures would push the conversation a long way down. */
+  .jobs .job.done .frame { display: none; }
+  .fgroup { margin: 0 0 22px; }
   .jobs .history { max-height: 232px; overflow-y: auto; }
-  .fstrip::-webkit-scrollbar { display: none; }
-  .fstrip > * { flex: 0 0 248px; width: 248px; min-width: 0; margin: 0; scroll-snap-align: start; }
   .fhead, .fempty, .fmore { padding-left: 0; padding-right: 0; }
   .jobs, :root[data-layout="front"] .rail { padding: 0 var(--gut) !important; }
   :root[data-layout="front"] .stage-head { position: static; padding: 18px var(--gut) 0; margin: 4px 0 0; }
   .stage-head h1 { font-size: 22px; }
-  :root[data-layout="front"] main { margin: 0 !important; padding: 8px var(--gut) calc(var(--composer-h, 130px) + 24px) !important; min-height: 60vh; }
+  :root[data-layout="front"] main { margin: 0 !important; padding: 8px var(--gut) 26px !important; }
   :root[data-layout="front"][data-job] .job-view { margin: 0; padding: 14px var(--gut) 40px; }
   :root[data-layout="front"] .composer { left: 0; right: 0; bottom: 0; padding: 10px var(--gut) calc(12px + env(safe-area-inset-bottom)); border-radius: 0; }
   :root[data-layout="front"] .jump { right: var(--gut); }
