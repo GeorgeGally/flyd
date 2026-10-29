@@ -135,6 +135,9 @@ export const FRONT_STYLE = `
   transition: opacity .2s ease;
 }
 :root[data-layout="front"] .msg.fresh { animation: choice-in 280ms ease both; }
+/* The chat reads at a comfortable size: his words at body size, Flyd's a step under, both on a generous line. */
+:root[data-layout="front"] .msg .body { font-size: 18px; }
+:root[data-layout="front"] .msg.assistant { font-size: 17px; line-height: 1.55; }
 /* What needs him lives in the left column; the conversation doesn't repeat it. */
 :root[data-layout="front"]:not([data-screen="show"]) #show, :root[data-layout="front"] .inline-screen { display: none !important; }
 /* The decision the conversation carries: the same quiet well as the message box, a hairline of the dot's colour. */
@@ -146,7 +149,7 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .empty { margin-top: 18vh; }
 :root[data-layout="front"] .composer {
   left: var(--c-left); right: var(--c-right); bottom: 0; z-index: 4;
-  padding: 14px var(--pad-x) calc(var(--gut) + 14px); border-radius: 0; background: var(--paper); font-size: 16px;
+  padding: 14px var(--pad-x) calc(var(--gut) + 14px); border-radius: 0; background: var(--paper); font-size: 17px;
 }
 :root[data-layout="front"] .composer .row { max-width: none; margin: 0 !important; padding: 0; }
 :root[data-layout="front"] .composer .field { margin-left: 0; padding: 7px 7px 7px 16px; border-radius: 12px; background: var(--sheet); align-items: center; box-shadow: 0 0 0 1px var(--line); }
@@ -161,20 +164,20 @@ export const FRONT_STYLE = `
 :root[data-layout="front"][data-job] main, :root[data-layout="front"][data-job] .composer, :root[data-layout="front"][data-job] .jump { display: none !important; }
 :root[data-layout="front"][data-job] .job-view {
   display: block; margin: 0 var(--c-right) 0 var(--c-left); padding: calc(var(--stage-head-h, 110px) + 6px) var(--pad-x) calc(var(--gut) + 40px);
-  font: 400 15px/1.5 var(--sans); color: var(--ink); transition: opacity .2s ease;
+  font: 400 17px/1.55 var(--sans); color: var(--ink); transition: opacity .2s ease;
 }
 .jv-lead { margin: 0 0 20px; max-width: 64ch; color: var(--ink2); overflow-wrap: anywhere; }
-.jv-ask { margin: 0 0 16px; max-width: 40ch; font: 500 18px/1.35 var(--sans); }
+.jv-ask { margin: 0 0 16px; max-width: 40ch; font: 500 19px/1.35 var(--sans); }
 .jv-digest { margin: 0 0 18px; display: grid; gap: 6px; max-width: 62ch; }
 .jv-digest p { margin: 0; }
 .jv-digest b { font-weight: 500; }
 .jv-next { margin: 0 0 16px; max-width: 62ch; color: var(--ink2); }
 .jv-next .own { color: var(--mute); }
 .jv-time { margin-top: 22px; display: grid; gap: 4px; }
-.jv-k { margin: 0 0 4px; font-size: 13px; color: var(--mute); }
-.jv-thread { display: block; width: 100%; margin: 0; padding: 6px 0; border: 0; background: none; text-align: left; font: 400 14px/1.4 var(--sans); color: var(--ink); }
+.jv-k { margin: 0 0 4px; font-size: 14px; color: var(--mute); }
+.jv-thread { display: block; width: 100%; margin: 0; padding: 6px 0; border: 0; background: none; text-align: left; font: 400 16px/1.45 var(--sans); color: var(--ink); }
 button.jv-thread { cursor: pointer; }
-.jv-files { margin: 14px 0 0; font-size: 13px; color: var(--mute); }
+.jv-files { margin: 14px 0 0; font-size: 14px; color: var(--mute); }
 .jv-edit { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; align-items: center; }
 .jv-edit input { flex: 1; min-width: 12ch; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--well); color: var(--ink); font: inherit; }
 .jv-work { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 20px; }
@@ -190,20 +193,20 @@ button.jv-thread { cursor: pointer; }
 }
 .ver:hover { background: var(--well); }
 .ver.on { background: var(--well-on); }
-.ver .i { font-size: 13px; color: var(--mute); }
+.ver .i { font-size: 14px; color: var(--mute); }
 .ver .th { width: 44px; height: 34px; border-radius: 4px; background: var(--mat) center top / cover no-repeat; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .05); }
-.ver .n { font-size: 14px; font-weight: 500; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ver .n { font-size: 15px; font-weight: 500; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The candidates a lab put up: every version, its desktop page large with its phone view beside it. */
 .jv-candidates { display: grid; gap: 34px; margin: 4px 0 8px; }
 .jv-candidate { margin: 0; }
-.jv-candidate figcaption { margin: 0 0 12px; font: 500 15px/1.35 var(--sans); color: var(--ink); }
+.jv-candidate figcaption { margin: 0 0 12px; font: 500 16px/1.35 var(--sans); color: var(--ink); }
 .jv-pair { display: flex; align-items: flex-start; gap: 14px; }
 .jv-pair .jv-view { flex: 1 1 auto; min-width: 0; padding: 12px; }
 .jv-phone { flex: none; width: 104px; margin: 0; padding: 6px; border: 0; border-radius: 8px; background: var(--mat); cursor: zoom-in; }
 .jv-phone img { display: block; width: 100%; height: auto; border-radius: 4px; box-shadow: 0 2px 14px rgba(0, 0, 0, .12); }
 .jv-plain { padding: 24px 28px; border-radius: 12px; background: var(--well); }
 .jv-plain .big { margin: 0; font: 500 21px/1.3 var(--sans); letter-spacing: -0.01em; max-width: 34ch; overflow-wrap: anywhere; }
-.jv-plain .sub { margin: 6px 0 0; font-size: 14px; color: var(--mute); }
+.jv-plain .sub { margin: 6px 0 0; font-size: 15px; color: var(--mute); }
 .jv-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .fbtn {
   display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: none;
@@ -213,7 +216,7 @@ button.jv-thread { cursor: pointer; }
 .fbtn:hover { background: var(--well); }
 .jv-talk { display: grid; gap: 14px; margin-top: 26px; }
 .jv-msg { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 16px; }
-.jv-msg .who { padding-top: 2px; font-size: 13px; line-height: 1.35; color: var(--mute); }
+.jv-msg .who { padding-top: 2px; font-size: 14px; line-height: 1.35; color: var(--mute); }
 .jv-msg .who b { display: block; font-weight: 500; color: var(--ink); }
 .jv-msg p { margin: 0; max-width: 64ch; color: var(--ink); overflow-wrap: anywhere; }
 .job-view .scene-ask { max-width: none; margin-top: 34px; gap: 12px; }
@@ -223,11 +226,11 @@ button.jv-thread { cursor: pointer; }
 .job-view .choice-pick:hover { background: var(--well); color: var(--ink); }
 .job-view .choice-pick[aria-pressed="true"], .job-view .choice-pick[aria-pressed="true"]:hover { background: var(--ink); color: var(--sheet); box-shadow: none; }
 .job-view .art-thread { gap: 10px; margin: 4px 0 6px; }
-.job-view .art-msg { font-size: 15px; color: var(--ink2); }
+.job-view .art-msg { font-size: 16px; color: var(--ink2); }
 .job-view .art-msg--you { color: var(--ink); }
 .job-view .art-chat-field { padding: 6px 6px 6px 16px; border: 0; border-radius: 12px; background: var(--well); }
 .job-view .art-chat-field:focus-within { background: var(--well-on); }
-.job-view .art-chat-input { color: var(--ink); font-size: 15px; }
+.job-view .art-chat-input { color: var(--ink); font-size: 16px; }
 .job-view .art-chat-send { height: 32px; padding: 0 12px; border-radius: 8px; background: none; color: var(--ink2); font: 500 14px/1 var(--sans); }
 .job-view .art-chat-send:not(:disabled):hover { background: var(--well-on); }
 .job-view .art-chat-receipt.sent::before { color: var(--ink); }

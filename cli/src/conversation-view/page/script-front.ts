@@ -250,7 +250,7 @@ export const FRONT_SCRIPT = `
     var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
     var reading = frontDigest(job);
     if (!reading && job.next) {
-      var who = job.owner && job.owner !== "you" ? ' <span class="own">' + frontEsc(job.owner) + '</span>' : "";
+      var who = job.owner && job.owner !== "you" ? ' <span class="own">· ' + frontEsc(job.owner) + '</span>' : "";
       reading = '<p class="next">' + frontEsc(job.next) + who + '</p>';
     }
     // With no digest or next line, one whole sentence says what the work is: a working row says what happens next.
