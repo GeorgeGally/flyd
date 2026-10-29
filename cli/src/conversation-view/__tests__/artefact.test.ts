@@ -1150,6 +1150,26 @@ describe("ArtefactFeed fleet reads", () => {
     expect(underwayItems(feed.current().fleet).map((item) => item.task)).toEqual(["cut-off", "listed"]);
   });
 
+  it("keeps a worker the snapshot reports finished or paused out of Working when the executive hides it", async () => {
+    const { home, script } = fleetHome("artefact-workers-hidden-");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(snapshot, JSON.stringify({
+      in_flight: [
+        { id: "merged-one", state: "done", name: "Merged worker", doing: "merged" },
+        { id: "paused-one", state: "paused", name: "Paused worker" },
+      ],
+    }));
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const workers = () => [
+      { id: "merged-one", name: "Merged worker", state: "working" },
+      { id: "paused-one", name: "Paused worker", state: "working" },
+      { id: "unlisted", name: "Unlisted worker", state: "in_flight" },
+    ];
+    const feed = new ArtefactFeed({ home, workers, decideChanges: async () => [], ...files(home) });
+    await feed.refresh();
+    expect(feed.current().fleet?.live.map((row) => row.task)).toEqual(["unlisted"]);
+  });
+
   it("names a timed-out read as one in Flyd's log, not 'no reason given'", async () => {
     const { home, script } = fleetHome("artefact-why-");
     writeFileSync(script, "#!/bin/sh\nsleep 5\n", { mode: 0o755 });

@@ -170,6 +170,7 @@ const FLEET_UNAVAILABLE = (reason: string): FleetArtefact => ({ ...emptyFleet(),
 /** The fleet's arrays, in the order the screen reads them. */
 type FleetField = "calls" | "live" | "ready" | "landed" | "held" | "next";
 const FLEET_FIELDS: FleetField[] = ["calls", "live", "ready", "landed", "held", "next"];
+const LIVE_STAFF_STATES = new Set(["working", "in_flight"]);
 
 /** One artefact the screen has shown, kept so a later refresh adds or updates it rather than restarting the list. */
 interface LedgerEntry {
@@ -1641,7 +1642,7 @@ export class ArtefactFeed {
   private staffLive(fleet: FleetArtefact): ArtefactRow[] {
     const seen = new Set(FLEET_FIELDS.flatMap((field) => fleet[field].flatMap((row) => (row.task ? [row.task] : []))));
     return (this.options.workers?.() ?? []).flatMap((worker): ArtefactRow[] => {
-      if (!worker.id || seen.has(worker.id) || worker.state !== "working") return [];
+      if (!worker.id || seen.has(worker.id) || !LIVE_STAFF_STATES.has(worker.state)) return [];
       seen.add(worker.id);
       return [{
         label: worker.name || worker.id,
@@ -1705,7 +1706,7 @@ export class ArtefactFeed {
         }), heldForAttention())
         : enriched;
       // Every worker the staff is running, not only the twenty the snapshot lists.
-      const running = decided.unavailable ? [] : this.staffLive(decided);
+      const running = decided.unavailable ? [] : this.staffLive(content);
       if (running.length) decided.live = [...decided.live, ...running];
       decided.calls = decided.calls.map((row) => ({ ...row, label: callHeadline(row.label, row.task ? entries.get(row.task)?.title : undefined) }));
       for (const row of decided.calls) {
