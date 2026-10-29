@@ -14,7 +14,7 @@ Run `npx tsx src/evals/recall/run.ts /path/to/private-labels.json` from `cli`, w
 
 ## Context budgets and traces
 
-Chat applies separate companion, work and recall budgets to selected profile facts, curated memory, retrieved excerpts, taste and recent assistant history. Explicit user messages and protected profile sections can exceed the budget. The active message is never shortened. Matching facts are selected by query terms; this is a lightweight selection method, so relevant paraphrases can still be missed. Other runtime surfaces keep their own context formatting.
+Chat applies separate companion, work and recall budgets to selected profile facts, curated memory, retrieved excerpts, taste and recent assistant history. Explicit user messages and mandatory profile lines can exceed the budget: protected sections (Constraints, How to be with me, Instructions, Safety, Preferences), the first two About me lines, and lines that tell Flyd what to do (`isProfileInstruction` in `cli/src/runtime/context-budget.ts`). The active message is never shortened. Matching facts are selected by query terms; this is a lightweight selection method, so relevant paraphrases can still be missed. Other runtime surfaces keep their own context formatting.
 
 Chat and direct account turns write a bounded set of up to 512 private files under `~/.flyd/context-traces/`. Each trace contains a route, approximate token counts based on characters divided by four, aggregate memory-query duration, result count and lexical or hybrid route. Counts overlap and are not provider usage. It records no messages, note text or source paths. Read-only evaluation turns do not write traces.
 
