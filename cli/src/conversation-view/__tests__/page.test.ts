@@ -3623,6 +3623,29 @@ describe("the front page", () => {
     expect(document.documentElement.hasAttribute("data-job")).toBe(false);
   });
 
+  it("opens a decision that carries candidate previews: every design shown, its phone view beside it, and its choices with them", async () => {
+    const stream = await opened();
+    const lab = {
+      id: "call:new-lab", kind: "call", headline: "Which /new version should obj0 build?", why: "", status: "Needs your choice", project: "obj0",
+      at: "2026-10-24T15:30:00.000Z", task: "obj0-new-direction", detail: "Twelve versions, all in the existing look.",
+      shots: [{ src: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png", label: "v2-desktop.png" }],
+      previews: [
+        { label: "V2 · Live page", image: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png", phone: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-phone.png" },
+        { label: "V10 · Edit the page", image: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv10-desktop.png", phone: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv10-phone.png" },
+      ],
+      decision: { task: "obj0-new-direction", decisionId: "d2", question: "Which /new version should obj0 build?", choices: ["V2 Live page", "V10 Edit the page"], recommended: "V10 Edit the page" },
+    };
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, calls: [lab], counts: { call: 1 } } });
+    after(() => document.querySelector<HTMLElement>('.job[data-job="call:new-lab"]')!.click());
+    const candidates = [...document.querySelectorAll<HTMLElement>(".job-view .jv-candidate")];
+    expect(candidates.map((candidate) => candidate.querySelector("figcaption")!.textContent)).toEqual(["V2 · Live page", "V10 · Edit the page"]);
+    expect(candidates[0]!.querySelector<HTMLImageElement>(".jv-view img")!.getAttribute("src")).toBe(`/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png&token=${"a".repeat(48)}`);
+    expect(candidates[0]!.querySelector<HTMLImageElement>(".jv-phone img")!.getAttribute("src")).toContain("shots%2Fv2-phone.png");
+    expect(candidates[1]!.querySelector(".jv-phone img")).not.toBeNull();
+    // The choice stays under the designs, so he picks without leaving the card.
+    expect([...document.querySelectorAll(".job-view .choice-pick")].map((button) => button.textContent)).toEqual(["V2 Live page", "V10 Edit the pagerecommended"]);
+  });
+
   it("lists what needs him from the one list, a finished design lab among them, led by its picture", async () => {
     const stream = await opened();
     const lab = {

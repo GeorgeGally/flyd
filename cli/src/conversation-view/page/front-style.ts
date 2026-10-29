@@ -175,6 +175,14 @@ export const FRONT_STYLE = `
 .ver .i { font-size: 13px; color: var(--mute); }
 .ver .th { width: 44px; height: 34px; border-radius: 4px; background: var(--mat) center top / cover no-repeat; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .05); }
 .ver .n { font-size: 14px; font-weight: 500; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The candidates a lab put up: every version, its desktop page large with its phone view beside it. */
+.jv-candidates { display: grid; gap: 34px; margin: 4px 0 8px; }
+.jv-candidate { margin: 0; }
+.jv-candidate figcaption { margin: 0 0 12px; font: 500 15px/1.35 var(--sans); color: var(--ink); }
+.jv-pair { display: flex; align-items: flex-start; gap: 14px; }
+.jv-pair .jv-view { flex: 1 1 auto; min-width: 0; padding: 12px; }
+.jv-phone { flex: none; width: 104px; margin: 0; padding: 6px; border: 0; border-radius: 8px; background: var(--mat); cursor: zoom-in; }
+.jv-phone img { display: block; width: 100%; height: auto; border-radius: 4px; box-shadow: 0 2px 14px rgba(0, 0, 0, .12); }
 .jv-plain { padding: 24px 28px; border-radius: 12px; background: var(--well); }
 .jv-plain .big { margin: 0; font: 500 21px/1.3 var(--sans); letter-spacing: -0.01em; max-width: 34ch; overflow-wrap: anywhere; }
 .jv-plain .sub { margin: 6px 0 0; font-size: 14px; color: var(--mute); }
@@ -190,7 +198,7 @@ export const FRONT_STYLE = `
 .jv-msg .who { padding-top: 2px; font-size: 13px; line-height: 1.35; color: var(--mute); }
 .jv-msg .who b { display: block; font-weight: 500; color: var(--ink); }
 .jv-msg p { margin: 0; max-width: 64ch; color: var(--ink); overflow-wrap: anywhere; }
-.job-view .scene-ask { max-width: none; margin-top: 22px; gap: 12px; }
+.job-view .scene-ask { max-width: none; margin-top: 34px; gap: 12px; }
 .job-view > .art-chat { margin-top: 22px; }
 .job-view .scene-ask .choices { display: flex; flex-wrap: wrap; gap: 8px; }
 .job-view .choice-pick { min-height: 36px; padding: 8px 14px; border: 0; border-radius: 8px; background: none; box-shadow: inset 0 0 0 1px var(--line); font: 500 14px/1.3 var(--sans); color: var(--ink); max-width: 100%; }
@@ -315,6 +323,9 @@ export const FRONT_STYLE = `
   :root[data-layout="front"] .composer { left: 0; right: 0; bottom: 0; padding: 10px var(--gut) calc(12px + env(safe-area-inset-bottom)); border-radius: 0; }
   :root[data-layout="front"] .jump { right: var(--gut); }
   .jv-work { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .jv-pair { gap: 10px; }
+  .jv-phone { width: 84px; padding: 4px; }
+  .jv-candidates { gap: 26px; }
   .jv-view { padding: 12px 14px; }
   .jv-vers { flex-direction: row; overflow-x: auto; gap: 6px; }
   .ver { grid-template-columns: 44px; width: auto; flex: none; padding: 6px; }
