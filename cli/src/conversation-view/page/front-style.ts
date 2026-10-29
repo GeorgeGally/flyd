@@ -110,6 +110,12 @@ export const FRONT_STYLE = `
 .crumb { display: flex; align-items: center; gap: 8px; margin: 0; font: 400 13px/1.4 var(--sans); color: var(--mute); white-space: nowrap; overflow: hidden; }
 .crumb .s { color: var(--ink); }
 :root[data-layout="front"]:not([data-job]) .crumb { display: none; }
+.stage-back {
+  float: right; margin: -4px 0 0 16px; padding: 4px 0; border: 0; background: none; cursor: pointer;
+  font: 400 13px/1.4 var(--sans); color: var(--mute);
+}
+.stage-back:hover, .stage-back:focus-visible { color: var(--ink); }
+:root[data-layout="front"]:not([data-job]) .stage-back { display: none; }
 :root[data-layout="front"]:not([data-job]) .stage-head h1 { margin-top: 0; }
 .crumb .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .stage-head h1 {

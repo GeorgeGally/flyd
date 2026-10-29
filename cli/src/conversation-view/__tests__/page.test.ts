@@ -3634,6 +3634,20 @@ describe("the front page", () => {
     expect(document.documentElement.hasAttribute("data-job")).toBe(false);
   });
 
+  it("gives an open job a back button that returns to the conversation and forgets the job", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
+    after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
+    expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
+    expect(sessionStorage.getItem("flyd-front-job")).toBe("call:pick");
+    const back = document.querySelector<HTMLButtonElement>("#stage-head button#stage-back")!;
+    expect(back.textContent).toBe("Back to the conversation");
+    after(() => back.click());
+    expect(document.documentElement.hasAttribute("data-job")).toBe(false);
+    expect(sessionStorage.getItem("flyd-front-job")).toBe("talk");
+    expect(document.querySelector(".job.on")).toBeNull();
+  });
+
   it("opens a decision that carries candidate previews: every design shown, its phone view beside it, and its choices with them", async () => {
     const stream = await opened();
     const lab = {

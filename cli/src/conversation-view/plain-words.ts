@@ -7,10 +7,9 @@
 /** Openings that describe the hand-off, not the work. */
 const FRAMING = [
   /^act on flyd's note about task\s+\S+[:.]?\s*/i,
-  /^act on (?:george's|the captain's|his|your) answer to[:.]?\s*/i,
   /^(?:george's|the captain's) answer to[:.]?\s*/i,
   /^self-improvement for flyd[:.]?\s*/i,
-  /^act on[:.]?\s*/i,
+  /^act on\b[:.]?\s*/i,
 ];
 
 /** A title built from the captain's own answer, which carries no subject of its own. */

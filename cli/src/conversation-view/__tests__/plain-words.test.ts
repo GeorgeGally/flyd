@@ -7,7 +7,7 @@ describe("plain titles for the right column", () => {
     expect(plainTitle("Act on George's answer to: Which one(s) to build for real, or another round?", "flyd")).toBe("Carrying out your choice on flyd");
     expect(plainTitle("Act on George's answer to: which size?", "flyd")).toBe("Carrying out your choice on flyd");
     expect(plainTitle("Act on George's answer to: which size?")).toBe("Carrying out the choice you made");
-    // A new row, already written plainly, is left as it is.
+    // A row already written plainly is left as it is.
     expect(plainTitle("Carry out your pick: V5 framed hero", "hftw")).toBe("Carry out your pick: V5 framed hero");
   });
 
@@ -16,6 +16,10 @@ describe("plain titles for the right column", () => {
     expect(plainTitle("Restyle the shop for the captain")).toBe("Restyle the shop for you");
     expect(plainTitle("Self-improvement for Flyd: stop repeating lines")).toBe("Stop repeating lines");
     expect(plainTitle("Act on Flyd's note about task hftw-hero: swap the hero")).toBe("Swap the hero");
+    expect(plainTitle("Act on: swap the hero")).toBe("Swap the hero");
+    // Only the framing goes: a title that merely starts with the same letters keeps every word.
+    expect(plainTitle("Act once the review lands")).toBe("Act once the review lands");
+    expect(plainTitle("Act only on green CI")).toBe("Act only on green CI");
     // A decision's own question keeps its question mark: it is the ask, not a report.
     expect(plainTitle("Which hero should the shop use?")).toBe("Which hero should the shop use?");
   });

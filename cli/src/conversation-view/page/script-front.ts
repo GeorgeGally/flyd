@@ -484,6 +484,7 @@ export const FRONT_SCRIPT = `
     jobsEl.appendChild(group);
     historyList.addEventListener("click", function (event) { if (event.target.closest(".history-item")) frontSelect("talk"); });
   })();
+  document.getElementById("stage-back").addEventListener("click", function () { frontSelect("talk"); });
   window.addEventListener("keydown", function (event) {
     if (event.key !== "Escape" || event.defaultPrevented || frontActive === "talk" || !lightbox.hidden) return;
     var from = event.target;
