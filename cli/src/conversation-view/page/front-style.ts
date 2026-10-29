@@ -11,7 +11,8 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] {
   --paper: #ECEAE5; --card: #F5F4F1; --sheet: #FFFFFF; --ink: #161615; --ink2: #4A4945; --mute: #76746E;
   --line: #E2DFD9; --mat: #DEDAD2; --well: #F4F2EE; --well-on: #EEEBE5; --hot: #F04E1A;
-  --gut: 20px; --arts-w: 352px; --head-h: 56px; --top: var(--head-h); --tabs-h: 46px; --measure: 760px;
+  --gut: 22px; --arts-w: clamp(280px, 33vw, 480px); --head-h: 56px; --top: var(--head-h); --tabs-h: 56px; --measure: 760px;
+  --card-pad: 22px; --card-radius: 14px; --mat-pad: 10px;
   --c-left: var(--gut); --c-right: calc(var(--gut) * 2 + var(--arts-w));
   /* The conversation keeps a readable measure, centred in the room the right column leaves. */
   --pad-x: max(32px, calc((100vw - var(--c-left) - var(--c-right) - var(--measure)) / 2));
@@ -42,8 +43,8 @@ export const FRONT_STYLE = `
 
 /* The right column: two quiet tabs, then whichever one is open, scrolling on its own. */
 :root[data-layout="front"] .rtabs {
-  display: flex; gap: 22px; position: fixed; z-index: 3; top: var(--top); right: var(--gut); width: var(--arts-w); height: var(--tabs-h);
-  align-items: flex-start; padding: 6px 4px 0; background: var(--paper);
+  display: flex; gap: 24px; position: fixed; z-index: 3; top: var(--top); right: var(--gut); width: var(--arts-w); height: var(--tabs-h);
+  align-items: center; padding: 0 0 0 var(--card-pad); background: var(--paper);
 }
 .rtab {
   display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0; border: 0; background: none; cursor: pointer;
@@ -56,37 +57,51 @@ export const FRONT_STYLE = `
 :root[data-layout="front"][data-rtab="arts"] .jobs, :root[data-layout="front"][data-rtab="jobs"] .rail { display: none !important; }
 :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail {
   display: block; position: fixed; top: calc(var(--top) + var(--tabs-h)); bottom: 0; z-index: 3; overflow-y: auto; scrollbar-width: none;
-  padding: 0 0 24px; font: 400 15px/1.5 var(--sans); color: var(--ink); background: none;
+  padding: 0 0 28px; font: 400 15px/1.5 var(--sans); color: var(--ink); background: none;
+  animation: column-in .24s ease both;
 }
+@keyframes column-in { from { opacity: 0 } to { opacity: 1 } }
 :root[data-layout="front"] .rail[hidden] { display: none; }
 .jobs::-webkit-scrollbar, .rail::-webkit-scrollbar, .rail-pane::-webkit-scrollbar { display: none; }
 :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { right: var(--gut); width: var(--arts-w); }
-.fgroup { margin: 0 0 30px; }
-.fhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 6px 4px 10px; font: 400 13px/1.3 var(--sans); color: var(--mute); }
-.fempty { margin: 0; padding: 0 4px; font-size: 14px; color: var(--mute); }
-.fmore { display: block; margin: 2px 0 0; padding: 6px 4px; border: 0; background: none; font: 400 13px/1.3 var(--sans); color: var(--mute); cursor: pointer; transition: color .2s; }
+.fgroup { margin: 0 0 48px; }
+.fhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0; padding: 0 var(--card-pad) 16px; font: 500 13px/1.3 var(--sans); color: var(--mute); }
+.fhead span:last-child { font-variant-numeric: tabular-nums; font-weight: 400; }
+.fempty { margin: 0; padding: 0 var(--card-pad); font-size: 14px; color: var(--mute); }
+.fmore { display: block; margin: 14px 0 0; padding: 8px var(--card-pad); border: 0; background: none; font: 500 13px/1.3 var(--sans); color: var(--mute); cursor: pointer; transition: color .2s; }
 .fmore:hover { color: var(--ink); }
 .fdot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--hot); }
 
-/* Job cards: quiet surfaces; the open one is white with a hairline. */
+/* Job cards: a framed picture on a mat, then the title in his words, a line of what it is, and when. */
 .job {
-  display: block; width: 100%; margin: 0 0 8px; padding: 14px 16px 15px; border: 0; border-radius: 10px;
+  display: block; width: 100%; margin: 0 0 16px; padding: var(--card-pad); border: 0; border-radius: var(--card-radius);
   background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer;
   transition: background-color .2s ease, box-shadow .2s ease;
 }
 .job:hover { background: var(--sheet); }
-.job.on { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
+/* What waits on him is the brightest card in the column. */
+.job.needs { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); padding: 24px 24px 26px; }
+.job.needs:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent); }
+.job.on { background: var(--sheet); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent); }
 .job:focus-visible, .ver:focus-visible, .fbtn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.job .frame { margin: -4px -6px 12px; padding: 8px 8px 0; border-radius: 7px; background: var(--mat); aspect-ratio: 16 / 9; overflow: hidden; }
-.job .frame img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 4px 4px 0 0; outline: 1px solid rgba(0, 0, 0, .1); outline-offset: -1px; }
+.job .frame { margin: 0 0 20px; padding: var(--mat-pad); border-radius: 8px; background: var(--mat); aspect-ratio: 16 / 10; overflow: hidden; }
+.job .frame img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 5px; outline: 1px solid rgba(0, 0, 0, .08); outline-offset: -1px; }
+/* The open job's picture is already in the middle, large: the card does not show it twice. */
 .job.on .frame { display: none; }
-.job .t { font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: pretty; }
-.job .digest, .job .next { margin: 8px 0 0; font: 400 13px/1.45 var(--sans); color: var(--ink2); white-space: normal; }
+.job .t {
+  font: 500 17px/1.34 var(--sans); letter-spacing: -0.011em; overflow-wrap: anywhere; text-wrap: pretty;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+.job.needs .t { font-size: 19px; line-height: 1.29; letter-spacing: -0.015em; }
+/* The digest is the card's substance, so it is never cut; "next" says the same in one line when there is none. */
+.job .digest, .job .next {
+  margin: 12px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); white-space: normal; overflow-wrap: anywhere; text-wrap: pretty;
+}
 .job .next .own { color: var(--mute); }
 .job-new { display: flex; gap: 8px; margin: 4px 0 24px; }
 .job-new input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
 .job-new button { height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--ink); color: var(--sheet); font: 500 13px/1 var(--sans); cursor: pointer; }
-.job .m { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--mute); white-space: nowrap; min-width: 0; }
+.job .m { display: flex; align-items: center; gap: 6px; margin-top: 18px; font: 400 12.5px/1.4 var(--sans); color: var(--mute); white-space: nowrap; min-width: 0; }
 .job .m .s { color: var(--ink2); }
 .job .m .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .job .m .w { margin-left: auto; padding-left: 8px; font-variant-numeric: tabular-nums; }
@@ -208,82 +223,93 @@ button.jv-thread { cursor: pointer; }
 .job-view .art-chat-send:not(:disabled):hover { background: var(--well-on); }
 .job-view .art-chat-receipt.sent::before { color: var(--ink); }
 
-/* The artefact column, as cards: each piece of work led by its picture on a mat. */
+/* The artefact column, as cards: each piece of work led by its picture on a mat, then its name and when. */
 :root[data-layout="front"] .rail-hide { display: none; }
 :root[data-layout="front"] .rail-pane { display: block; overflow: visible; }
 :root[data-layout="front"] .rail .brief { padding: 0; border: 0; }
-:root[data-layout="front"] .rail .brief > section, :root[data-layout="front"] .rail .brief > section + section { margin: 0 0 30px; }
+:root[data-layout="front"] .rail .brief > section, :root[data-layout="front"] .rail .brief > section + section { margin: 0 0 48px; }
 :root[data-layout="front"] .rail #done { display: none; }
-:root[data-layout="front"] .rail .brief-top { margin: 0; padding: 6px 4px 10px; }
-:root[data-layout="front"] .rail .brief-label { font: 400 13px/1.3 var(--sans); color: var(--mute); }
-:root[data-layout="front"] .rail .brief-list .art-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-:root[data-layout="front"] .rail .art-grid > .art-card:first-child { grid-column: 1 / -1; }
+:root[data-layout="front"] .rail .brief-top { margin: 0; padding: 0 var(--card-pad) 16px; }
+:root[data-layout="front"] .rail .brief-label { font: 500 13px/1.3 var(--sans); color: var(--mute); }
+/* One card a row: the column is wide enough for a picture to be worth looking at, never a mosaic of thumbnails. */
+:root[data-layout="front"] .rail .brief-list ul { gap: 16px; }
+:root[data-layout="front"] .rail .brief-list .art-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+:root[data-layout="front"] .rail .art-grid > .art-card:first-child { grid-column: auto; }
 :root[data-layout="front"] .rail .art-card, :root[data-layout="front"] .rail .brief-list li:not(.art-card) {
-  padding: 0 0 13px; border-radius: 10px; background: var(--card); overflow: hidden; transition: background-color .2s ease;
+  display: flex; flex-direction: column; padding: var(--card-pad) var(--card-pad) 24px; border-radius: var(--card-radius);
+  background: var(--card); overflow: hidden; transition: background-color .2s ease;
 }
 :root[data-layout="front"] .rail .art-card:hover { background: var(--sheet); }
-:root[data-layout="front"] .rail .art-pic { margin: 0 0 11px; padding: 8px 8px 0; border-radius: 0; background: var(--mat); }
-:root[data-layout="front"] .rail .art-pic img { border-radius: 4px 4px 0 0; outline: 1px solid rgba(0, 0, 0, .1); outline-offset: -1px; }
-:root[data-layout="front"] .rail .art-frame iframe { top: 8px; left: 8px; border-radius: 4px 4px 0 0; background: #fff; }
-:root[data-layout="front"] .rail .art-card > :not(.art-pic) { margin-left: 12px; margin-right: 12px; }
-:root[data-layout="front"] .rail .art-card .art-title { font: 500 14px/1.35 var(--sans); color: var(--ink); text-wrap: balance; }
-:root[data-layout="front"] .rail .art-grid > .art-card:first-child .art-title { font-size: 15px; }
-:root[data-layout="front"] .rail .art-plain { gap: 8px; margin-top: 8px; }
+:root[data-layout="front"] .rail .art-pic { order: 0; margin: 0 0 20px; padding: var(--mat-pad); border-radius: 8px; background: var(--mat); aspect-ratio: 16 / 10; }
+:root[data-layout="front"] .rail .art-pic img { border-radius: 5px; outline: 1px solid rgba(0, 0, 0, .08); outline-offset: -1px; }
+/* A page is scaled to the mat, not cropped to it. */
+:root[data-layout="front"] .rail .art-frame { overflow: hidden; }
+:root[data-layout="front"] .rail .art-frame iframe { top: var(--mat-pad); left: var(--mat-pad); border-radius: 5px; background: #fff; }
+:root[data-layout="front"] .rail .art-card .art-title {
+  order: 1; font: 500 17px/1.34 var(--sans); letter-spacing: -0.011em; color: var(--ink); text-wrap: pretty;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+/* The card's kind sits under its name as a quiet word, never a label over it. */
+:root[data-layout="front"] .rail .art-kind { order: 2; margin: 10px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .art-advice-line { order: 0; font: 500 19px/1.34 var(--sans); letter-spacing: -0.015em; text-wrap: pretty; }
+:root[data-layout="front"] .rail .art-plain { gap: 16px; margin-top: 0; }
+:root[data-layout="front"] .rail .art-plain + .brief-top { margin-top: 32px; }
 :root[data-layout="front"] .rail .art-grid + .art-plain { padding-top: 0; border-top: 0; }
-:root[data-layout="front"] .rail .art-plain .art-card { padding: 13px 0; }
-:root[data-layout="front"] .rail .brief-list li:not(.art-card) { padding: 13px 14px; }
-:root[data-layout="front"] .rail .brief-line { font: 500 14px/1.4 var(--sans); color: var(--ink); }
-:root[data-layout="front"] .rail .brief-meta, :root[data-layout="front"] .rail .art-meta { font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .art-steps { order: 3; }
+:root[data-layout="front"] .rail .brief-line { font: 500 17px/1.34 var(--sans); letter-spacing: -0.011em; color: var(--ink); }
+:root[data-layout="front"] .rail #notices .brief-line { font: 500 15px/1.4 var(--sans); letter-spacing: 0; }
+:root[data-layout="front"] .rail .brief-outcome { order: 2; margin: 12px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; }
+:root[data-layout="front"] .rail .brief-meta, :root[data-layout="front"] .rail .art-meta { order: 4; margin: 18px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-open { color: var(--ink2); }
 /* The card itself opens the piece: no "open" under it. The one-line explanation stays. */
 :root[data-layout="front"] .rail .art-card .brief-open { display: none; }
 :root[data-layout="front"] .rail .art-card .art-meta { white-space: normal; align-items: baseline; }
 :root[data-layout="front"] .rail .art-card .art-line { white-space: normal; }
 :root[data-layout="front"] .rail .art-card .art-ago { font-variant-numeric: tabular-nums; }
-:root[data-layout="front"] .rail .brief-more { margin: 4px 0 0; padding: 6px 4px; font: 400 13px/1.3 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .brief-more { margin: 22px 0 0; padding: 8px var(--card-pad); font: 500 13px/1.3 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .brief-more:hover { color: var(--ink); }
-/* News: a picture, then the story, on the paper. A hairline between them. No card chrome. */
-:root[data-layout="front"] .rail .news .brief-outcome { margin: 0 0 4px; font-size: 14px; color: var(--ink2); }
-:root[data-layout="front"] .rail .news .card-stories { display: block; margin: 0; padding: 0; list-style: none; }
+/* News: a picture on a card, then the story, with air between the cards and inside them. */
+:root[data-layout="front"] .rail .news .brief-outcome { margin: 0 var(--card-pad) 20px; font-size: 14.5px; line-height: 1.45; color: var(--ink2); text-wrap: pretty; }
+:root[data-layout="front"] .rail .news .card-stories { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
 :root[data-layout="front"] .rail .news .card-stories > li {
-  position: relative; margin: 0; padding: 16px 0 18px; border: 0; border-radius: 0; background: transparent; overflow: visible; cursor: pointer;
+  position: relative; margin: 0; padding: var(--card-pad) var(--card-pad) 24px; border: 0; border-radius: var(--card-radius);
+  background: var(--card); overflow: hidden; cursor: pointer;
 }
-:root[data-layout="front"] .rail .news .card-stories > li + li { margin-top: 0; padding-top: 16px; border-top: 1px solid var(--line); }
 :root[data-layout="front"] .rail .news .story-pic {
-  display: block; height: 168px; margin: 0; overflow: hidden; position: relative; background: var(--mat);
+  display: block; height: 168px; margin: 0; overflow: hidden; position: relative; background: var(--mat); border-radius: 8px;
 }
 :root[data-layout="front"] .rail .news .story-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
 :root[data-layout="front"] .rail .news .story-image .story-pic { height: 220px; }
-:root[data-layout="front"] .rail .news .story-stat {
-  display: flex; align-items: flex-end; height: 168px; margin: 0; background: var(--mat); overflow: hidden;
+:root[data-layout="front"] .rail .news .card-stories > li > .story-stat {
+  display: flex; align-items: flex-end; height: 168px; margin: 0; background: var(--mat); border-radius: 8px; overflow: hidden;
 }
-:root[data-layout="front"] .rail .news .story-stat b {
+:root[data-layout="front"] .rail .news .card-stories > li > .story-stat b {
   margin: 0 0 -0.12em; font: 500 92px/0.8 var(--sans); letter-spacing: -0.05em; color: var(--ink);
 }
 :root[data-layout="front"] .rail .news .story-quote.card-story-head { margin-top: 0; font: 500 22px/1.3 var(--sans); letter-spacing: -0.02em; }
 :root[data-layout="front"] .rail .news .story-quote p { margin: 0; }
-:root[data-layout="front"] .rail .news .story-quote span { display: block; margin-top: 12px; font: 400 12px/1.3 var(--sans); letter-spacing: 0; color: var(--mute); }
+:root[data-layout="front"] .rail .news .story-quote span { display: block; margin-top: 14px; font: 400 12px/1.3 var(--sans); letter-spacing: 0; color: var(--mute); }
 :root[data-layout="front"] .rail .news .story-play {
   position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(22, 22, 21, .72);
 }
 :root[data-layout="front"] .rail .news .story-play::after {
   content: ""; position: absolute; left: 18px; top: 14px; border-style: solid; border-width: 9px 0 9px 14px; border-color: transparent transparent transparent #F7F6F3;
 }
-:root[data-layout="front"] .rail .news .card-stories + .brief-top { margin-top: 22px; }
+:root[data-layout="front"] .rail .news .card-stories + .brief-top { margin-top: 48px; }
 :root[data-layout="front"] .rail .news .card-story-mark {
-  margin: 11px 0 0; font: 500 11px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute);
+  margin: 16px 0 0; font: 500 11px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute);
 }
 :root[data-layout="front"] .rail .news .card-story-head {
-  display: block; width: 100%; margin: 6px 0 0; padding: 0; border: 0; background: none; cursor: pointer; text-align: left;
+  display: block; width: 100%; margin: 8px 0 0; padding: 0; border: 0; background: none; cursor: pointer; text-align: left;
   font: 500 18px/1.22 var(--sans); letter-spacing: -0.02em; color: var(--ink); text-decoration: none;
 }
 :root[data-layout="front"] .rail .news .card-story-head:hover { color: var(--ink); }
 /* No picture: the headline is the picture. */
 :root[data-layout="front"] .rail .news .story-bare .card-story-mark { margin-top: 2px; }
 :root[data-layout="front"] .rail .news .story-bare .card-story-head { margin-top: 10px; font: 500 30px/1.1 var(--sans); letter-spacing: -0.03em; text-wrap: balance; }
-:root[data-layout="front"] .rail .news .card-story-line { margin: 7px 0 0; font: 400 14px/1.4 var(--sans); color: var(--ink2); }
+:root[data-layout="front"] .rail .news .card-story-line { margin: 12px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; }
 :root[data-layout="front"] .rail .news .card-story-src {
-  display: flex; align-items: center; gap: 7px; margin: 12px 0 0; font: 400 12px/1.2 var(--sans); letter-spacing: 0; text-transform: none; color: var(--mute);
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 14px 0 0; font: 400 12px/1.2 var(--sans); letter-spacing: 0; text-transform: none; color: var(--mute);
 }
 :root[data-layout="front"] .rail .news .story-fav { width: 13px; height: 13px; flex: none; display: inline-flex; }
 :root[data-layout="front"] .rail .news .story-fav img, :root[data-layout="front"] .rail .news .story-mono {
@@ -295,9 +321,9 @@ button.jv-thread { cursor: pointer; }
   border: 0; background: none; padding: 0; font: 500 12.5px/1 var(--sans); color: var(--ink); text-decoration: none; cursor: pointer; text-transform: capitalize;
 }
 :root[data-layout="front"] .rail .news .story-rate button { text-transform: capitalize; }
-:root[data-layout="front"] .rail .news .story-taste { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font: 400 12px/1 var(--sans); color: var(--mute); }
-:root[data-layout="front"] .rail .news .story-rate { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
-:root[data-layout="front"] .rail .news .story-rate button { padding: 0; border-radius: 0; font: 400 12px/1 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .news .story-taste { display: flex; align-items: center; gap: 6px; margin: 12px 0 0; font: 400 12px/1 var(--sans); color: var(--mute); }
+:root[data-layout="front"] .rail .news .story-rate { display: inline-flex; align-items: center; gap: 2px; margin: 0; }
+:root[data-layout="front"] .rail .news .story-rate button { padding: 6px 8px; border-radius: 0; font: 400 12px/1 var(--sans); color: var(--mute); }
 :root[data-layout="front"] .rail .news .story-go,
 :root[data-layout="front"] .rail .news .story-taste,
 :root[data-layout="front"] .rail .news .story-rate,
@@ -325,9 +351,9 @@ button.jv-thread { cursor: pointer; }
 .jobs .history { display: block; max-height: none; padding: 0; border: 0; overflow: visible; }
 .jobs .history[hidden] { display: none; }
 .jobs .history-top { display: none; }
-.jobs .history-group summary { padding: 6px 4px; font: 400 14px/1.3 var(--sans); color: var(--ink2); }
+.jobs .history-group summary { padding: 10px 4px; font: 400 14px/1.3 var(--sans); color: var(--ink2); }
 .jobs .history-items { padding: 0 0 6px 4px; }
-.jobs .history-item { padding: 6px 4px; font-size: 14px; color: var(--ink2); }
+.jobs .history-item { padding: 9px 4px; font-size: 14px; color: var(--ink2); }
 .jobs .history-item:hover { color: var(--ink); }
 .jobs .history-item-age { font-size: 12.5px; }
 
@@ -335,13 +361,13 @@ button.jv-thread { cursor: pointer; }
 :root[data-screen="show"] .rtabs, :root[data-screen="show"] .jobs,
 :root[data-screen="show"] .stage-head, :root[data-screen="show"] .job-view { display: none !important; }
 
-/* Narrower: the right column gives up some width. */
+/* Narrower: the column gives up width with the window; the cards keep their shape. */
 @media (max-width: 1100px) {
-  :root[data-layout="front"] { --arts-w: 288px; }
+  :root[data-layout="front"] { --gut: 18px; --card-pad: 20px; --mat-pad: 9px; }
 }
-/* A phone: one column. Jobs and artefacts are strips of cards above the conversation. */
+/* A phone: one column. Jobs and artefacts run as strips of cards above the conversation. */
 @media (max-width: 760px) {
-  :root[data-layout="front"] { --gut: 16px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); }
+  :root[data-layout="front"] { --gut: 16px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); --card-pad: 16px; --mat-pad: 8px; }
   /* No tabs on a phone: jobs and artefacts both run as strips above the conversation. */
   :root[data-layout="front"] .rtabs { display: none; }
   :root[data-layout="front"][data-rtab] .jobs, :root[data-layout="front"][data-rtab] .rail:not([hidden]) { display: block !important; }
@@ -351,17 +377,17 @@ button.jv-thread { cursor: pointer; }
   :root[data-layout="front"] header .controls { gap: 0; }
   :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
-  :root[data-layout="front"] .rail { display: block; margin-bottom: 18px; }
+  :root[data-layout="front"] .rail { display: block; margin-bottom: 24px; }
   :root[data-layout="front"] .rail .news .story-pic,
-  :root[data-layout="front"] .rail .news .story-stat { height: 188px; }
+  :root[data-layout="front"] .rail .news .card-stories > li > .story-stat { height: 188px; }
   :root[data-layout="front"] .rail .news .story-image .story-pic { height: 220px; }
   :root[data-layout="front"] .rail[hidden] { display: none; }
   /* The artefacts run as a strip of cards, like the jobs. */
-  :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
+  :root[data-layout="front"] .rail .brief-list .art-grid { display: flex; gap: 10px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
   :root[data-layout="front"] .rail .art-grid::-webkit-scrollbar { display: none; }
   :root[data-layout="front"] .rail .art-grid > .art-card { flex: 0 0 220px; width: 220px; scroll-snap-align: start; }
-  .fgroup { margin: 0 0 18px; }
-  .fstrip { display: flex; align-items: flex-start; gap: 8px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
+  .fgroup { margin: 0 0 26px; }
+  .fstrip { display: flex; align-items: stretch; gap: 10px; margin: 0 calc(var(--gut) * -1); padding: 0 var(--gut); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding: 0 var(--gut); }
   .jobs .history { max-height: 232px; overflow-y: auto; }
   .fstrip::-webkit-scrollbar { display: none; }
   .fstrip > * { flex: 0 0 248px; width: 248px; min-width: 0; margin: 0; scroll-snap-align: start; }

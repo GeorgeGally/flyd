@@ -202,7 +202,7 @@ export const FRONT_SCRIPT = `
     return '<p class="digest">' + [digest.changed, digest.means, digest.needed].filter(Boolean).map(frontEsc).join("<br>") + '</p>';
   }
   function frontJobCard(job) {
-    var pic = job.group === "needs" && job.shots.length
+    var pic = job.shots && job.shots.length
       ? '<div class="frame"><img src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy"></div>' : "";
     var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
     var reading = frontDigest(job);
@@ -215,7 +215,7 @@ export const FRONT_SCRIPT = `
       + '<div class="t">' + frontEsc(job.title) + '</div>' + reading + '<div class="m">' + dot + frontMeta([job.group === "needs" && /^needs\\b/i.test(job.state) ? "" : job.state, job.project])
       + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div></button>';
   }
-  // A card's state and project, as many as it has; under "Needs you" a plain "needs …" goes without saying (the dot says it).
+  // A card's state and project, as many as it has; the group above it already says "needs you".
   function frontMeta(parts) {
     return parts.map(function (part, index) { return part ? '<span class="' + (index ? "p" : "s") + '">' + frontEsc(part) + '</span>' : ""; })
       .filter(Boolean).join('<span aria-hidden="true">·</span>');
