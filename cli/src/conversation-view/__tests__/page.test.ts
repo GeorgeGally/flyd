@@ -3221,7 +3221,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(posted?.[1]).toEqual(expect.objectContaining({ method: "POST", body: JSON.stringify({ url: plain.url }) }));
   });
 
-  it("opens an article conversation from Ask or the card, with starter questions and a link back", async () => {
+  it("opens an article conversation from Ask, and the piece itself from the card, with starter questions and a link back", async () => {
     load("");
     await settle();
     const opened = { session: "window:article-0123456789abcdef", title: "State that lasts", url: "https://magazine.example/state", starters: ["What's new here?", "How does this apply to Flyd?"], link: { href: "https://magazine.example/state", label: "Article" } };
@@ -3255,9 +3255,39 @@ describe("what Flyd shows of its staff, at a glance", () => {
     await settle();
     stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story, { title: "Other", url: "https://magazine.example/other", source: "Magazine", gist: "Another." }], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
     await settle();
+    const other = document.querySelectorAll<HTMLAnchorElement>("#news .story-open")[1]!;
+    other.addEventListener("click", (event) => event.preventDefault());
     document.querySelectorAll("#news .card-story-line")[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
-    expect(vi.mocked(fetch).mock.calls.filter((call) => call[0] === "/api/article-chat")).toHaveLength(2);
+    expect(vi.mocked(fetch).mock.calls.filter((call) => call[0] === "/api/article-chat")).toHaveLength(1);
+    expect(other.getAttribute("href")).toBe("https://magazine.example/other");
+  });
+
+  it("opens a story's piece from anywhere on its card, by pointer or by keyboard, and leaves the rating alone", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const story = { title: "State that lasts", url: "https://magazine.example/state", source: "Magazine", gist: "The machinery, not a wrapper.", n: 3 };
+    stream.emit("update", { order: [], messages: [], working: false, boxes: [], leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    await settle();
+    const card = document.querySelector<HTMLElement>("#news .card-stories > li")!;
+    const link = card.querySelector<HTMLAnchorElement>(".story-open")!;
+    expect(link.getAttribute("href")).toBe(story.url);
+    expect(card.tabIndex).toBe(0);
+    expect(card.getAttribute("role")).toBe("link");
+    const opened: string[] = [];
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      opened.push(link.getAttribute("href")!);
+    });
+    card.querySelector(".card-story-line")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    card.querySelector(".card-story-head")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    card.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(opened).toEqual([story.url, story.url, story.url]);
+    card.querySelector<HTMLButtonElement>(".story-rate button")!.click();
+    card.querySelector<HTMLButtonElement>(".story-ask")!.click();
+    await settle();
+    expect(opened).toHaveLength(3);
   });
 
   it("lists an article conversation under earlier ones and links back to the piece", async () => {

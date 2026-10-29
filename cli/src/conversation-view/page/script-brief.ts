@@ -386,6 +386,11 @@ export const BRIEF_SCRIPT = `
     });
     return button;
   }
+  // The whole card opens the piece, exactly as its Open link does: the link is the one thing that knows where it goes.
+  function openStory(li) {
+    var open = li.querySelector(".story-open");
+    if (open) open.click();
+  }
   // The stories behind a news card: the picture (or a bigger headline), the headline, why it matters, and where it came from.
   function storiesNode(stories) {
     var list = el("ul", "card-stories");
@@ -404,7 +409,7 @@ export const BRIEF_SCRIPT = `
       }
       a.addEventListener("click", function (event) {
         event.stopPropagation();
-        openArticle(story);
+        openStory(li);
       });
       li.appendChild(a);
       if (story.media === "gif" && story.clip && String(story.clip).indexOf("/api/story-clip?") === 0) {
@@ -422,8 +427,17 @@ export const BRIEF_SCRIPT = `
       }
       li.addEventListener("click", function (event) {
         if (event.target.closest("a, button")) return;
-        openArticle(story);
+        openStory(li);
       });
+      if (story.url) {
+        li.tabIndex = 0;
+        li.setAttribute("role", "link");
+        li.addEventListener("keydown", function (event) {
+          if (event.target !== li || (event.key !== "Enter" && event.key !== " ")) return;
+          event.preventDefault();
+          openStory(li);
+        });
+      }
       if (story.gist) li.appendChild(el("p", "card-story-line", story.gist));
       var bits = [story.source || "", storyWhen(story.published), story.minutes ? story.minutes + " min" : ""].filter(Boolean);
       if (bits.length || story.url) {
@@ -482,7 +496,8 @@ export const BRIEF_SCRIPT = `
       var button = el("button", "", verdict);
       button.type = "button";
       button.setAttribute("aria-label", (verdict === "more" ? "More" : "Less") + " like " + story.title);
-      button.addEventListener("click", function () {
+      button.addEventListener("click", function (event) {
+        event.stopPropagation();
         rate.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
         tokenFetch("/api/scout-feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(story.n ? { n: story.n, url: story.url, verdict: verdict } : { url: story.url, verdict: verdict }) }, true).then(function (response) {
           if (!response.ok) throw new Error(String(response.status));

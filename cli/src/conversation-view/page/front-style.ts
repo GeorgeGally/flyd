@@ -275,6 +275,7 @@ button.jv-thread { cursor: pointer; }
   position: relative; margin: 0; padding: var(--card-pad) var(--card-pad) 24px; border: 0; border-radius: var(--card-radius);
   background: var(--card); overflow: hidden; cursor: pointer;
 }
+:root[data-layout="front"] .rail .news .card-stories > li:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 :root[data-layout="front"] .rail .news .story-pic {
   display: block; height: 168px; margin: 0; overflow: hidden; position: relative; background: var(--mat); border-radius: 8px;
 }
