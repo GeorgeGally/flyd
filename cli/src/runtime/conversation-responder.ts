@@ -178,8 +178,8 @@ export function localClock(now: Date): string {
 export function buildConversationPrompt(
   input: ConversationInput,
   compiledContext?: CompiledContext,
-  options: { projectTurn?: boolean; room?: { core: string; brief: string }; plan?: string } = {},
-): { system: string; prompt: string; grounding: string } {
+  options: { projectTurn?: boolean; room?: { core: string; facts: string; brief: string }; plan?: string } = {},
+): { system: string; prompt: string; grounding: string; route: ContextRoute } {
   const projectTurn = options.projectTurn ?? true;
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
   const currentWorkQuestion = isCurrentWorkQuestion(input.message);
@@ -230,7 +230,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
   const personal = compiledContext?.user.personal;
-  const roomCore = personal && options.room ? options.room.core.split("\n").filter((line) => !/^(?:About me|Preferences|How to be with me|Constraints):/.test(line)).join("\n") : options.room?.core;
+  const roomCore = personal && options.room ? options.room.facts.split("\n").filter((line) => !/^(?:About me|Preferences|How to be with me|Constraints):/.test(line)).join("\n") : options.room?.core;
   const profileOverride = personal ? budgetPersonalContext({ profile: personal.profile, memory: personal.memory, query: input.message, route }) : undefined;
   const shownMemory = new Set(usableMemory.map((item) => item.excerpt.replace(/\s+/g, " ").trim().toLowerCase()).filter(Boolean));
   const contextForPrompt = compiledContext && !repositoryQuestion && (!options.room || projectTurn) ? { ...compiledContext, memory: { ...compiledContext.memory, relevant: compiledContext.memory.relevant.filter((item) => !shownMemory.has(item.content.replace(/\s+/g, " ").trim().toLowerCase())) } } : compiledContext;
@@ -314,6 +314,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       ].filter(Boolean).join("\n\n"),
       prompt: lean,
       grounding: groundingFor(lean),
+      route,
     };
   }
 
@@ -361,6 +362,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     ].filter(Boolean).join("\n\n"),
     prompt: promptBody,
     grounding: groundingFor(promptBody),
+    route,
   };
 }
 
@@ -1215,7 +1217,7 @@ export async function respondToConversation(
   ].filter(Boolean).join("\n\n");
   const request = buildConversationPrompt(input, compiledContext, {
     projectTurn,
-    ...(room ? { room: { core: roomContext.core, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
+    ...(room ? { room: { core: roomContext.core, facts: roomContext.facts, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
     ...(planBlock ? { plan: planBlock } : {}),
   });
   const injectedConnection = dependencies.resolveConnection?.();
@@ -1292,7 +1294,7 @@ export async function respondToConversation(
         route: plan?.route ?? "unplanned", message: input.message, system, prompt,
         profile: section("profile") || (room ? roomContext.core : ""),
         recalled: section("relevant-memory") + section("historical-memory") + section("personal-memory"),
-        history: budgetHistory(input.history, compiledContext.interpretation.needsDeepMemory || /\b(?:recall|remember|what have i said)\b/i.test(input.message) ? "recall" : projectTurn ? "work" : "companion").map((turn) => turn.content).join("\n"),
+        history: budgetHistory(input.history, request.route).map((turn) => turn.content).join("\n"),
         tools: JSON.stringify(selectedTools),
         memoryMs: compiledContext.trace.timings.memory ?? 0,
         matches: compiledContext.memory.relevant.length,

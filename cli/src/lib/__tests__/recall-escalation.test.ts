@@ -28,7 +28,7 @@ it("ranks a more relevant current-time correction ahead of weaker results withou
   expect(rerankTemporalRecall("What is a black hole?", records)).toEqual(records);
 });
 
-it("falls back to the lexical result if local hybrid search fails", async () => {
+it("falls back to the lexical result if local hybrid search fails or stalls", async () => {
   const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -54,5 +54,10 @@ it("falls back to the lexical result if local hybrid search fails", async () => 
     const result = await retrieveLiveBrainEvidence("What did I want ultraviolet research to search in parallel?");
     expect(result.retrievalRoute).toBe("hybrid_failed");
     expect(result.matches.map((m) => m.content.path)).toContain("fallback-test.md");
+    vi.stubEnv("FLYD_QMD_HYBRID_TIMEOUT_MS", "50");
+    hybrid.mockReturnValue(new Promise(() => {}));
+    const slow = await retrieveLiveBrainEvidence("What did I want ultraviolet research to search in parallel?");
+    expect(slow.retrievalRoute).toBe("hybrid_failed");
+    expect(slow.matches.map((m) => m.content.path)).toContain("fallback-test.md");
   } finally { hybrid.mockRestore(); await qmd.closeStore(); vi.unstubAllEnvs(); rmSync(cache, { recursive: true, force: true }); }
 });

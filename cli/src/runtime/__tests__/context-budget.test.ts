@@ -42,6 +42,21 @@ it("retains explicit profile constraints on a room-selected companion turn", asy
   const { compileContext } = await import("../../cognition/context-compiler.js");
   const context = await compileContext({ intent: "hello", jev: { apiKey: "" } });
   context.user.personal = { profile: "# George\n## Constraints\n- Never send without permission.", memory: "", projection: "" };
-  const result = buildConversationPrompt({ message: "hello", history: [], memory: { verdict: "insufficient", matches: [] }, situation: null }, context, { projectTurn: false, room: { core: "George", brief: "" } });
+  const result = buildConversationPrompt({ message: "hello", history: [], memory: { verdict: "insufficient", matches: [] }, situation: null }, context, { projectTurn: false, room: { core: "George", facts: "George", brief: "" } });
   expect(result.system).toContain("Never send without permission.");
+});
+
+it("states each room profile instruction once when the budgeted profile is present", async () => {
+  const { buildConversationPrompt } = await import("../conversation-responder.js");
+  const { buildRoomContext } = await import("../room-context.js");
+  const { compileContext } = await import("../../cognition/context-compiler.js");
+  const context = await compileContext({ intent: "hello", jev: { apiKey: "" } });
+  const profile = "# George\n## Safety\n- Never share passwords\n## Instructions\n- Keep replies short\n## People\n- Always ask before calling Sam\n- Sam is my brother";
+  context.user.personal = { profile, memory: "", projection: "" };
+  const room = buildRoomContext({ profile, memory: [], retrieved: [] });
+  const result = buildConversationPrompt({ message: "hello", history: [], memory: { verdict: "insufficient", matches: [] }, situation: null }, context, { projectTurn: false, room: { core: room.core, facts: room.facts, brief: "" } });
+  expect(result.system.match(/Never share passwords/g)).toHaveLength(1);
+  expect(result.system.match(/Keep replies short/g)).toHaveLength(1);
+  expect(result.system.match(/Always ask before calling Sam/g)).toHaveLength(1);
+  expect(result.system).toContain("Sam is my brother");
 });

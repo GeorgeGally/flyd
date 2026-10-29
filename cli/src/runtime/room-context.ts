@@ -30,7 +30,7 @@ export interface RoomSources {
   now?: Date;
 }
 
-export function buildRoomContext(sources: RoomSources): { core: string; knowledge: RoomItem[] } {
+export function buildRoomContext(sources: RoomSources): { core: string; facts: string; knowledge: RoomItem[] } {
   const sections = sources.profile ? profileSections(sources.profile) : new Map<string, string[]>();
   const coreLines: string[] = [];
   const instructions: string[] = [];
@@ -81,7 +81,8 @@ export function buildRoomContext(sources: RoomSources): { core: string; knowledg
   const room = Math.max(0, CORE_MAX_CHARS - required.length - 1);
   const optional = coreLines.join("\n");
   const fitted = optional.length > room ? `${optional.slice(0, Math.max(0, room - 1))}…` : optional;
-  return { core: [required, room ? fitted : ""].filter(Boolean).join("\n"), knowledge };
+  const facts = room ? fitted : "";
+  return { core: [required, facts].filter(Boolean).join("\n"), facts, knowledge };
 }
 
 /** Findings from backstage work, for Flyd's eyes only. */

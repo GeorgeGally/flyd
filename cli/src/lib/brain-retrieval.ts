@@ -262,20 +262,27 @@ export async function retrieveLiveLexicalBrainEvidence(query: string, projectRoo
   return retrieveBrainEvidence(query, liveRecallDefaults, projectRoot);
 }
 
-/** Escalate weak explicit recall locally; keep the lexical evidence if hybrid fails. */
+const HYBRID_TIMEOUT_MS = 3_000;
+
+/** Escalate weak explicit recall locally; keep the lexical evidence if hybrid fails or is slow. */
 export async function retrieveLiveBrainEvidence(query: string, projectRoot?: string): Promise<BrainRetrievalResult> {
   const lexical = await retrieveLiveLexicalBrainEvidence(query, projectRoot);
   let result = lexical;
   let retrievalRoute: NonNullable<BrainRetrievalResult["retrievalRoute"]> = "lexical";
   if (process.env.FLYD_QMD_HYBRID !== "0" && shouldEscalateRecall(query, lexical.matches[0]?.content.excerpt ?? "")) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const hybrid = await retrieveBrainEvidence(query, {
-        ...liveRecallDefaults,
-        searchRaw: async (q, keywords) => buildRawEntries(await searchLocalHybrid(q, QMD_RAW_COLLECTION), keywords),
-      }, projectRoot);
+      const timeoutMs = Number(process.env.FLYD_QMD_HYBRID_TIMEOUT_MS) || HYBRID_TIMEOUT_MS;
+      const hybrid = await Promise.race([
+        retrieveBrainEvidence(query, {
+          ...liveRecallDefaults,
+          searchRaw: async (q, keywords) => buildRawEntries(await searchLocalHybrid(q, QMD_RAW_COLLECTION), keywords),
+        }, projectRoot),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("hybrid recall timed out")), timeoutMs); }),
+      ]);
       if (hybrid.matches.length) result = { ...hybrid, matches: combineRecallMatches(hybrid.matches, lexical.matches) };
       retrievalRoute = "hybrid";
-    } catch { retrievalRoute = "hybrid_failed"; }
+    } catch { retrievalRoute = "hybrid_failed"; } finally { clearTimeout(timer); }
   }
   return { ...result, matches: rerankTemporalRecall(query, result.matches), retrievalRoute };
 }

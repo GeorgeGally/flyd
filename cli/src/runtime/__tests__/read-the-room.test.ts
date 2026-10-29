@@ -86,7 +86,7 @@ describe("reading the room", () => {
     const { system, prompt } = buildConversationPrompt({
       message: "DIR feels dead", history: [], memory: { verdict: "sufficient", matches: [{ excerpt: "Webby winner.", path: "x", authority: "user_confirmed" } as never] },
       situation: null, crossRepo: [],
-    }, undefined, { projectTurn: false, room: { core: "Artist in Cape Town.", brief } });
+    }, undefined, { projectTurn: false, room: { core: "Artist in Cape Town.", facts: "Artist in Cape Town.", brief } });
     expect(system).toContain("Get DIR heard by real listeners.");
     expect(system).toContain("Avoid: reciting awards");
     expect(`${system}\n${prompt}`).not.toContain("Webby");
