@@ -85,7 +85,7 @@ Expand toward the end state one step at a time, each step justified by a gap the
 | Objective-level ownership beyond a linear chain (a durable objective record with success criteria and authority) | A dogfooded chain needed a decision about the whole objective that per-run executive decisions could not make. |
 | Mid-flight steering across a chain | A real chain needed a correction that `correction` / `priority_change` on the individual runs could not handle, or that had to reach runs not yet started. |
 | Event-driven wake instead of the 15 s poll | George reports chains feeling slow, or a measured poll-to-dispatch delay hurts a real objective. v5's 5-second target is dropped: it contradicts the scheduler. |
-| Design Mate builds routed through FirstMate (v5 Phase 06) | Evidence that FirstMate builds meaningfully better than Design Mate's own Designers. Until then FirstMate is used when a task needs broader engineering, not inserted into design work by default. |
+| Design Mate builds routed through FirstMate (v5 Phase 06) | Dropped: George decided design builds stay with Design Mate. Reopen only if he asks. |
 | Leases and fencing | The Phase B lock-plus-revision helper proves insufficient under a real workload, e.g. a server-hosted Core writing alongside the Mac one. |
 | Moving domain runs into the event spine | The Phase B ADR concludes the JSON store is blocking something specific. |
 | Parallel fan-out, grandchildren, tree cancellation | Linear chains are in regular use and a real objective needs more than a sequence. |
@@ -110,9 +110,9 @@ Success is accepted objectives with supervision at or near zero. An objective Ge
 - No permanently running Chief of Staff model session.
 - No agent-chat surface. George only talks to Flyd.
 
-## Open question for George
+## Decided
 
-Should design builds stay with Design Mate, which already builds and commits picked versions, or is there a quality reason to hand them to FirstMate? Both reviewers lean towards keeping them with Design Mate; it is still your call.
+- **Design builds stay with Design Mate** (George, 2026-10-30). Its Designers keep building and committing picked versions in George's project. FirstMate is used when a task needs broader engineering, not inserted into design work.
 
 ## Revision notes (2026-10-30, same day)
 
