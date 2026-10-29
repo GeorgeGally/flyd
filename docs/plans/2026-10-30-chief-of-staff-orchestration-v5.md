@@ -1,6 +1,6 @@
 # Flyd Chief of Staff — Autonomous Team Orchestration Plan v5
 
-Status: Proposed implementation plan; no implementation claimed.
+Status: Superseded by 2026-10-30-chief-of-staff-orchestration-v6.md; no implementation claimed.
 Date: 2026-10-30
 Supersedes: docs/plans/2026-10-30-chief-of-staff-orchestration-v4.md
 References: v3 conversation plan; v4 committed plan; subsequent Flyd architecture review; OpenMausBot job-scoped delegation lessons.
