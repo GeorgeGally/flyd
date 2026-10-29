@@ -836,8 +836,8 @@ function decisionFrom(body: string): HoldDecision | undefined {
     trimmed = text;
     text = text
       .replace(/[\s,;.]+$/, "")
-      .replace(/\s*\(\s*(?:board|lab)\b[^)]*\)$/i, "")
-      .replace(/(?:^|[\s,;.]+)(?:board|lab)\s+\S+$/i, "");
+      .replace(/\s*\(\s*(?:board|lab)\s+[^)\s]*[/.:][^)]*\)$/i, "")
+      .replace(/(?:^|[\s,;.]+)(?:board|lab)\s+\S*[/.:]\S*$/i, "");
   }
   text = text.replace(/https?:\/\/\S+/g, " ").replace(/\s+/g, " ").trim();
   if (!text) return undefined;

@@ -2064,10 +2064,23 @@ describe("header and artefact view", () => {
       const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
       const body = JSON.parse(String((sent[1] as RequestInit).body));
       expect(body.replyTo).toBe("note:1");
-      expect(body.questionText).toBe("A mix of the two");
+      // His own words go back as his note, never as a question the session asked.
+      expect(body.questionText).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("offers no reply under an answer to a decision, which no session can take a reply to", async () => {
+    localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "Evergreen luxe", id: "decision:visuals" }, { text: "A mix of the two", id: "note:1" }]));
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const entries = [...document.querySelectorAll(".scene-ask .art-entry")];
+    expect(entries.map((entry) => Boolean(entry.querySelector(".art-reply")))).toEqual([false, true]);
   });
 
   it("keeps a card's message out of its thread and back in the box when it does not go", async () => {    load("");

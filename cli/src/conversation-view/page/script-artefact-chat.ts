@@ -122,7 +122,9 @@ export const ARTEFACT_CHAT_SCRIPT = `
       button.addEventListener("click", function () {
         var entry = wrap.entry;
         if (!nested) {
-          nested = artefactChat(key + ":reply:" + entry.id, { session: current, replyTo: entry.id, questionText: entry.answer || entry.text }, "Reply").form;
+          var to = { session: current, replyTo: entry.id };
+          if (entry.answer) to.questionText = entry.answer;
+          nested = artefactChat(key + ":reply:" + entry.id, to, "Reply").form;
           nested.classList.add("art-chat--nested");
           wrap.appendChild(nested);
           button.hidden = true;
@@ -157,10 +159,12 @@ export const ARTEFACT_CHAT_SCRIPT = `
           line.appendChild(el("span", "", workingWords(entry)));
           box.appendChild(line);
         }
-        if (entry.id) box.appendChild(replyOpener(entry));
+        if (entry.id && entry.id.indexOf("decision:") !== 0) box.appendChild(replyOpener(entry));
         thread.appendChild(box);
       });
       if (focused && focused.isConnected && document.activeElement !== focused) focused.focus();
+      var ids = (state.thread || []).map(function (entry) { return entry.id; });
+      Object.keys(replies).forEach(function (id) { if (ids.indexOf(id) === -1) delete replies[id]; });
       thread.hidden = !(state.thread || []).length;
     }
     function paint() {

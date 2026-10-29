@@ -1344,6 +1344,13 @@ describe("a hold that puts several decisions to him", () => {
     ]);
   });
 
+  it("drops only a trailing board or lab location, never a plain word after board or lab", () => {
+    expect(holdDecisions("(1) keep the lab version - yes/no; (2) which to keep: the old one, the new lab design. Lab data/x/lab.html, board http://127.0.0.1:4387/session/1")).toEqual([
+      { question: "Keep the lab version", options: ["Yes", "No"] },
+      { question: "Which to keep", options: ["the old one", "the new lab design"] },
+    ]);
+  });
+
   const fleetWith = (): FleetArtefact => ({
     ...parseBearings({ schema: "fm-bearings.v1", decisions_open: [{ id: "flyd-live-activity-direction", summary: "Two decisions are needed on Flyd live activity" }] }),
     generated: "2026-10-29T12:00:00Z",
