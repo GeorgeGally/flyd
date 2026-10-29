@@ -1706,7 +1706,7 @@ export class ArtefactFeed {
         }), heldForAttention())
         : enriched;
       // Every worker the staff is running, not only the twenty the snapshot lists.
-      const running = decided.unavailable ? [] : this.staffLive(content);
+      const running = decided.unavailable ? [] : this.staffLive(withRecent);
       if (running.length) decided.live = [...decided.live, ...running];
       decided.calls = decided.calls.map((row) => ({ ...row, label: callHeadline(row.label, row.task ? entries.get(row.task)?.title : undefined) }));
       for (const row of decided.calls) {

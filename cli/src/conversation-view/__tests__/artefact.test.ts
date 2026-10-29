@@ -1170,6 +1170,19 @@ describe("ArtefactFeed fleet reads", () => {
     expect(feed.current().fleet?.live.map((row) => row.task)).toEqual(["unlisted"]);
   });
 
+  it("shows a running worker the snapshot stopped listing, though an earlier read listed it", async () => {
+    const { home, script } = fleetHome("artefact-workers-dropped-");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "w5", state: "working", name: "Worker five" }] }));
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const workers = () => [{ id: "w5", name: "Worker five", state: "working" }];
+    const feed = new ArtefactFeed({ home, workers, decideChanges: async () => [], ...files(home) });
+    await feed.refresh();
+    writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "w6", state: "working", name: "Worker six" }] }));
+    await feed.refresh();
+    expect(feed.current().fleet?.live.map((row) => row.task).sort()).toEqual(["w5", "w6"]);
+  });
+
   it("names a timed-out read as one in Flyd's log, not 'no reason given'", async () => {
     const { home, script } = fleetHome("artefact-why-");
     writeFileSync(script, "#!/bin/sh\nsleep 5\n", { mode: 0o755 });
