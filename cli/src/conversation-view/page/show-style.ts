@@ -187,6 +187,14 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .inline-shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; }
 .inline-shots img { display: block; width: 100%; max-height: 150px; border-radius: 8px; border: 1px solid var(--faint); object-fit: cover; cursor: zoom-in; }
 .inline-card .scene-ask { margin-top: 10px; max-width: none; }
+/* A hold with more than one decision: each in its own plain line, then what he can pick. */
+.art-decisions { display: flex; flex-direction: column; gap: 16px; margin: 0 0 22px; padding: 0; list-style: none; }
+.art-decision { display: flex; flex-direction: column; gap: 5px; }
+.art-decision-q { margin: 0; font: 500 17px/1.3 var(--sans); color: var(--strong); }
+.art-decision-a { margin: 0; font: 400 14.5px/1.45 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+.art-decision-rec { margin: 0; font: 400 14px/1.45 var(--sans); color: var(--muted); }
+.art-decision--done .art-decision-q { color: var(--muted); }
+.art-decision-done { color: var(--muted); }
 .scene-ask .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: 8px; }
 .choice-pick {
   display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 52px;
@@ -239,10 +247,25 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .art-chat--receipt .art-chat-field { display: none; }
 /* His messages to one card and what came back, in order: the card's own thread.
    Quiet type, no bubbles, and the newest thing he sent stays under his words. */
-.art-thread { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.art-thread { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
 .art-thread[hidden] { display: none; }
+.art-entry { display: flex; flex-direction: column; gap: 6px; }
 .art-msg { margin: 0; font: 400 15px/1.5 var(--sans); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .art-msg--you { color: var(--fg); }
+/* His answer is the substance, not a footnote: marked off by a hairline, never a whisper. */
+.art-msg--them { padding-left: 15px; border-left: 2px solid color-mix(in srgb, var(--accent) 32%, transparent); }
+/* What Flyd is doing about his newest message: one quiet line that the answer replaces. */
+.art-working { display: flex; align-items: center; gap: 9px; color: var(--muted); animation: art-in 200ms ease-out both; }
+.art-pulse { flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: art-breathe 1.4s ease-in-out infinite; }
+@keyframes art-breathe { 0%, 100% { opacity: .22; transform: scale(.85); } 50% { opacity: .85; transform: scale(1); } }
+@keyframes art-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .art-working, .art-pulse { animation: none; } }
+/* His reply to an answer opens where the answer stands, so the thread stays in one place. */
+.art-reply-wrap { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.art-reply { font: 500 13.5px/1 var(--sans); color: var(--muted); background: none; border: 0; padding: 4px 0; cursor: pointer; }
+.art-reply:hover { color: var(--strong); }
+.art-reply[hidden] { display: none; }
+.art-chat--nested { margin-top: 4px; }
 /* Flyd's reply: a step smaller and held back, the way its voice sits under his elsewhere. */
 .art-msg--them { font-size: 14px; margin-bottom: 4px; }
 .scene-ask .step-q { font-size: clamp(20px, 1.6vw, 26px); line-height: 1.25; }

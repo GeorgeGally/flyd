@@ -677,6 +677,17 @@ describe("ConversationViewServer", () => {
     expect(await note("note:9")).toEqual({ receipt: null });
   });
 
+  it("says what Flyd is doing about a card's message while nothing has answered it", async () => {
+    const inbox = new MemoryInbox();
+    await inbox.send("what are those decisions?");
+    const notes = inbox.notes.bind(inbox);
+    inbox.notes = () => notes().map((exchange) => ({ ...exchange, waiting: "Reading the report" }));
+    const port = await start(inbox);
+    // Under the words: the step being taken, never just "Sent to Flyd" and nothing else.
+    expect(JSON.parse((await get(port, `/api/note?id=${encodeURIComponent("note:1")}&token=${viewToken}`)).body))
+      .toEqual({ receipt: "sent", doing: "Reading the report" });
+  });
+
   it("keeps a note firstmate took but has not answered open, so a later reply still lands", async () => {
     const inbox = new MemoryInbox();
     await inbox.send("Make the pins bigger");
@@ -686,7 +697,8 @@ describe("ConversationViewServer", () => {
     const note = JSON.parse((await get(port, `/api/note?id=${encodeURIComponent("note:1")}&token=${viewToken}`)).body);
     // Taken, so the line under the box says Flyd has it — but never that the card should stop
     // asking: a taken note can still be answered in firstmate's own chat, so no `done` is sent.
-    expect(note).toEqual({ receipt: "read" });
+    // Its own handoff line is never the card's progress line: the card says what is being done.
+    expect(note).toEqual({ receipt: "read", handoff: "taken" });
   });
 
   it("finds a note's chat reply in the session that was live when he sent it, not only the newest", async () => {

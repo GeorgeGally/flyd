@@ -105,11 +105,13 @@ export function handoffLine(handoff: Handoff, details: { activity?: string; text
 }
 
 /** A staff step as the gate (lib/reaches-george.ts) lets it under his message: where work stands, in plain words. */
-function shown(line: string): string {
-  if (!line) return "";
+export function liveWords(line: string): string {
+  // A line that only says who has the work is handoff news, never progress: it says nothing is being done.
+  if (!line || BACKSTAGE.test(line)) return "";
   const gated = reachesGeorge({ kind: "status", text: line }, "status");
   return gated.reach ? gated.line : "";
 }
+const shown = liveWords;
 
 function upperFirst(text: string): string {
   return text[0]!.toUpperCase() + text.slice(1);

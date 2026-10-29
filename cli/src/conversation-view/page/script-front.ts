@@ -171,6 +171,9 @@ export const FRONT_SCRIPT = `
     var decision = object.decision && (object.decision.alternatives || object.decision.choices) ? {
       decisionId: object.decision.decisionId, task: object.decision.target || object.decision.task || "", question: object.decision.question || object.subject,
       choices: object.decision.alternatives || object.decision.choices || [],
+      // Every decision the work puts to him, so the card says what they are and which is done.
+      decisions: object.decision.decisions,
+      recommended: object.decision.recommended,
     } : null;
     return {
       id: object.id, group: group || (frontNeeds(object) ? "needs" : FRONT_PHASE[phase] || "working"),
@@ -616,8 +619,12 @@ export const FRONT_SCRIPT = `
     if (from && from.closest && from.closest("input, textarea, select, [contenteditable]")) return;
     frontSelect("talk");
   });
-  // The conversation's heading follows its title as it changes.
-  if (window.MutationObserver) new MutationObserver(function () { if (frontActive === "talk") frontStage(); }).observe(conversationTitle, { childList: true, characterData: true, subtree: true });
+  // The conversation's heading follows its title as it changes, and so does its card in the column.
+  if (window.MutationObserver) new MutationObserver(function () {
+    if (!frontUpdate) return;
+    frontDrawJobs(frontTalk(frontUpdate), Array.from(frontJobs.values()));
+    if (frontActive === "talk") frontStage();
+  }).observe(conversationTitle, { childList: true, characterData: true, subtree: true });
   // The heading and the message box take the room they need; the conversation keeps clear of both.
   if (window.ResizeObserver) {
     new ResizeObserver(function () { frontRoot.style.setProperty("--stage-head-h", stageHead.offsetHeight + "px"); }).observe(stageHead);

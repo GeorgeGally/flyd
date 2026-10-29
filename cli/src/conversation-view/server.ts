@@ -49,6 +49,7 @@ import { isArticleSession, openArticleChat } from "./article-chat.js";
 import { storyAsset, toggleSavedStory } from "./story-media.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
+import { liveWords } from "./living.js";
 import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote, undoNote } from "./replies.js";
 import { matchCommand } from "./commands.js";
 import { withCommandMarker } from "./firstmate-inbox.js";
@@ -953,9 +954,15 @@ export class ConversationViewServer {
       const note = (this.source.exchanges?.() ?? []).find((exchange) => exchange.question.id === id);
       const chat = note && !note.answer && this.source.noteAnswer ? await this.source.noteAnswer(id).catch(() => undefined) : undefined;
       const answer = note?.answer ?? chat;
+      // With nothing back yet, the card says what is happening to it in the same plain
+      // words the conversation uses, so it never sits on "Sent" with nothing after it.
+      // A line that only reports the handoff is not progress: it goes through the same gate.
+      const doing = note && !answer ? liveWords(note.doing || note.waiting || "") : "";
       sendJson(res, 200, {
         receipt: note ? (answer || note.handoff === "taken" || note.question.receipt === "read" ? "read" : "sent") : null,
         ...(answer ? { answer: { text: answer.text, ...(answer.timestamp ? { timestamp: answer.timestamp } : {}) } } : {}),
+        ...(doing ? { doing } : {}),
+        ...(note?.handoff ? { handoff: note.handoff } : {}),
       });
       return;
     }

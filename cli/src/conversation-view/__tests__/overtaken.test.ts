@@ -159,4 +159,13 @@ describe("a call's headline", () => {
     expect(callHeadline("An unresolved choice needs clarification.", "CopyCopy: design lab, 6 directions for the sticky bezel"))
       .toBe("CopyCopy: design lab, 6 directions for the sticky bezel");
   });
+
+  // A headline that ran out of room mid-sentence ended on a hanging "and…".
+  it("cuts a long ask at a whole clause, never on a word joining it to what is missing", async () => {
+    const { callHeadline } = await import("../artefact.js");
+    expect(callHeadline("Two decisions are needed on Flyd live activity: whether to ship fixes 1-3 from the report, and which direction to build on top of it afterwards."))
+      .toBe("Two decisions are needed on Flyd live activity: whether to ship fixes 1-3 from the report…");
+    expect(callHeadline("A very long line that runs on past the limit with a great many words in it and more to say about the direction to build on the top of it all"))
+      .not.toMatch(/\b(?:and|or|but|the|to|of|with)…$/);
+  });
 });

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { shortConversationTitle } from "./session-title.js";
 import { clipKeepingLinks } from "./line-links.js";
+import { plainNote } from "./rail.js";
 import { answerBody, plainAnswer, type AnswerBody } from "./answer-form.js";
 import { answeringLine } from "./living.js";
 import { MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
@@ -249,7 +250,8 @@ export class FlydDesk {
 
   private summary(id: string, thread: AskRecord[]): SessionSummary {
     const first = thread[0]!;
-    const opening = shortConversationTitle(first.text);
+    // A card's own note is named by his words in it, never by the window's plumbing about which card it was.
+    const opening = shortConversationTitle(plainNote(first.text).words);
     const title = id.startsWith(DAY_PREFIX) ? `${opening} · ${dayLabel(first.at)}` : opening;
     const latest = thread.reduce((newest, record) => Date.parse(record.answeredAt ?? record.at) > Date.parse(newest.answeredAt ?? newest.at) ? record : newest, first);
     const project = [...thread].reverse().map((record) => record.understanding?.project).find((name): name is string => Boolean(name));

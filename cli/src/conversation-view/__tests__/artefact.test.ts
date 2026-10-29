@@ -8,7 +8,7 @@ import { semanticObjectFromShow } from "../semantic.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, heldItems, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   adviceHighlights, pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
-  callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, type FleetArtefact,
+  callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, holdDecisions, decisionProgress, type FleetArtefact,
 } from "../artefact.js";
 import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -1293,5 +1293,62 @@ describe("ArtefactFeed fleet reads", () => {
     expect(fleetReadTimeout(10_000)).toBe(60_000);
     expect(fleetReadTimeout(40_000)).toBe(120_000);
     expect(fleetReadTimeout(500_000)).toBe(180_000);
+  });
+});
+
+// George, 2026-10-29, on a "Needs you" artefact headed "Two decisions are needed on Flyd live
+// activity: whether to ship fixes 1-3 from the report, and…": "if i click on this artefact on
+// the sidebar, and it brings me here, it should give me details."
+describe("a hold that puts several decisions to him", () => {
+  const HOLD = "Flyd shows Working 0 while Firstmate runs 4 jobs: the executive projection drops live/ready rows (report data/flyd-live-activity/report.md). Two calls: (1) ship fixes 1-3 from the report first (pass live/ready through, read all in-flight or staff.json, trust Firstmate's own captain-hold signal) - yes/no; (2) which direction to build on top: V1 Departures (dark board), V2 Picture desk (running-first picture sheet), V3 Notch (island + one sheet; recommended, with V2 as the full window). Lab data/flyd-live-activity/lab.html, board http://127.0.0.1:4387/session/2290b69aee71629e";
+  const answered = {
+    title: "Flyd: stop hiding running work, finished labs and Firstmate decisions",
+    notes: "Fixes 1-3 from data/flyd-live-activity/report.md. no-mistakes, yolo on (registry).",
+    url: "https://github.com/GeorgeGally/flyd/pull/238",
+    finished: "2026-10-29",
+  };
+
+  it("says each decision in one plain line, with its own options and the one the work recommends", () => {
+    expect(holdDecisions(HOLD)).toEqual([
+      { question: "Ship fixes 1-3 from the report first", options: ["Yes", "No"] },
+      { question: "Which direction to build on top", options: ["V1 Departures", "V2 Picture desk", "V3 Notch"], recommended: "V3 Notch", note: "island + one sheet" },
+    ]);
+  });
+
+  it("marks a decision a landed change already answered as done, and leaves the other open", () => {
+    const decisions = decisionProgress(holdDecisions(HOLD), [answered]);
+    expect(decisions[0]!.done).toBe("Done: Flyd: stop hiding running work, finished labs and Firstmate decisions (flyd #238)");
+    expect(decisions[1]!.done).toBeUndefined();
+  });
+
+  it("does not call a decision done on a few plain words two tasks happen to share", () => {
+    const decision = { question: "Which direction to build on top", options: ["V1", "V2"] };
+    expect(decisionProgress([decision], [{ title: "Which direction to build the new pricing page", notes: "on top of the old one" }])[0]!.done).toBeUndefined();
+  });
+
+  const fleetWith = (): FleetArtefact => ({
+    ...parseBearings({ schema: "fm-bearings.v1", decisions_open: [{ id: "flyd-live-activity-direction", summary: "Two decisions are needed on Flyd live activity" }] }),
+    generated: "2026-10-29T12:00:00Z",
+  });
+  const hold = `- [ ] flyd-live-activity-direction - Flyd live activity: pick a direction and ship the visibility fixes (repo: /repo/flyd) (kind: captain) (since 2026-10-29) (hold: fm-hold-v1:${Buffer.from(HOLD).toString("base64")})`;
+  // The backlog says what the task did on the line under it, as firstmate writes it.
+  const shippedFixes = "- [x] flyd-show-working - Flyd: stop hiding running work, finished labs and Firstmate decisions https://github.com/GeorgeGally/flyd/pull/238 (repo: /repo/flyd) (kind: ship) (merged 2026-10-29)\n  Fixes 1-3 from data/flyd-live-activity/report.md. no-mistakes, yolo on (registry).";
+
+  it("asks only the decision still open, and settles the call once nothing is left to answer", () => {
+    const now = Date.parse("2026-10-29T12:00:00Z");
+    const row = enrichFleet(fleetWith(), parseBacklog([hold, shippedFixes].join("\n")), new Map(), now).calls[0]!;
+    // The first decision is answered by the merged PR; the card asks the second, in one line.
+    expect(row.question).toBe("Which direction to build on top");
+    expect(row.choices).toEqual(["V1 Departures", "V2 Picture desk", "V3 Notch"]);
+    expect(row.recommendation?.option).toBe("V3 Notch");
+    expect(row.decisions?.map((decision) => Boolean(decision.done))).toEqual([true, false]);
+    expect(row.ledgerOnly).toBeUndefined();
+    // Both answered: it leaves Needs you as settled, never as a question he still owes.
+    const settled = enrichFleet(fleetWith(), parseBacklog([
+      hold,
+      shippedFixes,
+      "- [x] flyd-direction - Flyd: build V3 Notch on the live activity screen https://github.com/GeorgeGally/flyd/pull/240 (repo: /repo/flyd) (kind: ship) (merged 2026-10-29)",
+    ].join("\n")), new Map(), now).calls[0];
+    expect(settled?.ledgerOnly).toBe(true);
   });
 });

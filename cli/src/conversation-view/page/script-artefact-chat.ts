@@ -83,11 +83,70 @@ export const ARTEFACT_CHAT_SCRIPT = `
       store(key, JSON.stringify(state.thread.filter(function (entry) { return entry.id; })));
       paintThread();
     }
+    // The newest message of his still waiting on an answer: the one line that says what
+    // Flyd is doing about it stands under it, and is replaced in place as the work moves.
+    function openEntry() {
+      var list = state.thread || [];
+      for (var i = list.length - 1; i >= 0; i -= 1) {
+        if (list[i].done) continue;
+        return list[i].answer ? null : list[i];
+      }
+      return null;
+    }
+    // What is happening to his newest message, in Flyd's plain words: the step being taken,
+    // else that it is queued, else that a worker has it. Never who has it or where it went.
+    function workingWords(entry) {
+      var step = (entry.doing || "").replace(/[.…]+$/, "");
+      if (step) return step;
+      if (!entry.id) return "Sending";
+      return entry.handoff === "taken" ? "Working on it" : "Queued";
+    }
+    // An answer can be answered back where it stands: his reply joins this card's own thread.
+    function replyOpener(entry) {
+      var wrap = el("div", "art-reply-wrap");
+      var button = el("button", "art-reply", "Reply");
+      button.type = "button";
+      button.setAttribute("aria-label", "Reply to this answer");
+      var nested = null;
+      button.addEventListener("click", function () {
+        if (!nested) {
+          nested = artefactChat(key + ":reply:" + entry.id, { session: current, replyTo: entry.id, questionText: entry.answer }, "Reply").form;
+          nested.classList.add("art-chat--nested");
+          wrap.appendChild(nested);
+          button.hidden = true;
+          var box = nested.querySelector("textarea");
+          if (box) box.focus();
+          return;
+        }
+        nested.hidden = !nested.hidden;
+      });
+      wrap.appendChild(button);
+      return wrap;
+    }
+    // Redrawn only when one of his messages or the line under it changes: a keystroke in
+    // the box must never rebuild what he is typing in.
+    var drawn = "";
     function paintThread() {
+      var open = openEntry();
+      var next = JSON.stringify([state.thread, open ? [open.doing, open.handoff, open.id] : null, state.receipt]);
+      if (next === drawn) return;
+      drawn = next;
       thread.textContent = "";
       (state.thread || []).forEach(function (entry) {
-        thread.appendChild(el("p", "art-msg art-msg--you", entry.text));
-        if (entry.answer) thread.appendChild(el("p", "art-msg art-msg--them", entry.answer));
+        var box = el("div", "art-entry");
+        box.appendChild(el("p", "art-msg art-msg--you", entry.text));
+        if (entry.answer) {
+          box.appendChild(el("p", "art-msg art-msg--them", entry.answer));
+          box.appendChild(replyOpener(entry));
+        } else if (entry === open) {
+          var line = el("p", "art-msg art-working");
+          line.setAttribute("role", "status");
+          line.setAttribute("aria-live", "polite");
+          line.appendChild(el("span", "art-pulse"));
+          line.appendChild(el("span", "", workingWords(entry)));
+          box.appendChild(line);
+        }
+        thread.appendChild(box);
       });
       thread.hidden = !(state.thread || []).length;
     }
@@ -174,14 +233,22 @@ export const ARTEFACT_CHAT_SCRIPT = `
             if (missed >= 3) { entry.done = true; changed = true; }
             if (data.answer && data.answer.text && !entry.answer) {
               entry.answer = data.answer.text;
+              delete entry.doing;
               if (state.receipt === "sent") state.receipt = "read";
               changed = true;
             }
             if (data.receipt === "read" && state.receipt === "sent") { state.receipt = "read"; changed = true; }
+            // What Flyd is doing about it right now: replaced in place, never a growing log.
+            if (!entry.answer) {
+              var step = (data.doing || "").trim();
+              if (step && step !== entry.doing) { entry.doing = step; changed = true; }
+              else if (!step && entry.doing) { delete entry.doing; changed = true; }
+            }
+            if (data.handoff && data.handoff !== entry.handoff) { entry.handoff = data.handoff; changed = true; }
           });
           if (changed) { save(); paint(); }
         });
-      }, 5000);
+      }, 3000);
     }
     function deliver(text, done) {
       state.receipt = "sending";
@@ -263,6 +330,24 @@ export const ARTEFACT_CHAT_SCRIPT = `
     if (link) about.url = link.url;
     var target = !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.decisionId || decision.task };
     var chat = artefactChat(key, target, decision && (decision.choices.length || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…");
+    // A hold that puts two (or three) decisions to him says each one in its own plain line, with what
+    // he can pick and what the work recommends, and what a landed change has already answered.
+    if (decision && decision.decisions && decision.decisions.length > 1) {
+      var askList = el("ol", "art-decisions");
+      decision.decisions.forEach(function (one) {
+        var item = el("li", "art-decision");
+        item.appendChild(el("p", "art-decision-q", one.question));
+        if (one.done) {
+          item.appendChild(el("p", "art-decision-a art-decision-done", one.done));
+          item.classList.add("art-decision--done");
+        } else if (one.options && one.options.length) {
+          item.appendChild(el("p", "art-decision-a", one.options.join("  ·  ")));
+          if (one.recommended) item.appendChild(el("p", "art-decision-rec", [one.note, "recommended: " + one.recommended].filter(Boolean).join(" · ")));
+        }
+        askList.appendChild(item);
+      });
+      wrap.appendChild(askList);
+    }
     if (decision && decision.steps && decision.steps.length) {
       // Several questions: one at a time, a tap moves on, and the answers go together from the last step.
       if (!chat.state.steps) chat.state.steps = { at: 0, answers: [] };
