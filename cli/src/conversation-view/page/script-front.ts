@@ -198,15 +198,18 @@ export const FRONT_SCRIPT = `
   }
 
   function frontJobCard(job) {
-    var pic = job.group === "needs" && job.shots.length
+    var pic = job.shots && job.shots.length
       ? '<div class="frame"><img src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy"></div>' : "";
-    var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
+    // The title says what it is; a line under it says what the work is, and the foot carries state, project and when.
+    var detail = job.detail ? '<div class="d">' + frontEsc(job.detail) + '</div>' : "";
+    // "Landed" under "Done" says nothing the group has not; a plain "needs …" is the group's own word.
+    var state = job.group === "done" || /^needs\\b/i.test(job.state) ? "" : job.state;
     return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
       + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
-      + '<div class="t">' + frontEsc(job.title) + '</div><div class="m">' + dot + frontMeta([job.group === "needs" && /^needs\\b/i.test(job.state) ? "" : job.state, job.project])
+      + '<div class="t">' + frontEsc(job.title) + '</div>' + detail + '<div class="m">' + frontMeta([state, job.project])
       + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div></button>';
   }
-  // A card's state and project, as many as it has; under "Needs you" a plain "needs …" goes without saying (the dot says it).
+  // A card's state and project, as many as it has; the group above it already says "needs you".
   function frontMeta(parts) {
     return parts.map(function (part, index) { return part ? '<span class="' + (index ? "p" : "s") + '">' + frontEsc(part) + '</span>' : ""; })
       .filter(Boolean).join('<span aria-hidden="true">·</span>');
