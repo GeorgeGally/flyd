@@ -69,6 +69,7 @@ export interface UnifiedMemoryResult {
   gaps: string[];
   relations: WorldRelation[];
   systemOne?: { model?: string; predicates: Record<string, number>; latencyMs: number; error?: string };
+  retrievalRoute?: "lexical" | "hybrid" | "hybrid_failed";
 }
 
 export interface CompiledContext {
@@ -76,6 +77,7 @@ export interface CompiledContext {
   interpretation: IntentInterpretation;
   user: {
     profile: string;
+    personal?: { profile: string; memory: string; projection: string };
     /** George's learned taste (TASTE.md): read only on design, code and work-state turns. */
     taste?: string;
     autonomy: string[];

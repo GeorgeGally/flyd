@@ -34,7 +34,7 @@ ${LEARNED_HEADING}
 `;
 
 /** Profile body for prompts, or null when George has not written one. */
-export function readUserProfile(path = userProfilePath()): string | null {
+export function readUserProfile(path = userProfilePath(), maxChars = USER_PROFILE_MAX_CHARS): string | null {
   if (!existsSync(path)) return null;
   const text = readFileSync(path, "utf8")
     .replace(/<!--[\s\S]*?-->/g, "")
@@ -45,7 +45,7 @@ export function readUserProfile(path = userProfilePath()): string | null {
     .trim();
   const hasFacts = /^\s*-\s+\S/m.test(text) || text.split("\n").some((line) => line.trim() && !line.startsWith("#"));
   if (!hasFacts) return null;
-  return fitProfile(text, USER_PROFILE_MAX_CHARS);
+  return fitProfile(text, maxChars);
 }
 
 interface ProfileBlock { heading: string | null; lines: string[]; dropped: number }

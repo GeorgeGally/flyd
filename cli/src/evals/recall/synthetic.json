@@ -1,0 +1,4 @@
+[
+  {"id":"synthetic-1","query":"sample bird","split":"development","category":"exact","answers":[{"path":"bird.md","contains":"blue heron"}],"stale":[]},
+  {"id":"synthetic-2","query":"unknown planet","split":"held-out","category":"no-answer","answers":[],"stale":[]}
+]

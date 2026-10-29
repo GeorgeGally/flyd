@@ -55,7 +55,7 @@ export async function gatherTurnKnowledge(now: Date, retrieved: MemoryEvidence["
   const { readMemoryEntries } = await import("../council/memory-store.js");
   const roomContext = buildRoomContext({
     now,
-    profile: (() => { try { return readUserProfile(); } catch { return null; } })(),
+    profile: (() => { try { return readUserProfile(undefined, Infinity); } catch { return null; } })(),
     memory: (() => { try { return readMemoryEntries(); } catch { return []; } })(),
     retrieved: retrieved.filter((item) => item.authority !== "assistant_output" && item.outcome !== "rejected"),
   });

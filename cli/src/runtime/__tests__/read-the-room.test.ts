@@ -86,9 +86,22 @@ describe("reading the room", () => {
     const { system, prompt } = buildConversationPrompt({
       message: "DIR feels dead", history: [], memory: { verdict: "sufficient", matches: [{ excerpt: "Webby winner.", path: "x", authority: "user_confirmed" } as never] },
       situation: null, crossRepo: [],
-    }, undefined, { projectTurn: false, room: { core: "Artist in Cape Town.", brief } });
+    }, undefined, { projectTurn: false, room: { core: "Artist in Cape Town.", facts: "Artist in Cape Town.", brief } });
     expect(system).toContain("Get DIR heard by real listeners.");
     expect(system).toContain("Avoid: reciting awards");
     expect(`${system}\n${prompt}`).not.toContain("Webby");
   });
+});
+
+it("does not cut explicit constraints when profile context is large", () => {
+  const constraint = "Never share this private information without asking.";
+  const { core } = buildRoomContext({ profile: `## About me\n- ${"Long identity. ".repeat(400)}\n## Constraints\n- ${constraint}`, memory: [], retrieved: [] });
+  expect(core).toContain(constraint);
+});
+
+
+it("retains identity even when protected instructions exceed the core budget", () => {
+  const { core } = buildRoomContext({ profile: `## About me\n- George is an artist.\n## Constraints\n- ${"Never share. ".repeat(400)}`, memory: [], retrieved: [] });
+  expect(core).toContain("George is an artist.");
+  expect(core).toContain("Never share.");
 });
