@@ -189,8 +189,9 @@ export const BRIEF_SCRIPT = `
           choices: decision.decision.alternatives || [],
           recommended: decision.decision.recommended,
           replyTo: decision.decision.replyTo,
+          decisions: decision.decision.decisions,
         },
-      }, "flyd-decision:" + decision.id + ":" + decision.decision.question));
+      }, "flyd-decision:" + decision.id));
     }
   }
   function drawNeeds(calls) {
@@ -248,7 +249,7 @@ export const BRIEF_SCRIPT = `
       a.rel = "noopener noreferrer";
       needsEl.appendChild(a);
     });
-    if (call.decision && VIEW_TOKEN) needsEl.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + (call.decision.decisionId || call.decision.task) + ":" + call.decision.question));
+    if (call.decision && VIEW_TOKEN) needsEl.appendChild(sceneAsk({ title: call.headline, decision: call.decision }, "flyd-decision:" + (call.decision.decisionId || call.decision.task)));
   }
   function drawSemanticArtifacts(artifacts) {
     var seen = artifacts.length ? seenDone(artifacts.map(function (artifact) {

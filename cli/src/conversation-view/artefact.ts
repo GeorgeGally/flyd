@@ -531,7 +531,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     // done when the record shows a landed task that names the same work. Only what still asks him stays.
     if (call && entry?.hold) {
       const held = holdDecisions(entry.hold);
-      const decisions = held.length ? decisionProgress(held, related.flatMap(([, other]) => (other.finished ? [other] : []))) : [];
+      const decisions = held.length ? decisionProgress(held, related.map(([, other]) => other), entry.since) : [];
       const open = decisions.filter((decision) => !decision.done);
       // Several decisions: the card says each in its own plain line and asks the first one still open.
       // One decision keeps the card's own question, as it always has.
@@ -809,6 +809,18 @@ function splitTop(text: string): string[] {
   return parts.map((part) => part.trim()).filter(Boolean);
 }
 
+/** Where the question ends and its alternatives begin: the first colon outside any "(…)", or -1. Pure. */
+function topColon(text: string): number {
+  let depth = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+    else if (character === ":" && depth === 0) return index;
+  }
+  return -1;
+}
+
 /** An option's own aside, with the recommendation clause taken out: "island + one sheet". Pure. */
 function aside(raw: string): string | undefined {
   const inside = /\(([^)]*)\)/.exec(raw)?.[1] ?? "";
@@ -819,18 +831,23 @@ function aside(raw: string): string | undefined {
 /** One numbered decision out of a hold's prose, or undefined when there are no words to ask with. Pure. */
 function decisionFrom(body: string): HoldDecision | undefined {
   // Where the hold says its material sits belongs to the artefact, not to the decision.
-  const text = body
-    .replace(/[\s,;.]+$/, "")
-    .replace(/\s*\(\s*(?:board|lab)\b[^)]*\)/gi, " ")
-    .replace(/\s*\b(?:board|lab)\b\s+\S+/gi, " ")
-    .replace(/https?:\/\/\S+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  let text = body.trim();
+  for (let trimmed = ""; trimmed !== text;) {
+    trimmed = text;
+    text = text
+      .replace(/[\s,;.]+$/, "")
+      .replace(/\s*\(\s*(?:board|lab)\b[^)]*\)$/i, "")
+      .replace(/(?:^|[\s,;.]+)(?:board|lab)\s+\S+$/i, "");
+  }
+  text = text.replace(/https?:\/\/\S+/g, " ").replace(/\s+/g, " ").trim();
   if (!text) return undefined;
-  const colon = text.indexOf(":");
-  const listed = colon > 0 ? splitTop(text.slice(colon + 1)) : [];
-  let asked = colon > 0 ? text.slice(0, colon) : text;
   const options: string[] = [];
+  // "… - yes/no" asks him to go ahead or not.
+  const yesNo = /\s*[-–—]\s*yes\s*\/\s*no\s*$/i.exec(text);
+  if (yesNo) { text = text.slice(0, yesNo.index); options.push("Yes", "No"); }
+  const colon = yesNo ? -1 : topColon(text);
+  const listed = colon > 0 ? splitTop(text.slice(colon + 1)) : [];
+  const asked = colon > 0 ? text.slice(0, colon) : text;
   let recommended: string | undefined;
   let note: string | undefined;
   // The alternatives after a colon are the choice; the words before it are the question.
@@ -842,9 +859,6 @@ function decisionFrom(body: string): HoldDecision | undefined {
       if (!recommended && RECOMMENDS.test(raw)) { recommended = option; note = aside(raw); }
     }
   }
-  // "… - yes/no" asks him to go ahead or not.
-  const yesNo = /\s*[-–—]\s*yes\s*\/\s*no\s*$/i.exec(asked);
-  if (yesNo) { asked = asked.slice(0, yesNo.index); options.push("Yes", "No"); }
   const question = asked
     .replace(/\s*\([^)]*\)/g, " ")
     .replace(/^[\s,;:.-]+/, "")
@@ -890,16 +904,26 @@ export function sharesRun(a: string, b: string): boolean {
     || shared(2, (slice) => slice.some((word) => /\d/.test(word) && /\p{L}/u.test(word)) && slice.every((word) => word.length > 1));
 }
 
+/** A report or lab the work wrote up for him to read: what raised a decision, never what answered it. Pure. */
+function writeUp(task: { title: string; notes?: string; url?: string }): boolean {
+  const said = `${task.title} ${task.notes ?? ""}`;
+  return /\(report \+ artefact\)|\bready to read\b/i.test(said)
+    || /^\s*(?:lab|report|research|scout)\b/i.test(task.title)
+    || /(?:^|\/)data\/\S+\.(?:md|html)$/i.test(task.url ?? "");
+}
+
 /**
  * The decisions with whichever of them a landed change has already answered marked done: a
- * finished task naming the same work says so plainly ("Done: … (flyd #238)") — from the
- * backlog's own record, never invented. Pure.
+ * task that landed (finished, with its PR or other link) on or after the day the hold was raised,
+ * and names the same work, says so plainly ("Done: … (flyd #238)") — from the backlog's own
+ * record, never invented. The report or lab that raised the decision never answers it. Pure.
  */
-export function decisionProgress(decisions: readonly HoldDecision[], finished: ReadonlyArray<{ title: string; notes?: string; url?: string }>): HoldDecision[] {
+export function decisionProgress(decisions: readonly HoldDecision[], tasks: ReadonlyArray<{ title: string; notes?: string; url?: string; finished?: string }>, since?: string): HoldDecision[] {
+  const landed = tasks.filter((task) => task.finished && task.url && (!since || task.finished >= since) && !writeUp(task));
   return decisions.map((decision) => {
     // Its own words and the things it offers to pick: the landed work names one of them.
     const about = [decision.question, ...decision.options].join(" ");
-    const answered = finished.find((task) => sharesRun(about, `${task.title} ${task.notes ?? ""}`));
+    const answered = landed.find((task) => sharesRun(about, `${task.title} ${task.notes ?? ""}`));
     if (!answered) return decision;
     return { ...decision, done: `Done: ${answered.title}${answered.url ? ` (${linkLabel(answered.url)})` : ""}` };
   });

@@ -502,7 +502,7 @@ export const FRONT_SCRIPT = `
     if (job.detail && !(job.previews && job.previews.length)) parts.push(frontDetailTalk(job));
     if (VIEW_TOKEN) {
       if (job.decision) {
-        parts.push(sceneAsk({ title: job.title, decision: job.decision }, "flyd-decision:" + (job.decision.decisionId || job.decision.task) + ":" + job.decision.question));
+        parts.push(sceneAsk({ title: job.title, decision: job.decision }, "flyd-decision:" + (job.decision.decisionId || job.decision.task)));
       } else {
         var about = { title: job.title };
         if (job.task) about.task = job.task;

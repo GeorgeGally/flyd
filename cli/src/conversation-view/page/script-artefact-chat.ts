@@ -27,11 +27,11 @@ export const ARTEFACT_CHAT_SCRIPT = `
   // plain words: sent, then "Flyd has it" once firstmate has read the note.
   // \`target\` is what the words answer: a fleet decision, a reply's question, or
   // the artefact itself ({ about: { title, task, url } }).
-  function artefactChat(key, target, label) {
+  function artefactChat(key, target, label, earlierKey) {
     var state = {};
-    try { state = JSON.parse(sessionStorage.getItem(key) || "{}") || {}; } catch (_) {}
+    try { state = JSON.parse(sessionStorage.getItem(key) || (earlierKey && sessionStorage.getItem(earlierKey)) || "{}") || {}; } catch (_) {}
     if (state.receipt === "sending") state.receipt = "";
-    try { state.thread = JSON.parse(store(key) || "[]"); } catch (_) {}
+    try { state.thread = JSON.parse(store(key) || (earlierKey && store(earlierKey)) || "[]"); } catch (_) {}
     if (!Array.isArray(state.thread)) state.thread = [];
     var form = el("form", "art-chat");
     form.setAttribute("aria-label", label);
@@ -101,16 +101,28 @@ export const ARTEFACT_CHAT_SCRIPT = `
       if (!entry.id) return "Sending";
       return entry.handoff === "taken" ? "Working on it" : "Queued";
     }
-    // An answer can be answered back where it stands: his reply joins this card's own thread.
+    // Every message can be answered back where it stands, his own or Flyd's: the reply joins this
+    // card's own thread. One reply box per message, kept across redraws so a half-typed reply stays.
+    var replies = {};
     function replyOpener(entry) {
-      var wrap = el("div", "art-reply-wrap");
+      var wrap = replies[entry.id];
+      if (!wrap) {
+        wrap = el("div", "art-reply-wrap");
+        replies[entry.id] = wrap;
+        wrap.appendChild(replyButton(wrap));
+      }
+      wrap.entry = entry;
+      wrap.firstChild.setAttribute("aria-label", entry.answer ? "Reply to this answer" : "Reply to this message");
+      return wrap;
+    }
+    function replyButton(wrap) {
       var button = el("button", "art-reply", "Reply");
       button.type = "button";
-      button.setAttribute("aria-label", "Reply to this answer");
       var nested = null;
       button.addEventListener("click", function () {
+        var entry = wrap.entry;
         if (!nested) {
-          nested = artefactChat(key + ":reply:" + entry.id, { session: current, replyTo: entry.id, questionText: entry.answer }, "Reply").form;
+          nested = artefactChat(key + ":reply:" + entry.id, { session: current, replyTo: entry.id, questionText: entry.answer || entry.text }, "Reply").form;
           nested.classList.add("art-chat--nested");
           wrap.appendChild(nested);
           button.hidden = true;
@@ -120,8 +132,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
         }
         nested.hidden = !nested.hidden;
       });
-      wrap.appendChild(button);
-      return wrap;
+      return button;
     }
     // Redrawn only when one of his messages or the line under it changes: a keystroke in
     // the box must never rebuild what he is typing in.
@@ -131,13 +142,13 @@ export const ARTEFACT_CHAT_SCRIPT = `
       var next = JSON.stringify([state.thread, open ? [open.doing, open.handoff, open.id] : null, state.receipt]);
       if (next === drawn) return;
       drawn = next;
+      var focused = thread.contains(document.activeElement) ? document.activeElement : null;
       thread.textContent = "";
       (state.thread || []).forEach(function (entry) {
         var box = el("div", "art-entry");
         box.appendChild(el("p", "art-msg art-msg--you", entry.text));
         if (entry.answer) {
           box.appendChild(el("p", "art-msg art-msg--them", entry.answer));
-          box.appendChild(replyOpener(entry));
         } else if (entry === open) {
           var line = el("p", "art-msg art-working");
           line.setAttribute("role", "status");
@@ -146,8 +157,10 @@ export const ARTEFACT_CHAT_SCRIPT = `
           line.appendChild(el("span", "", workingWords(entry)));
           box.appendChild(line);
         }
+        if (entry.id) box.appendChild(replyOpener(entry));
         thread.appendChild(box);
       });
+      if (focused && focused.isConnected && document.activeElement !== focused) focused.focus();
       thread.hidden = !(state.thread || []).length;
     }
     function paint() {
@@ -329,7 +342,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     if (box.task) about.task = box.task;
     if (link) about.url = link.url;
     var target = !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.decisionId || decision.task };
-    var chat = artefactChat(key, target, decision && (decision.choices.length || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…");
+    var chat = artefactChat(key, target, decision && (decision.choices.length || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…", decision && decision.question ? key + ":" + decision.question : "");
     // A hold that puts two (or three) decisions to him says each one in its own plain line, with what
     // he can pick and what the work recommends, and what a landed change has already answered.
     if (decision && decision.decisions && decision.decisions.length > 1) {

@@ -2032,6 +2032,44 @@ describe("header and artefact view", () => {
     expect(body.replyTo).toBe("note:1");
   });
 
+  it("lets him reply to his own message too, and keeps a half-typed reply while the card redraws", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "A mix of the two", id: "note:1" }]));
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe", "Christmas card"] } }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+      const reply = ask.querySelector<HTMLButtonElement>(".art-reply")!;
+      expect(reply.getAttribute("aria-label")).toBe("Reply to this message");
+      reply.click();
+      await settle();
+      const box = ask.querySelector<HTMLTextAreaElement>(".art-chat--nested .art-chat-input")!;
+      box.value = "and make it quieter";
+      box.dispatchEvent(new Event("input"));
+      // What Flyd is doing changes under his message: the card redraws, his reply box stays.
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: "sent", doing: "Reading the lab" } : {}));
+      vi.advanceTimersByTime(4000);
+      await settle();
+      expect(ask.querySelector(".art-working")!.textContent).toBe("Reading the lab");
+      expect(ask.querySelector(".art-chat--nested .art-chat-input")).toBe(box);
+      expect(box.isConnected).toBe(true);
+      expect(box.value).toBe("and make it quieter");
+      expect(document.activeElement).toBe(box);
+      ask.querySelector(".art-chat--nested")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+      const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+      const body = JSON.parse(String((sent[1] as RequestInit).body));
+      expect(body.replyTo).toBe("note:1");
+      expect(body.questionText).toBe("A mix of the two");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps a card's message out of its thread and back in the box when it does not go", async () => {    load("");
     await settle();
     const stream = open("latest", []);
@@ -2067,7 +2105,7 @@ describe("header and artefact view", () => {
   it("keeps asking about a taken card note until it goes from the inbox, and keeps only the thread past the session", async () => {
     vi.useFakeTimers({ toFake: ["setInterval"] });
     try {
-      localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Gone", id: "note:2" }, { text: "Draining", id: "note:3" }]));
+      localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "A mix of the two", id: "note:1" }, { text: "Gone", id: "note:2" }, { text: "Draining", id: "note:3" }]));
       load("");
       await settle();
       const stream = open("latest", []);
@@ -2089,9 +2127,9 @@ describe("header and artefact view", () => {
       }
       expect([asked("note%3A1"), asked("note%3A2"), asked("note%3A3")]).toEqual([5, 3, 2]);
       expect([...document.querySelectorAll(".scene-ask .art-msg--them")].map((node) => node.textContent)).toEqual(["Done, sir."]);
-      const kept = JSON.parse(localStorage.getItem("flyd-decision:visuals:Choose from the lab")!);
+      const kept = JSON.parse(localStorage.getItem("flyd-decision:visuals")!);
       expect(kept.map((entry: { text: string }) => entry.text)).toEqual(["A mix of the two", "Gone", "Draining"]);
-      expect(JSON.parse(sessionStorage.getItem("flyd-decision:visuals:Choose from the lab")!).thread).toBeUndefined();
+      expect(JSON.parse(sessionStorage.getItem("flyd-decision:visuals")!).thread).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
@@ -2100,7 +2138,7 @@ describe("header and artefact view", () => {
   it("folds in what another copy of the same card stored instead of writing over it", async () => {
     vi.useFakeTimers({ toFake: ["setInterval"] });
     try {
-      const key = "flyd-decision:visuals:Choose from the lab";
+      const key = "flyd-decision:visuals";
       localStorage.setItem(key, JSON.stringify([{ text: "A mix of the two", id: "note:1" }]));
       load("");
       await settle();

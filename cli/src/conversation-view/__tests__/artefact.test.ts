@@ -1326,6 +1326,24 @@ describe("a hold that puts several decisions to him", () => {
     expect(decisionProgress([decision], [{ title: "Which direction to build the new pricing page", notes: "on top of the old one" }])[0]!.done).toBeUndefined();
   });
 
+  it("never counts the report or lab that raised the decision, work that has not landed, or work from before the hold", () => {
+    const report = { title: "Flyd live activity: why Working shows 0 (report + artefact)", notes: "Fixes 1-3 from data/flyd-live-activity/report.md, ready to read.", url: "https://github.com/GeorgeGally/flyd/pull/230", finished: "2026-10-29" };
+    const lab = { title: "Lab: V1 Departures, V2 Picture desk, V3 Notch", url: "data/flyd-live-activity/lab.html", finished: "2026-10-29" };
+    const unlanded = { ...answered, url: undefined };
+    const earlier = { ...answered, finished: "2026-10-20" };
+    for (const task of [report, lab, unlanded, earlier]) {
+      expect(decisionProgress(holdDecisions(HOLD), [task], "2026-10-29").map((decision) => decision.done)).toEqual([undefined, undefined]);
+    }
+    expect(decisionProgress(holdDecisions(HOLD), [answered], "2026-10-29")[0]!.done).toMatch(/^Done: /);
+  });
+
+  it("splits a decision only at a colon outside its asides, and keeps a word like board or lab inside it", () => {
+    expect(holdDecisions("(1) ship fixes 1-3 (report: data/x.md) - yes/no; (2) which lab direction to ship: V1, V2")).toEqual([
+      { question: "Ship fixes 1-3", options: ["Yes", "No"] },
+      { question: "Which lab direction to ship", options: ["V1", "V2"] },
+    ]);
+  });
+
   const fleetWith = (): FleetArtefact => ({
     ...parseBearings({ schema: "fm-bearings.v1", decisions_open: [{ id: "flyd-live-activity-direction", summary: "Two decisions are needed on Flyd live activity" }] }),
     generated: "2026-10-29T12:00:00Z",
