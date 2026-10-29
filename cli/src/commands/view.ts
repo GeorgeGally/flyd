@@ -28,7 +28,7 @@ import { MemoryReader } from "../conversation-view/memory.js";
 import { OvertakenCalls } from "../conversation-view/overtaken.js";
 import { StaleCallJudge } from "../conversation-view/stale-calls.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
-import { LiveStaffSession } from "../command/fleet-monitor.js";
+import { LiveStaffSession, readStaffView } from "../command/fleet-monitor.js";
 import { listDomainRuns } from "../command/store.js";
 import { sendRunMessage } from "../command/messages.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
@@ -260,6 +260,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   const feed = new ArtefactFeed({
     voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }),
     decideChanges,
+    // Working reads every worker Core's staff watch sees, not the snapshot's first twenty.
+    workers: () => readStaffView()?.snapshot.workers ?? [],
     ...(overtaken ? { overtaken } : {}),
   });
   if (source !== flydSource) source = executiveConversationSource(source, decideChanges, resolveDecision);
