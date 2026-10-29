@@ -16,7 +16,7 @@ import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision
 import type { FirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { readVerdicts } from "../council/reply-review.js";
 import { readDomainRun } from "../command/store.js";
-import { DECIDING, STOPPED, type StaffWorker } from "../command/fleet-monitor.js";
+import type { StaffWorker } from "../command/fleet-monitor.js";
 import type { ShowItem, ShowKind } from "./show.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
@@ -1641,7 +1641,7 @@ export class ArtefactFeed {
   private staffLive(fleet: FleetArtefact): ArtefactRow[] {
     const seen = new Set(FLEET_FIELDS.flatMap((field) => fleet[field].flatMap((row) => (row.task ? [row.task] : []))));
     return (this.options.workers?.() ?? []).flatMap((worker): ArtefactRow[] => {
-      if (!worker.id || seen.has(worker.id) || worker.state === "paused" || DECIDING.has(worker.state) || STOPPED.has(worker.state)) return [];
+      if (!worker.id || seen.has(worker.id) || worker.state !== "working") return [];
       seen.add(worker.id);
       return [{
         label: worker.name || worker.id,

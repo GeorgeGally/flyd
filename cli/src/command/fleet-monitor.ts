@@ -95,9 +95,9 @@ export interface StaffView {
   concerns: StaffConcern[];
 }
 
-export const DECIDING = new Set(["needs-decision", "needs_decision", "blocked"]);
+const DECIDING = new Set(["needs-decision", "needs_decision", "blocked"]);
 /** Work that stopped without asking anyone: it failed, or the staff lost sight of it. */
-export const STOPPED = new Set(["failed", "unknown"]);
+const STOPPED = new Set(["failed", "unknown"]);
 const OPEN_HANDOFF = new Set(["queued", "accepted", "working"]);
 
 type ReceiptNote = NonNullable<FirstmateReceipts["pending"]>[number];

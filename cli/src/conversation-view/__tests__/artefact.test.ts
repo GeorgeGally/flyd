@@ -1139,6 +1139,7 @@ describe("ArtefactFeed fleet reads", () => {
       { id: "listed", name: "Listed worker", state: "working" },
       { id: "finished", name: "Finished worker", state: "working" },
       { id: "paused-one", name: "Paused worker", state: "paused" },
+      { id: "done-unlisted", name: "Done worker", state: "done" },
       { id: "cut-off", name: "Cut off worker", state: "working", doing: "building the board", since: "2026-10-29T04:12:00.000Z" },
       { id: "held-up", name: "Held up worker", state: "needs-decision" },
     ];
