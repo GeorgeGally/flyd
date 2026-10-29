@@ -93,6 +93,8 @@ export function isStaleRepoClaim(
 export interface FormatContextOptions {
   /** Clock for the freshness cut; tests pin it. */
   now?: Date;
+  profileOverride?: string;
+  tasteMaxChars?: number;
   /** Personal turns skip repository state and project projections. */
   includeProjects?: boolean;
   /** Design, code and work-state turns follow George's learned taste; companion chat, LIVE and resolve never see it. */
@@ -111,8 +113,8 @@ export function formatCompiledContext(context: CompiledContext, options: FormatC
     `- [${c.temporalStatus}; historical] ${c.entityId} · ${c.attribute}: ${c.value}`;
   return [
     "<flyd_context>",
-    "<profile>", context.user.profile || "(no profile projection)", "</profile>",
-    ...(options.includeTaste && context.user.taste ? ["<taste>", context.user.taste, "</taste>"] : []),
+    "<profile>", options.profileOverride ?? (context.user.profile || "(no profile projection)"), "</profile>",
+    ...(options.includeTaste && context.user.taste ? ["<taste>", options.tasteMaxChars ? clampText(context.user.taste, options.tasteMaxChars) : context.user.taste, "</taste>"] : []),
     "<now>",
     includeProjects ? boundNowProjection(context.present.projection || "", options.now) : "",
     `Active projects: ${context.present.activeProjects.join(", ") || "none"}`,
@@ -130,7 +132,7 @@ export function formatCompiledContext(context: CompiledContext, options: FormatC
       "</conversation-state>",
     ] : []),
     "<relevant-memory>",
-    ...context.memory.relevant.slice(0,8).map((m) => `- [${ageLabel(m.freshness)}; relevance=${m.relevance.toFixed(2)}] ${clampLine(m.content, 600)}`),
+    ...context.memory.relevant.slice(0,8).map((m) => `- [${ageLabel(m.freshness)}; relevance=${m.relevance.toFixed(2)}] ${clampLine(m.content, 600)} (source: ${m.source})`),
     "</relevant-memory>",
     "<historical-memory>",
     ...context.memory.historical.slice(0,10).map((c) => clampLine(historicalLine(c))),

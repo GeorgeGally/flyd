@@ -43,6 +43,18 @@ async function main(): Promise<void> {
     await runAccounts(process.argv.slice(3));
     return;
   }
+  if (process.argv[2] === "memory-index") {
+    const action = process.argv[3] ?? "status";
+    if (!["status", "repair"].includes(action) || process.argv.length > 4) throw new Error("Usage: flyd memory-index [status|repair]");
+    if (action === "repair") {
+      const { updateRawStrict, embedRawStrict, closeStore } = await import("./lib/qmd.js");
+      try { await updateRawStrict(); await embedRawStrict(); } finally { await closeStore(); }
+    }
+    const report = await (await import("./lib/memory-index.js")).inspectMemoryIndex();
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    if (report.state !== "ready") process.exitCode = 1;
+    return;
+  }
   if (process.argv[2] === "doctor") {
     const args = process.argv.slice(3);
     if (args[0] === "repos") {

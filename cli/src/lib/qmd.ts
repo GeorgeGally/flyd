@@ -1,11 +1,12 @@
 import { createStore, type HybridQueryResult } from "@tobilu/qmd";
 import { mkdir } from "fs/promises";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
-import { RAW_DIR, WIKI_DIR } from "./config.js";
+import { FLYD_DIR, RAW_DIR, WIKI_DIR } from "./config.js";
 import { expandQuery as expandQueryOpenAI, type ExpandedQuery } from "./query-expansion.js";
 
-function getDbPath(): string {
+export function qmdDbPath(): string {
   const cacheDir = process.env.XDG_CACHE_HOME || join(homedir(), ".cache");
   return join(cacheDir, "qmd", "index.sqlite");
 }
@@ -15,7 +16,7 @@ async function initializeStore() {
     mkdir(RAW_DIR, { recursive: true, mode: 0o700 }),
     mkdir(WIKI_DIR, { recursive: true, mode: 0o700 }),
   ]);
-  const store = await createStore({ dbPath: getDbPath() });
+  const store = await createStore({ dbPath: qmdDbPath() });
   const collections = await store.listCollections();
   for (const [name, path] of [ [ "flyd-raw", RAW_DIR ], [ "flyd-wiki", WIKI_DIR ] ] as const) {
     const current = collections.find((collection) => collection.name === name);
@@ -151,6 +152,12 @@ export async function search(
   }
 }
 
+/** Local QMD hybrid only: errors propagate, with no hosted query-expansion fallback. */
+export async function searchLocalHybrid(query: string, collection: string, limit = 20): Promise<Array<{ path: string; score: number }>> {
+  const store = await getStore();
+  return normalizeResults(await store.search({ query, collection, limit, rerank: true }), collection + "/");
+}
+
 export async function searchLexical(
   query: string,
   collection: string,
@@ -175,14 +182,33 @@ export async function updateRaw(): Promise<void> {
   }
 }
 
+async function trackIndexStage(stage: "update" | "embed", action: () => Promise<void>): Promise<void> {
+  const path = join(FLYD_DIR, "index-status", `${stage}-failed`);
+  try {
+    await action();
+    try { rmSync(path, { force: true }); } catch { /* status is best effort */ }
+  } catch (error) {
+    try {
+      mkdirSync(join(FLYD_DIR, "index-status"), { recursive: true, mode: 0o700 });
+      writeFileSync(path, new Date().toISOString(), { mode: 0o600 });
+    } catch { /* retain the original indexing error */ }
+    throw error;
+  }
+}
+
 export async function updateRawStrict(): Promise<void> {
-  const store = await getStore();
-  await store.update({ collections: ["flyd-raw"] });
+  await trackIndexStage("update", async () => {
+    const store = await getStore();
+    await store.update({ collections: ["flyd-raw"] });
+  });
 }
 
 export async function embedRawStrict(): Promise<void> {
-  const store = await getStore();
-  await store.embed({ collection: "flyd-raw" });
+  await trackIndexStage("embed", async () => {
+    const store = await getStore();
+    const result = await store.embed({ collection: "flyd-raw" });
+    if (result.errors > 0) throw new Error(`QMD embedding failed for ${result.errors} chunks`);
+  });
 }
 
 export async function embedRaw(): Promise<void> {

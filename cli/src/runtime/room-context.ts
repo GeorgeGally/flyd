@@ -1,4 +1,5 @@
 import { roomItemText, type RoomItem } from "./read-the-room.js";
+import { isProfileInstruction } from "./context-budget.js";
 import { memoryEntryIsStale } from "../council/memory-store.js";
 
 // What Flyd could draw on for this turn, split three ways: a small core it
@@ -8,6 +9,7 @@ import { memoryEntryIsStale } from "../council/memory-store.js";
 
 const CORE_SECTIONS = new Set(["About me", "People", "Preferences", "How to be with me", "Constraints"]);
 const CORE_MAX_CHARS = 3_000;
+const INSTRUCTION_SECTIONS = new Set(["Preferences", "How to be with me", "Constraints", "Instructions", "Safety"]);
 
 export function profileSections(profile: string): Map<string, string[]> {
   const sections = new Map<string, string[]>();
@@ -28,14 +30,28 @@ export interface RoomSources {
   now?: Date;
 }
 
-export function buildRoomContext(sources: RoomSources): { core: string; knowledge: RoomItem[] } {
+export function buildRoomContext(sources: RoomSources): { core: string; facts: string; knowledge: RoomItem[] } {
   const sections = sources.profile ? profileSections(sources.profile) : new Map<string, string[]>();
   const coreLines: string[] = [];
+  const instructions: string[] = [];
   const knowledge: RoomItem[] = [];
   let n = 0;
   for (const [section, items] of sections) {
-    if (CORE_SECTIONS.has(section)) coreLines.push(`${section}: ${items.join("; ")}`);
-    else for (const item of items) knowledge.push({ id: `u${++n}`, text: item, authority: "user_profile", sourceRef: `USER.md:${section}` });
+    if (INSTRUCTION_SECTIONS.has(section)) instructions.push(`${section}: ${items.join("; ")}`);
+    else if (section === "About me") {
+      const identity = items.slice(0, 2);
+      if (identity.length) instructions.push(`About me: ${identity.join("; ")}`);
+      const remaining = items.slice(2);
+      const directives = remaining.filter(isProfileInstruction);
+      if (directives.length) instructions.push(`About me: ${directives.join("; ")}`);
+      const facts = remaining.filter((item) => !isProfileInstruction(item));
+      if (facts.length) coreLines.push(`About me: ${facts.join("; ")}`);
+    } else {
+      const directiveItems = items.filter(isProfileInstruction);
+      if (directiveItems.length) instructions.push(`${section}: ${directiveItems.join("; ")}`);
+      if (CORE_SECTIONS.has(section)) coreLines.push(`${section}: ${items.filter((item) => !isProfileInstruction(item)).join("; ")}`);
+      else for (const item of items) knowledge.push({ id: `u${++n}`, text: item, authority: "user_profile", sourceRef: `USER.md:${section}` });
+    }
   }
   const now = sources.now ?? new Date();
   const curated = sources.memory.map((entry) => {
@@ -61,8 +77,12 @@ export function buildRoomContext(sources: RoomSources): { core: string; knowledg
     seen.add(text.toLowerCase());
     knowledge.push({ id: `r${++n}`, text, authority: match.authority ?? "user_observation", sourceRef: match.path, stale: match.stale, observedAt: match.updatedAt, outcome: match.outcome });
   }
-  const core = coreLines.join("\n");
-  return { core: core.length > CORE_MAX_CHARS ? `${core.slice(0, CORE_MAX_CHARS - 1)}…` : core, knowledge };
+  const required = instructions.join("\n");
+  const room = Math.max(0, CORE_MAX_CHARS - required.length - 1);
+  const optional = coreLines.join("\n");
+  const fitted = optional.length > room ? `${optional.slice(0, Math.max(0, room - 1))}…` : optional;
+  const facts = room ? fitted : "";
+  return { core: [required, facts].filter(Boolean).join("\n"), facts, knowledge };
 }
 
 /** Findings from backstage work, for Flyd's eyes only. */

@@ -114,9 +114,16 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
   const rankedConversations = conversations.filter(c => c.relevance > 0)
     .sort((a, b) => b.relevance - a.relevance || b.freshness - a.freshness).slice(0, conversationShare);
 
+  // Preserve the archive's retrieval order when interleaving conversation hits.
+  // Sorting solely by confidence would undo hybrid and temporal reranking.
+  const archiveItems = new Set(relevant);
+  let archiveIndex = 0;
+  const interleaved = [...rankedConversations, ...relevant].sort((a, b) => b.relevance - a.relevance)
+    .map((item) => archiveItems.has(item) ? relevant[archiveIndex++]! : item);
+
   return {
     current: canonicalCurrent.slice(0, input.limit ?? 20),
-    relevant: [...rankedConversations, ...relevant].sort((a, b) => b.relevance - a.relevance).slice(0, relevantLimit),
+    relevant: interleaved.slice(0, relevantLimit),
     historical: canonicalHistorical.slice(0, input.limit ?? 20),
     conflicts: derived.conflicts.map((c) => ({
       entityId: c.entityId, attribute: c.attribute,
@@ -125,5 +132,6 @@ export async function queryMemory(input: MemoryQuery): Promise<UnifiedMemoryResu
     gaps: derived.unresolvedEntityIds.map((id) => `unresolved_dependency:${id}`),
     relations: derived.relations,
     ...(memorySystemOne ? { systemOne: memorySystemOne } : {}),
+    ...(legacy?.retrievalRoute ? { retrievalRoute: legacy.retrievalRoute } : {}),
   };
 }

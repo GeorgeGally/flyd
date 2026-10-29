@@ -1,4 +1,6 @@
 import { shellEnv } from "../lib/shell-env.js";
+import { writeContextTrace } from "./context-trace.js";
+import { budgetPersonalContext, budgetHistory, type ContextRoute } from "./context-budget.js";
 import { CONNECTOR_TOOL_NAMES } from "../connectors/tools.js";
 import { MOBILE_TOOLS } from "./mobile-capabilities.js";
 import { answerAccountIntent, isAccountIntent } from "../connectors/invocation.js";
@@ -14,6 +16,7 @@ import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, agentLoopWithFailover, PROMPT_CACHE_BREAK, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import { readSoul } from "../lib/soul.js";
+import { isExplicitRecall } from "../lib/recall-escalation.js";
 import { presenceBrief, presenceEnabled, presenceInstructions, understandTurn, type TurnUnderstanding } from "./conversation-presence.js";
 import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-policy.js";
 import { roomBrief, type RoomInput } from "./read-the-room.js";
@@ -176,8 +179,8 @@ export function localClock(now: Date): string {
 export function buildConversationPrompt(
   input: ConversationInput,
   compiledContext?: CompiledContext,
-  options: { projectTurn?: boolean; room?: { core: string; brief: string }; plan?: string } = {},
-): { system: string; prompt: string; grounding: string } {
+  options: { projectTurn?: boolean; room?: { core: string; facts: string; brief: string }; plan?: string } = {},
+): { system: string; prompt: string; grounding: string; route: ContextRoute } {
   const projectTurn = options.projectTurn ?? true;
   const repositoryQuestion = /\b(?:current (?:repository|repo|project|task|branch)|latest (?:commit|code change)|recent (?:commit|code change)|working tree)\b/i.test(input.message);
   const currentWorkQuestion = isCurrentWorkQuestion(input.message);
@@ -194,17 +197,26 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     : "";
   // Repo state rides in memory as "current signals"; it is noise on a personal turn.
   const repoSignal = /^project:[^ ]+ · (?:branch|dirty|latest_commit|head|changed_files):/;
+  const route: ContextRoute = compiledContext?.interpretation.needsDeepMemory || isExplicitRecall(input.message) ? "recall" : projectTurn ? "work" : "companion";
+  const memoryCap = route === "recall" ? 12_000 : 6_000;
+  let memorySize = 0;
+  const seenMemory = new Set<string>();
   const usableMemory = input.memory.matches.filter((item) =>
     item.authority !== "assistant_output" && item.outcome !== "rejected"
     && (projectTurn || !repoSignal.test(item.excerpt))
-  );
+  ).filter((item) => {
+    const key = item.excerpt.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!key || seenMemory.has(key) || memorySize + item.excerpt.length > memoryCap) return false;
+    seenMemory.add(key); memorySize += item.excerpt.length; return true;
+  });
   const memory = !repositoryQuestion && usableMemory.length
     ? `\n<personal-memory>\n${usableMemory.map((item) =>
         `- [${item.authority ?? "user_observation"}]${item.outcome && item.outcome !== "unknown" ? `[${item.outcome}]` : ""} ${item.stale ? "[possibly stale] " : ""}${item.excerpt} (${item.path})`
       ).join("\n")}\n</personal-memory>\n`
     : "";
-  const history = input.history.length
-    ? `\nConversation so far:\n${input.history.map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content}`).join("\n")}\n`
+  const historyTurns = budgetHistory(input.history, route);
+  const history = historyTurns.length
+    ? `\nConversation so far:\n${historyTurns.map((turn) => `${turn.role === "user" ? "George" : "Flyd"}: ${turn.content}`).join("\n")}\n`
     : "";
   // The work model is repo telemetry; on a personal turn it only makes Flyd talk like a stand-up.
   const presentModel = input.presentHypothesis && (projectTurn || currentWorkQuestion)
@@ -218,7 +230,12 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       ? crossRepoContext(input.crossRepo)
       : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
-  const cognitiveFor = (includeConversation: boolean) => compiledContext ? `\n${formatCompiledContext(compiledContext, { includeProjects: projectTurn, includeTaste: projectTurn, includeConversation })}\n` : "";
+  const personal = compiledContext?.user.personal;
+  const roomCore = personal && options.room ? options.room.facts.split("\n").filter((line) => !/^(?:About me|People):/.test(line)).join("\n") : options.room?.core;
+  const profileOverride = personal ? budgetPersonalContext({ profile: personal.profile, memory: personal.memory, query: input.message, route }) : undefined;
+  const shownMemory = new Set(usableMemory.map((item) => item.excerpt.replace(/\s+/g, " ").trim().toLowerCase()).filter(Boolean));
+  const contextForPrompt = compiledContext && !repositoryQuestion && (!options.room || projectTurn) ? { ...compiledContext, memory: { ...compiledContext.memory, relevant: compiledContext.memory.relevant.filter((item) => !shownMemory.has(item.content.replace(/\s+/g, " ").trim().toLowerCase())) } } : compiledContext;
+  const cognitiveFor = (includeConversation: boolean) => contextForPrompt ? `\n${formatCompiledContext(contextForPrompt, { includeProjects: projectTurn, includeTaste: projectTurn, tasteMaxChars: route === "recall" ? 4000 : 2000, includeConversation: includeConversation && historyTurns.length === 0, ...(profileOverride !== undefined ? { profileOverride } : {}) })}\n` : "";
   const cognitiveContext = cognitiveFor(true);
   let agenda = "";
   try { agenda = agendaPromptBlock(); } catch { agenda = ""; }
@@ -288,7 +305,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
           "- Local, reversible actions are yours to take; anything that leaves the machine or can't be undone, ask first.",
           repos ? `- ${repos}` : "",
         ].filter(Boolean).join("\n"),
-        options.room ? `## Who he is\n${options.room.core || "(little known yet)"}` : "",
+        options.room ? `## Who he is\n<profile>\n${roomCore || "(little known yet)"}\n${personal ? budgetPersonalContext({ profile: personal.profile, memory: "", query: input.message, route }) : ""}\n</profile>` : "",
         projects,
         options.room?.brief ?? "",
         options.plan ?? "",
@@ -298,6 +315,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       ].filter(Boolean).join("\n\n"),
       prompt: lean,
       grounding: groundingFor(lean),
+      route,
     };
   }
 
@@ -345,6 +363,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     ].filter(Boolean).join("\n\n"),
     prompt: promptBody,
     grounding: groundingFor(promptBody),
+    route,
   };
 }
 
@@ -963,14 +982,22 @@ export async function respondToConversation(
   dependencies: ConversationResponderDependencies = {},
 ): Promise<string> {
   input.signal?.throwIfAborted();
+  const traceAccount = (started: number) => {
+    if (dependencies.readOnly) return;
+    try { writeContextTrace({ route: "account", message: input.message, system: "", prompt: "", profile: "", recalled: "", history: "", tools: "", memoryMs: 0, turnMs: Date.now() - started, matches: 0, retrievalRoute: "none" }); } catch { /* Tracing is best effort. */ }
+  };
   if (input.surface === "mobile" && !input.mobileAccounts && isAccountIntent(input.message)) {
+    traceAccount(Date.now());
     const answer = "Your account integrations are not enabled on this Flyd host yet. No account was read or changed.";
     input.onToken(answer); return answer;
   }
   if (!dependencies.readOnly && (input.surface === "mobile" || /\bwhatsapp\b/i.test(input.message)) && isAccountIntent(input.message)) {
-    const answer = await answerAccountIntent(input.message, input.history.map(t => `${t.role}: ${t.content}`).join("\n"));
-    input.signal?.throwIfAborted();
-    input.onToken(answer); return answer;
+    const started = Date.now();
+    try {
+      const answer = await answerAccountIntent(input.message, input.history.map(t => `${t.role}: ${t.content}`).join("\n"));
+      input.signal?.throwIfAborted();
+      input.onToken(answer); return answer;
+    } finally { traceAccount(started); }
   }
   const txSession = input.sessionId ?? randomUUID();
   const txInvocation = randomUUID();
@@ -1191,7 +1218,7 @@ export async function respondToConversation(
   ].filter(Boolean).join("\n\n");
   const request = buildConversationPrompt(input, compiledContext, {
     projectTurn,
-    ...(room ? { room: { core: roomContext.core, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
+    ...(room ? { room: { core: roomContext.core, facts: roomContext.facts, brief: roomBrief(room, roomContext.knowledge, notes) } } : {}),
     ...(planBlock ? { plan: planBlock } : {}),
   });
   const injectedConnection = dependencies.resolveConnection?.();
@@ -1259,13 +1286,30 @@ export async function respondToConversation(
   const codingIntent = interpretAgentInput(input.message).kind;
   const budget = planBudget(turnBudget(input.message, codingIntent, input.sessionId), plan);
   const maxIterations = budget.iterations;
+  const selectedTools = chatToolSet(plan, codeTurn).filter(tool => !mobile || (MOBILE_TOOLS.has(tool.name) && (input.mobileAccounts || !CONNECTOR_TOOL_NAMES.has(tool.name))));
+  if (!dependencies.readOnly) {
+    try {
+      const sent = `${system}\n${prompt}`;
+      const section = (tag: string) => sent.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1] ?? "";
+      writeContextTrace({
+        route: plan?.route ?? "unplanned", message: input.message, system, prompt,
+        profile: section("profile") || (room ? roomContext.core : ""),
+        recalled: section("relevant-memory") + section("historical-memory") + section("personal-memory"),
+        history: budgetHistory(input.history, request.route).map((turn) => turn.content).join("\n"),
+        tools: JSON.stringify(selectedTools),
+        memoryMs: compiledContext.trace.timings.memory ?? 0,
+        matches: compiledContext.memory.relevant.length,
+        retrievalRoute: compiledContext.memory.retrievalRoute,
+      });
+    } catch { /* Tracing must not interrupt a conversation. */ }
+  }
   input.onActivity?.("Thinking it through");
   try {
     const { answer, model: usedModel } = await agentLoopWithFailover(
       models,
       system,
       prompt,
-      chatToolSet(plan, codeTurn).filter(tool => !mobile || (MOBILE_TOOLS.has(tool.name) && (input.mobileAccounts || !CONNECTOR_TOOL_NAMES.has(tool.name)))),
+      selectedTools,
       observedHandler,
       maxIterations,
       {
