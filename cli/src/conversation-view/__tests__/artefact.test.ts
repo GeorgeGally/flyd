@@ -8,7 +8,7 @@ import { semanticObjectFromShow } from "../semantic.js";
 import {
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, heldItems, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   adviceHighlights, pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
-  callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, type FleetArtefact,
+  callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, type FleetArtefact,
 } from "../artefact.js";
 import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -204,6 +204,26 @@ describe("what needs him", () => {
     const extras = new Map([["fm-handover", { at: "2026-10-16T02:44:00Z" }]]);
     expect(enrichFleet(fleet, backlog, extras, NOW).calls.map((row) => row.task)).toContain("fm-handover");
   });
+  it("gives a call that points at a design lab every candidate as a preview the view can load", () => {
+    const lab = parseBearings({ decisions_open: [{ id: "new-direction", summary: "Which /new version to build?" }] });
+    const pointing = parseBacklog([
+      "- [ ] new-direction - Build the /new page (since: 2026-10-16) (hold: fm-hold-v1:V2 or V10?)",
+      "  Contact sheet: data/obj0-new-lab-r2/contact-sheet.png",
+    ].join("\n"));
+    const extras = new Map([["obj0-new-lab-r2", {
+      at: "2026-10-16T02:44:00Z",
+      shots: ["shots/v2-desktop.png", "shots/v2-phone.png", "shots/v10-desktop.png", "shots/v10-phone.png"],
+      previews: [
+        { label: "V2 · Live page", image: "shots/v2-desktop.png", phone: "shots/v2-phone.png" },
+        { label: "V10 · Edit the page", image: "shots/v10-desktop.png", phone: "shots/v10-phone.png" },
+      ],
+    }]]);
+    const [call] = callItems(enrichFleet(lab, pointing, extras, NOW));
+    expect(call!.previews).toEqual([
+      { label: "V2 · Live page", image: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png", phone: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-phone.png" },
+      { label: "V10 · Edit the page", image: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv10-desktop.png", phone: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv10-phone.png" },
+    ]);
+  });
 });
 
 describe("the backlog", () => {
@@ -315,6 +335,28 @@ describe("the backlog", () => {
       { path: "shots/final2-v5.png", mtime: 2, size: 400_000, hash: "same" },
       { path: "shots/phone2.png", mtime: 1, size: 300_000, hash: "other" },
     ])).toEqual(["shots/desk-v5.png", "shots/phone2.png"]);
+  });
+
+  it("shows a lab's candidate versions as they are, one per version with its phone shot, named from its report", () => {
+    const shots = pickShots([
+      { path: "shots/v1-desktop-empty.png", mtime: 9, size: 400_000 },
+      { path: "shots/v1-desktop.png", mtime: 5, size: 400_000 },
+      { path: "shots/v10-desktop.png", mtime: 2, size: 400_000 },
+      { path: "shots/v2-phone.png", mtime: 4, size: 300_000 },
+      { path: "shots/v10-phone.png", mtime: 1, size: 300_000 },
+      { path: "shots/v2-desktop.png", mtime: 3, size: 400_000 },
+      { path: "src/ribbons.jpg", mtime: 8, size: 400_000 },
+    ]);
+    expect(shots).toEqual(["shots/v1-desktop.png", "shots/v2-desktop.png", "shots/v2-phone.png", "shots/v10-desktop.png", "shots/v10-phone.png"]);
+    expect(labPreviews(shots, "| V | Name | What changes |\n|---|---|---|\n| 1 | Photo first | One large drop zone. |\n| 2 | Live page | The page builds itself. |\n| 10 | Edit the page | The page, editable. |")).toEqual([
+      { label: "V1 · Photo first", image: "shots/v1-desktop.png" },
+      { label: "V2 · Live page", image: "shots/v2-desktop.png", phone: "shots/v2-phone.png" },
+      { label: "V10 · Edit the page", image: "shots/v10-desktop.png", phone: "shots/v10-phone.png" },
+    ]);
+    // No report, no names: the version alone still says which candidate it is.
+    expect(labPreviews(shots, "").map((preview) => preview.label)).toEqual(["V1", "V2", "V10"]);
+    // A critic's score table after the versions table does not rename the versions.
+    expect(labPreviews(shots, "| V | Name |\n|---|---|\n| 1 | Photo first |\n| 10 | Edit the page |\n\n| V | Score |\n|---|---|\n| 1 | 7.0 |\n| 10 | 6.5 |").map((preview) => preview.label)).toEqual(["V1 · Photo first", "V2", "V10 · Edit the page"]);
   });
 
   it("carries open advice as cards, most pressing first, and drops what expired or was dismissed", () => {

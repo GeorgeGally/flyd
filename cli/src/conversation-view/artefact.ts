@@ -26,6 +26,16 @@ import type { ShowItem, ShowKind } from "./show.js";
 // a refresh adds or updates a row rather than resetting the screen. Everything
 // here is bounded, cached and fails soft.
 
+/** One candidate a lab put up to choose between: its desktop page, and its phone view beside it. */
+export interface CandidatePreview {
+  /** The version's name from the lab's own report: "V10 · Edit the page". */
+  label: string;
+  /** Its desktop shot, as a path under the lab's directory. */
+  image: string;
+  /** Its phone shot, when the lab took one. */
+  phone?: string;
+}
+
 export interface ArtefactRow {
   /** Original evidence for Core judgment; never a display string. */
   sourceDetail?: string;
@@ -51,6 +61,8 @@ export interface ArtefactRow {
   shots?: string[];
   /** The data directory the screenshots are in, when it is not the task's own (a call's lab, say). */
   shotDir?: string;
+  /** The candidates a lab made to choose between, when the shots are one per version. */
+  previews?: CandidatePreview[];
   /** Flyd's own words for it, once its model has said them. */
   said?: Said;
   /** The shared decision step's question and recommendation, when George owns it. */
@@ -446,6 +458,8 @@ export interface TaskExtra {
   shots?: string[];
   /** When the newest of those screenshots was taken. */
   shotAt?: string;
+  /** The candidates those shots are, one per version, named from the lab's report. */
+  previews?: CandidatePreview[];
   /** The task's own last status note, whole. */
   note?: string;
 }
@@ -512,8 +526,10 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     else if (entry) {
       // No pictures of its own: the lab or report its words point at has them.
       const dir = referencedDirs(entry).find((name) => name !== row.task && extras.get(name)?.shots?.length);
-      if (dir) next = { ...next, shots: extras.get(dir)!.shots, shotDir: dir };
+      if (dir) next = { ...next, shots: extras.get(dir)!.shots!, shotDir: dir };
     }
+    const previews = extra?.previews?.length ? extra.previews : next.shotDir ? extras.get(next.shotDir)?.previews : undefined;
+    if (previews?.length) next.previews = previews;
     if (!next.url && entry?.url) next.url = entry.url;
     return next;
   };
@@ -756,6 +772,43 @@ const MAX_HASHED_SHOT_BYTES = 8_000_000;
 const REVIEW_SHOT = /^review\/v\d+[-_]/i;
 /** Every version of a lab, desktop and phone, but never a wall of them. */
 export const REVIEW_SHOTS_MAX = 12;
+/** A lab's candidates: one desktop shot per version ("shots/v10-desktop.png"), its phone shot beside it. */
+const VERSION_SHOT = /(?:^|\/)shots\/v(\d+)-(desktop|phone)\.png$/i;
+
+/** The version a shot belongs to, and which screen it is; null for anything else. Pure. */
+function versionShot(path: string): { version: number; device: string } | null {
+  const match = VERSION_SHOT.exec(path);
+  return match ? { version: Number(match[1]), device: match[2]!.toLowerCase() } : null;
+}
+
+/**
+ * The candidates a set of version shots is, one per version in version order,
+ * named from the lab's report ("| 10 | Edit the page | …"), with the phone shot
+ * beside the desktop one. Pure.
+ */
+export function labPreviews(shots: string[], report: string): CandidatePreview[] {
+  const names = new Map<string, string>();
+  for (const row of report.split("\n")) {
+    const cells = /^\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|/.exec(row);
+    if (cells && !names.has(cells[1]!)) names.set(cells[1]!, cells[2]!.replace(/\s+/g, " ").trim());
+  }
+  const versions = new Map<number, { desktop?: string; phone?: string }>();
+  for (const shot of shots) {
+    const found = versionShot(shot);
+    if (!found) continue;
+    const held = versions.get(found.version) ?? {};
+    if (found.device === "desktop") held.desktop = shot;
+    else held.phone = shot;
+    versions.set(found.version, held);
+  }
+  return [...versions]
+    .filter(([, held]) => Boolean(held.desktop))
+    .sort(([a], [b]) => a - b)
+    .map(([version, held]) => {
+      const name = names.get(String(version));
+      return { label: name ? `V${version} · ${name}` : `V${version}`, image: held.desktop!, ...(held.phone ? { phone: held.phone } : {}) };
+    });
+}
 
 export function pickShots(files: Array<{ path: string; mtime: number; size?: number; hash?: string }>): string[] {
   // What the captain sent in (his screenshots, his artwork) is the ask, not the work.
@@ -765,6 +818,15 @@ export function pickShots(files: Array<{ path: string; mtime: number; size?: num
   const review = all.filter((file) => REVIEW_SHOT.test(file.path))
     .sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
   if (review.length) return review.slice(0, REVIEW_SHOTS_MAX).map((file) => file.path);
+  // A lab that saved one shot per version is judged the same way: every candidate,
+  // in version order, desktop before the phone beside it.
+  const versions = all.filter((file) => versionShot(file.path))
+    .sort((a, b) => {
+      const one = versionShot(a.path)!;
+      const two = versionShot(b.path)!;
+      return one.version - two.version || one.device.localeCompare(two.device);
+    });
+  if (new Set(versions.map((file) => versionShot(file.path)!.version)).size >= 2) return versions.slice(0, REVIEW_SHOTS_MAX * 2).map((file) => file.path);
   // The same picture saved twice (a copy under another name) is shown once.
   const seen = new Set<string>();
   const images = all.filter((file) => !file.hash || (!seen.has(file.hash) && Boolean(seen.add(file.hash))));
@@ -918,6 +980,9 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
     ...(row.started ? { started: row.started } : {}),
     ...((row.shotDir ?? row.task) && row.shots?.length
       ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
+      : {}),
+    ...((row.shotDir ?? row.task) && row.previews?.length
+      ? { previews: row.previews.map((preview) => ({ label: preview.label, image: shotSrc(row.shotDir ?? row.task!, preview.image), ...(preview.phone ? { phone: shotSrc(row.shotDir ?? row.task!, preview.phone) } : {}) })) }
       : {}),
     ...(row.status ? { status: row.status } : {}),
     ...(project ? { project } : {}),
@@ -1529,6 +1594,9 @@ export class ArtefactFeed {
         const shots = pickShots(files);
         if (shots.length) {
           extra.shots = shots;
+          // A lab's report names its versions; the shots alone would leave a choice between file names.
+          const previews = labPreviews(shots, await readFile(join(dir, "report.md"), "utf8").catch(() => ""));
+          if (previews.length) extra.previews = previews;
           extra.shotAt = new Date(Math.max(...files.filter((file) => shots.includes(file.path)).map((file) => file.mtime))).toISOString();
           // Without a status report, when its pictures were taken says how recent it is.
           extra.at ??= extra.shotAt;

@@ -34,6 +34,13 @@ export interface ShowShot {
   label: string;
 }
 
+/** One candidate a lab put up: its desktop page, and its phone view beside it. */
+export interface ShowPreview {
+  label: string;
+  image: string;
+  phone?: string;
+}
+
 export interface ShowItem {
   /** Core decision that authorized this presentation. */
   executiveDecisionId?: string;
@@ -56,6 +63,8 @@ export interface ShowItem {
   status?: string;
   /** Screenshots of the work, newest "after" shots first. */
   shots?: ShowShot[];
+  /** Every candidate a lab put up, when its shots are one per version. */
+  previews?: ShowPreview[];
   at?: string;
   /** When its worker started: how long a job has been under way. */
   started?: string;

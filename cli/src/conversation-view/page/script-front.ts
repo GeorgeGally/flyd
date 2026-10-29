@@ -93,6 +93,12 @@ export const FRONT_SCRIPT = `
       return { src: withToken(shot.src), label: frontShotName(shot.label) };
     });
   }
+  // The candidates a lab put up: the desktop page large, its phone view beside it.
+  function frontPreviews(list) {
+    return (list || []).filter(function (preview) { return preview && preview.image; }).map(function (preview) {
+      return { label: frontText(preview.label), image: withToken(preview.image), phone: preview.phone ? withToken(preview.phone) : "" };
+    });
+  }
   function frontEvidenceShots(evidence) {
     return frontShots((evidence || []).filter(function (object) { return object.kind === "image" && !object.closed; }).map(function (object) {
       return { src: object.ref, label: object.label };
@@ -112,6 +118,13 @@ export const FRONT_SCRIPT = `
       return { title: text.slice(0, cut) + "…", rest: "…" + text.slice(cut).trim() };
     }
     return { title: text.slice(0, best + 1), rest: text.slice(best + 2) };
+  }
+  // The question heads the card, so a detail that starts by saying it again keeps only what it adds.
+  function frontTail(detail, title) {
+    var text = frontText(detail);
+    var head = frontText(title);
+    if (!text || !head || text.toLowerCase().indexOf(head.toLowerCase()) !== 0) return text;
+    return text.slice(head.length).replace(/^[\\s:.–—-]+/, "");
   }
   var FRONT_WORKING = { live: "Working", ready: "Ready to land", waiting: "Waiting", next: "Queued" };
   var FRONT_PHASE = { needs_you: "needs", ready: "working", working: "working", queued: "working", paused: "working", finished: "done" };
@@ -134,7 +147,7 @@ export const FRONT_SCRIPT = `
       state: lab ? "Lab ready for review" : object.status || (phase ? capital(String(phase).replace(/_/g, " ")) : "Needs you"),
       title: frontTitle(object.subject), project: frontProject(object.project),
       at: object.updatedAt || object.activity && object.activity.started || object.createdAt,
-      shots: frontEvidenceShots(object.evidence), detail: frontText(object.detail || object.summary),
+      shots: frontEvidenceShots(object.evidence), detail: frontText(object.detail || object.summary), previews: frontPreviews(object.previews),
       links: (object.evidence || []).filter(function (one) { return one.kind === "web" && !one.closed; }).map(function (one) { return { label: one.label, url: one.ref }; }),
       decision: decision, task: object.source && object.source.task || "",
     };
@@ -155,7 +168,7 @@ export const FRONT_SCRIPT = `
     (show.calls || []).forEach(function (call) { calls[call.id] = call; });
     function callJob(call) {
       return { id: call.id, group: "needs", state: call.status || "Needs your choice", title: frontTitle(call.headline), project: frontProject(call.project),
-        at: call.at, shots: frontShots(call.shots), detail: frontText(call.detail), links: call.links || [], decision: call.decision || null, task: call.task || "" };
+        at: call.at, shots: frontShots(call.shots), previews: frontPreviews(call.previews), detail: frontText(call.detail), links: call.links || [], decision: call.decision || null, task: call.task || "" };
     }
     // What needs him is one list (the corner, the count and the drill read it too): the focus, then the rest.
     // A call carries its pictures and its choices; anything else (a finished design lab) is drawn from its own object.
@@ -171,7 +184,7 @@ export const FRONT_SCRIPT = `
     [show.underway, show.ready, show.held, show.next].forEach(function (list) {
       (list || []).forEach(function (item) {
         add({ id: item.id, group: "working", state: FRONT_WORKING[item.kind] || capital(item.status || "Working"), title: frontTitle(item.headline), project: frontProject(item.project),
-          at: item.at || item.started, shots: frontShots(item.shots), detail: frontText(item.detail || item.why), links: item.links || [], decision: item.decision || null, task: item.task || "" });
+          at: item.at || item.started, shots: frontShots(item.shots), previews: frontPreviews(item.previews), detail: frontText(item.detail || item.why), links: item.links || [], decision: item.decision || null, task: item.task || "" });
       });
     });
     // Anything else the left column carries (a review, an activity) becomes a card of its kind.
@@ -186,7 +199,7 @@ export const FRONT_SCRIPT = `
     var doneSeen = cardRead("flyd-done-seen");
     landed.forEach(function (item) {
       add({ id: item.id, group: "done", state: "Landed", title: frontTitle(item.headline), project: frontProject(item.project), at: item.at,
-        shots: frontShots(item.shots), detail: frontText(item.detail || item.why), links: item.links || [], decision: null, task: item.task || "",
+        shots: frontShots(item.shots), previews: frontPreviews(item.previews), detail: frontText(item.detail || item.why), links: item.links || [], decision: null, task: item.task || "",
         fresh: isNew(item, doneSeen) });
     });
     return jobs;
@@ -311,11 +324,64 @@ export const FRONT_SCRIPT = `
     }
     return work;
   }
+
   function frontHttp(url) { return /^https?:\\/\\//i.test(url || "") ? url : ""; }
+  // Every candidate the lab put up, one under another: its desktop page large
+  // with its phone view beside it, named as the lab's report names it. Clicking
+  // either opens it full size; the choices stay under them.
+  function frontCandidates(job) {
+    var wrap = el("div", "jv-candidates");
+    job.previews.forEach(function (preview) {
+      var candidate = el("figure", "jv-candidate");
+      candidate.appendChild(el("figcaption", "", preview.label));
+      var pair = el("div", "jv-pair");
+      pair.appendChild(frontCandidatePicture(preview.image, preview.label, "jv-view"));
+      if (preview.phone) pair.appendChild(frontCandidatePicture(preview.phone, preview.label + " on a phone", "jv-phone"));
+      candidate.appendChild(pair);
+      wrap.appendChild(candidate);
+    });
+    return wrap;
+  }
+  function frontCandidatePicture(src, label, look) {
+    var view = el("button", look);
+    view.type = "button";
+    view.setAttribute("aria-label", "Open " + label + " full size");
+    var img = el("img");
+    img.src = src;
+    img.alt = label;
+    img.loading = "lazy";
+    view.appendChild(img);
+    view.addEventListener("click", function () { openImage(src); });
+    return view;
+  }
+  function frontDetailTalk(job) {
+    var talk = el("div", "jv-talk");
+    var msg = el("div", "jv-msg flyd");
+    var who = el("div", "who");
+    who.appendChild(el("b", "", assistant));
+    if (job.at) who.appendChild(document.createTextNode(frontWhen(job.at)));
+    msg.appendChild(who);
+    msg.appendChild(el("p", "", job.detail));
+    talk.appendChild(msg);
+    return talk;
+  }
   function frontJobView(job) {
     var parts = [];
     var split = frontSplit(job.title);
+    var said = frontTail(job.detail, job.title);
+    var talk = null;
+    if (said) {
+      talk = el("div", "jv-talk");
+      var msg = el("div", "jv-msg flyd");
+      var who = el("div", "who");
+      who.appendChild(el("b", "", assistant));
+      if (job.at) who.appendChild(document.createTextNode(frontWhen(job.at)));
+      msg.appendChild(who);
+      msg.appendChild(el("p", "", said));
+      talk.appendChild(msg);
+    }
     if (split.rest) parts.push(el("p", "jv-lead", split.rest));
+
     if (job.ask) parts.push(el("p", "jv-ask", job.ask));
     if (job.digest && (job.digest.changed || job.digest.means || job.digest.needed)) {
       var block = el("div", "jv-digest");
@@ -341,7 +407,11 @@ export const FRONT_SCRIPT = `
       parts.push(next);
     }
     // With no picture, the words are the work; a block only repeats the state when there are none.
-    if (job.shots.length || !(split.rest || job.detail || job.ask || job.next || (job.digest && job.digest.changed))) parts.push(frontWork(job));
+    // Every design fills the card, so what Flyd said about them stays above them, in sight.
+    if (job.previews && job.previews.length) {
+      if (job.detail) parts.push(frontDetailTalk(job));
+      parts.push(frontCandidates(job));
+    } else if (job.shots.length || !(split.rest || job.detail || job.ask || job.next || (job.digest && job.digest.changed))) parts.push(frontWork(job));
     var links = (job.links || []).filter(function (link) { return link && link.url && !link.closed; });
     if (links.length) {
       var acts = el("div", "jv-acts");
@@ -354,6 +424,7 @@ export const FRONT_SCRIPT = `
       });
       parts.push(acts);
     }
+
     (job.threads || []).forEach(function (thread, index) {
       if (!index) {
         var time = el("div", "jv-time");
@@ -389,17 +460,7 @@ export const FRONT_SCRIPT = `
       });
       parts.push(edit);
     }
-    if (job.detail) {
-      var talk = el("div", "jv-talk");
-      var msg = el("div", "jv-msg flyd");
-      var who = el("div", "who");
-      who.appendChild(el("b", "", assistant));
-      if (job.at) who.appendChild(document.createTextNode(frontWhen(job.at)));
-      msg.appendChild(who);
-      msg.appendChild(el("p", "", job.detail));
-      talk.appendChild(msg);
-      parts.push(talk);
-    }
+    if (job.detail && !(job.previews && job.previews.length)) parts.push(frontDetailTalk(job));
     if (VIEW_TOKEN) {
       if (job.decision) {
         parts.push(sceneAsk({ title: job.title, decision: job.decision }, "flyd-decision:" + (job.decision.decisionId || job.decision.task) + ":" + job.decision.question));
@@ -426,7 +487,7 @@ export const FRONT_SCRIPT = `
     }
     frontRoot.setAttribute("data-job", job.id);
     frontHead(job);
-    var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.links, job.decision, job.next, job.ask, job.digest, job.threads, job.files]);
+    var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.next, job.ask, job.digest, job.threads, job.files]);
     // A job already open stays as he left it while he is typing in it.
     if (drawn === frontDrawn.view || (frontDrawn.viewId === job.id && jobView.contains(document.activeElement))) return;
     frontDrawn.view = drawn;
