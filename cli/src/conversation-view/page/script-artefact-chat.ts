@@ -104,10 +104,6 @@ export const ARTEFACT_CHAT_SCRIPT = `
     // Every message can be answered back where it stands, his own or Flyd's: the reply joins this
     // card's own thread. One reply box per message, kept across redraws so a half-typed reply stays.
     var replies = {};
-    function replyable(entry) {
-      if (!entry.id || entry.id.indexOf("decision:") === 0) return false;
-      return !!entry.answer || (!entry.done && !entry.missed);
-    }
     function replyOpener(entry) {
       var wrap = replies[entry.id];
       if (!wrap) {
@@ -163,7 +159,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
           line.appendChild(el("span", "", workingWords(entry)));
           box.appendChild(line);
         }
-        if (replyable(entry)) box.appendChild(replyOpener(entry));
+        if (entry.id) box.appendChild(replyOpener(entry));
         thread.appendChild(box);
       });
       if (focused && focused.isConnected && document.activeElement !== focused) focused.focus();

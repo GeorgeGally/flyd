@@ -2066,12 +2066,21 @@ describe("header and artefact view", () => {
       expect(body.replyTo).toBe("note:1");
       // His own words go back as his note, never as a question the session asked.
       expect(body.questionText).toBeUndefined();
+      // The note he replied under leaves the inbox: his reply and its box stay where they are.
+      vi.mocked(fetch).mockImplementation(async (url) => json(String(url).startsWith("/api/note?") ? { receipt: null } : {}));
+      for (let tick = 0; tick < 4; tick++) {
+        vi.advanceTimersByTime(4000);
+        await settle();
+      }
+      const nested = ask.querySelector<HTMLElement>(".art-chat--nested")!;
+      expect(nested.isConnected).toBe(true);
+      expect([...nested.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["and make it quieter"]);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("offers a reply only where one can still reach the session: not under a decision or a note gone from the inbox", async () => {
+  it("offers a reply under every sent message, its own words or an answer, whether or not the note is still in the inbox", async () => {
     localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "Evergreen luxe", id: "decision:visuals" }, { text: "A mix of the two", id: "note:1" }, { text: "Gone from the inbox", id: "note:2", done: true }, { text: "Answered", id: "note:3", done: true, answer: "Done, sir." }]));
     load("");
     await settle();
@@ -2080,7 +2089,7 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
     document.getElementById("flip")!.click();
     const entries = [...document.querySelectorAll(".scene-ask .art-entry")];
-    expect(entries.map((entry) => Boolean(entry.querySelector(".art-reply")))).toEqual([false, true, false, true]);
+    expect(entries.map((entry) => Boolean(entry.querySelector(".art-reply")))).toEqual([true, true, true, true]);
   });
 
   it("keeps a card's message out of its thread and back in the box when it does not go", async () => {    load("");
