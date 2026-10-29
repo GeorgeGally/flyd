@@ -50,20 +50,22 @@ describe("QMD Flyd collections", () => {
   });
 
   it("repairs Flyd-owned collection paths before a strict refresh", async () => {
-    vi.stubEnv("FLYD_DIR", "/shared/flyd");
+    const root = mkdtempSync(join(tmpdir(), "qmd-collection-"));
+    vi.stubEnv("FLYD_DIR", root);
     const { updateRawStrict } = await import("../qmd.js");
 
     await updateRawStrict();
 
     expect(mocks.addCollection).toHaveBeenCalledWith(
       "flyd-raw",
-      { path: "/shared/flyd/raw", pattern: "**/*.md" },
+      { path: join(root, "raw"), pattern: "**/*.md" },
     );
     expect(mocks.addCollection).toHaveBeenCalledWith(
       "flyd-wiki",
-      { path: "/shared/flyd/wiki", pattern: "**/*.md" },
+      { path: join(root, "wiki"), pattern: "**/*.md" },
     );
     expect(mocks.update).toHaveBeenCalledWith({ collections: [ "flyd-raw" ] });
+    rmSync(root, { recursive: true, force: true });
   });
   it("records partial embedding failures and clears them after a successful retry", async () => {
     const root = mkdtempSync(join(tmpdir(), "qmd-failure-"));

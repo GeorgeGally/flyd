@@ -1,10 +1,11 @@
 import { createStore } from "@tobilu/qmd";
 import { RAW_DIR } from "../../lib/config.js";
 import { qmdDbPath, closeStore } from "../../lib/qmd.js";
-import { retrieveBrainEvidence, retrieveLiveBrainEvidence, searchLiveWiki } from "../../lib/brain-retrieval.js";
+import { retrieveBrainEvidence, retrieveLiveLexicalBrainEvidence, searchLiveWiki } from "../../lib/brain-retrieval.js";
 import { searchGraph } from "../../lib/graph.js";
 import { buildRawEntries, QMD_RAW_COLLECTION } from "../../lib/retrieval.js";
 import { loadRecallCases } from "./schema.js";
+import { shouldEscalateRecall, combineRecallMatches, rerankTemporalRecall } from "../../lib/recall-escalation.js";
 import { scoreRecall, type RecallScoreRow } from "./score.js";
 
 async function main() {
@@ -16,7 +17,7 @@ async function main() {
   try {
     for (const item of cases) {
       const start = performance.now();
-      const lexical = await retrieveLiveBrainEvidence(item.query);
+      const lexical = await retrieveLiveLexicalBrainEvidence(item.query);
       const lexMs = Math.round(performance.now() - start);
       const hybridStart = performance.now();
       const hybrid = await retrieveBrainEvidence(item.query, {
@@ -30,10 +31,11 @@ async function main() {
       });
       const hybridMs = Math.round(performance.now() - hybridStart);
       const base = { id: item.id, split: item.split, answers: item.answers.map((a) => a.path), stale: item.stale, noAnswer: item.category === "no-answer" };
-      rows.lexical!.push({ ...base, paths: lexical.matches.map((match) => match.content.path), ms: lexMs });
-      rows.hybrid!.push({ ...base, paths: hybrid.matches.map((match) => match.content.path), ms: hybridMs });
-      const escalate = lexical.sufficiency.verdict === "insufficient";
-      rows.targeted!.push({ ...base, paths: (escalate ? hybrid : lexical).matches.map((match) => match.content.path), ms: lexMs + (escalate ? hybridMs : 0) });
+      rows.lexical!.push({ ...base, paths: lexical.matches.map((match) => match.content.path), currentPaths: lexical.matches.filter((match) => match.content.isCurrent).map((match) => match.content.path), ms: lexMs });
+      rows.hybrid!.push({ ...base, paths: hybrid.matches.map((match) => match.content.path), currentPaths: hybrid.matches.filter((match) => match.content.isCurrent).map((match) => match.content.path), ms: hybridMs });
+      const escalate = shouldEscalateRecall(item.query, lexical.matches[0]?.content.excerpt ?? "");
+      const matches = escalate && hybrid.matches.length ? combineRecallMatches(hybrid.matches, lexical.matches) : lexical.matches;
+      rows.targeted!.push({ ...base, paths: rerankTemporalRecall(item.query, matches).map((match) => match.content.path), currentPaths: matches.filter((match) => match.content.isCurrent).map((match) => match.content.path), ms: lexMs + (escalate ? hybridMs : 0) });
       process.stderr.write(`completed ${item.id}\n`);
     }
   } finally { await store.close(); await closeStore(); }

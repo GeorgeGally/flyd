@@ -31,3 +31,15 @@ it("records the metadata for a real conversation turn", async () => {
   expect(raw).not.toContain("private turn example");
   expect(JSON.parse(raw)).toMatchObject({ route: "answer", tokens: { system: expect.any(Number), prompt: expect.any(Number), tools: expect.any(Number) }, retrieval: { durationMs: expect.any(Number) } });
 });
+
+it("records the direct account route without persisting the user's text", async () => {
+  const { respondToConversation } = await import("../conversation-responder.js");
+  const root = join(process.env.FLYD_DIR!, "context-traces");
+  const before = new Set(readdirSync(root));
+  await respondToConversation({ surface: "mobile", mobileAccounts: false, message: "search my email for a private subject", history: [], memory: { verdict: "insufficient", matches: [] }, situation: null, onToken: () => undefined });
+  const created = readdirSync(root).filter((name) => !before.has(name));
+  expect(created).toHaveLength(1);
+  const raw = readFileSync(join(root, created[0]!), "utf8");
+  expect(raw).not.toContain("private subject");
+  expect(JSON.parse(raw)).toMatchObject({ route: "account", retrieval: { route: "none", matches: 0 } });
+});

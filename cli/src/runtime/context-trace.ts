@@ -9,7 +9,8 @@ const estimate = (text: string): number => Math.ceil(text.length / 4);
 export function writeContextTrace(input: {
   root?: string;
   limit?: number;
-  route: "answer" | "delegate" | "act" | "clarify" | "unplanned";
+  route: "answer" | "delegate" | "act" | "clarify" | "unplanned" | "account";
+  message?: string;
   system: string;
   prompt: string;
   profile: string;
@@ -17,17 +18,19 @@ export function writeContextTrace(input: {
   history: string;
   tools: string;
   memoryMs: number;
+  turnMs?: number;
   matches: number;
+  retrievalRoute?: "lexical" | "hybrid" | "hybrid_failed" | "none";
 }): void {
   const root = input.root ?? join(FLYD_DIR, "context-traces");
   const limit = input.limit ?? 512;
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const name = `${Date.now().toString().padStart(13, "0")}-${randomUUID()}.json`;
   const record = {
-    version: 1, at: new Date().toISOString(), route: input.route,
+    version: 1, at: new Date().toISOString(), route: input.route, ...(input.turnMs === undefined ? {} : { turnMs: input.turnMs }),
     tokenMethod: "characters/4 estimate",
-    tokens: { system: estimate(input.system), prompt: estimate(input.prompt), profile: estimate(input.profile), recalled: estimate(input.recalled), history: estimate(input.history), tools: estimate(input.tools) },
-    retrieval: { route: "resilient-lexical-and-world-model", durationMs: input.memoryMs, matches: input.matches },
+    tokens: { message: estimate(input.message ?? ""), system: estimate(input.system), prompt: estimate(input.prompt), profile: estimate(input.profile), recalled: estimate(input.recalled), history: estimate(input.history), tools: estimate(input.tools) },
+    retrieval: { route: input.retrievalRoute ?? "unknown", durationMs: input.memoryMs, matches: input.matches },
   };
   writeFileSync(join(root, name), JSON.stringify(record), { mode: 0o600, flag: "wx" });
   const files = readdirSync(root).filter((file) => /^\d{13}-[\da-f-]{36}\.json$/.test(file)).sort();

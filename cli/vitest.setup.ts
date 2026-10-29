@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,6 +6,12 @@ import { join } from "node:path";
 // read or written by tests. Point every personal store at a throwaway dir;
 // tests that need one set their own path explicitly.
 const sandbox = mkdtempSync(join(tmpdir(), "flyd-test-home-"));
+// QMD opens the cache directly; never allow a test to reach the live index.
+process.env.XDG_CACHE_HOME = join(sandbox, "cache");
+process.env.XDG_CONFIG_HOME = join(sandbox, "config");
+// Tests opt in only when they provide a local hybrid stub.
+process.env.FLYD_QMD_HYBRID = "0";
+mkdirSync(join(process.env.XDG_CACHE_HOME, "qmd"), { recursive: true });
 // Everything that resolves ~/.flyd itself (intelligence.sqlite, present and
 // projection stores, directives) follows FLYD_DIR. It is forced, not defaulted:
 // an inherited FLYD_DIR from a running Core must not point tests at live data.

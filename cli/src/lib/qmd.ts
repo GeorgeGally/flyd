@@ -152,6 +152,12 @@ export async function search(
   }
 }
 
+/** Local QMD hybrid only: errors propagate, with no hosted query-expansion fallback. */
+export async function searchLocalHybrid(query: string, collection: string, limit = 20): Promise<Array<{ path: string; score: number }>> {
+  const store = await getStore();
+  return normalizeResults(await store.search({ query, collection, limit, rerank: true }), collection + "/");
+}
+
 export async function searchLexical(
   query: string,
   collection: string,

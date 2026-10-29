@@ -3,6 +3,7 @@ export interface RecallScoreRow {
   stale: string[];
   paths: string[];
   noAnswer: boolean;
+  currentPaths?: string[];
 }
 
 export function scoreRecall(rows: RecallScoreRow[]) {
@@ -14,6 +15,7 @@ export function scoreRecall(rows: RecallScoreRow[]) {
     top5: positive.filter((row) => row.paths.slice(0, 5).some((path) => row.answers.includes(path))).length,
     misses: positive.filter((row) => !row.paths.slice(0, 5).some((path) => row.answers.includes(path))).length,
     staleTop1: positive.filter((row) => row.stale.includes(row.paths[0] ?? "")).length,
+    staleMarkedCurrent: positive.filter((row) => row.paths.slice(0, 5).some((path) => row.stale.includes(path) && row.currentPaths?.includes(path))).length,
     negativeCases: negative.length,
     negativeWithResults: negative.filter((row) => row.paths.length > 0).length,
   };

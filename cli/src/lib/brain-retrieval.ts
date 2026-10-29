@@ -4,7 +4,8 @@ import { RAW_DIR, WIKI_DIR } from "./config.js";
 import { getInterestKeywords } from "./interests.js";
 import { searchGraph as defaultSearchGraph } from "./graph.js";
 import { scoreEvidence, corroborate, countContradictions, estimateSufficiency, type ScoredEvidence, type SufficiencyAssessment, type ConfidenceProfile } from "./librarian.js";
-import { search, searchLexical } from "./qmd.js";
+import { search, searchLexical, searchLocalHybrid } from "./qmd.js";
+import { combineRecallMatches, rerankTemporalRecall, shouldEscalateRecall } from "./recall-escalation.js";
 import {
   augmentWithGraph,
   buildRawEntries,
@@ -63,6 +64,7 @@ export interface BrainRetrievalResult {
   matches: MemoryMatch[];
   intent?: RecallIntent;
   presentModel?: PresentModel | null;
+  retrievalRoute?: "lexical" | "hybrid" | "hybrid_failed";
 }
 
 export interface RankedBrainRetrieval {
@@ -255,9 +257,27 @@ export async function retrieveResilientLexicalBrainEvidence(query: string, proje
   return retrieveBrainEvidence(query, resilientLexicalDefaults, projectRoot);
 }
 
-/** Per-turn recall for conversation: resilient lexical search over raw captures and the live wiki only. */
-export async function retrieveLiveBrainEvidence(query: string, projectRoot?: string): Promise<BrainRetrievalResult> {
+/** Baseline per-turn lexical search over raw captures and the live wiki. */
+export async function retrieveLiveLexicalBrainEvidence(query: string, projectRoot?: string): Promise<BrainRetrievalResult> {
   return retrieveBrainEvidence(query, liveRecallDefaults, projectRoot);
+}
+
+/** Escalate weak explicit recall locally; keep the lexical evidence if hybrid fails. */
+export async function retrieveLiveBrainEvidence(query: string, projectRoot?: string): Promise<BrainRetrievalResult> {
+  const lexical = await retrieveLiveLexicalBrainEvidence(query, projectRoot);
+  let result = lexical;
+  let retrievalRoute: NonNullable<BrainRetrievalResult["retrievalRoute"]> = "lexical";
+  if (process.env.FLYD_QMD_HYBRID !== "0" && shouldEscalateRecall(query, lexical.matches[0]?.content.excerpt ?? "")) {
+    try {
+      const hybrid = await retrieveBrainEvidence(query, {
+        ...liveRecallDefaults,
+        searchRaw: async (q, keywords) => buildRawEntries(await searchLocalHybrid(q, QMD_RAW_COLLECTION), keywords),
+      }, projectRoot);
+      if (hybrid.matches.length) result = { ...hybrid, matches: combineRecallMatches(hybrid.matches, lexical.matches) };
+      retrievalRoute = "hybrid";
+    } catch { retrievalRoute = "hybrid_failed"; }
+  }
+  return { ...result, matches: rerankTemporalRecall(query, result.matches), retrievalRoute };
 }
 
 export async function retrieveRankedLexicalBrainEvidence(query: string, projectRoot?: string): Promise<RankedBrainRetrieval> {

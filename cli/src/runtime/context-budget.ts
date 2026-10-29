@@ -11,6 +11,8 @@ const LIMITS: Record<ContextRoute, { profile: number; memory: number }> = {
 const PROTECTED = new Set(["constraints", "how to be with me", "instructions", "safety", "preferences"]);
 const INSTRUCTION = /\b(?:always|never|must|do not|don't|should|please|avoid|prefer|ask before|only|without (?:asking|approval)|wants? (?:flyd|you) to)\b|^\s*[-*]?\s*(?:use|write|speak|tell|keep|avoid|ask|show|give|be|respond|answer|treat|preserve|ensure|include|exclude|follow|respect)\b/i;
 
+export function isProfileInstruction(text: string): boolean { return INSTRUCTION.test(text); }
+
 interface Line { section: string; text: string; mandatory: boolean; score: number }
 
 function lines(text: string, keywords: string[], profile: boolean): Line[] {
@@ -30,22 +32,29 @@ function lines(text: string, keywords: string[], profile: boolean): Line[] {
   return out;
 }
 
-function selectedLines(items: Line[], cap: number): string {
+function identity(text: string): string {
+  return text.replace(/^[-*]\s*/, "").replace(/^\[[^\]]+\]\s*/, "").replace(/\s*\(\d{4}-\d{2}-\d{2}\)\s*$/, "").replace(/\s+/g, " ").toLowerCase().trim();
+}
+
+function selectedLines(items: Line[], cap: number, seen: Set<string>): string {
   const chosen = items.filter((item) => item.mandatory);
-  const seen = new Set(chosen.map((item) => item.text.toLowerCase()));
+  for (const item of chosen) seen.add(identity(item.text));
   let length = chosen.reduce((sum, item) => sum + item.text.length + item.section.length + 4, 0);
   for (const item of items.filter((item) => !item.mandatory && item.score > 0).sort((a, b) => b.score - a.score)) {
-    if (seen.has(item.text.toLowerCase()) || length + item.text.length > cap) continue;
-    chosen.push(item); seen.add(item.text.toLowerCase()); length += item.text.length + item.section.length + 4;
+    const key = identity(item.text);
+    if (seen.has(key) || length + item.text.length > cap) continue;
+    chosen.push(item); seen.add(key); length += item.text.length + item.section.length + 4;
   }
   return chosen.map((item) => `[${item.section}] ${item.text}`).join("\n");
 }
 
 export function budgetPersonalContext(input: { profile: string; memory: string; query: string; route: ContextRoute }): string {
   const keywords = extractKeywords(input.query);
+  if (/\b(?:vent(?:ing)?|long day|tired|exhausted|overwhelmed)\b/i.test(input.query)) keywords.push("tired", "exhaust", "stress", "rough", "burnout");
   const limits = LIMITS[input.route];
-  const profile = selectedLines(lines(input.profile, keywords, true), limits.profile);
-  const memory = selectedLines(lines(input.memory, keywords, false), limits.memory);
+  const seen = new Set<string>();
+  const profile = selectedLines(lines(input.profile, keywords, true), limits.profile, seen);
+  const memory = selectedLines(lines(input.memory, keywords, false), limits.memory, seen);
   return [profile ? `## George's profile (USER.md; explicit instructions take priority)\n${profile}` : "", memory ? `## Flyd memory (curated, possibly stale)\n${memory}` : ""].filter(Boolean).join("\n\n");
 }
 

@@ -69,6 +69,7 @@ export interface UnifiedMemoryResult {
   gaps: string[];
   relations: WorldRelation[];
   systemOne?: { model?: string; predicates: Record<string, number>; latencyMs: number; error?: string };
+  retrievalRoute?: "lexical" | "hybrid" | "hybrid_failed";
 }
 
 export interface CompiledContext {

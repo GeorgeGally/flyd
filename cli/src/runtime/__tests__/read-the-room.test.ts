@@ -92,3 +92,16 @@ describe("reading the room", () => {
     expect(`${system}\n${prompt}`).not.toContain("Webby");
   });
 });
+
+it("does not cut explicit constraints when profile context is large", () => {
+  const constraint = "Never share this private information without asking.";
+  const { core } = buildRoomContext({ profile: `## About me\n- ${"Long identity. ".repeat(400)}\n## Constraints\n- ${constraint}`, memory: [], retrieved: [] });
+  expect(core).toContain(constraint);
+});
+
+
+it("retains identity even when protected instructions exceed the core budget", () => {
+  const { core } = buildRoomContext({ profile: `## About me\n- George is an artist.\n## Constraints\n- ${"Never share. ".repeat(400)}`, memory: [], retrieved: [] });
+  expect(core).toContain("George is an artist.");
+  expect(core).toContain("Never share.");
+});

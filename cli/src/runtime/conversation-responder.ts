@@ -979,14 +979,22 @@ export async function respondToConversation(
   dependencies: ConversationResponderDependencies = {},
 ): Promise<string> {
   input.signal?.throwIfAborted();
+  const traceAccount = (started: number) => {
+    if (dependencies.readOnly) return;
+    try { writeContextTrace({ route: "account", message: input.message, system: "", prompt: "", profile: "", recalled: "", history: "", tools: "", memoryMs: 0, turnMs: Date.now() - started, matches: 0, retrievalRoute: "none" }); } catch { /* Tracing is best effort. */ }
+  };
   if (input.surface === "mobile" && !input.mobileAccounts && isAccountIntent(input.message)) {
+    traceAccount(Date.now());
     const answer = "Your account integrations are not enabled on this Flyd host yet. No account was read or changed.";
     input.onToken(answer); return answer;
   }
   if (!dependencies.readOnly && (input.surface === "mobile" || /\bwhatsapp\b/i.test(input.message)) && isAccountIntent(input.message)) {
-    const answer = await answerAccountIntent(input.message, input.history.map(t => `${t.role}: ${t.content}`).join("\n"));
-    input.signal?.throwIfAborted();
-    input.onToken(answer); return answer;
+    const started = Date.now();
+    try {
+      const answer = await answerAccountIntent(input.message, input.history.map(t => `${t.role}: ${t.content}`).join("\n"));
+      input.signal?.throwIfAborted();
+      input.onToken(answer); return answer;
+    } finally { traceAccount(started); }
   }
   const txSession = input.sessionId ?? randomUUID();
   const txInvocation = randomUUID();
@@ -1281,13 +1289,14 @@ export async function respondToConversation(
       const sent = `${system}\n${prompt}`;
       const section = (tag: string) => sent.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1] ?? "";
       writeContextTrace({
-        route: plan?.route ?? "unplanned", system, prompt,
+        route: plan?.route ?? "unplanned", message: input.message, system, prompt,
         profile: section("profile") || (room ? roomContext.core : ""),
         recalled: section("relevant-memory") + section("historical-memory") + section("personal-memory"),
         history: budgetHistory(input.history, compiledContext.interpretation.needsDeepMemory || /\b(?:recall|remember|what have i said)\b/i.test(input.message) ? "recall" : projectTurn ? "work" : "companion").map((turn) => turn.content).join("\n"),
         tools: JSON.stringify(selectedTools),
         memoryMs: compiledContext.trace.timings.memory ?? 0,
         matches: compiledContext.memory.relevant.length,
+        retrievalRoute: compiledContext.memory.retrievalRoute,
       });
     } catch { /* Tracing must not interrupt a conversation. */ }
   }
