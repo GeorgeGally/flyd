@@ -2071,8 +2071,8 @@ describe("header and artefact view", () => {
     }
   });
 
-  it("offers no reply under an answer to a decision, which no session can take a reply to", async () => {
-    localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "Evergreen luxe", id: "decision:visuals" }, { text: "A mix of the two", id: "note:1" }]));
+  it("offers a reply only where one can still reach the session: not under a decision or a note gone from the inbox", async () => {
+    localStorage.setItem("flyd-decision:visuals", JSON.stringify([{ text: "Evergreen luxe", id: "decision:visuals" }, { text: "A mix of the two", id: "note:1" }, { text: "Gone from the inbox", id: "note:2", done: true }, { text: "Answered", id: "note:3", done: true, answer: "Done, sir." }]));
     load("");
     await settle();
     const stream = open("latest", []);
@@ -2080,7 +2080,7 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
     document.getElementById("flip")!.click();
     const entries = [...document.querySelectorAll(".scene-ask .art-entry")];
-    expect(entries.map((entry) => Boolean(entry.querySelector(".art-reply")))).toEqual([false, true]);
+    expect(entries.map((entry) => Boolean(entry.querySelector(".art-reply")))).toEqual([false, true, false, true]);
   });
 
   it("keeps a card's message out of its thread and back in the box when it does not go", async () => {    load("");
