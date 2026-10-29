@@ -51,12 +51,36 @@ it("states each room profile instruction once when the budgeted profile is prese
   const { buildRoomContext } = await import("../room-context.js");
   const { compileContext } = await import("../../cognition/context-compiler.js");
   const context = await compileContext({ intent: "hello", jev: { apiKey: "" } });
-  const profile = "# George\n## Safety\n- Never share passwords\n## Instructions\n- Keep replies short\n## People\n- Always ask before calling Sam\n- Sam is my brother";
+  const profile = "# George\n## Safety\n- Never share passwords\n## Instructions\n- Keep replies short\n## People\n- Always ask before calling Theo\n- Theo is my brother";
   context.user.personal = { profile, memory: "", projection: "" };
   const room = buildRoomContext({ profile, memory: [], retrieved: [] });
-  const result = buildConversationPrompt({ message: "hello", history: [], memory: { verdict: "insufficient", matches: [] }, situation: null }, context, { projectTurn: false, room: { core: room.core, facts: room.facts, brief: "" } });
+  const result = buildConversationPrompt({ message: "how is Theo doing", history: [], memory: { verdict: "insufficient", matches: [] }, situation: null }, context, { projectTurn: false, room: { core: room.core, facts: room.facts, brief: "" } });
   expect(result.system.match(/Never share passwords/g)).toHaveLength(1);
   expect(result.system.match(/Keep replies short/g)).toHaveLength(1);
-  expect(result.system.match(/Always ask before calling Sam/g)).toHaveLength(1);
-  expect(result.system).toContain("Sam is my brother");
+  expect(result.system.match(/Always ask before calling Theo/g)).toHaveLength(1);
+  expect(result.system.match(/Theo is my brother/g)).toHaveLength(1);
+});
+
+it("keeps imperatives to Flyd and protected sections mandatory, but budgets life facts", async () => {
+  const { isProfileInstruction } = await import("../context-budget.js");
+  expect(isProfileInstruction("- Never call me Georgie")).toBe(true);
+  expect(isProfileInstruction("- Only child, grew up in Durban")).toBe(false);
+  expect(isProfileInstruction("- Never owned a car")).toBe(false);
+  const profile = ["# George", "## About me", "- George", "- Artist", "- Only child, grew up in Durban", "- Never owned a car", "- Never call me Georgie", "## Safety", "- My address stays private"].join("\n");
+  const selected = budgetPersonalContext({ profile, memory: "", query: "hello", route: "companion" });
+  expect(selected).toContain("Never call me Georgie");
+  expect(selected).toContain("My address stays private");
+  expect(selected).not.toContain("Durban");
+  expect(selected).not.toContain("owned a car");
+  const relevant = budgetPersonalContext({ profile, memory: "", query: "where did I grow up in Durban", route: "companion" });
+  expect(relevant).toContain("Only child, grew up in Durban");
+});
+
+it("gives explicit recall questions the recall budget but not save requests", async () => {
+  const { buildConversationPrompt } = await import("../conversation-responder.js");
+  const route = (message: string) => buildConversationPrompt({ message, history: [], memory: { verdict: "insufficient", matches: [] }, situation: null }, undefined, { projectTurn: false }).route;
+  expect(route("remember to buy milk")).toBe("companion");
+  expect(route("remember this: I prefer aisle seats")).toBe("companion");
+  expect(route("do you remember what I said about Sam?")).toBe("recall");
+  expect(route("what have I said about the kitchen tiles?")).toBe("recall");
 });

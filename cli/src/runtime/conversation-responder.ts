@@ -16,6 +16,7 @@ import type { FetchLike } from "../evidence/adapters/common.js";
 import { JinaSearchAdapter } from "../evidence/adapters/web-jina.js";
 import { agentLoop, agentLoopWithFailover, PROMPT_CACHE_BREAK, type AgentTool, type ToolHandler } from "../lib/llm.js";
 import { readSoul } from "../lib/soul.js";
+import { isExplicitRecall } from "../lib/recall-escalation.js";
 import { presenceBrief, presenceEnabled, presenceInstructions, understandTurn, type TurnUnderstanding } from "./conversation-presence.js";
 import { decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-policy.js";
 import { roomBrief, type RoomInput } from "./read-the-room.js";
@@ -196,7 +197,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     : "";
   // Repo state rides in memory as "current signals"; it is noise on a personal turn.
   const repoSignal = /^project:[^ ]+ · (?:branch|dirty|latest_commit|head|changed_files):/;
-  const route: ContextRoute = compiledContext?.interpretation.needsDeepMemory || /\b(?:recall|remember|what have i said)\b/i.test(input.message) ? "recall" : projectTurn ? "work" : "companion";
+  const route: ContextRoute = compiledContext?.interpretation.needsDeepMemory || isExplicitRecall(input.message) ? "recall" : projectTurn ? "work" : "companion";
   const memoryCap = route === "recall" ? 12_000 : 6_000;
   let memorySize = 0;
   const seenMemory = new Set<string>();
@@ -230,7 +231,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       : "";
   const weather = input.weather ? `\nCurrent conditions: ${input.weather}` : "";
   const personal = compiledContext?.user.personal;
-  const roomCore = personal && options.room ? options.room.facts.split("\n").filter((line) => !/^(?:About me|Preferences|How to be with me|Constraints):/.test(line)).join("\n") : options.room?.core;
+  const roomCore = personal && options.room ? options.room.facts.split("\n").filter((line) => !/^(?:About me|People):/.test(line)).join("\n") : options.room?.core;
   const profileOverride = personal ? budgetPersonalContext({ profile: personal.profile, memory: personal.memory, query: input.message, route }) : undefined;
   const shownMemory = new Set(usableMemory.map((item) => item.excerpt.replace(/\s+/g, " ").trim().toLowerCase()).filter(Boolean));
   const contextForPrompt = compiledContext && !repositoryQuestion && (!options.room || projectTurn) ? { ...compiledContext, memory: { ...compiledContext.memory, relevant: compiledContext.memory.relevant.filter((item) => !shownMemory.has(item.content.replace(/\s+/g, " ").trim().toLowerCase())) } } : compiledContext;

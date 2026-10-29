@@ -2,9 +2,11 @@ import { extractKeywords } from "./retrieval.js";
 
 const EXPLICIT_RECALL = /\b(?:recall|(?:do|can) you remember|remember (?:when|what|where|why|how|whether|if)|what (?:did|have|had) (?:i|we)|when did (?:i|we)|what (?:was|were) (?:i|we))\b/i;
 
+export function isExplicitRecall(query: string): boolean { return EXPLICIT_RECALL.test(query); }
+
 /** This rule was evaluated on labelled cases where lexical top results had weak term overlap. */
 export function shouldEscalateRecall(query: string, topExcerpt: string): boolean {
-  if (!EXPLICIT_RECALL.test(query)) return false;
+  if (!isExplicitRecall(query)) return false;
   const keywords = extractKeywords(query);
   if (keywords.length < 3) return false;
   const text = topExcerpt.toLowerCase();

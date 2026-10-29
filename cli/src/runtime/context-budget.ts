@@ -9,7 +9,7 @@ const LIMITS: Record<ContextRoute, { profile: number; memory: number }> = {
 
 // These sections are explicit instructions and must never be shortened.
 const PROTECTED = new Set(["constraints", "how to be with me", "instructions", "safety", "preferences"]);
-const INSTRUCTION = /\b(?:always|never|must|do not|don't|should|please|avoid|prefer|ask before|only|without (?:asking|approval)|wants? (?:flyd|you) to)\b|^\s*[-*]?\s*(?:use|write|speak|tell|keep|avoid|ask|show|give|be|respond|answer|treat|preserve|ensure|include|exclude|follow|respect)\b/i;
+const INSTRUCTION = /^\s*[-*]?\s*(?:always|never|must|stop|avoid|do not|don['’]t|use|keep|give|be)\s+(?!(?:\w+ed|been|had|was|were|did|seen|gone|done|got|went|knew|met|grew|lived)\b)\w/i;
 
 export function isProfileInstruction(text: string): boolean { return INSTRUCTION.test(text); }
 
