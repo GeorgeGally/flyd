@@ -243,7 +243,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .art-chat-receipt.sent { color: var(--fg); }
 .art-chat-receipt.sent::before { content: "✓ "; color: var(--accent); }
 .art-chat-receipt:empty { display: none; }
-.art-chat-receipt.problem { color: var(--k-waiting); }
+.art-chat-receipt.problem { position: static; color: var(--k-waiting); }
 .art-chat--receipt .art-chat-field { display: none; }
 /* His messages to one card and what came back, in order: the card's own thread.
    Quiet type, no bubbles, and the newest thing he sent stays under his words. */
