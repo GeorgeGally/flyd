@@ -1,6 +1,6 @@
 # Flyd Chief of Staff — Orchestration Plan v6
 
-Status: Proposed. No implementation claimed. Revised the same day after review (see "Revision notes").
+Status: Superseded by `2026-10-30-flyd-chief-of-staff-split-plan.md` (Phases A–C live on there as Phases 1 and 6). No implementation claimed.
 Date: 2026-10-30
 Supersedes: `2026-10-30-chief-of-staff-orchestration-v5.md` as the build plan. v5's end state still stands as the direction (see "End state").
 Authority: `docs/product/flyd-personal-intelligence-prd.md` wins where this plan conflicts with it.
