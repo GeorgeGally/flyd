@@ -2,7 +2,7 @@
 
 Status: Proposed. No implementation claimed.
 Date: 2026-10-30
-Supersedes: `2026-10-30-chief-of-staff-orchestration-v6.md` (its Phases A–C are absorbed below as Phases 1 and 6) and `-v5.md`.
+Supersedes: `2026-10-30-chief-of-staff-orchestration-v6.md` (its Phases A–C are absorbed below as Phases 2 and 6) and `-v5.md`.
 Authority: `docs/product/flyd-personal-intelligence-prd.md` wins on conflict. Amends `docs/product/flyd-command-architecture-prd.md` §1, §6 and §12 (see Phase 5).
 
 ## Goal
@@ -13,6 +13,8 @@ Give Flyd a Chief of Staff that runs all delegated work, so Flyd can be an atten
 - **The Chief of Staff (CoS)** owns everything after the handoff: choosing the team, writing the brief, dispatching, chasing, reviewing and sending work back, applying George's corrections, chaining steps, deciding when work is done, and handing Flyd one report per piece of work.
 
 One voice still holds: George only ever talks to Flyd. The CoS never speaks to him directly.
+
+**Delivery comes first.** George's main complaint today is how finished work reaches him: too many words, unclear, and prose where a picture, a decision card or a document would do. Delivery is Phase 1. It ships on today's work, before any CoS plumbing, and is held to the Delivery standard below.
 
 ## Where things stand today (verified against `main` at bd2f4f4)
 
@@ -29,6 +31,7 @@ Flyd *is* the chief of staff today, in identity and in code.
 | Review of finished work | Backstage already: `commandTick` → `notifyRun` → executive decision step (a one-shot `quickQuery` "You are Flyd, George's chief of staff…"). Skipped entirely for `view`, `flyd` and `self-improvement` runs. | `command/scheduler.ts`; `intelligence/executive/firstmate-decision.ts` L114–131 |
 | Telling George | Three separate composers, none of them Flyd's conversation runtime: the notice line from the decision step; `AnswerInterpreter` in the conversation window; and Flyd's chat model, only when George asks and Flyd calls `domain_work`. Finished domain runs never reach the morning brief. | `command/scheduler.ts` L74–111; `conversation-view/interpret.ts`; `runtime/session-briefing.ts` |
 | Interruption budget, quiet hours, kill switch | Built in `ExecutiveCycle`, but **never instantiated outside tests**. Nothing in production enforces them. Only the monthly Claude spend cap (`lib/claude-spend.ts`) is live. | `intelligence/executive/executive-cycle.ts` |
+| Shape of delivered work | The window leads with an interpreted prose summary of a staff reply, staff words behind "more" (`conversation-view/server.ts` L380–393). Steps/options can be extracted from reply text (`summaries.ts` `replyArtefact`), and Flyd's own window answers can be reshaped into diagnosis/comparison (`commands/view.ts` L84–87). Nothing chooses a picture, decision card, comparison or document for finished delegated work, and notifications are text lines. | `conversation-view/`, `runtime/agenda.ts` |
 | LIVE and mobile | No delegation tools. | `realtime-session.ts` L187–199; `runtime/mobile-capabilities.ts` |
 
 So the split has two halves. One is moving management *out* of Flyd's turn: team choice, brief writing, correction routing, staff status. The other is moving delivery *into* Flyd: today Flyd doesn't know what was delivered to George or when, which is the opposite of attentive.
@@ -55,7 +58,7 @@ Default. Each line is reversible.
 
 ## Contracts
 
-All CoS state lives under `~/.flyd/command/`, behind the Phase 1 mutation helper. Decisions and reports are events in the SQLite spine. There is no new store engine and no permanent model session.
+All CoS state lives under `~/.flyd/command/`, behind the Phase 2 mutation helper. Decisions and reports are events in the SQLite spine. There is no new store engine and no permanent model session.
 
 ### Objective (new, `~/.flyd/command/objectives/<id>.json`)
 
@@ -93,38 +96,84 @@ interface CosReport {
   detail: string;                // L1: what matters and why
   recommendation?: string; options?: string[];
   evidenceRefs: string[];        // L2: DomainResult, artefacts, screenshots
+  shape: "words" | "picture" | "decision" | "comparison" | "diagnosis" | "steps" | "document" | "landed";
+  artefacts: string[];           // refs to screenshots, lab pages, dossiers, diffs the shape needs
   urgency: "now" | "today" | "whenever";
 }
 ```
 
+Whoever writes the report proposes `shape` from the Delivery standard table (the Phase 1 adapter today, the CoS later). Flyd's delivery re-checks it with the same rules and may only fall back to `words` when an artefact the shape needs is missing.
+
 The `kind` values are SOUL's "What reaches George" list. Anything else stays inside the CoS.
 
-### Flyd delivery (new `runtime/delivery.ts`, owned by Flyd)
+## Delivery standard (Flyd owns it)
 
-Flyd takes each report and decides:
-- **Surface:** an in-window reply under the originating message, a notification, the next conversation turn, or the morning brief.
-- **Timing:** using `ExecutiveCycle`'s attention budget, quiet hours, cooldown and kill switch, wired in for the first time.
-- **Wording:** Flyd's voice and George's context, passed through the existing `chief-of-staff.ts` checks.
+Every delivery has the same shape:
 
-It writes one `flyd.delivered` event per report, so delivery is idempotent across restarts and surfaces. This replaces the three composers in the "Telling George" row above.
+1. **Lead line.** One sentence, at most 120 characters, outcome first: "The pricing comparison is done: Stripe is cheapest at your volume." No preamble, no restating the request, no narrating what the staff did, no staff names, ids, paths or branches. This is the existing `for-george.ts` rule (`LINE_CHARS = 120`) and the chief-of-staff standard, now applied to every delivery.
+2. **At most two more lines**, only when they change what George does next.
+3. **One artefact whenever the result has a shape.** For structured results, words are the fallback, not the default.
+
+Choosing the artefact, deterministic rules first, in this order:
+
+| The result is… | Delivered as | Built from |
+|---|---|---|
+| Visual work: a design lab, a build, a UI change | Picture card: the pick large, alternatives as thumbnails, one line on why | Design Mate lab shots, `reply-shots.ts`, `cards.ts` |
+| A choice only George can make | Decision card: the question, options as buttons, the recommendation marked | decision cards (`choices.ts`; answers via `commands/view.ts` `resolveDecision`) |
+| Alternatives weighed on criteria | Comparison form | `ManifestationPlan` `comparison` (`semantic.ts`, `answer-form.ts`) |
+| A failure, or why something happened | Diagnosis form: expected / observed / cause / evidence / next | `ManifestationPlan` `diagnosis` |
+| Steps, or a list of more than 3 items | Steps/options artefact | `replyArtefact` (`summaries.ts` L225) |
+| A report longer than the lead plus two lines (`MAX_CHARS` = 360) | Document page: summary on top, evidence and sources below | Compose dossier surface (`evidence/compose-surface.ts`) |
+| Code landed | One line plus a link to the change | landed-line rule in `for-george.ts` |
+| Anything that fits in the lead plus two lines | Words only | — |
+
+Only when no rule decides does delivery ask the existing presentation predicates (`reply_artefact_kind`, `answerForm`). Unsure means words.
+
+Per surface:
+
+- **Notification:** the lead line only. Tapping it opens the conversation window on the artefact. A notification never carries the body.
+- **Conversation window:** the lead line under George's original message, with the artefact in place. The full report and the staff's own words stay behind "more".
+- **Next chat turn and morning brief:** the lead line plus a link to the artefact.
+
+Delivery also decides **when**, using `ExecutiveCycle`'s attention budget, quiet hours, cooldown and kill switch, wired in for the first time. `irreversible` and `credential` reports are never deferred. Each report gets exactly one `flyd.delivered` event, so delivery is idempotent across restarts and surfaces, and every delivered report joins Flyd's context for the next turn.
 
 ## Phases
 
-Everything runs behind `FLYD_COS=1` until Phase 5. With the flag off, today's behaviour is untouched. Each phase ends in an exit test. If one cannot be written against the code in a few days, stop and record why.
+Everything after Phase 1 runs behind `FLYD_COS=1` until Phase 5. With the flag off, behaviour is today's plus Phase 1's delivery. Each phase ends in an exit test. If one cannot be written against the code in a few days, stop and record why.
 
 ### Phase 0 — Baseline and the means to compare
 
-**Why first:** the goal is attentiveness, and nothing measures it yet. The chat evals can't swap tools or prompt, and they have no vent or think cases.
+**Why first:** nothing measures delivery or attentiveness yet. The chat evals can't swap tools or prompt, and they have no vent, think-out-loud or delivery cases.
 
 **Work**
 - `evals/chat/run.ts`: add `--tools <profile>` and `--soul <path>` flags that pass through the responder's existing dependency injection (`conversation-responder.ts` L101–121). Profiles: `current` and `split`.
 - Add about 12 companion cases to `cases.json`, all judged: vent (4), think-out-loud (4), decide-personal (2), and "how's my work going?" with seeded objectives (2).
 - Add a judge rubric for attentiveness: does it pick up what George actually meant, use relevant personal context without decorating, and keep machinery out of sight.
-- Record a baseline on the pinned chat model: companion mean judge score, delegate-case pass rate, p50/p95 delegate-turn latency.
+- Delivery cases: about 15 fixtures of finished work, built from real `DomainResult` shapes: a design lab with three versions and a pick, a long research report, code landed, a decision with three options, a failure, a comparison, a seven-item status. Each case asserts the shape the Delivery standard table requires, a lead line of at most 120 characters, visible text no longer than the lead plus two lines, no staff names, and a judged clarity score.
+- **Real examples:** George supplies 5–10 recent deliveries he found poor (screenshots or pasted text). Each becomes a case. They are the real test; the fixtures only cover the rules.
+- Record a baseline on the pinned chat model: delivery pass rate, companion mean judge score, delegate-case pass rate, p50/p95 delegate-turn latency.
 
-**Exit:** a baseline file committed under `docs/evals/` with the three numbers, reproducible with one command.
+**Exit:** a baseline file committed under `docs/evals/` with the four numbers, reproducible with one command.
 
-### Phase 1 — Safe foundations (v6 Phases A and B)
+### Phase 1 — Delivery, on today's work
+
+Ships first: it is George's main complaint, and it doesn't need the CoS.
+
+**Work**
+- `runtime/delivery.ts` with one entry point, `deliver(report)`, used by all three of today's paths: `notifyRun`'s notice (`command/scheduler.ts`), the conversation window's lead for a staff reply (`conversation-view/server.ts` `interpret`, replacing the `AnswerInterpreter` prose), and the next-turn context.
+- An adapter `reportFromRun(run, decision?)` turns a finished `DomainRun`, plus its executive decision when there is one, into a `CosReport`. It picks `shape` from the Delivery standard table using `DomainResult.artifacts`, `specialistOutputs`, lab files and length. It works without a decision, so `view`-sourced runs, which skip executive review today, still get a properly shaped delivery.
+- Renderers for each shape, reusing what exists (cards, decision cards, manifestation forms, `replyArtefact`, Compose dossier). The one gap is the picture card for a finished lab or build, which needs a layout that shows the pick large with alternatives as thumbnails.
+- Notifications carry the lead line only and open the window on the artefact.
+- Wire `ExecutiveCycle` (budget 3 a day, 45-minute cooldown, quiet hours, kill switch); `irreversible` and `credential` are never deferred. Undelivered `whenever` reports go into the morning brief.
+- One `flyd.delivered` event per report; delivered reports join Flyd's next-turn context.
+
+**Exit**
+- Delivery cases pass at 90% or better, every real-example case passes, and judged clarity averages 8 or higher.
+- One report produces exactly one delivery across window, notification and brief, including after a restart between report and delivery.
+- A `whenever` report raised during quiet hours waits; an `irreversible` one does not.
+- The next chat turn can answer "what did it say?" without a tool call.
+
+### Phase 2 — Safe foundations (v6 Phases A and B)
 
 **Work**
 - Restart and duplicate tests through `commandTick` for design, Librarian and `view`-sourced runs (fixtures as in v6 Phase A).
@@ -134,7 +183,7 @@ Everything runs behind `FLYD_COS=1` until Phase 5. With the flag off, today's be
 
 **Exit:** a two-process test (Core scheduler and `flyd view`) loses no update; `grep saveDomainRun` shows only the helper; dispatch replay tests pass for all three teams.
 
-### Phase 2 — CoS intake and dispatch
+### Phase 3 — CoS intake, dispatch and native reports
 
 **Work**
 - New module `cli/src/command/cos/` with `intake.ts`, `dispatch.ts` and `tick.ts`. `cos/tick.ts` is called from the existing `commandTick`, and `hand_off` kicks it immediately rather than waiting up to 15 s.
@@ -142,25 +191,14 @@ Everything runs behind `FLYD_COS=1` until Phase 5. With the flag off, today's be
 - `dispatch.ts`: adapters to the existing entry points, with no behaviour change inside them: `dispatchCodingDomain` (FirstMate) with crew fallback, `dispatchKnowledgeDomain`, `dispatchDesignLab`, and `startBackgroundJob` for the life domain. `refuseLeakedLaunch` (`assistant-tools.ts` L175–180) runs here.
 - An intake that fails or is refused becomes a `blocked` report. It never fails silently.
 - With `FLYD_COS=1`, a `delegate` route shows Flyd only `hand_off`.
+- The CoS writes `cos.report` itself, once per objective, replacing the Phase 1 adapter for objective-backed work. Intermediate runs settle silently; the `view`/`flyd` review bypass ends for objectives.
 
 **Exit**
 - Restart during intake resumes, and exactly one run is dispatched.
 - Each team's delegate eval cases pass under `--tools split`.
 - Brief-quality check: a judge comparing CoS briefs against today's chat-written briefs on the same 10 delegations finds them no worse on a majority.
 - p50 delegate-turn latency is no worse than baseline.
-
-### Phase 3 — Reports and Flyd delivery
-
-**Work**
-- The CoS turns each executive decision (the existing `decideRun` → `processFirstmateChange`) into a `cos.report` instead of a notice. Within an objective, intermediate runs settle silently; the CoS reports once, when the objective is done or needs George. That ends the `view`/`flyd` bypass for objectives.
-- `runtime/delivery.ts` as specified above. Wire `ExecutiveCycle` budgets for real, with the defaults already in the code: 3 interruptions a day, 45-minute cooldown. `irreversible` and `credential` reports are never deferred by budget.
-- The conversation window shows the report under the originating message via the existing desk, replacing the `AnswerInterpreter` pass for objective-backed exchanges. Delivered reports join Flyd's context for the next turn, so it can say "the research came back; here's what matters".
-- Undelivered `whenever` reports go into the morning brief.
-
-**Exit**
-- One report produces exactly one delivery across window, notification and brief, including after a restart between report and delivery.
-- A `whenever` report raised during quiet hours waits; an `irreversible` one does not.
-- The next chat turn after a delivery can answer "what did it say?" without a tool call.
+- Phase 1 delivery cases still pass with CoS-written reports.
 
 ### Phase 4 — Steering and status move to the CoS
 
@@ -202,6 +240,8 @@ If companion quality doesn't improve, ship the split for its correctness gains, 
 
 | Measure | Source | Target |
 |---|---|---|
+| Delivery shape | Delivery and real-example cases | ≥ 90% fixtures, 100% real examples, from Phase 1 |
+| Delivery length | Visible characters before "more" | ≤ lead + 2 lines (360) on every delivery |
 | Companion quality | Phase 0 judged cases | +0.5 mean by Phase 5 |
 | Supervision per objective | George's own messages (`DomainMessage` without `from: "flyd"`) on an objective's runs between handoff and delivery | Trending to 0 |
 | Accepted without rework | Delivered `done` reports with no follow-up fix run | Majority after Phase 6 dogfood |
@@ -211,10 +251,10 @@ If companion quality doesn't improve, ship the split for its correctness gains, 
 
 ## Risks
 
-- **Context loss at handoff.** Today the model that writes the brief has the whole conversation in view; the CoS gets what Flyd hands it. Mitigation: exact words always travel; `flydNotes` and turn refs give intake the conversation; the Phase 2 brief-quality gate checks it.
+- **Context loss at handoff.** Today the model that writes the brief has the whole conversation in view; the CoS gets what Flyd hands it. Mitigation: exact words always travel; `flydNotes` and turn refs give intake the conversation; the Phase 3 brief-quality gate checks it.
 - **A second persona drifting.** The CoS's prompts are backstage and never reach George unfiltered: every report passes through Flyd's delivery and the existing checks.
-- **Naming collision.** `council/chief-of-staff.ts` is the output standard, not this CoS. Rename it to `council/standard.ts` in Phase 2 to keep agents from confusing the two.
-- **Scope.** Six phases is a lot. Each is shippable behind the flag, and Phase 0's numbers can stop the work early if the split doesn't help.
+- **Naming collision.** `council/chief-of-staff.ts` is the output standard, not this CoS. Rename it to `council/standard.ts` in Phase 3 to keep agents from confusing the two.
+- **Scope.** Seven phases is a lot. Phase 1 fixes the main complaint on its own; later phases are shippable behind the flag, and Phase 0's numbers can stop the work early if the split doesn't help.
 
 ## Non-goals
 
@@ -229,6 +269,8 @@ If companion quality doesn't improve, ship the split for its correctness gains, 
 1. **Code edits in chat.** The default moves `edit_file`, `write_file` and mutating `bash` from Flyd to the CoS (coding team), leaving Flyd read-only on code. That makes even a one-line fix a handoff. Keep the default, or let Flyd make small single-file edits itself?
 2. **LIVE tasks.** LIVE `task_plan` creates an `AgentTask` outside the command layer. Leave it (default), or route LIVE work through `hand_off` in a later phase?
 3. **Interruption budget.** Wiring `ExecutiveCycle` means a real cap of 3 interruptions a day, plus quiet hours, for the first time. Are those the numbers, and what are your quiet hours?
+
+4. **Your worst deliveries.** Send 5–10 recent deliveries that annoyed you (screenshots or paste). They become the Phase 0 test cases and decide whether Phase 1 actually fixed it.
 
 ## Corrections to v6
 
