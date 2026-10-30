@@ -20,6 +20,17 @@ import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
 import { projectNamed } from "../council/projects.js";
 import { isArticleSession } from "./article-chat.js";
 
+function isIterationAnswer(answer: string): boolean {
+  return /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(answer);
+}
+
+export function decisionAcknowledgement(question: string, answer: string): string {
+  const clean = answer.replace(/[.!?]+$/, "").trim();
+  if (isIterationAnswer(clean)) return `we're doing ${clean.toLowerCase()}`;
+  if (/^(yes|no|ship|hold|choose|pick|use|go with|do|don't|approve|reject)\b/i.test(clean)) return `we're going with ${clean}`;
+  return `we'll do ${clean}`;
+}
+
 // Flyd is the voice of the conversation window. A question that is not
 // software or fleet work (what to do in Bangkok tonight) is Flyd's to answer,
 // with its own assistant turn, and never reaches firstmate. Each question and
@@ -442,13 +453,25 @@ export class FlydDesk {
     return { id: `ask:${record.id}`, timestamp: record.at, waiting: first };
   }
 
-  recordDecisionAnswer(answer: string, sessionId = "conversation"): SentMessage {
+  recordDecisionAnswer(answer: string, question: string, iteration: boolean, options: string[], sessionId = "conversation"): SentMessage {
     const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
     const at = new Date().toISOString();
     const words = answer.trim();
-    const response = "I've passed your choice to the work it answers.";
-    this.write({ id, sessionId, at, text: words, answer: response, answeredAt: at });
+    const response = `Ok, thanks - ${decisionAcknowledgement(question, words)}.`;
+    const form = iteration ? answerBody({ form: "diagnosis", lead: "What should change for the next round?", parts: [
+      { label: "Which options did you like?", text: options.length ? options.join(" / ") + " / None" : "None" },
+      { label: "What should change?", text: "Bolder / Simpler / Closer to the reference / Something else" },
+    ] }) : undefined;
+    this.write({ id, sessionId, at, text: words, answer: response, ...(form ? { form } : {}), answeredAt: at });
     void Promise.resolve(this.afterTurn?.({ sessionId, user: words, assistant: response, recordInCognition: true })).catch(() => undefined);
+    return { id: `ask:${id}`, timestamp: at };
+  }
+
+  recordDecisionFollowUp(answer: string, sessionId = "conversation"): SentMessage {
+    const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    const at = new Date().toISOString();
+    const words = answer.trim();
+    this.write({ id, sessionId, at, text: words, answer: "Thanks, I'll pass that along too.", answeredAt: at });
     return { id: `ask:${id}`, timestamp: at };
   }
 

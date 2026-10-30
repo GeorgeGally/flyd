@@ -148,20 +148,20 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   }
   const complete: Complete = async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt);
   const inbox = new FirstmateInbox();
-  const resolveDecision = async (decisionId: string, taskId: string, answer: string): Promise<void> => {
+  const resolveDecision = async (decisionId: string, taskId: string, answer: string, question?: string, options?: string[], update = false): Promise<void> => {
     const store = new IntelligenceEventStore({ path: join(FLYD_DIR, "intelligence.sqlite") });
     try {
       const decision = readExecutiveDecision(store, decisionId);
       if (!decision || decision.taskId !== taskId || decision.disposition !== "ask_george") throw new Error("That decision is no longer available");
-      if (decision.resolution) {
+      if (decision.resolution && !update) {
         if (decision.resolution.answer === answer.trim()) return;
         throw new Error("That decision already has George's answer");
       }
       const run = listDomainRuns().find((item) => item.id === taskId && item.transport.kind === "firstmate"
-        && item.request.domain === "coding" && ["queued", "accepted", "working", "needs_decision", "incomplete"].includes(item.status));
+        && item.request.domain === "coding" && (update || ["queued", "accepted", "working", "needs_decision", "incomplete"].includes(item.status)));
       let evidenceRef: string;
       if (run) {
-        const message = `George's answer to: ${decision.question}\n\n${answer.trim()}`;
+        const message = update ? `George's follow-up on his answer to: ${decision.question}\n\n${answer.trim()}` : `George's answer to: ${decision.question}\n\n${answer.trim()}`;
         const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
         if (!sent.delivered) throw new Error("Flyd could not deliver that decision to the active work");
         const receipt = sent.run?.messages?.find((item) => item.kind === "decision" && item.body === message && item.deliveredAt);
@@ -170,20 +170,20 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       } else {
         if (!inbox.available()) throw new Error("There is no connected coding employee to receive that decision");
         // No run of his is open for it: his answer goes as a run of its own, his words as its original message.
-        await inbox.sendOwn(`George's answer to the recorded decision ${decision.question}:\n\n${answer.trim()}`, `flyd-decision-${decisionId}`, {
-          outcome: `Act on George's answer to: ${decision.question}`.slice(0, 200),
+        await inbox.sendOwn(`${update ? "George's follow-up on his answer to" : "George's answer to the recorded decision"} ${decision.question}:\n\n${answer.trim()}`, `flyd-decision-${decisionId}`, {
+          outcome: `${update ? "Update the work from George's follow-up on" : "Act on George's answer to"}: ${decision.question}`.slice(0, 200),
           georgesWords: answer.trim(),
           doneWhen: ["George's answer is carried out on the work it decides", "what was done is replied to this note"],
           contextRefs: [`decision:${decisionId}`, `task:${taskId}`],
         });
         evidenceRef = `firstmate-note:flyd-decision-${decisionId}`;
       }
-      resolveExecutiveDecision(store, decisionId, answer, [evidenceRef]);
+      if (!update) resolveExecutiveDecision(store, decisionId, answer, [evidenceRef]);
     } finally {
       store.close();
     }
   };
-  const flydSource = new FlydConversationSource({ desk: flydDesk(), articlesDir: FLYD_DIR, resolveDecision });
+  const flydSource = new FlydConversationSource({ desk: flydDesk(), articlesDir: FLYD_DIR, resolveDecision: (id, task, answer, question, options) => resolveDecision(id, task, answer, question, options), followUpDecision: (id, task, answer) => resolveDecision(id, task, answer, undefined, undefined, true) });
   let source: ConversationSource = flydSource;
   let wantsInbox = false;
   let transcriptProjectDir: string | undefined;

@@ -290,12 +290,18 @@ export const ARTEFACT_CHAT_SCRIPT = `
       paint();
       var sending = takesImages ? images.slice() : [];
       var body = Object.assign({ text: text, session: current }, target);
+      if (state.followUp || target.decision && state.followUpRequired) {
+        body.decisionFollowUp = state.followUpRequired || target.decision;
+        body.decisionTask = decision && decision.task;
+        delete body.decision;
+      }
       if (sending.length) body.images = sending.map(function (image) { return { mediaType: image.mediaType, data: image.data }; });
       authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, true)
         .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
         .then(function (result) {
           if (!result.ok) throw new Error(result.data.error || "Not delivered; try again.");
           state.receipt = "sent";
+          if (target.decision && result.data.followUp) state.followUpRequired = result.data.followUp;
           entry.id = result.data.id;
           // Only what went is cleared: one pasted while it was on its way stays for the next.
           images = images.filter(function (image) { return sending.indexOf(image) === -1; });
@@ -352,7 +358,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     var about = { title: box.title };
     if (box.task) about.task = box.task;
     if (link) about.url = link.url;
-    var target = !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.decisionId || decision.task };
+    var target = !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.decisionId || decision.task, session: drawnFrom };
     var chat = artefactChat(key, target, decision && (decision.choices.length || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…", decision && decision.question ? key + ":" + decision.question : "");
     // A hold that puts two (or three) decisions to him says each one in its own plain line, with what
     // he can pick and what the work recommends, and what a landed change has already answered.
@@ -371,6 +377,41 @@ export const ARTEFACT_CHAT_SCRIPT = `
         askList.appendChild(item);
       });
       wrap.appendChild(askList);
+    }
+    if (decision && (chat.state.followUpRequired || chat.state.followUp)) {
+      chat.form.hidden = true;
+      wrap.appendChild(el("p", "decision-followup-intro", "What did you like, and what should change for the next round?"));
+      var followTarget = chat.state.followUpRequired || decision.decisionId || decision.task;
+      var liked = el("div", "choices");
+      liked.setAttribute("role", "group");
+      liked.setAttribute("aria-label", "Which options did you like?");
+      var selected = {};
+      (chat.state.followUp && chat.state.followUp.options || decision.choices || []).concat(["None"]).forEach(function (option) {
+        var button = el("button", "choice-pick", option); button.type = "button";
+        button.addEventListener("click", function () { selected[option] = !selected[option]; button.setAttribute("aria-pressed", String(!!selected[option])); });
+        liked.appendChild(button);
+      });
+      var changes = el("div", "choices");
+      changes.setAttribute("role", "group");
+      changes.setAttribute("aria-label", "What should change?");
+      var chosenChange = "";
+      ["Bolder", "Simpler", "Closer to the reference"].forEach(function (option) {
+        var button = el("button", "choice-pick", option); button.type = "button";
+        button.addEventListener("click", function () { chosenChange = option; changes.querySelectorAll("button").forEach(function (candidate) { candidate.setAttribute("aria-pressed", String(candidate === button)); }); });
+        changes.appendChild(button);
+      });
+      var other = el("textarea", "art-chat-input"); other.rows = 1; other.placeholder = "Something else…"; other.setAttribute("aria-label", "What else should change?");
+      var sendFollowUp = el("button", "art-chat-send", "Send"); sendFollowUp.type = "button";
+      sendFollowUp.addEventListener("click", function () {
+        var likedOptions = Object.keys(selected).filter(function (option) { return selected[option]; });
+        var text = "Liked: " + (likedOptions.length ? likedOptions.join(", ") : "None") + "\\nChange: " + (other.value.trim() || chosenChange || "No change specified");
+        chat.state.followUp = true;
+        target.decision = followTarget;
+        target.decisionTask = decision.task;
+        chat.deliver(text, function () { chat.state.followUp = null; chat.save(); });
+      });
+      wrap.appendChild(liked); wrap.appendChild(changes); wrap.appendChild(other); wrap.appendChild(sendFollowUp);
+      return wrap;
     }
     if (decision && decision.steps && decision.steps.length) {
       // Several questions: one at a time, a tap moves on, and the answers go together from the last step.

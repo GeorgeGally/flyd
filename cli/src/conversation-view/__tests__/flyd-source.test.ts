@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlydConversationSource } from "../flyd-source.js";
 import { FlydDesk } from "../flyd-desk.js";
+import { decisionAcknowledgement } from "../flyd-desk.js";
 
 let dir: string | undefined;
 afterEach(() => {
@@ -12,6 +13,26 @@ afterEach(() => {
 });
 
 describe("Flyd's standalone conversation source", () => {
+  it("acknowledges the choice in plain language and offers iteration feedback only when requested", async () => {
+    expect(decisionAcknowledgement("How should the lab proceed?", "another round")).toBe("we're doing another round");
+    expect(decisionAcknowledgement("Which design?", "the second one")).toBe("we'll do the second one");
+
+    dir = mkdtempSync(join(tmpdir(), "flyd-decision-followup-"));
+    const desk = new FlydDesk({ dir, answer: async () => "unused" });
+    const followUpDecision = vi.fn(async () => undefined);
+    const source = new FlydConversationSource({ desk, resolveDecision: async () => undefined, followUpDecision });
+    await source.sendDecision("another round", [], { decisionId: "d-1", taskId: "t-1", question: "Which direction?", options: ["A", "B"] });
+    await source.sendDecision("B", [], { decisionId: "d-2", taskId: "t-2", question: "Which direction?", options: ["A", "B"] });
+    const [iteration, ordinary] = desk.exchanges()!;
+    expect(iteration?.answer?.text).toBe("Ok, thanks - we're doing another round.");
+    expect(iteration?.answer?.form).toMatchObject({ form: "diagnosis", parts: [
+      { label: "Which options did you like?", text: "A / B / None" },
+      { label: "What should change?", text: "Bolder / Simpler / Closer to the reference / Something else" },
+    ] });
+    expect(ordinary?.answer?.form).toBeUndefined();
+    await source.sendDecisionFollowUp("Liked: A\nChange: Bolder", { decisionId: "d-1", taskId: "t-1" });
+    expect(followUpDecision).toHaveBeenCalledWith("d-1", "t-1", "Liked: A\nChange: Bolder");
+  });
   it("gives each window its own conversation and lists the others newest first by their own identity", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-history-"));
     const contexts: Array<{ question: string; history: Array<{ role: string; content: string }> }> = [];
@@ -117,7 +138,7 @@ describe("Flyd's standalone conversation source", () => {
     await source.sendDecision("About the artefact \"Deals page\"", [], undefined, "window:decision-window");
     await vi.waitFor(async () => expect((await source.read("window:decision-window")).messages.at(-1)?.text).toBe("Answer: About the artefact \"Deals page\""));
     expect((await source.read("window:decision-window")).messages.map((message) => message.text)).toEqual([
-      "bring in the missing tools", "I've passed your choice to the work it answers.",
+      "bring in the missing tools", "Ok, thanks - we'll do bring in the missing tools.",
       "About the artefact \"Deals page\"", "Answer: About the artefact \"Deals page\"",
     ]);
     expect((await source.listSessions()).map((session) => session.id)).toEqual(["window:decision-window"]);
@@ -134,11 +155,11 @@ describe("Flyd's standalone conversation source", () => {
     const sent = await source.sendDecision("bring in the missing tools", [], { decisionId: "decision-1", taskId: "run-1" });
     const exchange = source.exchanges()?.[0];
 
-    expect(resolveDecision).toHaveBeenCalledWith("decision-1", "run-1", "bring in the missing tools");
+    expect(resolveDecision).toHaveBeenCalledWith("decision-1", "run-1", "bring in the missing tools", undefined, undefined);
     expect(sent.id).toMatch(/^ask:/);
     expect(exchange).toMatchObject({
       question: { text: "bring in the missing tools" },
-      answer: { text: "I've passed your choice to the work it answers." },
+      answer: { text: "Ok, thanks - we'll do bring in the missing tools." },
     });
   });
 });

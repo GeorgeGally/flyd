@@ -1610,7 +1610,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; replyTo?: unknown; questionText?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; replyTo?: unknown; questionText?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -1645,9 +1645,31 @@ export class ConversationViewServer {
         const sent = await this.source.sendDecision(executive ? answer : withCommandMarker(answer, await this.commandIn(payload.text)), images as ImageUpload[], executive ? {
           decisionId: call.executiveDecisionId!,
           taskId: call.task ?? "",
+          question: call.question ?? call.detail ?? call.label,
+          options: call.choices ?? [],
         } : undefined, typeof payload.session === "string" ? payload.session : undefined);
         if (executive) await this.feed.refresh();
-        sendJson(res, 200, { ...sent, waiting: executive ? "Flyd is carrying your decision into the work" : "Sent to firstmate" });
+        sendJson(res, 200, { ...sent, ...(executive && /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(payload.text) ? { followUp: call.executiveDecisionId } : {}), waiting: executive ? "Flyd is carrying your decision into the work" : "Sent to firstmate" });
+      } catch (error) {
+        sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+    if (payload.decisionFollowUp !== undefined) {
+      const call = this.feed.current().fleet?.calls.find((row) => row.executiveDecisionId === payload.decisionFollowUp || row.task === payload.decisionFollowUp);
+      const decisionId = typeof payload.decisionFollowUp === "string" ? payload.decisionFollowUp : "";
+      const taskId = typeof payload.decisionTask === "string" ? payload.decisionTask : call?.task ?? "";
+      if (!decisionId || !taskId || !this.source.sendDecisionFollowUp) {
+        sendJson(res, 409, { error: "This decision follow-up is no longer available" });
+        return;
+      }
+      if (typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > 4000) {
+        sendJson(res, 400, { error: "Enter an answer of at most 4000 characters" });
+        return;
+      }
+      try {
+        const sent = await this.source.sendDecisionFollowUp(payload.text.trim(), { decisionId, taskId }, typeof payload.session === "string" ? payload.session : undefined);
+        sendJson(res, 200, { ...sent, waiting: "Flyd is carrying your follow-up into the work" });
       } catch (error) {
         sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
       }

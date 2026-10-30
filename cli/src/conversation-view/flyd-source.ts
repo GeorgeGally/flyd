@@ -17,7 +17,8 @@ export class FlydConversationSource implements ConversationSource {
     pollMs?: number;
     /** Where opened article threads are kept. Absent, the history is only what he has said. */
     articlesDir?: string;
-    resolveDecision?: (decisionId: string, taskId: string, answer: string) => Promise<void>;
+    resolveDecision?: (decisionId: string, taskId: string, answer: string, question?: string, options?: string[]) => Promise<void>;
+    followUpDecision?: (decisionId: string, taskId: string, answer: string) => Promise<void>;
   }) {
     this.pollMs = options.pollMs ?? 400;
   }
@@ -82,12 +83,20 @@ export class FlydConversationSource implements ConversationSource {
     return this.options.desk.ask(text, images, sessionId);
   }
 
-  async sendDecision(text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }, sessionId?: string): Promise<SentMessage> {
+  async sendDecisionFollowUp(text: string, decision: { decisionId: string; taskId: string }, sessionId?: string): Promise<SentMessage> {
+    if (!this.options.followUpDecision) throw new Error("Decision follow-up is unavailable");
+    const session = sessionId && this.isConversationSession(sessionId) ? sessionId : (await this.listSessions())[0]?.id ?? FLYD_CONVERSATION_ID;
+    await this.options.followUpDecision(decision.decisionId, decision.taskId, text);
+    return this.options.desk.recordDecisionFollowUp(text, session);
+  }
+
+  async sendDecision(text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string; question?: string; options?: string[] }, sessionId?: string): Promise<SentMessage> {
     const session = sessionId && this.isConversationSession(sessionId) ? sessionId : (await this.listSessions())[0]?.id ?? FLYD_CONVERSATION_ID;
     if (decision && this.options.resolveDecision) {
       if (images.length) throw new Error("Images cannot be attached to a fixed executive decision");
-      await this.options.resolveDecision(decision.decisionId, decision.taskId, text);
-      return this.options.desk.recordDecisionAnswer(text, session);
+      await this.options.resolveDecision(decision.decisionId, decision.taskId, text, decision.question, decision.options);
+      const iteration = /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(text);
+      return this.options.desk.recordDecisionAnswer(text, decision.question ?? "", iteration, decision.options ?? [], session);
     }
     return this.options.desk.ask(text, images, session);
   }
