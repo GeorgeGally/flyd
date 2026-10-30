@@ -9,7 +9,7 @@ import { PostgresTaskStore } from "../task-store.js";
 const connectionString = TEST_DATABASE_URL;
 // No local integration database: skip rather than fail (support/postgres.ts).
 const hasPostgres = await postgresAvailable();
-const pool = new Pool({ connectionString, max: 2 });
+const pool = new Pool({ connectionString, max: 2, options: "-c timezone=UTC" });
 const taskStore = new PostgresTaskStore(pool);
 const decisionStore = new OperationalDecisionStore(pool);
 const projectRoot = `/tmp/flyd-decision-${process.pid}`;

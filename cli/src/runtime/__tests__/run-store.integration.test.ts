@@ -10,7 +10,7 @@ import {
 const connectionString = TEST_DATABASE_URL;
 // No local integration database: skip rather than fail (support/postgres.ts).
 const hasPostgres = await postgresAvailable();
-const pool = new Pool({ connectionString, max: 2 });
+const pool = new Pool({ connectionString, max: 2, options: "-c timezone=UTC" });
 const store = new PostgresRunStore(pool);
 
 const principal = { kind: "user" as const, id: "run-store-eval" };

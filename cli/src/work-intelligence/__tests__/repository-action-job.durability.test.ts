@@ -11,7 +11,7 @@ import { RepositoryActionJobStore } from "../repository-action-job.js";
 const connectionString = TEST_DATABASE_URL;
 // No local integration database: skip rather than fail (support/postgres.ts).
 const hasPostgres = await postgresAvailable();
-const pool = new Pool({ connectionString, max: 2 });
+const pool = new Pool({ connectionString, max: 2, options: "-c timezone=UTC" });
 const runStore = new PostgresRunStore(pool);
 
 function durableStore(): RepositoryActionJobStore<unknown> {

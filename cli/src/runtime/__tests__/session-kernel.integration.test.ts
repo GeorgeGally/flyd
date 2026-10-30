@@ -17,7 +17,7 @@ import {
 const connectionString = TEST_DATABASE_URL;
 // No local integration database: skip rather than fail (support/postgres.ts).
 const hasPostgres = await postgresAvailable();
-const pool = new Pool({ connectionString, max: 2 });
+const pool = new Pool({ connectionString, max: 2, options: "-c timezone=UTC" });
 const pgStore = new PostgresRunStore(pool);
 const principal = { kind: "user" as const, id: "kernel-eval" };
 
@@ -203,7 +203,7 @@ describe.skipIf(!hasPostgres)("SessionKernel[postgres] durability", { timeout: 1
     expect(lastOutput(before).type).toBe("waiting");
 
     // Simulate process death: brand-new store + kernel over the same database.
-    const revivedStore = new PostgresRunStore(new Pool({ connectionString, max: 2 }));
+    const revivedStore = new PostgresRunStore(new Pool({ connectionString, max: 2, options: "-c timezone=UTC" }));
     try {
       const secondKernel = new SessionKernel(pool, revivedStore, {
         handleTurn: async (ctx) => {

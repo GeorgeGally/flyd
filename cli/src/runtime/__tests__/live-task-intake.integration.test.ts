@@ -8,7 +8,7 @@ import type { RepositorySnapshot } from "../types.js";
 const connectionString = TEST_DATABASE_URL;
 // No local integration database: skip rather than fail (support/postgres.ts).
 const hasPostgres = await postgresAvailable();
-const pool = new Pool({ connectionString, max: 2 });
+const pool = new Pool({ connectionString, max: 2, options: "-c timezone=UTC" });
 const store = new PostgresTaskStore(pool);
 const projectRoot = "/work/live-intake-test";
 
