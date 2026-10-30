@@ -45,16 +45,16 @@ So the split has two halves. One is moving management *out* of Flyd's turn: team
 | Hand off bigger work in one call, carrying George's exact words and what Flyd knows | Monitor, chase silent staff, recover failures |
 | Pass George's corrections to the CoS in one call | Apply corrections to the right run; resolve which work George means |
 | Answer "how's X going?" from CoS state | Executive review: accept, send back (existing caps), escalate |
-| Decide **when and how** to tell George: surface, timing, attention budget, quiet hours | Chain steps (dependencies) and decide when an objective is done |
+| Decide **when and how** to tell George: surface, timing and depth, read from what he is focused on | Chain steps (dependencies) and decide when an objective is done |
 | Deliver every report in Flyd's voice, with personal context | Produce **one report per objective**: outcome, decision needed, blocker, or credential request |
 
 ### Boundary: what Flyd still does itself
 
-Default. Each line is reversible.
+Decided with George on 2026-10-30.
 
-- **Flyd keeps:** `web_search`, `read_url`, `recall`, `remember`, `reminders`, `calendar_events`, `schedule`, `todos`, `work_model`, `speaking_style`, `mac`, `flyd` (news, briefing), `consult_specialist` (the coach is a conversation aid, not delegated work), email/Drive/WhatsApp reads and drafts, and read-only code tools (`read_file`, `grep`, `list_files`, `git_log`) for answering questions.
-- **Goes to the CoS:** `start_coding_task`, `start_knowledge_task`, `start_design_task`, `pass_on_question`, `background_task`, `domain_work`, `crew`, and code changes (`edit_file`, `write_file`, mutating `bash`). See Decisions needed, item 1.
-- **Unchanged for now:** LIVE `task_plan` → `AgentTask`. See Decisions needed, item 2.
+- **Flyd keeps:** `web_search`, `read_url`, `recall`, `remember`, `reminders`, `calendar_events`, `schedule`, `todos`, `work_model`, `speaking_style`, `mac`, `flyd` (news, briefing), `consult_specialist` (the coach is a conversation aid, not delegated work), email/Drive/WhatsApp reads and drafts, and read-only code tools (`read_file`, `grep`, `list_files`, `git_log`) for answering questions. **Flyd never changes code.** Specialists do.
+- **Goes to the CoS:** `start_coding_task`, `start_knowledge_task`, `start_design_task`, `pass_on_question`, `background_task`, `domain_work`, `crew`, and every code change: `edit_file`, `write_file`, and any `bash` that writes, all leave Flyd's tool set entirely.
+- **LIVE voice tasks** (a task asked for in a Ctrl×3 voice session, which today becomes a separate `AgentTask` outside the staff system) stay as they are while the CoS is built, then move onto `hand_off` in Phase 4, so voice requests get the same staff and the same delivery.
 
 ## Contracts
 
@@ -135,7 +135,30 @@ Per surface:
 - **Conversation window:** the lead line under George's original message, with the artefact in place. The full report and the staff's own words stay behind "more".
 - **Next chat turn and morning brief:** the lead line plus a link to the artefact.
 
-Delivery also decides **when**, using `ExecutiveCycle`'s attention budget, quiet hours, cooldown and kill switch, wired in for the first time. `irreversible` and `credential` reports are never deferred. Each report gets exactly one `flyd.delivered` event, so delivery is idempotent across restarts and surfaces, and every delivered report joins Flyd's context for the next turn.
+### When to tell George, and how much
+
+No fixed cap. Flyd tells George what he needs to know when he needs it, and reads what he is doing to decide. This replaces the `ExecutiveCycle` daily budget, which stays unwired. Its digest dedupe and kill switch are reused.
+
+**Focus** is the project George is on right now, read only from signals Flyd already has legitimately:
+- his last few chat or window turns and invocations;
+- recent commits and edits in his repos (`work/git-observer.ts`);
+- the work hypothesis, his ranked workstreams (`work/work-hypothesis/`, what `work_model show` reads).
+
+It never widens PRESENT, which stays zero-network and zero-persistence. Calendar events mark "in a meeting".
+
+| The report… | Delivered |
+|---|---|
+| is `irreversible` or `credential`, or blocks work he is on now | Now, whatever he is doing |
+| is about the project he is focused on | Now, fuller: lead line plus detail and the artefact open in the window, not just a notification |
+| is about another project while he is focused | Held until focus breaks (he switches project, goes quiet for about 20 minutes, or starts a chat turn), then as one lead line |
+| arrives while he is in a meeting | Held to the meeting's end unless it blocks something now |
+| arrives while he has no particular focus | Now, as a lead line |
+
+- **Batching:** held reports come out together as one delivery ("Two things finished while you were on Bloom"), each its own line with its artefact, never as a stream.
+- **Learning the vibe:** he asks for more on a held or short delivery, or tells Flyd "tell me sooner / not now" → that is a correction for the existing governed self-improvement loop, not a new learner.
+- **Relevance:** `matters_to_george` (`cognition/system-one/registry.ts`, already in production for the window) remains the gate on whether something reaches him at all.
+
+Each report gets exactly one `flyd.delivered` event, so delivery is idempotent across restarts and surfaces, and every delivered report joins Flyd's context for the next turn.
 
 ## Phases
 
@@ -164,13 +187,13 @@ Ships first: it is George's main complaint, and it doesn't need the CoS.
 - An adapter `reportFromRun(run, decision?)` turns a finished `DomainRun`, plus its executive decision when there is one, into a `CosReport`. It picks `shape` from the Delivery standard table using `DomainResult.artifacts`, `specialistOutputs`, lab files and length. It works without a decision, so `view`-sourced runs, which skip executive review today, still get a properly shaped delivery.
 - Renderers for each shape, reusing what exists (cards, decision cards, manifestation forms, `replyArtefact`, Compose dossier). The one gap is the picture card for a finished lab or build, which needs a layout that shows the pick large with alternatives as thumbnails.
 - Notifications carry the lead line only and open the window on the artefact.
-- Wire `ExecutiveCycle` (budget 3 a day, 45-minute cooldown, quiet hours, kill switch); `irreversible` and `credential` are never deferred. Undelivered `whenever` reports go into the morning brief.
+- `runtime/attention.ts`: the focus reading and the timing table above. Pure functions over the signals, so every rule is unit-tested. Held reports that never found a natural break go into the morning brief.
 - One `flyd.delivered` event per report; delivered reports join Flyd's next-turn context.
 
 **Exit**
 - Delivery cases pass at 90% or better, every real-example case passes, and judged clarity averages 8 or higher.
 - One report produces exactly one delivery across window, notification and brief, including after a restart between report and delivery.
-- A `whenever` report raised during quiet hours waits; an `irreversible` one does not.
+- Timing tests for every row of the table: an off-focus report waits until focus breaks and arrives batched; an on-focus report arrives now with its detail; an `irreversible` one arrives now in a meeting.
 - The next chat turn can answer "what did it say?" without a tool call.
 
 ### Phase 2 — Safe foundations (v6 Phases A and B)
@@ -205,11 +228,13 @@ Ships first: it is George's main complaint, and it doesn't need the CoS.
 **Work**
 - Replace the in-turn fast path with `tell_work`. The CoS resolves the target objective and run (Jev `domain` and `commandKind` as hints, then the active-objective list), delivers through `sendRunMessage`, and raises `needs_george` only when two or more objectives genuinely match.
 - `work_status` replaces `domain_work` and `crew` in Flyd's tool set. `crew land` and `discard` stay George-approved, via a CoS `decision` report.
-- Remove management tools from Flyd's `answer` and `act` routes under `FLYD_COS=1`.
+- Remove management tools from Flyd's `answer` and `act` routes under `FLYD_COS=1`, and remove `edit_file`, `write_file` and writing `bash` from Flyd's tool set on every route (`runtime/turn-plan.ts`, `conversation-responder.ts` `conversationTools`). A request to change code becomes a `hand_off`.
+- LIVE `task_plan` intents call `hand_off` instead of creating an `AgentTask` (`runtime/live-task-intake.ts`).
 
 **Exit**
 - Correction cases: delivered to the right run; ambiguous cases raise exactly one question; unrelated messages are not forwarded.
 - A follow-up question answered from retained results makes no new dispatch.
+- No eval case shows Flyd calling a code-writing tool; code-change requests are handed off.
 
 ### Phase 5 — Flyd's identity and the cutover
 
@@ -245,7 +270,8 @@ If companion quality doesn't improve, ship the split for its correctness gains, 
 | Companion quality | Phase 0 judged cases | +0.5 mean by Phase 5 |
 | Supervision per objective | George's own messages (`DomainMessage` without `from: "flyd"`) on an objective's runs between handoff and delivery | Trending to 0 |
 | Accepted without rework | Delivered `done` reports with no follow-up fix run | Majority after Phase 6 dogfood |
-| Interruptions | `flyd.delivered` notifications per day | ≤ budget (3) except `irreversible`/`credential` |
+| Off-focus interruptions | Deliveries about another project while George is focused, excluding `irreversible`/`credential`/blocking | 0 |
+| Missed vibe | Times George asks "why didn't you tell me?" or "tell me sooner" | Trending to 0 |
 | Missed or duplicate deliveries | `cos.report` without exactly one `flyd.delivered` | 0 |
 | Delegate-turn latency | Eval runner p50/p95 | ≤ baseline |
 
@@ -258,19 +284,21 @@ If companion quality doesn't improve, ship the split for its correctness gains, 
 
 ## Non-goals
 
-- No new coordination engine, workflow engine or budget system; `ExecutiveCycle` is wired, not rebuilt.
+- No new coordination engine or workflow engine, and no interruption cap.
 - No permanent CoS model session; it runs on ticks and events.
 - No new approval gates (AGENTS.md).
 - The CoS never speaks to George directly, and no surface for it is added.
 - No change to LIVE or mobile capability ceilings.
 
-## Decisions needed from George
+## Decided (George, 2026-10-30)
 
-1. **Code edits in chat.** The default moves `edit_file`, `write_file` and mutating `bash` from Flyd to the CoS (coding team), leaving Flyd read-only on code. That makes even a one-line fix a handoff. Keep the default, or let Flyd make small single-file edits itself?
-2. **LIVE tasks.** LIVE `task_plan` creates an `AgentTask` outside the command layer. Leave it (default), or route LIVE work through `hand_off` in a later phase?
-3. **Interruption budget.** Wiring `ExecutiveCycle` means a real cap of 3 interruptions a day, plus quiet hours, for the first time. Are those the numbers, and what are your quiet hours?
+1. **Flyd never changes code.** Specialists do. Flyd keeps read-only code tools to answer questions.
+2. **LIVE voice tasks** move onto the CoS in Phase 4, so they get the same staff and delivery.
+3. **No interruption cap.** Timing follows his focus: more, and sooner, about what he is gunning on; the rest held for a natural break.
 
-4. **Your worst deliveries.** Send 5–10 recent deliveries that annoyed you (screenshots or paste). They become the Phase 0 test cases and decide whether Phase 1 actually fixed it.
+## Still needed from George
+
+- **Your worst deliveries.** Send 5–10 recent deliveries that annoyed you (screenshots or paste). They become the Phase 0 test cases and decide whether Phase 1 actually fixed it.
 
 ## Corrections to v6
 
