@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="easel-caption" content="Picture desk: running work leads as big pictures headed by what each job just did, then your calls as a tight queue with their buttons, then what landed.">
+<title>Flyd live work: Picture desk</title>
+<style>
+/* seed 98a26430…: hue 282, type ratio 1.3, gutter 32, 3 columns, 18px base, light first */
+.v2 {
+  --bg: #f6f5f1; --frame: #ebe9e3; --line: #e0ddd5; --fg: #2b2b2e; --strong: #111113; --muted: #67645e;
+  --call: #111113; --live: hsl(282 46% 48%); --done: #3a7550;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", system-ui, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Helvetica Neue", system-ui, sans-serif;
+  background: var(--bg); color: var(--fg); font: 400 18px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased; font-feature-settings: "tnum", "kern";
+  padding: 48px 64px 112px; min-height: 100vh; box-sizing: border-box;
+}
+.v2 *, .v2 *::before, .v2 *::after { box-sizing: border-box; }
+.v2 a { color: inherit; }
+.v2 .lede { font: 600 61px/1.05 var(--display); color: var(--strong); letter-spacing: -.02em; margin: 0; }
+.v2 .stamp { margin: 14px 0 0; font-size: 20px; color: var(--muted); }
+.v2 h2 { font: 600 30px/1.2 var(--display); color: var(--strong); margin: 80px 0 28px; }
+.v2 .frame { display: block; background: var(--frame); border-radius: 14px; padding: 14px; text-decoration: none; }
+.v2 .frame img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; border-radius: 6px; box-shadow: 0 0 0 1px rgba(0,0,0,.06); }
+/* running: the work, big */
+.v2 .run { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 56px 32px; margin-top: 48px; }
+.v2 .run .t { font: 600 26px/1.25 var(--display); color: var(--strong); margin: 20px 0 0; }
+.v2 .run .p { margin: 8px 0 0; color: var(--muted); }
+.v2 .run .p b { color: var(--strong); font-weight: 600; }
+.v2 .run .p span { color: var(--live); font-weight: 600; }
+/* needs you: a tight queue */
+.v2 .queue { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.v2 .queue li { display: grid; grid-template-columns: 136px minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.v2 .queue .frame { padding: 6px; border-radius: 10px; }
+.v2 .queue .frame img { border-radius: 4px; box-shadow: none; }
+.v2 .queue .t { font: 600 23px/1.3 var(--display); color: var(--strong); margin: 0; }
+.v2 .queue .m { margin: 6px 0 0; color: var(--muted); font-size: 16px; }
+.v2 .queue .m b { color: var(--strong); font-weight: 600; }
+.v2 .opts { display: flex; gap: 10px; justify-self: end; }
+.v2 .opt { font: 500 16px/1 var(--sans); color: var(--strong); background: none; border: 1px solid #c9c6bd; border-radius: 8px; padding: 11px 15px; cursor: pointer; white-space: nowrap; }
+.v2 .opt.go { color: #fff; background: var(--call); border-color: var(--call); }
+.v2 .older { display: inline-block; margin-top: 20px; color: var(--fg); text-decoration: none; }
+/* landed: a small strip of after-pictures */
+.v2 .landed { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
+.v2 .landed .frame { padding: 9px; border-radius: 12px; }
+.v2 .landed p { margin: 12px 0 0; font-size: 16px; line-height: 1.4; color: var(--strong); }
+.v2 .landed p span { display: block; color: var(--muted); }
+@media (max-width: 1100px) { .v2 .queue li { grid-template-columns: 120px minmax(0, 1fr); } .v2 .opts { grid-column: 2; justify-self: start; } }
+@media (max-width: 760px) {
+  .v2 { padding: 28px 16px 72px; font-size: 17px; }
+  .v2 .lede { font-size: 34px; }
+  .v2 .stamp { font-size: 16px; }
+  .v2 h2 { font-size: 25px; margin: 56px 0 18px; }
+  .v2 .run { display: flex; overflow-x: auto; gap: 14px; margin: 28px -16px 0; padding: 0 16px 6px; scroll-snap-type: x mandatory; scroll-padding: 0 16px; }
+  .v2 .run > article { flex: 0 0 84%; scroll-snap-align: start; }
+  .v2 .run .t { font-size: 21px; }
+  .v2 .frame { padding: 10px; }
+  .v2 .queue li { grid-template-columns: 72px minmax(0, 1fr); gap: 6px 14px; align-items: start; padding: 12px 0; }
+  .v2 .queue .frame { padding: 4px; }
+  .v2 .queue .t { font-size: 19px; }
+  .v2 .opts { grid-column: 2; justify-self: start; flex-wrap: wrap; margin-top: 12px; }
+  .v2 .landed { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 12px; }
+  .v2 .landed p { font-size: 15px; }
+}
+</style>
+</head>
+<body style="margin:0;background:#f6f5f1">
+<main class="v2">
+  <p class="lede">Four running.<br>Six need you.</p>
+  <p class="stamp">Thursday 12:20 · five landed this morning</p>
+
+  <div class="run">
+    <article>
+      <div class="frame"><img src="assets/flyd-current.jpg" alt="Flyd's conversation view"></div>
+      <p class="t">Caught Flyd saying nothing is running while four jobs run</p>
+      <p class="p"><b>Flyd</b> · showing live work · <span data-since="12:12">8 min</span></p>
+    </article>
+    <article>
+      <div class="frame"><img src="assets/dir-schedule-before.jpg" alt="DIR admin schedule page"></div>
+      <p class="t">Photographed the schedule page before changing it</p>
+      <p class="p"><b>DIR</b> · a lighter, easier admin · <span data-since="12:12">8 min</span></p>
+    </article>
+    <article>
+      <div class="frame"><img src="assets/cleanx-approved.jpg" alt="CleanX inactive accounts view"></div>
+      <p class="t">Photographed the inactive-accounts view and the empty queue</p>
+      <p class="p"><b>CleanX</b> · five approved fixes · <span data-since="11:48">32 min</span></p>
+    </article>
+    <article>
+      <div class="frame"><img src="assets/easel-board.jpg" alt="Easel board with CapFive round 5"></div>
+      <p class="t">Made frames scroll inside the review board</p>
+      <p class="p"><b>Easel</b> · board mode · <span data-since="12:01">19 min</span></p>
+    </article>
+  </div>
+
+  <h2>Needs you</h2>
+  <ol class="queue">
+    <li><a class="frame" href="#"><img src="assets/cleanx-redo.jpg" alt=""></a><div><p class="t">Pick directions for search, pricing and credit packs</p><p class="m"><b>CleanX</b> · waiting 9 min · seven designs</p></div><div class="opts"><button class="opt go" type="button">Open the board</button></div></li>
+    <li><a class="frame" href="#"><img src="assets/cap5-front-design.jpg" alt=""></a><div><p class="t">Which front-page fixes ship?</p><p class="m"><b>CapFive</b> · waiting 10 min · ten ranked fixes</p></div><div class="opts"><button class="opt go" type="button">Ship 1 to 6</button><button class="opt" type="button">Ship all ten</button></div></li>
+    <li><a class="frame" href="#"><img src="assets/flyd-pullquote-card.jpg" alt=""></a><div><p class="t">Right-column cards, set as type</p><p class="m"><b>Flyd</b> · waiting 24 min · ready to land</p></div><div class="opts"><button class="opt go" type="button">Land it</button><button class="opt" type="button">Not yet</button></div></li>
+    <li><a class="frame" href="#"><img src="assets/cap5-r5.jpg" alt=""></a><div><p class="t">Three calls on round 5</p><p class="m"><b>CapFive</b> · waiting 29 min · source, heading, captions</p></div><div class="opts"><button class="opt go" type="button">Open the board</button></div></li>
+    <li><a class="frame" href="#"><img src="assets/dir-ascii.jpg" alt=""></a><div><p class="t">ASCII artwork scenes</p><p class="m"><b>DIR</b> · waiting 1 h 21 min · ready to land</p></div><div class="opts"><button class="opt go" type="button">Land it</button><button class="opt" type="button">Not yet</button></div></li>
+    <li><a class="frame" href="#"><img src="assets/cap5-v1-full.jpg" alt=""></a><div><p class="t">Notes on the V1 member dashboard</p><p class="m"><b>CapFive</b> · waiting since Wednesday</p></div><div class="opts"><button class="opt go" type="button">Open the board</button></div></li>
+  </ol>
+  <a class="older" href="#">13 older calls, back to 18 October ›</a>
+
+  <h2>Landed this morning</h2>
+  <div class="landed">
+    <article><div class="frame"><img src="assets/cleanx-hero-after.jpg" alt=""></div><p>CleanX mobile hero, left-aligned <span>11:21</span></p></article>
+    <article><div class="frame"><img src="assets/flyd-decision-card-crop.jpg" alt=""></div><p>Flyd decision cards show their designs <span>10:22</span></p></article>
+    <article><div class="frame"><img src="assets/flyd-right-column-crop.jpg" alt=""></div><p>Flyd's wider right column <span>09:51</span></p></article>
+    <article><div class="frame"><img src="assets/dir-toggles.jpg" alt=""></div><p>DIR artwork switches in admin <span>09:15</span></p></article>
+  </div>
+</main>
+<script>
+(function () {
+  var root = document.querySelector(".v2");
+  var start = Date.now(), base = 12 * 60 + 20;
+  function now() { return base + Math.floor((Date.now() - start) / 60000); }
+  setInterval(function () {
+    var m = now();
+    root.querySelectorAll("[data-since]").forEach(function (el) {
+      var p = el.getAttribute("data-since").split(":");
+      el.textContent = (m - (+p[0] * 60 + +p[1])) + " min";
+    });
+  }, 15000);
+})();
+</script>
+</body>
+</html>

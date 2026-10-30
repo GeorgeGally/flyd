@@ -1,0 +1,69 @@
+{
+  "format": 1,
+  "name": "Flyd live activity",
+  "tabs": [
+    {
+      "id": "main",
+      "label": "Main"
+    }
+  ],
+  "items": [
+    {
+      "id": "today",
+      "label": "Today",
+      "file": "01-flyd-live-work-today.html",
+      "tab": "main",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 2400,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "proposed",
+      "label": "A \u00b7 Proposed",
+      "file": "01-flyd-live-work-proposed.html",
+      "tab": "main",
+      "x": 1540,
+      "y": 0,
+      "w": 1440,
+      "h": 2400,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "proposed-b",
+      "label": "B \u00b7 Proposed",
+      "file": "01-flyd-live-work-proposed-b.html",
+      "tab": "main",
+      "x": 3080,
+      "y": 0,
+      "w": 1440,
+      "h": 2400,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "proposed-c",
+      "label": "C \u00b7 Proposed",
+      "file": "01-flyd-live-work-proposed-c.html",
+      "tab": "main",
+      "x": 4620,
+      "y": 0,
+      "w": 1440,
+      "h": 2400,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    }
+  ],
+  "pairs": []
+}

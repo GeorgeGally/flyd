@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="easel-caption" content="Departures: a dark board, running then your calls then landed, each row with its picture and state; the lit row shows large on the right.">
+<title>Flyd live work: Departures</title>
+<style>
+/* seed 9ac4ac1f…: hue 316, type ratio 1.4, gutter 32, 3 columns, 16px base, dark first */
+.v1 {
+  --bg: #0c0c0e; --line: #1f1f23; --fg: #d6d4cf; --strong: #f7f5f0; --muted: #77756f;
+  --live: hsl(316 70% 72%); --call: hsl(38 92% 62%); --done: #9fd0b0;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", system-ui, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Helvetica Neue", system-ui, sans-serif;
+  background: var(--bg); color: var(--fg); font: 400 16px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased; font-feature-settings: "tnum", "kern";
+  min-height: 100vh; box-sizing: border-box; padding: 36px 40px 64px;
+  display: grid; grid-template-columns: minmax(0, 1fr) 440px; grid-template-rows: auto 1fr; gap: 0 40px; align-items: start;
+}
+.v1 *, .v1 *::before, .v1 *::after { box-sizing: border-box; }
+.v1 .top { grid-column: 1 / -1; padding: 0 0 28px 16px; }
+.v1 h1 { font: 600 52px/1.05 var(--display); color: var(--strong); letter-spacing: -.015em; margin: 0; }
+.v1 .when { margin: 10px 0 0; font: 500 20px/1.3 var(--display); color: var(--muted); }
+/* the board: running, then your calls, then what landed; the time is when each last moved */
+.v1 .board { list-style: none; margin: 0; padding: 0; }
+.v1 .board li { display: grid; grid-template-columns: 120px 64px 76px minmax(0, 1fr) 112px; gap: 24px; align-items: center; padding: 16px 16px; border-bottom: 1px solid var(--line); cursor: pointer; transition: box-shadow .5s ease, background .5s ease; }
+.v1 .board li.gap { margin-top: 36px; }
+.v1 .board li.on { background: #141417; box-shadow: inset 3px 0 0 var(--c); }
+.v1 .board li { --c: var(--call); }
+.v1 .board li.r { --c: var(--live); }
+.v1 .board li.d { --c: var(--done); }
+.v1 .th { display: block; width: 120px; aspect-ratio: 16 / 10; border-radius: 6px; background: #1b1b1f; border: 1px solid #2a2a2f; padding: 4px; }
+.v1 .th.none { visibility: hidden; }
+.v1 .th img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 3px; }
+.v1 .board .t { font: 500 17px/1 var(--display); color: var(--muted); }
+.v1 .board .p { font: 500 18px/1.2 var(--display); color: var(--strong); }
+.v1 .board .j b { display: block; font: 600 20px/1.25 var(--display); color: var(--strong); }
+.v1 .board .j span { display: block; margin-top: 5px; color: var(--fg); }
+.v1 .board .s { font: 600 16px/1 var(--sans); justify-self: end; display: flex; align-items: center; gap: 8px; white-space: nowrap; color: var(--c); }
+.v1 .r .s::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--live); animation: v1breathe 2.4s ease-in-out infinite; }
+@keyframes v1breathe { 50% { opacity: .2; } }
+.v1 .older { display: inline-block; margin: 20px 16px 0; color: var(--fg); text-decoration: none; }
+.v1 .older:hover { color: var(--strong); }
+/* the panel: the lit row, large */
+.v1 .panel { position: sticky; top: 24px; transition: opacity .6s ease; }
+.v1 .panel.fade { opacity: 0; }
+.v1 .frame { background: #18181c; border: 1px solid #2a2a2f; border-radius: 14px; padding: 12px; }
+.v1 .frame img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; object-position: top; border-radius: 6px; }
+.v1 .pt { font: 600 28px/1.2 var(--display); color: var(--strong); margin: 28px 0 0; }
+.v1 .pd { font-size: 18px; margin: 10px 0 0; color: var(--fg); }
+.v1 .acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 36px; }
+.v1 .btn { font: 600 16px/1 var(--sans); border: 0; border-radius: 8px; padding: 13px 18px; cursor: pointer; color: #17120a; background: var(--call); text-decoration: none; }
+.v1 .btn.q { color: var(--strong); background: #232327; }
+.v1 .acts:empty { display: none; }
+@media (max-width: 1100px) { .v1 { grid-template-columns: minmax(0, 1fr) 360px; } .v1 .board li { grid-template-columns: 96px 48px 64px minmax(0, 1fr) 100px; gap: 14px; } .v1 .th { width: 96px; } }
+@media (max-width: 760px) {
+  .v1 { display: block; padding: 24px 16px 48px; }
+  .v1 .top { padding: 0 0 20px; }
+  .v1 h1 { font-size: 36px; }
+  .v1 .when { font-size: 16px; }
+  .v1 .panel { display: none; }
+  .v1 .board li { grid-template-columns: 96px minmax(0, 1fr); grid-template-rows: auto auto; gap: 6px 14px; padding: 14px 0; align-items: start; }
+  .v1 .th { width: 96px; grid-row: 1 / 3; }
+  .v1 .board .t, .v1 .board .p { display: none; }
+  .v1 .board .j b { font-size: 17px; }
+  .v1 .board .j span { font-size: 15px; }
+  .v1 .board .s { grid-column: 2; grid-row: 2; justify-self: start; font-size: 14px; }
+  .v1 .board li.gap { margin-top: 28px; }
+  .v1 .board li.on { background: none; box-shadow: none; }
+  .v1 .older { margin: 16px 0 0; }
+}
+</style>
+</head>
+<body style="margin:0;background:#0c0c0e">
+<main class="v1">
+  <header class="top">
+    <h1>4 running. 6 need you.</h1>
+    <p class="when">Thursday 12:20 · 5 landed this morning</p>
+  </header>
+
+  <div class="left">
+  <ol class="board">
+    <li class="r" data-img="assets/flyd-current.jpg" data-detail="Its last step, at 12:19. Running since 12:12." data-acts=""><span class="th"><img src="assets/flyd-current.jpg" alt=""></span><span class="t">12:19</span><span class="p">Flyd</span><span class="j"><b>Showing live work across every project</b><span>Caught Flyd saying nothing runs while four jobs run</span></span><span class="s">Running</span></li>
+    <li class="r" data-img="assets/dir-schedule-before.jpg" data-detail="Its last step, at 12:19. Running since 12:12." data-acts=""><span class="th"><img src="assets/dir-schedule-before.jpg" alt=""></span><span class="t">12:19</span><span class="p">DIR</span><span class="j"><b>Making the admin lighter and easier to read</b><span>Photographed the schedule page before changing it</span></span><span class="s">Running</span></li>
+    <li class="r" data-img="assets/cleanx-approved.jpg" data-detail="Its last step, at 12:03. Running since 11:48." data-acts=""><span class="th"><img src="assets/cleanx-approved.jpg" alt=""></span><span class="t">12:03</span><span class="p">CleanX</span><span class="j"><b>Building five approved fixes from your review</b><span>Photographed the inactive-accounts view and the empty queue</span></span><span class="s">Running</span></li>
+    <li class="r" data-img="assets/easel-board.jpg" data-detail="A frame can now grow to full height too. Last step 12:01." data-acts=""><span class="th"><img src="assets/easel-board.jpg" alt=""></span><span class="t">12:01</span><span class="p">Easel</span><span class="j"><b>Adding board mode to Easel</b><span>Made frames scroll inside the board</span></span><span class="s">Running</span></li>
+
+    <li class="gap on" data-img="assets/cleanx-redo.jpg" data-detail="Seven designs on the board: two for phone search, two for the pricing cards, three for the credit packs." data-acts="Open the board"><span class="th"><img src="assets/cleanx-redo.jpg" alt=""></span><span class="t">12:11</span><span class="p">CleanX</span><span class="j"><b>Pick designs for search, pricing and credit packs</b></span><span class="s">Your call</span></li>
+    <li data-img="assets/cap5-front-design.jpg" data-detail="Ten ranked fixes, most of them deletions. Firstmate would ship 1 to 6 as one pass." data-acts="Ship 1 to 6|Ship all ten"><span class="th"><img src="assets/cap5-front-design.jpg" alt=""></span><span class="t">12:10</span><span class="p">CapFive</span><span class="j"><b>Which front-page fixes ship?</b></span><span class="s">Your call</span></li>
+    <li data-img="assets/flyd-pullquote-card.jpg" data-detail="The pull-quote version is built and checked." data-acts="Land it|Not yet"><span class="th"><img src="assets/flyd-pullquote-card.jpg" alt=""></span><span class="t">11:56</span><span class="p">Flyd</span><span class="j"><b>Right-column cards, set as type</b></span><span class="s">Ready to land</span></li>
+    <li data-img="assets/cap5-r5.jpg" data-detail="Where Opinion pieces come from, what the Reports heading says, and the V5 captions." data-acts="Open the board"><span class="th"><img src="assets/cap5-r5.jpg" alt=""></span><span class="t">11:51</span><span class="p">CapFive</span><span class="j"><b>Three calls on round 5</b></span><span class="s">Your call</span></li>
+    <li data-img="assets/dir-ascii.jpg" data-detail="Scenes after ascii.rest, with none of its code copied." data-acts="Land it|Not yet"><span class="th"><img src="assets/dir-ascii.jpg" alt=""></span><span class="t">10:59</span><span class="p">DIR</span><span class="j"><b>ASCII artwork scenes</b></span><span class="s">Ready to land</span></li>
+    <li data-img="assets/cap5-v1-full.jpg" data-detail="Waiting since Wednesday at 20:03." data-acts="Open the board"><span class="th"><img src="assets/cap5-v1-full.jpg" alt=""></span><span class="t">Wed</span><span class="p">CapFive</span><span class="j"><b>Notes on the V1 member dashboard</b></span><span class="s">Your call</span></li>
+
+    <li class="gap d" data-img="assets/cleanx-hero-after.jpg" data-detail="The free-scan line no longer says 'to to'." data-acts=""><span class="th"><img src="assets/cleanx-hero-after.jpg" alt=""></span><span class="t">11:21</span><span class="p">CleanX</span><span class="j"><b>Mobile hero left-aligned, copy fixed</b></span><span class="s">Landed</span></li>
+    <li class="d" data-img="assets/flyd-decision-card-crop.jpg" data-detail="A lab's candidate designs open on the card that asks you to pick." data-acts=""><span class="th"><img src="assets/flyd-decision-card-crop.jpg" alt=""></span><span class="t">10:22</span><span class="p">Flyd</span><span class="j"><b>Decision cards show their designs</b></span><span class="s">Landed</span></li>
+    <li class="d" data-img="assets/flyd-right-column-crop.jpg" data-detail="The right column has room to breathe, and its cards were redesigned." data-acts=""><span class="th"><img src="assets/flyd-right-column-crop.jpg" alt=""></span><span class="t">09:51</span><span class="p">Flyd</span><span class="j"><b>A wider right column with new cards</b></span><span class="s">Landed</span></li>
+    <li class="d" data-img="assets/dir-toggles.jpg" data-detail="Each artwork has its own switch in the admin." data-acts=""><span class="th"><img src="assets/dir-toggles.jpg" alt=""></span><span class="t">09:15</span><span class="p">DIR</span><span class="j"><b>Artworks switch on and off from admin</b></span><span class="s">Landed</span></li>
+    <li class="d" data-img="assets/flyd-right-column-crop.jpg" data-detail="Each kind of chat turn gets its own context budget; the memory index was repaired. Nothing on screen changed." data-acts=""><span class="th none"></span><span class="t">09:12</span><span class="p">Flyd</span><span class="j"><b>Leaner chat context, repaired memory index</b></span><span class="s">Landed</span></li>
+  </ol>
+  <a class="older" href="#">13 older calls, back to 18 October ›</a>
+  </div>
+
+  <aside class="panel" aria-live="polite">
+    <div class="frame"><img src="assets/cleanx-redo.jpg" alt=""></div>
+    <p class="pt">Pick designs for search, pricing and credit packs</p>
+    <p class="pd">Seven designs on the board: two for phone search, two for the pricing cards, three for the credit packs.</p>
+    <div class="acts"><a class="btn" href="#">Open the board</a></div>
+  </aside>
+</main>
+<script>
+(function () {
+  var root = document.querySelector(".v1");
+  var rows = [].slice.call(root.querySelectorAll(".board li")), panel = root.querySelector(".panel"), idle = 0;
+  var at = rows.indexOf(root.querySelector(".board li.on"));
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function show(i) {
+    var li = rows[i];
+    rows.forEach(function (r) { r.classList.toggle("on", r === li); });
+    panel.classList.add("fade");
+    setTimeout(function () {
+      var acts = (li.dataset.acts || "").split("|").filter(Boolean).map(function (a, n) { return '<a class="btn' + (n ? " q" : "") + '" href="#">' + esc(a) + "</a>"; }).join("");
+      // One title: the panel says what the row says.
+      panel.innerHTML = '<div class="frame"><img src="' + esc(li.dataset.img) + '" alt=""></div><p class="pt">' + esc(li.querySelector(".j b").textContent) + '</p><p class="pd">' + esc(li.dataset.detail) + '</p><div class="acts">' + acts + "</div>";
+      panel.classList.remove("fade");
+    }, 600);
+    at = i;
+  }
+  rows.forEach(function (li, i) { li.addEventListener("click", function () { idle = -1; show(i); }); });
+  root.addEventListener("pointermove", function () { if (idle >= 0) idle = 0; });
+  // Like a broadcast: left alone, the lit row moves down the board.
+  setInterval(function () { if (idle < 0) return; idle += 1; if (idle >= 3) { idle = 0; show((at + 1) % rows.length); } }, 3000);
+})();
+</script>
+</body>
+</html>

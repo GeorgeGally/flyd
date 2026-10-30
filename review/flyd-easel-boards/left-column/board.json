@@ -1,0 +1,153 @@
+{
+  "format": 1,
+  "name": "Flyd left column",
+  "tabs": [
+    {
+      "id": "main",
+      "label": "Main"
+    }
+  ],
+  "items": [
+    {
+      "id": "01-hairline",
+      "label": "01 Hairline",
+      "file": "01-hairline.html",
+      "tab": "main",
+      "x": 0,
+      "y": 0,
+      "w": 1260,
+      "h": 1796,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "02-spine",
+      "label": "02 Spine",
+      "file": "02-spine.html",
+      "tab": "main",
+      "x": 1360,
+      "y": 0,
+      "w": 1260,
+      "h": 1682,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "03-side-pane",
+      "label": "03 Side pane",
+      "file": "03-side-pane.html",
+      "tab": "main",
+      "x": 2720,
+      "y": 0,
+      "w": 1260,
+      "h": 1105,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "04-morning-paper",
+      "label": "04 Morning paper",
+      "file": "04-morning-paper.html",
+      "tab": "main",
+      "x": 0,
+      "y": 2260,
+      "w": 1260,
+      "h": 1636,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "05-contact-sheet",
+      "label": "05 Contact sheet",
+      "file": "05-contact-sheet.html",
+      "tab": "main",
+      "x": 1360,
+      "y": 2260,
+      "w": 1260,
+      "h": 2114,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "06-journal",
+      "label": "06 Journal",
+      "file": "06-journal.html",
+      "tab": "main",
+      "x": 2720,
+      "y": 2260,
+      "w": 1260,
+      "h": 1520,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "07-threads",
+      "label": "07 Threads",
+      "file": "07-threads.html",
+      "tab": "main",
+      "x": 0,
+      "y": 4520,
+      "w": 1260,
+      "h": 1565,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "08-desks",
+      "label": "08 Desks",
+      "file": "08-desks.html",
+      "tab": "main",
+      "x": 1360,
+      "y": 4520,
+      "w": 1260,
+      "h": 1635,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "09-lead-card",
+      "label": "09 Lead card",
+      "file": "09-lead-card.html",
+      "tab": "main",
+      "x": 2720,
+      "y": 4520,
+      "w": 1260,
+      "h": 1355,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    },
+    {
+      "id": "10-paper",
+      "label": "10 Paper",
+      "file": "10-paper.html",
+      "tab": "main",
+      "x": 0,
+      "y": 6780,
+      "w": 1260,
+      "h": 1761,
+      "status": "open",
+      "notes": [],
+      "tune": {},
+      "versions": []
+    }
+  ],
+  "pairs": []
+}

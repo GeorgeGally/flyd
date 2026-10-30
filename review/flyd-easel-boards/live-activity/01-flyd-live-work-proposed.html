@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="easel-caption" content="Notch (recommended): Flyd lives in the notch. The island always shows what is running and what needs you, and opens into one sheet with the open call, the running jobs and what landed.">
+<title>Flyd live work: Notch</title>
+<style>
+/* seed 1531d226…: hue 339, type ratio 1.25, gutter 24, 5 columns, 17px base, light desktop behind a black sheet */
+.v3 {
+  --sheet: #0b0b0c; --key: #26262a; --line: #212124; --fg: #d8d6d1; --strong: #faf8f4; --muted: #8f8d88;
+  --live: #ece9e3; --ask: hsl(40 92% 62%); --done: #9fd0b0; --seed: hsl(339 82% 68%);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", system-ui, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Helvetica Neue", system-ui, sans-serif;
+  position: relative; min-height: 100vh; overflow: hidden; font: 400 17px/1.45 var(--sans); color: var(--fg);
+  -webkit-font-smoothing: antialiased; font-feature-settings: "tnum", "kern";
+  background: #dcdad4 url(assets/cap5-v1-full.jpg) center top / cover no-repeat;
+}
+.v3::before { content: ""; position: absolute; inset: 0; background: rgba(16,16,18,.78); }
+.v3 *, .v3 *::before, .v3 *::after { box-sizing: border-box; }
+.v3 .menubar { position: absolute; z-index: 1; inset: 0 0 auto 0; height: 34px; background: rgba(40,40,44,.7); backdrop-filter: blur(20px); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; font: 600 14px/1 var(--sans); color: #e9e7e2; }
+.v3 .menubar span + span { margin-left: 20px; font-weight: 400; }
+.v3 .sheet { position: relative; z-index: 2; width: 1000px; margin: 0 auto; background: var(--sheet); border-radius: 0 0 36px 36px; padding: 0 32px 28px; box-shadow: 0 30px 80px rgba(0,0,0,.45); }
+/* the island: counts tucked against the notch */
+.v3 .island { height: 34px; display: grid; grid-template-columns: 1fr 190px 1fr; align-items: center; font: 600 15px/1 var(--sans); }
+.v3 .island .l { justify-self: end; display: flex; align-items: center; gap: 8px; color: var(--live); }
+.v3 .island .r { justify-self: start; color: var(--ask); }
+.v3 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--live); animation: v3breathe 2.4s ease-in-out infinite; flex: none; }
+@keyframes v3breathe { 50% { opacity: .2; } }
+.v3 .cols { display: grid; grid-template-columns: minmax(0, 1fr) 452px; gap: 40px; padding-top: 18px; }
+.v3 .thumb { background: #1a1a1d; border-radius: 12px; padding: 7px; }
+.v3 .thumb img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; border-radius: 5px; }
+/* the call that is open, then the rest of the queue */
+.v3 .callblock .thumb img { aspect-ratio: 16 / 8; }
+.v3 .q { font: 600 32px/1.14 var(--display); color: var(--strong); margin: 20px 0 0; letter-spacing: -.01em; }
+.v3 .qm { margin: 10px 0 0; color: var(--fg); }
+.v3 .keys { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+.v3 .k { font: 600 15px/1 var(--sans); color: var(--strong); background: var(--key); border: 0; border-radius: 9px; padding: 14px 16px; cursor: pointer; }
+.v3 .k.pick { color: #17120a; background: var(--ask); }
+.v3 .queue { list-style: none; margin: 28px 0 0; padding: 0; border-top: 1px solid var(--line); }
+.v3 .queue li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.v3 .queue b { color: var(--strong); font-weight: 500; }
+.v3 .queue b span { color: var(--muted); font-weight: 400; }
+.v3 .queue i { font-style: normal; color: var(--muted); font-size: 15px; }
+.v3 .older { display: inline-block; margin-top: 12px; color: var(--muted); font-size: 15px; text-decoration: none; }
+/* what is running, then what landed */
+.v3 .run { list-style: none; margin: 0; padding: 0; }
+.v3 .run li { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 18px; align-items: center; padding: 0 0 14px; }
+.v3 .run .thumb { padding: 5px; border-radius: 9px; }
+.v3 .run .thumb img { border-radius: 4px; }
+.v3 .run .n { margin: 0; font: 600 16px/1.25 var(--sans); color: var(--strong); display: flex; justify-content: space-between; gap: 10px; }
+.v3 .run .n span { font-weight: 500; color: var(--muted); white-space: nowrap; }
+.v3 .run .s { margin: 5px 0 0; font-size: 15px; line-height: 1.35; color: var(--fg); }
+.v3 h3 { font: 600 17px/1.2 var(--display); color: var(--strong); margin: 4px 0 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+.v3 h3.ph { display: none; }
+.v3 .done { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.v3 .done .thumb { padding: 3px; border-radius: 7px; }
+.v3 .done .thumb img { border-radius: 4px; }
+.v3 .done p { margin: 6px 0 0; font-size: 13px; line-height: 1.3; color: var(--fg); }
+.v3 .done p span { display: block; color: var(--muted); }
+@media (max-width: 760px) {
+  .v3 { background: var(--sheet); }
+  .v3::before, .v3 .menubar { display: none; }
+  .v3 .sheet { width: auto; border-radius: 0; padding: 0 16px 40px; box-shadow: none; }
+  .v3 .island { grid-template-columns: 1fr 1fr; height: 56px; padding-top: 8px; gap: 24px; }
+  .v3 .island .gap { display: none; }
+  .v3 .cols { display: flex; flex-direction: column; gap: 36px; padding-top: 8px; }
+  .v3 .cols > div { display: contents; }
+  .v3 .callblock { order: 1; }
+  .v3 .runblock { order: 2; }
+  .v3 .qblock { order: 3; }
+  .v3 .landblock { order: 4; }
+  .v3 .q { font-size: 28px; }
+  .v3 .queue { margin-top: 0; }
+  .v3 h3.ph { display: block; }
+  .v3 .queue b { white-space: normal; }
+  .v3 .run li { grid-template-columns: 128px minmax(0, 1fr); align-items: start; }
+  .v3 .done { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; }
+}
+</style>
+</head>
+<body style="margin:0;background:#0b0b0c">
+<main class="v3">
+  <div class="menubar"><div><span>Flyd</span></div><div><span>Thu 29 Oct</span><span>12:20</span></div></div>
+  <section class="sheet">
+    <div class="island"><span class="l"><span class="dot"></span>4 running</span><span class="gap"></span><span class="r">6 need you</span></div>
+
+    <div class="cols">
+      <div>
+        <div class="callblock">
+          <div class="thumb"><img src="assets/cap5-front-design.jpg" alt="CapFive front page"></div>
+          <p class="q">Which CapFive front&#8209;page fixes ship?</p>
+          <p class="qm">Ten ranked fixes, most of them deletions. Firstmate would ship 1 to 6 as one pass. Asked 12:10.</p>
+          <div class="keys"><button class="k pick" type="button">Ship 1 to 6</button><button class="k" type="button">Ship all ten</button></div>
+        </div>
+        <div class="qblock">
+          <h3 class="ph">Also waiting on you</h3>
+          <ol class="queue">
+            <li><b>Pick search, pricing and credit pack designs <span>· CleanX</span></b><i>12:11</i></li>
+            <li><b>Land the right-column cards, set as type <span>· Flyd</span></b><i>11:56</i></li>
+            <li><b>Three calls on round 5 <span>· CapFive</span></b><i>11:51</i></li>
+            <li><b>Land the ASCII artwork scenes <span>· DIR</span></b><i>10:59</i></li>
+            <li><b>Notes on the V1 member dashboard <span>· CapFive</span></b><i>Wed</i></li>
+          </ol>
+          <a class="older" href="#">13 older calls, back to 18 October ›</a>
+        </div>
+      </div>
+
+      <div>
+        <div class="runblock">
+          <h3 class="ph">Running</h3>
+          <ol class="run">
+            <li><div class="thumb"><img src="assets/flyd-current.jpg" alt=""></div><div><p class="n">Flyd: live work view <span data-since="12:12">8 min</span></p><p class="s">Caught Flyd saying nothing is running while four jobs run</p></div></li>
+            <li><div class="thumb"><img src="assets/dir-schedule-before.jpg" alt=""></div><div><p class="n">DIR: a lighter admin <span data-since="12:12">8 min</span></p><p class="s">Photographed the schedule page before changing it</p></div></li>
+            <li><div class="thumb"><img src="assets/cleanx-approved.jpg" alt=""></div><div><p class="n">CleanX: five fixes <span data-since="11:48">32 min</span></p><p class="s">Photographed the inactive-accounts view and the empty queue</p></div></li>
+            <li><div class="thumb"><img src="assets/easel-board.jpg" alt=""></div><div><p class="n">Easel: board mode <span data-since="12:01">19 min</span></p><p class="s">Made frames scroll inside the review board</p></div></li>
+          </ol>
+        </div>
+        <div class="landblock">
+          <h3>Landed this morning</h3>
+          <div class="done">
+            <div><div class="thumb"><img src="assets/cleanx-hero-after.jpg" alt=""></div><p>CleanX hero<span>11:21</span></p></div>
+            <div><div class="thumb"><img src="assets/flyd-decision-card-crop.jpg" alt=""></div><p>Flyd cards<span>10:22</span></p></div>
+            <div><div class="thumb"><img src="assets/flyd-right-column-crop.jpg" alt=""></div><p>Flyd column<span>09:51</span></p></div>
+            <div><div class="thumb"><img src="assets/dir-toggles.jpg" alt=""></div><p>DIR switches<span>09:15</span></p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+(function () {
+  var root = document.querySelector(".v3");
+  var start = Date.now(), base = 12 * 60 + 20;
+  function now() { return base + Math.floor((Date.now() - start) / 60000); }
+  setInterval(function () {
+    var m = now();
+    root.querySelectorAll("[data-since]").forEach(function (el) {
+      var p = el.getAttribute("data-since").split(":");
+      el.textContent = (m - (+p[0] * 60 + +p[1])) + " min";
+    });
+  }, 15000);
+})();
+</script>
+</body>
+</html>
