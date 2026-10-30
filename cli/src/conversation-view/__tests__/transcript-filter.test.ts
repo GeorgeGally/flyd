@@ -74,6 +74,24 @@ describe("transcript filter", () => {
     ]);
   });
 
+  it("never shows firstmate's own supervision and mirror machinery as the captain's words", () => {
+    const lines = [
+      captain("FIRSTMATE SUPERVISION WAKE: signal: /Users/x/state/flyd-a.status"),
+      captain("FIRSTMATE WATCHER WAKE: stale worker"),
+      captain("MAIN DIALOG MIRROR (read-only context: what the captain and MAIN said):\n[main] Captain, shipshape."),
+      legacyCaptain('Stop hook feedback: [[ -z "${GROK_AGENT:-}" ]] || exit 1'),
+      captain("and i asked about gmail"),
+    ];
+    expect(visible(lines)).toEqual([["user", "and i asked about gmail"]]);
+  });
+
+  it("removes a pasted image's internal path, leaving the captain's words", () => {
+    expect(cleanCaptainText("[Image: source: /var/folders/m2/clipboard-1.png] look at this")).toBe("look at this");
+    expect(cleanCaptainText("[Image: source: /var/folders/m2/clipboard-1.png]")).toBeNull();
+    const lines = [captain("[Image: source: /var/folders/m2/clipboard-1.png]"), assistantText("nice shot")];
+    expect(visible(lines)).toEqual([["user", "*[image]*"], ["assistant", "nice shot"]]);
+  });
+
   it("shows a slash command the captain typed with words, as he typed it", () => {
     const text = "<command-message>design-review</command-message>\n<command-name>/design-review</command-name>\n<command-args>the graph could be prettier</command-args>";
     expect(cleanCaptainText(text)).toBe("/design-review the graph could be prettier");
