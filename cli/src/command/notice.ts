@@ -55,6 +55,11 @@ export function sentBack(run: DomainRun): boolean {
 /** The notification text for a run, or null when nothing George cares about happened, or when what it says may not reach him as written. */
 export function captainNotice(run: DomainRun): string | null {
   if (!run.result) return null;
+  // An unstructured handoff is not an outcome: the reason line and what to do
+  // about it, never the raw detail, which stays on the run record.
+  if (run.incompleteReason?.startsWith("handoff:missing")) {
+    return `${run.incompleteReason} - nothing was reported as done. Rerun it with a brief, a report and evidence.`;
+  }
   const brief = stripCommitIds(plainBrief(run.result.brief));
   if (!brief) return null;
   if (run.status === "needs_decision") return decisionNotice(run, brief);

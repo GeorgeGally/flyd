@@ -166,3 +166,47 @@ export function doneWhenStatus(checks: AcceptanceCheck[]): "done" | "blocked" | 
 export function unresolvedItems(checks: AcceptanceCheck[]): string[] {
   return unmetChecks(checks).map((check) => `${check.criterion}: ${check.note}`);
 }
+
+export interface DomainHandoffCheck {
+  ok: boolean;
+  missing: string[];
+  reason?: string;
+  /** The "report" was a shell flag or nothing at all: not prose that fell short, but no report. */
+  fragment?: boolean;
+}
+
+const VERB = /\b(is|are|was|were|be|been|has|have|had|now|added|removed|changed|fixed|updated|moved|landed|shipped|built|wrote|written|ran|runs|works|sets|set|keeps|kept|made|makes|cuts|ticks|shows|reads|uses|takes|gives|puts|ranks|widens|tallies|stacks|aligns|matches|fills|swaps|replaces|renames|splits|merges|deletes|creates|returns|emits|renders|reloads|ships|verified|tested|passes|failed|pass|fails)\b/i;
+
+/** The only report shapes that read as prose paragraph(s): one sentence, at least, with a verb in it. */
+function readsAsReport(value: string): boolean {
+  const text = value.trim();
+  if (!text) return false;
+  if (/^(-{1,2}|\/)\S*/.test(text)) return false;
+  const clauses = text.split(/[.;:!?\n]+/).map((clause) => clause.trim()).filter((clause) => clause.split(/\s+/).length >= 3);
+  return clauses.some((clause) => VERB.test(clause));
+}
+
+/**
+ * The layered brief/report/evidence contract, checked against a handoff payload
+ * of any shape. A run whose reply misses a section has not delivered work Flyd
+ * can act on, so it is refused at the check layer rather than reported as an
+ * outcome: twelve-plus domain runs came back unstructured today, three with a
+ * bare shell flag as the "report", and prose alone could not stop that.
+ */
+export function checkDomainHandoff(detail: unknown): DomainHandoffCheck {
+  const record = (detail && typeof detail === "object" ? detail : {}) as Record<string, unknown>;
+  const pick = (...keys: string[]): string =>
+    keys.map((key) => record[key]).find((value) => typeof value === "string" && value.trim())?.toString().trim() ?? "";
+  const list = (value: unknown): string[] =>
+    Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : typeof value === "string" && value.trim() ? [value.trim()] : [];
+
+  const brief = pick("brief", "summary", "intent");
+  const report = pick("report", "detailed_report", "detailedReport", "detail");
+  const evidence = [...list(record.evidence), ...list(record.artifacts)];
+  const missing: string[] = [];
+  if (!brief) missing.push("brief");
+  if (!readsAsReport(report)) missing.push("report");
+  if (!evidence.some((item) => item.trim())) missing.push("evidence");
+  const fragment = !report || /^(-{1,2}|\/)\S*/.test(report);
+  return missing.length ? { ok: false, missing, reason: `handoff:missing ${missing.join(",")}`, ...(fragment ? { fragment } : {}) } : { ok: true, missing: [] };
+}

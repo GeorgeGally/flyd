@@ -8,6 +8,7 @@ import { codexPathCandidates } from "../runtime/codex-adapter.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } from "../runtime/repeat-guard.js";
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
+import { checkDomainHandoff } from "../runtime/acceptance.js";
 import { commandDir, listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
 
@@ -842,6 +843,7 @@ export async function syncFirstmateDomainRuns(options: {
       // contract is still asked for, and a reply that misses it is kept whole
       // with the gap noted, never turned from finished work into "incomplete".
       const handoff = validateDomainHandoff(parsed.result);
+      const strict = checkDomainHandoff(parsed.result);
       // Only a structured reply's own status or Flyd's model may settle a run;
       // prose words no model could read stay "unclear" rather than being guessed.
       const outcome: ProseOutcome = parsed.status ?? (parsed.result.format === "raw" ? await proseOutcome(reply.body!, run, judge) : "completed");
@@ -862,6 +864,7 @@ export async function syncFirstmateDomainRuns(options: {
         ...(predates ? { notified: true } : notified !== undefined && !news ? { notified } : {}),
         ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
         ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
+        ...(strict.fragment ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
         ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
       };
       if (outcome === "unclear") {
@@ -883,6 +886,7 @@ export async function syncFirstmateDomainRuns(options: {
       const parsed = parseDomainResult(run.result.raw.at(-1) ?? run.result.detailedReport);
       if (parsed.status && parsed.status !== "working") {
         const handoff = validateDomainHandoff(parsed.result);
+        const strict = checkDomainHandoff(parsed.result);
         const { incompleteReason: _previous, statusAskedAt: _asked, ...rest } = next;
         const stale = nowMs - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
         next = {
@@ -892,6 +896,7 @@ export async function syncFirstmateDomainRuns(options: {
           ...(stale && parsed.status === "completed" ? { notified: true } : {}),
           ...(parsed.status === "failed" ? { failure: parsed.result.brief } : {}),
           ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
+          ...(strict.fragment ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
         };
       }
     }

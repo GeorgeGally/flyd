@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  citesEvidence, doneWhenStatus, evaluateDoneWhen, normalizeCriteria, parseVerdicts, shortfall, splitClauses, unresolvedItems,
+  checkDomainHandoff, citesEvidence, doneWhenStatus, evaluateDoneWhen, normalizeCriteria, parseVerdicts, shortfall, splitClauses, unresolvedItems,
 } from "../acceptance.js";
+import { captainNotice } from "../../command/notice.js";
+import type { DomainRun } from "../../command/types.js";
 
 describe("acceptance", () => {
   it("cleans done_when from a list or a single string", () => {
@@ -54,5 +56,71 @@ describe("acceptance", () => {
     const leftover = evaluateDoneWhen({ criteria, report: "The deck is in Canva as design DAGk3x9QbZ1.", verdicts, leftovers: [{ pid: 9, command: "python3 -m http.server" }] });
     expect(doneWhenStatus(leftover)).toBe("short");
     expect(unresolvedItems(leftover)).toEqual(["nothing it started is left running: still running: pid 9 `python3 -m http.server`"]);
+  });
+  it("refuses a handoff whose report is a bare flag fragment", () => {
+    const handoff = checkDomainHandoff({ report: "--body-file /tmp/flyd-df.json" });
+    expect(handoff.ok).toBe(false);
+    expect(handoff.missing).toEqual(["brief", "report", "evidence"]);
+    expect(handoff.reason).toBe("handoff:missing brief,report,evidence");
+  });
+
+  it("refuses a handoff whose report names no clause with a verb", () => {
+    expect(checkDomainHandoff({ brief: "Ship the fix", report: "- body file", evidence: ["data/x.md"] }).missing).toEqual(["report"]);
+    expect(checkDomainHandoff({ brief: "Ship the fix", report: "tmp flyd df", evidence: ["data/x.md"] }).ok).toBe(false);
+  });
+
+  it("accepts a handoff carrying a brief, a report and evidence", () => {
+    const handoff = checkDomainHandoff({
+      brief: "lodged the four fixes on main",
+      report: "Merged the pagination branch and the totals fix into main, then ran the invoice tests.",
+      evidence: ["good_neighbours master 593202e", "christmas_invoice_write_test.php passes"],
+    });
+    expect(handoff).toEqual({ ok: true, missing: [] });
+  });
+
+  it("reports only the reason line for a run whose handoff missed, never the raw detail", () => {
+    const handoff = checkDomainHandoff({ report: "--body-file /tmp/flyd-df.json" });
+    const run = {
+      id: "run-1", status: "completed", updatedAt: "2026-10-30T00:00:00.000Z",
+      result: { format: "raw", brief: "--body-file /tmp/flyd-df.json", detailedReport: "--body-file /tmp/flyd-df.json", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "high" },
+      incompleteReason: handoff.reason,
+    } as unknown as DomainRun;
+    const notice = captainNotice(run);
+    expect(handoff.ok).toBe(false);
+    expect(notice).toContain("handoff:missing");
+    expect(notice).not.toContain("/tmp/flyd-df.json");
+  });
+  it("refuses a handoff whose report is a bare flag fragment", () => {
+    const handoff = checkDomainHandoff({ report: "--body-file /tmp/flyd-df.json" });
+    expect(handoff.ok).toBe(false);
+    expect(handoff.missing).toEqual(["brief", "report", "evidence"]);
+    expect(handoff.reason).toBe("handoff:missing brief,report,evidence");
+  });
+
+  it("refuses a handoff whose report names no clause with a verb", () => {
+    expect(checkDomainHandoff({ brief: "Ship the fix", report: "- body file", evidence: ["data/x.md"] }).missing).toEqual(["report"]);
+    expect(checkDomainHandoff({ brief: "Ship the fix", report: "tmp flyd df", evidence: ["data/x.md"] }).ok).toBe(false);
+  });
+
+  it("accepts a handoff carrying a brief, a report and evidence", () => {
+    const handoff = checkDomainHandoff({
+      brief: "lodged the four fixes on main",
+      report: "Merged the pagination branch and the totals fix into main, then ran the invoice tests.",
+      evidence: ["good_neighbours master 593202e", "christmas_invoice_write_test.php passes"],
+    });
+    expect(handoff).toEqual({ ok: true, missing: [] });
+  });
+
+  it("reports only the reason line for a run whose handoff missed, never the raw detail", () => {
+    const handoff = checkDomainHandoff({ report: "--body-file /tmp/flyd-df.json" });
+    const run = {
+      id: "run-1", status: "completed", updatedAt: "2026-10-30T00:00:00.000Z",
+      result: { format: "raw", brief: "--body-file /tmp/flyd-df.json", detailedReport: "--body-file /tmp/flyd-df.json", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "high" },
+      incompleteReason: handoff.reason,
+    } as unknown as DomainRun;
+    const notice = captainNotice(run);
+    expect(handoff.ok).toBe(false);
+    expect(notice).toContain("handoff:missing");
+    expect(notice).not.toContain("/tmp/flyd-df.json");
   });
 });
