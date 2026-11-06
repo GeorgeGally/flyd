@@ -104,7 +104,7 @@ export interface Turn {
 }
 
 /** Words the harness put in his place: a session starting, a slash command, a probe. */
-const PLUMBING = /^\s*(?:run bin\/fm-|\/[a-z][\w:-]*\s*$|reply with exactly\b|<)/i;
+const PLUMBING = /^\s*(?:run bin\/fm-|\/[a-z][\w:-]*\s*$|reply with exactly\b)/i;
 
 /** What a thread never shows: the harness's words, and a supervision wake with nothing to say. */
 export function offThread(message: ConversationMessage): boolean {
@@ -168,33 +168,37 @@ export interface TaggedTurns {
 export function tagTurns(turns: Turn[], read: (text: string) => string[], answered: (turn: Turn) => string | null | undefined = () => undefined): TaggedTurns {
   const tags = new Map<string, string[]>();
   const own = new Map<string, string[]>();
+  const roundups: boolean[] = [];
   const named = turns.map((turn) => {
     const said = [...turn.asked, ...(turn.reply ? [turn.reply] : [])];
     for (const message of said) own.set(message.id, ownNames(message, read));
-    return [...new Set(said.flatMap((message) => own.get(message.id)!))];
+    roundups.push(said.some((message) => own.get(message.id)!.length > ROUND_UP));
+    return [...new Set(said.flatMap((message) => {
+      const names = own.get(message.id)!;
+      return names.length > ROUND_UP ? [] : names;
+    }))];
   });
   const unplaced: number[] = [];
   const settled = turns.map((turn, index) => {
-    if (named[index]!.length > ROUND_UP) return [];
     if (named[index]!.length) return named[index]!;
+    if (roundups[index]) return [];
     const answer = answered(turn);
     if (answer !== undefined) return answer ? [answer] : [];
-    const around = carried(turns, named, index);
+    const around = carried(turns, named, roundups, index);
     if (!around.length) unplaced.push(index);
     return around;
   });
   turns.forEach((turn, index) => {
     const whole = settled[index]!;
-    if (named[index]!.length > ROUND_UP) {
-      for (const message of [...turn.asked, ...(turn.reply ? [turn.reply] : [])]) tags.set(message.id, []);
-      return;
-    }
     let before: string[] = [];
+    let afterRoundup = false;
     for (const message of turn.asked) {
       const mine = own.get(message.id)!;
-      const shown = mine.length ? mine : before.length ? before : whole;
+      const roundup = mine.length > ROUND_UP;
+      const shown = roundup ? [] : mine.length ? mine : before.length ? before : afterRoundup ? [] : whole;
       tags.set(message.id, shown);
       before = shown;
+      afterRoundup = roundup || (afterRoundup && !mine.length);
     }
     if (turn.reply) {
       // A reply that names projects is about those: work reported back can land between his question and its answer.
@@ -202,25 +206,26 @@ export function tagTurns(turns: Turn[], read: (text: string) => string[], answer
       // Otherwise it answers the last thing he said; stacked questions on other projects wait for their own.
       const last = turn.asked.at(-1);
       const asked = last ? tags.get(last.id)! : [];
-      tags.set(turn.reply.id, mine.length ? mine : asked.length ? asked : whole);
+      tags.set(turn.reply.id, mine.length > ROUND_UP ? [] : mine.length ? mine : asked.length ? asked : afterRoundup ? [] : whole);
     }
   });
   return { tags, named, unplaced };
 }
 
 /** The one project of the last named turns, when they agree and are close; failing that, of the next one. */
-function carried(turns: Turn[], named: string[][], index: number): string[] {
+function carried(turns: Turn[], named: string[][], roundups: boolean[], index: number): string[] {
   const at = turnTime(turns[index]!);
   if (Number.isNaN(at)) return [];
   const close = (look: number): boolean => Math.abs(at - turnTime(turns[look]!)) <= CARRIES_MS;
   const before: string[][] = [];
   for (let look = index - 1; look >= 0 && before.length < 2 && close(look); look -= 1) {
-    if (named[look]!.length > ROUND_UP) break;
+    if (roundups[look]) break;
     if (named[look]!.length) before.push(named[look]!);
   }
   const projects = new Set(before.flat());
   if (projects.size) return projects.size === 1 ? [...projects] : [];
   for (let look = index + 1; look < turns.length && close(look); look += 1) {
+    if (roundups[look]) break;
     if (named[look]!.length) return named[look]!.length === 1 ? named[look]! : [];
   }
   return [];

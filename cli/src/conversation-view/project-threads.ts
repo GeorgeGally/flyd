@@ -61,6 +61,8 @@ interface Entry { message: ConversationMessage; at: number; projects: string[] }
 
 interface SessionIndex {
   stamp: string;
+  fingerprint: string;
+  active: boolean;
   turns: Turn[];
   /** Each message as a thread shows it, worked out once. */
   shown: Map<string, ConversationMessage>;
@@ -158,12 +160,13 @@ export class ProjectThreads {
         const key = `${feed}|${session.id}`;
         const stamp = `${session.updatedAt}|${revision}`;
         listed.add(key);
-        if (!source.volatile && this.sessions.get(key)?.stamp === stamp) continue;
+        const previous = this.sessions.get(key);
+        if (previous?.stamp === stamp && !(source.volatile && previous.active)) continue;
         const snapshot = await source.read(session.id).catch(() => undefined);
         if (!snapshot) continue;
-        const snapshotStamp = source.volatile ? `${stamp}|${JSON.stringify(snapshot)}` : stamp;
-        if (this.sessions.get(key)?.stamp === snapshotStamp) continue;
-        this.index(key, feed, snapshotStamp, session.id, snapshot.messages);
+        const fingerprint = JSON.stringify(snapshot);
+        if (previous?.stamp === stamp && previous.fingerprint === fingerprint) continue;
+        this.index(key, feed, stamp, fingerprint, session.id, snapshot);
         changed = true;
         // A long backfill shows what it has as it goes.
         if (!this.ready) this.merge();
@@ -181,14 +184,15 @@ export class ProjectThreads {
     void this.askUnplaced();
   }
 
-  private index(key: string, feed: number, stamp: string, sessionId: string, messages: ConversationMessage[]): void {
+  private index(key: string, feed: number, stamp: string, fingerprint: string, sessionId: string, snapshot: ConversationSnapshot): void {
     const seen = new Set<string>();
     const shows = this.options.feeds[feed]!.shows;
-    const fresh = messages.filter((message) => !seen.has(message.id) && seen.add(message.id) && (!shows || shows(message)));
+    const fresh = snapshot.messages.filter((message) => !seen.has(message.id) && seen.add(message.id) && (!shows || shows(message)));
     const turns = turnsOf(fresh);
     const shown = new Map(turns.flatMap((turn) => [...turn.asked, ...(turn.reply ? [turn.reply] : [])])
       .map((message) => [message.id, this.shown(message, feed, sessionId)] as const));
-    this.sessions.set(key, { stamp, turns, shown, named: [], unplaced: [] });
+    const active = snapshot.working || snapshot.messages.some((message) => message.role === "user" && Boolean(message.waiting) && !message.waitingFailed && !message.settled);
+    this.sessions.set(key, { stamp, fingerprint, active, turns, shown, named: [], unplaced: [] });
   }
 
   /** The conversations as one list, oldest first, each message with its projects. */
@@ -299,15 +303,15 @@ export class ProjectThreads {
   snapshot(sessionId: string): ConversationSnapshot {
     const project = this.project(sessionId);
     const known = this.name(sessionId) !== undefined;
-    const messages = this.entries.filter((entry) => known && (sessionId === ALL_THREAD
-      || (sessionId === OTHER_THREAD ? !entry.projects.length : entry.projects.includes(project!))))
-      .slice(-THREAD_MESSAGES).map((entry) => (project && entry.projects.length > 1 && entry.message.role === "assistant"
+    const matching = this.entries.filter((entry) => known && (sessionId === ALL_THREAD
+      || (sessionId === OTHER_THREAD ? !entry.projects.length : entry.projects.includes(project!))));
+    const messages = matching.slice(-THREAD_MESSAGES).map((entry) => (project && entry.projects.length > 1 && entry.message.role === "assistant"
         ? { ...entry.message, text: aboutOnly(entry.message.text, project, this.read) }
         : entry.message));
     const last = messages.at(-1);
     return {
       messages,
-      working: last?.role === "user" && Boolean(last.waiting) && !last.waitingFailed && !last.settled,
+      working: matching.some(({ message }) => message.role === "user" && Boolean(message.waiting) && !message.waitingFailed && !message.settled),
       ...(project ? { project } : {}),
       ...(last?.timestamp ? { lastActivity: last.timestamp } : {}),
     };

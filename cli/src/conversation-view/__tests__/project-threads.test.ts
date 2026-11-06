@@ -262,6 +262,37 @@ describe("what the threads keep up with", () => {
     expect(threads.snapshot("project:dir").messages[0]?.waitingFailed).toBe(true);
   });
 
+  it("rereads only active or changed volatile sessions", async () => {
+    const sessions: Record<string, { updatedAt: string; messages: ConversationMessage[] }> = {
+      idle: { updatedAt: "2026-11-06T10:00:00Z", messages: [user("i", "Logan", "2026-11-06T09:00:00Z")] },
+      active: { updatedAt: "2026-11-06T10:00:00Z", messages: [{ ...user("a", "DIR", "2026-11-06T09:00:00Z"), waiting: "Working" }] },
+    };
+    const source = { ...feed(sessions), volatile: true };
+    const threads = new ProjectThreads({ feeds: [source], projects });
+    await threads.refresh();
+    source.reads.length = 0;
+    await threads.refresh();
+    expect(source.reads).toEqual(["active"]);
+    sessions.active!.messages[0] = { ...sessions.active!.messages[0]!, waitingFailed: true };
+    await threads.refresh();
+    source.reads.length = 0;
+    await threads.refresh();
+    expect(source.reads).toEqual([]);
+    sessions.idle!.updatedAt = "2026-11-06T10:01:00Z";
+    await threads.refresh();
+    expect(source.reads).toEqual(["idle"]);
+  });
+
+  it("keeps an active request working when another session replies later", async () => {
+    const threads = new ProjectThreads({ feeds: [feed({
+      active: { updatedAt: "1", messages: [{ ...user("q", "DIR ident", "2026-11-06T09:00:00Z"), waiting: "Working" }] },
+      other: { updatedAt: "2", messages: [said("r", "DIR update", "2026-11-06T10:00:00Z")] },
+    })], projects });
+    await threads.refresh();
+    expect(threads.snapshot("project:dir").working).toBe(true);
+    expect(threads.snapshot(ALL_THREAD).working).toBe(true);
+  });
+
   it("lets a conversation that went away go", async () => {
     const sessions = { a: { updatedAt: "2026-11-06T10:00:00Z", messages: [user("q", "DIR ident", "2026-11-06T09:00:00Z")] } } as Record<string, { updatedAt: string; messages: ConversationMessage[] }>;
     const threads = new ProjectThreads({ feeds: [feed(sessions)], projects });

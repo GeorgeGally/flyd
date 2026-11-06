@@ -118,6 +118,26 @@ describe("tagTurns", () => {
     expect(result.unplaced).toEqual([]);
   });
 
+  it("keeps separately named stacked questions in each project", () => {
+    const messages = [user("a", "Flyd"), user("b", "DIR"), user("c", "Logan"), user("d", "CapFive"), user("e", "HFTW"), reply("r", "Done.")];
+    const result = tagged(messages);
+    expect(["a", "b", "c", "d", "e"].map((id) => result.get(id))).toEqual([["Flyd"], ["DIR"], ["Logan"], ["CapFive"], ["HFTW"]]);
+    expect(result.get("r")).toEqual(["HFTW"]);
+  });
+
+  it("separates a roundup from an adjacent project question", () => {
+    const result = tagged([user("a", "DIR ident"), user("b", "Flyd DIR Logan CapFive HFTW status"), reply("r", "Done.")]);
+    expect(result.get("a")).toEqual(["DIR"]);
+    expect(result.get("b")).toEqual([]);
+    expect(result.get("r")).toEqual([]);
+  });
+
+  it("keeps markup questions in their project", () => {
+    const messages = [user("q", "<div>broken</div> is broken on Logan"), reply("r", "Fixed.")];
+    expect(turnsOf(messages)[0]?.asked[0]?.id).toBe("q");
+    expect(tagged(messages).get("q")).toEqual(["Logan"]);
+  });
+
   it("lets a quiet stacked message follow the one before it", () => {
     const tags = tagged([user("a", "fix the DIR ident"), user("b", "and make it bigger"), reply("r", "Done.")]);
     expect(tags.get("b")).toEqual(["DIR"]);
