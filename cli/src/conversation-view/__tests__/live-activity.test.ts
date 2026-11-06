@@ -73,6 +73,11 @@ describe("liveActivityOf", () => {
     expect(live.counts.running).toBe(2);
   });
 
+  it("keeps a run's start distinct from its latest update", () => {
+    const board = [{ id: "run:1", group: "working", title: "Work", project: "", at: "2026-11-06T11:59:00Z", started: "2026-11-06T10:00:00Z", next: "", shots: [], links: [] }] as Job[];
+    expect(liveActivityOf(screen(), board, NOW).running[0]).toMatchObject({ at: "2026-11-06T11:59:00Z", since: "2026-11-06T10:00:00Z" });
+  });
+
   it("shows pictures of what landed first, one row per task, newest first", () => {
     const shots = [{ src: "/x.png", label: "x" }];
     const live = liveActivityOf(screen({

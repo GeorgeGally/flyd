@@ -706,7 +706,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
   const asking = new Set(calls.map((row) => row.task));
   const failed = fleet.held.flatMap((row) => row.status === "failed" && !asking.has(row.task) ? [{ ...row, detail: undefined }] : []);
   // Paused is lifecycle, not a fault: the executive keeps it off his notifications, never off the screen.
-  const paused = fleet.held.flatMap((row) => row.status === "paused" && !row.ledgerOnly && !asking.has(row.task)
+  const paused = fleet.held.flatMap((row) => row.status === "paused" && !row.ledgerOnly
     ? [{ ...row, detail: row.detail && saysNoStep(row.detail) ? undefined : row.detail }] : []);
   const finished = attention.filter((row) => row.status === "landed");
   const open = attention.filter((row) => row.status !== "landed");
@@ -718,7 +718,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}),
     calls,
     live: current(fleet.live),
-    ready: current(fleet.ready),
+    ready: current(fleet.ready).filter((row) => !verifiedTasks.has(row.task)),
     next: current(fleet.next),
     landed: [...verified, ...current(fleet.landed).filter((row) => !verifiedTasks.has(row.task)), ...finished],
     held: [...failed, ...paused, ...open],
@@ -1746,22 +1746,16 @@ export class ArtefactFeed {
 
   /** Folds a fresh read into the list: rows are added or updated in place, and only age out once reported no more. */
   private mergeLedger(incoming: FleetArtefact, now: number, prune: boolean): FleetArtefact {
-    // One row per thing: a thing the read lists in two sections keeps the earliest, a call leading,
-    // so a collision never drops a call; and this read's rows keep its own order, ahead of rows only
-    // the list still holds, so a newly queued item is never pushed off by older entries.
     const merged = new Map<string, LedgerEntry>();
-    const reported = new Set<string>();
-    const reportedCall = (field: FleetField, row: ArtefactRow) => field !== "calls" && reported.has(ledgerKey("calls", row) ?? "");
     for (const field of FLEET_FIELDS) {
       for (const row of incoming[field]) {
         const key = ledgerKey(field, row);
         const known = key ? this.ledger.get(key) : undefined;
-        if (key && !merged.has(key) && !reportedCall(field, row)) merged.set(key, { field, row, seenAt: now, firstSeen: known?.firstSeen || known?.seenAt || now, ledgerOnly: false, asked: known?.asked === true });
+        if (key && !merged.has(key)) merged.set(key, { field, row, seenAt: now, firstSeen: known?.firstSeen || known?.seenAt || now, ledgerOnly: false, asked: known?.asked === true });
       }
-      if (field === "calls") for (const key of merged.keys()) reported.add(key);
     }
     for (const [key, entry] of this.ledger) {
-      if (merged.has(key) || reportedCall(entry.field, entry.row) || (prune && entry.field === "calls" && !entry.asked)) continue;
+      if (merged.has(key) || (prune && entry.field === "calls" && !entry.asked)) continue;
       merged.set(key, { ...entry, ...(prune ? { ledgerOnly: true } : {}) });
     }
     if (prune) for (const [key, entry] of merged) if (now - entry.seenAt > LEDGER_KEEP_MS) merged.delete(key);
@@ -1838,7 +1832,7 @@ export class ArtefactFeed {
 
   /** The workers the staff watch sees running and the snapshot left out, as rows for the Working group. */
   private staffLive(fleet: FleetArtefact): ArtefactRow[] {
-    const seen = new Set(FLEET_FIELDS.flatMap((field) => fleet[field].flatMap((row) => (row.task ? [row.task] : []))));
+    const seen = new Set(FLEET_FIELDS.filter((field) => field !== "calls").flatMap((field) => fleet[field].flatMap((row) => (row.task ? [row.task] : []))));
     return (this.options.workers?.() ?? []).flatMap((worker): ArtefactRow[] => {
       if (!worker.id || seen.has(worker.id) || !LIVE_STAFF_STATES.has(worker.state)) return [];
       seen.add(worker.id);

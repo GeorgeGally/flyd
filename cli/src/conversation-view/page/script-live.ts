@@ -73,7 +73,7 @@ export const LIVE_SCRIPT = `
     return html ? '<h3 class="ph">Also waiting on you</h3>' + html : "";
   }
   function liveRunRow(item) {
-    var when = item.state === "paused" ? "Paused" : liveElapsed(item.since || item.at);
+    var when = item.state === "paused" ? "Paused" : liveElapsed(item.since);
     var step = frontNext({ detail: item.step });
     return '<li><button type="button" class="run-row' + (livePicture(item) ? "" : " bare") + '" data-open="' + frontEsc(item.id) + '">' + livePicture(item)
       + '<span class="words"><span class="n"><b>' + frontEsc(liveName(item)) + '</b><span>' + frontEsc(when) + '</span></span>'

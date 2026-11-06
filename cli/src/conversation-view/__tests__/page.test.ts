@@ -4001,6 +4001,15 @@ describe("the notch", () => {
     expect(sheet().textContent).toContain("An old hold");
   });
 
+  it("does not call a last update elapsed runtime", async () => {
+    const data = live();
+    data.running = [{ id: "run:unknown", state: "running", title: "Unknown start", at: new Date().toISOString(), shots: [], previews: [], links: [] } as typeof data.running[number]];
+    await update(data);
+    await settle();
+    island().click();
+    expect(sheet().querySelector(".run-row .n span")!.textContent).toBe("");
+  });
+
   it("opens a running job in the middle", async () => {
     await update(live());
     await settle();

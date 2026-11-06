@@ -42,6 +42,7 @@ export interface Job {
   /** Client, or the one-line what, shown beside the state. */
   project: string;
   at: string;
+  started?: string;
   next: string;
   /** "you" when the next action is his; otherwise the run's owner. */
   owner: string;
@@ -64,6 +65,7 @@ export interface JobRun {
   outcome: string;
   owner: string;
   updatedAt: string;
+  started?: string;
   question?: string;
   report?: string;
   artifacts: string[];
@@ -121,6 +123,7 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
     outcome: one(run.request.intendedOutcome || run.request.originalMessage),
     owner: run.owner,
     updatedAt: run.updatedAt,
+    ...(run.createdAt ? { started: run.createdAt } : {}),
     ...(question ? { question: one(question) } : {}),
     ...(report ? { report } : {}),
     artifacts: run.result?.artifacts ?? [],
@@ -132,6 +135,7 @@ interface Signal {
   /** Its own state word, when the group's does not say it. */
   state?: string;
   at: string;
+  started?: string;
   next: string;
   owner: string;
   ask: string;
@@ -151,7 +155,7 @@ function runSignal(run: JobRun, now: number): Signal | null {
   if (run.status === "queued") return { group: "waiting", state: "Queued", at, next: run.outcome || "Queued", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is queued` };
   if (run.status === "accepted" || run.status === "working") {
     if (now - Date.parse(at) > QUIET_RUN_MS) return { group: "waiting", at, next: run.outcome || "Nothing has moved this.", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} has gone quiet` };
-    return { group: "working", at, next: run.outcome || "In progress", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
+    return { group: "working", at, ...(run.started ? { started: run.started } : {}), next: run.outcome || "In progress", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
   }
   if (run.status === "incomplete" || run.status === "failed") {
     return { group: "waiting", at, next: run.outcome || "The last handoff did not finish", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
@@ -328,6 +332,7 @@ export function jobsFrom(input: {
       title: bucket.title,
       project: bucket.project,
       at,
+      ...(lead.started ? { started: lead.started } : {}),
       next: lead.next,
       owner: lead.owner,
       ask: lead.ask,

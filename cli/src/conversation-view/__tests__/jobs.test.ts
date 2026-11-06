@@ -35,6 +35,11 @@ describe("jobsFrom", () => {
     expect(board.jobs.find((job) => job.id === "cap5")!.group).toBe("needs");
   });
 
+  it("carries the run start separately from its latest update", () => {
+    const board = jobsFrom({ runs: [run({ started: "2026-10-26T09:00:00Z", updatedAt: "2026-10-26T11:59:00Z" })], now: NOW });
+    expect(board.jobs.find((job) => job.group === "working")).toMatchObject({ started: "2026-10-26T09:00:00Z", at: "2026-10-26T11:59:00Z" });
+  });
+
   it("does not count queued work or a run gone quiet as working", () => {
     const show = { ...screen, next: [{ id: "next:q", kind: "next", headline: "Queued thing", why: "", task: "q" }] } as unknown as ShowScreen;
     const board = jobsFrom({ show, runs: [run({ id: "stale", project: "", updatedAt: "2026-10-20T11:00:00.000Z" }), run({ id: "note", project: "", status: "queued" })], now: NOW });

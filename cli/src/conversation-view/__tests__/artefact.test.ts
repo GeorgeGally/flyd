@@ -1189,6 +1189,24 @@ describe("ArtefactFeed fleet reads", () => {
     }
   };
 
+  it("preserves calls and current lifecycle rows through the ledger", async () => {
+    const { home, script } = fleetHome("artefact-call-lifecycle-");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: ["working", "paused", "ready", "staff"].map((id) => ({ id, summary: "Choose " + id })), in_flight: [
+      { id: "working", state: "working", name: "Building" },
+      { id: "paused", state: "paused", name: "Paused" },
+      { id: "ready", state: "done", name: "Finished" },
+    ] }));
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, ...files(home), workers: () => [{ id: "staff", name: "Staff worker", state: "working" }] });
+    await feed.refresh();
+    const fleet = feed.current().fleet!;
+    expect(fleet.calls.map((row) => row.task)).toEqual(expect.arrayContaining(["working", "paused", "ready", "staff"]));
+    expect(fleet.live.map((row) => row.task)).toEqual(expect.arrayContaining(["working", "staff"]));
+    expect(fleet.held.map((row) => row.task)).toContain("paused");
+    expect(fleet.ready.map((row) => row.task)).toContain("ready");
+  });
+
   it("shows every worker the staff is running, not only the first twenty the snapshot lists", async () => {
     const { home, script } = fleetHome("artefact-workers-");
     const snapshot = join(home, "bearings.json");

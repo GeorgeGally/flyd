@@ -125,7 +125,7 @@ function needsOf(show: ShowScreen): LiveItem[] {
 /** Open runs the board has beside the fleet's workers: their cards count as running too. */
 function runningRuns(jobs: readonly Job[] | undefined): LiveItem[] {
   return (jobs ?? []).filter((job) => job.group === "working" && !job.id.startsWith("live:")).map((job) => ({
-    id: job.id, state: "running", title: job.title, ...(job.project ? { project: job.project } : {}), ...(job.at ? { at: job.at } : {}),
+    id: job.id, state: "running", title: job.title, ...(job.project ? { project: job.project } : {}), ...(job.at ? { at: job.at } : {}), ...(job.started ? { since: job.started } : {}),
     ...(job.next && job.next !== job.title ? { step: job.next } : {}), shots: job.shots, previews: [], links: job.links,
   }));
 }
