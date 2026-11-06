@@ -236,7 +236,8 @@ export function jobsFrom(input: {
     const id = project?.id || key;
     bucket = { id, title, project: project ? labelOf(project) : "", signals: [], shots: [], links: [], files: [], threads: [], reports: [] };
     buckets.set(project ? jobKey(project.id) : key, bucket);
-    if (!project && !seenInferred.has(key) && key) {
+    // A fallback title is a worker's headline, not a project's name: it may label the card but never registers a project.
+    if (!project && !fallbackTitle && !seenInferred.has(key) && key) {
       seenInferred.add(key);
       inferred.push({ name: title, kind: "product" });
     }

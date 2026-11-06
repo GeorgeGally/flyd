@@ -7,7 +7,7 @@ import { digestHash } from "../job-digest.js";
 import { editJob, jobRunFromDomain, jobsFrom, type JobRun } from "../jobs.js";
 import { heldItems, parseBearings } from "../artefact.js";
 import type { DomainRun } from "../../command/types.js";
-import type { Project } from "../../council/projects.js";
+import { applyProjectOps, readProjects, type Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
 
 const NOW = Date.parse("2026-10-26T12:00:00.000Z");
@@ -56,10 +56,24 @@ describe("jobsFrom", () => {
     const show = { ...screen, held: heldItems(fleet) };
     const board = jobsFrom({ show, now: NOW });
     expect(board.jobs.map((job) => [job.title, job.group, job.state, job.ask])).toEqual([
-      ["paused worker", "waiting", "Paused", ""],
-      ["parked worker", "waiting", "Paused", ""],
-      ["blocked worker", "waiting", "Paused", ""],
+      ["Paused worker", "waiting", "Paused", ""],
+      ["Parked worker", "waiting", "Paused", ""],
+      ["Blocked worker", "waiting", "Paused", ""],
     ]);
+  });
+
+  it("keeps a paused worker on an unknown repo path to its Paused card across boards", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "flyd-jobs-")), "projects.json");
+    const show = {
+      ...screen,
+      held: [{ id: "held:lab", kind: "waiting", headline: "Lab hardware pass", why: "", project: "/Users/g/.treehouse/pierre-hardware-lab", status: "paused" }],
+    } as unknown as ShowScreen;
+    const first = jobsFrom({ projects: readProjects(path), show, now: NOW });
+    // The server registers whatever the board infers, then draws the board again.
+    applyProjectOps(first.inferred.map((item) => ({ op: "upsert" as const, name: item.name, kind: item.kind, status: "active", what: "" })), { knownRepos: [], path });
+    expect(readProjects(path)).toEqual([]);
+    const board = jobsFrom({ projects: readProjects(path), show, now: NOW });
+    expect(board.jobs.map((job) => [job.title, job.group, job.state])).toEqual([["Lab hardware pass", "waiting", "Paused"]]);
   });
 
   it("retains the paused count on a project card alongside its leading signal", () => {
