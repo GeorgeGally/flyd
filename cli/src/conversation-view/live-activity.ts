@@ -100,7 +100,7 @@ function fromObject(object: SemanticObject): LiveItem {
 }
 
 /** One list of what needs him: Core's own, with each row's fleet card behind it when it has one. */
-function needsOf(show: ShowScreen): LiveItem[] {
+function needsOf(show: ShowScreen, jobs: readonly Job[] = []): LiveItem[] {
   const calls = new Map((show.calls ?? []).map((item) => [item.id, item]));
   const ready = new Map((show.ready ?? []).map((item) => [item.id, item]));
   const objects = [...(show.focus && needsGeorge(show.focus) ? [show.focus] : []), ...(show.needs ?? [])];
@@ -113,6 +113,13 @@ function needsOf(show: ShowScreen): LiveItem[] {
     return call ? fromItem(call, "call") : done ? fromItem(done, "ready") : fromObject(object);
   });
   const all = [...listed, ...[...calls.values()].map((item) => fromItem(item, "call")), ...[...ready.values()].map((item) => fromItem(item, "ready"))];
+  for (const job of jobs) {
+    if (job.group !== "needs" || !job.id.startsWith("run:")) continue;
+    all.push({ id: job.id, task: job.id.slice(4), state: "call", title: job.ask || job.title,
+      ...(job.project ? { project: job.project } : {}), ...(job.at ? { at: job.at } : {}),
+      shots: job.shots, previews: [], links: job.links, ...(job.decision ? { decision: job.decision } : {}) });
+  }
+  all.sort((a, b) => Number(b.state === "call") - Number(a.state === "call"));
   const seen = new Set<string>();
   return all.filter((item) => {
     const key = item.task ?? item.id;
@@ -133,7 +140,7 @@ function runningRuns(jobs: readonly Job[] | undefined): LiveItem[] {
 export function liveActivityOf(show: ShowScreen, jobs?: readonly Job[], now = Date.now()): LiveActivity {
   const running = [...(show.underway ?? []).map((item) => fromItem(item, "running")), ...runningRuns(jobs)];
   const paused = (show.held ?? []).filter((item) => item.status === "paused").map((item) => fromItem(item, "paused"));
-  const needs = needsOf(show).sort((a, b) => Number(b.state === "call") - Number(a.state === "call") || newestFirst(a, b));
+  const needs = needsOf(show, jobs).sort((a, b) => Number(b.state === "call") - Number(a.state === "call") || newestFirst(a, b));
   const old = (item: LiveItem) => now - timeOf(item.at) > RECENT_MS;
   const seen = new Set<string>();
   const landed = [...(show.done ?? []), ...(show.landedWeek ?? [])]

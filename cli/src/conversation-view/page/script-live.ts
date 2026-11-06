@@ -16,9 +16,9 @@ export const LIVE_SCRIPT = `
 
   function liveCount(number, one, none) { return number ? number + " " + one : none; }
   function liveIslandHtml(live) {
-    if (!live.known) return '<span class="l">Not read yet</span>';
+    if (!live.known && !live.counts.running && !live.counts.needs) return '<span class="l">Not read yet</span>';
     var dot = live.counts.running ? '<span class="idot" aria-hidden="true"></span>' : "";
-    return '<span class="l">' + dot + liveCount(live.counts.running, "running", "Nothing running") + '</span><span class="gap" aria-hidden="true"></span>'
+    return '<span class="l">' + dot + liveCount(live.counts.running, "running", live.known ? "Nothing running" : "Not read yet") + '</span><span class="gap" aria-hidden="true"></span>'
       + '<span class="r' + (live.counts.needs ? " on" : "") + '">' + liveCount(live.counts.needs, "need you", "Nothing needs you") + '</span>';
   }
   function liveElapsed(iso) {
@@ -142,6 +142,9 @@ export const LIVE_SCRIPT = `
     if (input && hadFocus) { input.focus(); if (start !== null && end !== null) input.setSelectionRange(start, end); }
   }
   function liveDraw(live) {
+    var previousCalls = notch.live ? notch.live.needs.concat(notch.live.older).filter(function (item) { return item.state === "call"; }).map(function (item) { return item.id; }) : [];
+    var hasNewCall = live.needs.concat(live.older).some(function (item) { return item.state === "call" && previousCalls.indexOf(item.id) === -1; });
+    if (hasNewCall) notch.picked = "";
     notch.live = live;
     var island = liveIslandHtml(live);
     if (islandEl.innerHTML !== island) islandEl.innerHTML = island;
@@ -188,6 +191,7 @@ export const LIVE_SCRIPT = `
 
   function liveShow() {
     if (!notch.live || notchEl.open) return;
+    notch.picked = "";
     notch.drawn = "";
     liveDrawSheet(notch.live);
     if (notchEl.showModal) notchEl.showModal(); else notchEl.setAttribute("open", "");

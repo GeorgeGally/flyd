@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { liveActivityOf } from "../live-activity.js";
-import type { Job } from "../jobs.js";
+import { jobsFrom, type Job } from "../jobs.js";
 import type { SemanticObject } from "../semantic.js";
 import type { ShowItem, ShowScreen } from "../show.js";
 
@@ -71,6 +71,15 @@ describe("liveActivityOf", () => {
     const live = liveActivityOf(screen({ underway: [item("live", "a")] }), jobs, NOW);
     expect(live.running.map((row) => row.title)).toEqual(["a", "Draft the note"]);
     expect(live.counts.running).toBe(2);
+  });
+
+  it("shows distinct domain decisions and deduplicates an existing fleet call", () => {
+    const runs = ["a", "b"].map((id) => ({ id, status: "needs_decision", project: "Flyd", outcome: "Build", owner: "Flyd", updatedAt: "2026-11-06T11:00:00Z", question: `Choose ${id}`, artifacts: [] }));
+    const show = screen({ calls: [item("call", "a", { at: "2026-11-06T10:00:00Z" })], ready: [item("ready", "lab", { at: "2026-11-06T11:30:00Z" })] });
+    const live = liveActivityOf(show, jobsFrom({ runs, show, now: NOW }).jobs, NOW);
+    expect(live.counts.needs).toBe(3);
+    expect(live.needs.map((row) => [row.task, row.state])).toEqual([["b", "call"], ["a", "call"], ["lab", "ready"]]);
+    expect(live.needs[0]!.title).toBe("Choose b");
   });
 
   it("keeps a run's start distinct from its latest update", () => {

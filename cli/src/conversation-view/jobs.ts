@@ -248,10 +248,10 @@ export function jobsFrom(input: {
     if (!signal || (signal.group === "working" && running.has(run.id))) continue;
     const name = run.project;
     if (!name && signal.group === "done") continue;
-    const bucket = signal.group === "working"
+    const bucket = (signal.group === "working" || signal.group === "needs")
       ? lone(buckets, `run:${run.id}`, run.outcome || name || "Untitled run")
       : name ? bucketFor(name) : lone(buckets, run.id, run.outcome || "Untitled run");
-    if (signal.group === "working" && name) bucket.project = name;
+    if ((signal.group === "working" || signal.group === "needs") && name) bucket.project = name;
     bucket.signals.push(signal);
     bucket.threads.push({ id: run.id, title: run.outcome || run.id, at: run.updatedAt, kind: "run" });
     for (const artifact of artifactsOf(run.artifacts, exists)) {

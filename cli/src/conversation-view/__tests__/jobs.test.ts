@@ -72,7 +72,7 @@ describe("jobsFrom", () => {
   it("keeps active runs distinct beside a project decision", () => {
     const board = jobsFrom({ projects: [project()], runs: [run(), run({ id: "run-2", outcome: "Review the deck" }), run({ id: "choice", status: "needs_decision" })], now: NOW });
     expect(board.jobs.filter((job) => job.group === "working").map((job) => job.id).sort()).toEqual(["run:run-1", "run:run-2"]);
-    expect(board.jobs.find((job) => job.id === "cap5")?.group).toBe("needs");
+    expect(board.jobs.find((job) => job.id === "run:choice")?.group).toBe("needs");
   });
 
   it("puts a decision on Needs you and names the question", () => {

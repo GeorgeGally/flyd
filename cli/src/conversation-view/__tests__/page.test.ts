@@ -4001,6 +4001,21 @@ describe("the notch", () => {
     expect(sheet().textContent).toContain("An old hold");
   });
 
+  it("opens on a call after selecting ready work and when a call arrives", async () => {
+    const initial = live({ needs: [live().needs[1]!], older: [] });
+    const stream = await update(initial);
+    await settle();
+    island().click();
+    expect(sheet().querySelector(".q")!.textContent).toBe("Five versions");
+    stream.emit("update", { order: [], messages: [], working: false, live: live() });
+    expect(sheet().querySelector(".q")!.textContent).toBe("Which version ships?");
+    (sheet().querySelector('[data-pick="ready:lab"]') as HTMLButtonElement).click();
+    expect(sheet().querySelector(".q")!.textContent).toBe("Five versions");
+    (document.getElementById("notch-close") as HTMLButtonElement).click();
+    island().click();
+    expect(sheet().querySelector(".q")!.textContent).toBe("Which version ships?");
+  });
+
   it("does not call a last update elapsed runtime", async () => {
     const data = live();
     data.running = [{ id: "run:unknown", state: "running", title: "Unknown start", at: new Date().toISOString(), shots: [], previews: [], links: [] } as typeof data.running[number]];
