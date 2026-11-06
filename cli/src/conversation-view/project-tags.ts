@@ -147,8 +147,7 @@ const CARRIES_MS = 20 * 60_000;
 function ownNames(message: ConversationMessage, read: (text: string) => string[]): string[] {
   const note = plainNote(message.text);
   const named = note.project ? [note.project, ...read(note.words)] : read(message.text);
-  const unique = [...new Set(named)];
-  return unique.length > ROUND_UP ? [] : unique;
+  return [...new Set(named)];
 }
 
 export interface TaggedTurns {
@@ -176,6 +175,7 @@ export function tagTurns(turns: Turn[], read: (text: string) => string[], answer
   });
   const unplaced: number[] = [];
   const settled = turns.map((turn, index) => {
+    if (named[index]!.length > ROUND_UP) return [];
     if (named[index]!.length) return named[index]!;
     const answer = answered(turn);
     if (answer !== undefined) return answer ? [answer] : [];
@@ -185,6 +185,10 @@ export function tagTurns(turns: Turn[], read: (text: string) => string[], answer
   });
   turns.forEach((turn, index) => {
     const whole = settled[index]!;
+    if (named[index]!.length > ROUND_UP) {
+      for (const message of [...turn.asked, ...(turn.reply ? [turn.reply] : [])]) tags.set(message.id, []);
+      return;
+    }
     let before: string[] = [];
     for (const message of turn.asked) {
       const mine = own.get(message.id)!;
@@ -211,6 +215,7 @@ function carried(turns: Turn[], named: string[][], index: number): string[] {
   const close = (look: number): boolean => Math.abs(at - turnTime(turns[look]!)) <= CARRIES_MS;
   const before: string[][] = [];
   for (let look = index - 1; look >= 0 && before.length < 2 && close(look); look -= 1) {
+    if (named[look]!.length > ROUND_UP) break;
     if (named[look]!.length) before.push(named[look]!);
   }
   const projects = new Set(before.flat());

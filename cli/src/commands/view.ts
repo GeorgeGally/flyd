@@ -149,7 +149,7 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, i
   const firstmateDir = resolveProjectDir(FIRSTMATE_PROJECT_DIR);
   const firstmate = transcript ?? (existsSync(firstmateDir) ? new ClaudeCodeTranscriptSource({ projectDir: firstmateDir }) : undefined);
   const feeds: ThreadFeed[] = [
-    ...(transcript ? [] : [{ sessions: () => flyd.listSessions(), read: (id: string) => flyd.read(id), image: (session: string, id: string) => flyd.image(session, id) }]),
+    ...(transcript ? [] : [{ volatile: true, sessions: () => flyd.listSessions(), read: (id: string) => flyd.read(id), image: (session: string, id: string) => flyd.image(session, id) }]),
     ...(firstmate ? [{
       sessions: () => firstmate.listSessions(),
       read: (id: string) => firstmate.readHistory(id),

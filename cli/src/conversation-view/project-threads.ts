@@ -31,6 +31,7 @@ export interface ThreadFeed {
   shows?(message: ConversationMessage): boolean;
   /** Changes when something beside the session's own file changes what it reads as: an inbox note, its reply. */
   revision?(): string;
+  volatile?: boolean;
 }
 
 export interface ThreadSummary {
@@ -157,10 +158,12 @@ export class ProjectThreads {
         const key = `${feed}|${session.id}`;
         const stamp = `${session.updatedAt}|${revision}`;
         listed.add(key);
-        if (this.sessions.get(key)?.stamp === stamp) continue;
+        if (!source.volatile && this.sessions.get(key)?.stamp === stamp) continue;
         const snapshot = await source.read(session.id).catch(() => undefined);
         if (!snapshot) continue;
-        this.index(key, feed, stamp, session.id, snapshot.messages);
+        const snapshotStamp = source.volatile ? `${stamp}|${JSON.stringify(snapshot)}` : stamp;
+        if (this.sessions.get(key)?.stamp === snapshotStamp) continue;
+        this.index(key, feed, snapshotStamp, session.id, snapshot.messages);
         changed = true;
         // A long backfill shows what it has as it goes.
         if (!this.ready) this.merge();
@@ -352,14 +355,22 @@ export function withProjectThreads(source: ConversationSource, threads: ProjectT
       if (isThread(sessionId)) return name ? { id: sessionId, title: name, updatedAt: new Date().toISOString() } : undefined;
       return source.newSession?.(sessionId);
     },
-    read: async (sessionId) => (isThread(sessionId) ? threads.snapshot(sessionId) : source.read(sessionId)),
+    read: async (sessionId) => {
+      if (!isThread(sessionId)) return source.read(sessionId);
+      const snapshot = threads.snapshot(sessionId);
+      const current = await target(sessionId).then((id) => source.read(id)).catch(() => undefined);
+      return current?.confirm ? { ...snapshot, confirm: current.confirm } : snapshot;
+    },
     follow: (sessionId, onUpdate, onError): ConversationFollower => {
       if (!isThread(sessionId)) return source.follow(sessionId, onUpdate, onError);
       let closed = false;
       let last = "";
+      let confirm: ConversationSnapshot["confirm"];
+      let targetFollower: ConversationFollower | undefined;
       const update = () => {
         if (closed) return;
-        const snapshot = threads.snapshot(sessionId);
+        const base = threads.snapshot(sessionId);
+        const snapshot = confirm ? { ...base, confirm } : base;
         const said = JSON.stringify(snapshot);
         if (said === last) return;
         last = said;
@@ -367,7 +378,11 @@ export function withProjectThreads(source: ConversationSource, threads: ProjectT
       };
       const stop = threads.onChange(update);
       update();
-      return { close: () => { closed = true; stop(); } };
+      void target(sessionId).then((id) => {
+        if (closed) return;
+        targetFollower = source.follow(id, (snapshot) => { confirm = snapshot.confirm; update(); }, onError);
+      }).catch((error: unknown) => onError?.(error instanceof Error ? error : new Error(String(error))));
+      return { close: () => { closed = true; stop(); targetFollower?.close(); } };
     },
     send: async (sessionId, text, images?: ImageUpload[], files?: FileUpload[], to?) =>
       sent(isThread(sessionId) ? source.send(await target(sessionId), inThread(sessionId, text), images, files, to) : source.send(sessionId, text, images, files, to)),

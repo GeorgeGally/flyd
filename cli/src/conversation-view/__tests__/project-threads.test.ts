@@ -213,6 +213,31 @@ describe("firstmate placing what Flyd cannot", () => {
     expect(away.known("t0")).toBeUndefined();
   });
 
+  it("retries missing and unknown answers once and persists the retry limit", async () => {
+    let now = 1_000_000_000_000;
+    const file = join(mkdtempSync(join(tmpdir(), "flyd-retry-")), "tags.json");
+    const staff = firstmate((note) => {
+      const ids = [...note.matchAll(/^([0-9a-f]{8}) \|/gm)].map((match) => match[1]);
+      return `${ids[0]}: Logan\n${ids[1]}: Unknown`;
+    });
+    const cases = ["a", "b", "c"].map((turn) => ({ turn, line: turn }));
+    let asker = new ProjectAsker({ ...staff, names, file, now: () => now });
+    await asker.ask(cases);
+    await asker.ask(cases);
+    expect(asker.known("a")).toBe("Logan");
+    expect(asker.known("b")).toBeUndefined();
+    expect(asker.known("c")).toBeUndefined();
+    asker = new ProjectAsker({ ...staff, names, file, now: () => now });
+    now += 16 * 60_000;
+    await asker.ask(cases);
+    await asker.ask(cases);
+    expect(asker.known("b")).toBe("Logan");
+    expect(asker.known("c")).toBeNull();
+    now += 16 * 60_000;
+    await asker.ask(cases);
+    expect(staff.notes).toHaveLength(2);
+  });
+
   it("gives up on a note never answered, so the next can go", async () => {
     let now = 1_000_000_000_000;
     const staff = firstmate();
@@ -226,6 +251,17 @@ describe("firstmate placing what Flyd cannot", () => {
 });
 
 describe("what the threads keep up with", () => {
+  it("refreshes volatile failure state without a timestamp change", async () => {
+    const sessions: Record<string, { updatedAt: string; messages: ConversationMessage[] }> = { s: { updatedAt: "2026-11-06T10:00:00Z", messages: [{ ...user("q", "DIR ident", "2026-11-06T09:00:00Z"), waiting: "Working" }] } };
+    const threads = new ProjectThreads({ feeds: [{ ...feed(sessions), volatile: true }], projects });
+    await threads.refresh();
+    expect(threads.snapshot("project:dir").working).toBe(true);
+    sessions.s!.messages[0] = { ...sessions.s!.messages[0]!, waitingFailed: true };
+    await threads.refresh();
+    expect(threads.snapshot("project:dir").working).toBe(false);
+    expect(threads.snapshot("project:dir").messages[0]?.waitingFailed).toBe(true);
+  });
+
   it("lets a conversation that went away go", async () => {
     const sessions = { a: { updatedAt: "2026-11-06T10:00:00Z", messages: [user("q", "DIR ident", "2026-11-06T09:00:00Z")] } } as Record<string, { updatedAt: string; messages: ConversationMessage[] }>;
     const threads = new ProjectThreads({ feeds: [feed(sessions)], projects });
@@ -321,6 +357,28 @@ describe("withProjectThreads", () => {
     expect(source.sent).toEqual([["live", "hello"]]);
     expect(wrapped.newSession?.("project:nothing")).toBeUndefined();
     expect(wrapped.newSession?.("project:dir")?.title).toBe("DIR");
+  });
+
+  it("exposes and clears the target session confirmation in reads and follows", async () => {
+    let confirmation: ConversationSnapshot["confirm"] = { id: "approval", prompt: "Continue?" };
+    let publish: ((snapshot: ConversationSnapshot) => void) | undefined;
+    let closed = false;
+    const source = base({
+      newSession: (id) => ({ id, title: "New", updatedAt: "" }),
+      read: async () => ({ messages: [], working: true, ...(confirmation ? { confirm: confirmation } : {}) }),
+      follow: (_id, onUpdate) => { publish = onUpdate; onUpdate({ messages: [], working: true, confirm: confirmation }); return { close: () => { closed = true; } }; },
+    });
+    const wrapped = withProjectThreads(source, await threads());
+    expect((await wrapped.read("project:dir")).confirm).toEqual(confirmation);
+    const seen: ConversationSnapshot[] = [];
+    const follower = wrapped.follow("project:dir", (snapshot) => seen.push(snapshot));
+    await vi.waitFor(() => expect(seen.at(-1)?.confirm?.id).toBe("approval"));
+    confirmation = undefined;
+    publish!({ messages: [], working: false });
+    expect(seen.at(-1)?.confirm).toBeUndefined();
+    expect((await wrapped.read("project:dir")).confirm).toBeUndefined();
+    follower.close();
+    expect(closed).toBe(true);
   });
 
   it("follows a thread, and tells the follower when it changes", async () => {

@@ -110,6 +110,14 @@ describe("tagTurns", () => {
     expect(tags.get("r")).toEqual([]);
   });
 
+  it("keeps a roundup out of projects and classification beside a named turn", () => {
+    const turns = turnsOf([user("a", "DIR ident"), reply("b", "Done."), user("c", "Flyd DIR Logan CapFive HFTW status", "2026-11-06T10:05:00Z"), reply("d", "All moving.")]);
+    const result = tagTurns(turns, read, () => "DIR");
+    expect(result.tags.get("c")).toEqual([]);
+    expect(result.tags.get("d")).toEqual([]);
+    expect(result.unplaced).toEqual([]);
+  });
+
   it("lets a quiet stacked message follow the one before it", () => {
     const tags = tagged([user("a", "fix the DIR ident"), user("b", "and make it bigger"), reply("r", "Done.")]);
     expect(tags.get("b")).toEqual(["DIR"]);
