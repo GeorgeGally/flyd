@@ -1,4 +1,4 @@
-import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, createReadStream, openSync, readSync, statSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 
 const CHUNK_BYTES = 1 << 20;
@@ -66,4 +66,25 @@ export class LineFollower {
     }
     return count;
   }
+}
+
+/**
+ * Hands each complete line from byte `start` to `onLine` without holding the
+ * event loop for the whole file, and returns the offset to carry on from: the
+ * byte after the last newline. For a long transcript read in the background.
+ */
+export async function readLinesFrom(path: string, start: number, onLine: (line: string, offset: number) => void): Promise<number> {
+  let held: Buffer = Buffer.alloc(0);
+  let cursor = start;
+  for await (const chunk of createReadStream(path, { start })) {
+    const data = held.length ? Buffer.concat([held, chunk as Buffer]) : chunk as Buffer;
+    let from = 0;
+    for (let newline = data.indexOf(10, from); newline !== -1; newline = data.indexOf(10, from)) {
+      if (newline > from) onLine(data.toString("utf8", from, newline), cursor + from);
+      from = newline + 1;
+    }
+    cursor += from;
+    held = data.subarray(from);
+  }
+  return cursor;
 }

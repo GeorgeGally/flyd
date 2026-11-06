@@ -42,7 +42,8 @@ import { ArtefactFeed, composeArtefact, WHATSAPP_LINK, type ArtefactInputs } fro
 import type { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail, RailState } from "./rail.js";
-import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailNotice, type RailPreview } from "./rail.js";
+import { isThread } from "./project-threads.js";
+import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailNotice, type RailPreview, plainNote } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import type { ActivityPanel, ActivityReader } from "./activity.js";
 import { isArticleSession, openArticleChat } from "./article-chat.js";
@@ -502,7 +503,7 @@ export class SnapshotDiffer {
       const relay = message.role === "assistant" && message.aside ? staffLine(message.text, handled) : undefined;
       // An answer to his own question is never muted as routine: firstmate's is told by Flyd, Flyd's own
       // shows whole when it fits a glance and else leads with its first few lines.
-      const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.form ? { body: message.text } : message.role !== "assistant" ? { body: message.text }
+      const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.form ? { body: message.text } : message.role !== "assistant" ? { body: plainNote(message.text).thread ? plainNote(message.text).words : message.text }
         : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
           : relay && relay.kind !== "absorbed" ? { body: message.text, summary: { html: renderMarkdown(georgeMarkdown(relay)), source: "flyd" } }
             : !message.answers ? this.summarize(message, fresh)
@@ -925,6 +926,10 @@ export class ConversationViewServer {
     }
     if (url.pathname === "/api/sessions") {
       sendJson(res, 200, { assistantLabel: this.source.assistantLabel, sessions: await this.source.listSessions() });
+      return;
+    }
+    if (url.pathname === "/api/projects") {
+      sendJson(res, 200, this.source.projectThreads?.() ?? { ready: true, projects: [] });
       return;
     }
     if (url.pathname === "/api/token") {
@@ -2096,8 +2101,8 @@ export class ConversationViewServer {
         rail: (snapshot) => this.rail(snapshot),
         ...(this.activity ? { leftColumn: () => this.activity!.current() } : {}),
         live: (url) => this.previews.state(url),
-        // A chat about one article is about the article: the WhatsApp offer stays out of it.
-        whatsappUnlinked: () => !isArticleSession(session.id) && this.whatsappUnlinked(),
+        // A chat about one article, or a project's thread, is about that: the WhatsApp offer stays out of it.
+        whatsappUnlinked: () => !isArticleSession(session.id) && !isThread(session.id) && this.whatsappUnlinked(),
         jobs: (shot, screen) => this.jobBoard(shot, screen),
       });
     const emitUpdate = (snapshot: ConversationSnapshot) => {

@@ -52,6 +52,8 @@ export const SESSION_SCRIPT = `
         reset();
       }
       current = session.id;
+      if (session.id.indexOf("project:") === 0) document.documentElement.setAttribute("data-thread", session.id);
+      else document.documentElement.removeAttribute("data-thread");
       assistant = session.assistantLabel;
       answersInSession = session.answersInSession === true;
       showTitle(session);

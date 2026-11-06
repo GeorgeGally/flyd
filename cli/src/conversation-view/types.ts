@@ -7,6 +7,7 @@
 // without the server or page changing.
 
 import type { AnswerBody } from "./answer-form.js";
+import type { ThreadList } from "./project-threads.js";
 import type { SiteHints, SitePage } from "./site-changes.js";
 
 export type ConversationRole = "user" | "assistant";
@@ -197,4 +198,6 @@ export interface ConversationSource {
    * newer session has started.
    */
   noteAnswer?(noteId: string): Promise<ConversationMessage | undefined>;
+  /** His conversations split by project, when the view keeps them. */
+  projectThreads?(): ThreadList;
 }

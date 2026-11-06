@@ -4139,3 +4139,93 @@ describe("the front page", () => {
     expect(document.querySelector(".jv-files")!.textContent).toBe("deck.pdf");
   });
 });
+
+describe("project threads", () => {
+  const LIST = {
+    ready: true,
+    all: { id: "project:all", name: "All", question: "the DIR ident", at: "2026-10-05T21:00:00.000Z", replyAt: "2026-10-05T21:00:00.000Z", count: 3 },
+    projects: [
+      { id: "project:dir", name: "DIR", question: "the <ident>", answer: "It's smaller now.", at: "2026-10-05T21:00:00.000Z", replyAt: "2026-10-05T21:00:00.000Z", count: 2 },
+      { id: "project:logan", name: "Logan", question: "gradients", answer: "In.", at: "2026-10-05T19:00:00.000Z", replyAt: "2026-10-05T19:00:00.000Z", count: 1 },
+    ],
+  };
+  const listed = (list: unknown) => {
+    const before = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => (url === "/api/projects" ? json(list) : before(url, init)));
+  };
+  const seenFrom = (since: string) => localStorage.setItem("flyd-threads-seen", JSON.stringify({ since }));
+
+  it("lists each project's latest exchange, escaped, with All first", async () => {
+    listed(LIST);
+    load("");
+    await settle();
+    const rows = Array.from(document.querySelectorAll(".thread"));
+    expect(rows.map((row) => row.querySelector(".thread-name")?.textContent)).toEqual(["All", "DIR", "Logan"]);
+    expect(rows[1]!.querySelector(".thread-q")?.textContent).toBe("the <ident>");
+    expect(rows[1]!.querySelector(".thread-a")?.textContent).toBe("It's smaller now.");
+  });
+
+  it("ends the list with what nothing could place", async () => {
+    listed({ ...LIST, other: { id: "project:other", name: "Other", question: "smaller", at: "2026-10-05T18:00:00.000Z", count: 1 } });
+    load("");
+    await settle();
+    expect(Array.from(document.querySelectorAll(".thread-name")).map((row) => row.textContent)).toEqual(["All", "DIR", "Logan", "Other"]);
+  });
+
+  it("marks what came after his last look, on the project and its tab, never on All", async () => {
+    seenFrom("2026-10-05T20:00:00.000Z");
+    listed(LIST);
+    load("");
+    await settle();
+    expect(document.querySelector('[data-thread="project:dir"]')!.classList.contains("unread")).toBe(true);
+    expect(document.querySelector('[data-thread="project:logan"]')!.classList.contains("unread")).toBe(false);
+    expect(document.querySelector('[data-thread="project:all"]')!.classList.contains("unread")).toBe(false);
+    expect((document.getElementById("rtab-threads-dot") as HTMLElement).hidden).toBe(false);
+  });
+
+  it("treats history as read on his first look", async () => {
+    listed(LIST);
+    load("");
+    await settle();
+    expect(document.querySelectorAll(".thread.unread")).toHaveLength(0);
+    expect((document.getElementById("rtab-threads-dot") as HTMLElement).hidden).toBe(true);
+  });
+
+  it("opens a thread on a click: follows it, marks it read, and keeps that across a reload", async () => {
+    seenFrom("2026-10-05T20:00:00.000Z");
+    listed(LIST);
+    load("");
+    await settle();
+    (document.querySelector('[data-thread="project:dir"]') as HTMLElement).click();
+    await settle();
+    expect(FakeEventSource.instances.at(-1)!.url).toContain("session=project%3Adir");
+    expect(location.search).toContain("project%3Adir");
+    open("project:dir", []);
+    expect(document.documentElement.getAttribute("data-thread")).toBe("project:dir");
+    const row = document.querySelector('.thread[data-thread="project:dir"]')!;
+    expect(row.classList.contains("on")).toBe(true);
+    expect(row.classList.contains("unread")).toBe(false);
+    expect(JSON.parse(localStorage.getItem("flyd-threads-seen")!)["project:dir"]).toBe("2026-10-05T21:00:00.000Z");
+    expect((document.getElementById("rtab-threads-dot") as HTMLElement).hidden).toBe(true);
+  });
+
+  it("goes back to the window's own conversation", async () => {
+    listed(LIST);
+    load("?session=project%3Adir");
+    await settle();
+    open("project:dir", []);
+    document.getElementById("stage-back")!.click();
+    await settle();
+    expect(location.search).toBe("");
+    expect(FakeEventSource.instances.at(-1)!.url).not.toContain("project");
+    FakeEventSource.instances.at(-1)!.emit("session", { id: "latest", title: "Latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    expect(document.documentElement.hasAttribute("data-thread")).toBe(false);
+  });
+
+  it("says what is happening while the history is still being read", async () => {
+    listed({ ready: false, projects: [] });
+    load("");
+    await settle();
+    expect(document.getElementById("threads")!.textContent).toBe("Reading your conversations.");
+  });
+});

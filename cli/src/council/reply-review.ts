@@ -139,6 +139,11 @@ export function screenOutgoing(said: Said & { source: string }, dir = selfReview
   return { send: shortfalls.length === 0, shortfalls };
 }
 
+/** Whether a relay of the staff's would reach him, with nothing recorded: for reading old conversations. */
+export function relayMayShow(text: string): boolean {
+  return relayShortfalls(text).length === 0 && !screenBeforeDisplay({ surface: "relay", text }).hold;
+}
+
 const kept = new Set<string>();
 
 /**
