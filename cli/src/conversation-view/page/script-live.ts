@@ -42,7 +42,7 @@ export const LIVE_SCRIPT = `
       id: "notch:" + item.id, group: "notch", state: item.state === "running" ? "Working" : item.state === "paused" ? "Paused" : item.state === "landed" ? "Landed" : item.status || "Needs you",
       title: liveName(item), project: frontProject(item.project), at: item.at || item.since || "", next: "", owner: "", ask: "", because: "", digest: null,
       shots: frontShots(item.shots), previews: frontPreviews(item.previews), links: item.links || [], files: [], threads: [],
-      detail: frontText(item.step), decision: item.decision || null, task: item.task || "",
+      detail: frontText(item.step), decision: item.decision || null, task: item.task || "", domainRun: item.id.indexOf("run:") === 0 && item.state === "call" ? item.task : "",
     };
   }
   function liveEvery(live) { return live.needs.concat(live.older, live.running, live.paused, live.landed); }
@@ -218,9 +218,7 @@ export const LIVE_SCRIPT = `
     var answer = event.target.closest("[data-answer-domain]");
     if (answer) {
       liveHide();
-      frontSelect("talk");
-      var input = document.getElementById("input");
-      if (input) input.focus();
+      frontSelect("notch:" + answer.dataset.answerDomain);
       return;
     }
     var open = event.target.closest("[data-open]");

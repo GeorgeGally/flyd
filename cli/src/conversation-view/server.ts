@@ -20,7 +20,8 @@ import { currentPage, type CurrentPage } from "./site-changes.js";
 import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
 import { syncTasteSkills } from "../council/taste-skills.js";
 import { applyProjectOps, projectsPath, readProjects } from "../council/projects.js";
-import { listDomainRuns } from "../command/store.js";
+import { listDomainRuns, readDomainRun } from "../command/store.js";
+import { sendRunMessage } from "../command/messages.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { IslandRung, islandStatusOf, statusOf } from "./status.js";
@@ -1619,7 +1620,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; replyTo?: unknown; questionText?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; domainRun?: unknown; replyTo?: unknown; questionText?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -1634,6 +1635,24 @@ export class ConversationViewServer {
     const validImages = Array.isArray(images) && images.every((image) =>
       typeof image === "object" && image !== null &&
       typeof (image as ImageUpload).mediaType === "string" && typeof (image as ImageUpload).data === "string");
+    if (payload.domainRun !== undefined) {
+      if (typeof payload.domainRun !== "string" || typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > 4000) {
+        sendJson(res, 400, { error: "Enter an answer of at most 4000 characters" });
+        return;
+      }
+      const run = readDomainRun(payload.domainRun);
+      if (!run || run.status !== "needs_decision" || run.request.source === "flyd") {
+        sendJson(res, 409, { error: "This question is no longer available; refresh before answering" });
+        return;
+      }
+      const result = await sendRunMessage({ run, kind: "decision", body: payload.text });
+      if (!result.delivered) {
+        sendJson(res, 502, { error: result.error || "The answer could not be delivered" });
+        return;
+      }
+      sendJson(res, 200, { waiting: "Sent to Flyd" });
+      return;
+    }
     if (payload.decision !== undefined) {
       const call = this.feed.current().fleet?.calls.find((row) => row.executiveDecisionId ? row.executiveDecisionId === payload.decision : row.task === payload.decision);
       if (typeof payload.decision !== "string" || !call || !this.source.sendDecision) {

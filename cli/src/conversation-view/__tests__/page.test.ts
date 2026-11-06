@@ -4037,7 +4037,16 @@ describe("the notch", () => {
     expect(answer.textContent).toBe("Answer in conversation");
     answer.click();
     expect(document.getElementById("notch")!.hasAttribute("open")).toBe(false);
-    expect(document.activeElement).toBe(document.getElementById("input"));
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    expect(document.getElementById("stage-title")!.textContent).toBe("Which direction?");
+    const form = document.querySelector(".job-view .art-chat") as HTMLFormElement;
+    const input = form.querySelector("textarea")!;
+    input.value = "yes";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    form.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const call = vi.mocked(fetch).mock.calls.find((entry) => entry[0] === "/api/send" && String(entry[1]?.body).includes("domainRun"));
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ domainRun: "abc", text: "yes" });
   });
 
   it("does not call a last update elapsed runtime", async () => {
