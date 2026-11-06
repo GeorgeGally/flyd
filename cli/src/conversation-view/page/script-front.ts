@@ -38,7 +38,7 @@ export const FRONT_SCRIPT = `
   }
   var savedTab = "jobs";
   try { savedTab = localStorage.getItem("flyd-front-tab") || "jobs"; } catch (_) {}
-  frontTab(savedTab === "arts" ? "arts" : "jobs");
+  frontTab(savedTab === "arts" || savedTab === "threads" ? savedTab : "jobs");
   rtabs.addEventListener("click", function (event) {
     var tab = event.target.closest(".rtab");
     if (tab) frontTab(tab.dataset.rtab);
@@ -598,7 +598,16 @@ export const FRONT_SCRIPT = `
     jobsEl.appendChild(group);
     historyList.addEventListener("click", function (event) { if (event.target.closest(".history-item")) frontSelect("talk"); });
   })();
-  document.getElementById("stage-back").addEventListener("click", function () { frontSelect("talk"); });
+  document.getElementById("stage-back").addEventListener("click", function () {
+    frontSelect("talk");
+    if (!inThread()) return;
+    // Out of a thread: back to this window's own conversation.
+    explicit = null;
+    try { explicit = sessionStorage.getItem("flyd-window-session"); } catch (_) {}
+    window.history.replaceState(null, "", location.pathname);
+    connect(explicit);
+    loadThreads();
+  });
   window.addEventListener("keydown", function (event) {
     if (event.key !== "Escape" || event.defaultPrevented || frontActive === "talk" || !lightbox.hidden) return;
     var from = event.target;

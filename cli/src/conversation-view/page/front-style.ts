@@ -52,7 +52,7 @@ export const FRONT_STYLE = `
 }
 .rtab:hover, .rtab[aria-pressed="true"] { color: var(--ink); }
 .rtab[aria-pressed="true"] { font-weight: 500; }
-.rtab .fdot[hidden] { display: none; }
+.rtab .fdot[hidden], .rtab .thread-dot[hidden] { display: none; }
 .rtab:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 2px; }
 :root[data-layout="front"][data-rtab="arts"] .jobs, :root[data-layout="front"][data-rtab="jobs"] .rail { display: none !important; }
 :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail {

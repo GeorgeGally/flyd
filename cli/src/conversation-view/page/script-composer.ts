@@ -621,7 +621,7 @@ export const COMPOSER_SCRIPT = `
           return;
         }
         var state = el.querySelector(".state");
-        if (!answersInSession && latestSession && current !== latestSession) {
+        if (!answersInSession && !inThread() && latestSession && current !== latestSession) {
           // Firstmate answers in its live session; the note is shown there.
           state.classList.add("still");
           living(state, "Sent. It shows in the latest session");

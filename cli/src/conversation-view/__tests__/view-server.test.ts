@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { threadCatalogue } from "../project-tags.js";
+import { ProjectThreads, withProjectThreads } from "../project-threads.js";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage, Exchange } from "../types.js";
@@ -1067,6 +1069,30 @@ describe("ConversationViewServer", () => {
     expect(stream.body).toContain("event: session");
     const update = JSON.parse(stream.body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
     expect(update.messages.map((m: { html: string }) => m.html)).toEqual(["<p>hello</p>\n", "<p>Hi, <strong>Captain</strong>.</p>\n"]);
+  });
+
+  it("serves a project's thread as a stream of its own, and the list of them", async () => {
+    const port = await start();
+    expect(JSON.parse((await get(port, "/api/projects")).body)).toEqual({ ready: true, projects: [] });
+    await server!.close();
+    const transcript = new ClaudeCodeTranscriptSource({ projectDir: dir!, assistantLabel: "firstmate" });
+    writeFileSync(join(dir!, "s2.jsonl"), [captain("the logan rotate wheel"), assistantText("Captain, fixed.")].join("\n") + "\n");
+    const threads = new ProjectThreads({
+      feeds: [{ sessions: () => transcript.listSessions(), read: (id) => transcript.readHistory(id), image: (session, id) => transcript.image(session, id) }],
+      projects: threadCatalogue("", []),
+    });
+    await threads.refresh();
+    server = new ConversationViewServer(withProjectThreads(transcript, threads), undefined, undefined, undefined, undefined, undefined, undefined, new ComposerDrafts({ root: join(dir!, "drafts") }));
+    const threaded = await server.listen(0);
+    await get(threaded, "/");
+    viewToken = JSON.parse((await get(threaded, "/api/token")).body).token;
+    const list = JSON.parse((await get(threaded, "/api/projects")).body);
+    expect(list.projects.map((project: { id: string }) => project.id)).toEqual(["project:logan"]);
+    const stream = await get(threaded, "/api/stream?session=project%3Alogan");
+    expect(stream.body).toContain('"title":"Logan"');
+    const update = JSON.parse(stream.body.split("event: update\ndata: ")[1]!.split("\n")[0]!);
+    expect(update.messages.map((message: { role: string }) => message.role)).toEqual(["user", "assistant"]);
+    expect((await get(threaded, "/api/stream?session=project%3Anothing")).status).toBe(404);
   });
 
   it("streams Flyd's own activity for the left column, and not at all without a reader", async () => {

@@ -254,13 +254,16 @@ function question(text: string): string {
 /** The lines the window put in front of his words so firstmate knows what they are about. */
 const ABOUT_ARTEFACT = /^About the artefact "([^\n]*)"\n(?:Task: [^\n]*\n)?(?:Page: (\S+)\n)?(?:Line: [^\n]*\n)?(?:Detail: [^\n]*\n)?/;
 const ABOUT_DECISION = /^Answer to pending decision [\w.-]+: ([^\n]*)\n(?:Question: [^\n]*\n)?/;
+const ABOUT_PROJECT = /^About the project "([^"\n]*)"\n+/;
 
 /**
  * His words as he wrote them, and what they were about: the window's addressing
  * lines ("About the artefact …", "Task: …", "Page: https://…") are plumbing he
  * never typed, so they become the thing's name, linked. Pure.
  */
-export function plainNote(text: string): { words: string; about?: { title: string; url?: string } } {
+export function plainNote(text: string): { words: string; about?: { title: string; url?: string }; project?: string } {
+  const project = ABOUT_PROJECT.exec(text);
+  if (project) return { words: text.slice(project[0].length).trim(), project: project[1]! };
   const artefact = ABOUT_ARTEFACT.exec(text);
   if (artefact) {
     const url = artefact[2] && /^https?:\/\//.test(artefact[2]) ? artefact[2] : undefined;

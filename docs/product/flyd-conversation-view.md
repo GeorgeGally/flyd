@@ -18,6 +18,14 @@ Reference for the calm conversation view. Product authority: [personal-intellige
 - "taste" in the header opens `/taste` (see [flyd-taste.md](flyd-taste.md)).
 - `/api/status` feeds the notch island (working / a failed line / reply / needs you).
 
+## Project threads
+
+- The right column's **Projects** tab lists each project's latest exchange (his question, the first line of what came back) with a dot on what he has not read; **All** heads it. Picking one opens its thread in the middle, "Back to the conversation" leaves it. What he has read is his browser's own (`localStorage`), counted from his first look, so history never arrives as unread.
+- `project-threads.ts` reads every session once in the background, then only what changed, from Flyd's own conversations and firstmate's session transcripts (read only; `readHistory` reads a long transcript in pieces). That is the backfill: nothing new is stored but the judge's answers. A thread is a session to the rest of the view (`project:dir`), capped at its newest 200 messages.
+- Tags (`project-tags.ts`): names first, from firstmate's `data/projects.md`, Flyd's project list and the older names in `KNOWN`, in his words and firstmate's, task ids and repo URLs included. A turn (what he said, what came back) that names nothing goes to the judge (`project-judge.ts`, Jev `message_project`: six candidates from the talk around it, or none, ≥ 0.6). Sent to TypeSafe, redacted and clipped: the turn and a few lines around it. Answers are kept by hash in `~/.flyd/view/project-tags.json`, so history is asked once. With no key, or until it answers, a quiet turn carries on the project of the talk just before, when that is one project and under 20 minutes old. A message naming several projects is in each; a thread leaves out the paragraphs and points that name only others; one naming more than four is a fleet round-up and stays in All.
+- His words in a thread go to that project's own conversation (`window:project-dir`), or to the live session when the source keeps none, led by `About the project "DIR"` (never shown to him).
+- `FLYD_PROJECT_THREADS=0` turns it off, `FLYD_PROJECT_JUDGE=0` keeps the threads without the judge.
+
 ## The message box is Flyd's
 
 - One model call routes each message (`flyd-desk.ts`).

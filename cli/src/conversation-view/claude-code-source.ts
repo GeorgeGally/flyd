@@ -9,7 +9,7 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { readProjects } from "../council/projects.js";
 import type { CrewProgress } from "./crew-progress.js";
 import { handoffLine, livened } from "./living.js";
-import { LineFollower } from "./line-follower.js";
+import { LineFollower, readLinesFrom } from "./line-follower.js";
 import { markRead, readUnacknowledged } from "./note-receipts.js";
 import { ownWords, threaded } from "./replies.js";
 import { ElementShots } from "./element-shots.js";
@@ -256,6 +256,8 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
   private readonly elements?: ElementShots;
   private commandCache?: { at: number; commands: SlashCommand[] };
   private readonly shared = new Map<string, SharedSession>();
+  /** What `readHistory` has read of each session, and how far. */
+  private readonly histories = new Map<string, { conversation: TranscriptConversation; offset: number }>();
   private readonly liveSession?: () => Promise<string | undefined>;
 
   constructor(options: {
@@ -606,6 +608,24 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     const conversation = new TranscriptConversation();
     new LineFollower(this.sessionPath(sessionId)).readNew((line, offset) => conversation.pushLine(line, offset));
     return this.withNotes(sessionId, conversation.snapshot(), this.exchanges(), this.desk?.desk.project(sessionId));
+  }
+
+  /**
+   * The session for reading in the background: the file is read in pieces,
+   * only what is new after the first time, so a long transcript never holds up
+   * the page. Notes are merged as `read` merges them, when there is an inbox.
+   */
+  async readHistory(sessionId: string): Promise<ConversationSnapshot> {
+    const path = this.sessionPath(sessionId);
+    let kept = this.histories.get(sessionId);
+    if (!kept || statSync(path).size < kept.offset) {
+      kept = { conversation: new TranscriptConversation(), offset: 0 };
+      this.histories.set(sessionId, kept);
+    }
+    const { conversation } = kept;
+    kept.offset = await readLinesFrom(path, kept.offset, (line, offset) => conversation.pushLine(line, offset));
+    const snapshot = conversation.snapshot();
+    return this.inbox ? this.withNotes(sessionId, snapshot, this.exchanges(), this.desk?.desk.project(sessionId)) : snapshot;
   }
 
   /**
