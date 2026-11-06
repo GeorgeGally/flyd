@@ -66,6 +66,25 @@ describe("jobsFrom", () => {
     }
   });
 
+  it("keeps project conversations and reports on active cards without an idle card", () => {
+    const text = "A detailed report on the project. ".repeat(12);
+    const hash = digestHash(text);
+    const session = { id: "session-1", title: "Project conversation", project: "Cap5", updatedAt: "2026-10-26T10:00:00Z" };
+    const report = { project: "Cap5", title: "Project report", text };
+    const digest = { hash, project: "Cap5", changed: "The report changed.", means: "Review it.", needed: "Choose.", at: "2026-10-26T10:00:00Z", model: "test", inputTokens: 0, outputTokens: 0, usd: 0 };
+    const worker = { ...screen, underway: [{ id: "live:worker", kind: "live", headline: "Revise", why: "", task: "worker", project: "Cap5" }] } as unknown as ShowScreen;
+    for (const input of [{ show: worker }, { runs: [run()] }, { runs: [run({ status: "needs_decision" })] }]) {
+      const base = { projects: [project()], sessions: [session], reports: [report], ...input, now: NOW };
+      const board = jobsFrom(base);
+      expect(board.jobs).toHaveLength(1);
+      expect(board.jobs[0]!.threads).toContainEqual({ id: session.id, title: session.title, at: session.updatedAt, kind: "conversation" });
+      expect(board.pending).toMatchObject([{ hash, text }]);
+      const withDigest = jobsFrom({ ...base, digests: [digest] });
+      expect(withDigest.jobs[0]!.digest).toMatchObject({ changed: digest.changed, means: digest.means, needed: digest.needed });
+      expect(withDigest.pending).toEqual([]);
+    }
+  });
+
   it("shows the boss question rather than an outgoing answer and hides Flyd notes", () => {
     const domain: DomainRun = {
       id: "domain-123", status: "needs_decision", owner: "FirstMate", createdAt: "2026-10-26T09:00:00Z", updatedAt: "2026-10-26T11:00:00Z",

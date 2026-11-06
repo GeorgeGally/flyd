@@ -247,10 +247,13 @@ export function jobsFrom(input: {
     bucketFor(project.name);
   }
 
-  const activeProjects = new Set<string>();
-  const markActive = (name: string) => {
+  const activeProjects = new Map<string, Bucket[]>();
+  const markActive = (name: string, bucket: Bucket) => {
     const key = jobKey(name);
-    activeProjects.add(jobKey(known.get(key)?.id ?? name));
+    const projectKey = jobKey(known.get(key)?.id ?? name);
+    const active = activeProjects.get(projectKey) ?? [];
+    active.push(bucket);
+    activeProjects.set(projectKey, active);
   };
   for (const run of input.runs ?? []) {
     const signal = runSignal(run, now);
@@ -260,7 +263,7 @@ export function jobsFrom(input: {
     const bucket = (signal.group === "working" || signal.group === "needs")
       ? lone(buckets, `run:${run.id}`, run.outcome || name || "Untitled run")
       : name ? bucketFor(name) : lone(buckets, run.id, run.outcome || "Untitled run");
-    if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; markActive(name); }
+    if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; markActive(name, bucket); }
     bucket.signals.push(signal);
     bucket.threads.push({ id: run.id, title: run.outcome || run.id, at: run.updatedAt, kind: "run" });
     for (const artifact of artifactsOf(run.artifacts, exists)) {
@@ -283,7 +286,7 @@ export function jobsFrom(input: {
     if (!group) continue;
     // Every running worker is its own card: two on one project are two, and a project's open call never hides one.
     const bucket = item.project && item.kind !== "live" ? bucketFor(item.project, item.headline) : lone(buckets, item.id, item.headline);
-    if (item.kind === "live" && item.project) { bucket.project = basename(item.project); markActive(bucket.project); }
+    if (item.kind === "live" && item.project) { bucket.project = basename(item.project); markActive(bucket.project, bucket); }
     const ask = group === "needs" ? (item.decision?.question || item.detail || item.headline) : "";
     const state = itemState(item);
     bucket.signals.push({
@@ -313,6 +316,15 @@ export function jobsFrom(input: {
     if (!name) continue;
     const bucket = bucketFor(name);
     bucket.reports.push({ hash: digestHash(report.text), project: bucket.title, title: report.title, text: report.text, ...(report.link ? { link: report.link } : {}) });
+  }
+
+  for (const [key, active] of activeProjects) {
+    const project = buckets.get(key);
+    if (!project || project.signals.length) continue;
+    for (const bucket of active) {
+      bucket.threads.push(...project.threads);
+      bucket.reports.push(...project.reports);
+    }
   }
 
   const digests = (input.digests ?? []).filter((digest) => !digest.failed);
