@@ -163,7 +163,7 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, i
   try { registry = readFileSync(join(firstmateHome(), "data", "projects.md"), "utf8"); } catch { /* No firstmate here: Flyd's own list is enough. */ }
   const projects = threadCatalogue(registry, readProjects());
   // Nothing about a conversation goes to an outside service: what names no project is firstmate's to place.
-  const asker = inbox.available() && process.env.FLYD_PROJECT_ASK !== "0"
+  const asker = inbox.available()
     ? new ProjectAsker({
       names: projects.map((project) => project.name),
       file: defaultProjectTagFile(),
@@ -319,7 +319,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   });
   if (source !== flydSource) source = executiveConversationSource(source, decideChanges, resolveDecision);
   // His conversations by project: Flyd's own and firstmate's, read only. FLYD_PROJECT_THREADS=0 leaves the view as it was.
-  if (process.env.FLYD_PROJECT_THREADS !== "0") source = withThreads(source, flydSource, inbox, transcript);
+  source = withThreads(source, flydSource, inbox, transcript);
   const server = new ConversationViewServer(source, { summarizer, interpreter, artefacts: artefactJudgeFromEnv(), semantic: semanticJudgeFromEnv(), importance: importanceJudgeFromEnv(), always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), undefined, new ActivityReader(), new WhatsAppPairing());
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;

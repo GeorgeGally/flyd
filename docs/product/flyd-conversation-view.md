@@ -25,7 +25,6 @@ Reference for the calm conversation view. Product authority: [personal-intellige
 - Tags (`project-tags.ts`): names first, from firstmate's `data/projects.md`, Flyd's project list and the older names in `KNOWN`, in his words and firstmate's, task ids and repo URLs included. A turn (what he said, what came back) that names nothing carries on the project of the talk within 20 minutes of it, when that is one project. A message naming several projects is in each; a thread leaves out the paragraphs and points that name only others; one naming more than four is a fleet round-up and stays in All.
 - No outside service sees a conversation for this. What is still unplaced goes to firstmate (`project-asker.ts`): one note at a time through its inbox as Flyd's own note, at most 25 exchanges, cut short, and only while firstmate is up, spaced 15 minutes apart. Its answers are kept by hash in `~/.flyd/view/project-tags.json`, so history is asked once. Whatever stays unplaced is under **Other**, the last row.
 - His words in a thread go to that project's own conversation (`window:project-dir`), or to the live session when the source keeps none, led by `About the project "DIR"` and the last few lines of the thread (never shown to him), so a follow-up means something there. A slash command goes as typed.
-- `FLYD_PROJECT_THREADS=0` turns it off, `FLYD_PROJECT_ASK=0` keeps the threads without asking firstmate.
 
 ## The message box is Flyd's
 

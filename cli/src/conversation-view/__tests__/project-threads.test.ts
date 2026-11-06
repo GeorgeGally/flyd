@@ -293,6 +293,52 @@ describe("what the threads keep up with", () => {
     expect(threads.snapshot(ALL_THREAD).working).toBe(true);
   });
 
+  it("shows a transcript mid-turn as working in the project asked about, and only while it is moving", async () => {
+    const updatedAt = "2026-11-06T10:00:00Z";
+    let now = Date.parse(updatedAt) + 60_000;
+    const midTurn: ThreadFeed = {
+      ...feed({}),
+      sessions: async () => [{ id: "t", title: "t", updatedAt }],
+      read: async () => ({ messages: [user("q", "the DIR ident", "2026-11-06T09:59:00Z")], working: true }),
+    };
+    const threads = new ProjectThreads({ feeds: [midTurn], projects, now: () => now });
+    await threads.refresh();
+    expect(threads.snapshot("project:dir").working).toBe(true);
+    expect(threads.snapshot(ALL_THREAD).working).toBe(true);
+    expect(threads.snapshot("project:logan").working).toBe(false);
+    expect(threads.snapshot(OTHER_THREAD).working).toBe(false);
+    now += 60 * 60_000;
+    expect(threads.snapshot("project:dir").working).toBe(false);
+  });
+
+  it("does not call a supervision turn work on the last thing asked", async () => {
+    const updatedAt = "2026-11-06T10:00:00Z";
+    const midWake: ThreadFeed = {
+      ...feed({}),
+      sessions: async () => [{ id: "t", title: "t", updatedAt }],
+      read: async () => ({ messages: [user("q", "the DIR ident", "2026-11-06T09:58:00Z"), said("r", "DIR ident is done.", "2026-11-06T09:59:00Z")], working: true }),
+    };
+    const threads = new ProjectThreads({ feeds: [midWake], projects, now: () => Date.parse(updatedAt) });
+    await threads.refresh();
+    expect(threads.snapshot("project:dir").working).toBe(false);
+  });
+
+  it("keeps what goes with an answer, and only the shots that can be shown from here", async () => {
+    const threads = new ProjectThreads({ feeds: [feed({ a: { updatedAt: "2026-11-06T10:00:00Z", messages: [
+      user("q", "the DIR ident", "2026-11-06T09:00:00Z"),
+      said("r", "DIR ident has three steps.", "2026-11-06T09:01:00Z", {
+        artefact: "1. One\n2. Two\n3. Three",
+        page: { url: "https://example.com/dir", label: "DIR" },
+        shots: ["/kept/shot.png", "transcript-image-1"],
+      }),
+    ] } })], projects });
+    await threads.refresh();
+    const answer = threads.snapshot("project:dir").messages.at(-1)!;
+    expect(answer.artefact).toContain("Three");
+    expect(answer.page?.url).toBe("https://example.com/dir");
+    expect(answer.shots).toEqual(["/kept/shot.png"]);
+  });
+
   it("lets a conversation that went away go", async () => {
     const sessions = { a: { updatedAt: "2026-11-06T10:00:00Z", messages: [user("q", "DIR ident", "2026-11-06T09:00:00Z")] } } as Record<string, { updatedAt: string; messages: ConversationMessage[] }>;
     const threads = new ProjectThreads({ feeds: [feed(sessions)], projects });

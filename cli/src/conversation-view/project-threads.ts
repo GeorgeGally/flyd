@@ -20,6 +20,8 @@ export const THREAD_MESSAGES = 200;
 const REFRESH_MS = 5_000;
 /** He is still talking: a turn is placed once its reply has had time to name its project. */
 const UNANSWERED_MS = 5 * 60_000;
+/** A mid-turn session quiet for this long was cut short, not working; a long tool call writes nothing until it ends. */
+const CUT_SHORT_MS = 30 * 60_000;
 /** The words firstmate reads back for a thread he writes in, so "make it smaller" means something. */
 const CONTEXT_LINES = 6;
 
@@ -63,6 +65,10 @@ interface SessionIndex {
   stamp: string;
   fingerprint: string;
   active: boolean;
+  /** Mid-turn with nothing back yet: when the session last moved, so a turn cut short does not read as working for ever. */
+  workingAt?: number;
+  /** The projects of the words that turn is on; none when nothing is left unanswered. */
+  asking?: string[];
   turns: Turn[];
   /** Each message as a thread shows it, worked out once. */
   shown: Map<string, ConversationMessage>;
@@ -166,7 +172,7 @@ export class ProjectThreads {
         if (!snapshot) continue;
         const fingerprint = JSON.stringify(snapshot);
         if (previous?.stamp === stamp && previous.fingerprint === fingerprint) continue;
-        this.index(key, feed, stamp, fingerprint, session.id, snapshot);
+        this.index(key, feed, stamp, fingerprint, session, snapshot);
         changed = true;
         // A long backfill shows what it has as it goes.
         if (!this.ready) this.merge();
@@ -184,15 +190,18 @@ export class ProjectThreads {
     void this.askUnplaced();
   }
 
-  private index(key: string, feed: number, stamp: string, fingerprint: string, sessionId: string, snapshot: ConversationSnapshot): void {
+  private index(key: string, feed: number, stamp: string, fingerprint: string, session: SessionSummary, snapshot: ConversationSnapshot): void {
     const seen = new Set<string>();
     const shows = this.options.feeds[feed]!.shows;
     const fresh = snapshot.messages.filter((message) => !seen.has(message.id) && seen.add(message.id) && (!shows || shows(message)));
     const turns = turnsOf(fresh);
     const shown = new Map(turns.flatMap((turn) => [...turn.asked, ...(turn.reply ? [turn.reply] : [])])
-      .map((message) => [message.id, this.shown(message, feed, sessionId)] as const));
+      .map((message) => [message.id, this.shown(message, feed, session.id)] as const));
     const active = snapshot.working || snapshot.messages.some((message) => message.role === "user" && Boolean(message.waiting) && !message.waitingFailed && !message.settled);
-    this.sessions.set(key, { stamp, fingerprint, active, turns, shown, named: [], unplaced: [] });
+    this.sessions.set(key, {
+      stamp, fingerprint, active, turns, shown, named: [], unplaced: [],
+      ...(snapshot.working ? { workingAt: Date.parse(session.updatedAt) || 0 } : {}),
+    });
   }
 
   /** The conversations as one list, oldest first, each message with its projects. */
@@ -204,6 +213,8 @@ export class ProjectThreads {
       const { tags, named, unplaced } = tagTurns(session.turns, this.read, asker ? (turn) => asker.known(turn.key) : undefined);
       session.named = named;
       session.unplaced = unplaced;
+      const open = session.turns.at(-1);
+      session.asking = open && !open.reply ? tags.get(open.asked.at(-1)?.id ?? "") ?? [] : undefined;
       for (const turn of session.turns) {
         for (const message of [...turn.asked, ...(turn.reply ? [turn.reply] : [])]) {
           // A resumed session repeats the one it came from.
@@ -219,9 +230,12 @@ export class ProjectThreads {
 
   /** A message as a thread shows it: said in Flyd's voice, his own words only, its pictures still findable. */
   private shown(message: ConversationMessage, feed: number, sessionId: string): ConversationMessage {
-    const { notes: _notes, reports: _reports, shots: _shots, site: _site, wake: _wake, artefact: _artefact, ...rest } = message;
+    const { notes: _notes, reports: _reports, shots, site: _site, wake: _wake, ...rest } = message;
+    // A shot still known only by its transcript id belongs to the session it came from; a kept one is a path anywhere can show.
+    const kept = shots?.filter((shot) => shot.startsWith("/"));
     return {
       ...rest,
+      ...(kept?.length ? { shots: kept } : {}),
       text: message.role === "assistant" ? inFlydsVoice(message.text) : plainNote(message.text).words,
       ...(message.images?.length ? { images: message.images.map((id) => `${feed}|${sessionId}|${id}`) } : {}),
     };
@@ -309,9 +323,12 @@ export class ProjectThreads {
         ? { ...entry.message, text: aboutOnly(entry.message.text, project, this.read) }
         : entry.message));
     const last = messages.at(-1);
+    const now = (this.options.now ?? Date.now)();
+    const midTurn = known && [...this.sessions.values()].some(({ workingAt, asking }) => workingAt !== undefined && asking && now - workingAt < CUT_SHORT_MS
+      && (sessionId === ALL_THREAD || (sessionId === OTHER_THREAD ? !asking.length : asking.includes(project!))));
     return {
       messages,
-      working: matching.some(({ message }) => message.role === "user" && Boolean(message.waiting) && !message.waitingFailed && !message.settled),
+      working: midTurn || matching.some(({ message }) => message.role === "user" && Boolean(message.waiting) && !message.waitingFailed && !message.settled),
       ...(project ? { project } : {}),
       ...(last?.timestamp ? { lastActivity: last.timestamp } : {}),
     };
