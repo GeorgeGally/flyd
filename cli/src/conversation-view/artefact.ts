@@ -325,7 +325,9 @@ export function parseBearings(raw: unknown): FleetArtefact {
     const doing = str(row.doing);
     const url = recorded.get(str(row.id)) ?? doing.match(PR_URL)?.[0];
     return {
-      state: str(row.state),
+      // The worker's own last word stands when the endpoint check could not place it: a
+      // finished worker's endpoint is often gone, and finished work is not "no word".
+      state: str(row.state) === "unknown" ? /^(paused|done)\b/i.exec(doing)?.[1]!.toLowerCase() ?? "unknown" : str(row.state),
       kind: str(row.kind),
       doing,
       row: {
@@ -468,6 +470,11 @@ function wholeLabel(label: string, full: string): string {
   return full.toLowerCase().startsWith(kept.slice(0, Math.min(kept.length, 24))) ? full : label;
 }
 
+/** A row's line that only says a worker exists, or is its raw status line: the worker's own note says it plainly. Pure. */
+function saysNoStep(detail: string): boolean {
+  return /^(?:a worker is on it\b|(?:paused|done)\s*\[)/i.test(detail);
+}
+
 export interface TaskExtra {
   at?: string;
   /** When its worker was started, from the task's own record. */
@@ -559,7 +566,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     if (extra?.at) next.at = extra.at;
     else if (call && entry?.since) next.at = entry.since;
     if (extra?.started) next.started = extra.started;
-    if (extra?.note && next.detail && !call) next.detail = wholeLabel(next.detail, extra.note);
+    if (extra?.note && next.detail && !call) next.detail = saysNoStep(next.detail) ? extra.note : wholeLabel(next.detail, extra.note);
     if (extra?.shots?.length) next.shots = extra.shots;
     else if (entry) {
       // No pictures of its own: the lab or report its words point at has them.
@@ -698,6 +705,9 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
   });
   const asking = new Set(calls.map((row) => row.task));
   const failed = fleet.held.flatMap((row) => row.status === "failed" && !asking.has(row.task) ? [{ ...row, detail: undefined }] : []);
+  // Paused is lifecycle, not a fault: the executive keeps it off his notifications, never off the screen.
+  const paused = fleet.held.flatMap((row) => row.status === "paused" && !row.ledgerOnly && !asking.has(row.task)
+    ? [{ ...row, detail: row.detail && saysNoStep(row.detail) ? undefined : row.detail }] : []);
   const finished = attention.filter((row) => row.status === "landed");
   const open = attention.filter((row) => row.status !== "landed");
   // Work moving, waiting to land, landed and queued next is shown as it was read:
@@ -715,7 +725,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     ready: current(fleet.ready),
     next: current(fleet.next),
     landed: [...verified, ...current(fleet.landed), ...finished],
-    held: [...failed, ...open],
+    held: [...failed, ...paused, ...open],
   };
 }
 
@@ -1149,7 +1159,7 @@ export function fleetCounts(fleet: FleetArtefact | undefined): Partial<Record<Sh
   return {
     call: fleet.calls.filter((row) => !row.ledgerOnly).length,
     live: fleet.live.length,
-    ready: fleet.ready.filter((row) => row.status !== "report available").length,
+    ready: fleet.ready.length,
     landed: fleet.landed.length,
     waiting: fleet.held.filter((row) => reachesGeorge({ kind: aboutRow("waiting", row), text: row.label }, "panel").reach).length,
     next: fleet.next.length,
@@ -1244,7 +1254,7 @@ export function readyItems(fleet: FleetArtefact | undefined, options: ComposeOpt
   if (!fleet || fleet.unavailable) return [];
   const when = (row: ArtefactRow) => (row.at ? Date.parse(row.at) : 0);
   // Whether it is worth his screen is Flyd's judgment (importance-judge.ts), not its age.
-  return [...fleet.ready].filter((row) => row.status !== "report available").sort((a, b) => when(b) - when(a))
+  return [...fleet.ready].sort((a, b) => when(b) - when(a))
     .flatMap((row, index) => rowItem("ready", `ready-${row.task ?? index}`, row, options) ?? []);
 }
 
@@ -1459,7 +1469,7 @@ function runFleetScript(script: string, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(script, ["--json"], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(script, ["--json", "--all-in-flight"], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
     } catch (error) {
       reject(error);
       return;
@@ -1825,7 +1835,7 @@ export class ArtefactFeed {
       } catch {
         // No data directory: no screenshots.
       }
-      if (extra.at || extra.shots) extras.set(task, extra);
+      if (extra.at || extra.shots || extra.started) extras.set(task, extra);
     }));
     return extras;
   }

@@ -3931,6 +3931,100 @@ describe("screen gates", () => {
   });
 });
 
+describe("the notch", () => {
+  const live = (over = {}) => ({
+    known: true, counts: { running: 2, needs: 3 },
+    running: [
+      { id: "live:a", state: "running", title: "Flyd: rebuild the header", project: "Flyd", since: new Date(Date.now() - 8 * 60000).toISOString(), step: "Fixing the spacing", shots: [{ src: "/api/artefact-shot?task=a&file=s.png", label: "s.png" }], previews: [], links: [] },
+      { id: "live:b", state: "running", title: "DIR: the admin", shots: [], previews: [], links: [] },
+    ],
+    paused: [{ id: "waiting:p", state: "paused", title: "A render", shots: [], previews: [], links: [] }],
+    needs: [
+      { id: "call:pick", state: "call", title: "Which version ships?", at: new Date().toISOString(), shots: [], previews: [], links: [], decision: { task: "pick", question: "Which version ships?", choices: ["One", "Two"], recommended: "One" } },
+      { id: "ready:lab", state: "ready", status: "Ready to land", title: "Five versions", at: new Date().toISOString(), shots: [], previews: [], links: [] },
+    ],
+    older: [{ id: "call:old", state: "call", title: "An old hold", at: "2026-09-25", shots: [], previews: [], links: [] }],
+    landed: [{ id: "landed:x", state: "landed", title: "The gallery", at: new Date().toISOString(), shots: [], previews: [], links: [] }],
+    ...over,
+  });
+  const update = async (body: unknown) => {
+    load("");
+    await settle();
+    const stream = FakeEventSource.instances.at(-1)!;
+    stream.emit("session", { id: "s", title: "s", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    stream.emit("update", { order: [], messages: [], working: false, live: body });
+    return stream;
+  };
+  const island = () => document.getElementById("island") as HTMLButtonElement;
+  const sheet = () => document.getElementById("notch-sheet")!;
+
+  it("always says what is running and what needs him, and says so plainly when nothing does", async () => {
+    await update(live());
+    await settle();
+    expect(island().hidden).toBe(false);
+    expect(island().textContent).toBe("2 running3 need you");
+    await update(live({ counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] }));
+    await settle();
+    expect(island().textContent).toBe("Nothing runningNothing needs you");
+  });
+
+  it("does not read as calm before the fleet has been read", async () => {
+    await update(live({ known: false, counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] }));
+    await settle();
+    expect(island().textContent).toBe("Not read yet");
+  });
+
+  it("opens on the newest call with its own choices, running work beside it, and closes the same way", async () => {
+    await update(live());
+    await settle();
+    island().click();
+    expect(document.getElementById("notch")!.hasAttribute("open")).toBe(true);
+    expect(island().getAttribute("aria-expanded")).toBe("true");
+    expect(sheet().querySelector(".q")!.textContent).toBe("Which version ships?");
+    expect(Array.from(sheet().querySelectorAll(".choice-pick")).map((one) => one.textContent)).toEqual(["Onerecommended", "Two"]);
+    expect(Array.from(sheet().querySelectorAll(".run-row .n b")).map((one) => one.textContent)).toEqual(["Flyd: rebuild the header", "DIR: the admin", "A render"]);
+    expect(sheet().querySelector(".run-row .n span")!.textContent).toBe("8 min");
+    expect(sheet().querySelector(".q-row i")!.textContent).toContain("Ready to land");
+    (document.getElementById("notch-close") as HTMLButtonElement).click();
+    expect(document.getElementById("notch")!.hasAttribute("open")).toBe(false);
+  });
+
+  it("moves to the row he clicks, even with the answer box still focused, and unfolds the older calls", async () => {
+    await update(live());
+    await settle();
+    island().click();
+    (sheet().querySelector(".art-chat-input") as HTMLElement).focus();
+    (sheet().querySelector('[data-pick="ready:lab"]') as HTMLButtonElement).click();
+    expect(sheet().querySelector(".q")!.textContent).toBe("Five versions");
+    expect(sheet().querySelector(".older")!.textContent).toContain("1 older, back to 25 September");
+    (sheet().querySelector(".older") as HTMLButtonElement).click();
+    expect(sheet().textContent).toContain("An old hold");
+  });
+
+  it("opens a running job in the middle", async () => {
+    await update(live());
+    await settle();
+    island().click();
+    (sheet().querySelector('[data-open="live:a"]') as HTMLButtonElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    expect(document.getElementById("notch")!.hasAttribute("open")).toBe(false);
+    expect(document.getElementById("stage-title")!.textContent).toBe("Flyd: rebuild the header");
+  });
+
+  it("leaves a half-typed answer alone when the numbers refresh", async () => {
+    const stream = await update(live());
+    await settle();
+    island().click();
+    const box = sheet().querySelector(".art-chat-input") as HTMLTextAreaElement;
+    box.focus();
+    box.value = "half a";
+    stream.emit("update", { order: [], messages: [], working: false, live: live({ counts: { running: 1, needs: 3 } }) });
+    expect((sheet().querySelector(".art-chat-input") as HTMLTextAreaElement).value).toBe("half a");
+    expect(document.activeElement).toBe(box);
+    expect(island().textContent).toBe("1 running3 need you");
+  });
+});
+
 describe("the front page", () => {
   const SHOW = {
     title: "Your move.", summary: "", items: [], counts: { call: 1 }, live: false, read: "2026-10-25T00:00:00Z",

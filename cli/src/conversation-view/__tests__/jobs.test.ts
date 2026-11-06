@@ -27,6 +27,35 @@ function run(over: Partial<JobRun> = {}): JobRun {
 const screen = { title: "", summary: "", items: [], counts: {}, live: false, read: "2026-10-26T00:00:00.000Z" } as ShowScreen;
 
 describe("jobsFrom", () => {
+  it("gives every running worker its own card, even two on one project or one beside a call", () => {
+    const item = (kind: string, id: string, over = {}) => ({ id: `${kind}:${id}`, kind, headline: id, why: "", task: id, project: "Cap5", ...over });
+    const show = { ...screen, calls: [item("call", "pick")], underway: [item("live", "one"), item("live", "two")] } as unknown as ShowScreen;
+    const board = jobsFrom({ projects: [project()], show, now: NOW });
+    expect(board.jobs.filter((job) => job.group === "working").map((job) => [job.id, job.project])).toEqual([["live:one", "Cap5"], ["live:two", "Cap5"]]);
+    expect(board.jobs.find((job) => job.id === "cap5")!.group).toBe("needs");
+  });
+
+  it("does not count queued work or a run gone quiet as working", () => {
+    const show = { ...screen, next: [{ id: "next:q", kind: "next", headline: "Queued thing", why: "", task: "q" }] } as unknown as ShowScreen;
+    const board = jobsFrom({ show, runs: [run({ id: "stale", project: "", updatedAt: "2026-10-20T11:00:00.000Z" }), run({ id: "note", project: "", status: "queued" })], now: NOW });
+    expect(board.jobs.filter((job) => job.group === "working")).toEqual([]);
+    expect(board.jobs.find((job) => job.id === "next:q")).toMatchObject({ group: "waiting", state: "Queued" });
+    expect(board.jobs.find((job) => job.id === "stale")).toMatchObject({ group: "waiting", state: "Waiting" });
+    expect(board.jobs.find((job) => job.id === "note")).toMatchObject({ group: "waiting", state: "Queued" });
+  });
+
+  it("does not show a worker twice when its run is on record too", () => {
+    const show = { ...screen, underway: [{ id: "live:run-1", kind: "live", headline: "Revise the deck", why: "", task: "run-1" }] } as unknown as ShowScreen;
+    const board = jobsFrom({ show, runs: [run({ project: "" })], now: NOW });
+    expect(board.jobs.filter((job) => job.group === "working").map((job) => job.id)).toEqual(["live:run-1"]);
+  });
+
+  it("says finished work is ready and a finished report is a report", () => {
+    const item = (id: string, status: string) => ({ id: `ready:${id}`, kind: "ready", headline: id, why: "", task: id, status });
+    const board = jobsFrom({ show: { ...screen, ready: [item("lab", "on its branch"), item("scout", "report available")] } as unknown as ShowScreen, now: NOW });
+    expect(board.jobs.map((job) => [job.id, job.group, job.state])).toEqual(expect.arrayContaining([["ready:lab", "needs", "Ready to land"], ["ready:scout", "needs", "Report ready"]]));
+  });
+
   it("keeps an active project with no run as waiting, and does not treat project.now as status", () => {
     const board = jobsFrom({ projects: [project()], now: NOW });
     expect(board.jobs).toHaveLength(1);

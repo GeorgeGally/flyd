@@ -524,7 +524,8 @@ export function semanticFocus(objects: readonly SemanticObject[]): SemanticObjec
  */
 export function needsGeorge(object: SemanticObject): boolean {
   if (object.kind === "decision") return true;
-  if (object.lifecycle === "interrupted") return true;
+  // A paused worker is waiting on its own clock, not on him.
+  if (object.lifecycle === "interrupted" && object.status !== "paused") return true;
   if (object.monitor?.phase === "changed") return true;
   const phase = object.activity?.phase;
   return phase === "needs_you" || phase === "ready";

@@ -95,6 +95,8 @@ export interface JobBoard {
 
 const DAY = 24 * 60 * 60 * 1000;
 const DONE_KEEP_DAYS = 21;
+/** An open run that has not moved for this long is not work under way, whatever its record still says. */
+const QUIET_RUN_MS = DAY;
 const REPORT_CHARS = 240;
 const OPEN_RUN = new Set(["queued", "accepted", "working", "needs_decision", "incomplete", "failed"]);
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
@@ -127,6 +129,8 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
 
 interface Signal {
   group: JobGroup;
+  /** Its own state word, when the group's does not say it. */
+  state?: string;
   at: string;
   next: string;
   owner: string;
@@ -139,12 +143,14 @@ function rank(group: JobGroup): number {
   return group === "needs" ? 0 : group === "working" ? 1 : group === "waiting" ? 2 : 3;
 }
 
-function runSignal(run: JobRun): Signal | null {
+function runSignal(run: JobRun, now: number): Signal | null {
   const at = run.updatedAt;
   if (run.status === "needs_decision") {
     return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, because: `Run ${run.id} is waiting on a decision` };
   }
-  if (run.status === "queued" || run.status === "accepted" || run.status === "working") {
+  if (run.status === "queued") return { group: "waiting", state: "Queued", at, next: run.outcome || "Queued", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is queued` };
+  if (run.status === "accepted" || run.status === "working") {
+    if (now - Date.parse(at) > QUIET_RUN_MS) return { group: "waiting", at, next: run.outcome || "Nothing has moved this.", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} has gone quiet` };
     return { group: "working", at, next: run.outcome || "In progress", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
   }
   if (run.status === "incomplete" || run.status === "failed") {
@@ -159,10 +165,17 @@ function runSignal(run: JobRun): Signal | null {
 function itemGroup(kind: ShowItem["kind"]): JobGroup | null {
   if (kind === "call") return "needs";
   if (kind === "ready") return "needs";
-  if (kind === "live" || kind === "next") return "working";
-  if (kind === "waiting") return "waiting";
+  if (kind === "live") return "working";
+  if (kind === "waiting" || kind === "next") return "waiting";
   if (kind === "landed") return "done";
   return null;
+}
+
+/** The word a show item has for itself on the board: finished work is ready, not a question; queued is not waiting on him. */
+function itemState(item: ShowItem): string | undefined {
+  if (item.kind === "ready") return item.status === "report available" ? "Report ready" : "Ready to land";
+  if (item.kind === "next") return "Queued";
+  return undefined;
 }
 
 function dayNumber(iso: string, now: number): number {
@@ -224,9 +237,11 @@ export function jobsFrom(input: {
     bucketFor(project.name);
   }
 
+  // A worker the fleet reports is one card, however its run is also recorded.
+  const running = new Set((input.show?.underway ?? []).flatMap((item) => (item.task ? [item.task] : [])));
   for (const run of input.runs ?? []) {
-    const signal = runSignal(run);
-    if (!signal) continue;
+    const signal = runSignal(run, now);
+    if (!signal || (signal.group === "working" && running.has(run.id))) continue;
     const name = run.project;
     if (!name && signal.group === "done") continue;
     const bucket = name ? bucketFor(name) : lone(buckets, run.id, run.outcome || "Untitled run");
@@ -250,12 +265,17 @@ export function jobsFrom(input: {
   for (const item of showItems(input.show)) {
     const group = itemGroup(item.kind);
     if (!group) continue;
-    const bucket = item.project ? bucketFor(item.project, item.headline) : lone(buckets, item.id, item.headline);
+    // Every running worker is its own card: two on one project are two, and a project's open call never hides one.
+    const bucket = item.project && item.kind !== "live" ? bucketFor(item.project, item.headline) : lone(buckets, item.id, item.headline);
+    if (item.kind === "live" && item.project) bucket.project = basename(item.project);
     const ask = group === "needs" ? (item.decision?.question || item.detail || item.headline) : "";
+    const state = itemState(item);
     bucket.signals.push({
       group,
+      ...(state ? { state } : {}),
       at: item.at || item.started || "",
-      next: item.detail || item.headline,
+      // "A worker is on it" says nothing the Working group has not.
+      next: item.kind === "live" && /^a worker is on it\b/i.test(item.detail ?? "") ? "" : item.detail || item.headline,
       owner: group === "needs" ? "you" : "Flyd",
       ask,
       because: `Fleet ${item.kind}: ${item.id}`,
@@ -301,7 +321,7 @@ export function jobsFrom(input: {
     jobs.push({
       id: bucket.id,
       group: lead.group,
-      state: STATE[lead.group],
+      state: lead.state ?? STATE[lead.group],
       title: bucket.title,
       project: bucket.project,
       at,

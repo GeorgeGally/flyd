@@ -37,6 +37,7 @@ import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
+import { liveActivityOf, type LiveActivity } from "./live-activity.js";
 import { readDigests, scheduleDigest } from "./job-digest.js";
 import { ArtefactFeed, composeArtefact, WHATSAPP_LINK, type ArtefactInputs } from "./artefact.js";
 import type { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
@@ -218,6 +219,8 @@ interface StreamUpdate {
   jobs?: Job[];
   /** Whether a fleet snapshot answered. An empty Working group says so differently when this is false. */
   jobsFleetKnown?: boolean;
+  /** The notch: what the island counts and its sheet lists. */
+  live?: LiveActivity;
 }
 
 /**
@@ -668,6 +671,7 @@ export class SnapshotDiffer {
       ...(left ? { leftColumn: { ...left, semantic: show.activities } } : {}),
       ...(page ? { page } : {}),
       ...(board ? { jobs: board.jobs, jobsFleetKnown: board.fleetKnown } : {}),
+      live: liveActivityOf(show, board?.jobs),
     };
   }
 }

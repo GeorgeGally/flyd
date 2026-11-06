@@ -162,7 +162,7 @@ export const FRONT_SCRIPT = `
   // The same test Core uses for "needs George" (semantic.ts needsGeorge).
   function frontNeeds(object) {
     var phase = object.activity && object.activity.phase;
-    return object.kind === "decision" || object.lifecycle === "interrupted" || !!(object.monitor && object.monitor.phase === "changed") || phase === "needs_you" || phase === "ready";
+    return object.kind === "decision" || (object.lifecycle === "interrupted" && object.status !== "paused") || !!(object.monitor && object.monitor.phase === "changed") || phase === "needs_you" || phase === "ready";
   }
   // One semantic object as a job: a design lab, a review, a decision with no fleet call behind it.
   function frontObjectJob(object, group) {
@@ -292,7 +292,7 @@ export const FRONT_SCRIPT = `
     var workingEmpty = listed && !fleetKnown ? "No run has reported yet." : "Nothing is running right now.";
     var doneEmpty = listed ? "Nothing has landed lately." : "Nothing landed this week.";
     rtabDot.hidden = !needs.length;
-    var html = (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
+    var html = (needs.length ? frontGroup("Needs you", frontUpdate && frontUpdate.live ? frontUpdate.live.counts.needs : needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
       + (working.length ? frontGroup("Working", working.length, working.map(frontJobCard).join("")) : frontGroup("Working", known ? 0 : "", "", known ? '<p class="fempty">' + workingEmpty + '</p>' : unread))
       + (listed ? (waiting.length ? frontGroup("Waiting", waiting.length, waiting.map(frontJobCard).join("")) : frontGroup("Waiting", 0, "", '<p class="fempty">Nothing is waiting.</p>')) : "")
       + (done.length ? frontGroup("Done", done.length, shownDone.map(frontJobCard).join(""),
@@ -511,7 +511,7 @@ export const FRONT_SCRIPT = `
       return;
     }
     frontRoot.setAttribute("data-job", job.id);
-    frontHead(job, VIEW_TOKEN && Array.isArray(frontUpdate.jobs));
+    frontHead(job, VIEW_TOKEN && Array.isArray(frontUpdate.jobs) && job.group !== "notch");
     var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.next, job.ask, job.digest, job.threads, job.files]);
     // A job already open stays as he left it while he is typing in it.
     if (drawn === frontDrawn.view || (frontDrawn.viewId === job.id && jobView.contains(document.activeElement))) return;
@@ -570,8 +570,10 @@ export const FRONT_SCRIPT = `
     if (!frontUpdate) return;
     var jobs = Array.isArray(frontUpdate.jobs) ? frontUpdate.jobs.map(frontListedJob) : frontJobsOf(frontUpdate);
     frontJobs = new Map(jobs.map(function (job) { return [job.id, job]; }));
+    (frontUpdate.live ? liveJobs(frontUpdate.live) : []).forEach(function (job) { frontJobs.set(job.id, job); });
     frontDrawJobs(jobs);
     frontStage();
+    if (frontUpdate.live) liveDraw(frontUpdate.live);
   }
 
   jobsEl.addEventListener("click", function (event) {
@@ -609,7 +611,7 @@ export const FRONT_SCRIPT = `
     loadThreads();
   });
   window.addEventListener("keydown", function (event) {
-    if (event.key !== "Escape" || event.defaultPrevented || frontActive === "talk" || !lightbox.hidden) return;
+    if (event.key !== "Escape" || event.defaultPrevented || frontActive === "talk" || !lightbox.hidden || notchEl.open) return;
     var from = event.target;
     if (from && from.closest && from.closest("input, textarea, select, [contenteditable]")) return;
     frontSelect("talk");

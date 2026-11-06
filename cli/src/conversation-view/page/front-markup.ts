@@ -8,4 +8,6 @@ export const FRONT_HTML = `<nav class="rtabs" id="rtabs" aria-label="Right colum
 <aside class="jobs" id="jobs" aria-label="Jobs"><div id="jobs-list"></div></aside>
 <aside class="threads" id="threads" aria-label="Projects"></aside>
 <div class="stage-head" id="stage-head"><button type="button" class="stage-back" id="stage-back">Back to the conversation</button><p class="crumb" id="stage-crumb"></p><h1 id="stage-title"></h1></div>
-<section class="job-view" id="job-view" aria-label="The open job"></section>`;
+<section class="job-view" id="job-view" aria-label="The open job"></section>
+<button type="button" class="island" id="island" aria-haspopup="dialog" aria-expanded="false" hidden></button>
+<dialog class="notch" id="notch" aria-label="What is running and what needs you"><div class="notch-sheet" id="notch-sheet" tabindex="-1"></div></dialog>`;
