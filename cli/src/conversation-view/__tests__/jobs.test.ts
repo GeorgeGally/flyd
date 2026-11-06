@@ -62,6 +62,20 @@ describe("jobsFrom", () => {
     ]);
   });
 
+  it("retains the paused count on a project card alongside its leading signal", () => {
+    const held = ["paused", "parked", "blocked"].map((state) => ({
+      id: `held:${state}`, kind: "waiting" as const, headline: `${state} worker`, why: "", project: "Cap5", status: "paused",
+    }));
+    const call = { id: "call:pick", kind: "call" as const, headline: "Choose a direction", why: "", project: "Cap5" };
+    const ready = { id: "ready:lab", kind: "ready" as const, headline: "Lab ready", why: "", project: "Cap5" };
+    for (const extra of [{}, { calls: [call] }, { ready: [ready] }]) {
+      const board = jobsFrom({ projects: [project()], show: { ...screen, held, ...extra }, now: NOW });
+      expect(board.jobs).toHaveLength(1);
+      expect(board.jobs[0]).toMatchObject({ id: "cap5", group: Object.keys(extra).length ? "needs" : "waiting", state: expect.stringContaining("3 paused") });
+      if ("calls" in extra) expect(board.jobs[0]!.ask).toBe("Choose a direction");
+    }
+  });
+
   it("uses the fleet for FirstMate workers while retaining domain decisions", () => {
     const show = { ...screen, underway: [{ id: "live:worker", kind: "live", headline: "Revise", why: "", task: "worker", project: "Cap5" }] } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [project()], show, runs: [run({ id: "domain-123", transport: "firstmate" }), run({ id: "domain-456", transport: "native" }), run({ id: "domain-789", transport: "firstmate", status: "needs_decision" })], now: NOW });

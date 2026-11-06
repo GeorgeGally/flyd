@@ -341,6 +341,8 @@ export function jobsFrom(input: {
     }
     if (!bucket.signals.length) continue;
     const lead = [...bucket.signals].sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at))[0]!;
+    const paused = bucket.signals.filter((signal) => signal.state === "Paused").length;
+    const state = lead.state ?? STATE[lead.group];
     const at = [...bucket.signals.map((signal) => signal.at), ...bucket.threads.map((thread) => thread.at)].filter(Boolean).sort().at(-1) ?? "";
     if (lead.group === "done" && dayNumber(at || project?.updated || "", now) > DONE_KEEP_DAYS) continue;
     const digest = newestDigest(digests, bucket);
@@ -351,7 +353,7 @@ export function jobsFrom(input: {
     jobs.push({
       id: bucket.id,
       group: lead.group,
-      state: lead.state ?? STATE[lead.group],
+      state: paused && (paused > 1 || state !== "Paused") ? `${state === "Paused" ? "" : `${state} · `}${paused} paused` : state,
       title: bucket.title,
       project: bucket.project,
       at,

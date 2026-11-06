@@ -262,7 +262,7 @@ export const FRONT_SCRIPT = `
       if (line) reading = '<p class="next">' + frontEsc(line) + '</p>';
     }
     // "Landed" under "Done" says nothing the group has not; a plain "needs …" is the group's own word.
-    var state = job.group === "done" || /^needs\\b/i.test(job.state) ? "" : job.state;
+    var state = job.group === "done" ? "" : job.state.replace(/^needs you(?: · |$)/i, "");
     return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
       + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
       + '<div class="t">' + frontEsc(job.title) + '</div>' + reading + '<div class="m">' + dot + frontMeta([state, job.project])
