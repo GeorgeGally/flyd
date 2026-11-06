@@ -1,7 +1,7 @@
 /**
  * The notch. One black sheet whichever theme the page is in: it hangs from the
  * top edge as if the island had opened, over a dimmed page. No labels over
- * things, one state colour for what needs him, a fade when a step changes.
+ * things, one state colour for what needs him.
  */
 export const LIVE_STYLE = `
 .island, .notch {
@@ -11,7 +11,7 @@ export const LIVE_STYLE = `
 .island[hidden] { display: none; }
 .island {
   position: fixed; z-index: 6; top: 0; left: 50%; transform: translateX(-50%); display: grid; grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr); align-items: center; min-width: 340px; height: 38px; padding: 0 24px;
-  border: 0; border-radius: 0 0 18px 18px; background: var(--n-sheet); color: var(--n-live); font: 600 15px/1 var(--sans); white-space: nowrap; cursor: pointer; transition: min-width .18s ease;
+  border: 0; border-radius: 0 0 18px 18px; background: var(--n-sheet); color: var(--n-live); font: 600 15px/1 var(--sans); white-space: nowrap; cursor: pointer;
 }
 .island:hover { min-width: 356px; }
 .island:focus-visible, .notch :focus-visible { outline: 2px solid var(--n-ask); outline-offset: 2px; }
@@ -25,10 +25,6 @@ export const LIVE_STYLE = `
 .notch { position: fixed; inset: 0; width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0 0 32px; border: 0; background: rgba(16, 16, 18, .78); color: var(--n-fg); overflow-y: auto; font: 400 17px/1.45 var(--sans); -webkit-font-smoothing: antialiased; font-feature-settings: "tnum", "kern"; scrollbar-width: none; }
 .notch::backdrop { background: transparent; }
 .notch:not([open]) { display: none; }
-.notch[open] { animation: notch-dim .18s ease both; }
-.notch[open] .notch-sheet { animation: notch-drop .24s cubic-bezier(.2, .8, .2, 1) both; transform-origin: top center; }
-@keyframes notch-dim { from { background: rgba(16, 16, 18, 0); } }
-@keyframes notch-drop { from { opacity: 0; transform: translateY(-14px) scaleY(.97); } }
 .notch-sheet:focus { outline: 0; }
 .notch-sheet { position: relative; width: min(1120px, calc(100vw - 48px)); margin: 0 auto; padding: 0 36px 36px; border-radius: 0 0 36px 36px; background: var(--n-sheet); box-shadow: 0 30px 80px rgba(0, 0, 0, .45); }
 .sheet-island { display: grid; grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr); align-items: center; width: 100%; height: 38px; padding: 0; border: 0; background: none; color: var(--n-live); font: 600 15px/1 var(--sans); cursor: pointer; }
@@ -44,7 +40,7 @@ export const LIVE_STYLE = `
 .notch .qm { margin: 12px 0 0; color: var(--n-fg); }
 .notch .keys { margin-top: 32px; }
 .notch .acts { display: flex; flex-wrap: wrap; gap: 10px; }
-.notch .k { display: inline-block; padding: 14px 18px; border: 0; border-radius: 9px; background: var(--n-key); color: var(--n-strong); font: 600 15px/1 var(--sans); text-decoration: none; cursor: pointer; transition: background .12s ease; }
+.notch .k { display: inline-block; padding: 14px 18px; border: 0; border-radius: 9px; background: var(--n-key); color: var(--n-strong); font: 600 15px/1 var(--sans); text-decoration: none; cursor: pointer; }
 .notch .k:hover { background: #33333A; }
 .notch .scene-ask { margin: 0 0 16px; }
 .notch .choices { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 16px; }
@@ -60,7 +56,7 @@ export const LIVE_STYLE = `
 .notch .art-chat-receipt { color: var(--n-fg); }
 .notch .queue { margin: 32px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--n-line); }
 .notch .q-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: baseline; width: 100%; padding: 11px 0; border: 0; border-bottom: 1px solid var(--n-line); background: none; color: var(--n-fg); font: inherit; text-align: left; cursor: pointer; }
-.notch .q-row b { color: var(--n-strong); font-weight: 500; transition: opacity .12s ease; }
+.notch .q-row b { color: var(--n-strong); font-weight: 500; }
 .notch .q-row:hover b { opacity: .72; }
 .notch .q-row b span { color: var(--n-muted); font-weight: 400; }
 .notch .q-row i { color: var(--n-muted); font-size: 15px; font-style: normal; white-space: nowrap; }
@@ -81,8 +77,6 @@ export const LIVE_STYLE = `
 .notch .n b { font-weight: 600; }
 .notch .n span { flex: none; color: var(--n-muted); font-weight: 500; white-space: nowrap; }
 .notch .s { display: block; margin-top: 5px; color: var(--n-fg); font-size: 15px; line-height: 1.35; }
-.notch .s.fresh { animation: notch-fresh .5s ease both; }
-@keyframes notch-fresh { from { opacity: 0; } }
 .notch .none { margin: 0 0 16px; color: var(--n-muted); }
 .notch .done { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .notch .tile { display: flex; flex-direction: column; justify-content: flex-start; min-width: 0; padding: 0; border: 0; background: none; color: var(--n-fg); font: inherit; text-align: left; cursor: pointer; }
@@ -112,6 +106,5 @@ export const LIVE_STYLE = `
   .notch .done { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .idot, .notch[open], .notch[open] .notch-sheet, .notch .s.fresh { animation: none; }
 }
 `;

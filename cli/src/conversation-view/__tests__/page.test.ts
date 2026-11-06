@@ -4011,6 +4011,23 @@ describe("the notch", () => {
     expect(document.getElementById("stage-title")!.textContent).toBe("Flyd: rebuild the header");
   });
 
+  it("updates the running list and decision controls while preserving a draft", async () => {
+    const stream = await update(live());
+    await settle();
+    island().click();
+    const input = sheet().querySelector(".art-chat-input") as HTMLTextAreaElement;
+    input.value = "draft";
+    input.focus();
+    const next = live();
+    next.running = [next.running[1]!];
+    next.needs[0]!.decision = { task: "pick", question: "Which version ships?", choices: ["Three"], recommended: "Three" };
+    stream.emit("update", { order: [], messages: [], working: false, live: next });
+    expect(sheet().querySelectorAll(".run-row")).toHaveLength(2);
+    expect(Array.from(sheet().querySelectorAll(".choice-pick")).map((node) => node.textContent)).toEqual(["Threerecommended"]);
+    expect((sheet().querySelector(".art-chat-input") as HTMLTextAreaElement).value).toBe("draft");
+    expect(document.activeElement).toBe(sheet().querySelector(".art-chat-input"));
+  });
+
   it("leaves a half-typed answer alone when the numbers refresh", async () => {
     const stream = await update(live());
     await settle();

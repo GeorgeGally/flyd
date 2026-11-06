@@ -50,7 +50,7 @@ export const LIVE_SCRIPT = `
 
   function liveOpenItem(live) {
     var all = live.needs.concat(live.older);
-    return all.filter(function (item) { return item.id === notch.picked; })[0] || all[0] || null;
+    return all.filter(function (item) { return item.id === notch.picked; })[0] || all.filter(function (item) { return item.state === "call"; })[0] || all[0] || null;
   }
   function liveQueueRow(item, open) {
     var when = frontWhen(item.at);
@@ -112,7 +112,13 @@ export const LIVE_SCRIPT = `
   function liveKeys(open) {
     var keys = document.getElementById("notch-keys");
     if (!keys) return;
-    if (notch.ask && notch.ask.id === open.id) { keys.appendChild(notch.ask.node); return; }
+    var signature = JSON.stringify([open.id, open.decision, open.links, open.title]);
+    if (notch.ask && notch.ask.signature === signature) { if (notch.ask.node.parentNode !== keys) keys.appendChild(notch.ask.node); return; }
+    var oldInput = notch.ask && notch.ask.id === open.id && notch.ask.node.querySelector(".art-chat-input");
+    var draft = oldInput ? oldInput.value : "";
+    var hadFocus = oldInput && document.activeElement === oldInput;
+    var start = hadFocus ? oldInput.selectionStart : null;
+    var end = hadFocus ? oldInput.selectionEnd : null;
     var parts = el("div", "acts");
     var links = (open.links || []).filter(function (link) { return link && link.url; }).slice(0, 2);
     links.forEach(function (link) {
@@ -129,8 +135,11 @@ export const LIVE_SCRIPT = `
     var box = el("div", "ask");
     if (open.decision && VIEW_TOKEN) box.appendChild(sceneAsk({ title: liveName(open), decision: open.decision }, "flyd-decision:" + (open.decision.decisionId || open.decision.task)));
     box.appendChild(parts);
-    notch.ask = { id: open.id, node: box };
-    keys.appendChild(box);
+    notch.ask = { id: open.id, signature: signature, node: box };
+    keys.replaceChildren(box);
+    var input = box.querySelector(".art-chat-input");
+    if (input && draft) { input.value = draft; input.dispatchEvent(new Event("input", { bubbles: true })); }
+    if (input && hadFocus) { input.focus(); if (start !== null && end !== null) input.setSelectionRange(start, end); }
   }
   function liveDraw(live) {
     notch.live = live;
@@ -144,25 +153,39 @@ export const LIVE_SCRIPT = `
   function liveDrawSheet(live, moved) {
     var open = liveOpenItem(live);
     var html = liveSheetHtml(live, open);
-    if (html === notch.drawn) return;
-    var steps = {};
-    notchSheet.querySelectorAll("[data-step]").forEach(function (node) { steps[node.dataset.step] = node.textContent; });
-    if (!moved && document.activeElement && document.activeElement.closest("#notch-keys")) return;
+    var signature = open ? JSON.stringify([open.id, open.decision, open.links, open.title]) : "";
+    if (html === notch.drawn && (!open || (notch.ask && notch.ask.signature === signature))) return;
     var focused = document.activeElement && notchSheet.contains(document.activeElement)
       ? document.activeElement.dataset.pick || document.activeElement.dataset.open || document.activeElement.id : "";
     var scroll = notchEl.scrollTop;
-    notchSheet.innerHTML = html;
+    var template = document.createElement("div");
+    template.innerHTML = html;
+    var oldCall = notchSheet.querySelector(".callblock");
+    var newCall = template.querySelector(".callblock");
+    var keepCall = oldCall && newCall && open && oldCall.dataset.call === open.id;
+    if (keepCall) {
+      [".pic", ".q", ".qm"].forEach(function (selector) {
+        var before = oldCall.querySelector(selector), after = newCall.querySelector(selector);
+        if (before && after) { if (before.outerHTML !== after.outerHTML) before.replaceWith(after); }
+        else if (before) before.remove();
+        else if (after) oldCall.insertBefore(after, oldCall.firstChild);
+      });
+      [".sheet-island", ".qblock", ".runblock", ".landblock"].forEach(function (selector) {
+        var before = notchSheet.querySelector(selector), after = template.querySelector(selector);
+        if (before && after && before.innerHTML !== after.innerHTML) before.innerHTML = after.innerHTML;
+      });
+    } else {
+      notchSheet.innerHTML = html;
+    }
     notch.drawn = html;
     notchEl.scrollTop = scroll;
-    notchSheet.querySelectorAll("[data-step]").forEach(function (node) {
-      if (steps[node.dataset.step] !== undefined && steps[node.dataset.step] !== node.textContent) node.classList.add("fresh");
-    });
     if (open) liveKeys(open);
-    if (focused) {
+    if (focused && !(document.activeElement && document.activeElement.closest("#notch-keys"))) {
       var again = notchSheet.querySelector('[data-pick="' + CSS.escape(focused) + '"], [data-open="' + CSS.escape(focused) + '"], #' + CSS.escape(focused));
       if (again) again.focus();
     }
   }
+
   function liveShow() {
     if (!notch.live || notchEl.open) return;
     notch.drawn = "";

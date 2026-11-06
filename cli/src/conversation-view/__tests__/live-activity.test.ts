@@ -56,9 +56,9 @@ describe("liveActivityOf", () => {
     const lab = object("lab:7", { subject: "Five versions", kind: "activity", lifecycle: "interrupted", createdAt: "2026-11-06T08:00:00.000Z", evidence: [{ kind: "image", ref: "/lab.png", label: "v1" }] });
     const focus = object("task:pick", { kind: "decision", source: { showItemId: "call:pick", task: "pick" } });
     const live = liveActivityOf(screen({ calls: [call], focus, needs: [lab] }), undefined, NOW);
-    expect(live.needs.map((row) => row.title)).toEqual(["Five versions", "pick"]);
-    expect(live.needs[0]!.shots).toEqual([{ src: "/lab.png", label: "v1" }]);
-    expect(live.needs[1]!.decision?.choices).toEqual(["A", "B"]);
+    expect(live.needs.map((row) => row.title)).toEqual(["pick", "Five versions"]);
+    expect(live.needs[1]!.shots).toEqual([{ src: "/lab.png", label: "v1" }]);
+    expect(live.needs[0]!.decision?.choices).toEqual(["A", "B"]);
     expect(live.counts.needs).toBe(2);
   });
 

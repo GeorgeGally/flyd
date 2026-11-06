@@ -133,7 +133,7 @@ function runningRuns(jobs: readonly Job[] | undefined): LiveItem[] {
 export function liveActivityOf(show: ShowScreen, jobs?: readonly Job[], now = Date.now()): LiveActivity {
   const running = [...(show.underway ?? []).map((item) => fromItem(item, "running")), ...runningRuns(jobs)];
   const paused = (show.held ?? []).filter((item) => item.status === "paused").map((item) => fromItem(item, "paused"));
-  const needs = needsOf(show).sort(newestFirst);
+  const needs = needsOf(show).sort((a, b) => Number(b.state === "call") - Number(a.state === "call") || newestFirst(a, b));
   const old = (item: LiveItem) => now - timeOf(item.at) > RECENT_MS;
   const seen = new Set<string>();
   const landed = [...(show.done ?? []), ...(show.landedWeek ?? [])]

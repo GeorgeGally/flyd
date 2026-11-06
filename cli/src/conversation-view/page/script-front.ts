@@ -292,7 +292,7 @@ export const FRONT_SCRIPT = `
     var workingEmpty = listed && !fleetKnown ? "No run has reported yet." : "Nothing is running right now.";
     var doneEmpty = listed ? "Nothing has landed lately." : "Nothing landed this week.";
     rtabDot.hidden = !needs.length;
-    var html = (needs.length ? frontGroup("Needs you", frontUpdate && frontUpdate.live ? frontUpdate.live.counts.needs : needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
+    var html = (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
       + (working.length ? frontGroup("Working", working.length, working.map(frontJobCard).join("")) : frontGroup("Working", known ? 0 : "", "", known ? '<p class="fempty">' + workingEmpty + '</p>' : unread))
       + (listed ? (waiting.length ? frontGroup("Waiting", waiting.length, waiting.map(frontJobCard).join("")) : frontGroup("Waiting", 0, "", '<p class="fempty">Nothing is waiting.</p>')) : "")
       + (done.length ? frontGroup("Done", done.length, shownDone.map(frontJobCard).join(""),

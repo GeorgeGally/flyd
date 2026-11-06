@@ -710,12 +710,8 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     ? [{ ...row, detail: row.detail && saysNoStep(row.detail) ? undefined : row.detail }] : []);
   const finished = attention.filter((row) => row.status === "landed");
   const open = attention.filter((row) => row.status !== "landed");
-  // Work moving, waiting to land, landed and queued next is shown as it was read:
-  // the executive's say is over notifying, never over what is happening. Only what
-  // the latest read still reports, and never a task already shown as a call or
-  // as verified work.
-  const showing = new Set([...calls, ...verified].flatMap((row) => (row.task ? [row.task] : [])));
-  const current = (rows: ArtefactRow[]) => rows.filter((row) => !row.ledgerOnly && (!row.task || !showing.has(row.task)));
+  const current = (rows: ArtefactRow[]) => rows.filter((row) => !row.ledgerOnly);
+  const verifiedTasks = new Set(verified.map((row) => row.task));
   return {
     ...emptyFleet(),
     ...(fleet.generated ? { generated: fleet.generated } : {}),
@@ -724,7 +720,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     live: current(fleet.live),
     ready: current(fleet.ready),
     next: current(fleet.next),
-    landed: [...verified, ...current(fleet.landed), ...finished],
+    landed: [...verified, ...current(fleet.landed).filter((row) => !verifiedTasks.has(row.task)), ...finished],
     held: [...failed, ...paused, ...open],
   };
 }

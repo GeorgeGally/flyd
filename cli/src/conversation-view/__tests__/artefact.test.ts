@@ -195,6 +195,13 @@ describe("the decision-backed fleet projection", () => {
     expect(readyItems(shown).map((row) => row.task)).toEqual(expect.arrayContaining(["lab", "gone", "scout"]));
   });
 
+  it("keeps lifecycle rows when the same task has an open call", () => {
+    const fleet = parseBearings({ decisions_open: [{ id: "w", summary: "Choose" }], in_flight: [{ id: "w", state: "working", name: "Building" }] });
+    const projected = projectFleetDecisions(fleet, []);
+    expect(projected.calls.map((row) => row.task)).toContain("w");
+    expect(projected.live.map((row) => row.task)).toContain("w");
+  });
+
   it("says where a working row stands from the worker's own last line", () => {
     const fleet = parseBearings({ in_flight: [{ id: "w", state: "working", name: "Rebuild", doing: "harness busy (claude-hook)" }] });
     const enriched = enrichFleet(fleet, new Map(), new Map([["w", { note: "Fixing the header" }]]));
