@@ -128,12 +128,13 @@ export const LIVE_SCRIPT = `
       a.rel = "noopener noreferrer";
       parts.appendChild(a);
     });
-    var more = el("button", "k", "Open it");
+    var more = el("button", "k", open.id.indexOf("run:") === 0 ? "Answer in conversation" : "Open it");
     more.type = "button";
-    more.dataset.open = open.id;
+    if (open.id.indexOf("run:") === 0) more.dataset.answerDomain = open.id;
+    else more.dataset.open = open.id;
     parts.appendChild(more);
     var box = el("div", "ask");
-    if (open.decision && VIEW_TOKEN) box.appendChild(sceneAsk({ title: liveName(open), decision: open.decision }, "flyd-decision:" + (open.decision.decisionId || open.decision.task)));
+    if (open.id.indexOf("run:") !== 0 && open.decision && VIEW_TOKEN) box.appendChild(sceneAsk({ title: liveName(open), decision: open.decision }, "flyd-decision:" + (open.decision.decisionId || open.decision.task)));
     box.appendChild(parts);
     notch.ask = { id: open.id, signature: signature, node: box };
     keys.replaceChildren(box);
@@ -214,6 +215,14 @@ export const LIVE_SCRIPT = `
     if (event.target.closest("[data-older]")) { notch.olderOpen = !notch.olderOpen; liveDrawSheet(notch.live, true); return; }
     var pick = event.target.closest("[data-pick]");
     if (pick) { notch.picked = pick.dataset.pick; liveDrawSheet(notch.live, true); notchEl.scrollTop = 0; return; }
+    var answer = event.target.closest("[data-answer-domain]");
+    if (answer) {
+      liveHide();
+      frontSelect("talk");
+      var input = document.getElementById("input");
+      if (input) input.focus();
+      return;
+    }
     var open = event.target.closest("[data-open]");
     if (open) {
       var id = "notch:" + open.dataset.open;

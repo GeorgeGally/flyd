@@ -4016,6 +4016,30 @@ describe("the notch", () => {
     expect(sheet().querySelector(".q")!.textContent).toBe("Which version ships?");
   });
 
+  it("opens a call ahead of newer ready work and keeps the queue chronological", async () => {
+    const data = live();
+    const call = { ...data.needs[0]!, at: new Date(Date.now() - 120000).toISOString() };
+    const ready = { ...data.needs[1]!, at: new Date().toISOString() };
+    const olderCall = { ...call, id: "call:second", title: "Another question", at: new Date(Date.now() - 180000).toISOString() };
+    await update(live({ needs: [ready, call, olderCall], older: [] }));
+    await settle();
+    island().click();
+    expect(sheet().querySelector(".q")!.textContent).toBe("Which version ships?");
+    expect(Array.from(sheet().querySelectorAll(".q-row b")).map((node) => node.textContent)).toEqual(["Five versions", "Another question"]);
+  });
+
+  it("opens domain decisions in the conversation", async () => {
+    await update(live({ needs: [{ id: "run:abc", task: "abc", state: "call", title: "Which direction?", shots: [], previews: [], links: [] }], older: [] }));
+    await settle();
+    island().click();
+    expect(sheet().querySelector(".art-chat-input")).toBeNull();
+    const answer = sheet().querySelector('[data-answer-domain="run:abc"]') as HTMLButtonElement;
+    expect(answer.textContent).toBe("Answer in conversation");
+    answer.click();
+    expect(document.getElementById("notch")!.hasAttribute("open")).toBe(false);
+    expect(document.activeElement).toBe(document.getElementById("input"));
+  });
+
   it("does not call a last update elapsed runtime", async () => {
     const data = live();
     data.running = [{ id: "run:unknown", state: "running", title: "Unknown start", at: new Date().toISOString(), shots: [], previews: [], links: [] } as typeof data.running[number]];

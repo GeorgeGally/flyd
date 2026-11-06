@@ -106,5 +106,6 @@ export const LIVE_STYLE = `
   .notch .done { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .idot { animation: none; }
 }
 `;

@@ -1227,12 +1227,12 @@ describe("ArtefactFeed fleet reads", () => {
     ];
     const feed = new ArtefactFeed({ home, workers, ...files(home) });
     await feed.refresh();
-    expect(feed.current().fleet?.live.map((row) => row.task)).toEqual(["listed", "cut-off"]);
+    expect(feed.current().fleet?.live.map((row) => row.task)).toEqual(["listed", "finished", "cut-off"]);
     expect(feed.current().fleet?.ready.map((row) => row.task)).toEqual(["finished"]);
-    expect(underwayItems(feed.current().fleet).map((item) => item.task)).toEqual(["cut-off", "listed"]);
+    expect(underwayItems(feed.current().fleet).map((item) => item.task)).toEqual(["cut-off", "listed", "finished"]);
   });
 
-  it("keeps a worker the snapshot reports finished or paused out of Working when the executive hides it", async () => {
+  it("shows staff workers even when the snapshot reports finished or paused", async () => {
     const { home, script } = fleetHome("artefact-workers-hidden-");
     const snapshot = join(home, "bearings.json");
     writeFileSync(snapshot, JSON.stringify({
@@ -1249,7 +1249,7 @@ describe("ArtefactFeed fleet reads", () => {
     ];
     const feed = new ArtefactFeed({ home, workers, decideChanges: async () => [], ...files(home) });
     await feed.refresh();
-    expect(feed.current().fleet?.live.map((row) => row.task)).toEqual(["unlisted"]);
+    expect(feed.current().fleet?.live.map((row) => row.task)).toEqual(["merged-one", "paused-one", "unlisted"]);
   });
 
   it("shows a running worker the snapshot stopped listing, though an earlier read listed it", async () => {

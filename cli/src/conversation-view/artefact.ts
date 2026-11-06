@@ -1832,7 +1832,7 @@ export class ArtefactFeed {
 
   /** The workers the staff watch sees running and the snapshot left out, as rows for the Working group. */
   private staffLive(fleet: FleetArtefact): ArtefactRow[] {
-    const seen = new Set(FLEET_FIELDS.filter((field) => field !== "calls").flatMap((field) => fleet[field].flatMap((row) => (row.task ? [row.task] : []))));
+    const seen = new Set(fleet.live.flatMap((row) => (row.task ? [row.task] : [])));
     return (this.options.workers?.() ?? []).flatMap((worker): ArtefactRow[] => {
       if (!worker.id || seen.has(worker.id) || !LIVE_STAFF_STATES.has(worker.state)) return [];
       seen.add(worker.id);
