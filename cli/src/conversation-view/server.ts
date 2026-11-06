@@ -220,7 +220,7 @@ interface StreamUpdate {
   jobs?: Job[];
   /** Whether a fleet snapshot answered. An empty Working group says so differently when this is false. */
   jobsFleetKnown?: boolean;
-  /** The notch: what the island counts and its sheet lists. */
+  /** What is running, what needs George and what landed, counted once. */
   live?: LiveActivity;
 }
 

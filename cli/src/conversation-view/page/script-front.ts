@@ -513,7 +513,7 @@ export const FRONT_SCRIPT = `
       return;
     }
     frontRoot.setAttribute("data-job", job.id);
-    frontHead(job, VIEW_TOKEN && Array.isArray(frontUpdate.jobs) && job.group !== "notch");
+    frontHead(job, VIEW_TOKEN && Array.isArray(frontUpdate.jobs));
     var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.next, job.ask, job.digest, job.threads, job.files]);
     // A job already open stays as he left it while he is typing in it.
     if (drawn === frontDrawn.view || (frontDrawn.viewId === job.id && jobView.contains(document.activeElement))) return;
@@ -572,10 +572,8 @@ export const FRONT_SCRIPT = `
     if (!frontUpdate) return;
     var jobs = Array.isArray(frontUpdate.jobs) ? frontUpdate.jobs.map(frontListedJob) : frontJobsOf(frontUpdate);
     frontJobs = new Map(jobs.map(function (job) { return [job.id, job]; }));
-    (frontUpdate.live ? liveJobs(frontUpdate.live) : []).forEach(function (job) { frontJobs.set(job.id, job); });
     frontDrawJobs(jobs);
     frontStage();
-    if (frontUpdate.live) liveDraw(frontUpdate.live);
   }
 
   jobsEl.addEventListener("click", function (event) {
@@ -613,7 +611,7 @@ export const FRONT_SCRIPT = `
     loadThreads();
   });
   window.addEventListener("keydown", function (event) {
-    if (event.key !== "Escape" || event.defaultPrevented || frontActive === "talk" || !lightbox.hidden || notchEl.open) return;
+    if (event.key !== "Escape" || event.defaultPrevented || frontActive === "talk" || !lightbox.hidden) return;
     var from = event.target;
     if (from && from.closest && from.closest("input, textarea, select, [contenteditable]")) return;
     frontSelect("talk");

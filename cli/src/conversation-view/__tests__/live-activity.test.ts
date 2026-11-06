@@ -83,7 +83,7 @@ describe("liveActivityOf", () => {
   });
 
   it("keeps a run's start distinct from its latest update", () => {
-    const board = [{ id: "run:1", group: "working", title: "Work", project: "", at: "2026-11-06T11:59:00Z", started: "2026-11-06T10:00:00Z", next: "", shots: [], links: [] }] as Job[];
+    const board = [{ id: "run:1", group: "working", state: "Working", title: "Work", project: "", at: "2026-11-06T11:59:00Z", started: "2026-11-06T10:00:00Z", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null }] as Job[];
     expect(liveActivityOf(screen(), board, NOW).running[0]).toMatchObject({ at: "2026-11-06T11:59:00Z", since: "2026-11-06T10:00:00Z" });
   });
 

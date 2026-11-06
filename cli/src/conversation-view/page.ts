@@ -3,7 +3,6 @@ import { BASE_STYLE } from "./page/base-style.js";
 import { CHROME_STYLE } from "./page/chrome-style.js";
 import { COMPOSER_STYLE } from "./page/composer-style.js";
 import { FRONT_STYLE } from "./page/front-style.js";
-import { LIVE_STYLE } from "./page/live-style.js";
 import { pageMarkup, type PageOptions } from "./page/markup.js";
 import { MESSAGE_STYLE } from "./page/message-style.js";
 import { ARTEFACT_CHAT_SCRIPT } from "./page/script-artefact-chat.js";
@@ -11,7 +10,6 @@ import { BRIEF_SCRIPT } from "./page/script-brief.js";
 import { COLUMNS_SCRIPT } from "./page/script-columns.js";
 import { COMPOSER_SCRIPT } from "./page/script-composer.js";
 import { FRONT_SCRIPT } from "./page/script-front.js";
-import { LIVE_SCRIPT } from "./page/script-live.js";
 import { CORE_SCRIPT } from "./page/script-core.js";
 import { MESSAGES_SCRIPT } from "./page/script-messages.js";
 import { REPLIES_SCRIPT } from "./page/script-replies.js";
@@ -36,7 +34,7 @@ function joined(parts: string[]): string {
   return "\n" + parts.map((part) => part.replace(/^\n/, "")).join("");
 }
 
-const STYLE = BASE_STYLE + joined([CHROME_STYLE, MESSAGE_STYLE, COMPOSER_STYLE]) + LEFT_STYLE + SHOW_STYLE + FRONT_STYLE + THREAD_STYLE + LIVE_STYLE;
+const STYLE = BASE_STYLE + joined([CHROME_STYLE, MESSAGE_STYLE, COMPOSER_STYLE]) + LEFT_STYLE + SHOW_STYLE + FRONT_STYLE + THREAD_STYLE;
 
 const SCRIPT = joined([
   CORE_SCRIPT,
@@ -49,7 +47,6 @@ const SCRIPT = joined([
   COMPOSER_SCRIPT,
   FRONT_SCRIPT,
   THREADS_SCRIPT,
-  LIVE_SCRIPT,
   SHOW_SCRIPT,
 ]);
 

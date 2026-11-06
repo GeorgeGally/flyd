@@ -609,7 +609,7 @@ describe("ConversationViewServer", () => {
       const run = (id: string) => ({ id, request: { id, domain: "knowledge" as const, originalMessage: "Research", intendedOutcome: "Research", doneWhen: [], createdAt: "2026-10-09T00:00:00Z", source: "chat" as const }, owner: "Librarian", status: "needs_decision" as const, createdAt: "2026-10-09T00:00:00Z", updatedAt: "2026-10-09T00:00:00Z", transport: { kind: "native" as const, requestId: id } });
       saveDomainRun(run("one"));
       saveDomainRun(run("two"));
-      const port = await start();
+      const port = await start(new MemoryInbox());
       const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
       const response = await post(port, JSON.stringify({ domainRun: "two", text: "yes" }), headers);
       expect(response.status).toBe(200);

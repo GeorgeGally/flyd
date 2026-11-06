@@ -4,9 +4,9 @@ import { needsGeorge, type SemanticObject } from "./semantic.js";
 import type { ShowItem, ShowLink, ShowPreview, ShowScreen, ShowShot } from "./show.js";
 
 /**
- * The notch: what is running, what needs George and what landed, in one model
- * the island and its sheet both read, so a count can never disagree with the
- * list under it. Built from what the screen already decided to show. Pure.
+ * What is running, what needs George and what landed, in one model, so a count
+ * can never disagree with the list under it. Built from what the screen already
+ * decided to show. Pure.
  */
 
 export type LiveState = "running" | "paused" | "call" | "ready" | "landed";
