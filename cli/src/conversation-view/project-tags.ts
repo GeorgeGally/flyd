@@ -5,9 +5,9 @@ import type { ConversationMessage } from "./types.js";
 // Which project each message of George's conversations is about. Pure: the same
 // messages, catalogue and judged answers always give the same tags. A turn is
 // the unit of meaning here: what he said, and what came back. Names in the words
-// themselves are the strong signal; a turn that names nothing is the judge's
-// (project-judge.ts), and until it has answered, or with no judge at all, a turn
-// carries on the project of the talk around it.
+// themselves are the strong signal; a turn that names nothing carries on the
+// talk around it, and one that cannot is firstmate's to place (project-asker.ts).
+// Nothing here leaves the machine.
 
 export interface ThreadProject {
   /** The name firstmate and George use for it. */
@@ -16,8 +16,6 @@ export interface ThreadProject {
   aliases: string[];
   /** Extra forms an alias cannot say: a task id, a lower-case word in his own message. */
   patterns?: RegExp[];
-  /** One line on what it is, for the judge. */
-  about?: string;
 }
 
 /** The names that are not the registry's own: what George types, and the older names of a project. */
@@ -60,12 +58,10 @@ export function threadCatalogue(registry: string, projects: Array<{ id: string; 
     return seat >= 0 ? out[seat] : out.find((project) => asked.includes(norm(project.name)));
   };
   for (const line of registry.split("\n")) {
-    const entry = /^- (\S+)(?: \[[^\]]*\])? - ([^:;(]+?)(?: \([^)]*\))?\s*[:;]\s*([^;]*)/.exec(line);
+    const entry = /^- (\S+)(?: \[[^\]]*\])? - ([^:;(]+?)(?: \([^)]*\))?\s*[:;]/.exec(line);
     if (!entry) continue;
-    const [, slug, name, about] = entry as unknown as [string, string, string, string];
-    const found = known([slug, name]);
-    if (found) found.about ??= about.trim().slice(0, 140);
-    else out.push({ name: name.trim(), aliases: [name.trim()], about: about.trim().slice(0, 140) });
+    const [, slug, name] = entry as unknown as [string, string, string];
+    if (!known([slug, name])) out.push({ name: name.trim(), aliases: [name.trim()] });
   }
   for (const project of projects) {
     const name = project.name.replace(/\s*\(.*\)\s*$/, "").trim();
@@ -129,6 +125,8 @@ export function turnsOf(messages: ConversationMessage[]): Turn[] {
     if (offThread(message)) continue;
     if (message.role === "user") { asked.push(message); continue; }
     if (message.wake) { turns.push({ key: message.id, asked: [], reply: message }); continue; }
+    // Nothing asked and nothing to say: firstmate talking to itself.
+    if (!asked.length && isRoutine(message.text)) continue;
     turns.push({ key: asked[0]?.id ?? message.id, asked, reply: message });
     asked = [];
   }
@@ -158,17 +156,17 @@ export interface TaggedTurns {
   tags: Map<string, string[]>;
   /** What each turn names, by index. */
   named: string[][];
-  /** The turns no name settles, in order: the judge's to answer. */
-  open: number[];
+  /** The turns nothing here could place, in order: firstmate's to answer. */
+  unplaced: number[];
 }
 
 /**
- * Tags every message. `judged` is the judge's answer for a turn: a project, null
+ * Tags every message. `answered` is firstmate's word on a turn: a project, null
  * for none of them, undefined when it has not said. A reply that names nothing
  * joins the question it answers, so the answer sits under it in the thread; a
  * quiet message takes the nearest thing he said in the turn, then the turn.
  */
-export function tagTurns(turns: Turn[], read: (text: string) => string[], judged: (turn: Turn) => string | null | undefined = () => undefined): TaggedTurns {
+export function tagTurns(turns: Turn[], read: (text: string) => string[], answered: (turn: Turn) => string | null | undefined = () => undefined): TaggedTurns {
   const tags = new Map<string, string[]>();
   const own = new Map<string, string[]>();
   const named = turns.map((turn) => {
@@ -176,13 +174,14 @@ export function tagTurns(turns: Turn[], read: (text: string) => string[], judged
     for (const message of said) own.set(message.id, ownNames(message, read));
     return [...new Set(said.flatMap((message) => own.get(message.id)!))];
   });
-  const open: number[] = [];
+  const unplaced: number[] = [];
   const settled = turns.map((turn, index) => {
     if (named[index]!.length) return named[index]!;
-    open.push(index);
-    const answer = judged(turn);
+    const answer = answered(turn);
     if (answer !== undefined) return answer ? [answer] : [];
-    return carried(turns, named, index);
+    const around = carried(turns, named, index);
+    if (!around.length) unplaced.push(index);
+    return around;
   });
   turns.forEach((turn, index) => {
     const whole = settled[index]!;
@@ -202,20 +201,24 @@ export function tagTurns(turns: Turn[], read: (text: string) => string[], judged
       tags.set(turn.reply.id, mine.length ? mine : asked.length ? asked : whole);
     }
   });
-  return { tags, named, open };
+  return { tags, named, unplaced };
 }
 
-/** The one project of the last named turns, when they agree and are close enough to carry on. */
+/** The one project of the last named turns, when they agree and are close; failing that, of the next one. */
 function carried(turns: Turn[], named: string[][], index: number): string[] {
   const at = turnTime(turns[index]!);
-  const near: string[][] = [];
-  for (let look = index - 1; look >= 0 && near.length < 2; look -= 1) {
-    if (!named[look]!.length) continue;
-    if (Number.isNaN(at) || at - turnTime(turns[look]!) > CARRIES_MS) break;
-    near.push(named[look]!);
+  if (Number.isNaN(at)) return [];
+  const close = (look: number): boolean => Math.abs(at - turnTime(turns[look]!)) <= CARRIES_MS;
+  const before: string[][] = [];
+  for (let look = index - 1; look >= 0 && before.length < 2 && close(look); look -= 1) {
+    if (named[look]!.length) before.push(named[look]!);
   }
-  const projects = new Set(near.flat());
-  return projects.size === 1 ? [...projects] : [];
+  const projects = new Set(before.flat());
+  if (projects.size) return projects.size === 1 ? [...projects] : [];
+  for (let look = index + 1; look < turns.length && close(look); look += 1) {
+    if (named[look]!.length) return named[look]!.length === 1 ? named[look]! : [];
+  }
+  return [];
 }
 
 const ITEM = /^(?:[-*+]|\d+[.)])\s|^\*\*/;
@@ -244,55 +247,18 @@ export function aboutOnly(text: string, project: string, read: (text: string) =>
   return kept.length === points.length || !left || /:$/.test(left) ? text : left;
 }
 
-const SLOTS = ["a", "b", "c", "d", "e", "f"] as const;
-export type Slot = (typeof SLOTS)[number];
-
 const clipped = (text: string, limit: number): string => {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
 };
 
-export interface JudgeCase {
-  state: { message: string; reply: string; recent: string[]; candidates: Record<string, string> };
-  /** Each lettered choice's project. */
-  slots: Partial<Record<Slot, string>>;
-}
-
-/**
- * What the judge needs for one quiet turn: the turn, the named talk around it,
- * and up to six candidates: the projects close by, nearest first, then what the
- * rest of the conversation is about, then the projects he talks about most.
- */
-export function judgeCase(turns: Turn[], index: number, named: Array<string[]>, projects: ThreadProject[], busiest: string[]): JudgeCase {
-  const around = turns.map((_, look) => look).filter((look) => look !== index && named[look]!.length)
-    .sort((a, b) => Math.abs(a - index) - Math.abs(b - index) || a - b);
-  const session = new Map<string, number>();
-  for (const names of named) for (const name of names) session.set(name, (session.get(name) ?? 0) + 1);
-  const ordered = [...new Set([
-    ...around.slice(0, 12).flatMap((look) => named[look]!),
-    ...[...session].sort((a, b) => b[1] - a[1]).map(([name]) => name),
-    ...busiest,
-  ])].slice(0, SLOTS.length);
-  const slots: JudgeCase["slots"] = {};
-  const candidates: Record<string, string> = {};
-  ordered.forEach((name, seat) => {
-    const slot = SLOTS[seat]!;
-    const about = projects.find((project) => project.name === name)?.about;
-    slots[slot] = name;
-    candidates[slot] = about ? `${name}: ${about}` : name;
-  });
-  const recent = around.slice(0, 6).sort((a, b) => a - b).map((look) => {
-    const said = turns[look]!.asked.at(-1) ?? turns[look]!.reply!;
-    return `[${named[look]!.join(", ")}] ${clipped(plainNote(said.text).words, 140)}`;
-  });
+/** One quiet turn as firstmate reads it: what was said, and the projects of the talk around it. Pure. */
+export function askLine(turns: Turn[], index: number, named: string[][]): string {
   const turn = turns[index]!;
-  return {
-    state: {
-      message: clipped(turn.asked.map((message) => plainNote(message.text).words).join("\n"), 600),
-      reply: clipped(turn.reply?.text ?? "", 500),
-      recent,
-      candidates,
-    },
-    slots,
-  };
+  const near = [...new Set(named.slice(Math.max(0, index - 4), index + 5).flat())];
+  return [
+    turn.asked.length ? `he said: ${clipped(turn.asked.map((message) => plainNote(message.text).words).join(" / "), 120)}` : "",
+    turn.reply ? `reply: ${clipped(turn.reply.text, 120)}` : "",
+    near.length ? `around: ${near.join(", ")}` : "",
+  ].filter(Boolean).join(" | ");
 }

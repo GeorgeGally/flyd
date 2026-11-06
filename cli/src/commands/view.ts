@@ -15,15 +15,17 @@ import { FlydDesk, type Answerer, type Complete, type Seer } from "../conversati
 import { flydBrief } from "../conversation-view/flyd-brief.js";
 import { executiveConversationSource } from "../conversation-view/executive-source.js";
 import { FlydConversationSource } from "../conversation-view/flyd-source.js";
-import { projectJudgeFromEnv } from "../conversation-view/project-judge.js";
+import { defaultProjectTagFile, ProjectAsker } from "../conversation-view/project-asker.js";
 import { threadCatalogue } from "../conversation-view/project-tags.js";
 import { ProjectThreads, withProjectThreads, type ThreadFeed } from "../conversation-view/project-threads.js";
-import type { ConversationSource } from "../conversation-view/types.js";
+import type { ConversationMessage, ConversationSource } from "../conversation-view/types.js";
+import { inFlydsVoice } from "../conversation-view/flyd-voice.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { memoryLookup } from "../conversation-view/living.js";
 import { defaultProviders, defaultSummaryCache, ReplySummarizer } from "../conversation-view/summaries.js";
 import { claudeApiKey } from "../lib/claude-spend.js";
 import { readProjects } from "../council/projects.js";
+import { relayMayShow } from "../council/reply-review.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
 import { WeatherReader } from "../conversation-view/weather.js";
@@ -143,17 +145,37 @@ function openInBrowser(url: string): void {
 }
 
 /** The threads over everything he has said: Flyd's conversations, and firstmate's session transcripts beside them, read only. */
-function withThreads(source: ConversationSource, flyd: FlydConversationSource, transcript?: ClaudeCodeTranscriptSource): ConversationSource {
+function withThreads(source: ConversationSource, flyd: FlydConversationSource, inbox: FirstmateInbox, transcript?: ClaudeCodeTranscriptSource): ConversationSource {
   const firstmateDir = resolveProjectDir(FIRSTMATE_PROJECT_DIR);
   const firstmate = transcript ?? (existsSync(firstmateDir) ? new ClaudeCodeTranscriptSource({ projectDir: firstmateDir }) : undefined);
   const feeds: ThreadFeed[] = [
     ...(transcript ? [] : [{ sessions: () => flyd.listSessions(), read: (id: string) => flyd.read(id), image: (session: string, id: string) => flyd.image(session, id) }]),
-    ...(firstmate ? [{ sessions: () => firstmate.listSessions(), read: (id: string) => firstmate.readHistory(id), image: (session: string, id: string) => firstmate.image(session, id) }] : []),
+    ...(firstmate ? [{
+      sessions: () => firstmate.listSessions(),
+      read: (id: string) => firstmate.readHistory(id),
+      image: (session: string, id: string) => firstmate.image(session, id),
+      // A reply to what he said is never kept back; a wake's report passes the check every relay passes.
+      shows: (message: ConversationMessage) => !message.wake || relayMayShow(inFlydsVoice(message.text)),
+      revision: () => firstmate.exchanges().map((exchange) => `${exchange.question.id}:${exchange.answer?.id ?? ""}`).join(","),
+    }] : []),
   ];
   let registry = "";
   try { registry = readFileSync(join(firstmateHome(), "data", "projects.md"), "utf8"); } catch { /* No firstmate here: Flyd's own list is enough. */ }
-  const judge = projectJudgeFromEnv();
-  const threads = new ProjectThreads({ feeds, projects: threadCatalogue(registry, readProjects()), ...(judge ? { judge } : {}) });
+  const projects = threadCatalogue(registry, readProjects());
+  // Nothing about a conversation goes to an outside service: what names no project is firstmate's to place.
+  const asker = inbox.available() && process.env.FLYD_PROJECT_ASK !== "0"
+    ? new ProjectAsker({
+      names: projects.map((project) => project.name),
+      file: defaultProjectTagFile(),
+      send: async (body, requestId) => {
+        if (!await inbox.taking()) return false;
+        await inbox.sendOwn(body, requestId, { outcome: "Say which project each exchange is about", doneWhen: ["every id listed has a line in the reply"] });
+        return true;
+      },
+      reply: (requestId) => inbox.ownReply(requestId),
+    })
+    : undefined;
+  const threads = new ProjectThreads({ feeds, projects, ...(asker ? { asker } : {}) });
   threads.start();
   return withProjectThreads(source, threads);
 }
@@ -297,7 +319,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   });
   if (source !== flydSource) source = executiveConversationSource(source, decideChanges, resolveDecision);
   // His conversations by project: Flyd's own and firstmate's, read only. FLYD_PROJECT_THREADS=0 leaves the view as it was.
-  if (process.env.FLYD_PROJECT_THREADS !== "0") source = withThreads(source, flydSource, transcript);
+  if (process.env.FLYD_PROJECT_THREADS !== "0") source = withThreads(source, flydSource, inbox, transcript);
   const server = new ConversationViewServer(source, { summarizer, interpreter, artefacts: artefactJudgeFromEnv(), semantic: semanticJudgeFromEnv(), importance: importanceJudgeFromEnv(), always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), undefined, new ActivityReader(), new WhatsAppPairing());
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;

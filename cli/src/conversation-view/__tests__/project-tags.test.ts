@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aboutOnly, judgeCase, nameReader, offThread, tagTurns, threadCatalogue, turnsOf, type ThreadProject } from "../project-tags.js";
+import { aboutOnly, askLine, nameReader, offThread, tagTurns, threadCatalogue, turnsOf } from "../project-tags.js";
 import type { ConversationMessage } from "../types.js";
 
 const REGISTRY = `# Fleet project registry
@@ -30,10 +30,6 @@ describe("threadCatalogue", () => {
     expect(names.filter((name) => /dead internet|capfive client|rails app/i.test(name))).toEqual([]);
     expect(names.some((name) => name.startsWith("Which"))).toBe(false);
   });
-
-  it("carries the registry's line on each project for the judge", () => {
-    expect(projects.find((project) => project.name === "CapFive")?.about).toContain("WordPress site");
-  });
 });
 
 describe("nameReader", () => {
@@ -63,6 +59,11 @@ describe("turnsOf", () => {
   it("keeps stacked questions with their reply and leaves a wake on its own", () => {
     const turns = turnsOf([user("q1", "one"), user("q2", "two"), reply("w", "Captain, the work landed.", { wake: true }), reply("r", "Captain, both done.")]);
     expect(turns.map((turn) => [turn.key, turn.asked.map((m) => m.id), turn.reply?.id])).toEqual([["w", [], "w"], ["q1", ["q1", "q2"], "r"]]);
+  });
+
+  it("drops a routine line that answers nothing, and keeps one that answers him", () => {
+    expect(turnsOf([reply("a", "Captain, shipshape.")])).toEqual([]);
+    expect(turnsOf([user("q", "all good?"), reply("a", "Captain, shipshape.")]).map((turn) => turn.reply?.id)).toEqual(["a"]);
   });
 
   it("leaves out the harness's words and a wake with nothing to say", () => {
@@ -114,14 +115,14 @@ describe("tagTurns", () => {
     expect(tags.get("b")).toEqual(["DIR"]);
   });
 
-  it("takes the judge's word for a turn that names nothing, its none included", () => {
+  it("takes firstmate's word for a turn that names nothing, its none included", () => {
     const messages = [user("q", "rotate is broken"), reply("r", "On it.")];
     expect(tagged(messages, () => "Logan").get("q")).toEqual(["Logan"]);
     expect(tagged(messages, () => "Logan").get("r")).toEqual(["Logan"]);
     expect(tagged(messages, () => null).get("q")).toEqual([]);
   });
 
-  it("carries a quiet turn on from the talk before it when nobody has judged it", () => {
+  it("carries a quiet turn on from the talk before it", () => {
     const messages = [user("a", "on DIR the ident"), reply("b", "Done on DIR."), user("c", "smaller squares", "2026-11-06T10:05:00Z"), reply("d", "Done.")];
     expect(tagged(messages).get("c")).toEqual(["DIR"]);
   });
@@ -133,9 +134,17 @@ describe("tagTurns", () => {
     expect(tagged(late).get("c")).toEqual([]);
   });
 
-  it("lists the turns no name settles", () => {
-    const turns = turnsOf([user("a", "DIR ident"), reply("b", "Done."), user("c", "smaller")]);
-    expect(tagTurns(turns, read).open).toEqual([1]);
+  it("carries a quiet turn back from the next named one when nothing comes before it", () => {
+    const messages = [user("a", "smaller squares"), reply("b", "Done."), user("c", "and on DIR the ident", "2026-11-06T10:05:00Z"), reply("d", "Done.")];
+    expect(tagged(messages).get("a")).toEqual(["DIR"]);
+  });
+
+  it("leaves to firstmate only the turns nothing here could place", () => {
+    const placed = turnsOf([user("a", "DIR ident"), reply("b", "Done."), user("c", "smaller", "2026-11-06T10:02:00Z")]);
+    expect(tagTurns(placed, read).unplaced).toEqual([]);
+    const jumped = turnsOf([user("a", "DIR ident"), reply("b", "Done."), user("c", "logan gradients"), reply("d", "Done."), user("e", "smaller", "2026-11-06T10:02:00Z")]);
+    expect(tagTurns(jumped, read).unplaced).toEqual([2]);
+    expect(tagTurns(jumped, read, () => null).unplaced).toEqual([]);
   });
 });
 
@@ -166,24 +175,12 @@ describe("aboutOnly", () => {
   });
 });
 
-describe("judgeCase", () => {
-  const catalogue: ThreadProject[] = [{ name: "DIR", aliases: ["DIR"], about: "a radio station" }, { name: "Logan", aliases: ["logan"] }, { name: "HFTW", aliases: ["hftw"] }];
-  const messages = [user("a", "DIR ident"), reply("b", "Done."), user("c", "logan gradients"), reply("d", "Done."), user("e", "smaller"), reply("f", "Done."), user("g", "the hftw store"), reply("h", "Done.")];
-  const turns = turnsOf(messages);
-  const { named } = tagTurns(turns, nameReader(catalogue));
-
-  it("offers the projects around the turn first, nearest first, then the busiest", () => {
-    const asked = judgeCase(turns, 2, named, catalogue, ["Flyd", "DIR"]);
-    expect(Object.values(asked.slots)).toEqual(["Logan", "HFTW", "DIR", "Flyd"]);
-    expect(asked.state.candidates.c).toBe("DIR: a radio station");
-  });
-
-  it("shows the talk around the turn, each line led by its project, and bounds what leaves the machine", () => {
-    const long = [user("a", "DIR ident"), reply("b", "Done."), user("c", "x".repeat(2000)), reply("d", "y".repeat(2000))];
-    const longTurns = turnsOf(long);
-    const asked = judgeCase(longTurns, 1, tagTurns(longTurns, nameReader(catalogue)).named, catalogue, []);
-    expect(asked.state.recent).toEqual(["[DIR] DIR ident"]);
-    expect(asked.state.message.length).toBeLessThanOrEqual(600);
-    expect(asked.state.reply.length).toBeLessThanOrEqual(500);
+describe("askLine", () => {
+  it("gives firstmate the turn, cut short, and the projects around it", () => {
+    const turns = turnsOf([user("a", "DIR ident"), reply("b", "Done."), user("c", "x".repeat(500)), reply("d", "y".repeat(500))]);
+    const { named } = tagTurns(turns, read);
+    const line = askLine(turns, 1, named);
+    expect(line).toMatch(/^he said: x+… \| reply: y+… \| around: DIR$/);
+    expect(line.length).toBeLessThan(280);
   });
 });

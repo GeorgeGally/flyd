@@ -640,3 +640,32 @@ async function until<T>(read: () => T | undefined, timeoutMs = 3000): Promise<T>
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
+
+describe("Flyd's own questions to firstmate", () => {
+  it("reads firstmate's reply to Flyd's own note by the note's request id", async () => {
+    const script = writeScript("fm-inbox.sh", FAKE_SCRIPT);
+    const readiness = { available: true, canReceive: true as const, liveHarness: true };
+    const transport = new FirstmateDomainTransport({ home, script });
+    vi.spyOn(transport, "ready").mockResolvedValue(readiness);
+    const inbox = new FirstmateInbox({ home, script, transport });
+    await inbox.sendOwn("which project?", "flyd-project-threads-1", { outcome: "Say which project" });
+    expect(inbox.ownReply("flyd-project-threads-1")).toBeUndefined();
+    const note = readDomainRun("flyd-project-threads-1")!.transport.externalId!;
+    mkdirSync(join(home, "state", "inbox", ".replies"), { recursive: true });
+    writeFileSync(join(home, "state", "inbox", ".replies", note), `id=${note}\nat=2026-11-06T10:00:00Z\nseq=1\n--\nabcd1234: DIR\n`);
+    expect(inbox.ownReply("flyd-project-threads-1")?.trim()).toBe("abcd1234: DIR");
+    expect(inbox.ownReply("flyd-never-sent")).toBeUndefined();
+  });
+
+  it("takes a note for later only while firstmate is up", async () => {
+    const transport = new FirstmateDomainTransport({ home, script: join(dir, "absent.sh") });
+    const inbox = new FirstmateInbox({ home, transport });
+    const ready = vi.spyOn(transport, "ready");
+    ready.mockResolvedValue({ available: true, canReceive: true, liveHarness: true });
+    expect(await inbox.taking()).toBe(true);
+    ready.mockResolvedValue({ available: true, canReceive: true, liveHarness: false });
+    expect(await inbox.taking()).toBe(false);
+    ready.mockResolvedValue({ available: true, canReceive: "unknown" });
+    expect(await inbox.taking()).toBe(false);
+  });
+});

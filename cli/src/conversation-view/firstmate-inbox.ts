@@ -5,6 +5,7 @@ import { basename, extname, join } from "node:path";
 import { firstmateHome, firstmateInboxScript } from "../lib/firstmate-home.js";
 // Type-only: the page bundle imports this module, and the command layer is loaded when a message is sent.
 import type { FirstmateDomainTransport, FirstmateExec, FlydNote } from "../command/firstmate.js";
+import { readDomainRun } from "../command/store.js";
 import type { DomainRequest, DomainRun } from "../command/types.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handoffLine } from "./living.js";
@@ -356,6 +357,20 @@ export class FirstmateInbox implements CaptainInbox {
    * True when firstmate has archived the task as done (`- [x] <id> …` in data/done-archive.md):
    * a closed task is never chased again, whatever a stale fleet read still says about it.
    */
+  /** Whether firstmate is up and taking notes now: for what can wait, and must not start a session of its own. */
+  async taking(): Promise<boolean> {
+    const readiness = await (await this.client()).ready();
+    return readiness.canReceive === true && readiness.liveHarness === true;
+  }
+
+  /** Firstmate's reply to Flyd's own note, by the note's request id, once it has given one. */
+  ownReply(requestId: string): string | undefined {
+    const run = readDomainRun(requestId);
+    const note = run?.transport.kind === "firstmate" ? run.transport.externalId : undefined;
+    const reply = note ? join(this.home, "state", "inbox", ".replies", note) : undefined;
+    return reply && existsSync(reply) ? parseRecord(reply)?.body : undefined;
+  }
+
   taskClosed(taskId: string): boolean {
     try {
       const archive = readFileSync(join(this.home, "data", "done-archive.md"), "utf8");

@@ -433,25 +433,6 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     consumer: "conversation-view/artefact-judge.ts ArtefactJudge: asked only for a reply with numbered items the deterministic rule (summaries.ts replyArtefact) leaves unclear; steps or options at ≥ threshold confidence show it as an artefact labelled by that kind, else (or Jev off/failing) as text",
   },
 
-  // conversation-view/project-judge.ts. The letters stand for the projects named in `candidates`, which change per
-  // call; the question itself does not, so it stays replayable.
-  {
-    id: "message_project", family: "presentation", type: "choice",
-    instructions: "George runs many software and creative projects through one conversation with his assistant. `message` is what he said and `reply` what came back; neither names a project. `recent` is the talk around it, each line led by the project it was about, and he often jumps between projects from one line to the next. `candidates` lists the projects it could be about. Which is this exchange about? Choose by what is being worked on, not by which line came just before. Choose none when it is about the assistant or its workers themselves, is small talk, or could be any of them.",
-    criteria: {
-      a: "The project listed under `candidates.a`.",
-      b: "The project listed under `candidates.b`.",
-      c: "The project listed under `candidates.c`.",
-      d: "The project listed under `candidates.d`.",
-      e: "The project listed under `candidates.e`.",
-      f: "The project listed under `candidates.f`.",
-      none: "None of the candidates, or no way to tell.",
-    },
-    threshold: 0.6, use: "choice", failureMode: "fallback_heuristic",
-    projection: ["message", "reply", "recent", "candidates"], evaluatorVersion: "message_project.v1", status: "production",
-    consumer: "conversation-view/project-judge.ts ProjectJudge: asked once per turn that names no project; a candidate at ≥ threshold tags the turn, none or below it leaves the turn untagged, and with Jev off the turn carries on the project of the named talk around it",
-  },
-
   {
     id: "answer_form", family: "presentation", type: "choice",
     instructions: "George asked `utterance`, and Flyd has already answered it in plain prose in `answer`. Would a shaped answer serve him better than that prose? Choose diagnosis only when the answer explains why something did or did not work: an outcome, what was expected, what actually happened, the cause, and what to do next. Choose comparison only when it weighs two or more named options against the same criteria. Choose prose for everything else, including a list, steps, a report, an opinion or a single fact.",

@@ -39,7 +39,7 @@ const RECORDED = existsSync(RECORDINGS) ? loadJudgmentTraces(RECORDINGS) : [];
 // run that makes them): recorded mode must never report missing traces.
 const SUITES = [
   "front-door.jsonl", "curator-lifecycle.jsonl", "trace-predicates.jsonl", "council.jsonl", "chat-turn.jsonl",
-  "skill-match.jsonl", "note-relevance.jsonl", "self-review.jsonl", "reply-artefact.jsonl", "message-project.jsonl",
+  "skill-match.jsonl", "note-relevance.jsonl", "self-review.jsonl", "reply-artefact.jsonl",
   ...(LIVE || RECORDED.some((trace) => trace.predicateId === "answer_form") ? ["answer-form.jsonl"] : []),
 ];
 
@@ -87,8 +87,6 @@ const BASELINES: Record<string, BaselineFn> = {
   reply_artefact_kind: (inputs) => replyArtefact(text(inputs, "reply"))?.clear ? "steps" : "text",
   // Today every desk answer is flat prose.
   answer_form: () => "prose",
-  // With no judge a quiet turn is left to the talk around it, which this question does not see.
-  message_project: () => "none",
   // Every invocation that reaches a model uses the main model today.
   needs_reasoning_model: () => true,
   // outcome_supported: the incumbent is an LLM judge (transitions/judge.ts); no deterministic baseline.
@@ -202,12 +200,6 @@ describe("System-1 replay bench", () => {
       expect(wrong, id).toEqual(id === "cos_placeholder" ? ["self-review-09"] : []);
     }
     expect(predicateReport(report, "cos_internal_decision").rows.every((r) => r.jev === r.label)).toBe(true);
-
-    // message_project: a quiet turn tagged wrongly lands in the wrong thread, so it never picks
-    // the wrong project; "none" on a real one (a Flyd drafts note, unsure) only leaves it in All.
-    const quiet = predicateReport(report, "message_project").rows;
-    expect(quiet.filter((r) => !["abstain", "none", r.label].includes(r.jev as string))).toEqual([]);
-    expect(quiet.filter((r) => r.jev === r.label).length).toBeGreaterThanOrEqual(10);
 
     // reply_artefact_kind: steps the rule leaves unclear (a step opening
     // "Order:", naming a menu path, a value "301 or 302", a menu called

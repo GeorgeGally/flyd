@@ -503,7 +503,7 @@ export class SnapshotDiffer {
       const relay = message.role === "assistant" && message.aside ? staffLine(message.text, handled) : undefined;
       // An answer to his own question is never muted as routine: firstmate's is told by Flyd, Flyd's own
       // shows whole when it fits a glance and else leads with its first few lines.
-      const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.form ? { body: message.text } : message.role !== "assistant" ? { body: plainNote(message.text).project ? plainNote(message.text).words : message.text }
+      const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.form ? { body: message.text } : message.role !== "assistant" ? { body: plainNote(message.text).thread ? plainNote(message.text).words : message.text }
         : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
           : relay && relay.kind !== "absorbed" ? { body: message.text, summary: { html: renderMarkdown(georgeMarkdown(relay)), source: "flyd" } }
             : !message.answers ? this.summarize(message, fresh)

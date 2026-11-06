@@ -26,7 +26,7 @@ export const THREADS_SCRIPT = `
   }
   function threadRow(thread) {
     var open = thread.id === explicit;
-    var unread = !open && thread.id !== "project:all" && threadUnread(thread);
+    var unread = !open && thread.id !== "project:all" && thread.id !== "project:other" && threadUnread(thread);
     return '<button type="button" class="thread' + (open ? " on" : "") + (unread ? " unread" : "") + '" data-thread="' + frontEsc(thread.id) + '"' + (open ? ' aria-current="true"' : "") + '>'
       + '<span class="thread-top"><span class="thread-name">' + frontEsc(thread.name) + '</span>'
       + (unread ? '<span class="thread-dot" role="img" aria-label="unread"></span>' : "")
@@ -36,9 +36,9 @@ export const THREADS_SCRIPT = `
       + '</button>';
   }
   function drawThreads(list) {
-    var open = (list.projects || []).concat(list.all ? [list.all] : []).filter(function (thread) { return thread.id === explicit; })[0];
+    var rows = (list.all ? [list.all] : []).concat(list.projects || [], list.other ? [list.other] : []);
+    var open = rows.filter(function (thread) { return thread.id === explicit; })[0];
     if (open && open.replyAt && open.replyAt !== threadsSeen[open.id]) { threadsSeen[open.id] = open.replyAt; keepThreadsSeen(); }
-    var rows = (list.all ? [list.all] : []).concat(list.projects || []);
     var html = rows.length ? '<div class="fstrip thread-list">' + rows.map(threadRow).join("") + '</div>'
       : '<p class="fempty">' + (list.ready ? "Nothing said about a project yet." : "Reading your conversations.") + '</p>';
     threadsDot.hidden = !(list.projects || []).some(function (thread) { return thread.id !== explicit && threadUnread(thread); });

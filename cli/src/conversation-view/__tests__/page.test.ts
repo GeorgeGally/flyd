@@ -4165,6 +4165,13 @@ describe("project threads", () => {
     expect(rows[1]!.querySelector(".thread-a")?.textContent).toBe("It's smaller now.");
   });
 
+  it("ends the list with what nothing could place", async () => {
+    listed({ ...LIST, other: { id: "project:other", name: "Other", question: "smaller", at: "2026-10-05T18:00:00.000Z", count: 1 } });
+    load("");
+    await settle();
+    expect(Array.from(document.querySelectorAll(".thread-name")).map((row) => row.textContent)).toEqual(["All", "DIR", "Logan", "Other"]);
+  });
+
   it("marks what came after his last look, on the project and its tab, never on All", async () => {
     seenFrom("2026-10-05T20:00:00.000Z");
     listed(LIST);

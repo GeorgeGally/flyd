@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readLinesFrom } from "../line-follower.js";
 import { plainNote } from "../rail.js";
-import { ProjectJudge } from "../project-judge.js";
+import { ProjectAsker } from "../project-asker.js";
 import { threadCatalogue } from "../project-tags.js";
-import { ALL_THREAD, ProjectThreads, threadId, THREAD_MESSAGES, withProjectThreads, type ThreadFeed } from "../project-threads.js";
+import { ALL_THREAD, OTHER_THREAD, ProjectThreads, threadId, THREAD_MESSAGES, withProjectThreads, type ThreadFeed } from "../project-threads.js";
 import type { ConversationMessage, ConversationSnapshot, ConversationSource, SessionSummary } from "../types.js";
 
 const projects = threadCatalogue("", []);
@@ -130,55 +130,131 @@ describe("ProjectThreads", () => {
   });
 });
 
-describe("the judge in the threads", () => {
+describe("firstmate placing what Flyd cannot", () => {
   const quiet = { s: { updatedAt: "2026-11-06T10:00:00Z", messages: [
     user("a", "the logan rotate wheel", "2026-11-06T09:00:00Z"), said("b", "Done.", "2026-11-06T09:01:00Z"),
     user("c", "the DIR ident", "2026-11-06T09:02:00Z"), said("d", "Done.", "2026-11-06T09:03:00Z"),
     user("e", "smaller squares", "2026-11-06T09:04:00Z"), said("f", "Done.", "2026-11-06T09:05:00Z"),
   ] } };
-  const answering = (choice: string, confidence = 0.9): typeof fetch => vi.fn(async () => new Response(JSON.stringify({
-    model: "jev-1.13.0", answers: { message_project: { type: "choice", choice, confidence, probabilities: { [choice]: confidence } } }, usage: { input_tokens: 10, output_tokens: 1 },
-  }))) as unknown as typeof fetch;
-  const settled = async (threads: ProjectThreads) => { await threads.refresh(); await vi.waitFor(() => expect(threads.snapshot(ALL_THREAD)).toBeDefined()); await new Promise((resolve) => setTimeout(resolve, 20)); };
+  const names = projects.map((project) => project.name);
+  const pass = async (threads: ProjectThreads) => { await threads.refresh(); await new Promise((resolve) => setTimeout(resolve, 5)); };
 
-  it("tags a quiet turn, and keeps the answer so history is asked once", async () => {
-    const file = join(mkdtempSync(join(tmpdir(), "flyd-tags-")), "tags.json");
-    const fetchFn = answering("b");
-    const threads = new ProjectThreads({ feeds: [feed(quiet)], projects, judge: new ProjectJudge({ apiKey: "test", fetchFn, file }) });
-    await settled(threads);
-    // The nearest project first: DIR is a, Logan b.
+  function firstmate(answer?: (note: string) => string) {
+    const notes: Array<{ body: string; requestId: string }> = [];
+    return {
+      notes,
+      send: vi.fn(async (body: string, requestId: string) => { notes.push({ body, requestId }); return true; }),
+      reply: (requestId: string) => (answer && notes.some((note) => note.requestId === requestId) ? answer(notes.find((note) => note.requestId === requestId)!.body) : undefined),
+    };
+  }
+  const idIn = (note: string): string => /^([0-9a-f]{8}) \|/m.exec(note)![1]!;
+
+  it("asks firstmate about a turn nothing places, and files it where firstmate says", async () => {
+    const staff = firstmate((note) => `Here you go:\n${idIn(note)}: Logan`);
+    const threads = new ProjectThreads({ feeds: [feed(quiet)], projects, asker: new ProjectAsker({ ...staff, names }) });
+    await pass(threads);
+    expect(staff.notes).toHaveLength(1);
+    expect(staff.notes[0]!.body).toContain("smaller squares");
+    expect(staff.notes[0]!.body).toContain("around: Logan, DIR");
+    expect(threads.snapshot(OTHER_THREAD).messages.map((message) => message.id)).toContain("e");
+    await pass(threads);
     expect(threads.snapshot(threadId("Logan")).messages.map((message) => message.id)).toContain("e");
-    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(threads.snapshot(OTHER_THREAD).messages.map((message) => message.id)).not.toContain("e");
+  });
+
+  it("files what firstmate cannot place under Other, and does not ask again", async () => {
+    const staff = firstmate((note) => `${idIn(note)}: Other`);
+    const threads = new ProjectThreads({ feeds: [feed(quiet)], projects, asker: new ProjectAsker({ ...staff, names }) });
+    await pass(threads);
+    await pass(threads);
+    await pass(threads);
+    expect(staff.notes).toHaveLength(1);
+    expect(threads.list().other).toMatchObject({ id: OTHER_THREAD, question: "smaller squares" });
+  });
+
+  it("takes a project firstmate made up as no project", async () => {
+    const staff = firstmate((note) => `${idIn(note)}: Nonsense`);
+    const asker = new ProjectAsker({ ...staff, names });
+    const threads = new ProjectThreads({ feeds: [feed(quiet)], projects, asker });
+    await pass(threads);
+    await pass(threads);
+    expect(threads.snapshot(OTHER_THREAD).messages.map((message) => message.id)).toContain("e");
+  });
+
+  it("keeps firstmate's answers by hash, its open note across a restart, and no words on disk", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "flyd-tags-")), "tags.json");
+    const staff = firstmate((note) => `${idIn(note)}: Logan`);
+    await pass(new ProjectThreads({ feeds: [feed(quiet)], projects, asker: new ProjectAsker({ ...staff, names, file }) }));
     expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(readFileSync(file, "utf8")).not.toContain("smaller");
-
-    const again = answering("a");
-    const later = new ProjectThreads({ feeds: [feed(quiet)], projects, judge: new ProjectJudge({ apiKey: "test", fetchFn: again, file }) });
-    await settled(later);
-    expect(again).not.toHaveBeenCalled();
+    const later = new ProjectThreads({ feeds: [feed(quiet)], projects, asker: new ProjectAsker({ ...staff, names, file }) });
+    await pass(later);
+    expect(staff.notes).toHaveLength(1);
+    await pass(later);
     expect(later.snapshot(threadId("Logan")).messages.map((message) => message.id)).toContain("e");
+    expect(readFileSync(file, "utf8")).not.toContain("smaller");
   });
 
-  it("leaves a turn it is unsure of in All alone", async () => {
-    const threads = new ProjectThreads({ feeds: [feed(quiet)], projects, judge: new ProjectJudge({ apiKey: "test", fetchFn: answering("b", 0.4) }) });
-    await settled(threads);
-    expect(threads.snapshot(threadId("Logan")).messages.map((message) => message.id)).not.toContain("e");
-    expect(threads.snapshot(ALL_THREAD).messages.map((message) => message.id)).toContain("e");
+  it("holds one note at a time, spaced out, and asks nothing while firstmate is not taking notes", async () => {
+    let now = 1_000_000_000_000;
+    const asked = Array.from({ length: 30 }, (_, index) => ({ turn: `t${index}`, line: `line ${index}` }));
+    const staff = firstmate((note) => note.split("\n").filter((line) => / \| /.test(line)).map((line) => `${line.slice(0, 8)}: Other`).join("\n"));
+    const asker = new ProjectAsker({ ...staff, names, now: () => now });
+    expect(await asker.ask(asked)).toBe(false);
+    expect(staff.notes[0]!.body.split("\n").filter((line) => / \| /.test(line))).toHaveLength(25);
+    expect(await asker.ask(asked)).toBe(true);
+    expect(await asker.ask(asked)).toBe(false);
+    expect(staff.notes).toHaveLength(1);
+    now += 16 * 60_000;
+    await asker.ask(asked);
+    expect(staff.notes).toHaveLength(2);
+
+    const away = new ProjectAsker({ send: async () => false, reply: () => undefined, names });
+    expect(await away.ask(asked)).toBe(false);
+    expect(away.known("t0")).toBeUndefined();
   });
 
-  it("stops asking for the pass when the service is down, and learns nothing", async () => {
-    const fetchFn = vi.fn(async () => { throw new Error("down"); }) as unknown as typeof fetch;
-    const many = Array.from({ length: 60 }, (_, index) => [
-      user(`q${index}`, `quiet ${index}`, new Date(Date.UTC(2026, 10, 1, index)).toISOString()),
-      said(`r${index}`, "Done.", new Date(Date.UTC(2026, 10, 1, index, 1)).toISOString()),
-    ]).flat();
-    const judge = new ProjectJudge({ apiKey: "test", fetchFn });
-    const threads = new ProjectThreads({ feeds: [feed({ s: { updatedAt: "2026-11-06T10:00:00Z", messages: [user("n", "DIR ident", "2026-10-30T09:00:00Z"), ...many] } })], projects, judge });
-    await settled(threads);
-    await vi.waitFor(() => expect((fetchFn as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThanOrEqual(20));
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect((fetchFn as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeLessThanOrEqual(20);
-    expect(judge.known("q59")).toBeUndefined();
+  it("gives up on a note never answered, so the next can go", async () => {
+    let now = 1_000_000_000_000;
+    const staff = firstmate();
+    const asker = new ProjectAsker({ ...staff, names, now: () => now });
+    await asker.ask([{ turn: "t", line: "line" }]);
+    now += 7 * 60 * 60_000;
+    await asker.ask([{ turn: "t", line: "line" }]);
+    expect(staff.notes).toHaveLength(2);
+    expect(new Set(staff.notes.map((note) => note.requestId)).size).toBe(2);
+  });
+});
+
+describe("what the threads keep up with", () => {
+  it("lets a conversation that went away go", async () => {
+    const sessions = { a: { updatedAt: "2026-11-06T10:00:00Z", messages: [user("q", "DIR ident", "2026-11-06T09:00:00Z")] } } as Record<string, { updatedAt: string; messages: ConversationMessage[] }>;
+    const threads = new ProjectThreads({ feeds: [feed(sessions)], projects });
+    await threads.refresh();
+    delete sessions.a;
+    await threads.refresh();
+    expect(threads.snapshot(threadId("DIR")).messages).toEqual([]);
+    expect(threads.list().projects).toEqual([]);
+  });
+
+  it("reads a session again when its inbox moves, though its file did not", async () => {
+    let revision = "one";
+    const source = { ...feed(HISTORY), revision: () => revision };
+    const threads = new ProjectThreads({ feeds: [source], projects });
+    await threads.refresh();
+    source.reads.length = 0;
+    await threads.refresh();
+    expect(source.reads).toEqual([]);
+    revision = "two";
+    await threads.refresh();
+    expect(source.reads.length).toBeGreaterThan(0);
+  });
+
+  it("keeps out what the feed will not show him, in the thread and on its row", async () => {
+    const source = { ...feed({ s: { updatedAt: "2026-11-06T10:00:00Z", messages: [user("q", "DIR ident", "2026-11-06T09:00:00Z"), said("r", "the secret machinery", "2026-11-06T09:01:00Z")] } }), shows: (message: ConversationMessage) => !message.text.includes("machinery") };
+    const threads = new ProjectThreads({ feeds: [source], projects });
+    await threads.refresh();
+    expect(threads.snapshot(threadId("DIR")).messages.map((message) => message.id)).toEqual(["q"]);
+    expect(threads.list().projects[0]?.answer).toBeUndefined();
   });
 });
 
@@ -206,7 +282,23 @@ describe("withProjectThreads", () => {
   it("sends his words in a thread to that project's own conversation, saying which project", async () => {
     const source = base({ newSession: (id) => (id.startsWith("window:") ? { id, title: "New", updatedAt: "" } : undefined) });
     await withProjectThreads(source, await threads()).send("project:dir", "smaller squares");
-    expect(source.sent).toEqual([["window:project-dir", 'About the project "DIR"\n\nsmaller squares']]);
+    const [[session, text]] = source.sent as [[string, string]];
+    expect(session).toBe("window:project-dir");
+    expect(text).toMatch(/^About the project "DIR"\n> /);
+    expect(plainNote(text)).toEqual({ words: "smaller squares", thread: true, project: "DIR" });
+  });
+
+  it("carries what he is looking at, so a follow-up means something in a new conversation", async () => {
+    const source = base({ newSession: (id) => ({ id, title: "New", updatedAt: "" }) });
+    await withProjectThreads(source, await threads()).send("project:dir", "make it smaller");
+    expect(source.sent[0]![1]).toContain("> George: videos are not caching on DIR");
+    expect(source.sent[0]![1]).toContain("> Flyd: Sir, the worker found the bug.");
+  });
+
+  it("leaves a slash command first, so it is still a command", async () => {
+    const source = base({ newSession: (id) => ({ id, title: "New", updatedAt: "" }) });
+    await withProjectThreads(source, await threads()).send("project:dir", "/compact");
+    expect(source.sent[0]![1]).toBe("/compact");
   });
 
   it("sends to the live session when the source keeps no conversation per project, never an article's", async () => {
@@ -215,10 +307,11 @@ describe("withProjectThreads", () => {
     expect(source.sent[0]![0]).toBe("live");
   });
 
-  it("from All, says no project", async () => {
+  it("from All, says no project, and still carries the talk", async () => {
     const source = base({ newSession: (id) => ({ id, title: "New", updatedAt: "" }) });
     await withProjectThreads(source, await threads()).send(ALL_THREAD, "hello");
-    expect(source.sent).toEqual([["window:project-all", "hello"]]);
+    expect(source.sent[0]![0]).toBe("window:project-all");
+    expect(plainNote(source.sent[0]![1])).toEqual({ words: "hello", thread: true });
   });
 
   it("leaves ordinary sessions to the source", async () => {
@@ -247,7 +340,7 @@ describe("withProjectThreads", () => {
 
 describe("plainNote", () => {
   it("takes the window's project line off his words and keeps which project", () => {
-    expect(plainNote('About the project "DIR"\n\nsmaller squares')).toEqual({ words: "smaller squares", project: "DIR" });
+    expect(plainNote('About the project "DIR"\n> George: the ident\n> Flyd: Done.\n\nsmaller squares')).toEqual({ words: "smaller squares", thread: true, project: "DIR" });
   });
 });
 

@@ -1,7 +1,7 @@
 import { plainNote } from "./rail.js";
 import { inFlydsVoice } from "./flyd-voice.js";
-import { aboutOnly, judgeCase, nameReader, tagTurns, turnsOf, type ThreadProject, type Turn } from "./project-tags.js";
-import type { ProjectJudge } from "./project-judge.js";
+import type { ProjectAsker } from "./project-asker.js";
+import { aboutOnly, askLine, nameReader, tagTurns, turnsOf, type ThreadProject, type Turn } from "./project-tags.js";
 import { inline, SALUTATION, sentences } from "./summaries.js";
 import type { ConversationFollower, ConversationMessage, ConversationSnapshot, ConversationSource, FileUpload, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
 
@@ -12,20 +12,25 @@ import type { ConversationFollower, ConversationMessage, ConversationSnapshot, C
 
 export const THREAD_PREFIX = "project:";
 export const ALL_THREAD = `${THREAD_PREFIX}all`;
+/** What nothing could place: no project of its own, and still findable. */
+export const OTHER_THREAD = `${THREAD_PREFIX}other`;
 /** The newest messages a thread carries. */
 export const THREAD_MESSAGES = 200;
 
 const REFRESH_MS = 5_000;
-const JUDGE_AT_ONCE = 4;
-/** A dead service or a bad key is left alone until the next pass. */
-const JUDGE_FAILURES = 5;
-/** He is still talking: a question is judged with its reply, or once it has plainly had none. */
+/** He is still talking: a turn is placed once its reply has had time to name its project. */
 const UNANSWERED_MS = 5 * 60_000;
+/** The words firstmate reads back for a thread he writes in, so "make it smaller" means something. */
+const CONTEXT_LINES = 6;
 
 export interface ThreadFeed {
   sessions(): Promise<SessionSummary[]>;
   read(sessionId: string): Promise<ConversationSnapshot>;
   image(sessionId: string, imageId: string): Promise<ImageData | null>;
+  /** Whether a message may be shown to him at all: the staff's words pass the same check as in the stream. */
+  shows?(message: ConversationMessage): boolean;
+  /** Changes when something beside the session's own file changes what it reads as: an inbox note, its reply. */
+  revision?(): string;
 }
 
 export interface ThreadSummary {
@@ -47,6 +52,8 @@ export interface ThreadList {
   ready: boolean;
   all?: ThreadSummary;
   projects: ThreadSummary[];
+  /** What nothing could place. */
+  other?: ThreadSummary;
 }
 
 interface Entry { message: ConversationMessage; at: number; projects: string[] }
@@ -57,7 +64,7 @@ interface SessionIndex {
   /** Each message as a thread shows it, worked out once. */
   shown: Map<string, ConversationMessage>;
   named: string[][];
-  open: number[];
+  unplaced: number[];
 }
 
 export function threadId(name: string): string {
@@ -90,7 +97,7 @@ export class ProjectThreads {
   private ready = false;
   private running?: Promise<void>;
   private again = false;
-  private judging = false;
+  private asking = false;
   private timer?: ReturnType<typeof setInterval>;
   private readonly listeners = new Set<() => void>();
   private readonly read: (text: string) => string[];
@@ -98,7 +105,7 @@ export class ProjectThreads {
   constructor(private readonly options: {
     feeds: ThreadFeed[];
     projects: ThreadProject[];
-    judge?: ProjectJudge;
+    asker?: ProjectAsker;
     now?: () => number;
   }) {
     // The same words are read at every merge: once each is enough.
@@ -143,41 +150,53 @@ export class ProjectThreads {
 
   private async pass(): Promise<void> {
     let changed = false;
+    const listed = new Set<string>();
     for (const [feed, source] of this.options.feeds.entries()) {
+      const revision = source.revision?.() ?? "";
       for (const session of await source.sessions()) {
         const key = `${feed}|${session.id}`;
-        if (this.sessions.get(key)?.stamp === session.updatedAt) continue;
+        const stamp = `${session.updatedAt}|${revision}`;
+        listed.add(key);
+        if (this.sessions.get(key)?.stamp === stamp) continue;
         const snapshot = await source.read(session.id).catch(() => undefined);
         if (!snapshot) continue;
-        this.index(key, feed, session, snapshot.messages);
+        this.index(key, feed, stamp, session.id, snapshot.messages);
         changed = true;
         // A long backfill shows what it has as it goes.
         if (!this.ready) this.merge();
       }
     }
+    // A conversation that went away takes its words with it.
+    for (const key of this.sessions.keys()) {
+      if (listed.has(key)) continue;
+      this.sessions.delete(key);
+      changed = true;
+    }
     const first = !this.ready;
     this.ready = true;
     if (changed || first) this.merge();
-    void this.judgeOpen();
+    void this.askUnplaced();
   }
 
-  private index(key: string, feed: number, session: SessionSummary, messages: ConversationMessage[]): void {
+  private index(key: string, feed: number, stamp: string, sessionId: string, messages: ConversationMessage[]): void {
     const seen = new Set<string>();
-    const turns = turnsOf(messages.filter((message) => !seen.has(message.id) && seen.add(message.id)));
+    const shows = this.options.feeds[feed]!.shows;
+    const fresh = messages.filter((message) => !seen.has(message.id) && seen.add(message.id) && (!shows || shows(message)));
+    const turns = turnsOf(fresh);
     const shown = new Map(turns.flatMap((turn) => [...turn.asked, ...(turn.reply ? [turn.reply] : [])])
-      .map((message) => [message.id, this.shown(message, feed, session.id)] as const));
-    this.sessions.set(key, { stamp: session.updatedAt, turns, shown, named: [], open: [] });
+      .map((message) => [message.id, this.shown(message, feed, sessionId)] as const));
+    this.sessions.set(key, { stamp, turns, shown, named: [], unplaced: [] });
   }
 
   /** The conversations as one list, oldest first, each message with its projects. */
   private merge(): void {
-    const judge = this.options.judge;
+    const asker = this.options.asker;
     const seen = new Set<string>();
     const entries: Entry[] = [];
     for (const session of this.sessions.values()) {
-      const { tags, named, open } = tagTurns(session.turns, this.read, judge ? (turn) => judge.known(turn.key) : undefined);
+      const { tags, named, unplaced } = tagTurns(session.turns, this.read, asker ? (turn) => asker.known(turn.key) : undefined);
       session.named = named;
-      session.open = open;
+      session.unplaced = unplaced;
       for (const turn of session.turns) {
         for (const message of [...turn.asked, ...(turn.reply ? [turn.reply] : [])]) {
           // A resumed session repeats the one it came from.
@@ -201,44 +220,30 @@ export class ProjectThreads {
     };
   }
 
-  /** Asks the judge about the quiet turns, newest first, a few at a time, without holding up anything else. */
-  private async judgeOpen(): Promise<void> {
-    const judge = this.options.judge;
-    if (!judge || this.judging) return;
-    this.judging = true;
+  /** Firstmate is asked about the turns nothing here could place, newest first; its answers come back on a later pass. */
+  private async askUnplaced(): Promise<void> {
+    const asker = this.options.asker;
+    if (!asker || this.asking) return;
+    this.asking = true;
     try {
       const now = (this.options.now ?? Date.now)();
-      const busiest = this.busiest();
-      const work = [...this.sessions.values()].flatMap((session) => session.open.map((index) => ({ session, index })))
+      const cases = [...this.sessions.values()].flatMap((session) => session.unplaced.map((index) => ({ session, index })))
         .filter(({ session, index }) => {
           const turn = session.turns[index]!;
-          if (judge.known(turn.key) !== undefined || session.named.every((names) => !names.length) && !busiest.length) return false;
           return turn.reply !== undefined || now - (Date.parse(turn.asked.at(-1)?.timestamp ?? "") || 0) > UNANSWERED_MS;
         })
-        .sort((a, b) => this.turnAt(b.session.turns[b.index]!) - this.turnAt(a.session.turns[a.index]!));
-      let failures = 0;
-      for (let from = 0; from < work.length && failures < JUDGE_FAILURES; from += JUDGE_AT_ONCE) {
-        const answers = await Promise.all(work.slice(from, from + JUDGE_AT_ONCE).map(({ session, index }) =>
-          judge.request(session.turns[index]!.key, judgeCase(session.turns, index, session.named, this.options.projects, busiest)).catch(() => false)));
-        failures = answers.every(Boolean) ? 0 : failures + 1;
-        if (answers.some(Boolean)) {
-          judge.save();
-          this.merge();
-        }
-      }
+        .sort((a, b) => this.turnAt(b.session.turns[b.index]!) - this.turnAt(a.session.turns[a.index]!))
+        .map(({ session, index }) => ({ turn: session.turns[index]!.key, line: askLine(session.turns, index, session.named) }));
+      if (await asker.ask(cases)) this.merge();
+    } catch (error) {
+      console.warn(`[view] could not ask firstmate about projects: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      this.judging = false;
+      this.asking = false;
     }
   }
 
   private turnAt(turn: Turn): number {
     return Date.parse((turn.reply ?? turn.asked.at(-1))?.timestamp ?? "") || 0;
-  }
-
-  private busiest(): string[] {
-    const counts = new Map<string, number>();
-    for (const entry of this.entries) for (const name of entry.projects) counts.set(name, (counts.get(name) ?? 0) + 1);
-    return [...counts].sort((a, b) => b[1] - a[1]).map(([name]) => name);
   }
 
   private summary(id: string, name: string, entries: Entry[]): ThreadSummary {
@@ -247,7 +252,7 @@ export class ProjectThreads {
     const answer = entries.slice(asked + 1).find((entry) => entry.message.role === "assistant")?.message;
     const newestReply = entries[entries.map((entry) => entry.message.role).lastIndexOf("assistant")]?.message;
     const told = answer ?? (asked >= 0 ? undefined : newestReply);
-    const reading = told && name !== "All" ? aboutOnly(told.text, name, this.read) : told?.text;
+    const reading = told && id !== ALL_THREAD && id !== OTHER_THREAD ? aboutOnly(told.text, name, this.read) : told?.text;
     const at = entries.at(-1)?.message.timestamp;
     return {
       id, name, count: entries.length,
@@ -269,27 +274,48 @@ export class ProjectThreads {
     }
     const projects = [...byName].map(([name, entries]) => this.summary(threadId(name), name, entries))
       .sort((a, b) => Date.parse(b.at ?? "") - Date.parse(a.at ?? ""));
-    return { ready: this.ready, projects, ...(this.entries.length ? { all: this.summary(ALL_THREAD, "All", this.entries) } : {}) };
+    const other = this.entries.filter((entry) => !entry.projects.length);
+    return {
+      ready: this.ready, projects,
+      ...(this.entries.length ? { all: this.summary(ALL_THREAD, "All", this.entries) } : {}),
+      ...(other.length ? { other: this.summary(OTHER_THREAD, "Other", other) } : {}),
+    };
   }
 
   name(sessionId: string): string | undefined {
     if (sessionId === ALL_THREAD) return "All";
+    if (sessionId === OTHER_THREAD) return "Other";
     return this.options.projects.find((project) => threadId(project.name) === sessionId)?.name;
   }
 
+  /** The thread's project, when it is one rather than All or Other. */
+  private project(sessionId: string): string | undefined {
+    return sessionId === ALL_THREAD || sessionId === OTHER_THREAD ? undefined : this.name(sessionId);
+  }
+
   snapshot(sessionId: string): ConversationSnapshot {
-    const name = this.name(sessionId);
-    const messages = this.entries.filter((entry) => sessionId === ALL_THREAD || (name && entry.projects.includes(name)))
-      .slice(-THREAD_MESSAGES).map((entry) => (name && name !== "All" && entry.projects.length > 1 && entry.message.role === "assistant"
-        ? { ...entry.message, text: aboutOnly(entry.message.text, name, this.read) }
+    const project = this.project(sessionId);
+    const known = this.name(sessionId) !== undefined;
+    const messages = this.entries.filter((entry) => known && (sessionId === ALL_THREAD
+      || (sessionId === OTHER_THREAD ? !entry.projects.length : entry.projects.includes(project!))))
+      .slice(-THREAD_MESSAGES).map((entry) => (project && entry.projects.length > 1 && entry.message.role === "assistant"
+        ? { ...entry.message, text: aboutOnly(entry.message.text, project, this.read) }
         : entry.message));
     const last = messages.at(-1);
     return {
       messages,
       working: last?.role === "user" && Boolean(last.waiting) && !last.waitingFailed && !last.settled,
-      ...(name && name !== "All" ? { project: name } : {}),
+      ...(project ? { project } : {}),
       ...(last?.timestamp ? { lastActivity: last.timestamp } : {}),
     };
+  }
+
+  /** What his words in a thread need to stand on their own, in the lines `plainNote` takes back off. */
+  lead(sessionId: string): string {
+    const project = this.project(sessionId);
+    const lines = this.snapshot(sessionId).messages.slice(-CONTEXT_LINES)
+      .map((message) => `> ${message.role === "user" ? "George" : "Flyd"}: ${oneLine(message.text, 200)}`);
+    return [project ? `About the project "${project}"` : "About this conversation", ...lines].join("\n");
   }
 
   image(imageId: string): Promise<ImageData | null> {
@@ -309,10 +335,8 @@ export function withProjectThreads(source: ConversationSource, threads: ProjectT
     if (!live) throw new Error("No conversation to send to");
     return live;
   };
-  const aboutProject = (sessionId: string, text: string): string => {
-    const name = sessionId === ALL_THREAD ? undefined : threads.name(sessionId);
-    return name ? `About the project "${name}"\n\n${text}` : text;
-  };
+  /** His words with the thread they were said in. A slash command stays first, or it is no longer a command. */
+  const inThread = (sessionId: string, text: string): string => (text.trimStart().startsWith("/") ? text : `${threads.lead(sessionId)}\n\n${text}`);
   const sent = async (work: Promise<SentMessage>): Promise<SentMessage> => {
     const result = await work;
     void threads.refresh();
@@ -346,7 +370,7 @@ export function withProjectThreads(source: ConversationSource, threads: ProjectT
       return { close: () => { closed = true; stop(); } };
     },
     send: async (sessionId, text, images?: ImageUpload[], files?: FileUpload[], to?) =>
-      sent(isThread(sessionId) ? source.send(await target(sessionId), aboutProject(sessionId, text), images, files, to) : source.send(sessionId, text, images, files, to)),
+      sent(isThread(sessionId) ? source.send(await target(sessionId), inThread(sessionId, text), images, files, to) : source.send(sessionId, text, images, files, to)),
     ...(source.sendDecision ? { sendDecision: async (text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }, sessionId?: string) =>
       source.sendDecision!(text, images, decision, sessionId && isThread(sessionId) ? await target(sessionId) : sessionId) } : {}),
     commands: () => source.commands(),
