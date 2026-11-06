@@ -4016,6 +4016,48 @@ describe("the notch", () => {
     expect(sheet().querySelector(".q")!.textContent).toBe("Which version ships?");
   });
 
+  it("keeps a focused answer when a newer call arrives, then opens the new call next time", async () => {
+    const stream = await update(live());
+    await settle();
+    island().click();
+    const input = sheet().querySelector(".art-chat-input") as HTMLTextAreaElement;
+    input.value = "My unfinished answer";
+    input.focus();
+    input.setSelectionRange(3, 8);
+    const data = live();
+    const newCall = { ...data.needs[0]!, id: "call:new", title: "A new question", at: new Date(Date.now() + 60000).toISOString() };
+    stream.emit("update", { order: [], messages: [], working: false, live: live({ needs: [newCall, ...data.needs], counts: { running: 1, needs: 4 }, running: [data.running[0]!] }) });
+    expect(sheet().querySelector(".q")!.textContent).toBe("Which version ships?");
+    expect(sheet().querySelector(".art-chat-input")).toBe(input);
+    expect(input.value).toBe("My unfinished answer");
+    expect(document.activeElement).toBe(input);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([3, 8]);
+    expect(sheet().querySelectorAll(".run-row")).toHaveLength(2);
+    expect(sheet().textContent).toContain("A new question");
+    (document.getElementById("notch-close") as HTMLButtonElement).click();
+    island().click();
+    expect(sheet().querySelector(".q")!.textContent).toBe("A new question");
+  });
+
+  it("keeps an answer on a deliberately selected older call during refresh", async () => {
+    const data = live();
+    const older = { ...data.needs[0]!, id: "call:second", title: "Second question" };
+    const stream = await update(live({ needs: [data.needs[0]!, older], older: [] }));
+    await settle();
+    island().click();
+    (sheet().querySelector('[data-pick="call:second"]') as HTMLButtonElement).click();
+    const input = sheet().querySelector(".art-chat-input") as HTMLTextAreaElement;
+    input.value = "still typing";
+    input.focus();
+    const newest = { ...older, id: "call:new", title: "Newest question" };
+    stream.emit("update", { order: [], messages: [], working: false, live: live({ needs: [newest, data.needs[0]!, older], older: [] }) });
+    expect(sheet().querySelector(".q")!.textContent).toBe("Second question");
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("still typing");
+    (sheet().querySelector('[data-pick="call:new"]') as HTMLButtonElement).click();
+    expect(sheet().querySelector(".q")!.textContent).toBe("Newest question");
+  });
+
   it("opens a call ahead of newer ready work and keeps the queue chronological", async () => {
     const data = live();
     const call = { ...data.needs[0]!, at: new Date(Date.now() - 120000).toISOString() };

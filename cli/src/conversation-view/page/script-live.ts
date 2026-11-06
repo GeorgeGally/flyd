@@ -155,7 +155,10 @@ export const LIVE_SCRIPT = `
   }
   // A refresh never takes the box from under his hands; his own click always moves the sheet.
   function liveDrawSheet(live, moved) {
-    var open = liveOpenItem(live);
+    var active = document.activeElement;
+    var editing = !moved && active && active.closest("#notch-keys .scene-ask") && active.matches("input, textarea, [contenteditable=true]");
+    var current = editing && notchSheet.querySelector(".callblock[data-call]");
+    var open = current && live.needs.concat(live.older).filter(function (item) { return item.id === current.dataset.call; })[0] || liveOpenItem(live);
     var html = liveSheetHtml(live, open);
     var signature = open ? JSON.stringify([open.id, open.decision, open.links, open.title]) : "";
     if (html === notch.drawn && (!open || (notch.ask && notch.ask.signature === signature))) return;
