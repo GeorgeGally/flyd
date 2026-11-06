@@ -154,6 +154,12 @@ describe("canonical semantic artefacts", () => {
     expect(judge.cached(candidate)).toEqual({ kind: "investigation", confidence: 0.94 });
   });
 
+  it("focuses active work ahead of a paused worker", () => {
+    const paused = semanticObjectFromShow(item({ kind: "waiting", status: "paused", at: "2026-10-26T12:00:00Z" }));
+    const active = semanticObjectFromShow(item({ id: "live:t2", task: "t2", kind: "live", at: "2026-10-26T11:00:00Z" }));
+    expect(semanticFocus([paused, active])?.id).toBe("task:t2");
+  });
+
   it("emits lifecycle deltas for one stable object instead of inventing new cards", () => {
     const active = semanticObjectFromShow(item({ kind: "live", status: "working" }));
     const interrupted = semanticObjectFromShow(item({ kind: "waiting", status: "paused" }));

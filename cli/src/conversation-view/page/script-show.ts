@@ -630,7 +630,7 @@ export const SHOW_SCRIPT = `
     if (object.kind === "monitor") return object.monitor && object.monitor.phase === "changed" ? "needs" : "watching";
     if (object.lifecycle === "failed") return "failed";
     if (object.lifecycle === "resolved") return "landed";
-    if (object.lifecycle === "interrupted") return "needs";
+    if (object.lifecycle === "interrupted") return object.status === "paused" ? "held" : "needs";
     if (object.kind === "artifact") return "landed";
     if (object.lifecycle === "active") return object.activity && object.activity.phase === "needs_you" ? "needs" : "working";
     return "held";
@@ -790,7 +790,7 @@ export const SHOW_SCRIPT = `
       // settled call follows it. Legacy presentation cards stay out of its way.
       // A finished artefact is never a scene of its own: it lives in the right column.
       var standing = parts.stage.filter(function (box) { return (box.tone === "clear" || box.semanticKind) && box.semanticKind !== "artifact"; });
-      var needsHim = !!(next.focus && next.focus.lifecycle === "interrupted");
+      var needsHim = !!(next.focus && next.focus.lifecycle === "interrupted" && next.focus.status !== "paused");
       parts.stage = needsHim ? [focusBox].concat(standing) : standing.concat([focusBox]);
       // The plan gauge is the one instrument worth keeping beside the counts: the
       // rest either repeat them (work-state, landed-week) or belong to the old stage.

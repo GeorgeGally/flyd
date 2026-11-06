@@ -507,8 +507,10 @@ const FOCUS_PRIORITY: Record<SemanticKind, number> = {
  */
 export function semanticFocus(objects: readonly SemanticObject[]): SemanticObject | undefined {
   return objects.filter((object) => object.kind !== "artifact").sort((a, b) => {
-    const interrupted = Number(b.lifecycle === "interrupted") - Number(a.lifecycle === "interrupted");
+    const interrupted = Number(b.lifecycle === "interrupted" && b.status !== "paused") - Number(a.lifecycle === "interrupted" && a.status !== "paused");
     if (interrupted) return interrupted;
+    const paused = Number(a.status === "paused") - Number(b.status === "paused");
+    if (paused) return paused;
     const monitorA = a.monitor?.phase === "quiet" ? -25 : 0;
     const monitorB = b.monitor?.phase === "quiet" ? -25 : 0;
     const score = (FOCUS_PRIORITY[b.kind] + monitorB) - (FOCUS_PRIORITY[a.kind] + monitorA);

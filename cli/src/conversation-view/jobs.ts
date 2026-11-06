@@ -61,6 +61,8 @@ export interface Job {
 export interface JobRun {
   id: string;
   status: string;
+  transport?: DomainRun["transport"]["kind"];
+  source?: DomainRun["request"]["source"];
   project?: string;
   outcome: string;
   owner: string;
@@ -115,10 +117,12 @@ const one = (value: string, max = 200) => value.replace(/\s+/g, " ").trim().slic
 export function jobRunFromDomain(run: DomainRun): JobRun {
   const report = [run.result?.brief, run.result?.detailedReport].filter((part): part is string => Boolean(part?.trim())).join("\n\n");
   const question = run.result?.unresolvedQuestions.find((item) => item.trim())
-    ?? run.messages?.find((message) => message.kind === "decision")?.body;
+    ?? (run.result?.brief?.trim() || undefined);
   return {
     id: run.id,
     status: run.status,
+    transport: run.transport.kind,
+    source: run.request.source,
     ...(run.request.project?.name ? { project: run.request.project.name } : {}),
     outcome: one(run.request.intendedOutcome || run.request.originalMessage),
     owner: run.owner,
@@ -150,10 +154,12 @@ function rank(group: JobGroup): number {
 function runSignal(run: JobRun, now: number): Signal | null {
   const at = run.updatedAt;
   if (run.status === "needs_decision") {
+    if (run.source === "flyd") return null;
     return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, because: `Run ${run.id} is waiting on a decision` };
   }
   if (run.status === "queued") return { group: "waiting", state: "Queued", at, next: run.outcome || "Queued", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is queued` };
   if (run.status === "accepted" || run.status === "working") {
+    if (run.transport === "firstmate") return null;
     if (now - Date.parse(at) > QUIET_RUN_MS) return { group: "waiting", at, next: run.outcome || "Nothing has moved this.", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} has gone quiet` };
     return { group: "working", at, ...(run.started ? { started: run.started } : {}), next: run.outcome || "In progress", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
   }
@@ -241,17 +247,20 @@ export function jobsFrom(input: {
     bucketFor(project.name);
   }
 
-  // A worker the fleet reports is one card, however its run is also recorded.
-  const running = new Set((input.show?.underway ?? []).flatMap((item) => (item.task ? [item.task] : [])));
+  const activeProjects = new Set<string>();
+  const markActive = (name: string) => {
+    const key = jobKey(name);
+    activeProjects.add(jobKey(known.get(key)?.id ?? name));
+  };
   for (const run of input.runs ?? []) {
     const signal = runSignal(run, now);
-    if (!signal || (signal.group === "working" && running.has(run.id))) continue;
+    if (!signal) continue;
     const name = run.project;
     if (!name && signal.group === "done") continue;
     const bucket = (signal.group === "working" || signal.group === "needs")
       ? lone(buckets, `run:${run.id}`, run.outcome || name || "Untitled run")
       : name ? bucketFor(name) : lone(buckets, run.id, run.outcome || "Untitled run");
-    if ((signal.group === "working" || signal.group === "needs") && name) bucket.project = name;
+    if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; markActive(name); }
     bucket.signals.push(signal);
     bucket.threads.push({ id: run.id, title: run.outcome || run.id, at: run.updatedAt, kind: "run" });
     for (const artifact of artifactsOf(run.artifacts, exists)) {
@@ -274,7 +283,7 @@ export function jobsFrom(input: {
     if (!group) continue;
     // Every running worker is its own card: two on one project are two, and a project's open call never hides one.
     const bucket = item.project && item.kind !== "live" ? bucketFor(item.project, item.headline) : lone(buckets, item.id, item.headline);
-    if (item.kind === "live" && item.project) bucket.project = basename(item.project);
+    if (item.kind === "live" && item.project) { bucket.project = basename(item.project); markActive(bucket.project); }
     const ask = group === "needs" ? (item.decision?.question || item.detail || item.headline) : "";
     const state = itemState(item);
     bucket.signals.push({
@@ -312,6 +321,7 @@ export function jobsFrom(input: {
   const pending: DigestSource[] = [];
   for (const bucket of buckets.values()) {
     const project = projects.find((item) => item.id === bucket.id);
+    if (!bucket.signals.length && activeProjects.has(jobKey(bucket.id))) continue;
     if (!bucket.signals.length && project) bucket.signals.push(idleSignal(project));
     if (!bucket.signals.length && (bucket.threads.length || bucket.reports.length)) {
       bucket.signals.push({ group: "waiting", at: bucket.threads[0]?.at ?? "", next: "Nothing is moving this.", owner: "you", ask: "", because: "Named in a conversation, no open run" });

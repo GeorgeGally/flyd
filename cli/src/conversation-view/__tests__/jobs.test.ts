@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SnapshotDiffer } from "../server.js";
 import { digestHash } from "../job-digest.js";
-import { editJob, jobsFrom, type JobRun } from "../jobs.js";
+import { editJob, jobRunFromDomain, jobsFrom, type JobRun } from "../jobs.js";
+import type { DomainRun } from "../../command/types.js";
 import type { Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
 
@@ -49,10 +50,33 @@ describe("jobsFrom", () => {
     expect(board.jobs.find((job) => job.id === "note")).toMatchObject({ group: "waiting", state: "Queued" });
   });
 
-  it("does not show a worker twice when its run is on record too", () => {
-    const show = { ...screen, underway: [{ id: "live:run-1", kind: "live", headline: "Revise the deck", why: "", task: "run-1" }] } as unknown as ShowScreen;
-    const board = jobsFrom({ show, runs: [run({ project: "" })], now: NOW });
-    expect(board.jobs.filter((job) => job.group === "working").map((job) => job.id)).toEqual(["live:run-1"]);
+  it("uses the fleet for FirstMate workers while retaining domain decisions", () => {
+    const show = { ...screen, underway: [{ id: "live:worker", kind: "live", headline: "Revise", why: "", task: "worker", project: "Cap5" }] } as unknown as ShowScreen;
+    const board = jobsFrom({ projects: [project()], show, runs: [run({ id: "domain-123", transport: "firstmate" }), run({ id: "domain-456", transport: "native" }), run({ id: "domain-789", transport: "firstmate", status: "needs_decision" })], now: NOW });
+    expect(board.jobs.filter((job) => job.group === "working").map((job) => job.id).sort()).toEqual(["live:worker", "run:domain-456"]);
+    expect(board.jobs.find((job) => job.id === "run:domain-789")?.group).toBe("needs");
+    expect(board.jobs.find((job) => job.id === "cap5")).toBeUndefined();
+  });
+
+  it("suppresses an idle project when a worker or decision is active", () => {
+    const worker = { ...screen, underway: [{ id: "live:worker", kind: "live", headline: "Revise", why: "", task: "worker", project: "Cap5" }] } as unknown as ShowScreen;
+    for (const input of [{ show: worker }, { runs: [run({ status: "needs_decision" })] }]) {
+      const board = jobsFrom({ projects: [project()], sessions: [{ id: "s", title: "Chat", project: "Cap5", updatedAt: "2026-10-26" }], ...input, now: NOW });
+      expect(board.jobs.find((job) => job.id === "cap5")).toBeUndefined();
+    }
+  });
+
+  it("shows the boss question rather than an outgoing answer and hides Flyd notes", () => {
+    const domain: DomainRun = {
+      id: "domain-123", status: "needs_decision", owner: "FirstMate", createdAt: "2026-10-26T09:00:00Z", updatedAt: "2026-10-26T11:00:00Z",
+      request: { id: "domain-123", domain: "coding", originalMessage: "Build", intendedOutcome: "Build", doneWhen: [], createdAt: "2026-10-26T09:00:00Z" },
+      transport: { kind: "firstmate", requestId: "domain-123" },
+      messages: [{ id: "answer", kind: "decision", body: "yes", at: "2026-10-26T11:00:00Z" }],
+      result: { format: "raw", brief: "Which version?", detailedReport: "", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" },
+    };
+    expect(jobsFrom({ runs: [jobRunFromDomain(domain)], now: NOW }).jobs[0]?.ask).toBe("Which version?");
+    expect(jobsFrom({ runs: [jobRunFromDomain({ ...domain, request: { ...domain.request, source: "flyd" } })], now: NOW }).jobs).toEqual([]);
+    expect(jobRunFromDomain({ ...domain, result: { ...domain.result!, unresolvedQuestions: ["Ship now?"] } }).question).toBe("Ship now?");
   });
 
   it("says finished work is ready and a finished report is a report", () => {

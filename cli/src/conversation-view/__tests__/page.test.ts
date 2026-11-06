@@ -3966,6 +3966,8 @@ describe("the notch", () => {
     await update(live({ counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] }));
     await settle();
     expect(island().textContent).toBe("Nothing runningNothing needs you");
+    await update(live({ counts: { running: 0, needs: 1 } }));
+    expect(island().textContent).toBe("Nothing running1 needs you");
   });
 
   it("does not read as calm before the fleet has been read", async () => {
@@ -4034,6 +4036,10 @@ describe("the notch", () => {
     expect([input.selectionStart, input.selectionEnd]).toEqual([3, 8]);
     expect(sheet().querySelectorAll(".run-row")).toHaveLength(2);
     expect(sheet().textContent).toContain("A new question");
+    input.blur();
+    stream.emit("update", { order: [], messages: [], working: false, live: live({ needs: [newCall, ...data.needs] }) });
+    expect(sheet().querySelector(".q")!.textContent).toBe("Which version ships?");
+    expect((sheet().querySelector(".art-chat-input") as HTMLTextAreaElement).value).toBe("My unfinished answer");
     (document.getElementById("notch-close") as HTMLButtonElement).click();
     island().click();
     expect(sheet().querySelector(".q")!.textContent).toBe("A new question");

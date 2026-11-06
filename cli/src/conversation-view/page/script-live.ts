@@ -19,7 +19,7 @@ export const LIVE_SCRIPT = `
     if (!live.known && !live.counts.running && !live.counts.needs) return '<span class="l">Not read yet</span>';
     var dot = live.counts.running ? '<span class="idot" aria-hidden="true"></span>' : "";
     return '<span class="l">' + dot + liveCount(live.counts.running, "running", live.known ? "Nothing running" : "Not read yet") + '</span><span class="gap" aria-hidden="true"></span>'
-      + '<span class="r' + (live.counts.needs ? " on" : "") + '">' + liveCount(live.counts.needs, "need you", "Nothing needs you") + '</span>';
+      + '<span class="r' + (live.counts.needs ? " on" : "") + '">' + liveCount(live.counts.needs, live.counts.needs === 1 ? "needs you" : "need you", "Nothing needs you") + '</span>';
   }
   function liveElapsed(iso) {
     var ms = frontAge(iso);
@@ -145,7 +145,12 @@ export const LIVE_SCRIPT = `
   function liveDraw(live) {
     var previousCalls = notch.live ? notch.live.needs.concat(notch.live.older).filter(function (item) { return item.state === "call"; }).map(function (item) { return item.id; }) : [];
     var hasNewCall = live.needs.concat(live.older).some(function (item) { return item.state === "call" && previousCalls.indexOf(item.id) === -1; });
-    if (hasNewCall) notch.picked = "";
+    if (hasNewCall) {
+      var active = document.activeElement;
+      var editing = notchEl.open && active && active.closest("#notch-keys .scene-ask") && active.matches("input, textarea, [contenteditable=true]");
+      var current = editing && notchSheet.querySelector(".callblock[data-call]");
+      notch.picked = current ? current.dataset.call : "";
+    }
     notch.live = live;
     var island = liveIslandHtml(live);
     if (islandEl.innerHTML !== island) islandEl.innerHTML = island;
