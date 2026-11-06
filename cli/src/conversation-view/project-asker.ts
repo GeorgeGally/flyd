@@ -21,9 +21,9 @@ const hashed = (text: string): string => createHash("sha256").update(text).diges
 
 /**
  * Firstmate's word on which project a turn is about, for the turns Flyd cannot
- * place itself. It knows the fleet, and nothing leaves the machine. One note at a
- * time goes through firstmate's inbox, and the answers are kept by hash, so the
- * same history is asked once. What its reply does not place stays unplaced: Other.
+ * place itself. One note at a time goes through firstmate's inbox, and recognized
+ * answers are kept by hash. Missing or unrecognized answers remain eligible for
+ * another request. What is not placed appears under Other.
  */
 export class ProjectAsker {
   private readonly tags = new Map<string, string | null>();
