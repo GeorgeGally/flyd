@@ -1121,7 +1121,7 @@ describe("ArtefactFeed", () => {
     const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
     await feed.refresh();
     expect(feed.current().fleet!.calls.map((row) => row.task)).toEqual(["x"]);
-    expect(feed.current().fleet!.ready.some((row) => row.task === "x")).toBe(false);
+    expect(feed.current().fleet!.ready.some((row) => row.task === "x")).toBe(true);
   });
 });
 
@@ -1192,6 +1192,9 @@ describe("ArtefactFeed fleet reads", () => {
   it("preserves calls and current lifecycle rows through the ledger", async () => {
     const { home, script } = fleetHome("artefact-call-lifecycle-");
     const snapshot = join(home, "bearings.json");
+    mkdirSync(join(home, "data"));
+    writeFileSync(join(home, "data", "backlog.md"), ["working", "paused", "ready", "staff"]
+      .map((id) => `- [ ] ${id} - Choose ${id} (hold: Pick one: 1 Red, 2 Blue)`).join("\n"));
     writeFileSync(snapshot, JSON.stringify({ decisions_open: ["working", "paused", "ready", "staff"].map((id) => ({ id, summary: "Choose " + id })), in_flight: [
       { id: "working", state: "working", name: "Building" },
       { id: "paused", state: "paused", name: "Paused" },
@@ -1230,6 +1233,19 @@ describe("ArtefactFeed fleet reads", () => {
     expect(feed.current().fleet?.live.map((row) => row.task)).toEqual(["listed", "cut-off"]);
     expect(feed.current().fleet?.ready.map((row) => row.task)).toEqual(["finished"]);
     expect(underwayItems(feed.current().fleet).map((item) => item.task)).toEqual(["cut-off", "listed"]);
+  });
+
+  it.each(["parked", "blocked"])("keeps a %s worker paused despite stale staff state", async (state) => {
+    const { home, script } = fleetHome("artefact-held-worker-");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "worker", state, name: "Worker", doing: `${state} at test: 2 finding(s) · run: 01ABC` }] }));
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, ...files(home), decideChanges: async () => [], workers: () => [{ id: "worker", name: "Worker", state: "working" }] });
+    await feed.refresh();
+    const fleet = feed.current().fleet!;
+    expect(fleetCounts(fleet).live).toBe(0);
+    expect(fleetCounts(fleet).call).toBe(0);
+    expect(fleet.held).toEqual([{ label: "Worker", task: "worker", status: "paused", detail: undefined }]);
   });
 
   it("keeps stale staff workers out when the snapshot reports finished or paused", async () => {

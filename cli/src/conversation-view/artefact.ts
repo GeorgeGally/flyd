@@ -357,7 +357,7 @@ export function parseBearings(raw: unknown): FleetArtefact {
     evidenceRefs: str(row.id) ? [`firstmate-task:${str(row.id)}`] : [],
   })));
   const finished = inState("done").map((entry) => ({ ...entry.row, status: entry.kind === "scout" ? "report available" : readyStatus(entry.doing) }));
-  const HELD: Record<string, string> = { failed: "failed", unknown: "no word", paused: "paused" };
+  const HELD: Record<string, string> = { failed: "failed", unknown: "no word", paused: "paused", parked: "paused", blocked: "paused" };
   return {
     ...(str(data.generated) ? { generated: str(data.generated) } : {}),
     changes,
@@ -380,7 +380,7 @@ export function parseBearings(raw: unknown): FleetArtefact {
         })
         .filter((row) => row.label),
     ],
-    held: (["failed", "unknown", "paused"] as const).flatMap((state) => inState(state).map((entry) => ({ ...entry.row, status: HELD[state]! }))),
+    held: (["failed", "unknown", "paused", "parked", "blocked"] as const).flatMap((state) => inState(state).map((entry) => ({ ...entry.row, status: HELD[state]! }))),
     next: rows(data.gates)
       .map((row) => {
         const blocked = str(row.blocked_by);
@@ -472,7 +472,7 @@ function wholeLabel(label: string, full: string): string {
 
 /** A row's line that only says a worker exists, or is its raw status line: the worker's own note says it plainly. Pure. */
 function saysNoStep(detail: string): boolean {
-  return /^(?:a worker is on it\b|(?:paused|done)\s*\[)/i.test(detail);
+  return /^(?:a worker is on it\b|(?:paused|done)\s*\[|(?:parked|blocked)\s+at\b)/i.test(detail);
 }
 
 export interface TaskExtra {

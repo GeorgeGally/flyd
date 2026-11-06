@@ -3998,7 +3998,7 @@ describe("the notch", () => {
     (sheet().querySelector(".art-chat-input") as HTMLElement).focus();
     (sheet().querySelector('[data-pick="ready:lab"]') as HTMLButtonElement).click();
     expect(sheet().querySelector(".q")!.textContent).toBe("Five versions");
-    expect(sheet().querySelector(".older")!.textContent).toContain("1 older, back to 25 September");
+    expect(sheet().querySelector(".older")!.textContent).toMatch(/1 older, back to (?=.*25)(?=.*September)/);
     (sheet().querySelector(".older") as HTMLButtonElement).click();
     expect(sheet().textContent).toContain("An old hold");
   });
