@@ -53,6 +53,16 @@ describe("ProjectThreads", () => {
     });
   });
 
+  it("publishes partial backfill in growing batches and finishes with every session", async () => {
+    const sessions = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`s${i}`, { updatedAt: "2026-11-06T10:00:00Z", messages: [user(`q${i}`, "DIR", "2026-11-06T09:00:00Z")] }]));
+    const threads = new ProjectThreads({ feeds: [feed(sessions)], projects });
+    const counts: number[] = [];
+    threads.onChange(() => counts.push(threads.snapshot(ALL_THREAD).messages.length));
+    await threads.refresh();
+    expect(counts).toEqual([25, 75, 100]);
+    expect(threads.list().ready).toBe(true);
+  });
+
   it("gathers a project's thread across sessions, answers under their questions", async () => {
     const threads = new ProjectThreads({ feeds: [feed(HISTORY)], projects });
     await threads.refresh();
@@ -213,12 +223,12 @@ describe("firstmate placing what Flyd cannot", () => {
     expect(away.known("t0")).toBeUndefined();
   });
 
-  it("retries missing and unknown answers once and persists the retry limit", async () => {
+  it("keeps retrying missing and unknown answers across restarts", async () => {
     let now = 1_000_000_000_000;
     const file = join(mkdtempSync(join(tmpdir(), "flyd-retry-")), "tags.json");
     const staff = firstmate((note) => {
       const ids = [...note.matchAll(/^([0-9a-f]{8}) \|/gm)].map((match) => match[1]);
-      return `${ids[0]}: Logan\n${ids[1]}: Unknown`;
+      return staff.notes.length === 1 ? `${ids[0]}: Logan\n${ids[1]}: Unknown` : `${ids[0]}: Unknown`;
     });
     const cases = ["a", "b", "c"].map((turn) => ({ turn, line: turn }));
     let asker = new ProjectAsker({ ...staff, names, file, now: () => now });
@@ -231,11 +241,11 @@ describe("firstmate placing what Flyd cannot", () => {
     now += 16 * 60_000;
     await asker.ask(cases);
     await asker.ask(cases);
-    expect(asker.known("b")).toBe("Logan");
-    expect(asker.known("c")).toBeNull();
+    expect(asker.known("b")).toBeUndefined();
+    expect(asker.known("c")).toBeUndefined();
     now += 16 * 60_000;
     await asker.ask(cases);
-    expect(staff.notes).toHaveLength(2);
+    expect(staff.notes).toHaveLength(3);
   });
 
   it("gives up on a note never answered, so the next can go", async () => {
@@ -323,13 +333,14 @@ describe("what the threads keep up with", () => {
     expect(threads.snapshot("project:dir").working).toBe(false);
   });
 
-  it("keeps what goes with an answer, and only the shots that can be shown from here", async () => {
+  it("keeps answer attachments and resolves transcript shots in both threads", async () => {
     const threads = new ProjectThreads({ feeds: [feed({ a: { updatedAt: "2026-11-06T10:00:00Z", messages: [
       user("q", "the DIR ident", "2026-11-06T09:00:00Z"),
       said("r", "DIR ident has three steps.", "2026-11-06T09:01:00Z", {
         artefact: "1. One\n2. Two\n3. Three",
         page: { url: "https://example.com/dir", label: "DIR" },
-        shots: ["/kept/shot.png", "transcript-image-1"],
+        shots: ["/kept/shot.png", "t10.0"],
+        images: ["existing"],
       }),
     ] } })], projects });
     await threads.refresh();
@@ -337,6 +348,9 @@ describe("what the threads keep up with", () => {
     expect(answer.artefact).toContain("Three");
     expect(answer.page?.url).toBe("https://example.com/dir");
     expect(answer.shots).toEqual(["/kept/shot.png"]);
+    expect(answer.images).toEqual(["0|a|existing", "0|a|t10.0"]);
+    expect(threads.snapshot(ALL_THREAD).messages.at(-1)?.images).toEqual(answer.images);
+    expect((await threads.image(answer.images![1]!))?.data.toString()).toBe("a:t10.0");
   });
 
   it("lets a conversation that went away go", async () => {
@@ -434,6 +448,15 @@ describe("withProjectThreads", () => {
     expect(source.sent).toEqual([["live", "hello"]]);
     expect(wrapped.newSession?.("project:nothing")).toBeUndefined();
     expect(wrapped.newSession?.("project:dir")?.title).toBe("DIR");
+  });
+
+  it("forwards decision follow-ups to ordinary and thread target sessions", async () => {
+    const followUp = vi.fn(async (_text: string, _decision: { decisionId: string; taskId: string }, _session?: string) => ({ id: "sent", timestamp: "2026-11-06T10:00:00Z" }));
+    const source = base({ newSession: (id) => ({ id, title: "New", updatedAt: "" }), sendDecisionFollowUp: followUp });
+    const wrapped = withProjectThreads(source, await threads());
+    const decision = { decisionId: "d", taskId: "t" };
+    for (const session of ["live", "project:dir", ALL_THREAD, OTHER_THREAD]) await wrapped.sendDecisionFollowUp!("more", decision, session);
+    expect(followUp.mock.calls.map((call) => call[2])).toEqual(["live", "window:project-dir", "window:project-all", "window:project-other"]);
   });
 
   it("exposes and clears the target session confirmation in reads and follows", async () => {

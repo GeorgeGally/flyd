@@ -15,7 +15,7 @@ export function defaultProjectTagFile(): string {
 }
 
 interface OpenAsk { requestId: string; sentAt: number; turns: Record<string, string> }
-interface Kept { tags: Record<string, string | null>; attempts?: Record<string, number>; open?: OpenAsk; lastSent?: number }
+interface Kept { tags: Record<string, string | null>; open?: OpenAsk; lastSent?: number }
 
 const hashed = (text: string): string => createHash("sha256").update(text).digest("hex");
 
@@ -27,7 +27,6 @@ const hashed = (text: string): string => createHash("sha256").update(text).diges
  */
 export class ProjectAsker {
   private readonly tags = new Map<string, string | null>();
-  private readonly attempts = new Map<string, number>();
   private open?: OpenAsk;
   private lastSent = 0;
 
@@ -43,7 +42,6 @@ export class ProjectAsker {
     try {
       const kept = JSON.parse(readFileSync(options.file, "utf8")) as Partial<Kept>;
       for (const [key, value] of Object.entries(kept.tags ?? {})) if (typeof value === "string" || value === null) this.tags.set(key, value);
-      for (const [key, value] of Object.entries(kept.attempts ?? {})) if (typeof value === "number") this.attempts.set(key, value);
       this.open = kept.open;
       this.lastSent = kept.lastSent ?? 0;
     } catch { /* Nothing kept yet, or unreadable: firstmate is asked again. */ }
@@ -91,11 +89,6 @@ export class ProjectAsker {
       const name = names.get(answer ?? "");
       if (name || answer === "other") {
         this.tags.set(turn, name ?? null);
-        this.attempts.delete(turn);
-      } else {
-        const attempts = (this.attempts.get(turn) ?? 0) + 1;
-        if (attempts >= 2) { this.tags.set(turn, null); this.attempts.delete(turn); }
-        else this.attempts.set(turn, attempts);
       }
     }
     delete this.open;
@@ -108,7 +101,7 @@ export class ProjectAsker {
     const temporary = `${file}.${process.pid}.tmp`;
     try {
       mkdirSync(dirname(file), { recursive: true });
-      const kept: Kept = { tags: Object.fromEntries(this.tags), attempts: Object.fromEntries(this.attempts), ...(this.open ? { open: this.open } : {}), lastSent: this.lastSent };
+      const kept: Kept = { tags: Object.fromEntries(this.tags), ...(this.open ? { open: this.open } : {}), lastSent: this.lastSent };
       writeFileSync(temporary, JSON.stringify(kept), { mode: 0o600 });
       renameSync(temporary, file);
     } catch (error) {

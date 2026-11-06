@@ -159,6 +159,8 @@ export class ProjectThreads {
 
   private async pass(): Promise<void> {
     let changed = false;
+    let sinceMerge = 0;
+    let mergeBatch = 25;
     const listed = new Set<string>();
     for (const [feed, source] of this.options.feeds.entries()) {
       const revision = source.revision?.() ?? "";
@@ -175,7 +177,7 @@ export class ProjectThreads {
         this.index(key, feed, stamp, fingerprint, session, snapshot);
         changed = true;
         // A long backfill shows what it has as it goes.
-        if (!this.ready) this.merge();
+        if (!this.ready && ++sinceMerge >= mergeBatch) { this.merge(); sinceMerge = 0; mergeBatch *= 2; }
       }
     }
     // A conversation that went away takes its words with it.
@@ -231,13 +233,13 @@ export class ProjectThreads {
   /** A message as a thread shows it: said in Flyd's voice, his own words only, its pictures still findable. */
   private shown(message: ConversationMessage, feed: number, sessionId: string): ConversationMessage {
     const { notes: _notes, reports: _reports, shots, site: _site, wake: _wake, ...rest } = message;
-    // A shot still known only by its transcript id belongs to the session it came from; a kept one is a path anywhere can show.
     const kept = shots?.filter((shot) => shot.startsWith("/"));
+    const images = [...(message.images ?? []), ...(shots?.filter((shot) => !shot.startsWith("/")) ?? [])];
     return {
       ...rest,
       ...(kept?.length ? { shots: kept } : {}),
       text: message.role === "assistant" ? inFlydsVoice(message.text) : plainNote(message.text).words,
-      ...(message.images?.length ? { images: message.images.map((id) => `${feed}|${sessionId}|${id}`) } : {}),
+      ...(images.length ? { images: images.map((id) => `${feed}|${sessionId}|${id}`) } : {}),
     };
   }
 
@@ -409,6 +411,8 @@ export function withProjectThreads(source: ConversationSource, threads: ProjectT
       sent(isThread(sessionId) ? source.send(await target(sessionId), inThread(sessionId, text), images, files, to) : source.send(sessionId, text, images, files, to)),
     ...(source.sendDecision ? { sendDecision: async (text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }, sessionId?: string) =>
       source.sendDecision!(text, images, decision, sessionId && isThread(sessionId) ? await target(sessionId) : sessionId) } : {}),
+    ...(source.sendDecisionFollowUp ? { sendDecisionFollowUp: async (text: string, decision: { decisionId: string; taskId: string }, sessionId?: string) =>
+      source.sendDecisionFollowUp!(text, decision, sessionId && isThread(sessionId) ? await target(sessionId) : sessionId) } : {}),
     commands: () => source.commands(),
     image: (sessionId, imageId) => (isThread(sessionId) ? threads.image(imageId) : source.image(sessionId, imageId)),
     ...(source.exchanges ? { exchanges: () => source.exchanges!() } : {}),
