@@ -185,6 +185,7 @@ function itemGroup(kind: ShowItem["kind"]): JobGroup | null {
 function itemState(item: ShowItem): string | undefined {
   if (item.kind === "ready") return item.status === "report available" ? "Report ready" : "Ready to land";
   if (item.kind === "next") return "Queued";
+  if (item.kind === "waiting" && item.status === "paused") return "Paused";
   return undefined;
 }
 

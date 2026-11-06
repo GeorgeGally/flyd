@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { SnapshotDiffer } from "../server.js";
 import { digestHash } from "../job-digest.js";
 import { editJob, jobRunFromDomain, jobsFrom, type JobRun } from "../jobs.js";
+import { heldItems, parseBearings } from "../artefact.js";
 import type { DomainRun } from "../../command/types.js";
 import type { Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
@@ -48,6 +49,17 @@ describe("jobsFrom", () => {
     expect(board.jobs.find((job) => job.id === "next:q")).toMatchObject({ group: "waiting", state: "Queued" });
     expect(board.jobs.find((job) => job.id === "stale")).toMatchObject({ group: "waiting", state: "Waiting" });
     expect(board.jobs.find((job) => job.id === "note")).toMatchObject({ group: "waiting", state: "Queued" });
+  });
+
+  it("shows paused, parked and blocked workers as paused without requiring attention", () => {
+    const fleet = parseBearings({ in_flight: ["paused", "parked", "blocked"].map((state) => ({ id: state, name: `${state} worker`, state })) });
+    const show = { ...screen, held: heldItems(fleet) };
+    const board = jobsFrom({ show, now: NOW });
+    expect(board.jobs.map((job) => [job.title, job.group, job.state, job.ask])).toEqual([
+      ["paused worker", "waiting", "Paused", ""],
+      ["parked worker", "waiting", "Paused", ""],
+      ["blocked worker", "waiting", "Paused", ""],
+    ]);
   });
 
   it("uses the fleet for FirstMate workers while retaining domain decisions", () => {
