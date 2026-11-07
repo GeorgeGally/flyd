@@ -1007,7 +1007,7 @@ export const SHOW_SCRIPT = `
   });
   document.addEventListener("keydown", function (event) {
     if (!showEl.isConnected || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
-    if (event.target instanceof Element && event.target.closest(".scene-ask, .art-chat, .reply, .passage, .prefs, .calls, .rail-phone-say")) return;
+    if (event.target instanceof Element && event.target.closest(".scene-ask, .art-chat, .reply, .passage, .prefs, .calls, .rail-phone-say, .machine-form")) return;
     // Tab swaps between the conversation and the artefact, from anywhere. Left
     // alone while the "/" list or a typing suggestion has claimed the key.
     if (event.key === "Tab") {

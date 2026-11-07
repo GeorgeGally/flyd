@@ -4312,3 +4312,168 @@ describe("project threads", () => {
     expect(document.getElementById("threads")!.textContent).toBe("Reading your conversations.");
   });
 });
+
+describe("the Machines tab", () => {
+  const GB = 1073741824;
+  const ONLINE = {
+    id: "local", name: "Mac", local: true, state: "online",
+    reading: { cores: 10, load: [2.5, 2, 1], memory: { used: 18 * GB, total: 32 * GB }, swap: { used: 0, total: 0 }, disk: { used: 240 * GB, total: 2048 * GB },
+      running: [{ name: "node <42>", cpu: 42.4, memory: 3 }, { name: "launchd", cpu: 0, memory: 0.1 }] },
+  };
+  const OFFLINE = { id: "85.155.185.63", name: "Server", alias: "85.155.185.63", local: false, state: "offline", reason: "It did not answer.", seenAt: new Date(Date.now() - 12 * 60_000).toISOString() };
+  const CHECKING = { id: "radarboy3k", name: "PC", alias: "radarboy3k", local: false, state: "checking" };
+
+  function serve(respond: (init?: RequestInit) => unknown): ReturnType<typeof vi.fn> {
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/machines") {
+        const body = respond(init) as { error?: string };
+        return json(body, body.error ? 400 : 200);
+      }
+      return json({ sessions: SESSIONS });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    return fetcher;
+  }
+  const reads = (fetcher: ReturnType<typeof vi.fn>) => fetcher.mock.calls.filter(([url]) => url === "/api/machines").length;
+  const tab = () => document.querySelector('.rtab[data-rtab="machines"]') as HTMLElement;
+
+  it("sits with the other tabs and reads nothing until it is open", async () => {
+    const fetcher = serve(() => ({ machines: [ONLINE] }));
+    load("");
+    await settle();
+    expect(Array.from(document.querySelectorAll(".rtab")).map((one) => one.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Machines"]);
+    expect(reads(fetcher)).toBe(0);
+    tab().click();
+    await settle();
+    expect(reads(fetcher)).toBe(1);
+    expect(document.documentElement.dataset.rtab).toBe("machines");
+  });
+
+  it("shows load, memory, swap, disk and what is running, escaped", async () => {
+    serve(() => ({ machines: [ONLINE] }));
+    load("");
+    await settle();
+    tab().click();
+    await settle();
+    const row = document.querySelector(".machine.online")!;
+    expect(row.querySelector(".machine-name")?.textContent).toBe("Mac");
+    expect(row.querySelector(".machine-state")?.textContent).toBe("Online");
+    expect(Array.from(row.querySelectorAll(".machine-value")).map((one) => one.textContent)).toEqual(["2.5 on 10 cores", "18 of 32 GB", "None", "0.2 of 2 TB"]);
+    expect(row.querySelector(".machine-running")?.textContent).toBe("node <42> 42%, launchd");
+    expect(row.querySelector(".machine-remove")).toBeNull();
+  });
+
+  it("says plainly when a machine is offline, with no numbers", async () => {
+    serve(() => ({ machines: [ONLINE, OFFLINE, CHECKING] }));
+    load("");
+    await settle();
+    tab().click();
+    await settle();
+    const row = document.querySelector(".machine.offline")!;
+    expect(row.querySelector(".machine-state")?.textContent).toBe("Offline");
+    expect(row.querySelector(".machine-why")?.textContent).toBe("It did not answer.");
+    expect(row.querySelector(".machine-seen")?.textContent).toBe("Last seen 12m ago");
+    expect(row.querySelector(".machine-stats")).toBeNull();
+    expect(document.querySelector(".machine.checking .machine-state")?.textContent).toBe("Checking");
+  });
+
+  it("reads again on the interval only while the tab is open, and soon while one is being checked", async () => {
+    let machines = [ONLINE, CHECKING];
+    const fetcher = serve(() => ({ machines }));
+    load("");
+    await settle();
+    vi.useFakeTimers();
+    try {
+      tab().click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads(fetcher)).toBe(1);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(reads(fetcher)).toBe(2);
+      machines = [ONLINE];
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(reads(fetcher)).toBe(3);
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(reads(fetcher)).toBe(3);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(reads(fetcher)).toBe(4);
+      (document.querySelector('.rtab[data-rtab="jobs"]') as HTMLElement).click();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(reads(fetcher)).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("adds a machine by name and alias, and shows what SSH would not take", async () => {
+    let machines: object[] = [ONLINE];
+    const sent: Array<Record<string, string>> = [];
+    serve((init) => {
+      if (!init?.method) return { machines };
+      const body = JSON.parse(String(init.body)) as Record<string, string>;
+      sent.push(body);
+      if (body.alias === "-x") return { error: "That is not an SSH host alias." };
+      machines = [ONLINE, { id: body.alias, name: body.name, alias: body.alias, local: false, state: "checking" }];
+      return { machines };
+    });
+    load("");
+    await settle();
+    tab().click();
+    await settle();
+    const form = document.getElementById("machine-form") as HTMLFormElement;
+    const button = document.getElementById("machine-open") as HTMLButtonElement;
+    expect(form.hidden).toBe(true);
+    button.click();
+    expect(form.hidden).toBe(false);
+    expect(button.hidden).toBe(true);
+    (form.elements.namedItem("name") as HTMLInputElement).value = "Studio";
+    (form.elements.namedItem("alias") as HTMLInputElement).value = "-x";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(document.getElementById("machine-error")?.textContent).toBe("That is not an SSH host alias.");
+    expect(form.hidden).toBe(false);
+    (form.elements.namedItem("alias") as HTMLInputElement).value = "studio";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(sent[1]).toEqual({ op: "add", name: "Studio", alias: "studio" });
+    expect(form.hidden).toBe(true);
+    expect(button.hidden).toBe(false);
+    expect(Array.from(document.querySelectorAll(".machine-name")).map((one) => one.textContent)).toEqual(["Mac", "Studio"]);
+  });
+
+  it("keeps Tab and typing in the add form, away from the screen swap and the message box", async () => {
+    serve(() => ({ machines: [ONLINE] }));
+    load("");
+    await settle();
+    tab().click();
+    await settle();
+    (document.getElementById("machine-open") as HTMLElement).click();
+    const field = (document.getElementById("machine-form") as HTMLFormElement).elements.namedItem("name") as HTMLInputElement;
+    field.focus();
+    for (const key of ["Tab", "a"]) {
+      const press = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      field.dispatchEvent(press);
+      expect(press.defaultPrevented, key).toBe(false);
+      expect(document.activeElement, key).toBe(field);
+    }
+    expect(document.documentElement.dataset.screen).not.toBe("show");
+  });
+
+  it("takes a saved machine off the list, and keeps a half-typed form through a redraw", async () => {
+    let machines: object[] = [ONLINE, OFFLINE];
+    serve((init) => {
+      if (init?.method) machines = [ONLINE];
+      return { machines };
+    });
+    load("");
+    await settle();
+    tab().click();
+    await settle();
+    (document.getElementById("machine-open") as HTMLElement).click();
+    const field = (document.getElementById("machine-form") as HTMLFormElement).elements.namedItem("name") as HTMLInputElement;
+    field.value = "half typed";
+    (document.querySelector(".machine-remove") as HTMLElement).click();
+    await settle();
+    expect(document.querySelectorAll(".machine")).toHaveLength(1);
+    expect(field.value).toBe("half typed");
+  });
+});

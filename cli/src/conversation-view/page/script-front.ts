@@ -38,7 +38,7 @@ export const FRONT_SCRIPT = `
   }
   var savedTab = "jobs";
   try { savedTab = localStorage.getItem("flyd-front-tab") || "jobs"; } catch (_) {}
-  frontTab(savedTab === "arts" || savedTab === "threads" ? savedTab : "jobs");
+  frontTab(savedTab === "arts" || savedTab === "threads" || savedTab === "machines" ? savedTab : "jobs");
   rtabs.addEventListener("click", function (event) {
     var tab = event.target.closest(".rtab");
     if (tab) frontTab(tab.dataset.rtab);
