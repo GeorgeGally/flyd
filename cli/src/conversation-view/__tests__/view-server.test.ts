@@ -666,8 +666,10 @@ describe("ConversationViewServer", () => {
 
     it("gives the answer to a question put again under a new id, but never to a different question on that job", async () => {
       const { port, headers } = await serve(feedOf(home(open)));
-      await post(port, JSON.stringify({ decision: "old-id", decisionTask: "visuals", questionText: "Choose  evergreen or a MIX", text: "Evergreen" }), headers);
+      await post(port, JSON.stringify({ decision: "old-id", decisionTask: "visuals", questionText: "Choose  Evergreen or a mix", text: "Evergreen" }), headers);
       expect(note()).toMatch(/^Answer to pending decision visuals/);
+      await post(port, JSON.stringify({ decision: "visuals", decisionTask: "visuals", questionText: "Choose evergreen or a mix", text: "Evergreen" }), headers);
+      expect(note()).toMatch(/^About the artefact /);
       await post(port, JSON.stringify({ decision: "old-id", decisionTask: "visuals", questionText: "Which charity?", text: "Evergreen" }), headers);
       expect(note()).toMatch(/^About the artefact "Which charity\?"\nTask: visuals/);
     });
@@ -731,10 +733,11 @@ describe("ConversationViewServer", () => {
         return { id: `sent-${calls.length}`, timestamp: new Date().toISOString() };
       } });
       const image = { mediaType: "image/png", data: PNG };
-      const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "Evergreen", images: [image] }), headers);
+      const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "another round", images: [image] }), headers);
       expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({ id: "sent-1", followUp: "decision-1" });
       expect(calls).toHaveLength(2);
-      expect(calls[0]).toMatchObject({ text: "Evergreen", images: [], decision: { decisionId: "decision-1", taskId: "visuals" } });
+      expect(calls[0]).toMatchObject({ text: "another round", images: [], decision: { decisionId: "decision-1", taskId: "visuals" } });
       expect(calls[1]).toMatchObject({ images: [image], decision: undefined });
       expect(calls[1]!.text).toContain("Task: visuals");
     });
@@ -748,9 +751,9 @@ describe("ConversationViewServer", () => {
         resolutions++;
         return { id: "resolved", timestamp: new Date().toISOString() };
       } });
-      const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "Evergreen", images: [{ mediaType: "image/png", data: PNG }] }), headers);
-      expect(response.status).toBe(502);
-      expect(JSON.parse(response.body).error).toContain("Decision recorded, but the attachment was not delivered");
+      const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "another round", images: [{ mediaType: "image/png", data: PNG }] }), headers);
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({ id: "resolved", followUp: "decision-1", warning: expect.stringContaining("picture was not delivered") });
       expect(resolutions).toBe(1);
     });
 
@@ -770,6 +773,12 @@ describe("ConversationViewServer", () => {
         expect(readDomainRun("changed")?.messages).toEqual([expect.objectContaining({ kind: "correction", body: "About the earlier question: Which design?\n\nEvergreen" })]);
         expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local" }), headers)).status).toBe(200);
         expect(readDomainRun("changed")?.messages?.[1]).toEqual(expect.objectContaining({ kind: "decision", body: "Local" }));
+        expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "which charity?", text: "Case differs" }), headers)).status).toBe(200);
+        expect(readDomainRun("changed")?.messages?.at(-1)).toMatchObject({ kind: "correction", body: expect.stringContaining("Case differs") });
+        const failedPicture = await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Recorded once", images: [{ mediaType: "image/png", data: "" }] }), headers);
+        expect(failedPicture.status).toBe(200);
+        expect(JSON.parse(failedPicture.body)).toMatchObject({ id: expect.stringContaining(":decision:"), warning: expect.stringContaining("picture was not delivered") });
+        expect(readDomainRun("changed")?.messages?.filter((message) => message.body === "Recorded once")).toHaveLength(1);
         expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local with picture", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
         const attached = readDomainRun("changed")?.messages?.slice(-2);
         expect(attached?.[0]).toMatchObject({ kind: "decision", body: "Local with picture" });

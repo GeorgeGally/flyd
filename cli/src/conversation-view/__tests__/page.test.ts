@@ -1823,6 +1823,25 @@ describe("semantic main stage", () => {
 });
 
 describe("header and artefact view", () => {
+  it("keeps a recorded decision and shows an attachment warning", async () => {
+    sendResponse = { id: "resolved", followUp: "decision-1", warning: "The picture was not delivered: unavailable" };
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick a design", why: "", task: "visuals", decision: { task: "visuals", decisionId: "decision-1", question: "Which design?", choices: ["Evergreen"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const input = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
+    input.value = "another round";
+    input.dispatchEvent(new Event("input"));
+    document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(input.value).toBe("");
+    expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toContain("picture was not delivered");
+    expect(document.querySelector(".scene-ask .art-thread")!.textContent).toContain("another round");
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(1);
+  });
+
   it("sends a question a reply put to him back with one tap on the artefact", async () => {
     load("");
     await settle();

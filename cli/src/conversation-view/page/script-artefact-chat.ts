@@ -301,6 +301,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
         .then(function (result) {
           if (!result.ok) throw new Error(result.data.error || "Not delivered; try again.");
           state.receipt = "sent";
+          state.error = result.data.warning || "";
           if (target.decision && result.data.followUp) state.followUpRequired = result.data.followUp;
           entry.id = result.data.id;
           // Only what went is cleared: one pasted while it was on its way stays for the next.

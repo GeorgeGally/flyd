@@ -102,7 +102,7 @@ const MAX_DRAFT_ATTACHMENT_BYTES = 48 * 1024 * 1024;
 /** Reply steps kept in the column's Artefacts: the newest few. */
 const MAX_REPLY_ARTEFACTS = 3;
 const sameQuestion = (left: unknown, right: unknown): boolean => {
-  const normalize = (value: unknown) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().toLowerCase() : "";
+  const normalize = (value: unknown) => typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
   const question = normalize(left);
   return Boolean(question) && question === normalize(right);
 };
@@ -1669,11 +1669,13 @@ export class ConversationViewServer {
         sendJson(res, 502, { error: result.error || "The answer could not be delivered" });
         return;
       }
+      const receipt = { id: messageId(run, kind, body), waiting: "Sent to Flyd" };
       if (isDecision && (images as ImageUpload[]).length) {
-        await this.sendToJob(res, { title: payload.jobTitle ?? run.request.intendedOutcome, task: run.id, question: payload.questionText }, payload.text, images as ImageUpload[], session, true);
+        await this.sendToJob(res, { title: payload.jobTitle ?? run.request.intendedOutcome, task: run.id, question: payload.questionText }, payload.text, images as ImageUpload[], session, receipt)
+          .catch((error: unknown) => this.sendJobResult(res, 502, { error: error instanceof Error ? error.message : String(error) }, receipt));
         return;
       }
-      sendJson(res, 200, { id: messageId(run, kind, body), waiting: "Sent to Flyd" });
+      sendJson(res, 200, receipt);
       return;
     }
     if (payload.decision !== undefined) {
@@ -1701,11 +1703,13 @@ export class ConversationViewServer {
           options: call.choices ?? [],
         } : undefined, session);
         if (executive) await this.feed.refresh().catch(() => undefined);
+        const receipt = { ...sent, ...(executive && /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(payload.text) ? { followUp: call.executiveDecisionId } : {}), waiting: executive ? "Flyd is carrying your decision into the work" : "Sent to firstmate" };
         if (executive && (images as ImageUpload[]).length) {
-          await this.sendToJob(res, { ...job, title: job.title ?? call.label, task: call.task ?? job.task, question: call.question ?? call.detail ?? job.question }, payload.text, images as ImageUpload[], session, true);
+          await this.sendToJob(res, { ...job, title: job.title ?? call.label, task: call.task ?? job.task, question: call.question ?? call.detail ?? job.question }, payload.text, images as ImageUpload[], session, receipt)
+            .catch((error: unknown) => this.sendJobResult(res, 502, { error: error instanceof Error ? error.message : String(error) }, receipt));
           return;
         }
-        sendJson(res, 200, { ...sent, ...(executive && /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(payload.text) ? { followUp: call.executiveDecisionId } : {}), waiting: executive ? "Flyd is carrying your decision into the work" : "Sent to firstmate" });
+        sendJson(res, 200, receipt);
       } catch (error) {
         if (error instanceof QuestionGone) {
           await this.feed.refresh().catch(() => undefined);
@@ -1841,22 +1845,23 @@ export class ConversationViewServer {
    * firstmate knows what "this" is without the screen. Images he pasted into
    * the box go with it.
    */
-  private async sendAbout(res: ServerResponse, about: unknown, text: unknown, images: ImageUpload[] = [], session?: string, decisionResolved = false): Promise<void> {
+  private async sendAbout(res: ServerResponse, about: unknown, text: unknown, images: ImageUpload[] = [], session?: string, receipt?: Record<string, unknown>): Promise<void> {
+    const respond = (status: number, result: Record<string, unknown>) => this.sendJobResult(res, status, result, receipt);
     const card = typeof about === "object" && about !== null ? about as { title?: unknown; task?: unknown; url?: unknown; line?: unknown; detail?: unknown } : {};
     const field = (value: unknown) => (typeof value === "string" && value.trim() && value.length <= 2000 ? value.trim() : undefined);
     const content = (value: unknown) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 2000) : undefined);
     const title = field(card.title);
     if (!title || (card.task !== undefined && !field(card.task)) || (card.url !== undefined && !field(card.url))
       || (card.line !== undefined && typeof card.line !== "string") || (card.detail !== undefined && typeof card.detail !== "string")) {
-      sendJson(res, 400, { error: "expected { about: { title, task?, url?, line?, detail? }, text }" });
+      respond(400, { error: "expected { about: { title, task?, url?, line?, detail? }, text }" });
       return;
     }
     if (typeof text !== "string" || (!text.trim() && !images.length) || text.length > 4000) {
-      sendJson(res, 400, { error: "Enter a message of at most 4000 characters" });
+      respond(400, { error: "Enter a message of at most 4000 characters" });
       return;
     }
     if (!this.source.sendDecision) {
-      sendJson(res, 405, { error: "read-only" });
+      respond(405, { error: "read-only" });
       return;
     }
     const task = field(card.task);
@@ -1867,9 +1872,9 @@ export class ConversationViewServer {
     try {
       const words = text.trim();
       const note = words ? withCommandMarker(`${named}\n\n${words}`, await this.commandIn(words)) : named;
-      sendJson(res, 200, { ...await this.source.sendDecision(note, images, undefined, session), waiting: "Sent to firstmate" });
+      respond(200, { ...await this.source.sendDecision(note, images, undefined, session), waiting: "Sent to firstmate" });
     } catch (error) {
-      sendJson(res, 502, { error: `${decisionResolved ? "Decision recorded, but the attachment was not delivered: " : ""}${error instanceof Error ? error.message : String(error)}` });
+      respond(502, { error: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -1893,7 +1898,13 @@ export class ConversationViewServer {
   }
 
   /** The question he answered has gone: Flyd deals with that, and his words reach the same job as a normal message. */
-  private async sendToJob(res: ServerResponse, job: { title?: unknown; task?: unknown; question?: unknown }, text: string, images: ImageUpload[], session?: string, decisionResolved = false): Promise<void> {
+  private sendJobResult(res: ServerResponse, status: number, result: Record<string, unknown>, receipt?: Record<string, unknown>): void {
+    if (!receipt) return sendJson(res, status, result);
+    const warning = status >= 400 ? `The picture was not delivered: ${String(result.error)}` : result.warning;
+    sendJson(res, 200, { ...receipt, ...(warning ? { warning } : {}) });
+  }
+
+  private async sendToJob(res: ServerResponse, job: { title?: unknown; task?: unknown; question?: unknown }, text: string, images: ImageUpload[], session?: string, receipt?: Record<string, unknown>): Promise<void> {
     const named = (value: unknown) => (typeof value === "string" && value.trim() ? value.replace(/\s+/g, " ").trim().slice(0, 300) : undefined);
     const task = named(job.task);
     const question = named(job.question);
@@ -1904,16 +1915,16 @@ export class ConversationViewServer {
         const body = [question ? `About the earlier question: ${question}` : "", text.trim(), ...paths.map((path) => `[image: ${path}]`)].filter(Boolean).join("\n\n");
         const result = await sendRunMessage({ run, kind: "correction", body });
         if (!result.delivered) {
-          sendJson(res, 502, { error: `${decisionResolved ? "Decision recorded, but the attachment was not delivered: " : ""}${result.error || "The message could not be delivered"}` });
+          this.sendJobResult(res, 502, { error: result.error || "The message could not be delivered" }, receipt);
           return;
         }
-        sendJson(res, 200, { id: messageId(run, "correction", body), waiting: "Sent to Flyd" });
+        this.sendJobResult(res, 200, { id: messageId(run, "correction", body), waiting: "Sent to Flyd" }, receipt);
       } catch (error) {
-        sendJson(res, 502, { error: `${decisionResolved ? "Decision recorded, but the attachment was not delivered: " : ""}${error instanceof Error ? error.message : String(error)}` });
+        this.sendJobResult(res, 502, { error: error instanceof Error ? error.message : String(error) }, receipt);
       }
       return;
     }
-    await this.sendAbout(res, { title: named(job.title) ?? question ?? task ?? "Your earlier question", ...(task ? { task } : {}), ...(question ? { detail: question } : {}) }, text, images, session, decisionResolved);
+    await this.sendAbout(res, { title: named(job.title) ?? question ?? task ?? "Your earlier question", ...(task ? { task } : {}), ...(question ? { detail: question } : {}) }, text, images, session, receipt);
   }
 
   private async commandIn(words: string): Promise<string | undefined> {
