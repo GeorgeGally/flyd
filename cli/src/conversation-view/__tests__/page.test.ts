@@ -1566,7 +1566,7 @@ describe("conversation page", () => {
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     await settle();
     const sent = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
-    expect(JSON.parse(String(sent[1]!.body))).toEqual({ session: "latest", decision: "a", text: "/design-review" });
+    expect(JSON.parse(String(sent[1]!.body))).toMatchObject({ session: "latest", decision: "a", text: "/design-review" });
   });
 
   // George, 2026-10-25: "i send a message to flyd and it keeps my message in the textbox":
@@ -1914,7 +1914,7 @@ describe("header and artefact view", () => {
       expect(chat.value).toBe("");
       picks[0]!.click();
       await settle();
-      expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
+      expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toMatchObject([
         { session: "latest", decision: "visuals", text: "A mix of the two" },
         { session: "latest", decision: "visuals", text: "Evergreen luxe" },
       ]);
@@ -2393,7 +2393,8 @@ describe("header and artefact view", () => {
     items[1]!.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
     const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
-    expect(sent).toEqual([{ session: "latest", decision: "b", text: "Merge it" }]);
+    // The job and question go with the answer, so a stale one can still reach its job.
+    expect(sent).toMatchObject([{ session: "latest", decision: "b", text: "Merge it", jobTitle: expect.any(String) }]);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(sheet.hidden).toBe(true);
   });
@@ -4064,10 +4065,8 @@ describe("the front page", () => {
     expect(answer.querySelector(".next")!.textContent).toBe("Building V5 with a framed hero.");
     expect(answer.textContent).not.toMatch(/George|answer to:/);
     const hero = document.querySelector<HTMLElement>('.job[data-job="live:hero"]')!;
-    // A long run-on gives the card its first sentence, cut; the line says the state and the next step.
-    const heroTitle = hero.querySelector(".t")!.textContent!;
-    expect(heroTitle.endsWith("…")).toBe(true);
-    expect(heroTitle.length).toBeLessThanOrEqual(93);
+    // A long run-on gives the card its first whole clause; the line says the state and the next step.
+    expect(hero.querySelector(".t")!.textContent).toBe("The HFTW shop hero images currently use product shots");
     expect(hero.querySelector(".next")!.textContent).toBe("Waiting for your pick: V5 framed hero.");
   });
 
@@ -4087,6 +4086,35 @@ describe("the front page", () => {
     after(() => card.click());
     expect(document.querySelector<HTMLAnchorElement>(".job-view .fbtn")!.href).toBe("https://example.test/lab.html");
     expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
+  });
+
+  it("keeps a job row to a short title and one short line, with all of it in the open job", async () => {
+    const stream = await opened();
+    const long = "PostTraction's security certificate expired on 15 September and auto-renewal has failed since, so browsers block the site and every visitor sees a warning";
+    const title = "Redesign how Flyd surfaces items in the conversation view's Held up modal and the brief feed, starting by inspecting the current rendering";
+    const done = "Nothing";
+    stream.emit("update", {
+      order: ["u1"], messages: [], working: false, jobsFleetKnown: true,
+      show: { title: "", summary: "", items: [], counts: {}, live: false },
+      jobs: [{
+        id: "cleanx", group: "needs", state: "Needs you", title, project: "Product", at: "2026-10-26T12:00:00.000Z",
+        next: "", owner: "you", ask: "", because: "", shots: [], links: [], files: [], threads: [],
+        digest: { changed: long, means: long, needed: "Reply OK to inspect the server, so a worker can log in read-only and bring back an exact list of fixes" },
+      }, {
+        id: "landed", group: "done", state: "Landed", title: "Logan", project: "Product", at: "2026-10-26T12:00:00.000Z",
+        next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [],
+        digest: { changed: "Pages are live.", means: long, needed: done },
+      }],
+    });
+    const card = document.querySelector<HTMLElement>('.job[data-job="cleanx"]')!;
+    expect(card.querySelectorAll("p")).toHaveLength(1);
+    expect(card.querySelector(".t")!.textContent!.length).toBeLessThanOrEqual(60);
+    expect(card.querySelector(".next")!.textContent!.length).toBeLessThanOrEqual(52);
+    expect(card.querySelector(".next")!.textContent).toBe("Reply OK to inspect the server");
+    expect(card.textContent).not.toContain("certificate");
+    expect(document.querySelector('.job[data-job="landed"] .next')!.textContent).toBe("Pages are live.");
+    after(() => card.click());
+    expect(document.querySelector(".job-view")!.textContent).toContain(long);
   });
 
   it("renders stored job digests and says what an empty list actually is", async () => {
@@ -4115,8 +4143,10 @@ describe("the front page", () => {
       }],
     });
     const cap = document.querySelector<HTMLElement>('.job[data-job="cap5"]')!;
-    expect(cap.querySelector(".digest")!.textContent).toContain("The deck dropped the third pricing tier.");
-    expect(cap.querySelector(".digest")!.textContent).toContain("Send it.");
+    // At a glance: a title and one line, what he must do. The rest waits in the open job.
+    expect(cap.querySelector(".next")!.textContent).toBe("Send it.");
+    expect(cap.querySelector(".digest")).toBeNull();
+    expect(cap.textContent).not.toContain("The deck dropped the third pricing tier.");
     expect(cap.querySelector("a")).toBeNull();
     expect(document.querySelector('.job[data-job="pick"] .next')!.textContent).toContain("Pick a hero");
     after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
@@ -4134,6 +4164,7 @@ describe("the front page", () => {
     const posted = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/jobs")!;
     expect(JSON.parse(String(posted[1]!.body))).toEqual({ op: "close", id: "pick" });
     after(() => document.querySelector<HTMLElement>('.job[data-job="cap5"]')!.click());
+    expect(document.querySelector(".jv-digest")!.textContent).toContain("The deck dropped the third pricing tier.");
     expect(document.querySelector(".jv-digest")!.textContent).toContain("Cap5 can review one offer.");
     expect(document.querySelector<HTMLAnchorElement>(".jv-digest .fbtn")!.href).toBe("https://example.com/deck");
     expect(document.querySelector(".jv-files")!.textContent).toBe("deck.pdf");

@@ -242,30 +242,36 @@ export const FRONT_SCRIPT = `
       project: frontProject(update.project), at: lastActivity || "" };
   }
 
-  function frontDigest(job) {
-    var digest = job.digest;
-    if (!digest || !(digest.changed || digest.means || digest.needed)) return "";
-    return '<p class="digest">' + [digest.changed, digest.means, digest.needed].filter(Boolean).map(frontEsc).join("<br>") + '</p>';
+  // What a card says is read at a glance: one whole sentence that fits, else cut at a word. All of it is in the open job.
+  function frontGlance(text, room) {
+    var line = frontText(text);
+    if (line.length <= room) return line;
+    var first = new RegExp("^.{12," + room + "}?[.!?](?=\\\\s|$)").exec(line);
+    if (first) return first[0];
+    // A clause that stands on its own reads better than a sentence cut short.
+    var clause = /^(.{24,})(?:[;:—–]\\s|\\s(?:so|because|which|while|but|with)\\s|,\\s(?:and|so|but)\\s)/.exec(line.slice(0, room + 8));
+    if (clause && clause[1].length <= room) return clause[1].replace(/[\\s,]+$/, "");
+    var cut = line.lastIndexOf(" ", room - 1);
+    return (cut > room / 2 ? line.slice(0, cut) : line.slice(0, room - 1)).replace(/[\\s,;:-]+$/, "").replace(/\\s(?:the|a|an|as|of|in|on|to|and|or|for|with|by|at)$/i, "") + "…";
+  }
+  // The one line: what he must do, else what changed, else what comes next.
+  function frontLine(job) {
+    var digest = job.digest || {};
+    var needed = digest.needed && !/^(nothing|none|n\\/a)\\b/i.test(digest.needed) ? digest.needed : "";
+    var said = needed || digest.changed || digest.means || job.next || (job.group === "working" ? frontNext(job) : frontTitle(job.detail));
+    return said && frontText(said).toLowerCase() !== frontText(job.title).toLowerCase() ? frontGlance(said, 52) : "";
   }
   function frontJobCard(job) {
     var pic = job.shots && job.shots.length
       ? '<div class="frame"><img src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy"></div>' : "";
     var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
-    var reading = frontDigest(job);
-    if (!reading && job.next) {
-      var who = job.owner && job.owner !== "you" ? ' <span class="own">· ' + frontEsc(job.owner) + '</span>' : "";
-      reading = '<p class="next">' + frontEsc(job.next) + who + '</p>';
-    }
-    // With no digest or next line, one whole sentence says what the work is: a working row says what happens next.
-    if (!reading) {
-      var line = job.group === "working" ? frontNext(job) : frontTitle(job.detail);
-      if (line) reading = '<p class="next">' + frontEsc(line) + '</p>';
-    }
+    var line = frontLine(job);
+    var reading = line ? '<p class="next">' + frontEsc(line) + '</p>' : "";
     // "Landed" under "Done" says nothing the group has not; a plain "needs …" is the group's own word.
     var state = job.group === "done" ? "" : job.state.replace(/^needs\\b[^·]*(?: · |$)/i, "");
     return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
       + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
-      + '<div class="t">' + frontEsc(job.title) + '</div>' + reading + '<div class="m">' + dot + frontMeta([state, job.project])
+      + '<div class="t">' + frontEsc(frontGlance(job.title, 60)) + '</div>' + reading + '<div class="m">' + dot + frontMeta([state, job.project])
       + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div></button>';
   }
   // A card's state and project, as many as it has; the group above it already says "needs you".
@@ -488,7 +494,7 @@ export const FRONT_SCRIPT = `
     if (job.detail && !(job.previews && job.previews.length)) parts.push(frontDetailTalk(job));
     if (VIEW_TOKEN) {
       if (job.domainRun) {
-        parts.push(artefactChat("flyd-domain:" + job.domainRun, { domainRun: job.domainRun }, "Your answer…").form);
+        parts.push(artefactChat("flyd-domain:" + job.domainRun, { domainRun: job.domainRun, jobTitle: job.title, questionText: job.ask }, "Your answer…").form);
       } else if (job.decision) {
         parts.push(sceneAsk({ title: job.title, decision: job.decision }, "flyd-decision:" + (job.decision.decisionId || job.decision.task)));
       } else {

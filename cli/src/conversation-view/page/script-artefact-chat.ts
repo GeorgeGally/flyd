@@ -358,7 +358,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     var about = { title: box.title };
     if (box.task) about.task = box.task;
     if (link) about.url = link.url;
-    var target = !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.decisionId || decision.task, session: drawnFrom };
+    var target = !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.decisionId || decision.task, decisionTask: decision.task, questionText: decision.question, jobTitle: box.title, session: drawnFrom };
     var chat = artefactChat(key, target, decision && (decision.choices.length || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…", decision && decision.question ? key + ":" + decision.question : "");
     // A hold that puts two (or three) decisions to him says each one in its own plain line, with what
     // he can pick and what the work recommends, and what a landed change has already answered.
