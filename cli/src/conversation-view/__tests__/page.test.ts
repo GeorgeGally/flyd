@@ -4117,6 +4117,24 @@ describe("the front page", () => {
     expect(document.querySelector(".job-view")!.textContent).toContain(long);
   });
 
+  it("sends the current full question and run after a job update", async () => {
+    const stream = await opened();
+    const prefix = "A".repeat(200);
+    const job = { id: "research", group: "needs", state: "Needs you", title: "Research", project: "", at: "2026-10-26T12:00:00.000Z", next: prefix, owner: "you", ask: prefix, because: "", shots: [], links: [], files: [], threads: [], digest: null, domainRun: "run-1", questionIdentity: `${prefix} old` };
+    const update = (next: typeof job) => stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [next] });
+    update(job);
+    after(() => document.querySelector<HTMLElement>('.job[data-job="research"]')!.click());
+    update({ ...job, domainRun: "run-2", questionIdentity: `${prefix} new` });
+    const form = document.querySelector<HTMLFormElement>(".job-view .art-chat")!;
+    const input = form.querySelector<HTMLTextAreaElement>("textarea")!;
+    input.value = "Yes";
+    input.dispatchEvent(new Event("input"));
+    form.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-2", questionText: `${prefix} new`, text: "Yes" });
+  });
+
   it("renders stored job digests and says what an empty list actually is", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, jobs: [], jobsFleetKnown: false, show: { title: "", summary: "", items: [], counts: {}, live: false } });

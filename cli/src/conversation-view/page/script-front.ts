@@ -520,7 +520,7 @@ export const FRONT_SCRIPT = `
     }
     frontRoot.setAttribute("data-job", job.id);
     frontHead(job, VIEW_TOKEN && Array.isArray(frontUpdate.jobs));
-    var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.next, job.ask, job.digest, job.threads, job.files]);
+    var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.domainRun, job.questionIdentity, job.next, job.ask, job.digest, job.threads, job.files]);
     // A job already open stays as he left it while he is typing in it.
     if (drawn === frontDrawn.view || (frontDrawn.viewId === job.id && jobView.contains(document.activeElement))) return;
     frontDrawn.view = drawn;

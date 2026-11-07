@@ -722,6 +722,38 @@ describe("ConversationViewServer", () => {
       expect(note()).toMatch(/Task: visuals[\s\S]*Try this\n\n\[image: .+\.png\]/);
     });
 
+    it("resolves a current executive answer before sending its image", async () => {
+      const { port, headers, source } = await serve(feedOf(home("")));
+      const calls: Array<{ text: string; images: unknown[]; decision: unknown }> = [];
+      Object.assign(server!, { liveCall: async () => ({ executiveDecisionId: "decision-1", task: "visuals", label: "Visuals", question: "Which design?" }) });
+      Object.assign(source, { sendDecision: async (text: string, images: unknown[] = [], decision?: unknown) => {
+        calls.push({ text, images, decision });
+        return { id: `sent-${calls.length}`, timestamp: new Date().toISOString() };
+      } });
+      const image = { mediaType: "image/png", data: PNG };
+      const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "Evergreen", images: [image] }), headers);
+      expect(response.status).toBe(200);
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toMatchObject({ text: "Evergreen", images: [], decision: { decisionId: "decision-1", taskId: "visuals" } });
+      expect(calls[1]).toMatchObject({ images: [image], decision: undefined });
+      expect(calls[1]!.text).toContain("Task: visuals");
+    });
+
+    it("reports an image failure after recording the executive decision", async () => {
+      const { port, headers, source } = await serve(feedOf(home("")));
+      let resolutions = 0;
+      Object.assign(server!, { liveCall: async () => ({ executiveDecisionId: "decision-1", task: "visuals", label: "Visuals", question: "Which design?" }) });
+      Object.assign(source, { sendDecision: async (_text: string, _images: unknown[], decision?: unknown) => {
+        if (!decision) throw new Error("image delivery failed");
+        resolutions++;
+        return { id: "resolved", timestamp: new Date().toISOString() };
+      } });
+      const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "Evergreen", images: [{ mediaType: "image/png", data: PNG }] }), headers);
+      expect(response.status).toBe(502);
+      expect(JSON.parse(response.body).error).toContain("Decision recorded, but the attachment was not delivered");
+      expect(resolutions).toBe(1);
+    });
+
     it("reaches a run that moved on, and a job whose run has closed", async () => {
       const previous = process.env.FLYD_COMMAND_DIR;
       const root = home("");
@@ -738,6 +770,13 @@ describe("ConversationViewServer", () => {
         expect(readDomainRun("changed")?.messages).toEqual([expect.objectContaining({ kind: "correction", body: "About the earlier question: Which design?\n\nEvergreen" })]);
         expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local" }), headers)).status).toBe(200);
         expect(readDomainRun("changed")?.messages?.[1]).toEqual(expect.objectContaining({ kind: "decision", body: "Local" }));
+        expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local with picture", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
+        const attached = readDomainRun("changed")?.messages?.slice(-2);
+        expect(attached?.[0]).toMatchObject({ kind: "decision", body: "Local with picture" });
+        expect(attached?.[1]?.kind).toBe("correction");
+        const attachedPath = /\[image: (.+)\]/.exec(attached?.[1]?.body ?? "")?.[1];
+        expect(attachedPath).toBeTruthy();
+        expect(readFileSync(attachedPath!)).toEqual(Buffer.from(PNG, "base64"));
         const prefix = "A".repeat(200);
         saveDomainRun({ ...run("long", "needs_decision"), result: { format: "structured", brief: "", detailedReport: "", decisionsMade: [], unresolvedQuestions: [`${prefix} new?`], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" } });
         expect((await post(port, JSON.stringify({ domainRun: "long", questionText: `${prefix} old?`, text: "Old answer", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
@@ -912,8 +951,15 @@ describe("ConversationViewServer", () => {
     const reply = server!["source"].exchanges!().find((exchange: { question: ConversationMessage }) => exchange.question.id === "note:2")!;
     expect(reply.question).toMatchObject({ text: "Make the spin slower.", replyTo: "note:1", replyQuote: "There should also be other movements for bunny." });
     // What he replied to has gone: his words still go, as a new message.
-    expect((await post(port, JSON.stringify({ session: "s1", text: "Hm", replyTo: "note:9" }), headers)).status).toBe(200);
+    const images = [{ mediaType: "image/png", data: PNG }];
+    const files = [{ name: "brief.pdf", data: Buffer.from("%PDF-1.3").toString("base64") }];
+    expect((await post(port, JSON.stringify({ session: "s1", text: "Hm", replyTo: "note:9", images, files }), headers)).status).toBe(200);
     expect(inbox.sent.at(-1)!.text).toBe("Hm");
+    expect(inbox.uploads).toEqual(images);
+    expect(inbox.documents).toEqual(files);
+    expect((await post(port, JSON.stringify({ session: "s1", text: "More", replyTo: "note:1", images, files }), headers)).status).toBe(200);
+    expect(inbox.uploads).toEqual([...images, ...images]);
+    expect(inbox.documents).toEqual([...files, ...files]);
     expect((await post(port, JSON.stringify({ session: "s1", text: " ", replyTo: "note:1" }), headers)).status).toBe(400);
   });
 
