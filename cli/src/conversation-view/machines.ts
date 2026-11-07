@@ -64,6 +64,8 @@ const FRESH_MS = 20_000;
 const OUTPUT_MAX = 256 * 1024;
 const ERROR_MAX = 8 * 1024;
 const RUNNING_MAX = 5;
+/** Outside the alias grammar, so no saved machine can share the local row. */
+const LOCAL_ID = "@local";
 
 /** What a read runs, on Linux and macOS alike. Sent as sh's stdin, so a remote login shell of any kind runs it the same. */
 export const READ_SCRIPT = `export LC_ALL=C PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
@@ -251,17 +253,25 @@ export class MachinesBoard {
   }
 
   saved(): SavedMachine[] {
+    return this.stored().machines;
+  }
+
+  /** What the list holds. Only a missing file means nothing is saved yet; `whole` is false when some of the file could not be used, so it must not be saved over. */
+  private stored(): { machines: SavedMachine[]; whole: boolean } {
     let raw: unknown;
     try {
-      raw = (JSON.parse(readFileSync(this.path, "utf8")) as { machines?: unknown }).machines;
-    } catch {
+      raw = JSON.parse(readFileSync(this.path, "utf8"));
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") return { machines: [], whole: false };
       // The computer Flyd is on is already the local row.
-      return (this.options.first ?? FIRST_MACHINES).filter((machine) => machine.alias.toLowerCase() !== shortHost().toLowerCase());
+      return { machines: (this.options.first ?? FIRST_MACHINES).filter((machine) => machine.alias.toLowerCase() !== shortHost().toLowerCase()), whole: true };
     }
-    if (!Array.isArray(raw)) return [];
-    return raw.flatMap((entry: { name?: unknown; alias?: unknown }) =>
+    const entries = (raw as { machines?: unknown } | null)?.machines;
+    if (!Array.isArray(entries)) return { machines: [], whole: false };
+    const machines = entries.flatMap((entry: { name?: unknown; alias?: unknown }) =>
       typeof entry?.name === "string" && entry.name.trim() && typeof entry.alias === "string" && validAlias(entry.alias)
         ? [{ name: entry.name.trim().slice(0, NAME_MAX), alias: entry.alias }] : []);
+    return { machines, whole: machines.length === entries.length };
   }
 
   /** Saves a new machine, or says why not. */
@@ -271,18 +281,15 @@ export class MachinesBoard {
     if (!named) return { error: "Give the machine a name." };
     if (named.length > NAME_MAX) return { error: "That name is too long." };
     if (!validAlias(host)) return { error: "That is not an SSH host alias. Use the name from your SSH config, like studio or george@studio." };
-    const machines = this.saved();
+    const { machines, whole } = this.stored();
+    if (!whole) return { error: `Flyd could not read all of ${this.path}, so it left the file alone. Fix it, then add the machine again.` };
     if (machines.some((machine) => machine.alias.toLowerCase() === host.toLowerCase())) return { error: "That machine is already on the list." };
     this.save([...machines, { name: named, alias: host }]);
     return {};
   }
 
-  remove(alias: string): void {
-    this.save(this.saved().filter((machine) => machine.alias !== alias));
-  }
-
   view(): { machines: MachineRow[] } {
-    const local: Target = { id: "local", name: this.options.localName ?? (platform() === "darwin" ? "Mac" : shortHost()) };
+    const local: Target = { id: LOCAL_ID, name: this.options.localName ?? (platform() === "darwin" ? "Mac" : shortHost()) };
     const targets: Target[] = [local, ...this.saved().map(({ name, alias }) => ({ id: alias, name, alias }))];
     const listed = new Set(targets.map((target) => target.id));
     for (const id of this.cells.keys()) if (!listed.has(id)) this.cells.delete(id);

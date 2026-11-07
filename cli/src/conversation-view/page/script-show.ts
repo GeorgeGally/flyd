@@ -991,6 +991,7 @@ export const SHOW_SCRIPT = `
       if (terminalAt.pinned) { toBottom(); jump.hidden = true; } else { pinned = false; restore(terminalAt.anchor); }
       flip.setAttribute("aria-checked", "false");
       if (leavingArtefact && !composer.hidden) input.focus();
+      if (leavingArtefact) loadMachines();
     }
   }
   function setScreen(next) {

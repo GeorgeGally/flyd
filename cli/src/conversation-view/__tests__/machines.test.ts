@@ -1,4 +1,5 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -93,8 +94,25 @@ describe("a reading", () => {
     expect(parseReading("")).toBeNull();
   });
 
-  it("only reads", () => {
-    expect(READ_SCRIPT).not.toMatch(/\b(rm|mv|cp|kill|tee|touch|sudo|reboot|shutdown|curl|wget)\b|>|\$\(|`/);
+  it("runs only commands that read, on both of its paths, and leaves its directory alone", () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-machines-"));
+    try {
+      const meminfo = join(dir, "meminfo");
+      const absent = join(dir, "absent");
+      writeFileSync(meminfo, "MemTotal: 1 kB\n");
+      const before = readdirSync(dir);
+      // sh's own trace names every command the script runs. The two checks are aimed so each path runs on any computer.
+      const commandsOn = (memory: string, dataVolume: string): string[] => {
+        const script = READ_SCRIPT.replaceAll("/proc/meminfo", memory).replaceAll("/System/Volumes/Data", dataVolume);
+        const { stderr } = spawnSync("sh", ["-x", "-s"], { input: script, cwd: dir, encoding: "utf8", env: { HOME: dir, PATH: process.env.PATH, PS4: "+ " } });
+        return stderr.split("\n").flatMap((line) => /^\++ '?([^\s']+)/.exec(line)?.[1] ?? []);
+      };
+      const ran = new Set([...commandsOn(meminfo, absent), ...commandsOn(absent, dir)]);
+      expect([...ran].sort()).toEqual(["[", "cat", "df", "echo", "export", "getconf", "head", "ps", "sort", "sysctl", "uptime", "vm_stat"]);
+      expect(readdirSync(dir)).toEqual(before);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("reads this computer for real", async () => {
@@ -104,7 +122,7 @@ describe("a reading", () => {
       board.view();
       await vi.waitFor(() => expect(board.view().machines[0]!.state).toBe("online"), { timeout: 8000, interval: 50 });
       const [row] = board.view().machines;
-      expect(row).toMatchObject({ id: "local", name: "Here", local: true });
+      expect(row).toMatchObject({ name: "Here", local: true });
       expect(row!.alias).toBeUndefined();
       expect(row!.reading!.load).toHaveLength(3);
       expect(row!.reading!.memory!.total).toBeGreaterThan(0);
@@ -165,7 +183,7 @@ printf '%s\\n' "$@" > "${dir}/$alias.args"
 cat > "${dir}/$alias.stdin"
 case "$alias" in
   linux) cat "${dir}/linux.txt" ;;
-  mac) cat "${dir}/mac.txt" ;;
+  mac|local) cat "${dir}/mac.txt" ;;
   dead) exec sleep 30 ;;
   locked) echo "george@locked: Permission denied (publickey)." >&2; exit 255 ;;
   gibberish) echo "this is not a reading" ;;
@@ -255,17 +273,13 @@ esac
     expect(rows).toEqual([{ name: "Box", alias: "linux" }]);
   });
 
-  it("saves any number of machines as a name and alias only, and takes them off again", () => {
+  it("saves any number of machines as a name and alias only", () => {
     const machines = board([{ name: "Box", alias: "linux" }]);
     for (let index = 0; index < 12; index += 1) expect(machines.add(`Rack ${index}`, `rack-${index}`)).toEqual({});
     expect(machines.saved()).toHaveLength(13);
     const stored = JSON.parse(readFileSync(path, "utf8")) as { machines: object[] };
     expect(stored.machines.every((machine) => Object.keys(machine).sort().join() === "alias,name")).toBe(true);
     expect(statSync(path).mode & 0o077).toBe(0);
-    machines.remove("rack-3");
-    machines.remove("linux");
-    expect(new MachinesBoard({ path, ssh, first: [{ name: "Back", alias: "back" }] }).saved().map((machine) => machine.alias)).not.toContain("linux");
-    expect(machines.saved()).toHaveLength(11);
   });
 
   it("turns down a bad name, a bad alias and a repeat", () => {
@@ -282,6 +296,35 @@ esac
     expect(board([]).saved()).toEqual([{ name: "Good", alias: "linux" }]);
   });
 
+  it("reads a saved machine called local over ssh, apart from this computer", async () => {
+    const machines = board([{ name: "Box", alias: "local" }]);
+    machines.view();
+    await vi.waitFor(() => expect(machines.view().machines.every((machine) => machine.state === "online")).toBe(true), { timeout: 8000, interval: 20 });
+    const [here, box] = machines.view().machines;
+    expect(here).toMatchObject({ name: "Here", local: true });
+    expect(box).toMatchObject({ name: "Box", alias: "local", local: false });
+    expect(box!.id).not.toBe(here!.id);
+    expect(box!.reading!.cores).toBe(10);
+    expect(readFileSync(join(dir, "local.stdin"), "utf8")).toBe(READ_SCRIPT);
+  });
+
+  it("will not save over a list it could not read, and says so", () => {
+    for (const contents of ['{ "machines": [{ "name": "Keep", "alias": "keep" },', '{ "machines": "keep" }', "null", '{ "machines": [{ "name": "Keep", "alias": "keep" }, { "name": "Typo", "alias": "ty po" }] }']) {
+      writeFileSync(path, contents);
+      expect(board([{ name: "Box", alias: "linux" }]).add("New", "new").error, contents).toMatch(/left the file alone/);
+      expect(readFileSync(path, "utf8"), contents).toBe(contents);
+    }
+    expect(board([{ name: "Box", alias: "linux" }]).saved().map((machine) => machine.alias)).toEqual(["keep"]);
+  });
+
+  it("will not save over a list it cannot open, and shows no first machines for it", () => {
+    rmSync(path, { force: true });
+    mkdirSync(path);
+    const machines = board([{ name: "Box", alias: "linux" }]);
+    expect(machines.saved()).toEqual([]);
+    expect(machines.add("New", "new").error).toMatch(/left the file alone/);
+  });
+
   it("serves the list, and only changes it with the token", async () => {
     const source = { assistantLabel: "Flyd", canSend: true, listSessions: async () => [] } as unknown as ConversationSource;
     const feed = { start() {}, stop() {}, current: () => ({ memories: [], news: [], taste: [] }), onRefresh: () => () => {} };
@@ -293,17 +336,15 @@ esac
       const post = (body: unknown, headers: Record<string, string> = { "x-flyd-view-token": token }) =>
         fetch(`${base}/api/machines`, { method: "POST", headers, body: JSON.stringify(body) });
       const listed = (await (await fetch(`${base}/api/machines`)).json()) as { machines: MachineRow[] };
-      expect(listed.machines.map((machine) => machine.id)).toEqual(["local", "linux"]);
-      expect((await post({ op: "add", name: "New", alias: "new" }, {})).status).toBe(403);
-      expect((await post({ op: "add", name: "New", alias: "new" }, { "x-flyd-view-token": token, origin: "https://evil.example" })).status).toBe(403);
-      const refused = await post({ op: "add", name: "Evil", alias: "-oProxyCommand=x" });
+      expect(listed.machines.map((machine) => machine.name)).toEqual(["Here", "Box"]);
+      expect((await post({ name: "New", alias: "new" }, {})).status).toBe(403);
+      expect((await post({ name: "New", alias: "new" }, { "x-flyd-view-token": token, origin: "https://evil.example" })).status).toBe(403);
+      const refused = await post({ name: "Evil", alias: "-oProxyCommand=x" });
       expect(refused.status).toBe(400);
       expect(((await refused.json()) as { error: string }).error).toMatch(/SSH host alias/);
-      expect((await post({ op: "reboot", alias: "linux" })).status).toBe(400);
-      const added = (await (await post({ op: "add", name: "New", alias: "new" })).json()) as { machines: MachineRow[] };
-      expect(added.machines.map((machine) => machine.id)).toEqual(["local", "linux", "new"]);
-      const removed = (await (await post({ op: "remove", alias: "new" })).json()) as { machines: MachineRow[] };
-      expect(removed.machines.map((machine) => machine.id)).toEqual(["local", "linux"]);
+      expect((await post({ name: "No alias" })).status).toBe(400);
+      const added = (await (await post({ name: "New", alias: "new" })).json()) as { machines: MachineRow[] };
+      expect(added.machines.map((machine) => machine.name)).toEqual(["Here", "Box", "New"]);
     } finally {
       await server.close();
     }

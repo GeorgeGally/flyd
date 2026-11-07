@@ -2108,7 +2108,7 @@ export class ConversationViewServer {
     sendJson(res, 200, { job: result.job });
   }
 
-  /** The Machines tab. Reading is open like the other column reads; changing the list takes the token. */
+  /** The Machines tab. Reading is open like the other column reads; adding to the list takes the token. */
   private async machineAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method === "GET") {
       sendJson(res, 200, this.machines?.view() ?? { machines: [] });
@@ -2123,24 +2123,21 @@ export class ConversationViewServer {
       sendJson(res, 403, { error: "forbidden" });
       return;
     }
-    let edit: { op?: unknown; name?: unknown; alias?: unknown };
+    let edit: { name?: unknown; alias?: unknown };
     try {
       edit = JSON.parse(await readBody(req, 8 * 1024)) as typeof edit;
     } catch {
       sendJson(res, 400, { error: "expected a JSON object" });
       return;
     }
-    if (typeof edit?.alias !== "string" || (edit.op !== "add" && edit.op !== "remove")) {
-      sendJson(res, 400, { error: "expected add or remove" });
+    if (typeof edit?.alias !== "string") {
+      sendJson(res, 400, { error: "expected a name and an alias" });
       return;
     }
-    if (edit.op === "remove") this.machines.remove(edit.alias);
-    else {
-      const { error } = this.machines.add(typeof edit.name === "string" ? edit.name : "", edit.alias);
-      if (error) {
-        sendJson(res, 400, { error });
-        return;
-      }
+    const { error } = this.machines.add(typeof edit.name === "string" ? edit.name : "", edit.alias);
+    if (error) {
+      sendJson(res, 400, { error });
+      return;
     }
     sendJson(res, 200, this.machines.view());
   }

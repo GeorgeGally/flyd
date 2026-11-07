@@ -27,9 +27,7 @@ export const MACHINE_STYLE = `
 .machine-bar i { display: block; height: 100%; border-radius: 2px; background: var(--ink2); transition: width .4s ease; }
 .machine-value { font: 400 13.5px/1.4 var(--sans); color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .machine-stats .machine-running { grid-column: 2 / -1; font: 400 13.5px/1.45 var(--sans); color: var(--ink2); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.machine-remove { display: block; margin: 20px 0 0; padding: 0; border: 0; background: none; font: 400 13px/1.3 var(--sans); color: var(--mute); cursor: pointer; transition: color .2s; }
-.machine-remove:hover { color: var(--ink); }
-.machine-remove:focus-visible, .machine-form input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.machine-form input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .machine-open { display: flex; width: max-content; margin: 32px 0 0 var(--card-pad); }
 .machine-open[hidden], .machine-form[hidden] { display: none; }
 .machine-form { margin: 8px 0 0; padding: 22px var(--card-pad) 24px; border-radius: var(--card-radius); background: var(--card); }

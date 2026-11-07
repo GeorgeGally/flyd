@@ -4316,7 +4316,7 @@ describe("project threads", () => {
 describe("the Machines tab", () => {
   const GB = 1073741824;
   const ONLINE = {
-    id: "local", name: "Mac", local: true, state: "online",
+    id: "@local", name: "Mac", local: true, state: "online",
     reading: { cores: 10, load: [2.5, 2, 1], memory: { used: 18 * GB, total: 32 * GB }, swap: { used: 0, total: 0 }, disk: { used: 240 * GB, total: 2048 * GB },
       running: [{ name: "node <42>", cpu: 42.4, memory: 3 }, { name: "launchd", cpu: 0, memory: 0.1 }] },
   };
@@ -4360,7 +4360,6 @@ describe("the Machines tab", () => {
     expect(row.querySelector(".machine-state")?.textContent).toBe("Online");
     expect(Array.from(row.querySelectorAll(".machine-value")).map((one) => one.textContent)).toEqual(["2.5 on 10 cores", "18 of 32 GB", "None", "0.2 of 2 TB"]);
     expect(row.querySelector(".machine-running")?.textContent).toBe("node <42> 42%, launchd");
-    expect(row.querySelector(".machine-remove")).toBeNull();
   });
 
   it("says plainly when a machine is offline, with no numbers", async () => {
@@ -4404,6 +4403,29 @@ describe("the Machines tab", () => {
     }
   });
 
+  it("keeps reading after the artefact screen has been up past the interval", async () => {
+    const fetcher = serve(() => ({ machines: [ONLINE] }));
+    load("");
+    await settle();
+    vi.useFakeTimers();
+    try {
+      tab().click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads(fetcher)).toBe(1);
+      document.getElementById("flip")!.click();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(reads(fetcher)).toBe(1);
+      document.getElementById("flip")!.click();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(document.documentElement.dataset.screen).toBe("terminal");
+      expect(reads(fetcher)).toBe(2);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(reads(fetcher)).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("adds a machine by name and alias, and shows what SSH would not take", async () => {
     let machines: object[] = [ONLINE];
     const sent: Array<Record<string, string>> = [];
@@ -4434,7 +4456,7 @@ describe("the Machines tab", () => {
     (form.elements.namedItem("alias") as HTMLInputElement).value = "studio";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await settle();
-    expect(sent[1]).toEqual({ op: "add", name: "Studio", alias: "studio" });
+    expect(sent[1]).toEqual({ name: "Studio", alias: "studio" });
     expect(form.hidden).toBe(true);
     expect(button.hidden).toBe(false);
     expect(Array.from(document.querySelectorAll(".machine-name")).map((one) => one.textContent)).toEqual(["Mac", "Studio"]);
@@ -4458,12 +4480,9 @@ describe("the Machines tab", () => {
     expect(document.documentElement.dataset.screen).not.toBe("show");
   });
 
-  it("takes a saved machine off the list, and keeps a half-typed form through a redraw", async () => {
+  it("keeps a half-typed form through a redraw", async () => {
     let machines: object[] = [ONLINE, OFFLINE];
-    serve((init) => {
-      if (init?.method) machines = [ONLINE];
-      return { machines };
-    });
+    serve(() => ({ machines }));
     load("");
     await settle();
     tab().click();
@@ -4471,7 +4490,8 @@ describe("the Machines tab", () => {
     (document.getElementById("machine-open") as HTMLElement).click();
     const field = (document.getElementById("machine-form") as HTMLFormElement).elements.namedItem("name") as HTMLInputElement;
     field.value = "half typed";
-    (document.querySelector(".machine-remove") as HTMLElement).click();
+    machines = [ONLINE];
+    tab().click();
     await settle();
     expect(document.querySelectorAll(".machine")).toHaveLength(1);
     expect(field.value).toBe("half typed");

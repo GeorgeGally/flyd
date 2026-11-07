@@ -1,7 +1,7 @@
 /**
  * The Machines tab: each machine's load, memory, swap, disk and what is running,
  * or a plain offline row. The list is read only while the tab is on screen, soon
- * again while a machine is still being checked. Borrows VIEW_TOKEN, ago, frontEsc,
+ * again while a machine is still being checked; applyScreen reads again on the way back from the artefact screen. Borrows VIEW_TOKEN, ago, frontEsc,
  * frontRoot and rtabs from the page's closure.
  */
 export const MACHINES_SCRIPT = `
@@ -50,7 +50,6 @@ export const MACHINES_SCRIPT = `
       : machine.reading ? machineStats(machine.reading) : "";
     return '<article class="machine ' + frontEsc(machine.state) + '"><div class="machine-top"><h2 class="machine-name">' + frontEsc(machine.name) + '</h2>'
       + '<span class="machine-state">' + (offline ? "Offline" : machine.reading ? "Online" : "Checking") + '</span></div>' + body
-      + (machine.alias && VIEW_TOKEN ? '<button type="button" class="machine-remove" data-remove="' + frontEsc(machine.alias) + '" aria-label="Remove ' + frontEsc(machine.name) + '">Remove</button>' : "")
       + '</article>';
   }
   function drawMachines(view) {
@@ -71,8 +70,8 @@ export const MACHINES_SCRIPT = `
     if (!machinesOnScreen()) { machinesAgain(false); return; }
     fetch("/api/machines").then(function (r) { return r.json(); }).then(drawMachines).then(machinesAgain).catch(function () { machinesAgain(false); });
   }
-  function machineEdit(body) {
-    return fetch("/api/machines", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify(body) })
+  function machineAdd(name, alias) {
+    return fetch("/api/machines", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify({ name: name, alias: alias }) })
       .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); });
   }
   function machineFormShown(shown) {
@@ -86,18 +85,11 @@ export const MACHINES_SCRIPT = `
   document.getElementById("machine-cancel").addEventListener("click", function () { machineFormShown(false); machineOpen.focus(); });
   machineForm.addEventListener("submit", function (event) {
     event.preventDefault();
-    machineEdit({ op: "add", name: machineForm.elements.name.value, alias: machineForm.elements.alias.value }).then(function (result) {
+    machineAdd(machineForm.elements.name.value, machineForm.elements.alias.value).then(function (result) {
       if (!result.ok) { machineError.textContent = result.data.error || "That did not save."; return; }
       machineFormShown(false);
       machinesAgain(drawMachines(result.data));
     }).catch(function () { machineError.textContent = "That did not save."; });
-  });
-  machinesList.addEventListener("click", function (event) {
-    var remove = event.target.closest(".machine-remove");
-    if (!remove) return;
-    machineEdit({ op: "remove", alias: remove.dataset.remove }).then(function (result) {
-      if (result.ok) machinesAgain(drawMachines(result.data));
-    }).catch(function () {});
   });
   rtabs.addEventListener("click", loadMachines);
   document.addEventListener("visibilitychange", loadMachines);
