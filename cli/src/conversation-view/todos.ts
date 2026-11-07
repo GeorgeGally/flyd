@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { georgeInbox, type InboxEntry } from "../runtime/agenda.js";
+import { georgeInbox, readAgenda, type InboxEntry } from "../runtime/agenda.js";
 import {
   listOpenConfirmedTodos, tickConfirmedTodo, tickedFlydAsks, tickFlydAsk, type ConfirmedTodo,
 } from "../work/work-hypothesis/confirmed-todos.js";
@@ -47,15 +47,15 @@ function jobAsks(jobs: Job[]): TodoRow[] {
   }));
 }
 
-/** The inbox also holds held notifications and background job results: neither is a run that can go again. */
-const OTHER_WRITERS = /^(?:held:|job-)/;
-
-/** Agenda runs that stopped and ask him how to go on. A later run of the same item that went well answers it. */
-function stuckAsks(inbox: InboxEntry[], now: Date): TodoRow[] {
+/**
+ * Agenda runs that stopped and ask him how to go on. A later run of the same
+ * item that went well answers it, and so does dropping the item. The inbox also
+ * holds held notifications and background job results, which are no agenda item.
+ */
+function stuckAsks(inbox: InboxEntry[], agenda: Set<string>, now: Date): TodoRow[] {
   const latest = new Map(inbox.map((entry) => [entry.itemId, entry]));
   return [...latest.values()]
-    .filter((entry) => !OTHER_WRITERS.test(entry.itemId))
-    .filter((entry) => (entry.status === "failed" || entry.status === "blocked") && now.getTime() - Date.parse(entry.at) <= STUCK_KEEP_MS)
+    .filter((entry) => agenda.has(entry.itemId) && entry.status === "failed" && now.getTime() - Date.parse(entry.at) <= STUCK_KEEP_MS)
     .map((entry) => ({ id: `inbox:${entry.id}`, text: `Try again or drop: ${entry.task}`, line: "It did not finish", from: "flyd" }));
 }
 
@@ -75,11 +75,13 @@ function ownRow(todo: ConfirmedTodo, now: Date): TodoRow {
 export function todosFrom(input: {
   jobs: Job[];
   inbox: InboxEntry[];
+  /** The ids of the agenda's items, kept after a once-off run and gone once dropped. */
+  agenda: Set<string>;
   open: ConfirmedTodo[];
   ticked: Set<string>;
   now: Date;
 }): TodoRow[] {
-  const asks = [...jobAsks(input.jobs), ...stuckAsks(input.inbox, input.now)].filter((row) => !input.ticked.has(row.id));
+  const asks = [...jobAsks(input.jobs), ...stuckAsks(input.inbox, input.agenda, input.now)].filter((row) => !input.ticked.has(row.id));
   return [...asks, ...input.open.map((todo) => ownRow(todo, input.now))];
 }
 
@@ -88,6 +90,7 @@ export function readTodos(jobs: Job[], now = new Date()): TodoRow[] {
   return todosFrom({
     jobs,
     inbox: georgeInbox(),
+    agenda: new Set(readAgenda().map((item) => item.id)),
     open: listOpenConfirmedTodos(now),
     ticked: tickedFlydAsks(),
     now,

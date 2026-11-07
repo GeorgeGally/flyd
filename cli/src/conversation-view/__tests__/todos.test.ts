@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetWorkIndexPath, useWorkIndexPath } from "../../work/database.js";
-import { upcomingAgenda } from "../../runtime/agenda.js";
+import { cancelAgendaItem, upcomingAgenda } from "../../runtime/agenda.js";
 import {
   appendConfirmedTodos, listOpenConfirmedTodos, replaceConfirmedTodos, tickedFlydAsks, tickFlydAsk,
 } from "../../work/work-hypothesis/confirmed-todos.js";
@@ -21,7 +21,7 @@ function job(over: Partial<Job>): Job {
   };
 }
 const entry = (over: object) => ({ id: "e1", itemId: "i1", task: "Check the deploy", at: "2026-11-06T12:00:00.000Z", status: "failed", result: "", read: false, ...over }) as never;
-const empty = { jobs: [], inbox: [], open: [], ticked: new Set<string>(), now: NOW };
+const empty = { jobs: [], inbox: [], agenda: new Set(["i1"]), open: [], ticked: new Set<string>(), now: NOW };
 
 describe("what the Todo tab reads", () => {
   it("lists what a job needs of him, with the job it opens and where it comes from", () => {
@@ -47,10 +47,13 @@ describe("what the Todo tab reads", () => {
     expect(todosFrom({ ...empty, inbox: [entry({})] })).toEqual([
       expect.objectContaining({ id: "inbox:e1", text: "Try again or drop: Check the deploy", from: "flyd" }),
     ]);
-    expect(todosFrom({ ...empty, inbox: [entry({ status: "blocked" })] })).toHaveLength(1);
     expect(todosFrom({ ...empty, inbox: [entry({ status: "ok" })] })).toEqual([]);
     expect(todosFrom({ ...empty, inbox: [entry({}), entry({ id: "e2", status: "ok" })] })).toEqual([]);
     expect(todosFrom({ ...empty, inbox: [entry({ at: "2026-10-20T12:00:00.000Z" })] })).toEqual([]);
+  });
+
+  it("stops asking once he has dropped the item", () => {
+    expect(todosFrom({ ...empty, inbox: [entry({})], agenda: new Set() })).toEqual([]);
   });
 
   it("does not ask him to retry what was never a run", () => {
@@ -118,6 +121,7 @@ describe("the Todo tab's store", () => {
   });
 
   it("reads a stuck run from the agenda's own inbox, and leaves the agenda's schedule alone", () => {
+    writeFileSync(join(dir, "agenda.json"), JSON.stringify([{ id: "i1", task: "Check the deploy", nextRunAt: new Date().toISOString(), repeat: "none", enabled: false, createdAt: new Date().toISOString(), lastStatus: "failed", runs: 1 }]));
     writeFileSync(join(dir, "inbox.jsonl"), `${JSON.stringify({ id: "e1", itemId: "i1", task: "Check the deploy", at: new Date().toISOString(), status: "failed", result: "", read: false })}\n`);
     writeFileSync(join(dir, "inbox.jsonl"), `${JSON.stringify({ id: "e9", itemId: "i9", task: "Internal", at: new Date().toISOString(), status: "failed", result: "", read: false, internal: true })}\n`, { flag: "a" });
     const stuck = readTodos([]);
@@ -125,6 +129,14 @@ describe("the Todo tab's store", () => {
     expect(tickTodo("inbox:e1", [])).toBe(true);
     expect(readTodos([])).toEqual([]);
     expect(upcomingAgenda()).toEqual([]);
+  });
+
+  it("stops asking about a run once he has cancelled its item", () => {
+    writeFileSync(join(dir, "agenda.json"), JSON.stringify([{ id: "i1", task: "Check the deploy", nextRunAt: new Date().toISOString(), repeat: "daily", enabled: true, createdAt: new Date().toISOString(), lastStatus: "failed", runs: 1 }]));
+    writeFileSync(join(dir, "inbox.jsonl"), `${JSON.stringify({ id: "e1", itemId: "i1", task: "Check the deploy", at: new Date().toISOString(), status: "failed", result: "", read: false })}\n`);
+    expect(readTodos([]).map((row) => row.id)).toEqual(["inbox:e1"]);
+    expect(cancelAgendaItem("i1")).not.toBeNull();
+    expect(readTodos([])).toEqual([]);
   });
 
   it("does not touch a ticked ask when his list is replaced", () => {
