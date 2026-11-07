@@ -200,12 +200,11 @@ function ledgerKey(field: FleetField, row: ArtefactRow): string | undefined {
 export const ARTEFACT_LIMITS = { call: 4, live: 4, ready: 4, landed: 8, waiting: 4, next: 3 } as const;
 
 /**
- * The one offer to link WhatsApp, shown once on one page (see
- * whatsapp-offer.ts); the link itself lives in People. `/whatsapp` is the
- * People page, where the code is drawn live.
+ * The card that offers to link WhatsApp, in the side column until he says Done
+ * (see whatsapp-offer.ts). `/whatsapp` is the People page, where the code is
+ * drawn live.
  */
 export const WHATSAPP_LINK = {
-  id: "whatsapp-link",
   title: "Link WhatsApp so Flyd can message people for you",
   line: "In WhatsApp: Linked devices, then Link a device, then scan the code.",
   url: "/whatsapp",

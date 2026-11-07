@@ -166,7 +166,6 @@ export const MESSAGES_SCRIPT = `
     }
   }
   // A relayed staff update is a compact card: a dot for what kind of news it is, one line, its link, its picture.
-  var WHATSAPP_OFFER_ID = "whatsapp-link";
   var CARD_WORDS = { landed: "Done", decision: "Your call", blocker: "Stuck", underway: "Under way", note: "" };
   function linkWord(url) {
     return /\\/pull\\/\\d+/.test(url) ? "Open the change ↗" : url.replace(/^https?:\\/\\/(www\\.)?/, "").replace(/\\/$/, "") + " ↗";
@@ -211,15 +210,6 @@ export const MESSAGES_SCRIPT = `
     if (message.card.url) {
       var link = Object.assign(document.createElement("a"), { className: "card-link", href: message.card.url, target: "_blank", rel: "noopener noreferrer", textContent: linkWord(message.card.url) });
       text.appendChild(link);
-    }
-    // The offer to link WhatsApp is his to put away for good.
-    if (message.id === WHATSAPP_OFFER_ID && VIEW_TOKEN) {
-      var away = Object.assign(document.createElement("button"), { type: "button", className: "card-away", textContent: "Not now" });
-      away.addEventListener("click", function () {
-        fetch("/api/whatsapp-offer", { method: "POST", headers: { "x-flyd-view-token": VIEW_TOKEN } }).catch(function () {});
-        el.remove();
-      });
-      text.appendChild(away);
     }
     box.appendChild(text);
     // Its screenshot, small, beside the line: the picture says what changed.

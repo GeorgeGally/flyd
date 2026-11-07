@@ -192,8 +192,8 @@ export interface ShowOptions {
   leftColumn?: () => ActivityPanel;
   /** Whether a page on this machine answers, so a link to one that closed is said in words. */
   live?: (url: string) => string;
-  /** Whether this page shows the one offer to link WhatsApp. */
-  whatsappUnlinked?: () => boolean;
+  /** Whether the side column carries the card that offers to link WhatsApp. */
+  whatsappCard?: () => boolean;
   /** The home page's feed for this reading of the work. */
   today?: (show: ShowScreen, jobs: Job[]) => TodayNote[];
   /**
@@ -226,6 +226,8 @@ interface StreamUpdate {
   leftColumn?: ActivityPanel;
   /** The page the work is on now, kept in the header whenever there is one. */
   page?: CurrentPage;
+  /** The card that offers to link WhatsApp, while he still needs it. */
+  whatsappCard?: typeof WHATSAPP_LINK;
   /** What is happening today, for the home page. Present only on the live view. */
   today?: TodayNote[];
   /** Jobs George is moving. Present only when the view built them. The page renders these and does not invent a second reading. */
@@ -580,15 +582,6 @@ export class SnapshotDiffer {
         ...(message.answeredFor !== undefined ? { answeredFor: message.answeredFor, ...(undone.has(message.id) ? { undone: true } : {}) } : {}),
       });
     }
-    // The one offer to link WhatsApp: last on the one page it went to, until he puts it away.
-    if (this.show?.whatsappUnlinked?.()) {
-      order.push(WHATSAPP_LINK.id);
-      seen.add(WHATSAPP_LINK.id);
-      if (this.sent.get(WHATSAPP_LINK.id) !== "1") {
-        this.sent.set(WHATSAPP_LINK.id, "1");
-        changed.push({ id: WHATSAPP_LINK.id, role: "assistant", html: "", card: { kind: "decision", line: WHATSAPP_LINK.title, sub: WHATSAPP_LINK.line, url: WHATSAPP_LINK.url } });
-      }
-    }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
     const artefact = this.show?.artefact?.();
     // Without a reading of the fleet, nothing on the screen may claim that all is quiet (show.ts).
@@ -684,6 +677,7 @@ export class SnapshotDiffer {
       ...(left ? { leftColumn: { ...left, semantic: show.activities } } : {}),
       ...(page ? { page } : {}),
       ...(board ? { jobs: board.jobs, jobsFleetKnown: board.fleetKnown } : {}),
+      ...(this.show?.whatsappCard?.() ? { whatsappCard: WHATSAPP_LINK } : {}),
       ...(this.show?.today ? { today: this.show.today(show, board?.jobs ?? []) } : {}),
       live: liveActivityOf(show, board?.jobs),
     };
@@ -774,7 +768,7 @@ export class ConversationViewServer {
     private readonly whatsapp?: WhatsAppPairing,
     /** Today's horoscope, for the News tab. */
     private readonly horoscope?: HoroscopeReader,
-    /** Keeps the WhatsApp offer to one showing. Without it the offer is never made. */
+    /** Remembers he is done with the WhatsApp card. Without it the card is never shown. */
     private readonly whatsappOffer?: WhatsAppOffer,
   ) {}
 
@@ -2208,8 +2202,6 @@ export class ConversationViewServer {
 
     let latest: ConversationSnapshot | null = null;
     let closed = false;
-    // The offer to link WhatsApp goes to one page, once: this one, if it is the first.
-    const offered = !isArticleSession(session.id) && !isThread(session.id) && this.whatsappUnlinked() && Boolean(this.whatsappOffer?.claim());
     // Coding work Core found stuck after chasing it: said over the composer, only in Flyd's own window.
     let staffSent = "";
     const emitStaff = () => {
@@ -2245,7 +2237,7 @@ export class ConversationViewServer {
         ...(this.activity ? { leftColumn: () => this.activity!.current() } : {}),
         live: (url) => this.previews.state(url),
         // A chat about one article, or a project's thread, is about that: the WhatsApp offer stays out of it.
-        whatsappUnlinked: () => offered && !this.whatsappOffer?.dismissed() && this.whatsappUnlinked(),
+        whatsappCard: () => Boolean(this.whatsappOffer && !this.whatsappOffer.dismissed() && this.whatsappUnlinked()),
         today: (screen, jobs) => todayNotes({ show: screen, jobs, ...(this.activity ? { activity: this.activity.current() } : {}), sessions, current: session.id }, Date.now()),
         jobs: (shot, screen) => this.jobBoard(shot, screen),
       });

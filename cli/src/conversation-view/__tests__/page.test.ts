@@ -4174,7 +4174,7 @@ describe("the front page", () => {
   it("shows today's feed while nothing has been said, with the time above each note, and leaves it once he speaks", async () => {
     const stream = await opened();
     const today = [{ id: "a", at: "2026-10-26T12:00:00.000Z", text: "CleanX is on your notes.", aside: "Started 11:01.", moving: true, shot: "/api/rail-image?path=x" }];
-    stream.emit("update", { order: ["whatsapp-link"], messages: [{ id: "whatsapp-link", role: "assistant", html: "", card: { kind: "decision", line: "Link WhatsApp" } }], working: false, show: SHOW, today });
+    stream.emit("update", { order: [], messages: [], working: false, show: SHOW, today });
     const feed = document.getElementById("today-feed")!;
     expect(feed.hidden).toBe(false);
     expect(document.documentElement.hasAttribute("data-feed")).toBe(true);
@@ -4187,15 +4187,20 @@ describe("the front page", () => {
     expect(feed.hidden).toBe(true);
   });
 
-  it("offers the WhatsApp card a way out that tells Core and takes it off the page", async () => {
+  it("keeps the WhatsApp card in the side column, Chat asks about it and Done ends it", async () => {
     const stream = await opened();
-    stream.emit("update", { order: ["whatsapp-link"], messages: [{ id: "whatsapp-link", role: "assistant", html: "", card: { kind: "decision", line: "Link WhatsApp", url: "/whatsapp" } }], working: false, show: SHOW });
-    const away = document.querySelector<HTMLButtonElement>(".card-away")!;
-    expect(away.textContent).toBe("Not now");
-    away.click();
+    const whatsappCard = { title: "Link WhatsApp", line: "Scan the code.", url: "/whatsapp" };
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, whatsappCard });
+    const button = (act: string) => document.querySelector<HTMLButtonElement>('#jobs-list .offer [data-offer="' + act + '"]');
+    expect(button("done")!.textContent).toBe("Done");
+    button("chat")!.click();
+    expect(document.getElementById("about-title")!.textContent).toBe("Link WhatsApp");
+    expect(document.getElementById("about")!.hidden).toBe(false);
+    expect(button("chat")).not.toBeNull();
+    button("done")!.click();
     await settle();
     expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/whatsapp-offer")).toBe(true);
-    expect(document.querySelector(".card-away")).toBeNull();
+    expect(button("done")).toBeNull();
   });
 
   it("says what he must do only when it counts: how many to approve, or how many to pick from", async () => {

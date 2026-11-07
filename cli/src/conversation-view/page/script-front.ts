@@ -295,6 +295,26 @@ export const FRONT_SCRIPT = `
     return '<section class="fgroup"><h2 class="fhead"><span>' + frontEsc(label) + '</span><span>' + (count === "" ? "" : count) + '</span></h2>'
       + '<div class="fstrip">' + body + '</div>' + (extra || "") + '</section>';
   }
+  // The card that offers to link WhatsApp: it stays until he says Done, and Chat opens a conversation for help with it.
+  function frontOfferCard() {
+    var card = frontUpdate && frontUpdate.whatsappCard;
+    if (!card || !VIEW_TOKEN) return "";
+    return '<section class="dcard offer"><div class="dtop"><span class="tag">WhatsApp</span></div>'
+      + '<p class="offer-line"><a href="' + frontEsc(card.url) + '" target="_blank" rel="noopener noreferrer">' + frontEsc(card.title) + '</a></p><p class="offer-sub">' + frontEsc(card.line) + '</p>'
+      + '<div class="offer-acts"><button type="button" class="fbtn" data-offer="done">Done</button><button type="button" class="fbtn" data-offer="chat">Chat</button></div></section>';
+  }
+  function frontOfferAct(act) {
+    var card = frontUpdate && frontUpdate.whatsappCard;
+    if (!card) return;
+    if (act === "chat") {
+      frontSelect("talk");
+      chatAbout({ kind: "decision", key: "whatsapp", title: card.title, detail: card.line });
+      return;
+    }
+    fetch("/api/whatsapp-offer", { method: "POST", headers: { "x-flyd-view-token": VIEW_TOKEN } }).catch(function () {});
+    frontUpdate.whatsappCard = null;
+    renderFront();
+  }
   function frontDrawJobs(jobs) {
     // A jobs array is the list. Until one arrives, an empty fleet group is unknown.
     var listed = !!(frontUpdate && Array.isArray(frontUpdate.jobs));
@@ -310,7 +330,7 @@ export const FRONT_SCRIPT = `
     var workingEmpty = listed && !fleetKnown ? "No run has reported yet." : "Nothing is running right now.";
     var doneEmpty = listed ? "Nothing has landed lately." : "Nothing landed this week.";
     rtabDot.hidden = !needs.length;
-    var html = (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
+    var html = frontOfferCard() + (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
       + (working.length ? frontGroup("Working", working.length, working.map(frontJobCard).join("")) : frontGroup("Working", known ? 0 : "", "", known ? '<p class="fempty">' + workingEmpty + '</p>' : unread))
       + (listed ? (waiting.length ? frontGroup("Waiting", waiting.length, waiting.map(frontJobCard).join("")) : frontGroup("Waiting", 0, "", '<p class="fempty">Nothing is waiting.</p>')) : "")
       + (done.length ? frontGroup("Done", done.length, shownDone.map(frontJobCard).join(""),
@@ -596,7 +616,7 @@ export const FRONT_SCRIPT = `
     if (frontRoot.dataset.fmode === "news" && !deskRead && VIEW_TOKEN) deskLoad();
   }
 
-  // Today's feed: the home page when nothing has been said in this conversation. The offer card does not count as said.
+  // Today's feed: the home page when nothing has been said in this conversation.
   var feedEl = document.getElementById("today-feed");
   var feedDrawn = "";
   function feedWhen(iso) {
@@ -607,7 +627,7 @@ export const FRONT_SCRIPT = `
   }
   function frontFeed() {
     var notes = frontUpdate.today;
-    var said = (frontUpdate.order || []).some(function (id) { return id !== WHATSAPP_OFFER_ID; }) || !!main.querySelector(".msg.pending");
+    var said = (frontUpdate.order || []).length > 0 || !!main.querySelector(".msg.pending");
     var shows = Array.isArray(notes) && !said && !articleStarters.length && !inThread();
     if (shows && feedEl.hidden && frontRoot.dataset.fmode !== "news") window.scrollTo(0, 0);
     feedEl.hidden = !shows;
@@ -742,6 +762,8 @@ export const FRONT_SCRIPT = `
   }
 
   jobsEl.addEventListener("click", function (event) {
+    var offer = event.target.closest("[data-offer]");
+    if (offer) { frontOfferAct(offer.dataset.offer); return; }
     var more = event.target.closest(".fmore");
     if (more) { frontOpen[more.dataset.more] = !frontOpen[more.dataset.more]; renderFront(); return; }
     var card = event.target.closest(".job");

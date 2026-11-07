@@ -172,8 +172,12 @@ export const FRONT_STYLE = `
 .ev p span { color: var(--mute); }
 .ev img { display: block; width: 100%; height: 188px; margin-top: 12px; object-fit: cover; object-position: left top; }
 .today-quiet { margin: 0; font: 400 18px/1.36 var(--sans); color: var(--mute); }
-.card-away { display: block; margin: 16px 0 0; padding: 0; border: 0; background: none; font: 500 14px/1.3 var(--sans); color: var(--muted); cursor: pointer; }
-.card-away:hover { color: var(--fg); }
+.offer { margin-bottom: 32px; }
+.offer .dtop { margin-bottom: 14px; }
+.offer-line { margin: 0; font: 400 17px/1.42 var(--sans); }
+.offer-line a { color: inherit; text-decoration: none; }
+.offer-sub { margin: 6px 0 0; font: 400 15px/1.45 var(--sans); color: var(--mute); }
+.offer-acts { display: flex; gap: 8px; margin-top: 22px; }
 :root[data-layout="front"] .composer {
   left: var(--c-left); right: var(--c-right); bottom: 0; z-index: 4;
   padding: 14px var(--pad-x) calc(var(--gut) + 14px); border-radius: 0; background: var(--paper); font-size: 17px;

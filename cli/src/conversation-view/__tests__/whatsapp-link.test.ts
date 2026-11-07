@@ -66,36 +66,20 @@ describe("the offer card", () => {
     expect(composeArtefact(EMPTY).some((item) => item.id === "news:whatsapp-link")).toBe(false);
   });
 
-  it("is said once: the first page takes it, and a reload, another window or a restart never does", () => {
+  it("stays until he says Done, and Done outlives a restart", () => {
     const dir = mkdtempSync(join(tmpdir(), "flyd-offer-"));
     const offer = new WhatsAppOffer(dir);
-    expect(offer.claim()).toBe(true);
-    expect(offer.claim()).toBe(false);
-    expect(new WhatsAppOffer(dir).claim()).toBe(false);
-  });
-
-  it("stays gone once dismissed, across a restart", () => {
-    const dir = mkdtempSync(join(tmpdir(), "flyd-offer-"));
-    const offer = new WhatsAppOffer(dir);
-    offer.claim();
-    expect(offer.dismissed()).toBe(false);
+    expect(new WhatsAppOffer(dir).dismissed()).toBe(false);
     offer.dismiss();
+    expect(offer.dismissed()).toBe(true);
     expect(new WhatsAppOffer(dir).dismissed()).toBe(true);
-    expect(new WhatsAppOffer(dir).claim()).toBe(false);
   });
 
-  it("appears in the timeline last, and disappears the moment WhatsApp is linked", () => {
-    const unlinked = new SnapshotDiffer(undefined, { whatsappUnlinked: () => true });
-    const first = unlinked.next(snapshot());
-    expect(first.order.at(-1)).toBe("whatsapp-link");
-    expect(first.messages.find((message) => message.id === "whatsapp-link")?.card).toMatchObject({ line: WHATSAPP_LINK.title, url: "/whatsapp" });
-    // Said once: a later update keeps it in place without re-sending it, so the card never flickers.
-    const second = unlinked.next(snapshot());
-    expect(second.order.at(-1)).toBe("whatsapp-link");
-    expect(second.messages.some((message) => message.id === "whatsapp-link")).toBe(false);
-
-    const linked = new SnapshotDiffer(undefined, { whatsappUnlinked: () => false }).next(snapshot());
-    expect(linked.order).not.toContain("whatsapp-link");
+  it("travels with the update as a side-column card, never in the timeline, and goes when he is done or linked", () => {
+    const card = new SnapshotDiffer(undefined, { whatsappCard: () => true }).next(snapshot());
+    expect(card.whatsappCard).toMatchObject({ title: WHATSAPP_LINK.title, url: "/whatsapp" });
+    expect(card.order).toEqual([]);
+    expect(new SnapshotDiffer(undefined, { whatsappCard: () => false }).next(snapshot()).whatsappCard).toBeUndefined();
   });
 });
 

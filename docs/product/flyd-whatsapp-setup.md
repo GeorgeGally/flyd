@@ -14,8 +14,9 @@ transitions and responsive layout, not WhatsApp branding or navigation.
    page draws the pairing QR live; in WhatsApp Settings → Linked Devices, scan it. The code refreshes by itself until it is scanned.
 3. Core maintains the linked-device socket and reconnects with bounded retries. The
    page's QR disappears once it is linked, and the page lists synced conversations.
-   Flyd offers linking once, on one page: `~/.flyd/connectors/whatsapp/offer.json`
-   keeps a reload, a new window or a restart from bringing it back.
+   Until then a card in the side column offers it, with Done (gone for good,
+   recorded in `~/.flyd/connectors/whatsapp/offer.json`) and Chat (a conversation
+   about it for help).
 4. Choose a contact, focus the composer and use Flyd dictation, or type. Review
    the recipient and exact words, then click Send. Spoken assistant commands also
    support “Read my WhatsApp messages” and “Draft a WhatsApp reply to Erica…”.
