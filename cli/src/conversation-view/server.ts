@@ -21,7 +21,7 @@ import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.j
 import { syncTasteSkills } from "../council/taste-skills.js";
 import { applyProjectOps, projectsPath, readProjects } from "../council/projects.js";
 import { listDomainRuns, readDomainRun } from "../command/store.js";
-import { sendRunMessage } from "../command/messages.js";
+import { messageId, sendRunMessage } from "../command/messages.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { IslandRung, islandStatusOf, statusOf } from "./status.js";
@@ -1641,7 +1641,7 @@ export class ConversationViewServer {
         return;
       }
       const run = readDomainRun(payload.domainRun);
-      if (!run || run.status !== "needs_decision" || run.request.source === "flyd") {
+      if (!run || run.status !== "needs_decision" || run.phase === "done" || run.request.source === "flyd") {
         sendJson(res, 409, { error: "This question is no longer available; refresh before answering" });
         return;
       }
@@ -1650,7 +1650,7 @@ export class ConversationViewServer {
         sendJson(res, 502, { error: result.error || "The answer could not be delivered" });
         return;
       }
-      sendJson(res, 200, { waiting: "Sent to Flyd" });
+      sendJson(res, 200, { id: messageId(run, "decision", payload.text), waiting: "Sent to Flyd" });
       return;
     }
     if (payload.decision !== undefined) {

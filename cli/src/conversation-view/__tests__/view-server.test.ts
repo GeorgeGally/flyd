@@ -614,8 +614,13 @@ describe("ConversationViewServer", () => {
       const response = await post(port, JSON.stringify({ domainRun: "two", text: "yes" }), headers);
       expect(response.status).toBe(200);
       expect(readDomainRun("one")?.messages).toBeUndefined();
-      expect(readDomainRun("two")?.messages).toEqual([expect.objectContaining({ kind: "decision", body: "yes", deliveredAt: expect.any(String) })]);
+      const delivered = readDomainRun("two")?.messages;
+      expect(delivered).toEqual([expect.objectContaining({ kind: "decision", body: "yes", deliveredAt: expect.any(String) })]);
+      expect(JSON.parse(response.body)).toMatchObject({ id: delivered![0]!.id });
       expect((await post(port, JSON.stringify({ domainRun: "missing", text: "yes" }), headers)).status).toBe(409);
+      saveDomainRun({ ...run("finished"), phase: "done" });
+      expect((await post(port, JSON.stringify({ domainRun: "finished", text: "yes" }), headers)).status).toBe(409);
+      expect(readDomainRun("finished")?.messages).toBeUndefined();
     } finally {
       if (previous === undefined) delete process.env.FLYD_COMMAND_DIR; else process.env.FLYD_COMMAND_DIR = previous;
     }

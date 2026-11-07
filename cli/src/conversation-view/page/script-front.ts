@@ -262,7 +262,7 @@ export const FRONT_SCRIPT = `
       if (line) reading = '<p class="next">' + frontEsc(line) + '</p>';
     }
     // "Landed" under "Done" says nothing the group has not; a plain "needs …" is the group's own word.
-    var state = job.group === "done" ? "" : job.state.replace(/^needs you(?: · |$)/i, "");
+    var state = job.group === "done" ? "" : job.state.replace(/^needs\\b[^·]*(?: · |$)/i, "");
     return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
       + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
       + '<div class="t">' + frontEsc(job.title) + '</div>' + reading + '<div class="m">' + dot + frontMeta([state, job.project])
@@ -550,7 +550,7 @@ export const FRONT_SCRIPT = `
       id: job.id, group: job.group, state: job.state || "", title: frontTitle(job.title), project: job.project || "",
       at: job.at || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", because: job.because || "",
       digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
-      threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.group === "needs" && job.id.indexOf("run:") === 0 ? job.id.slice(4) : "",
+      threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.domainRun || "",
     };
   }
   function frontPostJob(body) {

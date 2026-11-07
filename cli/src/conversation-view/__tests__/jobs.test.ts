@@ -106,6 +106,24 @@ describe("jobsFrom", () => {
     }
   });
 
+  it("finds the known project of a worker's repo path when its folder and name differ", () => {
+    const path = "/work/capfive-abc";
+    const item = (kind: string, id: string, status = "") => ({ id: `${kind}:${id}`, kind, headline: id, why: "", task: id, project: path, status });
+    const repos = project({ repos: [path] });
+    const running = jobsFrom({ projects: [repos], show: { ...screen, underway: [item("live", "worker")] } as unknown as ShowScreen, now: NOW });
+    expect(running.jobs.map((job) => [job.id, job.project])).toEqual([["live:worker", "Cap5"]]);
+    const paused = jobsFrom({ projects: [repos], show: { ...screen, held: [item("waiting", "held", "paused")] } as unknown as ShowScreen, now: NOW });
+    expect(paused.jobs.map((job) => job.id)).toEqual(["cap5"]);
+    expect(paused.inferred).toEqual([]);
+  });
+
+  it("offers an answer only to a domain run that can still take one", () => {
+    const board = jobsFrom({ runs: [run({ id: "open", status: "needs_decision", phase: "checking" }), run({ id: "finished", status: "needs_decision", phase: "done" }), run({ id: "plain", status: "needs_decision" })], now: NOW });
+    const answer = (id: string) => board.jobs.find((job) => job.id === `run:${id}`)?.domainRun;
+    expect(["open", "finished", "plain"].map(answer)).toEqual(["open", undefined, "plain"]);
+    expect(board.jobs.find((job) => job.id === "run:finished")?.group).toBe("needs");
+  });
+
   it("keeps project conversations and reports on active cards without an idle card", () => {
     const text = "A detailed report on the project. ".repeat(12);
     const hash = digestHash(text);

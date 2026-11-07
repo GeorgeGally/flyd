@@ -56,6 +56,8 @@ export interface Job {
   digest: JobDigestView | null;
   /** The show item's decision, when the job needs one, so the job opens on its decisions. */
   decision?: ShowItem["decision"];
+  /** The domain run an answer given on this job reaches. Absent when the run has finished and cannot take one. */
+  domainRun?: string;
 }
 
 export interface JobRun {
@@ -63,6 +65,7 @@ export interface JobRun {
   status: string;
   transport?: DomainRun["transport"]["kind"];
   source?: DomainRun["request"]["source"];
+  phase?: string;
   project?: string;
   outcome: string;
   owner: string;
@@ -123,6 +126,7 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
     status: run.status,
     transport: run.transport.kind,
     source: run.request.source,
+    ...(run.phase ? { phase: run.phase } : {}),
     ...(run.request.project?.name ? { project: run.request.project.name } : {}),
     outcome: one(run.request.intendedOutcome || run.request.originalMessage),
     owner: run.owner,
@@ -145,6 +149,7 @@ interface Signal {
   ask: string;
   because: string;
   decision?: ShowItem["decision"];
+  domainRun?: string;
 }
 
 function rank(group: JobGroup): number {
@@ -155,7 +160,7 @@ function runSignal(run: JobRun, now: number): Signal | null {
   const at = run.updatedAt;
   if (run.status === "needs_decision") {
     if (run.source === "flyd") return null;
-    return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, because: `Run ${run.id} is waiting on a decision` };
+    return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
   if (run.status === "queued") return { group: "waiting", state: "Queued", at, next: run.outcome || "Queued", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is queued` };
   if (run.status === "accepted" || run.status === "working") {
@@ -222,6 +227,11 @@ export function jobsFrom(input: {
   const projects = input.projects ?? [];
   const known = new Map(projects.map((project) => [jobKey(project.name), project]));
   for (const project of projects) known.set(jobKey(project.id), project);
+  // A fleet row names its project by repo path, and a project's name need not match its repo's folder.
+  const projectOfRepo = (path: string): string | undefined => {
+    const folder = basename(path).toLowerCase();
+    return projects.find((project) => project.repos.some((repo) => basename(repo).toLowerCase() === folder))?.name;
+  };
   const buckets = new Map<string, Bucket>();
   const inferred: JobBoard["inferred"] = [];
   const seenInferred = new Set<string>();
@@ -287,8 +297,9 @@ export function jobsFrom(input: {
     const group = itemGroup(item.kind);
     if (!group) continue;
     // Every running worker is its own card: two on one project are two, and a project's open call never hides one.
-    const bucket = item.project && item.kind !== "live" ? bucketFor(item.project, item.headline) : lone(buckets, item.id, item.headline);
-    if (item.kind === "live" && item.project) { bucket.project = basename(item.project); markActive(bucket.project, bucket); }
+    const name = item.project && (projectOfRepo(item.project) ?? item.project);
+    const bucket = name && item.kind !== "live" ? bucketFor(name, item.headline) : lone(buckets, item.id, item.headline);
+    if (item.kind === "live" && name) { bucket.project = basename(name); markActive(bucket.project, bucket); }
     const ask = group === "needs" ? (item.decision?.question || item.detail || item.headline) : "";
     const state = itemState(item);
     bucket.signals.push({
@@ -369,6 +380,7 @@ export function jobsFrom(input: {
       threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8),
       digest: digest ? { changed: digest.changed, means: digest.means, needed: digest.needed, ...(digest.link ? { link: digest.link } : {}) } : null,
       ...(lead.decision ? { decision: lead.decision } : {}),
+      ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
     });
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));

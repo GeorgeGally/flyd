@@ -10,7 +10,7 @@ export function activeDomainRuns(domain?: DomainId): DomainRun[] {
   return listDomainRuns().filter((run) => ACTIVE.has(run.status) && run.request.source !== "flyd" && (!domain || run.request.domain === domain));
 }
 
-function messageId(run: DomainRun, kind: DomainMessageKind, body: string): string {
+export function messageId(run: DomainRun, kind: DomainMessageKind, body: string): string {
   const digest = createHash("sha256").update(`${run.id}\0${kind}\0${body.trim()}`).digest("hex").slice(0, 20);
   return `${run.id}:${kind}:${digest}`;
 }
