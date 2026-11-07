@@ -29,6 +29,12 @@ nothing else.
 A fallback takes over when Claude errors, declines, or the month's cap is
 reached. A failed provider cools down for ten minutes before it is tried again.
 
+Every chain, scheduled jobs included, ends on a reserve model on another account
+(`openai:gpt-5.4-mini` while `OPENAI_API_KEY` is set), so one dead account cannot
+stop Scout or the council. An account that answers 402 or says it is out of funds
+is left out of every chain for six hours, across processes
+(`~/.flyd/empty-accounts.json`), and is only tried when nothing else exists.
+
 ## Prompt caching
 
 Flyd's long standing instructions (SOUL, how it talks, its tool list) are
@@ -60,6 +66,7 @@ until the 1st and he hears that once too.
 | `FLYD_CHAT_MODEL` | `FLYD_MODEL` | Chat's model after Claude |
 | `FLYD_CHAT_FALLBACK_MODELS` | — | Comma-separated, provider-qualified models after that |
 | `FLYD_MODEL` | — | Background jobs' model, and quick jobs' fallback |
+| `FLYD_RESERVE_MODEL` | `openai:gpt-5.4-mini` | Last model in every chain, while `OPENAI_API_KEY` is set |
 | `FLYD_ROUTING_FALLBACK_MODEL` | — | Pins the room reader and view router to one exact model |
 | `FLYD_PREDICTION_MODEL` | Claude Haiku, then Mercury | Pins typing prediction to one exact model |
 | `FLYD_PREDICTIONS` | on | `0` turns typing prediction off |

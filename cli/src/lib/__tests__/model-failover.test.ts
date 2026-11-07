@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chatModelChain, resolveModelConnection, usesOpenAITransport } from "../config.js";
+import { chatModelChain, DEFAULT_RESERVE_MODEL, fallbackModelChain, resolveModelConnection, usesOpenAITransport } from "../config.js";
 import { openAIAgentTransport, resetProviderCooldowns, runWithModelFailover } from "../llm.js";
 import { commandCodeModelId } from "../../runtime/flyd-worker-config.js";
 
@@ -106,5 +106,61 @@ describe("runWithModelFailover", () => {
     await expect(runWithModelFailover(["a", "b"], async (model) => {
       throw providerError(503, `${model} down`);
     })).rejects.toThrow("b down");
+  });
+});
+
+describe("an account out of money", () => {
+  const empty = Object.assign(new Error("402 Insufficient account funds"), { status: 402 });
+
+  it("moves on by itself, and leaves every model on that account out of later runs", async () => {
+    resetProviderCooldowns();
+    const tried: string[] = [];
+    const run = (model: string) => {
+      tried.push(model);
+      if (model.startsWith("opencode-go")) throw empty;
+      return Promise.resolve("news");
+    };
+    const chain = ["opencode-go/flash", "opencode-go/pro", "openai:gpt-5.4-mini"];
+    expect(await runWithModelFailover(chain, run)).toEqual({ result: "news", model: "openai:gpt-5.4-mini" });
+    expect(tried).toEqual(chain);
+    tried.length = 0;
+    expect((await runWithModelFailover(chain, run)).model).toBe("openai:gpt-5.4-mini");
+    // Not a penny of round trips on the dead account, on either of its models.
+    expect(tried).toEqual(["openai:gpt-5.4-mini"]);
+    resetProviderCooldowns();
+  });
+
+  it("is recognised from the words alone, as a proxy reports it", async () => {
+    resetProviderCooldowns();
+    const tried: string[] = [];
+    const run = (model: string) => {
+      tried.push(model);
+      if (model === "opencode-go/flash") throw new Error("Upstream request failed: Insufficient account funds");
+      return Promise.resolve("ok");
+    };
+    await runWithModelFailover(["opencode-go/flash", "openai:x"], run);
+    tried.length = 0;
+    await runWithModelFailover(["opencode-go/flash", "openai:x"], run);
+    expect(tried).toEqual(["openai:x"]);
+    resetProviderCooldowns();
+  });
+
+  it("still tries it when nothing else exists, rather than stopping without an answer", async () => {
+    resetProviderCooldowns();
+    const run = () => Promise.reject(empty);
+    await expect(runWithModelFailover(["opencode-go/flash"], run)).rejects.toThrow("402");
+    await expect(runWithModelFailover(["opencode-go/flash"], run)).rejects.toThrow("402");
+    resetProviderCooldowns();
+  });
+});
+
+describe("the reserve model", () => {
+  it("closes the chain on another account whenever its key exists", () => {
+    vi.stubEnv("OPENAI_API_KEY", "key");
+    vi.stubEnv("FLYD_CHAT_FALLBACK_MODELS", "opencode-go/pro");
+    expect(fallbackModelChain()).toEqual(["opencode-go/pro", DEFAULT_RESERVE_MODEL]);
+    vi.stubEnv("FLYD_RESERVE_MODEL", "openai:other");
+    expect(fallbackModelChain()).toEqual(["opencode-go/pro", "openai:other"]);
+    vi.unstubAllEnvs();
   });
 });

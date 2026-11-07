@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { elideToolHistory, type ToolHistoryPolicy, type ToolHistoryStats } from "../runtime/tool-history.js";
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
-import { usesOpenAITransport, apiModelId, defaultModel, fallbackModelChain, quickModelChain, resolveModelConnection, type ModelConnection } from "./config.js";
+import { FLYD_DIR, usesOpenAITransport, apiModelId, defaultModel, fallbackModelChain, quickModelChain, resolveModelConnection, type ModelConnection } from "./config.js";
 import { claudeHeaders, recordClaudeUsage, type ClaudeUsage } from "./claude-spend.js";
 
 interface FixtureRule {
@@ -388,10 +389,41 @@ function abortableToolCall(onToolCall: ToolHandler, signal?: AbortSignal): ToolH
 
 const PROVIDER_COOLDOWN_MS = 10 * 60 * 1000;
 const providerCooldowns = new Map<string, number>();
+/** An account out of money stays out for hours, not minutes, and across processes: each agenda tick is a new one. */
+const EMPTY_ACCOUNT_MS = 6 * 60 * 60 * 1000;
+const EMPTY_ACCOUNT = /\b402\b|insufficient (?:account )?(?:funds|balance|credits?)|insufficient_quota|credit balance|out of credits?|payment required/i;
+
+function emptyAccountsPath(): string {
+  return join(FLYD_DIR, "empty-accounts.json");
+}
+
+function emptyAccounts(): Record<string, number> {
+  try {
+    return JSON.parse(readFileSync(emptyAccountsPath(), "utf8")) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
+/** The account a model bills: "opencode-go/x" and "opencode-go:x" are one account. */
+function accountOf(model: string): string {
+  return /^[^:/]+/.exec(model)?.[0] ?? model;
+}
+
+function isEmptyAccount(error: unknown): boolean {
+  return providerStatus(error) === 402 || EMPTY_ACCOUNT.test(error instanceof Error ? error.message : String(error));
+}
+
+function noteEmptyAccount(model: string): void {
+  try {
+    writeFileSync(emptyAccountsPath(), JSON.stringify({ ...emptyAccounts(), [accountOf(model)]: Date.now() + EMPTY_ACCOUNT_MS }));
+  } catch { /* It cools down in this process regardless. */ }
+}
 
 /** Test-only: forget provider cooldowns. */
 export function resetProviderCooldowns(): void {
   providerCooldowns.clear();
+  rmSync(emptyAccountsPath(), { force: true });
 }
 
 function providerStatus(error: unknown): number | undefined {
@@ -408,8 +440,8 @@ function isAbort(error: unknown, signal?: AbortSignal): boolean {
 /** Quota, auth, and server faults mean "this provider, not this request". */
 function shouldCoolDown(error: unknown): boolean {
   const status = providerStatus(error);
-  if (status !== undefined) return status === 429 || status === 401 || status === 403 || status >= 500;
-  return /usage limit|rate limit|quota|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|socket hang up|No API key/i.test(
+  if (status !== undefined) return status === 402 || status === 429 || status === 401 || status === 403 || status >= 500;
+  return /usage limit|rate limit|quota|insufficient|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|socket hang up|No API key/i.test(
     error instanceof Error ? error.message : String(error),
   );
 }
@@ -426,8 +458,12 @@ export async function runWithModelFailover<T>(
 ): Promise<{ result: T; model: string }> {
   if (models.length === 0) throw new Error("No Flyd model is configured");
   const now = Date.now();
-  const healthy = models.filter((model) => (providerCooldowns.get(model) ?? 0) <= now);
-  const order = healthy.length > 0 ? [...healthy, ...models.filter((m) => !healthy.includes(m))] : models;
+  const empty = emptyAccounts();
+  // An empty account is left out while any other can answer: there is nothing to gain from asking it.
+  const funded = models.filter((model) => (empty[accountOf(model)] ?? 0) <= now);
+  const usable = funded.length > 0 ? funded : models;
+  const healthy = usable.filter((model) => (providerCooldowns.get(model) ?? 0) <= now);
+  const order = healthy.length > 0 ? [...healthy, ...usable.filter((m) => !healthy.includes(m))] : usable;
   let lastError: unknown;
   const failures: string[] = [];
   for (let index = 0; index < order.length; index += 1) {
@@ -440,6 +476,7 @@ export async function runWithModelFailover<T>(
       lastError = error;
       if (isAbort(error, options.signal)) throw error;
       if (shouldCoolDown(error)) providerCooldowns.set(model, Date.now() + PROVIDER_COOLDOWN_MS);
+      if (isEmptyAccount(error)) noteEmptyAccount(model);
       const next = order[index + 1];
       if (!next || options.canFailOver?.() === false) {
         // The last model's error alone hides why the earlier ones failed; name every model that was tried.

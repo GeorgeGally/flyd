@@ -91,6 +91,7 @@ interface FlydConfig {
   GITHUB_TOKEN?: string;
   FLYD_PROVIDER?: string;
   FLYD_MODEL?: string;
+  FLYD_RESERVE_MODEL?: string;
   FLYD_CHAT_MODEL?: string;
   FLYD_CHAT_FALLBACK_MODELS?: string;
   FLYD_CLAUDE_CHAT_MODEL?: string;
@@ -154,6 +155,7 @@ export function defaultChatModel(): string {
   return model;
 }
 
+export const DEFAULT_RESERVE_MODEL = "openai:gpt-5.4-mini";
 export const DEFAULT_CLAUDE_CHAT_MODEL = "anthropic:claude-sonnet-5-5";
 export const DEFAULT_CLAUDE_QUICK_MODEL = "anthropic:claude-haiku-5-5";
 
@@ -212,6 +214,8 @@ export function fallbackModelChain(): string[] {
     const configured = getKey("COMMANDCODE_MODEL")?.trim() || getKey("COMMANDCODE_API_KEY_MODEL")?.trim();
     chain.push(`commandcode:${commandCodeModelId(configured)}`);
   }
+  // Last, on a different account: every other entry can share one provider, and one dead account must not stop scheduled work.
+  if (getKey("OPENAI_API_KEY")?.trim() && !chain.some((model) => model.startsWith("openai:"))) chain.push(getKey("FLYD_RESERVE_MODEL")?.trim() || DEFAULT_RESERVE_MODEL);
   return [...new Set(chain)];
 }
 

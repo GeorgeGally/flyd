@@ -23,6 +23,7 @@ beforeEach(() => {
   vi.stubEnv("FLYD_CLAUDE", "1");
   vi.stubEnv("CLAUDE_API_KEY", "claude-key");
   vi.stubEnv("ANTHROPIC_API_KEY", "");
+  vi.stubEnv("OPENAI_API_KEY", "");
   vi.stubEnv("FLYD_PROVIDER", "opencode-go");
   vi.stubEnv("FLYD_MODEL", "opencode-go/deepseek-v4.1-flash");
   vi.stubEnv("FLYD_CHAT_MODEL", "opencode-go/deepseek-v4.1-flash");
