@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { georgeInbox, type InboxEntry } from "../runtime/agenda.js";
 import {
-  listDoneConfirmedTodos, listOpenConfirmedTodos, tickConfirmedTodo, tickedFlydAsks, tickFlydAsk, type ConfirmedTodo,
+  listOpenConfirmedTodos, tickConfirmedTodo, tickedFlydAsks, tickFlydAsk, type ConfirmedTodo,
 } from "../work/work-hypothesis/confirmed-todos.js";
 import { dueStatus, formatDueLabel } from "../work/work-hypothesis/due-dates.js";
 import type { Job } from "./jobs.js";
@@ -16,8 +16,6 @@ import type { Job } from "./jobs.js";
 /** The longest item he can add. */
 export const MAX_TODO_CHARS = 300;
 const DAY = 24 * 60 * 60 * 1000;
-/** How long a ticked item stays in reach of an untick. */
-const DONE_KEEP_MS = 7 * DAY;
 /** How long a stuck agenda run keeps asking. It asks once, in a notification, and may never be answered. */
 const STUCK_KEEP_MS = 7 * DAY;
 
@@ -30,11 +28,6 @@ export interface TodoRow {
   /** The job that holds the ask, where he can act on it. */
   job?: string;
   from: "you" | "flyd";
-}
-
-export interface TodoList {
-  open: TodoRow[];
-  done: TodoRow[];
 }
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 16);
@@ -54,10 +47,14 @@ function jobAsks(jobs: Job[]): TodoRow[] {
   }));
 }
 
+/** The inbox also holds held notifications and background job results: neither is a run that can go again. */
+const OTHER_WRITERS = /^(?:held:|job-)/;
+
 /** Agenda runs that stopped and ask him how to go on. A later run of the same item that went well answers it. */
 function stuckAsks(inbox: InboxEntry[], now: Date): TodoRow[] {
   const latest = new Map(inbox.map((entry) => [entry.itemId, entry]));
   return [...latest.values()]
+    .filter((entry) => !OTHER_WRITERS.test(entry.itemId))
     .filter((entry) => (entry.status === "failed" || entry.status === "blocked") && now.getTime() - Date.parse(entry.at) <= STUCK_KEEP_MS)
     .map((entry) => ({ id: `inbox:${entry.id}`, text: `Try again or drop: ${entry.task}`, line: "It did not finish", from: "flyd" }));
 }
@@ -79,24 +76,19 @@ export function todosFrom(input: {
   jobs: Job[];
   inbox: InboxEntry[];
   open: ConfirmedTodo[];
-  done: ConfirmedTodo[];
   ticked: Set<string>;
   now: Date;
-}): TodoList {
+}): TodoRow[] {
   const asks = [...jobAsks(input.jobs), ...stuckAsks(input.inbox, input.now)].filter((row) => !input.ticked.has(row.id));
-  return {
-    open: [...asks, ...input.open.map((todo) => ownRow(todo, input.now))],
-    done: input.done.map((todo) => ({ id: todo.id, text: todo.description, from: todo.sourceRef ? "flyd" : "you" })),
-  };
+  return [...asks, ...input.open.map((todo) => ownRow(todo, input.now))];
 }
 
 /** The list as it stands, around the jobs the column just drew. */
-export function readTodos(jobs: Job[], now = new Date()): TodoList {
+export function readTodos(jobs: Job[], now = new Date()): TodoRow[] {
   return todosFrom({
     jobs,
     inbox: georgeInbox(),
     open: listOpenConfirmedTodos(now),
-    done: listDoneConfirmedTodos(new Date(now.getTime() - DONE_KEEP_MS)),
     ticked: tickedFlydAsks(),
     now,
   });
@@ -104,7 +96,7 @@ export function readTodos(jobs: Job[], now = new Date()): TodoList {
 
 /** Tick one item off, whichever kind it is. False when nothing by that id is open. */
 export function tickTodo(id: string, jobs: Job[], now = new Date()): boolean {
-  const row = readTodos(jobs, now).open.find((item) => item.id === id);
+  const row = readTodos(jobs, now).find((item) => item.id === id);
   if (!row) return false;
   if (row.from === "you") return tickConfirmedTodo(id);
   tickFlydAsk(id, row.text);

@@ -56,9 +56,6 @@ button.todo-text { cursor: pointer; }
 button.todo-text:hover { text-decoration: underline; text-underline-offset: 3px; }
 button.todo-text:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 2px; }
 .todo-line { margin: 6px 0 0; font: 400 14px/1.4 var(--sans); color: var(--mute); overflow-wrap: anywhere; }
-.todo-done-head { margin: 44px 0 18px; padding: 0 var(--card-pad); font: 500 17px/1.3 var(--sans); color: var(--ink2); }
-.todo.done { background: none; }
-.todo.done .todo-text { font-weight: 400; color: var(--mute); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--mute) 55%, transparent); }
 
 @media (max-width: 760px) {
   :root[data-layout="front"] .todos, :root[data-layout="front"]:not([data-rtab="todo"]) .todos {
@@ -69,6 +66,5 @@ button.todo-text:focus-visible { outline: 2px solid var(--ink); outline-offset: 
   .todo-said { margin: -10px 0 18px; padding: 0; }
   .todo-list { display: flex; gap: 10px; }
   .todo { grid-template-columns: 24px minmax(0, 1fr); gap: 14px; padding: 20px var(--card-pad); }
-  .todo-done-head { margin: 26px 0 14px; padding: 0; }
 }
 `;

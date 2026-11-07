@@ -16,8 +16,6 @@ export interface ConfirmedTodo {
   completedAt?: string;
   /** ISO date (YYYY-MM-DD) when known — hard deadlines outrank repo activity. */
   dueAt?: string;
-  /** Set only on the record of a ticked Flyd ask: which ask it was. */
-  sourceRef?: string;
 }
 
 export interface TodoDraft {
@@ -66,7 +64,6 @@ function mapRow(r: Record<string, unknown>): ConfirmedTodo {
     updatedAt: r.updated_at as string,
     completedAt: (r.completed_at as string) || undefined,
     dueAt: (r.due_at as string) || undefined,
-    sourceRef: (r.source_ref as string) || undefined,
   };
 }
 
@@ -174,41 +171,12 @@ export function listOpenConfirmedTodos(now: Date = new Date()): ConfirmedTodo[] 
   }
 }
 
-/** What was finished since the given moment, newest first. */
-export function listDoneConfirmedTodos(since: Date, limit = 8): ConfirmedTodo[] {
-  try {
-    const rows = getDb()
-      .prepare(
-        `SELECT * FROM confirmed_todos WHERE status = 'done' AND completed_at >= ?
-         ORDER BY completed_at DESC LIMIT ?`,
-      )
-      .all(since.toISOString(), limit) as Array<Record<string, unknown>>;
-    return rows.map(mapRow);
-  } catch {
-    return [];
-  }
-}
-
 /** Tick one open item off by its id. */
 export function tickConfirmedTodo(id: string): boolean {
   const now = new Date().toISOString();
   return getDb()
     .prepare(`UPDATE confirmed_todos SET status = 'done', updated_at = ?, completed_at = ? WHERE id = ? AND status = 'open'`)
     .run(now, now, id).changes > 0;
-}
-
-/**
- * Undo a tick. His own item is open again; the record of a ticked ask goes, so
- * the ask comes back if Flyd is still asking it.
- */
-export function untickConfirmedTodo(id: string): boolean {
-  const db = getDb();
-  const row = db.prepare(`SELECT source_ref FROM confirmed_todos WHERE id = ? AND status = 'done'`).get(id) as { source_ref: string | null } | undefined;
-  if (!row) return false;
-  if (row.source_ref) return db.prepare(`DELETE FROM confirmed_todos WHERE id = ?`).run(id).changes > 0;
-  return db
-    .prepare(`UPDATE confirmed_todos SET status = 'open', updated_at = ?, completed_at = NULL WHERE id = ?`)
-    .run(new Date().toISOString(), id).changes > 0;
 }
 
 /**

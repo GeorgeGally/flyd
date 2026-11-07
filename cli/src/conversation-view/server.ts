@@ -2,8 +2,8 @@ import { recommendationText } from "../intelligence/executive/decision-step.js";
 import { PreparationStore } from "../runtime/preparation-store.js";
 import { renderPreparationPage } from "./preparation-page.js";
 import { RoutineArtefacts } from "./routines.js";
-import { appendConfirmedTodos, untickConfirmedTodo } from "../work/work-hypothesis/confirmed-todos.js";
-import { MAX_TODO_CHARS, readTodos, tickTodo, type TodoList } from "./todos.js";
+import { appendConfirmedTodos } from "../work/work-hypothesis/confirmed-todos.js";
+import { MAX_TODO_CHARS, readTodos, tickTodo, type TodoRow } from "./todos.js";
 import { renderRoutinesPage } from "./routines-page.js";
 import { renderWhatsAppPage } from "./whatsapp-page.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -200,7 +200,7 @@ export interface ShowOptions {
    */
   jobs?: (snapshot: ConversationSnapshot, show: ShowScreen) => { jobs: Job[]; fleetKnown: boolean };
   /** The Todo tab's list, drawn from the same board. Set only by the live view. */
-  todos?: (jobs: Job[]) => TodoList | undefined;
+  todos?: (jobs: Job[]) => TodoRow[] | undefined;
 }
 
 interface StreamUpdate {
@@ -231,7 +231,7 @@ interface StreamUpdate {
   /** Whether a fleet snapshot answered. An empty Working group says so differently when this is false. */
   jobsFleetKnown?: boolean;
   /** What he must do himself. Present only when the view built it. */
-  todos?: TodoList;
+  todos?: TodoRow[];
   /** What is running, what needs George and what landed, counted once. */
   live?: LiveActivity;
 }
@@ -2157,7 +2157,7 @@ export class ConversationViewServer {
   }
 
   /** The Todo tab's list, from the board the column just drew. A read that fails leaves the page's list as it is. */
-  private todoList(jobs: Job[]): TodoList | undefined {
+  private todoList(jobs: Job[]): TodoRow[] | undefined {
     this.boardJobs = jobs;
     try {
       return readTodos(jobs);
@@ -2167,7 +2167,7 @@ export class ConversationViewServer {
     }
   }
 
-  /** Adding to, ticking and unticking the Todo tab. The words of a Flyd ask come from the board, never from the page. */
+  /** Adding to and ticking the Todo tab. The words of a Flyd ask come from the board, never from the page. */
   private async todoAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const origin = req.headers.origin;
     if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
@@ -2194,10 +2194,8 @@ export class ConversationViewServer {
         applied = true;
       } else if (edit.op === "tick") {
         applied = tickTodo(id, this.boardJobs);
-      } else if (edit.op === "untick") {
-        applied = untickConfirmedTodo(id);
       } else {
-        sendJson(res, 400, { error: "expected add, tick or untick" });
+        sendJson(res, 400, { error: "expected add or tick" });
         return;
       }
       for (const wake of this.jobWake) wake();

@@ -10,24 +10,21 @@ export const TODOS_SCRIPT = `
   var todoInput = document.getElementById("todo-input");
   var todoSaid = document.getElementById("todo-said");
   var todosDrawn = "";
-  function todoRow(row, done) {
-    var words = frontHeading(row.text);
-    var text = row.job && !done
+  function todoRow(row) {
+    var words = row.job ? frontHeading(row.text) : row.text;
+    var text = row.job
       ? '<button type="button" class="todo-text" data-job="' + frontEsc(row.job) + '">' + frontEsc(words) + '</button>'
       : '<span class="todo-text">' + frontEsc(words) + '</span>';
-    return '<div class="todo' + (done ? " done" : "") + '">'
-      + '<input type="checkbox" class="todo-tick" data-id="' + frontEsc(row.id) + '" aria-label="' + (done ? "Not done: " : "Done: ") + frontEsc(words) + '"'
-      + (done ? " checked" : "") + (VIEW_TOKEN ? "" : " disabled") + '>'
+    return '<div class="todo">'
+      + '<input type="checkbox" class="todo-tick" data-id="' + frontEsc(row.id) + '" aria-label="Done: ' + frontEsc(words) + '"'
+      + (VIEW_TOKEN ? "" : " disabled") + '>'
       + '<div>' + text + (row.line ? '<p class="todo-line">' + frontEsc(row.line) + '</p>' : "") + '</div></div>';
   }
   function drawTodos(list) {
     todoForm.hidden = !VIEW_TOKEN;
-    var html = (list.open.length
-      ? '<div class="fstrip todo-list">' + list.open.map(function (row) { return todoRow(row, false); }).join("") + '</div>'
-      : '<p class="fempty">Nothing for you to do.</p>')
-      + (list.done.length
-        ? '<h2 class="todo-done-head">Done</h2><div class="fstrip todo-list">' + list.done.map(function (row) { return todoRow(row, true); }).join("") + '</div>'
-        : "");
+    var html = list.length
+      ? '<div class="fstrip todo-list">' + list.map(todoRow).join("") + '</div>'
+      : '<p class="fempty">Nothing for you to do.</p>';
     if (html === todosDrawn) return;
     todosDrawn = html;
     todoLists.innerHTML = html;
@@ -51,14 +48,13 @@ export const TODOS_SCRIPT = `
   todoLists.addEventListener("change", function (event) {
     var box = event.target.closest(".todo-tick");
     if (!box) return;
-    var ticking = box.checked;
     var at = Array.from(todoLists.querySelectorAll(".todo-tick")).indexOf(box);
     box.disabled = true;
-    postTodo({ op: ticking ? "tick" : "untick", id: box.dataset.id }, function () {
-      box.checked = !ticking;
+    postTodo({ op: "tick", id: box.dataset.id }, function () {
+      box.checked = false;
       box.disabled = false;
     }).then(function () {
-      // The row he was on may have moved: the keyboard stays where it was in the list.
+      // The row he was on has gone: the keyboard stays where it was in the list.
       if (document.activeElement && document.activeElement !== document.body) return;
       var next = todoLists.querySelectorAll(".todo-tick")[at];
       (next || todoInput).focus();
