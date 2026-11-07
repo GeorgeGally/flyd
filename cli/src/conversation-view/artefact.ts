@@ -1554,7 +1554,8 @@ export class ArtefactFeed {
   private lastRefresh = 0;
   /** A job reported while the fleet was being read: read it again when that read is done. */
   private again = false;
-  private refreshing = false;
+  private refreshing?: Promise<boolean>;
+  private fleetReadFailed = false;
   private generation = 0;
   /** The artefacts the screen has shown, so a refresh adds or updates them rather than resetting the view. */
   private readonly ledger = new Map<string, LedgerEntry>();
@@ -1673,6 +1674,7 @@ export class ArtefactFeed {
   }
 
   private async readFleetOnce(): Promise<FleetArtefact> {
+    this.fleetReadFailed = false;
     const script = join(this.paths().home, "bin", "fm-bearings-snapshot.sh");
     const started = Date.now();
     this.lastGood(started);
@@ -1691,6 +1693,7 @@ export class ArtefactFeed {
       }
       return fleet;
     } catch (error) {
+      this.fleetReadFailed = true;
       // A read that failed is Flyd's own hiccup: the reason goes to Flyd's log, never to George.
       // While the last good read is recent it stands in unchanged, so a transient failure makes
       // nothing vanish and come back (and no call ring the island again).
@@ -1845,12 +1848,21 @@ export class ArtefactFeed {
     });
   }
 
-  async refresh(): Promise<void> {
+  async refresh(): Promise<boolean> {
     if (this.refreshing) {
       this.again = true;
-      return;
+      return this.refreshing;
     }
-    this.refreshing = true;
+    this.refreshing = this.refreshOnce().finally(() => { this.refreshing = undefined; });
+    return this.refreshing;
+  }
+
+  async refreshForDecision(): Promise<boolean> {
+    if (this.refreshing) await this.refreshing;
+    return this.refresh();
+  }
+
+  private async refreshOnce(): Promise<boolean> {
     this.again = false;
     this.lastRefresh = Date.now();
     try {
@@ -1922,8 +1934,8 @@ export class ArtefactFeed {
       };
       for (const listener of this.listeners) listener();
       if (voice && unsaid.length) void this.say(voice, decided, unsaid, generation);
+      return !this.fleetReadFailed;
     } finally {
-      this.refreshing = false;
       if (this.again) this.refreshSoon();
     }
   }

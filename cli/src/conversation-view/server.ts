@@ -20,7 +20,7 @@ import { currentPage, type CurrentPage } from "./site-changes.js";
 import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
 import { syncTasteSkills } from "../council/taste-skills.js";
 import { applyProjectOps, projectsPath, readProjects } from "../council/projects.js";
-import { listDomainRuns, readDomainRun } from "../command/store.js";
+import { commandDir, listDomainRuns, readDomainRun } from "../command/store.js";
 import { activeDomainRuns, messageId, sendRunMessage } from "../command/messages.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
@@ -55,7 +55,7 @@ import { withFollowUps } from "./follow-ups.js";
 import { liveWords } from "./living.js";
 import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote, undoNote } from "./replies.js";
 import { matchCommand } from "./commands.js";
-import { withCommandMarker } from "./firstmate-inbox.js";
+import { FirstmateInbox, withCommandMarker } from "./firstmate-inbox.js";
 import { answered, answeredForHim, choiceOf, choiceTarget, labelOf, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
@@ -1650,14 +1650,13 @@ export class ConversationViewServer {
         sendJson(res, 400, { error: "expected images as [{ mediaType, data }]" });
         return;
       }
-      const run = readDomainRun(payload.domainRun);
+      const run = activeDomainRuns().find((active) => active.id === payload.domainRun && active.phase !== "done");
       // A run that has moved past the question still hears him; a closed one reaches its job as a normal message.
-      if (!run || run.phase === "done" || !activeDomainRuns().some((active) => active.id === run.id) || (images as ImageUpload[]).length) {
-        await this.sendToJob(res, { title: payload.jobTitle ?? run?.request.intendedOutcome, task: payload.domainRun, question: payload.questionText }, payload.text, images as ImageUpload[], session);
+      if (!run || (images as ImageUpload[]).length) {
+        await this.sendToJob(res, { title: payload.jobTitle ?? readDomainRun(payload.domainRun)?.request.intendedOutcome, task: payload.domainRun, question: payload.questionText }, payload.text, images as ImageUpload[], session);
         return;
       }
-      const projected = jobRunFromDomain(run);
-      const currentQuestion = projected.question || projected.outcome;
+      const currentQuestion = run.result?.unresolvedQuestions.find((item) => item.trim()) ?? (run.result?.brief?.trim() || run.request.intendedOutcome || run.request.originalMessage);
       const isDecision = run.status === "needs_decision" && sameQuestion(payload.questionText, currentQuestion);
       const kind = isDecision ? "decision" : "correction";
       const body = isDecision ? payload.text : `${typeof payload.questionText === "string" && payload.questionText.trim() ? `About the earlier question: ${payload.questionText.trim()}\n\n` : ""}${payload.text}`;
@@ -1874,11 +1873,12 @@ export class ConversationViewServer {
         && sameQuestion(question, row.question ?? row.detail ?? row.label));
     };
     try {
-      await this.feed.refresh();
+      if (!await this.feed.refreshForDecision()) return undefined;
     } catch {
       return undefined;
     }
-    return find();
+    const call = find();
+    return call?.ledgerOnly ? undefined : call;
   }
 
   /** The question he answered has gone: Flyd deals with that, and his words reach the same job as a normal message. */
@@ -1886,6 +1886,22 @@ export class ConversationViewServer {
     const named = (value: unknown) => (typeof value === "string" && value.trim() ? value.replace(/\s+/g, " ").trim().slice(0, 300) : undefined);
     const task = named(job.task);
     const question = named(job.question);
+    const run = task ? activeDomainRuns().find((active) => active.phase !== "done" && (active.id === task || active.transport.requestId === task || active.transport.externalId === task)) : undefined;
+    if (run) {
+      try {
+        const paths = new FirstmateInbox({ home: commandDir() }).saveImages(images);
+        const body = [question ? `About the earlier question: ${question}` : "", text.trim(), ...paths.map((path) => `[image: ${path}]`)].filter(Boolean).join("\n\n");
+        const result = await sendRunMessage({ run, kind: "correction", body });
+        if (!result.delivered) {
+          sendJson(res, 502, { error: result.error || "The message could not be delivered" });
+          return;
+        }
+        sendJson(res, 200, { id: messageId(run, "correction", body), waiting: "Sent to Flyd" });
+      } catch (error) {
+        sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
     await this.sendAbout(res, { title: named(job.title) ?? question ?? task ?? "Your earlier question", ...(task ? { task } : {}), ...(question ? { detail: question } : {}) }, text, images, session);
   }
 

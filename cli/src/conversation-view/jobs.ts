@@ -48,6 +48,7 @@ export interface Job {
   owner: string;
   /** The decision, when the group is needs. */
   ask: string;
+  questionIdentity?: string;
   because: string;
   shots: Array<{ src: string; label: string }>;
   links: Array<{ label: string; url: string }>;
@@ -72,6 +73,7 @@ export interface JobRun {
   updatedAt: string;
   started?: string;
   question?: string;
+  questionIdentity?: string;
   report?: string;
   artifacts: string[];
 }
@@ -133,6 +135,7 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
     updatedAt: run.updatedAt,
     ...(run.createdAt ? { started: run.createdAt } : {}),
     ...(question ? { question: one(question) } : {}),
+    questionIdentity: question ?? run.request.intendedOutcome ?? run.request.originalMessage,
     ...(report ? { report } : {}),
     artifacts: run.result?.artifacts ?? [],
   };
@@ -147,6 +150,7 @@ interface Signal {
   next: string;
   owner: string;
   ask: string;
+  questionIdentity?: string;
   because: string;
   decision?: ShowItem["decision"];
   domainRun?: string;
@@ -160,7 +164,7 @@ function runSignal(run: JobRun, now: number): Signal | null {
   const at = run.updatedAt;
   if (run.status === "needs_decision") {
     if (run.source === "flyd") return null;
-    return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
+    return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
   if (run.status === "queued") return { group: "waiting", state: "Queued", at, next: run.outcome || "Queued", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is queued` };
   if (run.status === "accepted" || run.status === "working") {
@@ -373,6 +377,7 @@ export function jobsFrom(input: {
       next: lead.next,
       owner: lead.owner,
       ask: lead.ask,
+      ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: bucket.shots.slice(0, 4),
       links: links.slice(0, 4),

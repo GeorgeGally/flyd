@@ -681,16 +681,43 @@ describe("ConversationViewServer", () => {
       expect(note()).toMatch(/^About the artefact "Choose Evergreen or a mix"\nTask: visuals\nDetail: Choose Evergreen or a mix\n\nEvergreen/);
     });
 
+    it("does not decide from the last good fleet when a refresh fails", async () => {
+      const root = home(open);
+      const { port, headers } = await serve(feedOf(root));
+      writeFileSync(join(root, "bin", "fm-bearings-snapshot.sh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+      expect((await post(port, JSON.stringify({ decision: "visuals", decisionTask: "visuals", questionText: "Choose Evergreen or a mix", text: "Evergreen" }), headers)).status).toBe(200);
+      expect(note()).toMatch(/^About the artefact /);
+    });
+
+    it("waits for an in-flight refresh and rereads before deciding", async () => {
+      const root = home(open);
+      const feed = feedOf(root);
+      const { port, headers } = await serve(feed);
+      const marker = join(root, "reading");
+      writeFileSync(join(root, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ntouch "$FM_HOME/reading"\nsleep 0.2\nprintf '%s' '{"decisions_open":[{"id":"visuals","summary":"Pick a look"}]}'\n`, { mode: 0o755 });
+      const pending = feed.refresh();
+      for (let attempt = 0; attempt < 200 && !existsSync(marker); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(existsSync(marker)).toBe(true);
+      writeFileSync(join(root, "data", "backlog.md"), open.replace("Choose Evergreen or a mix", "Which charity?"));
+      const sent = await post(port, JSON.stringify({ decision: "visuals", decisionTask: "visuals", questionText: "Choose Evergreen or a mix", text: "Evergreen" }), headers);
+      await pending;
+      expect(sent.status).toBe(200);
+      expect(note()).toMatch(/^About the artefact /);
+    });
+
     it("keeps images on missing and expired follow-ups and rejects malformed images", async () => {
       const { port, headers, source } = await serve(feedOf(home("")));
       const image = { mediaType: "image/png", data: PNG };
       const base = { decisionTask: "visuals", jobTitle: "Visuals", text: "Try this", images: [image] };
       expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "" }), headers)).status).toBe(200);
       expect(note()).toMatch(/Task: visuals[\s\S]*Try this\n\n\[image: .+\.png\]/);
+      rmSync(join(dir!, "state", "inbox", "decision-note"));
       expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "old", images: [{ data: PNG }] }), headers)).status).toBe(400);
+      expect(existsSync(join(dir!, "state", "inbox", "decision-note"))).toBe(false);
       Object.assign(source, { sendDecisionFollowUp: async () => { throw new QuestionGone(); } });
       expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "old", images: [] }), headers)).status).toBe(200);
       expect(note()).toMatch(/Task: visuals[\s\S]*Try this/);
+      rmSync(join(dir!, "state", "inbox", "decision-note"));
       expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "old" }), headers)).status).toBe(200);
       expect(note()).toMatch(/Task: visuals[\s\S]*Try this\n\n\[image: .+\.png\]/);
     });
@@ -711,6 +738,18 @@ describe("ConversationViewServer", () => {
         expect(readDomainRun("changed")?.messages).toEqual([expect.objectContaining({ kind: "correction", body: "About the earlier question: Which design?\n\nEvergreen" })]);
         expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local" }), headers)).status).toBe(200);
         expect(readDomainRun("changed")?.messages?.[1]).toEqual(expect.objectContaining({ kind: "decision", body: "Local" }));
+        const prefix = "A".repeat(200);
+        saveDomainRun({ ...run("long", "needs_decision"), result: { format: "structured", brief: "", detailedReport: "", decisionsMade: [], unresolvedQuestions: [`${prefix} new?`], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" } });
+        expect((await post(port, JSON.stringify({ domainRun: "long", questionText: `${prefix} old?`, text: "Old answer", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
+        const correction = readDomainRun("long")?.messages?.[0];
+        expect(correction?.kind).toBe("correction");
+        const imagePath = /\[image: (.+)\]/.exec(correction?.body ?? "")?.[1];
+        expect(imagePath).toBeTruthy();
+        expect(readFileSync(imagePath!)).toEqual(Buffer.from(PNG, "base64"));
+        expect((await post(port, JSON.stringify({ domainRun: "long", questionText: `${prefix} old?`, text: "Another answer" }), headers)).status).toBe(200);
+        expect(readDomainRun("long")?.messages?.[1]?.kind).toBe("correction");
+        expect((await post(port, JSON.stringify({ domainRun: "long", questionText: `${prefix} new?`, text: "New answer" }), headers)).status).toBe(200);
+        expect(readDomainRun("long")?.messages?.[2]?.kind).toBe("decision");
         expect((await post(port, JSON.stringify({ domainRun: "finished", text: "the words" }), headers)).status).toBe(200);
         expect(readDomainRun("finished")?.messages).toBeUndefined();
         expect(note()).toMatch(/^About the artefact "Research the market"\nTask: finished\n\nthe words/);

@@ -494,7 +494,7 @@ export const FRONT_SCRIPT = `
     if (job.detail && !(job.previews && job.previews.length)) parts.push(frontDetailTalk(job));
     if (VIEW_TOKEN) {
       if (job.domainRun) {
-        parts.push(artefactChat("flyd-domain:" + job.domainRun, { domainRun: job.domainRun, jobTitle: job.title, questionText: job.ask }, "Your answer…").form);
+        parts.push(artefactChat("flyd-domain:" + job.domainRun, { domainRun: job.domainRun, jobTitle: job.title, questionText: job.questionIdentity }, "Your answer…").form);
       } else if (job.decision) {
         parts.push(sceneAsk({ title: job.title, decision: job.decision }, "flyd-decision:" + (job.decision.decisionId || job.decision.task)));
       } else {
@@ -554,7 +554,7 @@ export const FRONT_SCRIPT = `
   function frontListedJob(job) {
     return {
       id: job.id, group: job.group, state: job.state || "", title: frontTitle(job.title), project: job.project || "",
-      at: job.at || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", because: job.because || "",
+      at: job.at || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", questionIdentity: job.questionIdentity || "", because: job.because || "",
       digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
       threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.domainRun || "",
     };
