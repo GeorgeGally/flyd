@@ -4244,7 +4244,7 @@ describe("the Todo tab", () => {
 
   it("sits beside the other tabs and is remembered, with no count on it", async () => {
     await opened();
-    expect(Array.from(document.querySelectorAll(".rtab")).map((tab) => tab.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Todo"]);
+    expect(Array.from(document.querySelectorAll(".rtab")).map((tab) => tab.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Machines", "Todo"]);
     document.querySelector<HTMLElement>('.rtab[data-rtab="todo"]')!.click();
     expect(document.documentElement.getAttribute("data-rtab")).toBe("todo");
     load("");
@@ -4453,7 +4453,7 @@ describe("the Machines tab", () => {
     const fetcher = serve(() => ({ machines: [ONLINE] }));
     load("");
     await settle();
-    expect(Array.from(document.querySelectorAll(".rtab")).map((one) => one.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Machines"]);
+    expect(Array.from(document.querySelectorAll(".rtab")).map((one) => one.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Machines", "Todo"]);
     expect(reads(fetcher)).toBe(0);
     tab().click();
     await settle();
