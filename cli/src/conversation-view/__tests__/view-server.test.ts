@@ -10,6 +10,7 @@ import { ProjectThreads, withProjectThreads } from "../project-threads.js";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage, Exchange } from "../types.js";
+import { QuestionGone } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ActivityReader } from "../activity.js";
 import { readDomainRun, saveDomainRun } from "../../command/store.js";
@@ -611,7 +612,7 @@ describe("ConversationViewServer", () => {
       saveDomainRun(run("two"));
       const port = await start(new MemoryInbox());
       const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
-      const response = await post(port, JSON.stringify({ domainRun: "two", text: "yes" }), headers);
+      const response = await post(port, JSON.stringify({ domainRun: "two", questionText: "Research", text: "yes" }), headers);
       expect(response.status).toBe(200);
       expect(readDomainRun("one")?.messages).toBeUndefined();
       const delivered = readDomainRun("two")?.messages;
@@ -637,10 +638,11 @@ describe("ConversationViewServer", () => {
     const note = () => readFileSync(join(dir!, "state", "inbox", "decision-note"), "utf8");
     const serve = async (feed: ArtefactFeed) => {
       await feed.refresh();
-      server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir!, inbox: new FirstmateInbox({ home: dir! }) }), undefined, undefined, undefined, feed);
+      const source = new ClaudeCodeTranscriptSource({ projectDir: dir!, inbox: new FirstmateInbox({ home: dir! }) });
+      server = new ConversationViewServer(source, undefined, undefined, undefined, feed);
       const port = await server.listen(0);
       viewToken = JSON.parse((await get(port, "/api/token")).body).token;
-      return { port, headers: { "content-type": "application/json", "x-flyd-view-token": viewToken! } };
+      return { port, source, headers: { "content-type": "application/json", "x-flyd-view-token": viewToken! } };
     };
     const feedOf = (root: string) => new ArtefactFeed({ home: root, memoryFile: join(root, "none"), newsFile: join(root, "none"), tasteFile: join(root, "none") });
 
@@ -657,7 +659,7 @@ describe("ConversationViewServer", () => {
       const feed = feedOf(root);
       const { port, headers } = await serve(feed);
       writeFileSync(join(root, "data", "backlog.md"), open);
-      const sent = await post(port, JSON.stringify({ decision: "visuals", text: "Evergreen luxe" }), headers);
+      const sent = await post(port, JSON.stringify({ decision: "visuals", questionText: "Choose Evergreen or a mix", text: "Evergreen luxe" }), headers);
       expect(sent.status).toBe(200);
       expect(note()).toMatch(/^Answer to pending decision visuals: Pick a Christmas look\nQuestion: Choose Evergreen or a mix\n\nEvergreen luxe/);
     });
@@ -668,6 +670,29 @@ describe("ConversationViewServer", () => {
       expect(note()).toMatch(/^Answer to pending decision visuals/);
       await post(port, JSON.stringify({ decision: "old-id", decisionTask: "visuals", questionText: "Which charity?", text: "Evergreen" }), headers);
       expect(note()).toMatch(/^About the artefact "Which charity\?"\nTask: visuals/);
+    });
+
+    it("refreshes a cached call before answering the same task's replacement question", async () => {
+      const root = home(open);
+      const { port, headers } = await serve(feedOf(root));
+      writeFileSync(join(root, "data", "backlog.md"), open.replace("Choose Evergreen or a mix", "Which charity?"));
+      const sent = await post(port, JSON.stringify({ decision: "visuals", decisionTask: "visuals", questionText: "Choose Evergreen or a mix", text: "Evergreen" }), headers);
+      expect(sent.status).toBe(200);
+      expect(note()).toMatch(/^About the artefact "Choose Evergreen or a mix"\nTask: visuals\nDetail: Choose Evergreen or a mix\n\nEvergreen/);
+    });
+
+    it("keeps images on missing and expired follow-ups and rejects malformed images", async () => {
+      const { port, headers, source } = await serve(feedOf(home("")));
+      const image = { mediaType: "image/png", data: PNG };
+      const base = { decisionTask: "visuals", jobTitle: "Visuals", text: "Try this", images: [image] };
+      expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "" }), headers)).status).toBe(200);
+      expect(note()).toMatch(/Task: visuals[\s\S]*Try this\n\n\[image: .+\.png\]/);
+      expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "old", images: [{ data: PNG }] }), headers)).status).toBe(400);
+      Object.assign(source, { sendDecisionFollowUp: async () => { throw new QuestionGone(); } });
+      expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "old", images: [] }), headers)).status).toBe(200);
+      expect(note()).toMatch(/Task: visuals[\s\S]*Try this/);
+      expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "old" }), headers)).status).toBe(200);
+      expect(note()).toMatch(/Task: visuals[\s\S]*Try this\n\n\[image: .+\.png\]/);
     });
 
     it("reaches a run that moved on, and a job whose run has closed", async () => {
@@ -681,6 +706,11 @@ describe("ConversationViewServer", () => {
         const { port, headers } = await serve(feedOf(root));
         expect((await post(port, JSON.stringify({ domainRun: "moved", text: "yes" }), headers)).status).toBe(200);
         expect(readDomainRun("moved")?.messages).toEqual([expect.objectContaining({ body: "yes", deliveredAt: expect.any(String) })]);
+        saveDomainRun({ ...run("changed", "needs_decision"), result: { format: "structured", brief: "", detailedReport: "", decisionsMade: [], unresolvedQuestions: ["Which charity?"], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" } });
+        expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which design?", text: "Evergreen" }), headers)).status).toBe(200);
+        expect(readDomainRun("changed")?.messages).toEqual([expect.objectContaining({ kind: "correction", body: "About the earlier question: Which design?\n\nEvergreen" })]);
+        expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local" }), headers)).status).toBe(200);
+        expect(readDomainRun("changed")?.messages?.[1]).toEqual(expect.objectContaining({ kind: "decision", body: "Local" }));
         expect((await post(port, JSON.stringify({ domainRun: "finished", text: "the words" }), headers)).status).toBe(200);
         expect(readDomainRun("finished")?.messages).toBeUndefined();
         expect(note()).toMatch(/^About the artefact "Research the market"\nTask: finished\n\nthe words/);
@@ -712,7 +742,7 @@ describe("ConversationViewServer", () => {
     server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, inbox: new FirstmateInbox({ home: dir }) }), undefined, undefined, undefined, feed);
     const port = await server.listen(0);
     viewToken = JSON.parse((await get(port, "/api/token")).body).token;
-    const body = JSON.stringify({ decision: "visuals", text: "Evergreen luxe" });
+    const body = JSON.stringify({ decision: "visuals", questionText: "Choose Evergreen or a mix", text: "Evergreen luxe" });
     expect((await post(port, body, { "content-type": "application/json" })).status).toBe(403);
     expect((await post(port, body, { "content-type": "application/json", "x-flyd-view-token": viewToken!, origin: "https://evil.example" })).status).toBe(403);
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };

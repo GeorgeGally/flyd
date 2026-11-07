@@ -101,6 +101,11 @@ const MAX_SEND_BODY_BYTES = 192 * 1024 * 1024;
 const MAX_DRAFT_ATTACHMENT_BYTES = 48 * 1024 * 1024;
 /** Reply steps kept in the column's Artefacts: the newest few. */
 const MAX_REPLY_ARTEFACTS = 3;
+const sameQuestion = (left: unknown, right: unknown): boolean => {
+  const normalize = (value: unknown) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().toLowerCase() : "";
+  const question = normalize(left);
+  return Boolean(question) && question === normalize(right);
+};
 /** A note older than this is not chased for a missing artefact: opening the window never replays the backlog. */
 const ARTEFACT_CHASE_MAX_AGE_MS = 24 * 60 * 60_000;
 /** Model summaries are only asked for the newest replies; older ones use what is cached. */
@@ -1641,18 +1646,27 @@ export class ConversationViewServer {
         sendJson(res, 400, { error: "Enter an answer of at most 4000 characters" });
         return;
       }
-      const run = readDomainRun(payload.domainRun);
-      // A run that has moved past the question still hears him; a closed one reaches its job as a normal message.
-      if (!run || run.phase === "done" || !activeDomainRuns().some((active) => active.id === run.id)) {
-        await this.sendToJob(res, { title: payload.jobTitle ?? run?.request.intendedOutcome, task: payload.domainRun, question: payload.questionText }, payload.text, [], session);
+      if (!validImages) {
+        sendJson(res, 400, { error: "expected images as [{ mediaType, data }]" });
         return;
       }
-      const result = await sendRunMessage({ run, kind: "decision", body: payload.text });
+      const run = readDomainRun(payload.domainRun);
+      // A run that has moved past the question still hears him; a closed one reaches its job as a normal message.
+      if (!run || run.phase === "done" || !activeDomainRuns().some((active) => active.id === run.id) || (images as ImageUpload[]).length) {
+        await this.sendToJob(res, { title: payload.jobTitle ?? run?.request.intendedOutcome, task: payload.domainRun, question: payload.questionText }, payload.text, images as ImageUpload[], session);
+        return;
+      }
+      const projected = jobRunFromDomain(run);
+      const currentQuestion = projected.question || projected.outcome;
+      const isDecision = run.status === "needs_decision" && sameQuestion(payload.questionText, currentQuestion);
+      const kind = isDecision ? "decision" : "correction";
+      const body = isDecision ? payload.text : `${typeof payload.questionText === "string" && payload.questionText.trim() ? `About the earlier question: ${payload.questionText.trim()}\n\n` : ""}${payload.text}`;
+      const result = await sendRunMessage({ run, kind, body });
       if (!result.delivered) {
         sendJson(res, 502, { error: result.error || "The answer could not be delivered" });
         return;
       }
-      sendJson(res, 200, { id: messageId(run, "decision", payload.text), waiting: "Sent to Flyd" });
+      sendJson(res, 200, { id: messageId(run, kind, body), waiting: "Sent to Flyd" });
       return;
     }
     if (payload.decision !== undefined) {
@@ -1697,12 +1711,16 @@ export class ConversationViewServer {
         sendJson(res, 400, { error: "Enter an answer of at most 4000 characters" });
         return;
       }
+      if (!validImages) {
+        sendJson(res, 400, { error: "expected images as [{ mediaType, data }]" });
+        return;
+      }
       const call = this.feed.current().fleet?.calls.find((row) => row.executiveDecisionId === payload.decisionFollowUp || row.task === payload.decisionFollowUp);
       const decisionId = typeof payload.decisionFollowUp === "string" ? payload.decisionFollowUp : "";
       const taskId = typeof payload.decisionTask === "string" ? payload.decisionTask : call?.task ?? "";
       const job = { title: payload.jobTitle ?? call?.label, task: taskId, question: payload.questionText ?? call?.question };
-      if (!decisionId || !taskId || !this.source.sendDecisionFollowUp) {
-        await this.sendToJob(res, job, payload.text, [], session);
+      if (!decisionId || !taskId || !this.source.sendDecisionFollowUp || (images as ImageUpload[]).length) {
+        await this.sendToJob(res, job, payload.text, images as ImageUpload[], session);
         return;
       }
       try {
@@ -1710,7 +1728,7 @@ export class ConversationViewServer {
         sendJson(res, 200, { ...sent, waiting: "Flyd is carrying your follow-up into the work" });
       } catch (error) {
         if (error instanceof QuestionGone) {
-          await this.sendToJob(res, job, payload.text, [], session);
+          await this.sendToJob(res, job, payload.text, images as ImageUpload[], session);
           return;
         }
         sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
@@ -1850,15 +1868,16 @@ export class ConversationViewServer {
    * A question put again under a new id is the same question; a different one on that job is not, so his words never decide it.
    */
   private async liveCall(id: unknown, task: unknown, question: unknown): Promise<ArtefactRow | undefined> {
-    const said = (value: unknown) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().toLowerCase() : "");
     const find = () => {
       const calls = this.feed.current().fleet?.calls ?? [];
-      return calls.find((row) => row.executiveDecisionId ? row.executiveDecisionId === id : row.task === id)
-        ?? calls.find((row) => task && row.task === task && said(question) && [row.question, row.detail, row.label].some((asked) => said(asked) === said(question)));
+      return calls.find((row) => ((typeof id === "string" && (row.executiveDecisionId === id || row.task === id)) || (typeof task === "string" && row.task === task))
+        && sameQuestion(question, row.question ?? row.detail ?? row.label));
     };
-    const seen = find();
-    if (seen) return seen;
-    await this.feed.refresh().catch(() => undefined);
+    try {
+      await this.feed.refresh();
+    } catch {
+      return undefined;
+    }
     return find();
   }
 
