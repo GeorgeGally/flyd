@@ -1,5 +1,5 @@
 import { recommendationText } from "../intelligence/executive/decision-step.js";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -1486,10 +1486,58 @@ export function fleetReadTimeout(lastDurationMs: number | undefined): number {
   return Math.min(FLEET_READ_MAX_TIMEOUT_MS, Math.max(FLEET_READ_TIMEOUT_MS, 3 * (lastDurationMs ?? 0)));
 }
 
+/** How long a stopped script tree is given after SIGTERM before SIGKILL. */
+const FLEET_KILL_GRACE_MS = 2_000;
+/** How often a stopped tree is checked for processes still alive. */
+const FLEET_EXIT_POLL_MS = 200;
+/** The most a read waits for a SIGKILLed tree to be gone before it gives up and logs it. */
+const FLEET_EXIT_MAX_WAIT_MS = 60_000;
+
+/** Every process's parent, from `ps` (macOS and Linux alike); empty when ps cannot be read. */
+function parentsByPid(): Map<number, number> {
+  const parents = new Map<number, number>();
+  try {
+    const out = execFileSync("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8", timeout: 5_000, maxBuffer: 4 * 1024 * 1024 });
+    for (const line of out.split("\n")) {
+      const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+      if (pid && Number.isFinite(ppid)) parents.set(pid, ppid!);
+    }
+  } catch {
+    // No ps: only the process group is signalled.
+  }
+  return parents;
+}
+
+/** Adds every live descendant of the known pids to them. */
+function addDescendants(known: Set<number>): void {
+  const parents = parentsByPid();
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [pid, ppid] of parents) {
+      if (known.has(ppid) && !known.has(pid)) {
+        known.add(pid);
+        grew = true;
+      }
+    }
+  }
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 /**
- * Runs the bearings script in its own process group. On timeout the whole group
- * is killed: the script's work runs in children it waits on, and killing only
- * the shell left them running, slowing every later read until those timed out too.
+ * Runs the bearings script in its own process group. On timeout the whole tree is
+ * stopped - its group and every descendant found by walking parent pids, since
+ * firstmate's own timeouts put children in groups of their own - with SIGTERM, then
+ * SIGKILL. The read does not settle until every process of that tree has exited, so
+ * a timed-out run stays in flight and the next read can never start beside it.
  * Rejects with why it failed, carrying no command line.
  */
 function runFleetScript(script: string, timeoutMs: number): Promise<string> {
@@ -1505,17 +1553,52 @@ function runFleetScript(script: string, timeoutMs: number): Promise<string> {
     let outBytes = 0;
     let err = "";
     let failure: string | undefined;
-    const killGroup = (signal: NodeJS.Signals) => {
+    /** Every process of the tree seen so far, once it is being stopped. */
+    const tree = new Set<number>();
+    let stopping: Promise<void> | undefined;
+    const signalTree = (signal: NodeJS.Signals) => {
+      addDescendants(tree);
       try {
         if (child.pid) process.kill(-child.pid, signal);
       } catch {
-        // Already gone.
+        // The group is gone.
+      }
+      for (const pid of tree) {
+        try {
+          process.kill(pid, signal);
+        } catch {
+          // Already gone.
+        }
+      }
+    };
+    const treeGone = async (): Promise<void> => {
+      const deadline = Date.now() + FLEET_KILL_GRACE_MS + FLEET_EXIT_MAX_WAIT_MS;
+      let killed = false;
+      const termAt = Date.now();
+      for (;;) {
+        addDescendants(tree);
+        for (const pid of tree) if (!alive(pid)) tree.delete(pid);
+        if (!tree.size) return;
+        if (!killed && Date.now() - termAt >= FLEET_KILL_GRACE_MS) {
+          killed = true;
+          signalTree("SIGKILL");
+        } else if (killed) {
+          signalTree("SIGKILL");
+        }
+        if (Date.now() >= deadline) {
+          console.warn(`[view] fleet snapshot: ${tree.size} process(es) still running after SIGKILL; giving up on them`);
+          return;
+        }
+        await new Promise((wake) => setTimeout(wake, FLEET_EXIT_POLL_MS));
       }
     };
     const stop = (why: string) => {
       failure ??= why;
-      killGroup("SIGTERM");
-      setTimeout(() => killGroup("SIGKILL"), 2_000).unref();
+      if (stopping) return;
+      if (child.pid) tree.add(child.pid);
+      // Walk the tree before the shell dies, while its children still name it as their parent.
+      signalTree("SIGTERM");
+      stopping = treeGone();
     };
     const timer = setTimeout(() => stop(`timed out after ${Math.round(timeoutMs / 1000)}s`), timeoutMs);
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -1532,7 +1615,11 @@ function runFleetScript(script: string, timeoutMs: number): Promise<string> {
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
-      if (failure) return reject(new Error(failure));
+      if (failure) {
+        const why = failure;
+        void (stopping ?? Promise.resolve()).then(() => reject(new Error(why)));
+        return;
+      }
       if (code === 0) return resolve(Buffer.concat(out).toString("utf8"));
       const said = err.trim().split("\n").at(-1) ?? "";
       reject(new Error(`${signal ? `killed by ${signal}` : `exited ${code}`}${said ? `: ${said}` : " with nothing on stderr"}`));
@@ -1888,7 +1975,12 @@ export class ArtefactFeed {
     });
   }
 
-  async refresh(): Promise<boolean> {
+  /**
+   * Reads everything again. `fresh` (after George acts) waits for a refresh in progress and
+   * then reads past the slow-run back-off, so what he just did shows; it still shares a run in flight.
+   */
+  async refresh({ fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
+    if (fresh) return this.refreshForDecision();
     if (this.refreshing) {
       this.again = true;
       return this.refreshing;

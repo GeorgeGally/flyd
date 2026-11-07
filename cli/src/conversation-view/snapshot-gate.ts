@@ -25,11 +25,6 @@ export class SnapshotGate<T> {
     return Boolean(this.inFlight);
   }
 
-  /** How long the last run took, when there was one. */
-  get lastDurationMs(): number | undefined {
-    return this.last?.durationMs;
-  }
-
   /** The earliest time an unforced run may start: the cache window, or the slow-run back-off when longer. */
   nextRunAt(): number {
     if (!this.last) return 0;

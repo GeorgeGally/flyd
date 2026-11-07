@@ -1,9 +1,18 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArtefactFeed, type FleetRead } from "../artefact.js";
 import { SnapshotGate } from "../snapshot-gate.js";
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** A real turn of the event loop, which fake timers leave alone. */
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -98,11 +107,16 @@ describe("SnapshotGate", () => {
 });
 
 describe("ArtefactFeed fleet reads", () => {
-  it("starts one snapshot for many concurrent refreshes from several clients", async () => {
+  it("starts one snapshot for many concurrent refreshes from several clients of one feed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     const fake = fakeHome(true);
-    // Several feeds on one home share the process's gate for that script, as every client shares the view's feed.
-    const clients = [feedFor(fake.home), feedFor(fake.home), feedFor(fake.home)];
-    const refreshes = clients.flatMap((feed) => Array.from({ length: 15 }, (_, i) => (i % 3 === 0 ? feed.refreshForDecision() : feed.refresh())));
+    // As in production: one feed (commands/view.ts) serves every connection, behind the process's 5s cache.
+    const feed = feedFor(fake.home, { fleetGate: new SnapshotGate<FleetRead>({ cacheMs: 5_000, slowFactor: 3, maxBackoffMs: 600_000 }) });
+    const clients = 5;
+    // Each client polls, answers a call, and acts on the page, all at once.
+    const refreshes = Array.from({ length: clients }, () => [
+      feed.refresh(), feed.refresh(), feed.refreshForDecision(), feed.refresh({ fresh: true }), feed.refresh(),
+    ]).flat();
     await until(() => fake.runs() >= 1);
     // Let any second run that might start show itself before the first is released.
     for (let i = 0; i < 50; i += 1) await tick();
@@ -110,8 +124,53 @@ describe("ArtefactFeed fleet reads", () => {
     fake.release();
     const results = await Promise.all(refreshes);
     expect(results.every(Boolean)).toBe(true);
-    for (const feed of clients) feed.stop();
-    expect(fake.runs()).toBeLessThanOrEqual(clients.length);
+    // The answers that waited for the first refresh were served its result from the cache: still one run.
+    expect(fake.runs()).toBe(1);
+    feed.stop();
+  }, 30_000);
+
+  it("keeps a timed-out snapshot in flight until its whole tree has exited, then runs again", async () => {
+    const home = mkdtempSync(join(tmpdir(), "snapshot-gate-orphan-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    const runs = join(home, "runs");
+    const childPid = join(home, "child.pid");
+    const script = join(home, "bin", "fm-bearings-snapshot.sh");
+    // Ignores SIGTERM, and leaves a child that escapes into a process group of its own, ignores SIGTERM
+    // too and lets go of the output pipe - the shape of a firstmate check outliving a killed snapshot.
+    writeFileSync(script, `#!/bin/sh\necho run >> '${runs}'\ntrap '' TERM\nperl -e '$SIG{TERM}="IGNORE"; setpgrp(0,0); open(my $f, ">", $ARGV[0]); print $f $$; close $f; exec "sleep", 60' '${childPid}' </dev/null >/dev/null 2>&1 &\nsleep 60\n`, { mode: 0o755 });
+    const count = () => (existsSync(runs) ? readFileSync(runs, "utf8").split("\n").filter(Boolean).length : 0);
+    const feed = feedFor(home, { timeoutMs: 300 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      let settled = false;
+      const first = feed.refresh().finally(() => { settled = true; });
+      await until(() => existsSync(childPid) && readFileSync(childPid, "utf8").trim().length > 0);
+      const child = Number(readFileSync(childPid, "utf8"));
+      // Past the timeout and the SIGTERM it ignores, the run is still in flight: every refresh shares it.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(settled).toBe(false);
+      expect(alive(child)).toBe(true);
+      // The next run records whether the old tree's child was still alive when it started.
+      // Swapped by rename, so the shell still running the old script keeps reading its own file.
+      const next = `${script}.next`;
+      writeFileSync(next, `#!/bin/sh\nif kill -0 ${child} 2>/dev/null; then echo overlap >> '${runs}'; else echo run >> '${runs}'; fi\necho '{"in_flight":[]}'\n`, { mode: 0o755 });
+      renameSync(next, script);
+      const second = feed.refresh();
+      const third = feed.refreshForDecision();
+      expect(count()).toBe(1);
+      expect(await first).toBe(false);
+      // It settled only once the escaped child was gone.
+      expect(alive(child)).toBe(false);
+      await second;
+      expect(await third).toBe(true);
+      const lines = readFileSync(runs, "utf8").split("\n").filter(Boolean);
+      expect(lines.length).toBeGreaterThanOrEqual(2);
+      expect(lines).not.toContain("overlap");
+    } finally {
+      warn.mockRestore();
+      feed.stop();
+    }
   }, 30_000);
 
   it("serves a finished snapshot for a few seconds instead of running it again", async () => {
