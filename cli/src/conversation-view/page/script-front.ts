@@ -28,7 +28,7 @@ export const FRONT_SCRIPT = `
   var frontVersion = {};
   var DONE_FEW_FRONT = 5;
 
-  // The right column holds two tabs, jobs and artefacts; the choice is remembered.
+  // The right column's tabs; the choice is remembered.
   var rtabs = document.getElementById("rtabs");
   var rtabDot = document.getElementById("rtab-dot");
   function frontTab(name) {
@@ -38,7 +38,7 @@ export const FRONT_SCRIPT = `
   }
   var savedTab = "jobs";
   try { savedTab = localStorage.getItem("flyd-front-tab") || "jobs"; } catch (_) {}
-  frontTab(savedTab === "arts" || savedTab === "threads" || savedTab === "machines" ? savedTab : "jobs");
+  frontTab(savedTab === "arts" || savedTab === "threads" || savedTab === "machines" || savedTab === "todo" ? savedTab : "jobs");
   rtabs.addEventListener("click", function (event) {
     var tab = event.target.closest(".rtab");
     if (tab) frontTab(tab.dataset.rtab);

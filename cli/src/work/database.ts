@@ -167,6 +167,9 @@ function migrateSchema(db: Database.Database): void {
   if (!columnExists(db, "confirmed_todos", "due_at")) {
     db.exec(`ALTER TABLE confirmed_todos ADD COLUMN due_at TEXT`);
   }
+  if (!columnExists(db, "confirmed_todos", "source_ref")) {
+    db.exec(`ALTER TABLE confirmed_todos ADD COLUMN source_ref TEXT`);
+  }
 }
 
 export function closeDb(): void {

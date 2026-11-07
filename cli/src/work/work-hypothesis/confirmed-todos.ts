@@ -171,6 +171,39 @@ export function listOpenConfirmedTodos(now: Date = new Date()): ConfirmedTodo[] 
   }
 }
 
+/** Tick one open item off by its id. */
+export function tickConfirmedTodo(id: string): boolean {
+  const now = new Date().toISOString();
+  return getDb()
+    .prepare(`UPDATE confirmed_todos SET status = 'done', updated_at = ?, completed_at = ? WHERE id = ? AND status = 'open'`)
+    .run(now, now, id).changes > 0;
+}
+
+/**
+ * Tick off something Flyd asked of him. An ask is read fresh from its own
+ * record each time and never joins his list; only the tick is kept here, done
+ * from the start, so briefings and the open list never see it.
+ */
+export function tickFlydAsk(ref: string, description: string): void {
+  const db = getDb();
+  if (db.prepare(`SELECT 1 FROM confirmed_todos WHERE source_ref = ?`).get(ref)) return;
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO confirmed_todos (id, description, status, sort_order, created_at, updated_at, completed_at, source_ref)
+     VALUES (?, ?, 'done', 0, ?, ?, ?, ?)`,
+  ).run(`todo-${randomUUID().slice(0, 8)}`, description, now, now, now, ref);
+}
+
+/** Every Flyd ask he has ticked off. */
+export function tickedFlydAsks(): Set<string> {
+  try {
+    const rows = getDb().prepare(`SELECT source_ref FROM confirmed_todos WHERE source_ref IS NOT NULL`).all() as Array<{ source_ref: string }>;
+    return new Set(rows.map((row) => row.source_ref));
+  } catch {
+    return new Set();
+  }
+}
+
 export function replaceConfirmedTodos(descriptions: string[]): ConfirmedTodo[] {
   const db = getDb();
   const now = new Date().toISOString();

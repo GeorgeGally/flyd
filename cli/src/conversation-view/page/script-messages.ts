@@ -487,6 +487,7 @@ export const MESSAGES_SCRIPT = `
     renderActivity(update.leftColumn);
     if (update.leftColumn) drawNews(update.leftColumn.recent);
     renderFront(update);
+    if (update.todos) drawTodos(update.todos);
   }
 
 `;
