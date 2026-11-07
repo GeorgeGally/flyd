@@ -28,6 +28,7 @@ import { readProjects } from "../council/projects.js";
 import { relayMayShow } from "../council/reply-review.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { PlanUsageReader } from "../conversation-view/plan-usage.js";
+import { MachinesBoard } from "../conversation-view/machines.js";
 import { WeatherReader } from "../conversation-view/weather.js";
 import { ActivityReader } from "../conversation-view/activity.js";
 import { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
@@ -320,7 +321,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   if (source !== flydSource) source = executiveConversationSource(source, decideChanges, resolveDecision);
   // His conversations by project: Flyd's own and firstmate's, read only.
   source = withThreads(source, flydSource, inbox, transcript);
-  const server = new ConversationViewServer(source, { summarizer, interpreter, artefacts: artefactJudgeFromEnv(), semantic: semanticJudgeFromEnv(), importance: importanceJudgeFromEnv(), always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), undefined, new ActivityReader(), new WhatsAppPairing());
+  const server = new ConversationViewServer(source, { summarizer, interpreter, artefacts: artefactJudgeFromEnv(), semantic: semanticJudgeFromEnv(), importance: importanceJudgeFromEnv(), always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), undefined, new ActivityReader(), new WhatsAppPairing(), new MachinesBoard());
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);

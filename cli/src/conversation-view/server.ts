@@ -58,6 +58,7 @@ import { matchCommand } from "./commands.js";
 import { FirstmateInbox, withCommandMarker } from "./firstmate-inbox.js";
 import { answered, answeredForHim, choiceOf, choiceTarget, labelOf, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import { PreviewProbe } from "./preview-probe.js";
+import type { MachinesBoard } from "./machines.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
@@ -764,6 +765,8 @@ export class ConversationViewServer {
     private readonly activity?: ActivityReader,
     /** WhatsApp, when it still needs linking: the code is drawn here, and the offers are shown here. */
     private readonly whatsapp?: WhatsAppPairing,
+    /** The Machines tab's list and readings; without it the tab is empty. */
+    private readonly machines?: MachinesBoard,
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -816,6 +819,10 @@ export class ConversationViewServer {
     }
     if (url.pathname === "/api/routines") {
       await this.routineAction(req, res);
+      return;
+    }
+    if (url.pathname === "/api/machines") {
+      await this.machineAction(req, res);
       return;
     }
     if (req.method === "GET" && url.pathname === "/routines") {
@@ -2099,6 +2106,40 @@ export class ConversationViewServer {
     }
     for (const wake of this.jobWake) wake();
     sendJson(res, 200, { job: result.job });
+  }
+
+  /** The Machines tab. Reading is open like the other column reads; adding to the list takes the token. */
+  private async machineAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method === "GET") {
+      sendJson(res, 200, this.machines?.view() ?? { machines: [] });
+      return;
+    }
+    const origin = req.headers.origin;
+    if (req.method !== "POST" || !this.machines) {
+      sendJson(res, 405, { error: "method not allowed" });
+      return;
+    }
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    let edit: { name?: unknown; alias?: unknown };
+    try {
+      edit = JSON.parse(await readBody(req, 8 * 1024)) as typeof edit;
+    } catch {
+      sendJson(res, 400, { error: "expected a JSON object" });
+      return;
+    }
+    if (typeof edit?.alias !== "string") {
+      sendJson(res, 400, { error: "expected a name and an alias" });
+      return;
+    }
+    const { error } = this.machines.add(typeof edit.name === "string" ? edit.name : "", edit.alias);
+    if (error) {
+      sendJson(res, 400, { error });
+      return;
+    }
+    sendJson(res, 200, this.machines.view());
   }
 
   /** One board for the column. Inferred names are written once, outside tests. One digest is scheduled, never drawn here. */

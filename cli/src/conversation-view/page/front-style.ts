@@ -43,11 +43,12 @@ export const FRONT_STYLE = `
 
 /* The right column: two quiet tabs, then whichever one is open, scrolling on its own. */
 :root[data-layout="front"] .rtabs {
-  display: flex; gap: 24px; position: fixed; z-index: 3; top: var(--top); right: var(--gut); width: var(--arts-w); height: var(--tabs-h);
-  align-items: center; padding: 0 0 0 var(--card-pad); background: var(--paper);
+  display: flex; gap: clamp(12px, 1.5vw, 24px); position: fixed; z-index: 3; top: var(--top); right: var(--gut); width: var(--arts-w); height: var(--tabs-h);
+  align-items: center; padding: 0 0 0 var(--card-pad); background: var(--paper); overflow-x: auto; scrollbar-width: none;
 }
+.rtabs::-webkit-scrollbar { display: none; }
 .rtab {
-  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0; border: 0; background: none; cursor: pointer;
+  flex: none; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0; border: 0; background: none; cursor: pointer;
   font: 400 15px/1 var(--sans); color: var(--mute); transition: color .2s ease;
 }
 .rtab:hover, .rtab[aria-pressed="true"] { color: var(--ink); }
