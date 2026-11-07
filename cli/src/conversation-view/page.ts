@@ -18,8 +18,10 @@ import { REPLIES_SCRIPT } from "./page/script-replies.js";
 import { SESSION_SCRIPT } from "./page/script-session.js";
 import { SHOW_SCRIPT } from "./page/script-show.js";
 import { THREADS_SCRIPT } from "./page/script-threads.js";
+import { TODOS_SCRIPT } from "./page/script-todos.js";
 import { SHOW_STYLE } from "./page/show-style.js";
 import { THREAD_STYLE } from "./page/thread-style.js";
+import { TODO_STYLE } from "./page/todo-style.js";
 
 // The whole page: one flat column, the captain's words and the replies, a
 // slim header. Everything is inline (see the CSP in server.ts); the page
@@ -36,7 +38,7 @@ function joined(parts: string[]): string {
   return "\n" + parts.map((part) => part.replace(/^\n/, "")).join("");
 }
 
-const STYLE = BASE_STYLE + joined([CHROME_STYLE, MESSAGE_STYLE, COMPOSER_STYLE]) + LEFT_STYLE + SHOW_STYLE + FRONT_STYLE + THREAD_STYLE + MACHINE_STYLE;
+const STYLE = BASE_STYLE + joined([CHROME_STYLE, MESSAGE_STYLE, COMPOSER_STYLE]) + LEFT_STYLE + SHOW_STYLE + FRONT_STYLE + THREAD_STYLE + MACHINE_STYLE + TODO_STYLE;
 
 const SCRIPT = joined([
   CORE_SCRIPT,
@@ -50,6 +52,7 @@ const SCRIPT = joined([
   FRONT_SCRIPT,
   THREADS_SCRIPT,
   MACHINES_SCRIPT,
+  TODOS_SCRIPT,
   SHOW_SCRIPT,
 ]);
 

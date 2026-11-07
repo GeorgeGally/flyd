@@ -2,6 +2,8 @@ import { recommendationText } from "../intelligence/executive/decision-step.js";
 import { PreparationStore } from "../runtime/preparation-store.js";
 import { renderPreparationPage } from "./preparation-page.js";
 import { RoutineArtefacts } from "./routines.js";
+import { appendConfirmedTodos, untickConfirmedTodo } from "../work/work-hypothesis/confirmed-todos.js";
+import { MAX_TODO_CHARS, readTodos, tickTodo, type TodoList } from "./todos.js";
 import { renderRoutinesPage } from "./routines-page.js";
 import { renderWhatsAppPage } from "./whatsapp-page.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -197,6 +199,8 @@ export interface ShowOptions {
    * under test does not read the project list or attach jobs.
    */
   jobs?: (snapshot: ConversationSnapshot, show: ShowScreen) => { jobs: Job[]; fleetKnown: boolean };
+  /** The Todo tab's list, drawn from the same board. Set only by the live view. */
+  todos?: (jobs: Job[]) => TodoList | undefined;
 }
 
 interface StreamUpdate {
@@ -226,6 +230,8 @@ interface StreamUpdate {
   jobs?: Job[];
   /** Whether a fleet snapshot answered. An empty Working group says so differently when this is false. */
   jobsFleetKnown?: boolean;
+  /** What he must do himself. Present only when the view built it. */
+  todos?: TodoList;
   /** What is running, what needs George and what landed, counted once. */
   live?: LiveActivity;
 }
@@ -662,6 +668,7 @@ export class SnapshotDiffer {
     // A page on this machine that stopped answering is not where the work is: the header never offers a dead link.
     const page = found?.local && live(found.url) === "down" ? undefined : found;
     const board = this.show?.jobs?.(snapshot, show);
+    const todos = board ? this.show?.todos?.(board.jobs) : undefined;
     return {
       order,
       messages: changed,
@@ -678,6 +685,7 @@ export class SnapshotDiffer {
       ...(left ? { leftColumn: { ...left, semantic: show.activities } } : {}),
       ...(page ? { page } : {}),
       ...(board ? { jobs: board.jobs, jobsFleetKnown: board.fleetKnown } : {}),
+      ...(todos ? { todos } : {}),
       live: liveActivityOf(show, board?.jobs),
     };
   }
@@ -747,6 +755,8 @@ export class ConversationViewServer {
   private listedSessions: Array<{ id: string; title: string; project?: string; updatedAt: string }> = [];
   /** Open streams redraw once a stored digest lands. Render itself never asks a model. */
   private readonly jobWake = new Set<() => void>();
+  /** The jobs the column last drew: a tick on a Flyd ask is checked against these. */
+  private boardJobs: Job[] = [];
 
   constructor(
     private readonly source: ConversationSource,
@@ -904,6 +914,10 @@ export class ConversationViewServer {
     }
     if (req.method === "POST" && url.pathname === "/api/jobs") {
       await this.jobAction(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/todos") {
+      await this.todoAction(req, res);
       return;
     }
     if (req.method !== "GET") {
@@ -2142,6 +2156,58 @@ export class ConversationViewServer {
     sendJson(res, 200, this.machines.view());
   }
 
+  /** The Todo tab's list, from the board the column just drew. A read that fails leaves the page's list as it is. */
+  private todoList(jobs: Job[]): TodoList | undefined {
+    this.boardJobs = jobs;
+    try {
+      return readTodos(jobs);
+    } catch (error) {
+      console.error(`[todos] ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
+  }
+
+  /** Adding to, ticking and unticking the Todo tab. The words of a Flyd ask come from the board, never from the page. */
+  private async todoAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin;
+    if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    let edit: { op?: unknown; id?: unknown; text?: unknown };
+    try {
+      edit = JSON.parse(await readBody(req, 8 * 1024)) as typeof edit;
+    } catch {
+      sendJson(res, 400, { error: "expected a JSON object" });
+      return;
+    }
+    const text = typeof edit.text === "string" ? edit.text.replace(/\s+/g, " ").trim() : "";
+    const id = typeof edit.id === "string" ? edit.id : "";
+    try {
+      let applied: boolean;
+      if (edit.op === "add") {
+        if (!text || text.length > MAX_TODO_CHARS) {
+          sendJson(res, 400, { error: `Say it in up to ${MAX_TODO_CHARS} characters.` });
+          return;
+        }
+        appendConfirmedTodos([text]);
+        applied = true;
+      } else if (edit.op === "tick") {
+        applied = tickTodo(id, this.boardJobs);
+      } else if (edit.op === "untick") {
+        applied = untickConfirmedTodo(id);
+      } else {
+        sendJson(res, 400, { error: "expected add, tick or untick" });
+        return;
+      }
+      for (const wake of this.jobWake) wake();
+      sendJson(res, applied ? 200 : 404, { ...(applied ? {} : { error: "That item is gone." }), todos: readTodos(this.boardJobs) });
+    } catch (error) {
+      console.error(`[todos] ${error instanceof Error ? error.message : String(error)}`);
+      sendJson(res, 500, { error: "Could not save that." });
+    }
+  }
+
   /** One board for the column. Inferred names are written once, outside tests. One digest is scheduled, never drawn here. */
   private jobBoard(snapshot: ConversationSnapshot, show: ShowScreen): { jobs: Job[]; fleetKnown: boolean } {
     try {
@@ -2266,6 +2332,7 @@ export class ConversationViewServer {
         // A chat about one article, or a project's thread, is about that: the WhatsApp offer stays out of it.
         whatsappUnlinked: () => !isArticleSession(session.id) && !isThread(session.id) && this.whatsappUnlinked(),
         jobs: (shot, screen) => this.jobBoard(shot, screen),
+        todos: (jobs) => this.todoList(jobs),
       });
     const emitUpdate = (snapshot: ConversationSnapshot) => {
       const update = differ.next(snapshot);

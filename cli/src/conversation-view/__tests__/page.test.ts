@@ -4223,6 +4223,122 @@ describe("the front page", () => {
   });
 });
 
+describe("the Todo tab", () => {
+  const LIST = {
+    open: [
+      { id: "job:1", text: "Which hero should George ship?", line: "Cap5 · Needs you", job: "cap5", from: "flyd" },
+      { id: "todo-a", text: "Book <flights>", line: "Due 20 Nov", from: "you" },
+    ],
+    done: [{ id: "todo-b", text: "Call the bank", from: "you" }],
+  };
+  const rows = (selector = ".todo-list .todo:not(.done)") => Array.from(document.querySelectorAll(selector)).map((row) => row.querySelector(".todo-text")!.textContent);
+  function answering(body: unknown, status = 200): void {
+    vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/todos" ? json(body, status) : json({ assistantLabel: "firstmate", sessions: SESSIONS })));
+  }
+  const posted = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/todos").map(([, init]) => JSON.parse(String(init!.body)));
+  async function opened(todos: unknown = LIST): Promise<FakeEventSource> {
+    load("");
+    await settle();
+    const stream = FakeEventSource.instances.at(-1)!;
+    stream.emit("session", { id: "latest", title: "latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    stream.emit("update", { order: [], messages: [], working: false, todos });
+    return stream;
+  }
+
+  it("sits beside the other tabs and is remembered, with no count on it", async () => {
+    await opened();
+    expect(Array.from(document.querySelectorAll(".rtab")).map((tab) => tab.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Todo"]);
+    document.querySelector<HTMLElement>('.rtab[data-rtab="todo"]')!.click();
+    expect(document.documentElement.getAttribute("data-rtab")).toBe("todo");
+    load("");
+    expect(document.documentElement.getAttribute("data-rtab")).toBe("todo");
+    expect(document.querySelector('.rtab[data-rtab="todo"]')!.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("lists what he must do in his own words, escaped, with what is done kept below", async () => {
+    await opened();
+    expect(rows()).toEqual(["Which hero should you ship?", "Book <flights>"]);
+    expect(rows(".todo.done")).toEqual(["Call the bank"]);
+    expect(document.querySelector(".todo-done-head")!.textContent).toBe("Done");
+    expect(document.querySelector<HTMLInputElement>('.todo.done .todo-tick')!.checked).toBe(true);
+    expect(document.querySelector('.todo-tick[data-id="todo-a"]')!.getAttribute("aria-label")).toBe("Done: Book <flights>");
+    expect(document.querySelector(".todo-line")!.textContent).toBe("Cap5 · Needs you");
+  });
+
+  it("says when there is nothing to do", async () => {
+    await opened({ open: [], done: [] });
+    expect(document.querySelector("#todo-lists .fempty")!.textContent).toBe("Nothing for you to do.");
+  });
+
+  it("ticks an item and draws what the store sends back", async () => {
+    await opened();
+    answering({ todos: { open: [LIST.open[0]], done: [{ id: "todo-a", text: "Book <flights>", from: "you" }, ...LIST.done] } });
+    const box = document.querySelector<HTMLInputElement>('.todo-tick[data-id="todo-a"]')!;
+    box.click();
+    await settle();
+    expect(posted()).toEqual([{ op: "tick", id: "todo-a" }]);
+    expect(rows()).toEqual(["Which hero should you ship?"]);
+    expect(rows(".todo.done")).toEqual(["Book <flights>", "Call the bank"]);
+  });
+
+  it("unticks what is done", async () => {
+    await opened();
+    answering({ todos: LIST });
+    document.querySelector<HTMLInputElement>('.todo.done .todo-tick')!.click();
+    await settle();
+    expect(posted()).toEqual([{ op: "untick", id: "todo-b" }]);
+  });
+
+  it("puts a tick back, and says so, when it did not save", async () => {
+    await opened();
+    answering({ error: "Could not save that." }, 500);
+    const box = document.querySelector<HTMLInputElement>('.todo-tick[data-id="todo-a"]')!;
+    box.click();
+    await settle();
+    expect(box.checked).toBe(false);
+    expect(box.disabled).toBe(false);
+    expect(document.getElementById("todo-said")!.textContent).toBe("That did not save. Try again.");
+  });
+
+  it("adds what he types and clears the field", async () => {
+    await opened();
+    answering({ todos: { open: [...LIST.open, { id: "todo-c", text: "Water the plants", from: "you" }], done: [] } });
+    const input = document.getElementById("todo-input") as HTMLInputElement;
+    input.value = " Water the plants ";
+    document.getElementById("todo-new")!.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+    await settle();
+    expect(posted()).toEqual([{ op: "add", text: "Water the plants" }]);
+    expect(input.value).toBe("");
+    expect(rows()).toContain("Water the plants");
+  });
+
+  it("keeps his words in the field when adding did not save", async () => {
+    await opened();
+    answering({ error: "no" }, 500);
+    const input = document.getElementById("todo-input") as HTMLInputElement;
+    input.value = "Water the plants";
+    document.getElementById("todo-new")!.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+    await settle();
+    expect(input.value).toBe("Water the plants");
+    expect(document.getElementById("todo-said")!.hidden).toBe(false);
+  });
+
+  it("keeps his half-typed words when the stream redraws the list", async () => {
+    const stream = await opened();
+    const input = document.getElementById("todo-input") as HTMLInputElement;
+    input.value = "half typed";
+    stream.emit("update", { order: [], messages: [], working: false, todos: { open: [], done: [] } });
+    expect(input.value).toBe("half typed");
+    expect(rows()).toEqual([]);
+  });
+
+  it("opens the job behind a Flyd ask, and his own items open nothing", async () => {
+    await opened();
+    expect(document.querySelector('button.todo-text[data-job="cap5"]')).not.toBeNull();
+    expect(document.querySelector('.todo:nth-child(2) button.todo-text')).toBeNull();
+  });
+});
+
 describe("project threads", () => {
   const LIST = {
     ready: true,
