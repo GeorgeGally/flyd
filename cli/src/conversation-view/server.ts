@@ -1723,7 +1723,7 @@ export class ConversationViewServer {
           question: call.question ?? call.detail ?? call.label,
           options: call.choices ?? [],
         } : undefined, session);
-        if (executive) await this.feed.refresh().catch(() => undefined);
+        if (executive) await this.feed.refresh({ fresh: true }).catch(() => undefined);
         const receipt = { ...sent, ...(executive && /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(payload.text) ? { followUp: call.executiveDecisionId } : {}), waiting: executive ? "Flyd is carrying your decision into the work" : "Sent to firstmate" };
         if (executive && (images as ImageUpload[]).length) {
           await this.sendToJob(res, { ...job, title: job.title ?? call.label, task: call.task ?? job.task, question: call.question ?? call.detail ?? job.question }, payload.text, images as ImageUpload[], session, receipt)
@@ -1733,7 +1733,7 @@ export class ConversationViewServer {
         sendJson(res, 200, receipt);
       } catch (error) {
         if (error instanceof QuestionGone) {
-          await this.feed.refresh().catch(() => undefined);
+          await this.feed.refresh({ fresh: true }).catch(() => undefined);
           await this.sendToJob(res, { ...job, title: job.title ?? call.label, task: call.task ?? job.task, question: call.question ?? job.question }, payload.text, images as ImageUpload[], session);
           return;
         }

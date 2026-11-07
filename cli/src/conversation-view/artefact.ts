@@ -1,5 +1,6 @@
 import { recommendationText } from "../intelligence/executive/decision-step.js";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -19,6 +20,7 @@ import { readDomainRun } from "../command/store.js";
 import type { StaffWorker } from "../command/fleet-monitor.js";
 import type { ShowItem, ShowKind } from "./show.js";
 import { plainTitle, saysNothing } from "./plain-words.js";
+import { SnapshotGate, type SnapshotGateOptions } from "./snapshot-gate.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
 // fleet snapshot (the authoritative "everything going on"), Flyd's own memory,
@@ -1450,15 +1452,93 @@ const FLEET_READ_MAX_TIMEOUT_MS = 180_000;
 /** How long the last good read stands in for reads that fail: transient failures change nothing on screen. */
 const FLEET_LAST_GOOD_MS = 30 * 60_000;
 
+/** A finished fleet read is served to every caller this long: refreshes that land together share one run. */
+const FLEET_CACHE_MS = 5_000;
+/** After a slow fleet read, the next unforced one waits this many times as long as it took… */
+const FLEET_SLOW_FACTOR = 3;
+/** …but never longer than this. */
+const FLEET_MAX_BACKOFF_MS = 10 * 60_000;
+
+/** What one fleet read gave: the fleet, and whether the script itself failed (a stand-in may be shown). */
+export interface FleetRead {
+  fleet: FleetArtefact;
+  failed: boolean;
+}
+
+/**
+ * One bearings run at a time for the whole process, by script: every feed and every
+ * client shares it. Under vitest a feed's reads are never cached unless a test passes its own gate.
+ */
+const fleetGates = new Map<string, SnapshotGate<FleetRead>>();
+function sharedFleetGate(script: string): SnapshotGate<FleetRead> {
+  let gate = fleetGates.get(script);
+  if (!gate) {
+    const timings: SnapshotGateOptions = process.env.VITEST
+      ? { cacheMs: 0, slowFactor: 0, maxBackoffMs: 0 }
+      : { cacheMs: FLEET_CACHE_MS, slowFactor: FLEET_SLOW_FACTOR, maxBackoffMs: FLEET_MAX_BACKOFF_MS };
+    gate = new SnapshotGate<FleetRead>(timings);
+    fleetGates.set(script, gate);
+  }
+  return gate;
+}
+
 /** A read's time limit: three times the last good read's duration, never under the default nor over the bound. Pure. */
 export function fleetReadTimeout(lastDurationMs: number | undefined): number {
   return Math.min(FLEET_READ_MAX_TIMEOUT_MS, Math.max(FLEET_READ_TIMEOUT_MS, 3 * (lastDurationMs ?? 0)));
 }
 
+/** How long a stopped script tree is given after SIGTERM before SIGKILL. */
+const FLEET_KILL_GRACE_MS = 2_000;
+/** How often a stopped tree is checked for processes still alive. */
+const FLEET_EXIT_POLL_MS = 200;
+/** The most a read waits for a SIGKILLed tree to be gone before it gives up and logs it. */
+const FLEET_EXIT_MAX_WAIT_MS = 60_000;
+
+/** Every process's parent, from `ps` (macOS and Linux alike); empty when ps cannot be read. */
+async function parentsByPid(): Promise<Map<number, number>> {
+  const parents = new Map<number, number>();
+  try {
+    const { stdout: out } = await promisify(execFile)("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8", timeout: 5_000, maxBuffer: 4 * 1024 * 1024 });
+    for (const line of out.split("\n")) {
+      const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+      if (pid && Number.isFinite(ppid)) parents.set(pid, ppid!);
+    }
+  } catch {
+    // No ps: only the process group is signalled.
+  }
+  return parents;
+}
+
+/** Adds every live descendant of the known pids to them. */
+async function addDescendants(known: Set<number>): Promise<void> {
+  const parents = await parentsByPid();
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [pid, ppid] of parents) {
+      if (known.has(ppid) && !known.has(pid)) {
+        known.add(pid);
+        grew = true;
+      }
+    }
+  }
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 /**
- * Runs the bearings script in its own process group. On timeout the whole group
- * is killed: the script's work runs in children it waits on, and killing only
- * the shell left them running, slowing every later read until those timed out too.
+ * Runs the bearings script in its own process group. On timeout the whole tree is
+ * stopped - its group and every descendant found by walking parent pids, since
+ * firstmate's own timeouts put children in groups of their own - with SIGTERM, then
+ * SIGKILL. The read does not settle until every process of that tree has exited, so
+ * a timed-out run stays in flight and the next read can never start beside it.
  * Rejects with why it failed, carrying no command line.
  */
 function runFleetScript(script: string, timeoutMs: number): Promise<string> {
@@ -1474,17 +1554,54 @@ function runFleetScript(script: string, timeoutMs: number): Promise<string> {
     let outBytes = 0;
     let err = "";
     let failure: string | undefined;
-    const killGroup = (signal: NodeJS.Signals) => {
+    /** Every process of the tree seen so far, once it is being stopped. */
+    const tree = new Set<number>();
+    let stopping: Promise<void> | undefined;
+    const signalTree = (signal: NodeJS.Signals) => {
       try {
         if (child.pid) process.kill(-child.pid, signal);
       } catch {
-        // Already gone.
+        // The group is gone.
+      }
+      for (const pid of tree) {
+        try {
+          process.kill(pid, signal);
+        } catch {
+          // Already gone.
+        }
+      }
+    };
+    const treeGone = async (): Promise<void> => {
+      const deadline = Date.now() + FLEET_KILL_GRACE_MS + FLEET_EXIT_MAX_WAIT_MS;
+      let killed = false;
+      const termAt = Date.now();
+      for (;;) {
+        await addDescendants(tree);
+        for (const pid of tree) if (!alive(pid)) tree.delete(pid);
+        if (!tree.size) return;
+        if (!killed && Date.now() - termAt >= FLEET_KILL_GRACE_MS) {
+          killed = true;
+          signalTree("SIGKILL");
+        } else if (killed) {
+          signalTree("SIGKILL");
+        }
+        if (Date.now() >= deadline) {
+          console.warn(`[view] fleet snapshot: ${tree.size} process(es) still running after SIGKILL; giving up on them`);
+          return;
+        }
+        await new Promise((wake) => setTimeout(wake, FLEET_EXIT_POLL_MS));
       }
     };
     const stop = (why: string) => {
       failure ??= why;
-      killGroup("SIGTERM");
-      setTimeout(() => killGroup("SIGKILL"), 2_000).unref();
+      if (stopping) return;
+      if (child.pid) tree.add(child.pid);
+      stopping = (async () => {
+        // Walk the tree before the shell dies, while its children still name it as their parent.
+        await addDescendants(tree);
+        signalTree("SIGTERM");
+        await treeGone();
+      })();
     };
     const timer = setTimeout(() => stop(`timed out after ${Math.round(timeoutMs / 1000)}s`), timeoutMs);
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -1501,7 +1618,11 @@ function runFleetScript(script: string, timeoutMs: number): Promise<string> {
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
-      if (failure) return reject(new Error(failure));
+      if (failure) {
+        const why = failure;
+        void (stopping ?? Promise.resolve()).then(() => reject(new Error(why)));
+        return;
+      }
       if (code === 0) return resolve(Buffer.concat(out).toString("utf8"));
       const said = err.trim().split("\n").at(-1) ?? "";
       reject(new Error(`${signal ? `killed by ${signal}` : `exited ${code}`}${said ? `: ${said}` : " with nothing on stderr"}`));
@@ -1549,13 +1670,13 @@ export class ArtefactFeed {
   /** Screenshots the page may load, by task: only files listed here are ever served. */
   private shots = new Map<string, Set<string>>();
   private timer?: NodeJS.Timeout;
+  private started = false;
   private watcher?: FSWatcher;
   private soon?: NodeJS.Timeout;
   private lastRefresh = 0;
   /** A job reported while the fleet was being read: read it again when that read is done. */
   private again = false;
   private refreshing?: Promise<boolean>;
-  private fleetReadFailed = false;
   private generation = 0;
   /** The artefacts the screen has shown, so a refresh adds or updates them rather than resetting the view. */
   private readonly ledger = new Map<string, LedgerEntry>();
@@ -1567,8 +1688,7 @@ export class ArtefactFeed {
   private readonly overtaken = new Map<string, string>();
   /** The last good bearings JSON, when it was read and how long the read took. */
   private good?: { raw: unknown; at: number; durationMs?: number };
-  /** The fleet read in progress, shared by anyone who asks while it runs. */
-  private reading?: Promise<FleetArtefact>;
+  private gate?: SnapshotGate<FleetRead>;
 
   /** Notices and replies use the same decision owner as polled fleet changes. */
   decide(changes: FirstmateChange[]): Promise<ExecutiveDecisionRecord[]> | null {
@@ -1597,6 +1717,8 @@ export class ArtefactFeed {
       workers?: () => readonly StaffWorker[];
       intervalMs?: number;
       timeoutMs?: number;
+      /** The fleet read's gate; by default the one this process shares for the bearings script. */
+      fleetGate?: SnapshotGate<FleetRead>;
     } = {},
   ) {}
 
@@ -1665,17 +1787,26 @@ export class ArtefactFeed {
     }
   }
 
-  /** One read at a time: a caller that comes while one runs shares it rather than starting the script again. */
-  private readFleet(): Promise<FleetArtefact> {
-    this.reading ??= this.readFleetOnce().finally(() => {
-      this.reading = undefined;
-    });
-    return this.reading;
+  private fleetScript(): string {
+    return join(this.paths().home, "bin", "fm-bearings-snapshot.sh");
   }
 
-  private async readFleetOnce(): Promise<FleetArtefact> {
-    this.fleetReadFailed = false;
-    const script = join(this.paths().home, "bin", "fm-bearings-snapshot.sh");
+  private fleetGate(): SnapshotGate<FleetRead> {
+    this.gate ??= this.options.fleetGate ?? sharedFleetGate(this.fleetScript());
+    return this.gate;
+  }
+
+  /**
+   * Through the shared gate: a caller that comes while a run is in flight shares it, one that
+   * comes just after gets its result, and after a slow run the script waits before it runs again.
+   * `fresh` (an answer being checked against the fleet) skips only that back-off.
+   */
+  private readFleet(fresh = false): Promise<FleetRead> {
+    return this.fleetGate().read(() => this.readFleetOnce(), { fresh });
+  }
+
+  private async readFleetOnce(): Promise<FleetRead> {
+    const script = this.fleetScript();
     const started = Date.now();
     this.lastGood(started);
     const timeout = this.options.timeoutMs ?? fleetReadTimeout(this.good?.durationMs);
@@ -1691,9 +1822,8 @@ export class ArtefactFeed {
           console.warn(`[view] fleet follow-ups not filed: ${reason(error)}`);
         }
       }
-      return fleet;
+      return { fleet, failed: false };
     } catch (error) {
-      this.fleetReadFailed = true;
       // A read that failed is Flyd's own hiccup: the reason goes to Flyd's log, never to George.
       // While the last good read is recent it stands in unchanged, so a transient failure makes
       // nothing vanish and come back (and no call ring the island again).
@@ -1701,10 +1831,10 @@ export class ArtefactFeed {
       const standIn = good ? parseBearings(good.raw) : undefined;
       if (good && standIn && !standIn.unavailable) {
         console.warn(`[view] fleet snapshot unreadable: ${reason(error)}; showing the read from ${Math.round((Date.now() - good.at) / 1000)}s ago`);
-        return standIn;
+        return { fleet: standIn, failed: true };
       }
       console.warn(`[view] fleet snapshot unreadable: ${reason(error)}`);
-      return FLEET_UNAVAILABLE("unreadable");
+      return { fleet: FLEET_UNAVAILABLE("unreadable"), failed: true };
     }
   }
 
@@ -1848,27 +1978,38 @@ export class ArtefactFeed {
     });
   }
 
-  async refresh(): Promise<boolean> {
+  /**
+   * Reads everything again. `fresh` (after George acts) waits for a refresh in progress and
+   * then reads past the slow-run back-off, so what he just did shows; it still shares a run in flight.
+   */
+  async refresh({ fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
+    if (fresh) return this.refreshForDecision();
     if (this.refreshing) {
       this.again = true;
       return this.refreshing;
     }
-    this.refreshing = this.refreshOnce().finally(() => { this.refreshing = undefined; });
+    return this.startRefresh(false);
+  }
+
+  /** An answer is checked against a read started after it arrived, unless one ended moments ago. */
+  async refreshForDecision(): Promise<boolean> {
+    if (this.refreshing) await this.refreshing;
+    if (this.refreshing) return this.refreshing;
+    return this.startRefresh(true);
+  }
+
+  private startRefresh(fresh: boolean): Promise<boolean> {
+    this.refreshing = this.refreshOnce(fresh).finally(() => { this.refreshing = undefined; });
     return this.refreshing;
   }
 
-  async refreshForDecision(): Promise<boolean> {
-    if (this.refreshing) await this.refreshing;
-    return this.refresh();
-  }
-
-  private async refreshOnce(): Promise<boolean> {
+  private async refreshOnce(fresh = false): Promise<boolean> {
     this.again = false;
     this.lastRefresh = Date.now();
     try {
       const { backlog, archive, memory, news, taste, plans: plansDir, advice } = this.paths();
-      const [bearings, backlogText, archiveText, memoryText, newsText, tasteText, adviceText] = await Promise.all([
-        this.readFleet(),
+      const [{ fleet: bearings, failed: fleetReadFailed }, backlogText, archiveText, memoryText, newsText, tasteText, adviceText] = await Promise.all([
+        this.readFleet(fresh),
         ArtefactFeed.text(backlog),
         ArtefactFeed.text(archive),
         ArtefactFeed.text(memory),
@@ -1934,7 +2075,7 @@ export class ArtefactFeed {
       };
       for (const listener of this.listeners) listener();
       if (voice && unsaid.length) void this.say(voice, decided, unsaid, generation);
-      return !this.fleetReadFailed;
+      return !fleetReadFailed;
     } finally {
       if (this.again) this.refreshSoon();
     }
@@ -1982,7 +2123,8 @@ export class ArtefactFeed {
    */
   private refreshSoon(): void {
     if (this.soon) return;
-    const wait = Math.max(REPORT_SETTLE_MS, this.lastRefresh + REPORT_GAP_MS - Date.now());
+    // Never sooner than the fleet gate allows: after a slow read, reports wait out its back-off.
+    const wait = Math.max(REPORT_SETTLE_MS, this.lastRefresh + REPORT_GAP_MS - Date.now(), this.fleetGate().nextRunAt() - Date.now());
     this.soon = setTimeout(() => {
       this.soon = undefined;
       void this.refresh();
@@ -2022,17 +2164,34 @@ export class ArtefactFeed {
     return result;
   }
 
-  /** Start the background refresh; a no-op under vitest. */
-  start(): void {
-    if (process.env.VITEST || this.timer) return;
-    void this.refresh();
-    this.timer = setInterval(() => void this.refresh(), this.options.intervalMs ?? 120_000);
-    this.timer.unref?.();
+  /** Start the background refresh; a no-op under vitest unless a test asks with `force`. */
+  start({ force = false }: { force?: boolean } = {}): void {
+    if ((process.env.VITEST && !force) || this.started) return;
+    this.started = true;
+    void this.refresh().finally(() => this.scheduleTick());
     this.followReports();
   }
 
+  /**
+   * The next background refresh, timed from when the last one ended: never while one runs,
+   * and never before the fleet gate's back-off after a slow read.
+   */
+  private scheduleTick(): void {
+    if (!this.started) return;
+    if (this.timer) clearTimeout(this.timer);
+    const wait = Math.max(this.options.intervalMs ?? 120_000, this.fleetGate().nextRunAt() - Date.now());
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      // A refresh already running (a report, an answer) stands for this tick.
+      const running = this.refreshing ?? this.refresh();
+      void running.catch(() => undefined).finally(() => this.scheduleTick());
+    }, wait);
+    this.timer.unref?.();
+  }
+
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.started = false;
+    if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     if (this.soon) clearTimeout(this.soon);
     this.soon = undefined;
