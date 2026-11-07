@@ -1832,6 +1832,12 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
     document.getElementById("flip")!.click();
     const input = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
+    const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const png = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    const paste = new Event("paste", { cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", type: "image/png", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
+    input.dispatchEvent(paste);
+    for (let i = 0; i < 20 && !document.querySelector(".scene-ask .art-chat-images img"); i += 1) await settle();
     input.value = "another round";
     input.dispatchEvent(new Event("input"));
     document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
@@ -1840,6 +1846,15 @@ describe("header and artefact view", () => {
     expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toContain("picture was not delivered");
     expect(document.querySelector(".scene-ask .art-thread")!.textContent).toContain("another round");
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(1);
+    expect(document.querySelectorAll(".scene-ask .art-chat-images img")).toHaveLength(1);
+    sendResponse = { id: "picture-retry" };
+    document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const requests = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
+    expect(requests[1]).toMatchObject({ text: "Picture for my earlier answer.", about: { task: "visuals" }, images: [{ mediaType: "image/png", data }] });
+    expect(requests[1]).not.toHaveProperty("decision");
+    expect(requests[1]).not.toHaveProperty("decisionFollowUp");
+    expect(document.querySelectorAll(".scene-ask .art-chat-images img")).toHaveLength(0);
   });
 
   it("sends a question a reply put to him back with one tap on the artefact", async () => {

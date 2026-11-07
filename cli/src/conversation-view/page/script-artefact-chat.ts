@@ -31,6 +31,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     var state = {};
     try { state = JSON.parse(sessionStorage.getItem(key) || (earlierKey && sessionStorage.getItem(earlierKey)) || "{}") || {}; } catch (_) {}
     if (state.receipt === "sending") state.receipt = "";
+    state.attachmentRetry = false;
     try { state.thread = JSON.parse(store(key) || (earlierKey && store(earlierKey)) || "[]"); } catch (_) {}
     if (!Array.isArray(state.thread)) state.thread = [];
     var form = el("form", "art-chat");
@@ -48,7 +49,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     send.addEventListener("mousedown", function (event) { event.preventDefault(); });
     // Screenshots he pastes into the box go with his words about this artefact;
     // a reply to an answer has no room for them, so it takes words only.
-    var takesImages = !!(target.about || target.decision);
+    var takesImages = !!(target.about || target.decision || target.domainRun);
     var images = [];
     var thumbs = el("div", "art-chat-images");
     thumbs.hidden = true;
@@ -172,7 +173,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
       receipt.classList.toggle("problem", !!state.error);
       receipt.classList.toggle("sent", !state.error && (state.receipt === "sent" || state.receipt === "read"));
       // A picture alone says enough about an artefact; an answer still needs words.
-      send.disabled = state.receipt === "sending" || !(input.value.trim() || (target.about && images.length));
+      send.disabled = state.receipt === "sending" || !(input.value.trim() || ((target.about || state.attachmentRetry) && images.length));
       if (chat.onPaint) chat.onPaint();
     }
     function paintImages() {
@@ -188,7 +189,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
         remove.type = "button";
         remove.setAttribute("aria-label", "Remove image");
         remove.addEventListener("mousedown", function (event) { event.preventDefault(); });
-        remove.addEventListener("click", function () { images.splice(index, 1); paintImages(); paint(); });
+        remove.addEventListener("click", function () { images.splice(index, 1); if (!images.length) state.attachmentRetry = false; paintImages(); paint(); });
         item.appendChild(remove);
         thumbs.appendChild(item);
       });
@@ -290,7 +291,14 @@ export const ARTEFACT_CHAT_SCRIPT = `
       paint();
       var sending = takesImages ? images.slice() : [];
       var body = Object.assign({ text: text, session: current }, target);
-      if (state.followUp || target.decision && state.followUpRequired) {
+      if (state.attachmentRetry) {
+        if (target.domainRun) delete body.questionText;
+        else {
+          delete body.decision;
+          body.about = { title: target.jobTitle || target.questionText || "Your earlier answer", task: target.decisionTask, detail: target.questionText };
+        }
+      }
+      if (!state.attachmentRetry && (state.followUp || target.decision && state.followUpRequired)) {
         body.decisionFollowUp = state.followUpRequired || target.decision;
         body.decisionTask = decision && decision.task;
         delete body.decision;
@@ -305,7 +313,11 @@ export const ARTEFACT_CHAT_SCRIPT = `
           if (target.decision && result.data.followUp) state.followUpRequired = result.data.followUp;
           entry.id = result.data.id;
           // Only what went is cleared: one pasted while it was on its way stays for the next.
-          images = images.filter(function (image) { return sending.indexOf(image) === -1; });
+          if (result.data.warning && sending.length) state.attachmentRetry = true;
+          else {
+            images = images.filter(function (image) { return sending.indexOf(image) === -1; });
+            state.attachmentRetry = false;
+          }
           paintImages();
           if (done) done();
           save();
@@ -328,7 +340,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     });
     form.addEventListener("submit", function (event) {
       event.preventDefault();
-      var text = input.value.trim();
+      var text = input.value.trim() || (state.attachmentRetry && images.length ? "Picture for my earlier answer." : "");
       if (send.disabled) return;
       // The box already emptied as it went; something typed since stays.
       deliver(text);

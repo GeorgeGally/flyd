@@ -696,7 +696,7 @@ describe("ConversationViewServer", () => {
       const feed = feedOf(root);
       const { port, headers } = await serve(feed);
       const marker = join(root, "reading");
-      writeFileSync(join(root, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ntouch "$FM_HOME/reading"\nsleep 0.2\nprintf '%s' '{"decisions_open":[{"id":"visuals","summary":"Pick a look"}]}'\n`, { mode: 0o755 });
+      writeFileSync(join(root, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ntouch "${marker}"\nsleep 0.2\nprintf '%s' '{"decisions_open":[{"id":"visuals","summary":"Pick a look"}]}'\n`, { mode: 0o755 });
       const pending = feed.refresh();
       for (let attempt = 0; attempt < 200 && !existsSync(marker); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
       expect(existsSync(marker)).toBe(true);
