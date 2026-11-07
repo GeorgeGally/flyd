@@ -41,6 +41,9 @@ import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from ".
 import { liveActivityOf, type LiveActivity } from "./live-activity.js";
 import { readDigests, scheduleDigest } from "./job-digest.js";
 import { ArtefactFeed, composeArtefact, WHATSAPP_LINK, type ArtefactInputs, type ArtefactRow } from "./artefact.js";
+import type { HoroscopeReader } from "./horoscope.js";
+import { todayNotes, type TodayNote } from "./today.js";
+import type { WhatsAppOffer } from "./whatsapp-offer.js";
 import type { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail, RailState } from "./rail.js";
@@ -189,8 +192,10 @@ export interface ShowOptions {
   leftColumn?: () => ActivityPanel;
   /** Whether a page on this machine answers, so a link to one that closed is said in words. */
   live?: (url: string) => string;
-  /** Whether WhatsApp still needs linking: the offer card is shown in the timeline and the panel only while it does. */
+  /** Whether this page shows the one offer to link WhatsApp. */
   whatsappUnlinked?: () => boolean;
+  /** The home page's feed for this reading of the work. */
+  today?: (show: ShowScreen, jobs: Job[]) => TodayNote[];
   /**
    * Durable jobs for the right column. Set only by the live view. A differ
    * under test does not read the project list or attach jobs.
@@ -221,6 +226,8 @@ interface StreamUpdate {
   leftColumn?: ActivityPanel;
   /** The page the work is on now, kept in the header whenever there is one. */
   page?: CurrentPage;
+  /** What is happening today, for the home page. Present only on the live view. */
+  today?: TodayNote[];
   /** Jobs George is moving. Present only when the view built them. The page renders these and does not invent a second reading. */
   jobs?: Job[];
   /** Whether a fleet snapshot answered. An empty Working group says so differently when this is false. */
@@ -573,7 +580,7 @@ export class SnapshotDiffer {
         ...(message.answeredFor !== undefined ? { answeredFor: message.answeredFor, ...(undone.has(message.id) ? { undone: true } : {}) } : {}),
       });
     }
-    // WhatsApp unlinked: the one action card, last in the timeline, until he links it.
+    // The one offer to link WhatsApp: last on the one page it went to, until he puts it away.
     if (this.show?.whatsappUnlinked?.()) {
       order.push(WHATSAPP_LINK.id);
       seen.add(WHATSAPP_LINK.id);
@@ -677,6 +684,7 @@ export class SnapshotDiffer {
       ...(left ? { leftColumn: { ...left, semantic: show.activities } } : {}),
       ...(page ? { page } : {}),
       ...(board ? { jobs: board.jobs, jobsFleetKnown: board.fleetKnown } : {}),
+      ...(this.show?.today ? { today: this.show.today(show, board?.jobs ?? []) } : {}),
       live: liveActivityOf(show, board?.jobs),
     };
   }
@@ -762,13 +770,18 @@ export class ConversationViewServer {
     private readonly routines = new RoutineArtefacts(),
     /** Flyd's own activity records, read for the left column; without it the column is not offered. */
     private readonly activity?: ActivityReader,
-    /** WhatsApp, when it still needs linking: the code is drawn here, and the offers are shown here. */
+    /** WhatsApp, when it still needs linking: the code is drawn here. */
     private readonly whatsapp?: WhatsAppPairing,
+    /** Today's horoscope, for the News tab. */
+    private readonly horoscope?: HoroscopeReader,
+    /** Keeps the WhatsApp offer to one showing. Without it the offer is never made. */
+    private readonly whatsappOffer?: WhatsAppOffer,
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
     this.feed.start();
     this.weather?.start();
+    this.horoscope?.start();
     const server = createServer((req, res) => {
       void this.handle(req, res).catch((error: unknown) => {
         if (!res.headersSent) sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
@@ -793,6 +806,7 @@ export class ConversationViewServer {
     this.predictionContexts.clear();
     this.feed.stop();
     this.weather?.stop();
+    this.horoscope?.stop();
     const server = this.server;
     this.server = null;
     if (!server) return;
@@ -845,6 +859,18 @@ export class ConversationViewServer {
       this.whatsapp.start();
       const { paired } = this.whatsapp.state();
       sendJson(res, 200, { result: { paired } });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/whatsapp-offer") {
+      if (!sameToken(req.headers["x-flyd-view-token"] as string | undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
+      this.whatsappOffer?.dismiss();
+      for (const wake of this.jobWake) wake();
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (url.pathname === "/api/desk") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
+      sendJson(res, 200, { news: this.activity?.newsDesk() ?? null, weather: this.weather?.current() ?? null, horoscope: this.horoscope?.current() ?? null });
       return;
     }
     if (url.pathname === "/api/whatsapp-qr") {
@@ -1152,15 +1178,9 @@ export class ConversationViewServer {
     res.end(data);
   }
 
-  /** Whether WhatsApp still needs linking. The offers are shown only while it does. */
+  /** Whether WhatsApp still needs linking. */
   private whatsappUnlinked(): boolean {
     return Boolean(this.whatsapp && !this.whatsapp.state().paired);
-  }
-
-  /** The artefact inputs with the unlinked-WhatsApp offer folded in, when it applies. */
-  private artefactInputs(): ArtefactInputs {
-    const inputs = this.feed.current();
-    return this.whatsappUnlinked() ? { ...inputs, whatsappLink: true } : inputs;
   }
 
   /** Flyd's right column: his questions with their answers, and the artefacts beside them. */
@@ -1183,7 +1203,7 @@ export class ConversationViewServer {
       }));
     // The same replies the window points here, each once, newest first.
     const reported = replyCards(snapshot.messages, this.summaries?.artefacts);
-    const artefacts: RailArtefact[] = [...sites, ...reported, ...composeArtefact(this.artefactInputs(), { project })
+    const artefacts: RailArtefact[] = [...sites, ...reported, ...composeArtefact(this.feed.current(), { project })
       .filter((item) => !item.id.startsWith("call:"))
       .map((item) => ({
         id: item.id,
@@ -2188,6 +2208,8 @@ export class ConversationViewServer {
 
     let latest: ConversationSnapshot | null = null;
     let closed = false;
+    // The offer to link WhatsApp goes to one page, once: this one, if it is the first.
+    const offered = !isArticleSession(session.id) && !isThread(session.id) && this.whatsappUnlinked() && Boolean(this.whatsappOffer?.claim());
     // Coding work Core found stuck after chasing it: said over the composer, only in Flyd's own window.
     let staffSent = "";
     const emitStaff = () => {
@@ -2217,13 +2239,14 @@ export class ConversationViewServer {
       : undefined, {
         assistant: this.source.assistantLabel,
         ...this.show,
-        artefact: () => this.artefactInputs(),
+        artefact: () => this.feed.current(),
         readings: () => ({ plan: this.plan?.current() ?? null, weather: this.weather?.current() ?? null }),
         rail: (snapshot) => this.rail(snapshot),
         ...(this.activity ? { leftColumn: () => this.activity!.current() } : {}),
         live: (url) => this.previews.state(url),
         // A chat about one article, or a project's thread, is about that: the WhatsApp offer stays out of it.
-        whatsappUnlinked: () => !isArticleSession(session.id) && !isThread(session.id) && this.whatsappUnlinked(),
+        whatsappUnlinked: () => offered && !this.whatsappOffer?.dismissed() && this.whatsappUnlinked(),
+        today: (screen, jobs) => todayNotes({ show: screen, jobs, ...(this.activity ? { activity: this.activity.current() } : {}), sessions, current: session.id }, Date.now()),
         jobs: (shot, screen) => this.jobBoard(shot, screen),
       });
     const emitUpdate = (snapshot: ConversationSnapshot) => {
@@ -2266,6 +2289,7 @@ export class ConversationViewServer {
     });
     // WhatsApp linked (or a new code drawn): the offer goes, or its code turns over.
     const stopPairing = this.whatsapp?.onChange(() => {
+      if (this.whatsapp?.state().paired) this.whatsappOffer?.dismiss();
       if (!closed && latest) emitUpdate(latest);
     });
     const wakeJobs = () => { if (!closed && latest) emitUpdate(latest); };

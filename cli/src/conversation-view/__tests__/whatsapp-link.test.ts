@@ -1,8 +1,12 @@
+import { mkdtempSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { composeArtefact, WHATSAPP_LINK, type ArtefactInputs } from "../artefact.js";
 import { qrSvg } from "../../connectors/whatsapp-pairing.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
+import { WhatsAppOffer } from "../whatsapp-offer.js";
 import type { WhatsAppPairing } from "../../connectors/whatsapp-pairing.js";
 import type { ConversationSnapshot } from "../types.js";
 
@@ -58,10 +62,26 @@ describe("the pairing code as an image", () => {
 });
 
 describe("the offer card", () => {
-  it("leads the artefact while WhatsApp is unlinked, and is gone once it is", () => {
-    const linked = composeArtefact({ ...EMPTY, whatsappLink: true });
-    expect(linked[0]).toMatchObject({ id: "news:whatsapp-link", headline: WHATSAPP_LINK.title, links: [{ url: "/whatsapp" }] });
+  it("is never pinned to the artefact: the only place it can show is the one conversation", () => {
     expect(composeArtefact(EMPTY).some((item) => item.id === "news:whatsapp-link")).toBe(false);
+  });
+
+  it("is said once: the first page takes it, and a reload, another window or a restart never does", () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-offer-"));
+    const offer = new WhatsAppOffer(dir);
+    expect(offer.claim()).toBe(true);
+    expect(offer.claim()).toBe(false);
+    expect(new WhatsAppOffer(dir).claim()).toBe(false);
+  });
+
+  it("stays gone once dismissed, across a restart", () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-offer-"));
+    const offer = new WhatsAppOffer(dir);
+    offer.claim();
+    expect(offer.dismissed()).toBe(false);
+    offer.dismiss();
+    expect(new WhatsAppOffer(dir).dismissed()).toBe(true);
+    expect(new WhatsAppOffer(dir).claim()).toBe(false);
   });
 
   it("appears in the timeline last, and disappears the moment WhatsApp is linked", () => {
@@ -100,9 +120,12 @@ describe("the pairing endpoints", () => {
       const pair = await fetch(base + "/api/whatsapp-pair", { method: "POST", headers: { "x-flyd-view-token": token }, body: JSON.stringify({ action: "start" }) });
       expect(await pair.json()).toMatchObject({ result: { paired: false } });
       expect((await fetch(base + "/api/whatsapp-pair", { method: "POST", body: "{}" })).status).toBe(403);
-      // The artefacts column carries the same offer, opening the code.
+      expect((await fetch(base + "/api/whatsapp-offer", { method: "POST" })).status).toBe(403);
+      expect((await fetch(base + "/api/desk")).status).toBe(403);
+      expect(await (await fetch(base + "/api/desk?token=" + token)).json()).toEqual({ news: null, weather: null, horoscope: null });
+      // The artefacts column never carries the offer: it would come back in every window.
       const rail = (server as unknown as { rail: (snapshot: ConversationSnapshot) => { artefacts: Array<{ id: string; title: string; url?: string }> } }).rail(snapshot());
-      expect(rail.artefacts.find((card) => card.id === "news:whatsapp-link")).toMatchObject({ title: WHATSAPP_LINK.title, url: "/whatsapp" });
+      expect(rail.artefacts.some((card) => card.id === "news:whatsapp-link")).toBe(false);
     } finally { await server.close(); }
   });
 

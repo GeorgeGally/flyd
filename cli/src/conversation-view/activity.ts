@@ -438,6 +438,23 @@ export function flashStories(rows: unknown[], day: string): { day: string; stori
   return stories.length ? { day, stories } : undefined;
 }
 
+/** Stock-picture and trend feeds pad an edition; they are not news he asked for. */
+const NEWS_FILLER = /^(?:giphy|pexels|google trends)$/i;
+
+export interface NewsDesk {
+  /** The edition's day, YYYY-MM-DD: the tab says when it is not today. */
+  updated: string;
+  stories: ActivityStory[];
+}
+
+/** The latest edition for the News tab, whatever day it is from, without the filler. Pure. */
+export function newsDeskOf(raw: unknown): NewsDesk | null {
+  const day = (raw as { date?: unknown } | null)?.date;
+  if (typeof day !== "string") return null;
+  const stories = editionStories(raw, day)?.stories.filter((story) => !NEWS_FILLER.test(story.source ?? "")) ?? [];
+  return stories.length ? { updated: day, stories } : null;
+}
+
 const byNewest = (a: ActivityItem, b: ActivityItem): number => Date.parse(b.at) - Date.parse(a.at);
 
 const localDay = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -605,6 +622,15 @@ export class ActivityReader {
     if (signature === this.signature) return false;
     this.signature = signature;
     return true;
+  }
+
+  /** The News tab's stories, with the pictures already kept. Fetching any missing ones goes on in the background. */
+  newsDesk(): NewsDesk | null {
+    const desk = newsDeskOf(oneJson(join(this.dir, "scout", "edition-latest.json")));
+    if (!desk) return null;
+    const holder: ActivityPanel = { now: [], week: [], recent: [{ id: "desk", kind: "news", title: "News", stories: desk.stories, at: "" }] };
+    scheduleStoryMedia(storyUrls(holder), { dir: this.dir, onStored: () => undefined });
+    return { updated: desk.updated, stories: applyStoryMedia(holder, this.dir).recent[0]?.stories ?? [] };
   }
 
   current(): ActivityPanel {

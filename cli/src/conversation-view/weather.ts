@@ -2,11 +2,11 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 
-// The weather where George is, for the artefact's weather box. Open-Meteo:
-// no key, no account. The place comes from FLYD_WEATHER_LOCATION
-// ("lat,lon[,name]") or ~/.flyd/location.json ({ "lat", "lon", "name" }); with
-// neither there is no weather box rather than a guessed place. Never read
-// under vitest.
+// The weather where George is, for the artefact's weather box and the News tab.
+// Open-Meteo: no key, no account. The place comes from FLYD_WEATHER_LOCATION
+// ("lat,lon[,name]"), ~/.flyd/location.json ({ "lat", "lon", "name" }), or the
+// place USER.md says he is in, looked up once; with none of those there is no
+// weather rather than a guessed place. Never read under vitest.
 
 export interface WeatherPlace {
   lat: number;
@@ -20,6 +20,18 @@ export interface WeatherHour {
   tempC: number;
   /** Chance of rain that hour, 0–100. */
   rainChance: number;
+  /** WMO weather code for that hour, for its icon. */
+  code?: number;
+  /** Dark that hour: a clear sky shows the moon. */
+  night?: boolean;
+}
+
+export interface WeatherDay {
+  /** Local day, YYYY-MM-DD. */
+  day: string;
+  code: number;
+  highC: number;
+  lowC: number;
 }
 
 export interface WeatherReading {
@@ -28,8 +40,12 @@ export interface WeatherReading {
   /** WMO weather code, for a one-word condition. */
   code: number;
   condition: string;
+  /** Dark now: a clear sky shows the moon. */
+  night?: boolean;
   /** The next twelve hours, from the current hour. */
   hours: WeatherHour[];
+  /** The days after today. */
+  days?: WeatherDay[];
   read: string;
 }
 
@@ -60,8 +76,9 @@ export function placeFrom(value: string | undefined): WeatherPlace | null {
 /** Open-Meteo's forecast JSON as a reading, or null when it is not one. Pure. */
 export function parseWeather(raw: unknown, place: WeatherPlace, now = Date.now()): WeatherReading | null {
   const body = raw as {
-    current?: { temperature_2m?: unknown; weather_code?: unknown; time?: unknown };
-    hourly?: { time?: unknown; temperature_2m?: unknown; precipitation_probability?: unknown };
+    current?: { temperature_2m?: unknown; weather_code?: unknown; time?: unknown; is_day?: unknown };
+    hourly?: { time?: unknown; temperature_2m?: unknown; precipitation_probability?: unknown; weather_code?: unknown; is_day?: unknown };
+    daily?: { time?: unknown; weather_code?: unknown; temperature_2m_max?: unknown; temperature_2m_min?: unknown };
   };
   const temp = body?.current?.temperature_2m;
   const code = body?.current?.weather_code;
@@ -69,6 +86,8 @@ export function parseWeather(raw: unknown, place: WeatherPlace, now = Date.now()
   const times = Array.isArray(body.hourly?.time) ? (body.hourly!.time as unknown[]) : [];
   const temps = Array.isArray(body.hourly?.temperature_2m) ? (body.hourly!.temperature_2m as unknown[]) : [];
   const rain = Array.isArray(body.hourly?.precipitation_probability) ? (body.hourly!.precipitation_probability as unknown[]) : [];
+  const codes = Array.isArray(body.hourly?.weather_code) ? (body.hourly!.weather_code as unknown[]) : [];
+  const daylight = Array.isArray(body.hourly?.is_day) ? (body.hourly!.is_day as unknown[]) : [];
   const currentHour = typeof body.current?.time === "string" ? body.current.time.slice(0, 13) : undefined;
   const start = Math.max(0, currentHour ? times.findIndex((time) => typeof time === "string" && time.slice(0, 13) === currentHour) : 0);
   const hours: WeatherHour[] = [];
@@ -77,16 +96,49 @@ export function parseWeather(raw: unknown, place: WeatherPlace, now = Date.now()
     const tempC = temps[index];
     if (typeof at !== "string" || typeof tempC !== "number") continue;
     const chance = rain[index];
-    hours.push({ at, tempC, rainChance: typeof chance === "number" ? chance : 0 });
+    const hourCode = codes[index];
+    hours.push({
+      at, tempC, rainChance: typeof chance === "number" ? chance : 0,
+      ...(typeof hourCode === "number" ? { code: hourCode } : {}),
+      ...(daylight[index] === 0 ? { night: true } : {}),
+    });
   }
   return {
     ...(place.name ? { place: place.name } : {}),
     tempC: temp,
     code,
     condition: conditionOf(code),
+    ...(body.current?.is_day === 0 ? { night: true } : {}),
     hours,
+    ...daysOf(body.daily),
     read: new Date(now).toISOString(),
   };
+}
+
+/** The days after today in Open-Meteo's daily block. Pure. */
+function daysOf(daily: { time?: unknown; weather_code?: unknown; temperature_2m_max?: unknown; temperature_2m_min?: unknown } | undefined): { days?: WeatherDay[] } {
+  const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+  const highs = list(daily?.temperature_2m_max);
+  const lows = list(daily?.temperature_2m_min);
+  const codes = list(daily?.weather_code);
+  const days = list(daily?.time).flatMap((day, index): WeatherDay[] => {
+    const [code, highC, lowC] = [codes[index], highs[index], lows[index]];
+    return typeof day === "string" && typeof code === "number" && typeof highC === "number" && typeof lowC === "number" ? [{ day, code, highC, lowC }] : [];
+  }).slice(1);
+  return days.length ? { days } : {};
+}
+
+/** The last place his profile says he is in ("George is in Canggu."). Pure. */
+export function placeNameFromProfile(text: string): string | undefined {
+  const said = [...text.matchAll(/\bGeorge is (?:in|based in|living in) ([A-Z][\p{L}' -]{1,40}?)\s*(?:[.(,]|$)/gmu)];
+  return said.at(-1)?.[1].trim();
+}
+
+/** The first match in Open-Meteo's geocoding JSON. Pure. */
+export function parseGeocode(raw: unknown, name: string): WeatherPlace | null {
+  const first = (raw as { results?: Array<{ latitude?: unknown; longitude?: unknown; name?: unknown }> } | null)?.results?.[0];
+  if (typeof first?.latitude !== "number" || typeof first.longitude !== "number") return null;
+  return { lat: first.latitude, lon: first.longitude, name: typeof first.name === "string" ? first.name : name };
 }
 
 type Fetcher = (url: string) => Promise<unknown>;
@@ -107,13 +159,28 @@ async function placeOnDisk(): Promise<WeatherPlace | null> {
   }
 }
 
+/** Where USER.md says he is, as coordinates. */
+async function placeFromProfile(fetcher: Fetcher): Promise<WeatherPlace | null> {
+  let profile = "";
+  try { profile = await readFile(join(FLYD_DIR, "USER.md"), "utf8"); } catch { return null; }
+  const name = placeNameFromProfile(profile);
+  if (!name) return null;
+  const query = new URLSearchParams({ name, count: "1" });
+  try {
+    return parseGeocode(await fetcher(`https://geocoding-api.open-meteo.com/v1/search?${query}`), name);
+  } catch {
+    return null;
+  }
+}
+
 export function forecastUrl(place: WeatherPlace): string {
   const query = new URLSearchParams({
     latitude: String(place.lat),
     longitude: String(place.lon),
-    current: "temperature_2m,weather_code",
-    hourly: "temperature_2m,precipitation_probability",
-    forecast_days: "2",
+    current: "temperature_2m,weather_code,is_day",
+    hourly: "temperature_2m,precipitation_probability,weather_code,is_day",
+    daily: "weather_code,temperature_2m_max,temperature_2m_min",
+    forecast_days: "6",
     timezone: "auto",
   });
   return `https://api.open-meteo.com/v1/forecast?${query}`;
@@ -123,6 +190,8 @@ export function forecastUrl(place: WeatherPlace): string {
 export class WeatherReader {
   private latest: WeatherReading | null = null;
   private timer?: NodeJS.Timeout;
+  /** The place his profile names, looked up once: it changes when he does, not every half hour. */
+  private profilePlace?: WeatherPlace;
 
   constructor(
     private readonly options: { place?: () => Promise<WeatherPlace | null>; fetch?: Fetcher } = {},
@@ -141,7 +210,7 @@ export class WeatherReader {
   }
 
   async refresh(): Promise<WeatherReading | null> {
-    const place = await (this.options.place ?? (async () => placeFrom(process.env.FLYD_WEATHER_LOCATION) ?? placeOnDisk()))();
+    const place = await (this.options.place ?? (async () => placeFrom(process.env.FLYD_WEATHER_LOCATION) ?? await placeOnDisk() ?? await this.fromProfile()))();
     if (!place) {
       this.latest = null;
       return null;
@@ -152,6 +221,11 @@ export class WeatherReader {
       // Keep the last good reading; the box shows its age.
     }
     return this.latest;
+  }
+
+  private async fromProfile(): Promise<WeatherPlace | null> {
+    this.profilePlace ??= (await placeFromProfile(this.options.fetch ?? fetchJson)) ?? undefined;
+    return this.profilePlace ?? null;
   }
 
   current(): WeatherReading | null {

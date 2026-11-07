@@ -543,7 +543,7 @@ export const BRIEF_SCRIPT = `
     return wrap;
   }
   // Ask opens the existing conversation on this article. Open still goes to the page.
-  function openArticle(story) {
+  function openArticle(story, words) {
     if (!SEND_TOKEN || !story || !story.url || story._opening) return;
     story._opening = true;
     tokenFetch("/api/article-chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: story.url, title: story.title || "", media: story.media || "article", text: story.quote || story.gist || "", description: story.gist || "", figure: story.figure || "", attribution: story.attribution || "" }) }, true).then(function (response) {
@@ -556,7 +556,10 @@ export const BRIEF_SCRIPT = `
       if (window.history && window.history.replaceState) window.history.replaceState(null, "", "?session=" + encodeURIComponent(explicit));
       // The thread takes the middle: a job left open there would keep it out of sight.
       if (frontLayout && typeof frontSelect === "function") frontSelect("talk");
+      if (frontLayout) frontMode("today");
       connect(explicit);
+      // Said from the News tab: his words go in as soon as this conversation is the one on the page.
+      if (words) deskSay(explicit, words);
     }).catch(function () { story._opening = false; });
   }
   // The news: the newest card of each kind that carries its stories, every story a working link.

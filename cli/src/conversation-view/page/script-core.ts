@@ -121,7 +121,8 @@ var __name = function (f) { return f; };
   // there. Only his own scrolling up unpins it.
   var pinned = true;
   function onConversation() { return document.documentElement.getAttribute("data-screen") !== "show" && !document.documentElement.hasAttribute("data-job"); }
-  function toBottom() { pinned = true; window.scrollTo(0, document.documentElement.scrollHeight); }
+  // The home feed reads from the top; only a conversation sits at its latest line.
+  function toBottom() { pinned = true; if (!document.documentElement.hasAttribute("data-feed")) window.scrollTo(0, document.documentElement.scrollHeight); }
   // The message at the top of the window and where it sits, so a change above
   // it cannot move what he is reading (WebKit has no scroll anchoring).
   function anchor() {

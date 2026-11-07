@@ -122,8 +122,6 @@ export interface ArtefactInputs {
   news: ArtefactNews[];
   /** Top taste rules: they shape wording; shown only when nothing else exists. */
   taste: string[];
-  /** WhatsApp is not linked yet: the panel offers to link it, and drops the offer the moment it is. */
-  whatsappLink?: boolean;
   /** Plans he made, newest first. */
   plans?: PlanArtefact[];
   /** Open advice from Flyd's background read of his life and work, most pressing first. */
@@ -202,8 +200,8 @@ function ledgerKey(field: FleetField, row: ArtefactRow): string | undefined {
 export const ARTEFACT_LIMITS = { call: 4, live: 4, ready: 4, landed: 8, waiting: 4, next: 3 } as const;
 
 /**
- * The one action card while WhatsApp is unlinked: the same words in the
- * timeline, the artefacts panel and the artefact view. `/whatsapp` is the
+ * The one offer to link WhatsApp, shown once on one page (see
+ * whatsapp-offer.ts); the link itself lives in People. `/whatsapp` is the
  * People page, where the code is drawn live.
  */
 export const WHATSAPP_LINK = {
@@ -1334,8 +1332,6 @@ export function composeArtefact(inputs: ArtefactInputs, options: ComposeOptions 
   };
 
   const fleet = inputs.fleet;
-  // Unlinked WhatsApp leads: it is one step only he can take, and it goes the moment it is done.
-  if (inputs.whatsappLink) add("news", WHATSAPP_LINK.id, WHATSAPP_LINK.title, "only you can link it", { detail: WHATSAPP_LINK.line, links: [{ label: "Open the code", url: WHATSAPP_LINK.url }] });
   rowsOf("call", fleet?.calls);
   // Advice is Flyd's own read of his week, next after what waits on his answer: it shows as
   // advice, in Flyd's voice, never as work, and never falls behind the screen's item budget.

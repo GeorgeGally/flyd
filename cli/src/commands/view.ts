@@ -13,6 +13,8 @@ import { CrewProgress } from "../conversation-view/crew-progress.js";
 import { FirstmateInbox } from "../conversation-view/firstmate-inbox.js";
 import { FlydDesk, type Answerer, type Complete, type Seer } from "../conversation-view/flyd-desk.js";
 import { flydBrief } from "../conversation-view/flyd-brief.js";
+import { HoroscopeReader } from "../conversation-view/horoscope.js";
+import { WhatsAppOffer } from "../conversation-view/whatsapp-offer.js";
 import { executiveConversationSource } from "../conversation-view/executive-source.js";
 import { FlydConversationSource } from "../conversation-view/flyd-source.js";
 import { defaultProjectTagFile, ProjectAsker } from "../conversation-view/project-asker.js";
@@ -320,7 +322,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   if (source !== flydSource) source = executiveConversationSource(source, decideChanges, resolveDecision);
   // His conversations by project: Flyd's own and firstmate's, read only.
   source = withThreads(source, flydSource, inbox, transcript);
-  const server = new ConversationViewServer(source, { summarizer, interpreter, artefacts: artefactJudgeFromEnv(), semantic: semanticJudgeFromEnv(), importance: importanceJudgeFromEnv(), always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), undefined, new ActivityReader(), new WhatsAppPairing());
+  const server = new ConversationViewServer(source, { summarizer, interpreter, artefacts: artefactJudgeFromEnv(), semantic: semanticJudgeFromEnv(), importance: importanceJudgeFromEnv(), always: process.env.FLYD_SUMMARY_ALWAYS === "1" }, plan, { projects: () => readProjects() }, feed, new WeatherReader(), undefined, undefined, undefined, new MemoryReader(), undefined, new ActivityReader(), new WhatsAppPairing(), new HoroscopeReader(), new WhatsAppOffer());
   const port = await listenNear(server, options.port ?? DEFAULT_VIEW_PORT, options.port !== undefined);
   const url = `http://${VIEW_HOST}:${port}/${options.session ? `?session=${encodeURIComponent(options.session)}` : ""}`;
   console.log(`flyd view — ${source.assistantLabel} at ${url}`);

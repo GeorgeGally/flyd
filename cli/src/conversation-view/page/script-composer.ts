@@ -397,6 +397,8 @@ export const COMPOSER_SCRIPT = `
     el.appendChild(state);
     main.insertBefore(el, working);
     document.getElementById("empty").hidden = true;
+    document.getElementById("today-feed").hidden = true;
+    document.documentElement.removeAttribute("data-feed");
     return el;
   }
 
@@ -553,6 +555,8 @@ export const COMPOSER_SCRIPT = `
     var text = input.value.trim();
     var sending = attachments.slice();
     if ((!text && !sending.length) || !current) return;
+    // On the News tab his words are about the story in front of him: that story's conversation takes them.
+    if (text && deskSends(text)) return;
     if (aboutInfo && text) {
       text = "About “" + aboutInfo.title + "”" + (aboutInfo.detail && aboutInfo.detail !== aboutInfo.title ? " (" + aboutInfo.detail + ")" : "") + ":\\n\\n" + text;
       chatAbout(null);

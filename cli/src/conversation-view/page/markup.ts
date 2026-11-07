@@ -21,6 +21,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
 <header>
   <span class="who">${label}</span>
   <span class="front-date" id="front-date"></span>
+  <nav class="fmode" id="fmode" aria-label="Today or news"><button type="button" data-mode="today" aria-pressed="true">Today</button><button type="button" data-mode="news" aria-pressed="false">News</button></nav>
   <span class="project-badge" id="project-badge" hidden></span>
   <span class="picker" id="conversation-title" aria-label="Current conversation"></span>
   <a class="article-back" id="article-back" hidden target="_blank" rel="noopener noreferrer"></a>
@@ -60,6 +61,7 @@ ${FRONT_HTML}
 </aside>
 <main id="stream" aria-live="polite">
   <p class="empty" id="empty" hidden>Nothing said yet.</p>
+  <section class="today-feed" id="today-feed" hidden aria-label="Today"></section>
   <div class="article-starters" id="article-starters" hidden></div>
   <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span></div>
   <section class="inline-screen" id="inline-screen" hidden aria-label="The artefact"></section>

@@ -5,6 +5,9 @@
  * When the stream sends update.jobs, those are the cards: a project George is
  * moving, with the digest already stored on it. The page never asks for a new
  * reading while drawing. Without that list it still maps the fleet (frontJobsOf).
+ * A conversation with nothing said yet shows today's feed in the middle. The
+ * header's second tab is the News desk: stories, weather and horoscope, and his
+ * words there go to the story in front of him through its article conversation.
  * A group with nothing in it says something true. Runs inside the page script's
  * closure and borrows its helpers (el, ago, clock, withToken, sceneAsk,
  * artefactChat, openImage, store, cardRead, itemKey, connect).
@@ -261,23 +264,32 @@ export const FRONT_SCRIPT = `
     var said = needed || digest.changed || digest.means || job.next || (job.group === "working" ? frontNext(job) : frontTitle(job.detail));
     return said && frontText(said).toLowerCase() !== frontText(job.title).toLowerCase() ? frontGlance(said, 52) : "";
   }
-  function frontJobCard(job) {
-    var pic = job.shots && job.shots.length
-      ? '<div class="frame"><img src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy"></div>' : "";
-    var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
-    var line = frontLine(job);
-    var reading = line ? '<p class="next">' + frontEsc(line) + '</p>' : "";
-    // "Landed" under "Done" says nothing the group has not; a plain "needs …" is the group's own word.
-    var state = job.group === "done" ? "" : job.state.replace(/^needs\\b[^·]*(?: · |$)/i, "");
-    return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
-      + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
-      + '<div class="t">' + frontEsc(frontGlance(job.title, 60)) + '</div>' + reading + '<div class="m">' + dot + frontMeta([state, job.project])
-      + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div></button>';
+  var FRONT_COUNT = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+  function frontCounted(count) { return FRONT_COUNT[count] || String(count); }
+  // What he must do, said only when it means something: how many wait on him, or how many to pick from.
+  function frontMust(job) {
+    if (/^lab ready/i.test(job.state)) return job.state;
+    if (job.group !== "needs" || !job.decision) return "";
+    var open = (job.decision.decisions || []).filter(function (one) { return one && !one.done; });
+    if (open.length > 1) return frontCounted(open.length) + " to approve";
+    var choices = (job.decision.choices || []).length;
+    return choices > 2 ? "Pick one of " + frontCounted(choices).toLowerCase() : "";
   }
-  // A card's state and project, as many as it has; the group above it already says "needs you".
-  function frontMeta(parts) {
-    return parts.map(function (part, index) { return part ? '<span class="' + (index ? "p" : "s") + '">' + frontEsc(part) + '</span>' : ""; })
-      .filter(Boolean).join('<span aria-hidden="true">·</span>');
+  // A card: its project and time on top, the picture lined up with the words, one short line, and what he must do.
+  function frontJobCard(job) {
+    var pic = job.shots && job.shots.length ? '<img class="shot" src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy">' : "";
+    // On the job list the title is the project's name; a mapped fleet row has a sentence for a title and its project beside it.
+    var name = job.listed ? job.title : job.project;
+    var line = frontLine(job);
+    var title = job.listed ? "" : '<span class="t">' + frontEsc(frontGlance(job.title, 60)) + '</span>';
+    var going = job.group === "working" && !/paus|wait|held/i.test(job.state);
+    var must = frontMust(job);
+    return '<button type="button" class="job ' + job.group + (pic ? "" : " text") + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
+      + (job.id === frontActive ? ' aria-current="true"' : "") + '>'
+      + '<span class="top"><span class="tag' + (going ? " go" : "") + '">' + frontEsc(frontGlance(name, 28)) + '</span>'
+      + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></span>'
+      + pic + title + (line ? '<span class="next">' + frontEsc(line) + '</span>' : "")
+      + (must ? '<span class="act"><span class="fdot" aria-hidden="true"></span>' + frontEsc(must) + '</span>' : "") + '</button>';
   }
   function frontGroup(label, count, body, extra) {
     return '<section class="fgroup"><h2 class="fhead"><span>' + frontEsc(label) + '</span><span>' + (count === "" ? "" : count) + '</span></h2>'
@@ -553,7 +565,7 @@ export const FRONT_SCRIPT = `
 
   function frontListedJob(job) {
     return {
-      id: job.id, group: job.group, state: job.state || "", title: frontTitle(job.title), project: job.project || "",
+      id: job.id, listed: true, group: job.group, state: job.state || "", title: frontTitle(job.title), project: job.project || "",
       at: job.at || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", questionIdentity: job.questionIdentity || "", because: job.because || "",
       digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
       threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.domainRun || "",
@@ -580,6 +592,153 @@ export const FRONT_SCRIPT = `
     frontJobs = new Map(jobs.map(function (job) { return [job.id, job]; }));
     frontDrawJobs(jobs);
     frontStage();
+    frontFeed();
+    if (frontRoot.dataset.fmode === "news" && !deskRead && VIEW_TOKEN) deskLoad();
+  }
+
+  // Today's feed: the home page when nothing has been said in this conversation. The offer card does not count as said.
+  var feedEl = document.getElementById("today-feed");
+  var feedDrawn = "";
+  function feedWhen(iso) {
+    var when = frontWhen(iso);
+    if (iso.length <= 10) return when;
+    var time = clock(iso);
+    return when && when !== time ? when + " " + time : time;
+  }
+  function frontFeed() {
+    var notes = frontUpdate.today;
+    var said = (frontUpdate.order || []).some(function (id) { return id !== WHATSAPP_OFFER_ID; }) || !!main.querySelector(".msg.pending");
+    var shows = Array.isArray(notes) && !said && !articleStarters.length && !inThread();
+    if (shows && feedEl.hidden && frontRoot.dataset.fmode !== "news") window.scrollTo(0, 0);
+    feedEl.hidden = !shows;
+    frontRoot.toggleAttribute("data-feed", shows);
+    if (!shows) return;
+    document.getElementById("empty").hidden = true;
+    var html = notes.map(function (note) {
+      return '<article class="ev' + (note.moving ? " now" : "") + '"><time>' + frontEsc(feedWhen(note.at)) + '</time><p>' + frontEsc(frontTitle(note.text))
+        + (note.aside ? ' <span>' + frontEsc(note.aside) + '</span>' : "") + '</p>'
+        + (note.shot ? '<img src="' + frontEsc(withToken(note.shot)) + '" alt="" loading="lazy">' : "") + '</article>';
+    }).join("") || '<p class="today-quiet">Nothing has moved yet today.</p>';
+    if (html === feedDrawn) return;
+    feedDrawn = html;
+    feedEl.innerHTML = html;
+  }
+
+  // The header's two tabs. News keeps the message box and gives it to the story being read.
+  var fmodeEl = document.getElementById("fmode");
+  var deskNews = document.getElementById("desk-news");
+  var deskSide = document.getElementById("desk-side");
+  var boxWords = input.placeholder;
+  var deskRead = false;
+  var deskRetries = 0;
+  var deskPicked = null;
+  function frontMode(name) {
+    if (frontRoot.dataset.fmode === name) return;
+    frontRoot.dataset.fmode = name;
+    fmodeEl.querySelectorAll("button").forEach(function (tab) { tab.setAttribute("aria-pressed", String(tab.dataset.mode === name)); });
+    try { sessionStorage.setItem("flyd-front-mode", name); } catch (_) {}
+    window.scrollTo(0, 0);
+    if (name === "news") { deskLoad(); deskFollow(); }
+    else { input.placeholder = boxWords; if (pinned) toBottom(); }
+  }
+  fmodeEl.addEventListener("click", function (event) {
+    var tab = event.target.closest("button");
+    if (tab) frontMode(tab.dataset.mode);
+  });
+  function deskLoad() {
+    if (!VIEW_TOKEN) return;
+    deskRead = true;
+    fetch("/api/desk?token=" + encodeURIComponent(VIEW_TOKEN)).then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (desk) {
+        if (!desk) return;
+        deskDraw(desk);
+        // Just after Core starts the first readings are still on their way.
+        if ((!desk.weather || !desk.horoscope) && deskRetries++ < 3) setTimeout(deskLoad, 4000);
+      }).catch(function () {});
+  }
+  function deskDay(day) { return new Date(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10)); }
+  function deskSameDay(day) { return deskDay(day).toDateString() === new Date().toDateString(); }
+  function deskStory(story, index) {
+    var art = el("article", "dstory" + (index === 0 ? " lead" : ""));
+    art.tabIndex = 0;
+    art.story = story;
+    if (story.image && story.image.indexOf("/api/story-image?") === 0) {
+      var img = el("img");
+      img.alt = "";
+      img.loading = "lazy";
+      img.addEventListener("error", function () { img.remove(); });
+      img.src = withToken(story.image);
+      art.appendChild(img);
+    }
+    var src = el("a", "src", story.source || "Read it");
+    src.href = story.url;
+    src.target = "_blank";
+    src.rel = "noopener noreferrer";
+    src.addEventListener("click", function (event) { event.stopPropagation(); });
+    art.appendChild(src);
+    art.appendChild(el("h2", "", story.title));
+    if (story.gist) art.appendChild(el("p", "", story.gist));
+    art.addEventListener("click", function () { deskPick(art); input.focus(); });
+    return art;
+  }
+  function deskPick(art) {
+    deskNews.querySelectorAll(".dstory").forEach(function (one) { one.classList.toggle("on", one === art); });
+    deskPicked = art ? art.story : null;
+    if (frontRoot.dataset.fmode === "news") input.placeholder = deskPicked ? "Ask about " + frontGlance(deskPicked.title, 40) : boxWords;
+  }
+  // The box follows the story he is reading.
+  function deskFollow() {
+    if (frontRoot.dataset.fmode !== "news") return;
+    var line = document.querySelector("header").offsetHeight + 60;
+    var stories = Array.prototype.slice.call(deskNews.querySelectorAll(".dstory"));
+    deskPick(stories.filter(function (one) { return one.getBoundingClientRect().bottom > line; })[0] || stories[0] || null);
+  }
+  window.addEventListener("scroll", deskFollow, { passive: true });
+  function deskDraw(desk) {
+    var stories = desk.news && desk.news.stories || [];
+    var body = stories.map(deskStory);
+    var head = desk.news && !deskSameDay(desk.news.updated)
+      ? [el("p", "desk-head", "Last updated " + deskDay(desk.news.updated).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }))] : [];
+    deskNews.replaceChildren.apply(deskNews, head.concat(body.length ? body : [el("p", "desk-head", "No news yet.")]));
+    deskFollow();
+    deskSide.innerHTML = (desk.weather ? deskWeather(desk.weather) : "") + (desk.horoscope ? deskHoroscope(desk.horoscope) : "");
+  }
+  function wxKind(code, night) {
+    if (code <= 1) return night ? "moon" : "sun";
+    if (code === 2) return night ? "cloud" : "few";
+    if (code === 3 || code === 45 || code === 48) return "cloud";
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return "snow";
+    return code >= 95 ? "storm" : "rain";
+  }
+  function wxIcon(kind, big) { return '<svg class="ic' + (big ? " big" : "") + '" viewBox="0 0 24 24" aria-hidden="true"><use href="#wx-' + kind + '"/></svg>'; }
+  function deg(value) { return Math.round(value) + "°"; }
+  function deskWeather(weather) {
+    var hours = (weather.hours || []).filter(function (hour, index) { return index % 2 === 1 && typeof hour.code === "number"; }).slice(0, 6).map(function (hour) {
+      return '<li><time>' + frontEsc(hour.at.slice(11, 16)) + '</time>' + wxIcon(wxKind(hour.code, hour.night)) + '<b>' + deg(hour.tempC) + '</b><span>' + Math.round(hour.rainChance) + '%</span></li>';
+    }).join("");
+    var days = (weather.days || []).slice(0, 5).map(function (day) {
+      return '<li><time>' + frontEsc(deskDay(day.day).toLocaleDateString([], { weekday: "short" })) + '</time>' + wxIcon(wxKind(day.code)) + '<b>' + deg(day.highC) + '</b><span>' + deg(day.lowC) + '</span></li>';
+    }).join("");
+    return '<section class="dcard"><div class="dtop"><span class="tag">' + frontEsc(weather.place || "Weather") + '</span><time>' + frontEsc(clock(weather.read)) + '</time></div>'
+      + '<div class="wx-now">' + wxIcon(wxKind(weather.code, weather.night), true) + '<div class="deg">' + deg(weather.tempC) + '</div></div>'
+      + (hours ? '<ul class="wx">' + hours + '</ul>' : "") + (days ? '<ul class="wx days">' + days + '</ul>' : "") + '</section>';
+  }
+  function deskHoroscope(reading) {
+    return '<section class="dcard"><div class="dtop"><span class="tag">' + frontEsc(reading.sign) + '</span><time>' + frontEsc(frontWhen(reading.day)) + '</time></div>'
+      + '<p class="say">' + frontEsc(reading.text) + '</p><a class="by" href="' + frontEsc(frontHttp(reading.url)) + '" target="_blank" rel="noopener noreferrer">' + frontEsc(reading.source) + '</a></section>';
+  }
+  // His words on the News tab: the story's own conversation opens, then takes them. Nothing leaves the box until it has.
+  function deskSends(text) {
+    if (frontRoot.dataset.fmode !== "news" || !deskPicked) return false;
+    openArticle(deskPicked, text);
+    return true;
+  }
+  function deskSay(session, words) {
+    var tries = 0;
+    (function when() {
+      if (current === session) { input.value = words; composer.requestSubmit(); return; }
+      if (tries++ < 100) setTimeout(when, 100);
+    })();
   }
 
   jobsEl.addEventListener("click", function (event) {
@@ -633,6 +792,13 @@ export const FRONT_SCRIPT = `
     keepLatest.observe(jobsEl);
     keepLatest.observe(railEl);
   }
+  setInterval(function () { if (frontRoot.dataset.fmode === "news") deskLoad(); }, 600000);
+  (function () {
+    var saved = "today";
+    try { saved = sessionStorage.getItem("flyd-front-mode") || "today"; } catch (_) {}
+    frontRoot.dataset.fmode = "today";
+    if (saved === "news") frontMode("news");
+  })();
   function frontToday() { frontDate.textContent = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }); }
   frontToday();
   setInterval(function () { frontToday(); renderFront(); }, 60000);

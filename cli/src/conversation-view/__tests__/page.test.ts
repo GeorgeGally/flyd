@@ -4018,10 +4018,10 @@ describe("the front page", () => {
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
     expect(groups()).toEqual([["Needs you", 1], ["Working", "Nothing is running right now."], ["Done", 1]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
-    expect(needs.querySelector(".frame img")).not.toBeNull();
-    // Under "Needs you" the dot says it; the card names the project.
-    expect(needs.querySelector(".s")).toBeNull();
-    expect(needs.querySelector(".p")!.textContent).toBe("CopyCopy");
+    expect(needs.querySelector("img.shot")).not.toBeNull();
+    // The card names the project on top, with the time beside it.
+    expect(needs.querySelector(".top .tag")!.textContent).toBe("CopyCopy");
+    expect(needs.querySelector(".top .w")).not.toBeNull();
     expect(document.getElementById("stage-crumb")!.textContent).toContain("With firstmate");
   });
 
@@ -4115,8 +4115,8 @@ describe("the front page", () => {
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, focus, needs: [lab] }, leftColumn: { now: [], recent: [], week: [], monitors: [], semantic: [lab] } });
     expect(Array.from(document.querySelectorAll("#jobs-list .job.needs")).map((card) => card.getAttribute("data-job"))).toEqual(["call:pick", "lab:run-7"]);
     const card = document.querySelector<HTMLElement>('.job[data-job="lab:run-7"]')!;
-    expect(card.querySelector(".s")!.textContent).toBe("Lab ready for review");
-    expect(card.querySelector(".frame img")!.getAttribute("src")).toContain("/api/rail-image?path=");
+    expect(card.querySelector(".act")!.textContent).toBe("Lab ready for review");
+    expect(card.querySelector("img.shot")!.getAttribute("src")).toContain("/api/rail-image?path=");
     after(() => card.click());
     expect(document.querySelector<HTMLAnchorElement>(".job-view .fbtn")!.href).toBe("https://example.test/lab.html");
     expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
@@ -4141,8 +4141,10 @@ describe("the front page", () => {
       }],
     });
     const card = document.querySelector<HTMLElement>('.job[data-job="cleanx"]')!;
-    expect(card.querySelectorAll("p")).toHaveLength(1);
-    expect(card.querySelector(".t")!.textContent!.length).toBeLessThanOrEqual(60);
+    expect(card.querySelectorAll(".next")).toHaveLength(1);
+    // The job's name is the small headline on top; its filing category never shows.
+    expect(card.querySelector(".top .tag")!.textContent!.length).toBeLessThanOrEqual(28);
+    expect(card.textContent).not.toContain("Product");
     expect(card.querySelector(".next")!.textContent!.length).toBeLessThanOrEqual(52);
     expect(card.querySelector(".next")!.textContent).toBe("Reply OK to inspect the server");
     expect(card.textContent).not.toContain("certificate");
@@ -4167,6 +4169,79 @@ describe("the front page", () => {
     await settle();
     const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
     expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-2", questionText: `${prefix} new`, text: "Yes" });
+  });
+
+  it("shows today's feed while nothing has been said, with the time above each note, and leaves it once he speaks", async () => {
+    const stream = await opened();
+    const today = [{ id: "a", at: "2026-10-26T12:00:00.000Z", text: "CleanX is on your notes.", aside: "Started 11:01.", moving: true, shot: "/api/rail-image?path=x" }];
+    stream.emit("update", { order: ["whatsapp-link"], messages: [{ id: "whatsapp-link", role: "assistant", html: "", card: { kind: "decision", line: "Link WhatsApp" } }], working: false, show: SHOW, today });
+    const feed = document.getElementById("today-feed")!;
+    expect(feed.hidden).toBe(false);
+    expect(document.documentElement.hasAttribute("data-feed")).toBe(true);
+    expect(document.getElementById("empty")!.hidden).toBe(true);
+    const note = feed.querySelector(".ev.now")!;
+    expect(note.firstElementChild!.tagName).toBe("TIME");
+    expect(note.querySelector("p")!.textContent).toBe("CleanX is on your notes. Started 11:01.");
+    expect(feed.innerHTML).toContain("<img");
+    stream.emit("update", { order: ["u1"], messages: [{ id: "u1", role: "user", html: "<p>Morning</p>" }], working: false, show: SHOW, today });
+    expect(feed.hidden).toBe(true);
+  });
+
+  it("offers the WhatsApp card a way out that tells Core and takes it off the page", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["whatsapp-link"], messages: [{ id: "whatsapp-link", role: "assistant", html: "", card: { kind: "decision", line: "Link WhatsApp", url: "/whatsapp" } }], working: false, show: SHOW });
+    const away = document.querySelector<HTMLButtonElement>(".card-away")!;
+    expect(away.textContent).toBe("Not now");
+    away.click();
+    await settle();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/whatsapp-offer")).toBe(true);
+    expect(document.querySelector(".card-away")).toBeNull();
+  });
+
+  it("says what he must do only when it counts: how many to approve, or how many to pick from", async () => {
+    const stream = await opened();
+    const job = (id: string, decision: unknown) => ({ id, group: "needs", state: "Needs you", title: id, project: "Product", at: "2026-10-26T12:00:00.000Z", next: "Look.", owner: "you", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, decision });
+    stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [
+      job("four", { task: "t", question: "q", choices: [], decisions: [{ question: "a", options: [] }, { question: "b", options: [] }, { question: "c", options: [], done: "Done" }, { question: "d", options: [] }, { question: "e", options: [] }] }),
+      job("five", { task: "t", question: "q", choices: ["1", "2", "3", "4", "5"] }),
+      job("plain", { task: "t", question: "q", choices: ["Yes", "No"] }),
+    ] });
+    expect(document.querySelector('.job[data-job="four"] .act')!.textContent).toBe("Four to approve");
+    expect(document.querySelector('.job[data-job="five"] .act')!.textContent).toBe("Pick one of five");
+    expect(document.querySelector('.job[data-job="plain"] .act')).toBeNull();
+  });
+
+  it("opens the News tab on the desk, follows the story, and sends his words to that story's conversation", async () => {
+    document.documentElement.setAttribute("data-layout", "front");
+    const stream = await opened();
+    stream.emit("update", { order: [], messages: [], working: false, show: SHOW });
+    const desk = { news: { updated: "2026-11-03", stories: [{ title: "Static Radio", url: "https://hackaday.example/a", source: "Hackaday", gist: "A radio." }] },
+      weather: { place: "Canggu", tempC: 29.4, code: 0, condition: "clear", read: "2026-11-07T04:30:00.000Z", hours: [{ at: "2026-11-07T13:00", tempC: 29, rainChance: 10, code: 61 }, { at: "2026-11-07T14:00", tempC: 29, rainChance: 65, code: 61 }], days: [{ day: "2026-11-08", code: 95, highC: 30, lowC: 24 }] },
+      horoscope: { sign: "Virgo", day: "2026-11-07", text: "Keep a level head.", source: "Horoscope.com", url: "https://www.horoscope.com/x" } };
+    const seen: string[] = [];
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
+      seen.push(String(url));
+      if (String(url).startsWith("/api/desk")) return json(desk);
+      if (url === "/api/article-chat") return json({ session: "window:article-0123456789abcdef", title: "Static Radio", url: desk.news.stories[0].url, starters: [], link: { href: desk.news.stories[0].url, label: "Article" } });
+      return json({ assistantLabel: "Flyd", sessions: SESSIONS });
+    });
+    document.querySelector<HTMLButtonElement>('#fmode [data-mode="news"]')!.click();
+    await settle();
+    expect(document.documentElement.dataset.fmode).toBe("news");
+    expect(document.querySelector("#desk-news .dstory h2")!.textContent).toBe("Static Radio");
+    expect(document.querySelector("#desk-news .desk-head")!.textContent).toContain("Last updated");
+    expect(document.querySelector('#desk-side use[href="#wx-sun"]')).not.toBeNull();
+    expect(document.querySelector('#desk-side .days use[href="#wx-storm"]')).not.toBeNull();
+    expect(document.querySelector("#desk-side .say")!.textContent).toBe("Keep a level head.");
+    const box = document.getElementById("input") as HTMLTextAreaElement;
+    expect(box.placeholder).toBe("Ask about Static Radio");
+    box.value = "How does it run?";
+    document.getElementById("composer")!.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+    await settle();
+    expect(seen).toContain("/api/article-chat");
+    expect(document.documentElement.dataset.fmode).toBe("today");
+    expect(box.placeholder).toBe("Message firstmate");
+    document.documentElement.removeAttribute("data-layout");
   });
 
   it("renders stored job digests and says what an empty list actually is", async () => {
