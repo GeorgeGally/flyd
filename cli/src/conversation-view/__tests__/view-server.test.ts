@@ -10,6 +10,7 @@ import { ProjectThreads, withProjectThreads } from "../project-threads.js";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage, Exchange } from "../types.js";
+import { QuestionGone } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ActivityReader } from "../activity.js";
 import { readDomainRun, saveDomainRun } from "../../command/store.js";
@@ -611,19 +612,207 @@ describe("ConversationViewServer", () => {
       saveDomainRun(run("two"));
       const port = await start(new MemoryInbox());
       const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
-      const response = await post(port, JSON.stringify({ domainRun: "two", text: "yes" }), headers);
+      const response = await post(port, JSON.stringify({ domainRun: "two", questionText: "Research", text: "yes" }), headers);
       expect(response.status).toBe(200);
       expect(readDomainRun("one")?.messages).toBeUndefined();
       const delivered = readDomainRun("two")?.messages;
       expect(delivered).toEqual([expect.objectContaining({ kind: "decision", body: "yes", deliveredAt: expect.any(String) })]);
       expect(JSON.parse(response.body)).toMatchObject({ id: delivered![0]!.id });
-      expect((await post(port, JSON.stringify({ domainRun: "missing", text: "yes" }), headers)).status).toBe(409);
-      saveDomainRun({ ...run("finished"), phase: "done" });
-      expect((await post(port, JSON.stringify({ domainRun: "finished", text: "yes" }), headers)).status).toBe(409);
-      expect(readDomainRun("finished")?.messages).toBeUndefined();
     } finally {
       if (previous === undefined) delete process.env.FLYD_COMMAND_DIR; else process.env.FLYD_COMMAND_DIR = previous;
     }
+  });
+
+  describe("a question that went stale before he sent", () => {
+    const home = (decisions: string) => {
+      dir = mkdtempSync(join(tmpdir(), "flyd-stale-answer-"));
+      mkdirSync(join(dir, "bin"));
+      mkdirSync(join(dir, "data"));
+      writeFileSync(join(dir, "data", "backlog.md"), decisions);
+      writeFileSync(join(dir, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat "$FM_HOME/snapshot.json" 2>/dev/null || printf '%s' '{"decisions_open":[{"id":"visuals","summary":"Pick a look"}]}'\n`, { mode: 0o755 });
+      writeFileSync(join(dir, "bin", "fm-inbox.sh"), '#!/bin/sh\n[ "$1" = "note" ] || exit 2\nmkdir -p "$FM_HOME/state/inbox"\ncat > "$FM_HOME/state/inbox/decision-note"\necho \'{"id":"decision-note","saved":true}\'\n', { mode: 0o755 });
+      return dir;
+    };
+    const today = new Date().toISOString().slice(0, 10);
+    const open = `- [ ] visuals - Pick a Christmas look (repo: good_neighbours) (since ${today}) (hold: Choose Evergreen or a mix)\n`;
+    const note = () => readFileSync(join(dir!, "state", "inbox", "decision-note"), "utf8");
+    const serve = async (feed: ArtefactFeed) => {
+      await feed.refresh();
+      const source = new ClaudeCodeTranscriptSource({ projectDir: dir!, inbox: new FirstmateInbox({ home: dir! }) });
+      server = new ConversationViewServer(source, undefined, undefined, undefined, feed);
+      const port = await server.listen(0);
+      viewToken = JSON.parse((await get(port, "/api/token")).body).token;
+      return { port, source, headers: { "content-type": "application/json", "x-flyd-view-token": viewToken! } };
+    };
+    const feedOf = (root: string) => new ArtefactFeed({ home: root, memoryFile: join(root, "none"), newsFile: join(root, "none"), tasteFile: join(root, "none") });
+
+    it("sends his words and his picture on to the same job as a normal message", async () => {
+      const { port, headers } = await serve(feedOf(home("")));
+      const sent = await post(port, JSON.stringify({ decision: "gone-call", decisionTask: "cleanx", jobTitle: "CleanX", questionText: "Inspect the server?", text: "for flyd - this is too much text", images: [{ mediaType: "image/png", data: PNG }] }), headers);
+      expect(sent.status).toBe(200);
+      expect(sent.body).not.toMatch(/no longer available|refresh/i);
+      expect(note()).toMatch(/^About the artefact "CleanX"\nTask: cleanx\nDetail: Inspect the server\?\n\nfor flyd - this is too much text\n\n\[image: .+\.png\]/);
+    });
+
+    it("reads the fleet afresh and answers the question when it is really still open", async () => {
+      const root = home("");
+      const feed = feedOf(root);
+      const { port, headers } = await serve(feed);
+      writeFileSync(join(root, "data", "backlog.md"), open);
+      const sent = await post(port, JSON.stringify({ decision: "visuals", questionText: "Choose Evergreen or a mix", text: "Evergreen luxe" }), headers);
+      expect(sent.status).toBe(200);
+      expect(note()).toMatch(/^Answer to pending decision visuals: Pick a Christmas look\nQuestion: Choose Evergreen or a mix\n\nEvergreen luxe/);
+    });
+
+    it("gives the answer to a question put again under a new id, but never to a different question on that job", async () => {
+      const { port, headers } = await serve(feedOf(home(open)));
+      await post(port, JSON.stringify({ decision: "old-id", decisionTask: "visuals", questionText: "Choose  Evergreen or a mix", text: "Evergreen" }), headers);
+      expect(note()).toMatch(/^Answer to pending decision visuals/);
+      await post(port, JSON.stringify({ decision: "visuals", decisionTask: "visuals", questionText: "Choose evergreen or a mix", text: "Evergreen" }), headers);
+      expect(note()).toMatch(/^About the artefact /);
+      await post(port, JSON.stringify({ decision: "old-id", decisionTask: "visuals", questionText: "Which charity?", text: "Evergreen" }), headers);
+      expect(note()).toMatch(/^About the artefact "Which charity\?"\nTask: visuals/);
+    });
+
+    it("refreshes a cached call before answering the same task's replacement question", async () => {
+      const root = home(open);
+      const { port, headers } = await serve(feedOf(root));
+      writeFileSync(join(root, "data", "backlog.md"), open.replace("Choose Evergreen or a mix", "Which charity?"));
+      const sent = await post(port, JSON.stringify({ decision: "visuals", decisionTask: "visuals", questionText: "Choose Evergreen or a mix", text: "Evergreen" }), headers);
+      expect(sent.status).toBe(200);
+      expect(note()).toMatch(/^About the artefact "Choose Evergreen or a mix"\nTask: visuals\nDetail: Choose Evergreen or a mix\n\nEvergreen/);
+    });
+
+    it("does not decide from the last good fleet when a refresh fails", async () => {
+      const root = home(open);
+      const { port, headers } = await serve(feedOf(root));
+      writeFileSync(join(root, "bin", "fm-bearings-snapshot.sh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+      expect((await post(port, JSON.stringify({ decision: "visuals", decisionTask: "visuals", questionText: "Choose Evergreen or a mix", text: "Evergreen" }), headers)).status).toBe(200);
+      expect(note()).toMatch(/^About the artefact /);
+    });
+
+    it("waits for an in-flight refresh and rereads before deciding", async () => {
+      const root = home(open);
+      const feed = feedOf(root);
+      const { port, headers } = await serve(feed);
+      const marker = join(root, "reading");
+      writeFileSync(join(root, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ntouch "${marker}"\nsleep 0.2\nprintf '%s' '{"decisions_open":[{"id":"visuals","summary":"Pick a look"}]}'\n`, { mode: 0o755 });
+      const pending = feed.refresh();
+      for (let attempt = 0; attempt < 200 && !existsSync(marker); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(existsSync(marker)).toBe(true);
+      writeFileSync(join(root, "data", "backlog.md"), open.replace("Choose Evergreen or a mix", "Which charity?"));
+      const sent = await post(port, JSON.stringify({ decision: "visuals", decisionTask: "visuals", questionText: "Choose Evergreen or a mix", text: "Evergreen" }), headers);
+      await pending;
+      expect(sent.status).toBe(200);
+      expect(note()).toMatch(/^About the artefact /);
+    });
+
+    it("keeps images on missing and expired follow-ups and rejects malformed images", async () => {
+      const { port, headers, source } = await serve(feedOf(home("")));
+      const image = { mediaType: "image/png", data: PNG };
+      const base = { decisionTask: "visuals", jobTitle: "Visuals", text: "Try this", images: [image] };
+      expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "" }), headers)).status).toBe(200);
+      expect(note()).toMatch(/Task: visuals[\s\S]*Try this\n\n\[image: .+\.png\]/);
+      rmSync(join(dir!, "state", "inbox", "decision-note"));
+      expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "old", images: [{ data: PNG }] }), headers)).status).toBe(400);
+      expect(existsSync(join(dir!, "state", "inbox", "decision-note"))).toBe(false);
+      Object.assign(source, { sendDecisionFollowUp: async () => { throw new QuestionGone(); } });
+      expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "old", images: [] }), headers)).status).toBe(200);
+      expect(note()).toMatch(/Task: visuals[\s\S]*Try this/);
+      rmSync(join(dir!, "state", "inbox", "decision-note"));
+      expect((await post(port, JSON.stringify({ ...base, decisionFollowUp: "old" }), headers)).status).toBe(200);
+      expect(note()).toMatch(/Task: visuals[\s\S]*Try this\n\n\[image: .+\.png\]/);
+    });
+
+    it("resolves a current executive answer before sending its image", async () => {
+      const { port, headers, source } = await serve(feedOf(home("")));
+      const calls: Array<{ text: string; images: unknown[]; decision: unknown }> = [];
+      Object.assign(server!, { liveCall: async () => ({ executiveDecisionId: "decision-1", task: "visuals", label: "Visuals", question: "Which design?" }) });
+      Object.assign(source, { sendDecision: async (text: string, images: unknown[] = [], decision?: unknown) => {
+        calls.push({ text, images, decision });
+        return { id: `sent-${calls.length}`, timestamp: new Date().toISOString() };
+      } });
+      const image = { mediaType: "image/png", data: PNG };
+      const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "another round", images: [image] }), headers);
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({ id: "sent-1", followUp: "decision-1" });
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toMatchObject({ text: "another round", images: [], decision: { decisionId: "decision-1", taskId: "visuals" } });
+      expect(calls[1]).toMatchObject({ images: [image], decision: undefined });
+      expect(calls[1]!.text).toContain("Task: visuals");
+    });
+
+    it("reports an image failure after recording the executive decision", async () => {
+      const { port, headers, source } = await serve(feedOf(home("")));
+      let resolutions = 0;
+      Object.assign(server!, { liveCall: async () => ({ executiveDecisionId: "decision-1", task: "visuals", label: "Visuals", question: "Which design?" }) });
+      Object.assign(source, { sendDecision: async (_text: string, _images: unknown[], decision?: unknown) => {
+        if (!decision) throw new Error("image delivery failed");
+        resolutions++;
+        return { id: "resolved", timestamp: new Date().toISOString() };
+      } });
+      const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "another round", images: [{ mediaType: "image/png", data: PNG }] }), headers);
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({ id: "resolved", followUp: "decision-1", warning: expect.stringContaining("picture was not delivered") });
+      expect(resolutions).toBe(1);
+    });
+
+    it("reaches a run that moved on, and a job whose run has closed", async () => {
+      const previous = process.env.FLYD_COMMAND_DIR;
+      const root = home("");
+      process.env.FLYD_COMMAND_DIR = join(root, "command");
+      try {
+        const run = (id: string, status: "working" | "needs_decision") => ({ id, request: { id, domain: "knowledge" as const, originalMessage: "Research", intendedOutcome: "Research the market", doneWhen: [], createdAt: "2026-10-09T00:00:00Z", source: "chat" as const }, owner: "Librarian", status, createdAt: "2026-10-09T00:00:00Z", updatedAt: "2026-10-09T00:00:00Z", transport: { kind: "native" as const, requestId: id } });
+        saveDomainRun(run("moved", "working"));
+        saveDomainRun({ ...run("finished", "needs_decision"), phase: "done" });
+        const { port, headers } = await serve(feedOf(root));
+        expect((await post(port, JSON.stringify({ domainRun: "moved", text: "yes" }), headers)).status).toBe(200);
+        expect(readDomainRun("moved")?.messages).toEqual([expect.objectContaining({ body: "yes", deliveredAt: expect.any(String) })]);
+        saveDomainRun({ ...run("changed", "needs_decision"), result: { format: "structured", brief: "", detailedReport: "", decisionsMade: [], unresolvedQuestions: ["Which charity?"], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" } });
+        expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which design?", text: "Evergreen" }), headers)).status).toBe(200);
+        expect(readDomainRun("changed")?.messages).toEqual([expect.objectContaining({ kind: "correction", body: "About the earlier question: Which design?\n\nEvergreen" })]);
+        expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local" }), headers)).status).toBe(200);
+        expect(readDomainRun("changed")?.messages?.[1]).toEqual(expect.objectContaining({ kind: "decision", body: "Local" }));
+        expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "which charity?", text: "Case differs" }), headers)).status).toBe(200);
+        expect(readDomainRun("changed")?.messages?.at(-1)).toMatchObject({ kind: "correction", body: expect.stringContaining("Case differs") });
+        const failedPicture = await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Recorded once", images: [{ mediaType: "image/png", data: "" }] }), headers);
+        expect(failedPicture.status).toBe(200);
+        expect(JSON.parse(failedPicture.body)).toMatchObject({ id: expect.stringContaining(":decision:"), warning: expect.stringContaining("picture was not delivered") });
+        expect(readDomainRun("changed")?.messages?.filter((message) => message.body === "Recorded once")).toHaveLength(1);
+        expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local with picture", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
+        const attached = readDomainRun("changed")?.messages?.slice(-2);
+        expect(attached?.[0]).toMatchObject({ kind: "decision", body: "Local with picture" });
+        expect(attached?.[1]?.kind).toBe("correction");
+        const attachedPath = /\[image: (.+)\]/.exec(attached?.[1]?.body ?? "")?.[1];
+        expect(attachedPath).toBeTruthy();
+        expect(readFileSync(attachedPath!)).toEqual(Buffer.from(PNG, "base64"));
+        const prefix = "A".repeat(200);
+        saveDomainRun({ ...run("long", "needs_decision"), result: { format: "structured", brief: "", detailedReport: "", decisionsMade: [], unresolvedQuestions: [`${prefix} new?`], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" } });
+        expect((await post(port, JSON.stringify({ domainRun: "long", questionText: `${prefix} old?`, text: "Old answer", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
+        const correction = readDomainRun("long")?.messages?.[0];
+        expect(correction?.kind).toBe("correction");
+        const imagePath = /\[image: (.+)\]/.exec(correction?.body ?? "")?.[1];
+        expect(imagePath).toBeTruthy();
+        expect(readFileSync(imagePath!)).toEqual(Buffer.from(PNG, "base64"));
+        expect((await post(port, JSON.stringify({ domainRun: "long", questionText: `${prefix} old?`, text: "Another answer" }), headers)).status).toBe(200);
+        expect(readDomainRun("long")?.messages?.[1]?.kind).toBe("correction");
+        expect((await post(port, JSON.stringify({ domainRun: "long", questionText: `${prefix} new?`, text: "New answer" }), headers)).status).toBe(200);
+        expect(readDomainRun("long")?.messages?.[2]?.kind).toBe("decision");
+        expect((await post(port, JSON.stringify({ domainRun: "finished", text: "the words" }), headers)).status).toBe(200);
+        expect(readDomainRun("finished")?.messages).toBeUndefined();
+        expect(note()).toMatch(/^About the artefact "Research the market"\nTask: finished\n\nthe words/);
+        expect((await post(port, JSON.stringify({ domainRun: "missing", jobTitle: "Gone", text: "still mine" }), headers)).status).toBe(200);
+        expect(note()).toMatch(/^About the artefact "Gone"\nTask: missing\n\nstill mine/);
+      } finally {
+        if (previous === undefined) delete process.env.FLYD_COMMAND_DIR; else process.env.FLYD_COMMAND_DIR = previous;
+      }
+    });
+
+    it("still refuses an answer with no words", async () => {
+      const { port, headers } = await serve(feedOf(home("")));
+      expect((await post(port, JSON.stringify({ decision: "gone-call", text: " " }), headers)).status).toBe(400);
+      expect((await post(port, JSON.stringify({ domainRun: "gone-run", text: "" }), headers)).status).toBe(400);
+    });
   });
 
   it("delivers an artefact decision to the durable inbox without a Claude session and never closes the hold", async () => {
@@ -640,7 +829,7 @@ describe("ConversationViewServer", () => {
     server = new ConversationViewServer(new ClaudeCodeTranscriptSource({ projectDir: dir, inbox: new FirstmateInbox({ home: dir }) }), undefined, undefined, undefined, feed);
     const port = await server.listen(0);
     viewToken = JSON.parse((await get(port, "/api/token")).body).token;
-    const body = JSON.stringify({ decision: "visuals", text: "Evergreen luxe" });
+    const body = JSON.stringify({ decision: "visuals", questionText: "Choose Evergreen or a mix", text: "Evergreen luxe" });
     expect((await post(port, body, { "content-type": "application/json" })).status).toBe(403);
     expect((await post(port, body, { "content-type": "application/json", "x-flyd-view-token": viewToken!, origin: "https://evil.example" })).status).toBe(403);
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
@@ -649,7 +838,6 @@ describe("ConversationViewServer", () => {
     expect(JSON.parse(sent.body)).toMatchObject({ id: "note:decision-note", waiting: "Sent to firstmate" });
     expect(noteWords()).toBe("Answer to pending decision visuals: Pick a Christmas look\nQuestion: Choose Evergreen or a mix\n\nEvergreen luxe");
     expect(feed.current().fleet!.calls).toHaveLength(1);
-    expect((await post(port, JSON.stringify({ decision: "unknown", text: "Yes" }), headers)).status).toBe(409);
     expect((await post(port, JSON.stringify({ decision: "visuals", text: " " }), headers)).status).toBe(400);
     // Any artefact: his words go to firstmate naming what they are about.
     const about = await post(port, JSON.stringify({ about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://example.com/map" }, text: "Make the pins bigger" }), headers);
@@ -771,7 +959,16 @@ describe("ConversationViewServer", () => {
     expect(inbox.sent[1]!.text).toBe('[Captain is replying from Flyd to note:1 — his note: "There should also be other movements for bunny."; your answer began: "Clicking the bunny now makes him jump."; the answer\'s screenshot: /tmp/bunny.png. His reply follows.]\n\nMake the spin slower.');
     const reply = server!["source"].exchanges!().find((exchange: { question: ConversationMessage }) => exchange.question.id === "note:2")!;
     expect(reply.question).toMatchObject({ text: "Make the spin slower.", replyTo: "note:1", replyQuote: "There should also be other movements for bunny." });
-    expect((await post(port, JSON.stringify({ session: "s1", text: "Hm", replyTo: "note:9" }), headers)).status).toBe(409);
+    // What he replied to has gone: his words still go, as a new message.
+    const images = [{ mediaType: "image/png", data: PNG }];
+    const files = [{ name: "brief.pdf", data: Buffer.from("%PDF-1.3").toString("base64") }];
+    expect((await post(port, JSON.stringify({ session: "s1", text: "Hm", replyTo: "note:9", images, files }), headers)).status).toBe(200);
+    expect(inbox.sent.at(-1)!.text).toBe("Hm");
+    expect(inbox.uploads).toEqual(images);
+    expect(inbox.documents).toEqual(files);
+    expect((await post(port, JSON.stringify({ session: "s1", text: "More", replyTo: "note:1", images, files }), headers)).status).toBe(200);
+    expect(inbox.uploads).toEqual([...images, ...images]);
+    expect(inbox.documents).toEqual([...files, ...files]);
     expect((await post(port, JSON.stringify({ session: "s1", text: " ", replyTo: "note:1" }), headers)).status).toBe(400);
   });
 
@@ -792,8 +989,9 @@ describe("ConversationViewServer", () => {
     // In the window and the column it reads as his own word, answering that question.
     const answer = server!["source"].exchanges!()[0]!;
     expect(answer.question).toMatchObject({ text: "Yes", replyTo: asked!.id, replyQuote: "The leftover test page is still there. Should I remove it?" });
-    // A reply that asked nothing is not a question to answer.
-    expect((await post(port, JSON.stringify({ session: "s1", text: "Yes", replyTo: reported!.id }), headers)).status).toBe(409);
+    // A reply that asked nothing is not a question to answer: "Yes" goes as a plain message, not as an answer.
+    expect((await post(port, JSON.stringify({ session: "s1", text: "Yes", replyTo: reported!.id }), headers)).status).toBe(200);
+    expect(inbox.sent.at(-1)!.text).toBe("Yes");
   });
 
   it("delivers a visible choice to its asking session after its message leaves the snapshot", async () => {

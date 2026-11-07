@@ -286,7 +286,7 @@ export class FirstmateInbox implements CaptainInbox {
   }
 
   /** Checks and saves pasted images; returns their absolute paths. */
-  private saveImages(images: ImageUpload[]): string[] {
+  saveImages(images: ImageUpload[]): string[] {
     if (images.length > MAX_IMAGES) throw new Error(`At most ${MAX_IMAGES} images per message`);
     const decoded = images.map((image) => {
       const bytes = Buffer.from(image.data, "base64");

@@ -201,3 +201,6 @@ export interface ConversationSource {
   /** His conversations split by project, when the view keeps them. */
   projectThreads?(): ThreadList;
 }
+
+/** The decision was closed or answered between his reading it and his sending. Not his problem: his words still go to the job. */
+export class QuestionGone extends Error {}

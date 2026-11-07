@@ -18,7 +18,7 @@ import { FlydConversationSource } from "../conversation-view/flyd-source.js";
 import { defaultProjectTagFile, ProjectAsker } from "../conversation-view/project-asker.js";
 import { threadCatalogue } from "../conversation-view/project-tags.js";
 import { ProjectThreads, withProjectThreads, type ThreadFeed } from "../conversation-view/project-threads.js";
-import type { ConversationMessage, ConversationSource } from "../conversation-view/types.js";
+import { QuestionGone, type ConversationMessage, type ConversationSource } from "../conversation-view/types.js";
 import { inFlydsVoice } from "../conversation-view/flyd-voice.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { memoryLookup } from "../conversation-view/living.js";
@@ -195,10 +195,10 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     const store = new IntelligenceEventStore({ path: join(FLYD_DIR, "intelligence.sqlite") });
     try {
       const decision = readExecutiveDecision(store, decisionId);
-      if (!decision || decision.taskId !== taskId || decision.disposition !== "ask_george") throw new Error("That decision is no longer available");
+      if (!decision || decision.taskId !== taskId || decision.disposition !== "ask_george") throw new QuestionGone("That decision is no longer available");
       if (decision.resolution && !update) {
         if (decision.resolution.answer === answer.trim()) return;
-        throw new Error("That decision already has George's answer");
+        throw new QuestionGone("That decision already has George's answer");
       }
       const run = listDomainRuns().find((item) => item.id === taskId && item.transport.kind === "firstmate"
         && item.request.domain === "coding" && (update || ["queued", "accepted", "working", "needs_decision", "incomplete"].includes(item.status)));

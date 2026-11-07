@@ -20,13 +20,13 @@ import { currentPage, type CurrentPage } from "./site-changes.js";
 import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
 import { syncTasteSkills } from "../council/taste-skills.js";
 import { applyProjectOps, projectsPath, readProjects } from "../council/projects.js";
-import { listDomainRuns, readDomainRun } from "../command/store.js";
-import { messageId, sendRunMessage } from "../command/messages.js";
+import { commandDir, listDomainRuns, readDomainRun } from "../command/store.js";
+import { activeDomainRuns, messageId, sendRunMessage } from "../command/messages.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { IslandRung, islandStatusOf, statusOf } from "./status.js";
 import { authorSummary, digestReply, isActionable, isRoutine, isRoutineAnswer, askedForArtefact, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
-import type { ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageUpload } from "./types.js";
+import { QuestionGone, type ConversationMessage, type ConversationSnapshot, type ConversationSource, type Exchange, type FileUpload, type ImageUpload } from "./types.js";
 import type { AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
 import type { SemanticJudge } from "./semantic-judge.js";
@@ -40,7 +40,7 @@ import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from 
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
 import { liveActivityOf, type LiveActivity } from "./live-activity.js";
 import { readDigests, scheduleDigest } from "./job-digest.js";
-import { ArtefactFeed, composeArtefact, WHATSAPP_LINK, type ArtefactInputs } from "./artefact.js";
+import { ArtefactFeed, composeArtefact, WHATSAPP_LINK, type ArtefactInputs, type ArtefactRow } from "./artefact.js";
 import type { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail, RailState } from "./rail.js";
@@ -55,7 +55,7 @@ import { withFollowUps } from "./follow-ups.js";
 import { liveWords } from "./living.js";
 import { answerNote, artefactAsk, PASSAGE_CHARS, passageNote, replyNote, undoNote } from "./replies.js";
 import { matchCommand } from "./commands.js";
-import { withCommandMarker } from "./firstmate-inbox.js";
+import { FirstmateInbox, withCommandMarker } from "./firstmate-inbox.js";
 import { answered, answeredForHim, choiceOf, choiceTarget, labelOf, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { WeatherReader } from "./weather.js";
@@ -101,6 +101,11 @@ const MAX_SEND_BODY_BYTES = 192 * 1024 * 1024;
 const MAX_DRAFT_ATTACHMENT_BYTES = 48 * 1024 * 1024;
 /** Reply steps kept in the column's Artefacts: the newest few. */
 const MAX_REPLY_ARTEFACTS = 3;
+const sameQuestion = (left: unknown, right: unknown): boolean => {
+  const normalize = (value: unknown) => typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  const question = normalize(left);
+  return Boolean(question) && question === normalize(right);
+};
 /** A note older than this is not chased for a missing artefact: opening the window never replays the backlog. */
 const ARTEFACT_CHASE_MAX_AGE_MS = 24 * 60 * 60_000;
 /** Model summaries are only asked for the newest replies; older ones use what is cached. */
@@ -1620,7 +1625,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; domainRun?: unknown; replyTo?: unknown; questionText?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; domainRun?: unknown; jobTitle?: unknown; replyTo?: unknown; questionText?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -1631,6 +1636,7 @@ export class ConversationViewServer {
       await this.undo(res, payload.session, payload.undo);
       return;
     }
+    const session = typeof payload.session === "string" ? payload.session : undefined;
     const images = payload.images ?? [];
     const validImages = Array.isArray(images) && images.every((image) =>
       typeof image === "object" && image !== null &&
@@ -1640,25 +1646,39 @@ export class ConversationViewServer {
         sendJson(res, 400, { error: "Enter an answer of at most 4000 characters" });
         return;
       }
-      const run = readDomainRun(payload.domainRun);
-      if (!run || run.status !== "needs_decision" || run.phase === "done" || run.request.source === "flyd") {
-        sendJson(res, 409, { error: "This question is no longer available; refresh before answering" });
+      if (!validImages) {
+        sendJson(res, 400, { error: "expected images as [{ mediaType, data }]" });
         return;
       }
-      const result = await sendRunMessage({ run, kind: "decision", body: payload.text });
+      const run = activeDomainRuns().find((active) => active.id === payload.domainRun && active.phase !== "done");
+      // A run that has moved past the question still hears him; a closed one reaches its job as a normal message.
+      if (!run) {
+        await this.sendToJob(res, { title: payload.jobTitle ?? readDomainRun(payload.domainRun)?.request.intendedOutcome, task: payload.domainRun, question: payload.questionText }, payload.text, images as ImageUpload[], session);
+        return;
+      }
+      const currentQuestion = run.result?.unresolvedQuestions.find((item) => item.trim()) ?? (run.result?.brief?.trim() || run.request.intendedOutcome || run.request.originalMessage);
+      const isDecision = run.status === "needs_decision" && sameQuestion(payload.questionText, currentQuestion);
+      if (!isDecision && (images as ImageUpload[]).length) {
+        await this.sendToJob(res, { title: payload.jobTitle ?? run.request.intendedOutcome, task: run.id, question: payload.questionText }, payload.text, images as ImageUpload[], session);
+        return;
+      }
+      const kind = isDecision ? "decision" : "correction";
+      const body = isDecision ? payload.text : `${typeof payload.questionText === "string" && payload.questionText.trim() ? `About the earlier question: ${payload.questionText.trim()}\n\n` : ""}${payload.text}`;
+      const result = await sendRunMessage({ run, kind, body });
       if (!result.delivered) {
         sendJson(res, 502, { error: result.error || "The answer could not be delivered" });
         return;
       }
-      sendJson(res, 200, { id: messageId(run, "decision", payload.text), waiting: "Sent to Flyd" });
+      const receipt = { id: messageId(run, kind, body), waiting: "Sent to Flyd" };
+      if (isDecision && (images as ImageUpload[]).length) {
+        await this.sendToJob(res, { title: payload.jobTitle ?? run.request.intendedOutcome, task: run.id, question: payload.questionText }, payload.text, images as ImageUpload[], session, receipt)
+          .catch((error: unknown) => this.sendJobResult(res, 502, { error: error instanceof Error ? error.message : String(error) }, receipt));
+        return;
+      }
+      sendJson(res, 200, receipt);
       return;
     }
     if (payload.decision !== undefined) {
-      const call = this.feed.current().fleet?.calls.find((row) => row.executiveDecisionId ? row.executiveDecisionId === payload.decision : row.task === payload.decision);
-      if (typeof payload.decision !== "string" || !call || !this.source.sendDecision) {
-        sendJson(res, 409, { error: "This question is no longer available; refresh before answering" });
-        return;
-      }
       if (typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > 4000) {
         sendJson(res, 400, { error: "Enter an answer of at most 4000 characters" });
         return;
@@ -1667,38 +1687,64 @@ export class ConversationViewServer {
         sendJson(res, 400, { error: "expected images as [{ mediaType, data }]" });
         return;
       }
+      const job = { title: payload.jobTitle, task: payload.decisionTask, question: payload.questionText };
+      const call = await this.liveCall(payload.decision, payload.decisionTask, payload.questionText);
+      const executive = Boolean(call?.executiveDecisionId);
+      if (!call || !this.source.sendDecision) {
+        await this.sendToJob(res, call ? { ...job, title: job.title ?? call.label, task: call.task ?? job.task, question: call.question ?? call.detail ?? job.question } : job, payload.text, images as ImageUpload[], session);
+        return;
+      }
       try {
-        const executive = Boolean(call.executiveDecisionId);
         const answer = executive ? payload.text.trim() : `Answer to pending decision ${call.task}: ${call.label}\nQuestion: ${call.detail ?? call.label}\n\n${payload.text.trim()}`;
-        const sent = await this.source.sendDecision(executive ? answer : withCommandMarker(answer, await this.commandIn(payload.text)), images as ImageUpload[], executive ? {
+        const sent = await this.source.sendDecision(executive ? answer : withCommandMarker(answer, await this.commandIn(payload.text)), executive ? [] : images as ImageUpload[], executive ? {
           decisionId: call.executiveDecisionId!,
           taskId: call.task ?? "",
           question: call.question ?? call.detail ?? call.label,
           options: call.choices ?? [],
-        } : undefined, typeof payload.session === "string" ? payload.session : undefined);
-        if (executive) await this.feed.refresh();
-        sendJson(res, 200, { ...sent, ...(executive && /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(payload.text) ? { followUp: call.executiveDecisionId } : {}), waiting: executive ? "Flyd is carrying your decision into the work" : "Sent to firstmate" });
+        } : undefined, session);
+        if (executive) await this.feed.refresh().catch(() => undefined);
+        const receipt = { ...sent, ...(executive && /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(payload.text) ? { followUp: call.executiveDecisionId } : {}), waiting: executive ? "Flyd is carrying your decision into the work" : "Sent to firstmate" };
+        if (executive && (images as ImageUpload[]).length) {
+          await this.sendToJob(res, { ...job, title: job.title ?? call.label, task: call.task ?? job.task, question: call.question ?? call.detail ?? job.question }, payload.text, images as ImageUpload[], session, receipt)
+            .catch((error: unknown) => this.sendJobResult(res, 502, { error: error instanceof Error ? error.message : String(error) }, receipt));
+          return;
+        }
+        sendJson(res, 200, receipt);
       } catch (error) {
+        if (error instanceof QuestionGone) {
+          await this.feed.refresh().catch(() => undefined);
+          await this.sendToJob(res, { ...job, title: job.title ?? call.label, task: call.task ?? job.task, question: call.question ?? job.question }, payload.text, images as ImageUpload[], session);
+          return;
+        }
         sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
       }
       return;
     }
     if (payload.decisionFollowUp !== undefined) {
-      const call = this.feed.current().fleet?.calls.find((row) => row.executiveDecisionId === payload.decisionFollowUp || row.task === payload.decisionFollowUp);
-      const decisionId = typeof payload.decisionFollowUp === "string" ? payload.decisionFollowUp : "";
-      const taskId = typeof payload.decisionTask === "string" ? payload.decisionTask : call?.task ?? "";
-      if (!decisionId || !taskId || !this.source.sendDecisionFollowUp) {
-        sendJson(res, 409, { error: "This decision follow-up is no longer available" });
-        return;
-      }
       if (typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > 4000) {
         sendJson(res, 400, { error: "Enter an answer of at most 4000 characters" });
         return;
       }
+      if (!validImages) {
+        sendJson(res, 400, { error: "expected images as [{ mediaType, data }]" });
+        return;
+      }
+      const call = this.feed.current().fleet?.calls.find((row) => row.executiveDecisionId === payload.decisionFollowUp || row.task === payload.decisionFollowUp);
+      const decisionId = typeof payload.decisionFollowUp === "string" ? payload.decisionFollowUp : "";
+      const taskId = typeof payload.decisionTask === "string" ? payload.decisionTask : call?.task ?? "";
+      const job = { title: payload.jobTitle ?? call?.label, task: taskId, question: payload.questionText ?? call?.question };
+      if (!decisionId || !taskId || !this.source.sendDecisionFollowUp || (images as ImageUpload[]).length) {
+        await this.sendToJob(res, job, payload.text, images as ImageUpload[], session);
+        return;
+      }
       try {
-        const sent = await this.source.sendDecisionFollowUp(payload.text.trim(), { decisionId, taskId }, typeof payload.session === "string" ? payload.session : undefined);
+        const sent = await this.source.sendDecisionFollowUp(payload.text.trim(), { decisionId, taskId }, session);
         sendJson(res, 200, { ...sent, waiting: "Flyd is carrying your follow-up into the work" });
       } catch (error) {
+        if (error instanceof QuestionGone) {
+          await this.sendToJob(res, job, payload.text, images as ImageUpload[], session);
+          return;
+        }
         sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
       }
       return;
@@ -1729,7 +1775,7 @@ export class ConversationViewServer {
       return;
     }
     if (payload.replyTo !== undefined) {
-      await this.reply(res, payload.session, payload.replyTo, payload.text, payload.questionText);
+      await this.reply(res, payload.session, payload.replyTo, payload.text, images as ImageUpload[], files as FileUpload[], payload.questionText);
       return;
     }
     try {
@@ -1799,22 +1845,23 @@ export class ConversationViewServer {
    * firstmate knows what "this" is without the screen. Images he pasted into
    * the box go with it.
    */
-  private async sendAbout(res: ServerResponse, about: unknown, text: unknown, images: ImageUpload[] = [], session?: string): Promise<void> {
+  private async sendAbout(res: ServerResponse, about: unknown, text: unknown, images: ImageUpload[] = [], session?: string, receipt?: Record<string, unknown>): Promise<void> {
+    const respond = (status: number, result: Record<string, unknown>) => this.sendJobResult(res, status, result, receipt);
     const card = typeof about === "object" && about !== null ? about as { title?: unknown; task?: unknown; url?: unknown; line?: unknown; detail?: unknown } : {};
     const field = (value: unknown) => (typeof value === "string" && value.trim() && value.length <= 2000 ? value.trim() : undefined);
     const content = (value: unknown) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 2000) : undefined);
     const title = field(card.title);
     if (!title || (card.task !== undefined && !field(card.task)) || (card.url !== undefined && !field(card.url))
       || (card.line !== undefined && typeof card.line !== "string") || (card.detail !== undefined && typeof card.detail !== "string")) {
-      sendJson(res, 400, { error: "expected { about: { title, task?, url?, line?, detail? }, text }" });
+      respond(400, { error: "expected { about: { title, task?, url?, line?, detail? }, text }" });
       return;
     }
     if (typeof text !== "string" || (!text.trim() && !images.length) || text.length > 4000) {
-      sendJson(res, 400, { error: "Enter a message of at most 4000 characters" });
+      respond(400, { error: "Enter a message of at most 4000 characters" });
       return;
     }
     if (!this.source.sendDecision) {
-      sendJson(res, 405, { error: "read-only" });
+      respond(405, { error: "read-only" });
       return;
     }
     const task = field(card.task);
@@ -1825,10 +1872,59 @@ export class ConversationViewServer {
     try {
       const words = text.trim();
       const note = words ? withCommandMarker(`${named}\n\n${words}`, await this.commandIn(words)) : named;
-      sendJson(res, 200, { ...await this.source.sendDecision(note, images, undefined, session), waiting: "Sent to firstmate" });
+      respond(200, { ...await this.source.sendDecision(note, images, undefined, session), waiting: "Sent to firstmate" });
     } catch (error) {
-      sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+      respond(502, { error: error instanceof Error ? error.message : String(error) });
     }
+  }
+
+  /**
+   * The open call his answer belongs to, reading the fleet afresh when the page's copy has gone.
+   * A question put again under a new id is the same question; a different one on that job is not, so his words never decide it.
+   */
+  private async liveCall(id: unknown, task: unknown, question: unknown): Promise<ArtefactRow | undefined> {
+    const find = () => {
+      const calls = this.feed.current().fleet?.calls ?? [];
+      return calls.find((row) => ((typeof id === "string" && (row.executiveDecisionId === id || row.task === id)) || (typeof task === "string" && row.task === task))
+        && sameQuestion(question, row.question ?? row.detail ?? row.label));
+    };
+    try {
+      if (!await this.feed.refreshForDecision()) return undefined;
+    } catch {
+      return undefined;
+    }
+    const call = find();
+    return call?.ledgerOnly ? undefined : call;
+  }
+
+  /** The question he answered has gone: Flyd deals with that, and his words reach the same job as a normal message. */
+  private sendJobResult(res: ServerResponse, status: number, result: Record<string, unknown>, receipt?: Record<string, unknown>): void {
+    if (!receipt) return sendJson(res, status, result);
+    const warning = status >= 400 ? `The picture was not delivered: ${String(result.error)}` : result.warning;
+    sendJson(res, 200, { ...receipt, ...(warning ? { warning } : {}) });
+  }
+
+  private async sendToJob(res: ServerResponse, job: { title?: unknown; task?: unknown; question?: unknown }, text: string, images: ImageUpload[], session?: string, receipt?: Record<string, unknown>): Promise<void> {
+    const named = (value: unknown) => (typeof value === "string" && value.trim() ? value.replace(/\s+/g, " ").trim().slice(0, 300) : undefined);
+    const task = named(job.task);
+    const question = named(job.question);
+    const run = task ? activeDomainRuns().find((active) => active.phase !== "done" && (active.id === task || active.transport.requestId === task || active.transport.externalId === task)) : undefined;
+    if (run) {
+      try {
+        const paths = new FirstmateInbox({ home: commandDir() }).saveImages(images);
+        const body = [question ? `About the earlier question: ${question}` : "", text.trim(), ...paths.map((path) => `[image: ${path}]`)].filter(Boolean).join("\n\n");
+        const result = await sendRunMessage({ run, kind: "correction", body });
+        if (!result.delivered) {
+          this.sendJobResult(res, 502, { error: result.error || "The message could not be delivered" }, receipt);
+          return;
+        }
+        this.sendJobResult(res, 200, { id: messageId(run, "correction", body), waiting: "Sent to Flyd" }, receipt);
+      } catch (error) {
+        this.sendJobResult(res, 502, { error: error instanceof Error ? error.message : String(error) }, receipt);
+      }
+      return;
+    }
+    await this.sendAbout(res, { title: named(job.title) ?? question ?? task ?? "Your earlier question", ...(task ? { task } : {}), ...(question ? { detail: question } : {}) }, text, images, session, receipt);
   }
 
   private async commandIn(words: string): Promise<string | undefined> {
@@ -1836,7 +1932,7 @@ export class ConversationViewServer {
   }
 
   /** His reply to one answer: back to whoever gave it, saying what it answers. */
-  private async reply(res: ServerResponse, session: string, replyTo: unknown, text: string, questionText?: unknown): Promise<void> {
+  private async reply(res: ServerResponse, session: string, replyTo: unknown, text: string, images: ImageUpload[], files: FileUpload[], questionText?: unknown): Promise<void> {
     if (typeof replyTo !== "string" || !text.trim()) {
       sendJson(res, 400, { error: "expected { session, text, replyTo }" });
       return;
@@ -1849,12 +1945,14 @@ export class ConversationViewServer {
       const asked = parent ? undefined : snapshot.messages.find((message) => message.role === "assistant" && message.id === replyTo);
       const question = (asked && choiceOf(asked.text)?.question) || (typeof questionText === "string" && questionText.trim() ? questionText.trim() : undefined);
       if (!parent && !question) {
-        sendJson(res, 409, { error: "That answer is no longer here; send it as a new message" });
+        // What he was replying to has gone; what he said goes on as a new message.
+        sendJson(res, 200, await this.source.send(session, text, images, files));
+        this.predictions.remember(text);
         return;
       }
       const command = await this.commandIn(text);
       const note = withCommandMarker(parent ? replyNote(parent, text) : answerNote(asked ?? { id: replyTo, role: "assistant", text: "" }, question!, text), command);
-      const sent = await this.source.send(session, note, [], [], replyTo.startsWith("ask:") && !command ? "flyd" : "firstmate");
+      const sent = await this.source.send(session, note, images, files, replyTo.startsWith("ask:") && !command ? "flyd" : "firstmate");
       this.predictions.remember(text);
       sendJson(res, 200, sent);
     } catch (error) {

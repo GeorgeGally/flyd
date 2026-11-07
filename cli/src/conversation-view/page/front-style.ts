@@ -91,11 +91,11 @@ export const FRONT_STYLE = `
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
 }
 .job.needs .t { font-size: 19px; line-height: 1.29; letter-spacing: -0.015em; }
-/* The digest is the card's substance, so it is never cut; "next" says the same in one line when there is none. */
-.job .digest, .job .next {
-  margin: 12px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); white-space: normal; overflow-wrap: anywhere; text-wrap: pretty;
+/* A card is read at a glance: a short title and one line. Everything else is in the open job. */
+.job .t { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.job .next {
+  margin: 8px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.job .next .own { color: var(--mute); }
 .job-new { display: flex; gap: 8px; margin: 4px 0 24px; }
 .job-new input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
 .job-new button { height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--ink); color: var(--sheet); font: 500 13px/1 var(--sans); cursor: pointer; }
@@ -410,6 +410,8 @@ button.jv-thread { cursor: pointer; }
   .jobs .history { max-height: 232px; overflow-y: auto; }
   .fstrip::-webkit-scrollbar { display: none; }
   .fstrip > * { flex: 0 0 248px; width: 248px; min-width: 0; margin: 0; scroll-snap-align: start; }
+  /* A phone card is narrow: the one line wraps once rather than stop mid-word. */
+  .job .next { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
   .fhead, .fempty, .fmore { padding-left: 0; padding-right: 0; }
   .jobs, :root[data-layout="front"] .rail { padding: 0 var(--gut) !important; }
   :root[data-layout="front"] .stage-head { position: static; padding: 18px var(--gut) 0; margin: 4px 0 0; }
