@@ -1,5 +1,6 @@
 import { recommendationText } from "../intelligence/executive/decision-step.js";
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -1494,10 +1495,10 @@ const FLEET_EXIT_POLL_MS = 200;
 const FLEET_EXIT_MAX_WAIT_MS = 60_000;
 
 /** Every process's parent, from `ps` (macOS and Linux alike); empty when ps cannot be read. */
-function parentsByPid(): Map<number, number> {
+async function parentsByPid(): Promise<Map<number, number>> {
   const parents = new Map<number, number>();
   try {
-    const out = execFileSync("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8", timeout: 5_000, maxBuffer: 4 * 1024 * 1024 });
+    const { stdout: out } = await promisify(execFile)("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8", timeout: 5_000, maxBuffer: 4 * 1024 * 1024 });
     for (const line of out.split("\n")) {
       const [pid, ppid] = line.trim().split(/\s+/).map(Number);
       if (pid && Number.isFinite(ppid)) parents.set(pid, ppid!);
@@ -1509,8 +1510,8 @@ function parentsByPid(): Map<number, number> {
 }
 
 /** Adds every live descendant of the known pids to them. */
-function addDescendants(known: Set<number>): void {
-  const parents = parentsByPid();
+async function addDescendants(known: Set<number>): Promise<void> {
+  const parents = await parentsByPid();
   let grew = true;
   while (grew) {
     grew = false;
@@ -1557,7 +1558,6 @@ function runFleetScript(script: string, timeoutMs: number): Promise<string> {
     const tree = new Set<number>();
     let stopping: Promise<void> | undefined;
     const signalTree = (signal: NodeJS.Signals) => {
-      addDescendants(tree);
       try {
         if (child.pid) process.kill(-child.pid, signal);
       } catch {
@@ -1576,7 +1576,7 @@ function runFleetScript(script: string, timeoutMs: number): Promise<string> {
       let killed = false;
       const termAt = Date.now();
       for (;;) {
-        addDescendants(tree);
+        await addDescendants(tree);
         for (const pid of tree) if (!alive(pid)) tree.delete(pid);
         if (!tree.size) return;
         if (!killed && Date.now() - termAt >= FLEET_KILL_GRACE_MS) {
@@ -1596,9 +1596,12 @@ function runFleetScript(script: string, timeoutMs: number): Promise<string> {
       failure ??= why;
       if (stopping) return;
       if (child.pid) tree.add(child.pid);
-      // Walk the tree before the shell dies, while its children still name it as their parent.
-      signalTree("SIGTERM");
-      stopping = treeGone();
+      stopping = (async () => {
+        // Walk the tree before the shell dies, while its children still name it as their parent.
+        await addDescendants(tree);
+        signalTree("SIGTERM");
+        await treeGone();
+      })();
     };
     const timer = setTimeout(() => stop(`timed out after ${Math.round(timeoutMs / 1000)}s`), timeoutMs);
     child.stdout?.on("data", (chunk: Buffer) => {
