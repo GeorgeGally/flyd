@@ -20,6 +20,8 @@ Reference for the calm conversation view. Product authority: [personal-intellige
 - `live-activity.ts` builds the `live` model sent with each stream update. No page draws it yet. Its counts can differ from the right column's job cards, which group a project's calls.
 - Fleet reads request all in-flight rows (`--all-in-flight`). Working, paused, queued and finished rows remain visible even when the executive does not notify about them. Each running worker has its own Jobs card. Queued work is not Working; accepted or working non-FirstMate runs that have not moved for a day are Waiting. Finished work can be ready without a merged PR. Paused, parked and blocked workers read as Paused; grouped cards show a paused count when needed.
 - Open domain decisions can be answered on their Jobs cards. Runs in the done phase cannot accept an answer there.
+- A Jobs card is read at a glance: a short title and one line (what he must do, else what changed, else what comes next). The full digest stays in the open job.
+- An answer is never refused because its question went stale. The server reads the fleet afresh (or the run's current state) and compares the full, case-sensitive question text, not the shortened display copy. The same question under a new id still takes the answer. If the question has closed or changed, or the fleet can't be read, his words and attachments reach the same job as a normal message, so they never decide a different question. If an answer is recorded but its picture fails, the answer stands and only the picture can be retried.
 
 ## Project threads
 
