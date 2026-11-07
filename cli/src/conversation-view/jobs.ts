@@ -42,6 +42,7 @@ export interface Job {
   /** Client, or the one-line what, shown beside the state. */
   project: string;
   at: string;
+  started?: string;
   next: string;
   /** "you" when the next action is his; otherwise the run's owner. */
   owner: string;
@@ -55,15 +56,21 @@ export interface Job {
   digest: JobDigestView | null;
   /** The show item's decision, when the job needs one, so the job opens on its decisions. */
   decision?: ShowItem["decision"];
+  /** The domain run an answer given on this job reaches. Absent when the run has finished and cannot take one. */
+  domainRun?: string;
 }
 
 export interface JobRun {
   id: string;
   status: string;
+  transport?: DomainRun["transport"]["kind"];
+  source?: DomainRun["request"]["source"];
+  phase?: string;
   project?: string;
   outcome: string;
   owner: string;
   updatedAt: string;
+  started?: string;
   question?: string;
   report?: string;
   artifacts: string[];
@@ -95,6 +102,8 @@ export interface JobBoard {
 
 const DAY = 24 * 60 * 60 * 1000;
 const DONE_KEEP_DAYS = 21;
+/** An open run that has not moved for this long is not work under way, whatever its record still says. */
+const QUIET_RUN_MS = DAY;
 const REPORT_CHARS = 240;
 const OPEN_RUN = new Set(["queued", "accepted", "working", "needs_decision", "incomplete", "failed"]);
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
@@ -111,14 +120,18 @@ const one = (value: string, max = 200) => value.replace(/\s+/g, " ").trim().slic
 export function jobRunFromDomain(run: DomainRun): JobRun {
   const report = [run.result?.brief, run.result?.detailedReport].filter((part): part is string => Boolean(part?.trim())).join("\n\n");
   const question = run.result?.unresolvedQuestions.find((item) => item.trim())
-    ?? run.messages?.find((message) => message.kind === "decision")?.body;
+    ?? (run.result?.brief?.trim() || undefined);
   return {
     id: run.id,
     status: run.status,
+    transport: run.transport.kind,
+    source: run.request.source,
+    ...(run.phase ? { phase: run.phase } : {}),
     ...(run.request.project?.name ? { project: run.request.project.name } : {}),
     outcome: one(run.request.intendedOutcome || run.request.originalMessage),
     owner: run.owner,
     updatedAt: run.updatedAt,
+    ...(run.createdAt ? { started: run.createdAt } : {}),
     ...(question ? { question: one(question) } : {}),
     ...(report ? { report } : {}),
     artifacts: run.result?.artifacts ?? [],
@@ -127,25 +140,33 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
 
 interface Signal {
   group: JobGroup;
+  /** Its own state word, when the group's does not say it. */
+  state?: string;
   at: string;
+  started?: string;
   next: string;
   owner: string;
   ask: string;
   because: string;
   decision?: ShowItem["decision"];
+  domainRun?: string;
 }
 
 function rank(group: JobGroup): number {
   return group === "needs" ? 0 : group === "working" ? 1 : group === "waiting" ? 2 : 3;
 }
 
-function runSignal(run: JobRun): Signal | null {
+function runSignal(run: JobRun, now: number): Signal | null {
   const at = run.updatedAt;
   if (run.status === "needs_decision") {
-    return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, because: `Run ${run.id} is waiting on a decision` };
+    if (run.source === "flyd") return null;
+    return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
-  if (run.status === "queued" || run.status === "accepted" || run.status === "working") {
-    return { group: "working", at, next: run.outcome || "In progress", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
+  if (run.status === "queued") return { group: "waiting", state: "Queued", at, next: run.outcome || "Queued", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is queued` };
+  if (run.status === "accepted" || run.status === "working") {
+    if (run.transport === "firstmate") return null;
+    if (now - Date.parse(at) > QUIET_RUN_MS) return { group: "waiting", at, next: run.outcome || "Nothing has moved this.", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} has gone quiet` };
+    return { group: "working", at, ...(run.started ? { started: run.started } : {}), next: run.outcome || "In progress", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
   }
   if (run.status === "incomplete" || run.status === "failed") {
     return { group: "waiting", at, next: run.outcome || "The last handoff did not finish", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
@@ -159,10 +180,18 @@ function runSignal(run: JobRun): Signal | null {
 function itemGroup(kind: ShowItem["kind"]): JobGroup | null {
   if (kind === "call") return "needs";
   if (kind === "ready") return "needs";
-  if (kind === "live" || kind === "next") return "working";
-  if (kind === "waiting") return "waiting";
+  if (kind === "live") return "working";
+  if (kind === "waiting" || kind === "next") return "waiting";
   if (kind === "landed") return "done";
   return null;
+}
+
+/** The word a show item has for itself on the board: finished work is ready, not a question; queued is not waiting on him. */
+function itemState(item: ShowItem): string | undefined {
+  if (item.kind === "ready") return item.status === "report available" ? "Report ready" : "Ready to land";
+  if (item.kind === "next") return "Queued";
+  if (item.kind === "waiting" && item.status === "paused") return "Paused";
+  return undefined;
 }
 
 function dayNumber(iso: string, now: number): number {
@@ -198,6 +227,11 @@ export function jobsFrom(input: {
   const projects = input.projects ?? [];
   const known = new Map(projects.map((project) => [jobKey(project.name), project]));
   for (const project of projects) known.set(jobKey(project.id), project);
+  // A fleet row names its project by repo path, and a project's name need not match its repo's folder.
+  const projectOfRepo = (path: string): string | undefined => {
+    const folder = basename(path).toLowerCase();
+    return projects.find((project) => project.repos.some((repo) => basename(repo).toLowerCase() === folder))?.name;
+  };
   const buckets = new Map<string, Bucket>();
   const inferred: JobBoard["inferred"] = [];
   const seenInferred = new Set<string>();
@@ -212,7 +246,8 @@ export function jobsFrom(input: {
     const id = project?.id || key;
     bucket = { id, title, project: project ? labelOf(project) : "", signals: [], shots: [], links: [], files: [], threads: [], reports: [] };
     buckets.set(project ? jobKey(project.id) : key, bucket);
-    if (!project && !seenInferred.has(key) && key) {
+    // A fallback title is a worker's headline, not a project's name: it may label the card but never registers a project.
+    if (!project && !fallbackTitle && !seenInferred.has(key) && key) {
       seenInferred.add(key);
       inferred.push({ name: title, kind: "product" });
     }
@@ -224,12 +259,23 @@ export function jobsFrom(input: {
     bucketFor(project.name);
   }
 
+  const activeProjects = new Map<string, Bucket[]>();
+  const markActive = (name: string, bucket: Bucket) => {
+    const key = jobKey(name);
+    const projectKey = jobKey(known.get(key)?.id ?? name);
+    const active = activeProjects.get(projectKey) ?? [];
+    active.push(bucket);
+    activeProjects.set(projectKey, active);
+  };
   for (const run of input.runs ?? []) {
-    const signal = runSignal(run);
+    const signal = runSignal(run, now);
     if (!signal) continue;
     const name = run.project;
     if (!name && signal.group === "done") continue;
-    const bucket = name ? bucketFor(name) : lone(buckets, run.id, run.outcome || "Untitled run");
+    const bucket = (signal.group === "working" || signal.group === "needs")
+      ? lone(buckets, `run:${run.id}`, run.outcome || name || "Untitled run")
+      : name ? bucketFor(name) : lone(buckets, run.id, run.outcome || "Untitled run");
+    if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; markActive(name, bucket); }
     bucket.signals.push(signal);
     bucket.threads.push({ id: run.id, title: run.outcome || run.id, at: run.updatedAt, kind: "run" });
     for (const artifact of artifactsOf(run.artifacts, exists)) {
@@ -250,12 +296,18 @@ export function jobsFrom(input: {
   for (const item of showItems(input.show)) {
     const group = itemGroup(item.kind);
     if (!group) continue;
-    const bucket = item.project ? bucketFor(item.project, item.headline) : lone(buckets, item.id, item.headline);
+    // Every running worker is its own card: two on one project are two, and a project's open call never hides one.
+    const name = item.project && (projectOfRepo(item.project) ?? item.project);
+    const bucket = name && item.kind !== "live" ? bucketFor(name, item.headline) : lone(buckets, item.id, item.headline);
+    if (item.kind === "live" && name) { bucket.project = basename(name); markActive(bucket.project, bucket); }
     const ask = group === "needs" ? (item.decision?.question || item.detail || item.headline) : "";
+    const state = itemState(item);
     bucket.signals.push({
       group,
+      ...(state ? { state } : {}),
       at: item.at || item.started || "",
-      next: item.detail || item.headline,
+      // "A worker is on it" says nothing the Working group has not.
+      next: item.kind === "live" && /^a worker is on it\b/i.test(item.detail ?? "") ? "" : item.detail || item.headline,
       owner: group === "needs" ? "you" : "Flyd",
       ask,
       because: `Fleet ${item.kind}: ${item.id}`,
@@ -279,18 +331,30 @@ export function jobsFrom(input: {
     bucket.reports.push({ hash: digestHash(report.text), project: bucket.title, title: report.title, text: report.text, ...(report.link ? { link: report.link } : {}) });
   }
 
+  for (const [key, active] of activeProjects) {
+    const project = buckets.get(key);
+    if (!project || project.signals.length) continue;
+    for (const bucket of active) {
+      bucket.threads.push(...project.threads);
+      bucket.reports.push(...project.reports);
+    }
+  }
+
   const digests = (input.digests ?? []).filter((digest) => !digest.failed);
   const stored = new Set((input.digests ?? []).map((digest) => digest.hash));
   const jobs: Job[] = [];
   const pending: DigestSource[] = [];
   for (const bucket of buckets.values()) {
     const project = projects.find((item) => item.id === bucket.id);
+    if (!bucket.signals.length && activeProjects.has(jobKey(bucket.id))) continue;
     if (!bucket.signals.length && project) bucket.signals.push(idleSignal(project));
     if (!bucket.signals.length && (bucket.threads.length || bucket.reports.length)) {
       bucket.signals.push({ group: "waiting", at: bucket.threads[0]?.at ?? "", next: "Nothing is moving this.", owner: "you", ask: "", because: "Named in a conversation, no open run" });
     }
     if (!bucket.signals.length) continue;
     const lead = [...bucket.signals].sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at))[0]!;
+    const paused = bucket.signals.filter((signal) => signal.state === "Paused").length;
+    const state = lead.state ?? STATE[lead.group];
     const at = [...bucket.signals.map((signal) => signal.at), ...bucket.threads.map((thread) => thread.at)].filter(Boolean).sort().at(-1) ?? "";
     if (lead.group === "done" && dayNumber(at || project?.updated || "", now) > DONE_KEEP_DAYS) continue;
     const digest = newestDigest(digests, bucket);
@@ -301,10 +365,11 @@ export function jobsFrom(input: {
     jobs.push({
       id: bucket.id,
       group: lead.group,
-      state: STATE[lead.group],
+      state: paused && (paused > 1 || state !== "Paused") ? `${state === "Paused" ? "" : `${state} · `}${paused} paused` : state,
       title: bucket.title,
       project: bucket.project,
       at,
+      ...(lead.started ? { started: lead.started } : {}),
       next: lead.next,
       owner: lead.owner,
       ask: lead.ask,
@@ -315,6 +380,7 @@ export function jobsFrom(input: {
       threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8),
       digest: digest ? { changed: digest.changed, means: digest.means, needed: digest.needed, ...(digest.link ? { link: digest.link } : {}) } : null,
       ...(lead.decision ? { decision: lead.decision } : {}),
+      ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
     });
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));

@@ -157,6 +157,21 @@ describe("showOf", () => {
     expect(showOf(snapshot([]), { now: NOW }).calls).toBeUndefined();
   });
 
+  it("names a fleet row's project from its full repo path, whatever the project is called", () => {
+    const screen = showOf(snapshot([]), {
+      now: NOW,
+      projects: [{ name: "Cap5", repos: ["/work/capfive-abc"] }],
+      artefact: {
+        fleet: { generated: "2026-10-09T11:58:00Z", calls: [], live: [{ label: "Revise the deck", repo: "/work/capfive-abc" }], ready: [], landed: [], held: [], next: [] },
+        memories: [],
+        news: [],
+        taste: [],
+        landedByDay: [],
+      },
+    });
+    expect(screen.items[0]).toMatchObject({ project: "Cap5", headline: "Revise the deck" });
+  });
+
   it("sums up the whole fleet, counting past what the screen shows", () => {
     const many = Array.from({ length: 9 }, (_, index) => ({ label: `Piece ${index}`, repo: "flyd" }));
     const screen = showOf(snapshot([]), {

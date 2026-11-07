@@ -20,7 +20,8 @@ import { currentPage, type CurrentPage } from "./site-changes.js";
 import { readTaste, restoreRule, rewordRule, vetoRule } from "../council/taste.js";
 import { syncTasteSkills } from "../council/taste-skills.js";
 import { applyProjectOps, projectsPath, readProjects } from "../council/projects.js";
-import { listDomainRuns } from "../command/store.js";
+import { listDomainRuns, readDomainRun } from "../command/store.js";
+import { messageId, sendRunMessage } from "../command/messages.js";
 import { renderTastePage } from "./taste-page.js";
 import type { PlanUsageReader } from "./plan-usage.js";
 import { IslandRung, islandStatusOf, statusOf } from "./status.js";
@@ -37,6 +38,7 @@ import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
+import { liveActivityOf, type LiveActivity } from "./live-activity.js";
 import { readDigests, scheduleDigest } from "./job-digest.js";
 import { ArtefactFeed, composeArtefact, WHATSAPP_LINK, type ArtefactInputs } from "./artefact.js";
 import type { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
@@ -218,6 +220,8 @@ interface StreamUpdate {
   jobs?: Job[];
   /** Whether a fleet snapshot answered. An empty Working group says so differently when this is false. */
   jobsFleetKnown?: boolean;
+  /** What is running, what needs George and what landed, counted once. */
+  live?: LiveActivity;
 }
 
 /**
@@ -668,6 +672,7 @@ export class SnapshotDiffer {
       ...(left ? { leftColumn: { ...left, semantic: show.activities } } : {}),
       ...(page ? { page } : {}),
       ...(board ? { jobs: board.jobs, jobsFleetKnown: board.fleetKnown } : {}),
+      live: liveActivityOf(show, board?.jobs),
     };
   }
 }
@@ -1615,7 +1620,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; replyTo?: unknown; questionText?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
+    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; domainRun?: unknown; replyTo?: unknown; questionText?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -1630,6 +1635,24 @@ export class ConversationViewServer {
     const validImages = Array.isArray(images) && images.every((image) =>
       typeof image === "object" && image !== null &&
       typeof (image as ImageUpload).mediaType === "string" && typeof (image as ImageUpload).data === "string");
+    if (payload.domainRun !== undefined) {
+      if (typeof payload.domainRun !== "string" || typeof payload.text !== "string" || !payload.text.trim() || payload.text.length > 4000) {
+        sendJson(res, 400, { error: "Enter an answer of at most 4000 characters" });
+        return;
+      }
+      const run = readDomainRun(payload.domainRun);
+      if (!run || run.status !== "needs_decision" || run.phase === "done" || run.request.source === "flyd") {
+        sendJson(res, 409, { error: "This question is no longer available; refresh before answering" });
+        return;
+      }
+      const result = await sendRunMessage({ run, kind: "decision", body: payload.text });
+      if (!result.delivered) {
+        sendJson(res, 502, { error: result.error || "The answer could not be delivered" });
+        return;
+      }
+      sendJson(res, 200, { id: messageId(run, "decision", payload.text), waiting: "Sent to Flyd" });
+      return;
+    }
     if (payload.decision !== undefined) {
       const call = this.feed.current().fleet?.calls.find((row) => row.executiveDecisionId ? row.executiveDecisionId === payload.decision : row.task === payload.decision);
       if (typeof payload.decision !== "string" || !call || !this.source.sendDecision) {

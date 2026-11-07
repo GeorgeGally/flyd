@@ -12,7 +12,7 @@ import { FirstmateInbox, type CaptainInbox } from "../firstmate-inbox.js";
 import type { ConversationMessage, Exchange } from "../types.js";
 import { fenceCaptainCode, renderCaptainMarkdown, renderMarkdown } from "../markdown.js";
 import { ActivityReader } from "../activity.js";
-import { saveDomainRun } from "../../command/store.js";
+import { readDomainRun, saveDomainRun } from "../../command/store.js";
 import { artefactAsk } from "../replies.js";
 import { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, replyCards, SnapshotDiffer } from "../server.js";
@@ -600,6 +600,31 @@ describe("ConversationViewServer", () => {
   }
 
   const tokenOf = (page: string): string => /data-send-token="([0-9a-f]+)"/.exec(page)?.[1] ?? "";
+
+  it("delivers a domain answer to the selected run when several need a decision", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-domain-answer-"));
+    const previous = process.env.FLYD_COMMAND_DIR;
+    process.env.FLYD_COMMAND_DIR = join(dir, "command");
+    try {
+      const run = (id: string) => ({ id, request: { id, domain: "knowledge" as const, originalMessage: "Research", intendedOutcome: "Research", doneWhen: [], createdAt: "2026-10-09T00:00:00Z", source: "chat" as const }, owner: "Librarian", status: "needs_decision" as const, createdAt: "2026-10-09T00:00:00Z", updatedAt: "2026-10-09T00:00:00Z", transport: { kind: "native" as const, requestId: id } });
+      saveDomainRun(run("one"));
+      saveDomainRun(run("two"));
+      const port = await start(new MemoryInbox());
+      const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+      const response = await post(port, JSON.stringify({ domainRun: "two", text: "yes" }), headers);
+      expect(response.status).toBe(200);
+      expect(readDomainRun("one")?.messages).toBeUndefined();
+      const delivered = readDomainRun("two")?.messages;
+      expect(delivered).toEqual([expect.objectContaining({ kind: "decision", body: "yes", deliveredAt: expect.any(String) })]);
+      expect(JSON.parse(response.body)).toMatchObject({ id: delivered![0]!.id });
+      expect((await post(port, JSON.stringify({ domainRun: "missing", text: "yes" }), headers)).status).toBe(409);
+      saveDomainRun({ ...run("finished"), phase: "done" });
+      expect((await post(port, JSON.stringify({ domainRun: "finished", text: "yes" }), headers)).status).toBe(409);
+      expect(readDomainRun("finished")?.messages).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_COMMAND_DIR; else process.env.FLYD_COMMAND_DIR = previous;
+    }
+  });
 
   it("delivers an artefact decision to the durable inbox without a Claude session and never closes the hold", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-decision-server-"));

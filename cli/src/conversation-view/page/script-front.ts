@@ -162,7 +162,7 @@ export const FRONT_SCRIPT = `
   // The same test Core uses for "needs George" (semantic.ts needsGeorge).
   function frontNeeds(object) {
     var phase = object.activity && object.activity.phase;
-    return object.kind === "decision" || object.lifecycle === "interrupted" || !!(object.monitor && object.monitor.phase === "changed") || phase === "needs_you" || phase === "ready";
+    return object.kind === "decision" || (object.lifecycle === "interrupted" && object.status !== "paused") || !!(object.monitor && object.monitor.phase === "changed") || phase === "needs_you" || phase === "ready";
   }
   // One semantic object as a job: a design lab, a review, a decision with no fleet call behind it.
   function frontObjectJob(object, group) {
@@ -262,7 +262,7 @@ export const FRONT_SCRIPT = `
       if (line) reading = '<p class="next">' + frontEsc(line) + '</p>';
     }
     // "Landed" under "Done" says nothing the group has not; a plain "needs …" is the group's own word.
-    var state = job.group === "done" || /^needs\\b/i.test(job.state) ? "" : job.state;
+    var state = job.group === "done" ? "" : job.state.replace(/^needs\\b[^·]*(?: · |$)/i, "");
     return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
       + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
       + '<div class="t">' + frontEsc(job.title) + '</div>' + reading + '<div class="m">' + dot + frontMeta([state, job.project])
@@ -487,7 +487,9 @@ export const FRONT_SCRIPT = `
     if (job.files && job.files.length) parts.push(el("p", "jv-files", job.files.map(function (file) { return file.label; }).join(" · ")));
     if (job.detail && !(job.previews && job.previews.length)) parts.push(frontDetailTalk(job));
     if (VIEW_TOKEN) {
-      if (job.decision) {
+      if (job.domainRun) {
+        parts.push(artefactChat("flyd-domain:" + job.domainRun, { domainRun: job.domainRun }, "Your answer…").form);
+      } else if (job.decision) {
         parts.push(sceneAsk({ title: job.title, decision: job.decision }, "flyd-decision:" + (job.decision.decisionId || job.decision.task)));
       } else {
         var about = { title: job.title };
@@ -548,7 +550,7 @@ export const FRONT_SCRIPT = `
       id: job.id, group: job.group, state: job.state || "", title: frontTitle(job.title), project: job.project || "",
       at: job.at || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", because: job.because || "",
       digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
-      threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "",
+      threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.domainRun || "",
     };
   }
   function frontPostJob(body) {

@@ -443,8 +443,10 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
 
   // Flyd's artefact leads: firstmate's fleet snapshot, its memory, the news. The
   // conversation read fills what is left.
-  const projectOfRepo = (repo: string): string | undefined =>
-    projects.find((project) => project.repos.some((path) => base(path) === repo.toLowerCase()) || slug(project.name) === repo.toLowerCase())?.name;
+  const projectOfRepo = (repo: string): string | undefined => {
+    const folder = base(repo);
+    return projects.find((project) => project.repos.some((path) => base(path) === folder) || slug(project.name) === folder)?.name;
+  };
   const artefact = inputs.artefact ? composeArtefact(inputs.artefact, { project: projectOfRepo }) : [];
   // A question just put to him in the conversation leads the fleet's older holds; the site's latest changes come next.
   const asked = items.filter((item) => item.kind === "call");

@@ -17,6 +17,9 @@ Reference for the calm conversation view. Product authority: [personal-intellige
 - firstmate's transcript lines show only as muted "update" relays (routine ones hidden), and all firstmate text is put in Flyd's voice ("sir", never "Captain"; `flyd-voice.ts`).
 - "taste" in the header opens `/taste` (see [flyd-taste.md](flyd-taste.md)).
 - `/api/status` feeds the notch island (working / a failed line / reply / needs you).
+- `live-activity.ts` builds the `live` model sent with each stream update. No page draws it yet. Its counts can differ from the right column's job cards, which group a project's calls.
+- Fleet reads request all in-flight rows (`--all-in-flight`). Working, paused, queued and finished rows remain visible even when the executive does not notify about them. Each running worker has its own Jobs card. Queued work is not Working; accepted or working non-FirstMate runs that have not moved for a day are Waiting. Finished work can be ready without a merged PR. Paused, parked and blocked workers read as Paused; grouped cards show a paused count when needed.
+- Open domain decisions can be answered on their Jobs cards. Runs in the done phase cannot accept an answer there.
 
 ## Project threads
 

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ArtefactVoice, voiceKey } from "../artefact-voice.js";
 import { semanticObjectFromShow } from "../semantic.js";
-import {
+import { readyItems,
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, heldItems, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   adviceHighlights, pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
   callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, holdDecisions, decisionProgress, type FleetArtefact,
@@ -168,10 +168,44 @@ describe("the decision-backed fleet projection", () => {
     expect(publicFleet.live).toEqual([expect.objectContaining({ task: "working", label: "Worker is rebuilding it" })]);
     // The verified result is done work in its own place, not shown a second time as waiting to land.
     expect(publicFleet.ready).toEqual([]);
-    // Work that stopped is Flyd's to repair, and no row carries the run's machinery.
-    expect(publicFleet.held).toEqual([]);
+    // Paused is lifecycle: the executive keeps it quiet, not hidden, and no row carries the run's machinery.
+    expect(publicFleet.held).toEqual([expect.objectContaining({ task: "paused", status: "paused", detail: undefined })]);
     expect(publicFleet.next).toEqual([]);
     expect(JSON.stringify(publicFleet)).not.toMatch(/Paused \[at=|no-mistakes run|Exit 1/i);
+  });
+
+  it("shows work moving, paused and finished without any executive decision letting it", () => {
+    const fleet = parseBearings({ in_flight: [
+      { id: "w", state: "working", name: "Rebuild", doing: "harness busy (claude-hook)" },
+      { id: "p", state: "paused", name: "Waiting on a render", doing: "Rendering overnight" },
+      { id: "u", state: "unknown", name: "Deploying", doing: "paused [at=1793964683]: deploy running in background" },
+      { id: "lab", state: "done", name: "Five versions", doing: "lab ready" },
+      { id: "gone", state: "unknown", name: "Autoplay try", doing: "done [at=1793966118]: ready in branch fm/try" },
+      { id: "quiet", state: "unknown", name: "Lost worker", doing: "backend target gone" },
+      { id: "scout", state: "done", kind: "scout", name: "The findings", doing: "report written" },
+    ] });
+    const routine = ["w", "p", "u", "lab", "gone", "quiet", "scout"].map((taskId) => decision({ taskId, disposition: "backstage", summary: "Routine", show: false }));
+    const shown = projectFleetDecisions(fleet, routine);
+    expect(shown.live.map((row) => row.task)).toEqual(["w"]);
+    expect(shown.held.map((row) => [row.task, row.status])).toEqual([["p", "paused"], ["u", "paused"]]);
+    expect(shown.held[1]!.detail).toBeUndefined();
+    expect(shown.ready.map((row) => row.task)).toEqual(["lab", "gone", "scout"]);
+    const counts = fleetCounts(shown);
+    expect([counts.live, counts.ready, counts.waiting]).toEqual([1, 3, 2]);
+    expect(readyItems(shown).map((row) => row.task)).toEqual(expect.arrayContaining(["lab", "gone", "scout"]));
+  });
+
+  it("keeps lifecycle rows when the same task has an open call", () => {
+    const fleet = parseBearings({ decisions_open: [{ id: "w", summary: "Choose" }], in_flight: [{ id: "w", state: "working", name: "Building" }] });
+    const projected = projectFleetDecisions(fleet, []);
+    expect(projected.calls.map((row) => row.task)).toContain("w");
+    expect(projected.live.map((row) => row.task)).toContain("w");
+  });
+
+  it("says where a working row stands from the worker's own last line", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "w", state: "working", name: "Rebuild", doing: "harness busy (claude-hook)" }] });
+    const enriched = enrichFleet(fleet, new Map(), new Map([["w", { note: "Fixing the header" }]]));
+    expect(enriched.live[0]!.detail).toBe("Fixing the header");
   });
 
   it("shows merged and landed work as it was read when no executive decision verified it, without notifying", () => {
@@ -270,7 +304,8 @@ describe("the backlog", () => {
     const busy = enrichFleet(parseBearings({ decisions_open: [{ id: "visuals", summary: "Pick a look" }] }), entries, new Map([["edits", { note: "Recolouring the header" }]]));
     expect(busy.calls[0]!.context).toBe(fleet.calls[0]!.context);
     expect(fleet.ready[0]!.status).toBe("report available");
-    expect(fleetCounts(fleet).ready).toBe(0);
+    // A finished report counts as finished work; it reads as a report, never as a design to land.
+    expect(fleetCounts(fleet).ready).toBe(1);
     const { unsaid } = withVoice(fleet, () => undefined);
     expect(unsaid.find((row) => row.kind === "report available")!.context).toContain("newer than merged work");
     const items = composeArtefact({ fleet, memories: [], news: [], taste: [] });
@@ -600,6 +635,22 @@ describe("ArtefactFeed", () => {
       feed.stop();
     }
   }, 30_000);
+
+  it("asks for every worker: one sorting past the snapshot's cap still shows, and a new worker has its start time", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-all-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    mkdirSync(join(home, "data"));
+    const capped = join(home, "capped.json");
+    const all = join(home, "all.json");
+    writeFileSync(capped, JSON.stringify({ in_flight: [] }));
+    writeFileSync(all, JSON.stringify({ in_flight: [{ id: "zed", state: "working", name: "Past the cap", doing: "harness busy" }] }));
+    writeFileSync(join(home, "state", "zed.meta"), "spawn_gen=s1791950032.1.1\n");
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncase "$*" in *--all-in-flight*) cat '${all}';; *) cat '${capped}';; esac\n`, { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    expect(feed.current().fleet!.live).toMatchObject([{ task: "zed", started: new Date(1791950032 * 1000).toISOString() }]);
+  });
 
   it("reads memory, news and taste, and reports a missing snapshot honestly", async () => {
     const dir = mkdtempSync(join(tmpdir(), "artefact-feed-"));
@@ -1070,7 +1121,7 @@ describe("ArtefactFeed", () => {
     const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
     await feed.refresh();
     expect(feed.current().fleet!.calls.map((row) => row.task)).toEqual(["x"]);
-    expect(feed.current().fleet!.ready.some((row) => row.task === "x")).toBe(false);
+    expect(feed.current().fleet!.ready.some((row) => row.task === "x")).toBe(true);
   });
 });
 
@@ -1138,6 +1189,27 @@ describe("ArtefactFeed fleet reads", () => {
     }
   };
 
+  it("preserves calls and current lifecycle rows through the ledger", async () => {
+    const { home, script } = fleetHome("artefact-call-lifecycle-");
+    const snapshot = join(home, "bearings.json");
+    mkdirSync(join(home, "data"));
+    writeFileSync(join(home, "data", "backlog.md"), ["working", "paused", "ready", "staff"]
+      .map((id) => `- [ ] ${id} - Choose ${id} (hold: Pick one: 1 Red, 2 Blue)`).join("\n"));
+    writeFileSync(snapshot, JSON.stringify({ decisions_open: ["working", "paused", "ready", "staff"].map((id) => ({ id, summary: "Choose " + id })), in_flight: [
+      { id: "working", state: "working", name: "Building" },
+      { id: "paused", state: "paused", name: "Paused" },
+      { id: "ready", state: "done", name: "Finished" },
+    ] }));
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, ...files(home), workers: () => [{ id: "staff", name: "Staff worker", state: "working" }] });
+    await feed.refresh();
+    const fleet = feed.current().fleet!;
+    expect(fleet.calls.map((row) => row.task)).toEqual(expect.arrayContaining(["working", "paused", "ready", "staff"]));
+    expect(fleet.live.map((row) => row.task)).toEqual(expect.arrayContaining(["working", "staff"]));
+    expect(fleet.held.map((row) => row.task)).toContain("paused");
+    expect(fleet.ready.map((row) => row.task)).toContain("ready");
+  });
+
   it("shows every worker the staff is running, not only the first twenty the snapshot lists", async () => {
     const { home, script } = fleetHome("artefact-workers-");
     const snapshot = join(home, "bearings.json");
@@ -1163,7 +1235,20 @@ describe("ArtefactFeed fleet reads", () => {
     expect(underwayItems(feed.current().fleet).map((item) => item.task)).toEqual(["cut-off", "listed"]);
   });
 
-  it("keeps a worker the snapshot reports finished or paused out of Working when the executive hides it", async () => {
+  it.each(["parked", "blocked"])("keeps a %s worker paused despite stale staff state", async (state) => {
+    const { home, script } = fleetHome("artefact-held-worker-");
+    const snapshot = join(home, "bearings.json");
+    writeFileSync(snapshot, JSON.stringify({ in_flight: [{ id: "worker", state, name: "Worker", doing: `${state} at test: 2 finding(s) · run: 01ABC` }] }));
+    writeFileSync(script, `#!/bin/sh\ncat '${snapshot}'\n`, { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, ...files(home), decideChanges: async () => [], workers: () => [{ id: "worker", name: "Worker", state: "working" }] });
+    await feed.refresh();
+    const fleet = feed.current().fleet!;
+    expect(fleetCounts(fleet).live).toBe(0);
+    expect(fleetCounts(fleet).call).toBe(0);
+    expect(fleet.held).toEqual([{ label: "Worker", task: "worker", status: "paused", detail: undefined }]);
+  });
+
+  it("keeps stale staff workers out when the snapshot reports finished or paused", async () => {
     const { home, script } = fleetHome("artefact-workers-hidden-");
     const snapshot = join(home, "bearings.json");
     writeFileSync(snapshot, JSON.stringify({
