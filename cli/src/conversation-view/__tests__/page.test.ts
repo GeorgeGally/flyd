@@ -4089,7 +4089,7 @@ describe("the front page", () => {
     expect(JSON.parse(String(sent[1]!.body))).toMatchObject({ session: "window:article-0123456789abcdef", text: "Which tab?" });
     expect(document.documentElement.getAttribute("data-centre")).toBe("news");
     expect(FakeEventSource.instances.length).toBe(streams + 1);
-    FakeEventSource.instances.at(-1)!.emit("update", { order: ["q1", "a1"], working: false, messages: [{ id: "q1", role: "user", html: "<p>Which tab?</p>" }, { id: "a1", role: "assistant", html: "<p>Any browser tab.</p>" }] });
+    FakeEventSource.instances.at(-1)!.emit("update", { order: ["u9", "a1"], working: false, messages: [{ id: "u9", role: "user", html: "<p>Which tab?</p>" }, { id: "a1", role: "assistant", html: "<p>Any browser tab.</p>" }] });
     const talk = shown[1]!.querySelector(".talk")!;
     expect([...talk.children].map((line) => [line.className, line.textContent])).toEqual([["q", "Which tab?"], ["a", "Any browser tab."]]);
     // Back on Today the box is the conversation's again.
@@ -4188,6 +4188,42 @@ describe("the front page", () => {
     await settle();
     expect(attempts).toBe(2);
     expect(document.querySelector("#news-cols .talk")!.textContent).toContain("Saved, but not passed on yet");
+  });
+
+  it("reconciles a News question only with its own saved message", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: [{ title: "A story", url: "https://example.test/story" }], at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    let rejectSend!: (error: Error) => void;
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
+      if (url === "/api/article-chat") return json({ session: "window:article-0123456789abcdef" });
+      if (url === "/api/send") return new Promise<Response>((_, reject) => { rejectSend = reject; });
+      return json({ token: "a".repeat(48) });
+    });
+    await type("Remember this");
+    const article = FakeEventSource.instances.at(-1)!;
+    article.emit("update", { order: ["old"], messages: [{ id: "old", role: "user", html: "<p>An older question</p>", timestamp: new Date(Date.now() - 60000).toISOString() }], working: false });
+    expect(document.querySelector("#news-cols .talk")!.textContent).toContain("Remember this");
+    article.emit("update", { order: ["old", "saved"], messages: [{ id: "old", role: "user", html: "<p>An older question</p>", timestamp: new Date(Date.now() - 60000).toISOString() }, { id: "saved", role: "user", html: "<p>Remember this</p>", timestamp: new Date().toISOString() }], working: false });
+    rejectSend(new Error("response lost"));
+    await settle();
+    expect(document.querySelector("#news-cols .talk")!.textContent).toContain("Remember this");
+    expect(document.querySelector("#news-cols .talk button")).toBeNull();
+    expect(document.querySelectorAll("#news-cols .talk .q.pending")).toHaveLength(0);
+  });
+
+  it("retains a successful News question until its receipt appears", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: [{ title: "A story", url: "https://example.test/story" }], at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/article-chat" ? { session: "window:article-0123456789abcdef" } : { id: "new" }));
+    await type("A new question");
+    const article = FakeEventSource.instances.at(-1)!;
+    article.emit("update", { order: ["old"], messages: [{ id: "old", role: "user", html: "<p>Earlier</p>" }], working: false });
+    expect(document.querySelector("#news-cols .q.pending")!.textContent).toBe("A new question");
+    article.emit("update", { order: ["old", "new"], messages: [{ id: "old", role: "user", html: "<p>Earlier</p>" }, { id: "new", role: "user", html: "<p>A new question</p>" }], working: false });
+    expect(document.querySelector("#news-cols .q.pending")).toBeNull();
+    expect(document.querySelector("#news-cols .talk")!.textContent).toContain("A new question");
   });
 
   it("shows only the selected News session's confirmation", async () => {
@@ -4385,28 +4421,32 @@ describe("the front page", () => {
       show: {
         ...SHOW, calls: [], counts: {},
         underway: [{
-          id: "live:answer", kind: "live", project: "flyd", status: "Working",
+          id: "live:answer", kind: "live", project: "flyd", status: "Working", at: "2026-10-26T12:00:00.000Z",
           // The shape Core used to hand firstmate: it is rewritten, not shown.
           headline: "Act on George's answer to: Which one(s) to build for real, or another round?",
           detail: "Building V5 with a framed hero. Then the editorial image goes in.",
         }, {
-          id: "live:hero", kind: "waiting", project: "hftw",
+          id: "live:hero", kind: "waiting", project: "hftw", at: "2026-10-26T13:00:00.000Z",
           headline: "The HFTW shop hero images currently use product shots, and V5 is ready for review with a framed hero and a plain product card row",
           detail: "Waiting for your pick: V5 framed hero.",
         }],
       },
     });
     const answer = document.querySelector<HTMLElement>('.job[data-job="live:answer"]')!;
-    // Work under way is words only: its project along the top with the moving dot, the title kept for a screen reader.
-    expect(answer.getAttribute("aria-label")).toBe("Carrying out your choice on flyd");
+    expect(answer.getAttribute("aria-label")).toBeNull();
     expect(answer.querySelector(".jtag")!.textContent).toBe("flyd");
+    expect(answer.querySelector(".w")!.textContent).toBeTruthy();
     expect(answer.querySelector(".jtag .fdot.pulse")).not.toBeNull();
     expect(answer.querySelector(".next")!.textContent).toBe("Building V5 with a framed hero.");
     expect(answer.textContent).not.toMatch(/George|answer to:/);
-    expect(answer.getAttribute("aria-label")).not.toMatch(/George|answer to:/);
+    expect(answer.textContent).toContain("flyd");
+    expect(answer.textContent).toContain("Building V5 with a framed hero.");
     const hero = document.querySelector<HTMLElement>('.job[data-job="live:hero"]')!;
     // A long run-on gives the card its first whole clause; the line says the state and the next step.
-    expect(hero.getAttribute("aria-label")).toBe("The HFTW shop hero images currently use product shots");
+    expect(hero.getAttribute("aria-label")).toBeNull();
+    expect(hero.textContent).toContain("hftw");
+    expect(hero.querySelector(".w")!.textContent).toBeTruthy();
+    expect(hero.textContent).toContain("Waiting for your pick: V5 framed hero.");
     expect(hero.querySelector(".next")!.textContent).toBe("Waiting for your pick: V5 framed hero.");
   });
 

@@ -237,7 +237,7 @@ export const TODAY_SCRIPT = `
   function newsTalkOf(story) {
     var talk = newsTalks[story.url];
     if (talk) return talk;
-    talk = { box: el("div", "talk"), nodes: {}, source: null, session: "" };
+    talk = { box: el("div", "talk"), nodes: {}, messages: {}, pending: [], claimed: {}, source: null, session: "" };
     newsTalks[story.url] = talk;
     var node = newsCols.querySelector('.story[data-story="' + newsStories.indexOf(story) + '"]');
     if (node) node.appendChild(talk.box);
@@ -247,6 +247,7 @@ export const TODAY_SCRIPT = `
     talk.confirm = update.confirm || null;
     if (centre === "news" && newsPicked && newsTalks[newsPicked.url] === talk) newsConfirm();
     (update.messages || []).forEach(function (message) {
+      talk.messages[message.id] = message;
       var line = talk.nodes[message.id];
       if (!line) {
         line = el("div", message.role === "user" ? "q" : "a");
@@ -257,10 +258,34 @@ export const TODAY_SCRIPT = `
     var keep = {};
     (update.order || []).forEach(function (id) { keep[id] = true; });
     Object.keys(talk.nodes).forEach(function (id) { if (!keep[id]) { talk.nodes[id].remove(); delete talk.nodes[id]; } });
+    Object.keys(talk.messages).forEach(function (id) { if (!keep[id]) delete talk.messages[id]; });
     (update.order || []).forEach(function (id) { if (talk.nodes[id]) talk.box.appendChild(talk.nodes[id]); });
-    var waiting = talk.box.querySelector(".pending");
-    if (waiting && (update.order || []).length && !update.working) waiting.remove();
-    else if (waiting) talk.box.appendChild(waiting);
+    newsReconcile(talk);
+    talk.pending.forEach(function (pending) { talk.box.appendChild(pending.asked); talk.box.appendChild(pending.answer); });
+  }
+  function newsReconcile(talk) {
+    talk.pending = talk.pending.filter(function (pending) {
+      var match = Object.keys(talk.messages).find(function (id) {
+        var message = talk.messages[id];
+        if (message.role !== "user" || talk.claimed[id]) return false;
+        if (pending.id) return id === pending.id;
+        var timestamp = Date.parse(message.timestamp || "");
+        if (pending.known[id] || !Number.isFinite(timestamp) || timestamp < pending.at - 5000) return false;
+        var text = document.createElement("div");
+        text.innerHTML = message.html || "";
+        var typed = letters(pending.text);
+        var shown = letters(text.textContent || "");
+        return (typed ? !!shown && carries(typed, shown) : !shown)
+          && (message.images || []).length === pending.images && (message.files || []).length === pending.files;
+      });
+      if (!match) return true;
+      talk.claimed[match] = true;
+      pending.matched = true;
+      pending.asked.remove();
+      if (!pending.warning) pending.answer.remove();
+      if (!input.value && !attachments.length) saveDraftNow();
+      return false;
+    });
   }
   function newsListen(talk) {
     if (talk.source || !talk.session) return;
@@ -279,8 +304,12 @@ export const TODAY_SCRIPT = `
     talk.box.appendChild(asked);
     var answer = el("div", "a pending", assistant + " is reading the story…");
     talk.box.appendChild(answer);
+    var pending = { asked: asked, answer: answer, text: text, images: sending.filter(function (a) { return !a.name; }).length,
+      files: sending.filter(function (a) { return a.name; }).length, known: Object.assign({}, talk.messages), at: Date.now(), id: "", matched: false, warning: false };
+    talk.pending.push(pending);
     function failed(why) {
       sendsInFlight -= 1;
+      talk.pending = talk.pending.filter(function (one) { return one !== pending; });
       answer.textContent = why;
       answer.classList.remove("pending");
       if (!input.value && !attachments.length) { input.value = text; attachments = sending; renderAttachments(); }
@@ -298,6 +327,7 @@ export const TODAY_SCRIPT = `
       function send() { return deliver(payload).then(function (sent) {
         sendsInFlight -= 1;
         if (sent.unsure) {
+          if (pending.matched) { if (!input.value && !attachments.length) saveDraftNow(); return; }
           if (!talk.box.contains(answer)) talk.box.appendChild(answer);
           answer.classList.remove("pending");
           answer.textContent = "May not have sent. ";
@@ -307,10 +337,12 @@ export const TODAY_SCRIPT = `
           answer.appendChild(resend);
           return;
         }
+        pending.id = sent.id || "";
+        pending.warning = !!sent.warning;
+        newsReconcile(talk);
         if (!input.value && !attachments.length) saveDraftNow();
-        asked.remove();
         if (sent.warning) { if (!talk.box.contains(answer)) talk.box.appendChild(answer); answer.classList.remove("pending"); answer.textContent = "Saved, but not passed on yet."; }
-        else answer.classList.add("pending");
+        else if (!pending.matched) answer.classList.add("pending");
       }).catch(function () { failed("Not sent. Try again."); }); }
       return send();
     }).catch(function () { failed("Not sent. Try again."); });
