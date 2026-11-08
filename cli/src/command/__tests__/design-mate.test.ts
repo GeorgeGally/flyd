@@ -13,10 +13,12 @@ beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "flyd-design-mate-"));
   labs = join(home, "labs");
   process.env.FLYD_COMMAND_DIR = join(home, "command");
+  process.env.FLYD_SKILLS_DIR = join(home, "skills");
 });
 
 afterEach(() => {
   delete process.env.FLYD_COMMAND_DIR;
+  delete process.env.FLYD_SKILLS_DIR;
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -163,6 +165,40 @@ describe("Design Mate", () => {
     expect(gitCalls.find((args) => args[0] === "commit")).not.toContain("notes.md");
     expect(done.result!.brief).toBe("The header now matches V2.");
     expect(done.result!.specialistOutputs[0]!.specialist).toBe(CREATIVE_DIRECTOR);
+  });
+
+  it("carries ux-psychology into every designer and Creative Director prompt", async () => {
+    const prompts: Record<string, string[]> = { brief: [], build: [], critique: [], presentation: [], make: [], review: [] };
+    const deps = staff([9]);
+    await driveDesignRun(start(), {
+      ...deps,
+      complete: async (prompt, options) => {
+        const role = prompt.includes("has brought you his brief") ? "brief" : prompt.includes("You are a designer") ? "build" : prompt.includes("judging one of the versions") ? "critique" : prompt.includes("The lab is finished") ? "presentation" : "";
+        if (role) prompts[role]!.push(prompt);
+        return deps.complete(prompt, options);
+      },
+    });
+    let made = false;
+    const build = dispatchDesignMate({ originalMessage: "build V2", intendedOutcome: "Build Wall label", doneWhen: ["header matches V2"], project: { root: join(home, "project") }, build: { reference: { page: "/lab/v2.html", name: "Wall label" } } }, labs);
+    await driveDesignRun(build, {
+      ...deps,
+      complete: async (prompt) => {
+        if (prompt.startsWith("You are Flyd")) return JSON.stringify({ verdict: "accept", notes: [] });
+        prompts.review!.push(prompt);
+        return JSON.stringify({ score: 9, critique: "Clean.", presentation: "Done." });
+      },
+      make: async (_cwd, prompt) => { prompts.make!.push(prompt); made = true; return "Changed the header."; },
+      git: async (_cwd, args) => args[0] === "status" ? (made ? " M src/header.tsx\n" : "") : args[0] === "rev-parse" ? "abc1234\n" : "",
+    });
+    for (const [role, sent] of Object.entries(prompts)) {
+      expect(sent.length, role).toBeGreaterThan(0);
+      for (const prompt of sent) {
+        expect(prompt, role).toContain("SKILL: ux-psychology");
+        expect(prompt, role).toContain("Smart defaults");
+        expect(prompt, role).toContain("Any guardrail broken?");
+      }
+    }
+    expect(prompts.critique![0]).toContain("Judge the work against every one of them, their checklists and guardrails included");
   });
 
   it("refuses a build without the project it changes", () => {

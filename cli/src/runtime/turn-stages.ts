@@ -38,7 +38,7 @@ export type TurnSurface = "chat" | "overlay" | "live";
 export async function defaultRouteTurn(message: string, history: TurnHistory, notes: Array<{ id: string; text: string }> = [], remits: RemitSummary[] = []): Promise<FastRouteReading | null> {
   if (process.env.VITEST) return null;
   try { seedSkills(); } catch { /* skills are optional */ }
-  return routeWithJev(message, history, loadSkills(), notes, remits);
+  return routeWithJev(message, history, loadSkills().filter((skill) => skill.name !== "ux-psychology"), notes, remits);
 }
 
 /** The LLM room reading; null under tests or with FLYD_ROOM=0. */
@@ -128,7 +128,7 @@ export async function readRoomStage(input: RoomStageInput): Promise<RoomStage> {
 
 /** Stage 4: the one skill that fits this turn and the one backstage note worth raising, if any. */
 export function turnExtras(fast: FastRouteReading | null, room: RoomRead | null, notes: PrivateNote[], skills: () => Skill[] = loadSkills): { skill: Skill | null; fastNote: PrivateNote | null; raisedAdvisory?: string } {
-  const skill = fast?.skill ? (() => { try { return skills().find((item) => item.name === fast.skill) ?? null; } catch { return null; } })() : null;
+  const skill = fast?.skill && fast.skill !== "ux-psychology" ? (() => { try { return skills().find((item) => item.name === fast.skill) ?? null; } catch { return null; } })() : null;
   // On the fast path the room reading never runs, so a note Jev found relevant rides in the plan.
   const fastNote = !room && fast?.raise ? notes.find((note) => note.id === fast.raise) ?? null : null;
   const raisedId = room?.raise ?? (room ? null : fast?.raise ?? null);

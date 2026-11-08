@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { CodingDispatchInput } from "./coding.js";
 import { bundledSkillsDir, loadSkills, parseSkill, skillsHome } from "../runtime/skills.js";
 import type { DomainRequest, DomainRun } from "./types.js";
@@ -17,6 +17,9 @@ export const DESIGN_LAB_DONE_WHEN = [
   "the lab's URL (or file path) and a screenshot of every version are listed in artifacts",
 ];
 
+/** The ux-psychology skill: behavioural principles and dark-pattern guardrails every design applies and every review checks. */
+export const UX_PSYCHOLOGY_SKILL = "ux-psychology";
+
 /** The design-lab skill: George's edited copy in ~/.flyd/skills, else the one Flyd ships with. */
 export function designLabSkill(home = skillsHome(), bundled = bundledSkillsDir()): { name: string; body: string } | null {
   const own = (() => { try { return loadSkills(home).find((skill) => skill.name === DESIGN_LAB_SKILL); } catch { return undefined; } })();
@@ -25,6 +28,18 @@ export function designLabSkill(home = skillsHome(), bundled = bundledSkillsDir()
   if (!existsSync(path)) return null;
   const shipped = parseSkill(readFileSync(path, "utf8"), path);
   return shipped ? { name: shipped.name, body: shipped.body } : null;
+}
+
+export function designTeamSkills(bundled = join(dirname(bundledSkillsDir()), "design-skills")): Array<{ name: string; body: string }> {
+  const ownPath = join(skillsHome(), UX_PSYCHOLOGY_SKILL, "SKILL.md");
+  try {
+    const own = parseSkill(readFileSync(ownPath, "utf8"), ownPath, Infinity);
+    if (own?.name === UX_PSYCHOLOGY_SKILL && own.body) return [{ name: own.name, body: own.body }];
+  } catch { /* Fall back to the shipped skill. */ }
+  const path = join(bundled, UX_PSYCHOLOGY_SKILL, "SKILL.md");
+  if (!existsSync(path)) return [];
+  const skill = parseSkill(readFileSync(path, "utf8"), path, Infinity);
+  return skill ? [{ name: skill.name, body: skill.body }] : [];
 }
 
 /** A run that is a design lab: it carries the lab process, whichever handoff started it. */
