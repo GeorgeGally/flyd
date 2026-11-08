@@ -4169,6 +4169,27 @@ describe("the front page", () => {
     expect(document.querySelector(".attachment.file")).toBeNull();
   });
 
+  it("treats a lost News send response as uncertain and shows delivery warnings", async () => {
+    const stream = await opened();
+    const stories = [{ title: "A story", url: "https://example.test/story" }];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    let attempts = 0;
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
+      if (url === "/api/article-chat") return json({ session: "window:article-0123456789abcdef" });
+      if (url === "/api/send") { if (++attempts === 1) throw new Error("connection lost"); return json({ id: "sent", warning: "not woken" }); }
+      return json({ token: "a".repeat(48) });
+    });
+    await type("Remember this");
+    expect(document.querySelector("#news-cols .talk")!.textContent).toContain("May not have sent");
+    expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("");
+    expect(attempts).toBe(1);
+    document.querySelector<HTMLButtonElement>("#news-cols .talk button")!.click();
+    await settle();
+    expect(attempts).toBe(2);
+    expect(document.querySelector("#news-cols .talk")!.textContent).toContain("Saved, but not passed on yet");
+  });
+
   it("shows only the selected News session's confirmation", async () => {
     const stream = await opened();
     const stories = [{ title: "First", url: "https://example.test/first" }, { title: "Second", url: "https://example.test/second" }];
@@ -4217,7 +4238,7 @@ describe("the front page", () => {
   it("retries weather after an initially empty reading", async () => {
     let reads = 0;
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
-      if (url !== "/api/weather") return json({ assistantLabel: "Flyd", sessions: SESSIONS });
+      if (!String(url).startsWith("/api/weather?")) return json({ assistantLabel: "Flyd", sessions: SESSIONS });
       reads++;
       return json({ weather: reads === 1 ? null : { place: "Canggu", tempC: 29, code: 0, read: "2026-11-07T05:00:00Z", hours: [] } });
     });
@@ -4239,7 +4260,7 @@ describe("the front page", () => {
         { date: "2026-11-08", code: 95, hiC: 30.4, loC: 24, hours: [{ at: "2026-11-08T06:00", tempC: 25, rainChance: 11, code: 1 }] },
       ],
     };
-    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/weather" ? { weather } : { assistantLabel: "Flyd", sessions: SESSIONS }));
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(String(url).startsWith("/api/weather?") ? { weather } : { assistantLabel: "Flyd", sessions: SESSIONS }));
     await opened();
     document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
     await settle();
@@ -4267,7 +4288,7 @@ describe("the front page", () => {
       { at: "2026-11-07T14:00", tempC: 29, rainChance: 0 },
       { at: "2026-11-07T15:00", tempC: 26, rainChance: 30, code: 61 },
     ] };
-    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/weather" ? { weather } : { assistantLabel: "Flyd", sessions: SESSIONS }));
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(String(url).startsWith("/api/weather?") ? { weather } : { assistantLabel: "Flyd", sessions: SESSIONS }));
     await opened();
     document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
     await settle();
@@ -4321,12 +4342,14 @@ describe("the front page", () => {
   it("gives an open job a back button that returns to the conversation and forgets the job", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
     expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
     expect(sessionStorage.getItem("flyd-front-job")).toBe("call:pick");
     const back = document.querySelector<HTMLButtonElement>("#stage-head button#stage-back")!;
     expect(back.textContent).toBe("Back to the conversation");
     after(() => back.click());
+    expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
     expect(document.documentElement.hasAttribute("data-job")).toBe(false);
     expect(sessionStorage.getItem("flyd-front-job")).toBe("talk");
     expect(document.querySelector(".job.on")).toBeNull();
@@ -4487,6 +4510,11 @@ describe("the front page", () => {
     after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     expect(document.querySelector(".jv-ask")!.textContent).toBe("Which hero should ship?");
     expect(document.querySelector(".jv-thread")!.textContent).toBe("Hero thread");
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
+    document.querySelector<HTMLButtonElement>(".jv-thread")!.click();
+    expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
+    expect(FakeEventSource.instances.at(-1)!.url).toContain("session=s1");
     // No rename row in the job: its one Close is a quiet action in the heading.
     const view = document.querySelector(".job-view")!;
     expect(view.querySelector('input[name="name"]')).toBeNull();
@@ -4674,7 +4702,9 @@ describe("project threads", () => {
     listed(LIST);
     load("");
     await settle();
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
     (document.querySelector('[data-thread="project:dir"]') as HTMLElement).click();
+    expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
     await settle();
     expect(FakeEventSource.instances.at(-1)!.url).toContain("session=project%3Adir");
     expect(location.search).toContain("project%3Adir");
@@ -4720,7 +4750,7 @@ describe("the Machines tab", () => {
 
   function serve(respond: (init?: RequestInit) => unknown): ReturnType<typeof vi.fn> {
     const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/machines") {
+      if (url === "/api/machines" || url.startsWith("/api/machines?")) {
         const body = respond(init) as { error?: string };
         return json(body, body.error ? 400 : 200);
       }
@@ -4729,7 +4759,7 @@ describe("the Machines tab", () => {
     vi.stubGlobal("fetch", fetcher);
     return fetcher;
   }
-  const reads = (fetcher: ReturnType<typeof vi.fn>) => fetcher.mock.calls.filter(([url]) => url === "/api/machines").length;
+  const reads = (fetcher: ReturnType<typeof vi.fn>) => fetcher.mock.calls.filter(([url]) => url.startsWith("/api/machines?")).length;
   const tab = () => document.querySelector('.rtab[data-rtab="machines"]') as HTMLElement;
 
   it("sits with the other tabs and reads nothing until it is open", async () => {

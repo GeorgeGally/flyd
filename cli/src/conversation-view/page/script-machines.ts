@@ -97,7 +97,7 @@ export const MACHINES_SCRIPT = `
   }
   function loadMachines() {
     if (!machinesOnScreen()) { machinesAgain(false); return; }
-    fetch("/api/machines").then(function (r) { return r.json(); }).then(drawMachines).then(machinesAgain).catch(function () { machinesAgain(false); });
+    fetch(withToken("/api/machines")).then(function (r) { return r.json(); }).then(drawMachines).then(machinesAgain).catch(function () { machinesAgain(false); });
   }
   function machineAdd(name, alias) {
     return fetch("/api/machines", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify({ name: name, alias: alias }) })

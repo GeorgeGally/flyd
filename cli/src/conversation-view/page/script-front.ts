@@ -492,7 +492,7 @@ export const FRONT_SCRIPT = `
       var row = thread.kind === "conversation" ? el("button", "jv-thread", thread.title || "Conversation") : el("p", "jv-thread", thread.title || "Run");
       if (row.tagName === "BUTTON") {
         row.type = "button";
-        row.addEventListener("click", function () { connect(thread.id); frontSelect("talk"); });
+        row.addEventListener("click", function () { setCentre("talk", true); connect(thread.id); frontSelect("talk"); });
       }
       parts[parts.length - 1].appendChild(row);
     });
@@ -613,6 +613,7 @@ export const FRONT_SCRIPT = `
     historyList.addEventListener("click", function (event) { if (event.target.closest(".history-item")) frontSelect("talk"); });
   })();
   document.getElementById("stage-back").addEventListener("click", function () {
+    setCentre("talk", true);
     frontSelect("talk");
     if (!inThread()) return;
     // Out of a thread: back to this window's own conversation.
@@ -626,6 +627,7 @@ export const FRONT_SCRIPT = `
     if (event.key !== "Escape" || event.defaultPrevented || frontActive === "talk" || !lightbox.hidden) return;
     var from = event.target;
     if (from && from.closest && from.closest("input, textarea, select, [contenteditable]")) return;
+    setCentre("talk", true);
     frontSelect("talk");
   });
   // The conversation's heading follows its title as it changes.

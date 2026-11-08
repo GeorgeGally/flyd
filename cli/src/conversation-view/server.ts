@@ -835,10 +835,16 @@ export class ConversationViewServer {
       return;
     }
     if (url.pathname === "/api/machines") {
+      if (req.method === "GET" && !sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" }); return;
+      }
       await this.machineAction(req, res);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/weather") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" }); return;
+      }
       sendJson(res, 200, { weather: this.weather?.current() ?? null });
       return;
     }
@@ -2129,7 +2135,7 @@ export class ConversationViewServer {
     sendJson(res, 200, { job: result.job });
   }
 
-  /** The Machines tab. Reading is open like the other column reads; adding to the list takes the token. */
+  /** The Machines tab. */
   private async machineAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method === "GET") {
       const setup = await this.machineSetup().catch(() => null);

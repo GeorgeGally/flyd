@@ -291,15 +291,28 @@ export const TODAY_SCRIPT = `
     opened.then(function (data) {
       if (!data || !data.session) { failed("That story could not be opened. Try again in a moment."); return; }
       talk.session = data.session;
-      return tokenFetch("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: talk.session, text: text,
+      var payload = JSON.stringify({ session: talk.session, text: text,
         images: sending.filter(function (a) { return !a.name; }).map(function (a) { return { mediaType: a.mediaType, data: a.data }; }),
-        files: sending.filter(function (a) { return a.name; }).map(function (a) { return { name: a.name, data: a.data }; }) }) }, true).then(function (response) {
-        if (!response.ok) { failed("Not sent. Try again."); return; }
+        files: sending.filter(function (a) { return a.name; }).map(function (a) { return { name: a.name, data: a.data }; }) });
+      newsListen(talk);
+      function send() { return deliver(payload).then(function (sent) {
         sendsInFlight -= 1;
+        if (sent.unsure) {
+          if (!talk.box.contains(answer)) talk.box.appendChild(answer);
+          answer.classList.remove("pending");
+          answer.textContent = "May not have sent. ";
+          var resend = el("button", "", "Tap to resend");
+          resend.type = "button";
+          resend.addEventListener("click", function () { resend.remove(); sendsInFlight += 1; answer.textContent = assistant + " is reading the story…"; send(); });
+          answer.appendChild(resend);
+          return;
+        }
         if (!input.value && !attachments.length) saveDraftNow();
         asked.remove();
-        newsListen(talk);
-      });
+        if (sent.warning) { if (!talk.box.contains(answer)) talk.box.appendChild(answer); answer.classList.remove("pending"); answer.textContent = "Saved, but not passed on yet."; }
+        else answer.classList.add("pending");
+      }).catch(function () { failed("Not sent. Try again."); }); }
+      return send();
     }).catch(function () { failed("Not sent. Try again."); });
   }
   // On News the box talks about the story; elsewhere a message starts the conversation in the middle.
@@ -386,7 +399,7 @@ export const TODAY_SCRIPT = `
   function loadWeather() {
     if (Date.now() - weatherAt < 10 * 60 * 1000) return;
     weatherAt = Date.now();
-    fetch("/api/weather").then(function (r) { return r.json(); }).then(function (data) {
+    fetch(withToken("/api/weather")).then(function (r) { return r.json(); }).then(function (data) {
       weather = data && data.weather ? data.weather : null;
       if (!weather) weatherAt = 0;
       if (weather && weather.days && wxDay >= weather.days.length) wxDay = 0;
