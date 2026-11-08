@@ -172,12 +172,12 @@ describe("Design Mate", () => {
     const skillDir = join(home, "skills", "ux-psychology");
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(join(skillDir, "SKILL.md"), `---\nname: ux-psychology\ndescription: UX\n---\n${body}\n`);
-    const prompts: Record<string, string[]> = { brief: [], build: [], critique: [], make: [], review: [] };
+    const prompts: Record<string, string[]> = { brief: [], build: [], critique: [], presentation: [], make: [], review: [] };
     const deps = staff([9]);
     await driveDesignRun(start(), {
       ...deps,
       complete: async (prompt, options) => {
-        const role = prompt.includes("has brought you his brief") ? "brief" : prompt.includes("You are a designer") ? "build" : prompt.includes("judging one of the versions") ? "critique" : "";
+        const role = prompt.includes("has brought you his brief") ? "brief" : prompt.includes("You are a designer") ? "build" : prompt.includes("judging one of the versions") ? "critique" : prompt.includes("The lab is finished") ? "presentation" : "";
         if (role) prompts[role]!.push(prompt);
         return deps.complete(prompt, options);
       },

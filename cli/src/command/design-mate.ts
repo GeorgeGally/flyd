@@ -489,6 +489,7 @@ export function presentPrompt(run: DomainRun, lab: Lab): string {
     `Creative brief: ${lab.brief}`,
     "The attached images are the desktop screenshots, in this order:",
     ...lab.versions.map((version) => `V${version.n} · ${version.name} (${version.score}/10): ${version.idea}`),
+    ...teamSkills("judge"),
     "Say which version you would take forward and why, what each of the others is good for, and what you would still change. Plain sentences, no slogans, no design jargon George would not use.",
     'Reply with JSON only: {"pick":1,"presentation":"3-6 short lines to Flyd"}',
   ].join("\n");
