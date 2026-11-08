@@ -4923,6 +4923,7 @@ describe("the Machines tab", () => {
     serve(() => ({ machines: [ONLINE], setup: {
       models: [{ role: "Chat", model: "claude-sonnet-5-5" }, { role: "Coding crews", model: "gpt-6-luna" }],
       spend: { usd: 1.789, cap: 100, calls: 1036, capped: false },
+      usageAt: new Date(Date.now() - 12 * 60_000).toISOString(),
       usage: [{ provider: "Claude", left: 69, resetsAt: soon }, { provider: "OpenCode Go", left: 0, resetsAt: soon }, { provider: "Codex", left: 24, resetsAt: soon, runsOutAt: soon }],
     } }));
     load("");
@@ -4933,6 +4934,7 @@ describe("the Machines tab", () => {
     expect([...setup.querySelectorAll(".setup-models dt, .setup-models dd")].map((one) => one.textContent)).toEqual(["Chat", "claude-sonnet-5-5", "Coding crews", "gpt-6-luna"]);
     expect(setup.querySelector(".setup-spend")!.textContent).toBe("Claude this month: $1.79 of $100, 1036 calls.");
     const usage = [...setup.querySelectorAll(".setup-usage li")];
+    expect(setup.querySelector(".setup-usage-read")!.textContent).toBe("Last read 12m ago");
     expect(usage.map((one) => one.querySelector(".u-top")!.textContent)).toEqual(["Claude69% left", "OpenCode GoUsed up", "Codex24% left"]);
     expect(usage[0]!.querySelector<HTMLElement>(".u-bar i")!.style.width).toBe("69%");
     expect(usage[1]!.querySelector(".u-when")!.textContent).toMatch(/^Back tomorrow at /);

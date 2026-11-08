@@ -45,10 +45,15 @@ describe("weather", () => {
   });
 
   it("asks Open-Meteo for the week and each hour's sky", () => {
-    const url = forecastUrl({ lat: -8.65, lon: 115.13 });
-    expect(url).toContain("forecast_days=7");
-    expect(url).toContain("daily=weather_code%2Ctemperature_2m_max%2Ctemperature_2m_min");
-    expect(url).toContain("hourly=temperature_2m%2Cprecipitation_probability%2Cweather_code");
+    const url = new URL(forecastUrl({ lat: -8.65, lon: 115.13 }));
+    expect(url.origin + url.pathname).toBe("https://api.open-meteo.com/v1/forecast");
+    expect(url.searchParams.get("latitude")).toBe("-8.65");
+    expect(url.searchParams.get("longitude")).toBe("115.13");
+    expect(url.searchParams.get("forecast_days")).toBe("7");
+    expect(url.searchParams.get("timezone")).toBe("auto");
+    expect(new Set(url.searchParams.get("current")?.split(","))).toEqual(new Set(["temperature_2m", "weather_code"]));
+    expect(new Set(url.searchParams.get("daily")?.split(","))).toEqual(new Set(["weather_code", "temperature_2m_max", "temperature_2m_min"]));
+    expect(new Set(url.searchParams.get("hourly")?.split(","))).toEqual(new Set(["temperature_2m", "precipitation_probability", "weather_code"]));
   });
 
   it("is not a reading without current conditions", () => {
@@ -57,10 +62,6 @@ describe("weather", () => {
 
   it("names WMO codes plainly", () => {
     expect([0, 3, 61, 81, 95].map(conditionOf)).toEqual(["clear", "overcast", "rain", "showers", "thunderstorms"]);
-  });
-
-  it("asks Open-Meteo for local time", () => {
-    expect(forecastUrl({ lat: -8.65, lon: 115.13 })).toContain("timezone=auto");
   });
 
   it("has no reading without a place, rather than a guessed one", async () => {

@@ -135,6 +135,7 @@ button.ev:hover { background: var(--sheet); }
 .setup-models dd { margin: 0; overflow-wrap: anywhere; }
 .setup-spend { margin: 14px 0 0; font: 400 15px/1.4 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
 .setup-usage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; margin: 0; padding: 0; list-style: none; }
+.setup-usage-read { margin: 0 0 14px; font: 400 13px/1.35 var(--sans); color: var(--mute); }
 .setup-usage li { min-width: 0; }
 .setup-usage .u-top { display: flex; justify-content: space-between; gap: 8px; font: 500 15px/1.3 var(--sans); }
 .setup-usage .u-top span { font-weight: 400; color: var(--mute); font-variant-numeric: tabular-nums; }

@@ -70,7 +70,8 @@ export const MACHINES_SCRIPT = `
         + '</section>';
     }
     if (setup.usage && setup.usage.length) {
-      html += '<section aria-label="Usage left"><h2>Usage left</h2><ul class="setup-usage">' + setup.usage.map(function (one) {
+      var readAgo = setup.usageAt && ago(setup.usageAt);
+      html += '<section aria-label="Usage left"><h2>Usage left</h2><p class="setup-usage-read">' + (readAgo ? "Last read " + frontEsc(readAgo) : "Read time unavailable") + '</p><ul class="setup-usage">' + setup.usage.map(function (one) {
         var used = one.left <= 0;
         var when = one.runsOutAt ? '<span class="u-when out">Runs out ' + frontEsc(machineWhen(one.runsOutAt)) + '</span>'
           : one.resetsAt ? '<span class="u-when">' + (used ? "Back " : "Resets ") + frontEsc(machineWhen(one.resetsAt)) + '</span>' : "";
