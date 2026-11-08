@@ -305,7 +305,26 @@ export const TODAY_SCRIPT = `
       talk.pending = talk.pending.filter(function (one) { return one !== pending; });
       answer.textContent = why;
       answer.classList.remove("pending");
-      if (!input.value && !attachments.length) { input.value = text; attachments = sending; renderAttachments(); }
+      function restore() {
+        var original = newsStories.find(function (one) { return one.url === story.url; });
+        if (!original || input.value || attachments.length) return false;
+        if (frontActive !== "talk") frontSelect("talk");
+        setCentre("news", true);
+        newsPick(original);
+        input.value = text;
+        attachments = sending;
+        renderAttachments();
+        asked.remove();
+        answer.remove();
+        return true;
+      }
+      if (!restore()) {
+        var restoreButton = el("button", "", "Restore draft");
+        restoreButton.type = "button";
+        restoreButton.addEventListener("click", restore);
+        answer.appendChild(document.createTextNode(" "));
+        answer.appendChild(restoreButton);
+      }
     }
     var opened = talk.session ? Promise.resolve({ session: talk.session }) : tokenFetch("/api/article-chat", { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ url: story.url, title: story.title || "", media: story.media || "article", text: story.quote || story.gist || "", description: story.gist || "", figure: story.figure || "", attribution: story.attribution || "" }) }, true)
@@ -421,9 +440,10 @@ export const TODAY_SCRIPT = `
   newsSidePhone.addEventListener("click", wxClick);
   var weatherAt = 0;
   function loadWeather() {
+    if (!VIEW_TOKEN) return;
     if (Date.now() - weatherAt < 10 * 60 * 1000) return;
     weatherAt = Date.now();
-    fetch(withToken("/api/weather")).then(function (r) { return r.json(); }).then(function (data) {
+    fetch(withToken("/api/weather")).then(function (r) { if (!r.ok) throw new Error("weather unavailable"); return r.json(); }).then(function (data) {
       weather = data && data.weather ? data.weather : null;
       if (!weather) weatherAt = 0;
       if (weather && weather.days && wxDay >= weather.days.length) wxDay = 0;

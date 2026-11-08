@@ -1052,9 +1052,11 @@ export const SHOW_SCRIPT = `
   }
   applyScreen(store("flyd-view-screen") === "show" ? "show" : "terminal", false);
 
+  var waitingForViewToken = !VIEW_TOKEN;
   (VIEW_TOKEN ? Promise.resolve({ token: VIEW_TOKEN }) : fetch("/api/token").then(function (r) { return r.json(); }))
     .then(function (data) {
       VIEW_TOKEN = data.token;
+      if (waitingForViewToken && VIEW_TOKEN) { loadMachines(); if (centre === "news") loadWeather(); }
       return loadSessions();
     })
     .then(function () { connect(explicit); })

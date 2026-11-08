@@ -179,8 +179,6 @@ button.ev:hover { background: var(--sheet); }
   :root[data-layout="front"][data-centre="news"] .news-side-phone { display: block; margin: 0 0 36px; }
   .wxcard .wx-deg { font-size: 72px; }
   .wxcard .wx-ic.big { width: 62px; height: 62px; }
-  .story img { height: 190px; }
-  .story.lead img { height: 210px; }
   .setup-usage { grid-template-columns: minmax(0, 1fr); }
 }
 `;

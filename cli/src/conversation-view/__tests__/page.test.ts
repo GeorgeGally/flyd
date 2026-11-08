@@ -4169,6 +4169,47 @@ describe("the front page", () => {
     expect(document.querySelector(".attachment.file")).toBeNull();
   });
 
+  it.each(["open", "send"])("restores a failed News %s draft to its original story", async (stage) => {
+    const stream = await opened();
+    const stories = [{ title: "First", url: "https://example.test/first" }, { title: "Second", url: "https://example.test/second" }];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    let fail!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
+      if ((stage === "open" && url === "/api/article-chat") || (stage === "send" && url === "/api/send")) return new Promise<Response>((resolve) => { fail = resolve; });
+      if (url === "/api/article-chat") return json({ session: "window:article-0123456789abcdef" });
+      return json({});
+    });
+    await type("Question for first");
+    document.querySelectorAll<HTMLElement>("#news-cols .story")[1]!.click();
+    fail(json({ error: "failed" }, 500));
+    await settle();
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    expect(input.value).toBe("Question for first");
+    expect(input.placeholder).toBe("Ask about First");
+  });
+
+  it("keeps a new draft when an earlier News send fails", async () => {
+    const stream = await opened();
+    const stories = [{ title: "First", url: "https://example.test/first" }, { title: "Second", url: "https://example.test/second" }];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    let fail!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => url === "/api/article-chat" ? new Promise<Response>((resolve) => { fail = resolve; }) : json({}));
+    await type("Earlier question");
+    document.querySelectorAll<HTMLElement>("#news-cols .story")[1]!.click();
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.value = "New question";
+    fail(json({ error: "failed" }, 500));
+    await settle();
+    expect(input.value).toBe("New question");
+    expect(input.placeholder).toBe("Ask about Second");
+    input.value = "";
+    document.querySelector<HTMLButtonElement>("#news-cols .talk button")!.click();
+    expect(input.value).toBe("Earlier question");
+    expect(input.placeholder).toBe("Ask about First");
+  });
+
   it("treats a lost News send response as uncertain and shows delivery warnings", async () => {
     const stream = await opened();
     const stories = [{ title: "A story", url: "https://example.test/story" }];
@@ -4829,6 +4870,25 @@ describe("the Machines tab", () => {
   }
   const reads = (fetcher: ReturnType<typeof vi.fn>) => fetcher.mock.calls.filter(([url]) => url.startsWith("/api/machines?")).length;
   const tab = () => document.querySelector('.rtab[data-rtab="machines"]') as HTMLElement;
+
+  it("waits for the initial view token before reading machines on phone", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    let provideToken!: (response: Response) => void;
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === "/api/token") return new Promise<Response>((resolve) => { provideToken = resolve; });
+      if (url.startsWith("/api/machines?")) return json({ machines: [ONLINE] });
+      return json({ sessions: SESSIONS });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    load("", renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) }).replace('data-send-token="' + "a".repeat(48) + '"', 'data-send-token=""'));
+    await settle();
+    expect(reads(fetcher)).toBe(0);
+    expect(document.getElementById("machines-list")!.textContent).not.toContain("No machines yet");
+    provideToken(json({ token: "b".repeat(48) }));
+    await settle();
+    expect(fetcher.mock.calls.some(([url]) => url === "/api/machines?token=" + "b".repeat(48))).toBe(true);
+    expect(document.querySelector(".machine-name")!.textContent).toBe("Mac");
+  });
 
   it("sits with the other tabs and reads nothing until it is open", async () => {
     const fetcher = serve(() => ({ machines: [ONLINE] }));
