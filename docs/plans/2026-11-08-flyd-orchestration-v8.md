@@ -40,14 +40,27 @@ Build on `Objective.after` and the Phase 2 mutation helper. Add no new store and
 - **Limit runs active at once, not runs in total.** Release counts the CoS-dispatched runs that are active across all objectives and holds the rest `queued` when the limit is reached (`FLYD_COS_MAX_ACTIVE`, default 3). This is enforced in code at release. A FirstMate run counts as one, because FirstMate schedules its own crew under its own limits. Flyd doesn't second-guess that.
 - Release by reconciliation, as in the split plan. A run is dispatched when it is `queued`, every dependency is `completed`, it has no receipt and the active limit has room. Its own ID is the request ID. Nothing new wakes it: `commandTick` (and the `hand_off` kick) already runs it.
 - **The join.** Before dispatching a run with more than one dependency, the CoS writes its brief from the dependencies' retained results in one `quickQuery`. The brief carries George's exact words, the synthesis and links to each dependency's layered result. Summaries never become the only copy that survives, per AGENTS.md.
-- **Revision guard.** `Objective` gets `revision`. Each run records the objective revision it was dispatched under. A `tell_work` correction bumps the revision. Queued runs get the new brief. A run already active gets the correction through `sendRunMessage`. When a result arrives stamped with an older revision, it is retained but never delivered. The CoS decides whether to re-run it, or raises a `decision` report if it can't tell.
+- **Corrections invalidate only what they affect.** `Objective` gets `revision`. Each run records `validFor`, the objective revision its result still holds for.
+  - A `tell_work` correction bumps the revision. As in Phase 4, the CoS resolves which run the correction targets.
+  - Code invalidates that run and every run downstream of it. Every other run gets `validFor` moved to the new revision and keeps its result. Correcting an implementation detail targets the FirstMate run, so finished research and design stay valid with no model judgment involved.
+  - A correction that changes what was researched or designed targets that upstream run instead, and its downstream runs are re-run.
+  - Invalidated runs that are queued get the new brief. Active ones get the correction through `sendRunMessage`. Completed ones are re-queued with their retained result attached as prior work.
+  - When a result arrives with `validFor` older than the current revision, it is retained and never delivered.
+  - **Delivery rule, enforced in code:** `cos.report done` may be written only when every run the result depends on is valid for the current revision.
+  - If the CoS can't tell which run a correction targets, it raises one `decision` report rather than invalidating everything.
+- **Duplicate prevention is not exactly-once execution.** Dispatch writes the run as `dispatching` before calling the executor.
+  - On restart, any run still `dispatching` is reconciled, never blindly retried. For FirstMate, the same request ID is sent again. `fm-inbox.sh note --request-id` claims the ID atomically, so a note that was already accepted comes back as `replay` with its existing note ID, and Flyd records that receipt. For Librarian and Design Mate, this uses the split plan's Phase 2 request-ID replay.
+  - An executor that can't answer for a request ID leaves the run `unknown`. The CoS asks the executor where it stands (as the fleet monitor does) before doing anything else.
+  - Side effects inside an executor, such as a pushed branch or an opened PR, are the executor's to keep single. FirstMate owns PR and delivery state (command PRD §5). The CoS never re-dispatches to cause a side effect a second time.
 - **Acceptance.** Before writing `cos.report done`, the CoS checks the final result against the objective's `done_when`. Domain review stays where it is: FirstMate verifies code and the Creative Director reviews design. Add no generic reviewer layer.
 - A failed or cancelled dependency still sends the objective to a `decision` report. Nothing retries on its own, as in the split plan.
 
 **Exit**
 - Librarian and Design Mate run at the same time. Their results are joined into one brief, which goes to FirstMate, and George gets exactly one delivery.
-- Kill Core after the parallel dispatch, after one dependency completes, and after the join dispatch. Each time, every run dispatches exactly once and George gets one delivery.
-- Change a requirement while FirstMate is working. The old-revision result is retained and not delivered, and the delivered result matches the new requirement.
+- Kill Core after the parallel dispatch, after one dependency completes, and after the join dispatch. Each time, every executor accepts each run once and George gets one delivery.
+- **Uncertain dispatch:** kill Core after `fm-inbox.sh` saved the note but before Flyd recorded the receipt. On restart the run is reconciled through `replay`, there is still one note in FirstMate's inbox, and the run carries its receipt. Repeat with a fake executor that cannot answer for the request ID: the run goes to `unknown` and is not re-sent.
+- Correct an implementation detail after research and design have finished. Research and design aren't re-run and keep their results. Only the FirstMate run is redone, and the delivered result matches the latest revision.
+- Correct something that changes the research question. The Librarian run and everything downstream of it are re-run; the Design Mate run is re-run only if it depends on the research.
 - A one-team objective still takes the one-run path.
 - With the active limit set to 1, the same parallel objective runs one run at a time and still finishes with one delivery.
 - A join that adds runs after it completes dispatches each added run exactly once, including after a crash.
@@ -91,8 +104,9 @@ Every guarantee in the CoS work must say which kind it is. Squad's docs are hone
 | Flyd never changes code | Code: tools removed from Flyd's tool set | split plan Phase 4 |
 | Push, publish, send, delete or pipe-to-shell ask George | Code | `runtime/tool-policy.ts` |
 | One delivery per report | Code | `flyd.delivered` event, split plan Phase 1 |
-| A run dispatches once | Code | request ID and receipt |
-| Results from an old revision aren't delivered | Code | Phase 6 revision guard |
+| An executor accepts a run once | Code: request-ID replay; uncertain runs are reconciled, not retried | `command/firstmate.ts`, Phase 6 |
+| Side effects inside an executor happen once | The executor's job, not Flyd's | FirstMate (command PRD §5) |
+| Delivery only from results valid for the latest revision | Code | Phase 6 `validFor` check |
 | Monthly Claude spend cap | Code | `lib/claude-spend.ts` |
 | Active CoS runs at once (default 3) | Code | Phase 6 release, `FLYD_COS_MAX_ACTIVE` |
 | Send-back caps (≤2 Flyd, ≤3 Creative Director) | Code | `command/design-mate.ts` |
