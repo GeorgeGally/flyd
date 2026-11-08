@@ -22,12 +22,13 @@ export const UX_PSYCHOLOGY_SKILL = "ux-psychology";
 
 /** A design skill: George's edited copy in ~/.flyd/skills, else the one Flyd ships with. */
 function designSkill(name: string, home: string, bundled: string): { name: string; body: string } | null {
+  const maxBodyChars = name === UX_PSYCHOLOGY_SKILL ? Infinity : undefined;
   const ownPath = join(home, name, "SKILL.md");
-  const own = (() => { try { return parseSkill(readFileSync(ownPath, "utf8"), ownPath); } catch { return null; } })();
+  const own = (() => { try { return parseSkill(readFileSync(ownPath, "utf8"), ownPath, maxBodyChars); } catch { return null; } })();
   if (own?.name === name) return { name: own.name, body: own.body };
   const path = join(bundled, name, "SKILL.md");
   if (!existsSync(path)) return null;
-  const shipped = parseSkill(readFileSync(path, "utf8"), path);
+  const shipped = parseSkill(readFileSync(path, "utf8"), path, maxBodyChars);
   return shipped ? { name: shipped.name, body: shipped.body } : null;
 }
 

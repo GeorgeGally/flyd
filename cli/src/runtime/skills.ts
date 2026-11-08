@@ -37,14 +37,14 @@ export function importSources(): string[] {
   return [join(homedir(), ".claude", "skills"), join(homedir(), ".config", "opencode", "skills")];
 }
 
-export function parseSkill(text: string, path: string): Skill | null {
+export function parseSkill(text: string, path: string, maxBodyChars = MAX_SKILL_CHARS): Skill | null {
   const match = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (!match) return null;
   const field = (key: string) => match[1].match(new RegExp(`^${key}:\\s*(.+)$`, "m"))?.[1].trim().replace(/^["']|["']$/g, "") ?? "";
   const name = field("name");
   const description = field("description");
   if (!name || !description) return null;
-  return { name, description: description.slice(0, 400), body: match[2].trim().slice(0, MAX_SKILL_CHARS), path };
+  return { name, description: description.slice(0, 400), body: match[2].trim().slice(0, maxBodyChars), path };
 }
 
 /** Copy bundled skills George hasn't seen yet; one he deleted stays deleted. */

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -168,7 +168,10 @@ describe("Design Mate", () => {
   });
 
   it("carries ux-psychology into every designer and Creative Director prompt", async () => {
-    const ux = (prompt: string) => prompt.includes("SKILL: ux-psychology") && prompt.includes("Smart defaults");
+    const body = `${"Smart defaults. ".repeat(500)}\nFinal guardrail and checklist.`;
+    const skillDir = join(home, "skills", "ux-psychology");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), `---\nname: ux-psychology\ndescription: UX\n---\n${body}\n`);
     const prompts: Record<string, string[]> = { brief: [], build: [], critique: [], make: [], review: [] };
     const deps = staff([9]);
     await driveDesignRun(start(), {
@@ -193,7 +196,7 @@ describe("Design Mate", () => {
     });
     for (const [role, sent] of Object.entries(prompts)) {
       expect(sent.length, role).toBeGreaterThan(0);
-      for (const prompt of sent) expect(ux(prompt), role).toBe(true);
+      for (const prompt of sent) expect(prompt, role).toContain(body);
     }
     expect(prompts.critique![0]).toContain("Judge the work against every one of them, their checklists and guardrails included");
   });

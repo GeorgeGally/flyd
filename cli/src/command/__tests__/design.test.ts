@@ -62,6 +62,23 @@ describe("design lab path", () => {
     expect(designTeamSkills(dir)).toEqual([{ name: "ux-psychology", body: "Edited ux-psychology." }]);
   });
 
+  it("keeps complete edited and bundled UX skill bodies while retaining the lab limit", () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-design-skill-"));
+    const home = join(dir, "home");
+    const bundled = join(dir, "bundled");
+    const body = `${"Principle. ".repeat(600)}\nFinal guardrail and checklist.`;
+    const skillText = `---\nname: ux-psychology\ndescription: UX\n---\n${body}\n`;
+    mkdirSync(join(bundled, "ux-psychology"), { recursive: true });
+    writeFileSync(join(bundled, "ux-psychology", "SKILL.md"), skillText);
+    expect(designTeamSkills(home, bundled)[0]?.body).toBe(body);
+    mkdirSync(join(home, "ux-psychology"), { recursive: true });
+    writeFileSync(join(home, "ux-psychology", "SKILL.md"), skillText);
+    expect(designTeamSkills(home, bundled)[0]?.body).toBe(body);
+    mkdirSync(join(home, "design-lab"));
+    writeFileSync(join(home, "design-lab", "SKILL.md"), `---\nname: design-lab\ndescription: lab\n---\n${body}\n`);
+    expect(designLabSkill(home)?.body).toHaveLength(6000);
+  });
+
   it("hands a lab to Design Mate with the lab process and the review contract, never to the coding boss", async () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-design-dispatch-"));
     process.env.FLYD_COMMAND_DIR = join(dir, "command");
