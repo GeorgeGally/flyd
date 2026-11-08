@@ -472,31 +472,22 @@ export function applyStoryMedia(panel: ActivityPanel, dir: string): ActivityPane
   // A photo with no picture and a video with neither preview nor poster are not stories yet, and never text.
   const showable = (story: ActivityStory): boolean =>
     story.media === "image" ? !!story.image : story.media === "video" ? !!(story.clip || story.image) : true;
-  const map = (stories?: ActivityStory[]): ActivityStory[] | undefined => {
-    if (!stories) return stories;
-    let changed = false;
-    const next = stories.flatMap((story) => {
-      const decorated = decorateStory(story, dir, index[storyKey(story.url)], saved.has(story.url));
-      if (decorated !== story) changed = true;
-      return showable(decorated) ? [decorated] : [];
-    });
-    if (next.length !== stories.length) changed = true;
-    return changed ? next : stories;
+  const mapItem = (item: ActivityPanel["recent"][number]) => {
+    if (!item.stories) return item;
+    const decorated = item.stories.map((story) => decorateStory(story, dir, index[storyKey(story.url)], saved.has(story.url)));
+    const stories = decorated.filter(showable);
+    const changed = stories.length !== item.stories.length || decorated.some((story, i) => story !== item.stories![i]);
+    if (!changed) return item;
+    return { ...item, stories, ...(stories.length !== decorated.length && item.kind === "news" ? { newsStories: decorated } : {}) };
   };
-  const now = panel.now.map((item) => {
-    const stories = map(item.stories);
-    return stories === item.stories ? item : { ...item, stories };
-  });
-  const recent = panel.recent.map((item) => {
-    const stories = map(item.stories);
-    return stories === item.stories ? item : { ...item, stories };
-  });
+  const now = panel.now.map(mapItem);
+  const recent = panel.recent.map(mapItem);
   if (now.every((item, i) => item === panel.now[i]) && recent.every((item, i) => item === panel.recent[i])) return panel;
   return { ...panel, now, recent };
 }
 
 export function storyUrls(panel: ActivityPanel): string[] {
-  return [...panel.now, ...panel.recent].flatMap((item) => (item.stories ?? []).map((story) => story.url));
+  return [...panel.now, ...panel.recent].flatMap((item) => (item.newsStories ?? item.stories ?? []).map((story) => story.url));
 }
 
 /** Toggle a kept story. Returns whether it is saved after the change. */

@@ -61,6 +61,7 @@ import { FirstmateInbox, withCommandMarker } from "./firstmate-inbox.js";
 import { answered, answeredForHim, choiceOf, choiceTarget, labelOf, openChoice, withoutClosingAsk, type ReplyChoice } from "./choices.js";
 import { PreviewProbe } from "./preview-probe.js";
 import type { MachinesBoard } from "./machines.js";
+import { MachineSetupReader, type MachineSetup } from "./machine-setup.js";
 import type { WeatherReader } from "./weather.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
@@ -746,6 +747,8 @@ export class ConversationViewServer {
   private readonly workshop = new Workshop(() => join(firstmateHome(), "data"));
   /** What Core's staff watch found stuck (command/fleet-monitor.ts); nothing under tests unless one sets it. */
   staffView: () => StaffView | null = process.env.VITEST ? () => null : () => readStaffView();
+  /** The Machines tab's models, Claude spend and usage left; nothing under tests unless one sets it. */
+  machineSetup: () => Promise<MachineSetup | null> = process.env.VITEST ? async () => null : ((reader) => () => reader.read())(new MachineSetupReader());
   private readonly chased = new Set<string>();
   /** Notices that would have been macOS notifications: the island rings for those that need him, the column keeps the rest. */
   readonly notices = new NoticeBoard();
@@ -832,7 +835,17 @@ export class ConversationViewServer {
       return;
     }
     if (url.pathname === "/api/machines") {
+      if (req.method === "GET" && !sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" }); return;
+      }
       await this.machineAction(req, res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/weather") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" }); return;
+      }
+      sendJson(res, 200, { weather: this.weather?.current() ?? null });
       return;
     }
     if (req.method === "GET" && url.pathname === "/routines") {
@@ -2122,10 +2135,11 @@ export class ConversationViewServer {
     sendJson(res, 200, { job: result.job });
   }
 
-  /** The Machines tab. Reading is open like the other column reads; adding to the list takes the token. */
+  /** The Machines tab. */
   private async machineAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method === "GET") {
-      sendJson(res, 200, this.machines?.view() ?? { machines: [] });
+      const setup = await this.machineSetup().catch(() => null);
+      sendJson(res, 200, { ...(this.machines?.view() ?? { machines: [] }), ...(setup ? { setup } : {}) });
       return;
     }
     const origin = req.headers.origin;

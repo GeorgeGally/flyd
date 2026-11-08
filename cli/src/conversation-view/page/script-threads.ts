@@ -50,6 +50,7 @@ export const THREADS_SCRIPT = `
     fetch("/api/projects").then(function (r) { return r.json(); }).then(drawThreads).catch(function () {});
   }
   function followThread(id) {
+    setCentre("talk", true);
     if (frontActive !== "talk") frontSelect("talk");
     explicit = id;
     window.history.replaceState(null, "", "?session=" + encodeURIComponent(id));

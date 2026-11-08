@@ -335,7 +335,12 @@ esac
       const token = ((await (await fetch(`${base}/api/token`)).json()) as { token: string }).token;
       const post = (body: unknown, headers: Record<string, string> = { "x-flyd-view-token": token }) =>
         fetch(`${base}/api/machines`, { method: "POST", headers, body: JSON.stringify(body) });
-      const listed = (await (await fetch(`${base}/api/machines`)).json()) as { machines: MachineRow[] };
+      for (const endpoint of ["machines", "weather"]) {
+        expect((await fetch(`${base}/api/${endpoint}`)).status).toBe(403);
+        expect((await fetch(`${base}/api/${endpoint}?token=wrong`)).status).toBe(403);
+        expect((await fetch(`${base}/api/${endpoint}?token=${token}`)).status).toBe(200);
+      }
+      const listed = (await (await fetch(`${base}/api/machines?token=${token}`)).json()) as { machines: MachineRow[] };
       expect(listed.machines.map((machine) => machine.name)).toEqual(["Here", "Box"]);
       expect((await post({ name: "New", alias: "new" }, {})).status).toBe(403);
       expect((await post({ name: "New", alias: "new" }, { "x-flyd-view-token": token, origin: "https://evil.example" })).status).toBe(403);
@@ -356,7 +361,8 @@ esac
     const server = new ConversationViewServer(source, undefined, undefined, undefined, feed as never);
     try {
       const base = `http://127.0.0.1:${await server.listen(0)}`;
-      expect(await (await fetch(`${base}/api/machines`)).json()).toEqual({ machines: [] });
+      const token = ((await (await fetch(`${base}/api/token`)).json()) as { token: string }).token;
+      expect(await (await fetch(`${base}/api/machines?token=${token}`)).json()).toEqual({ machines: [] });
     } finally {
       await server.close();
     }

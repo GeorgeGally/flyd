@@ -118,6 +118,19 @@ describe("collectStoryMedia", () => {
     expect(stories?.[0]?.title).toBe("A course");
   });
 
+  it("retains an unpreviewed video for News without changing activity stories", () => {
+    mkdirSync(join(dir, "logs"), { recursive: true });
+    mkdirSync(join(dir, "scout"), { recursive: true });
+    writeFileSync(join(dir, "logs", "agenda.log"), "2026-10-17T11:10:00.000Z scout: edition: 2 items\n");
+    writeFileSync(join(dir, "scout", "edition-latest.json"), JSON.stringify({ date: "2026-10-17", items: [
+      { title: "Independent video", url: "https://press.example/video", source: "Independent Press", media: "video" },
+      { title: "Article", url: "https://press.example/article", source: "Independent Press" },
+    ] }));
+    const item = new ActivityReader({ dir, now: () => Date.parse("2026-10-17T12:00:00.000Z") }).current().recent.find((entry) => entry.kind === "news");
+    expect(item?.stories?.map((story) => story.title)).toEqual(["Article"]);
+    expect(item?.newsStories?.map((story) => story.title)).toEqual(["Independent video", "Article"]);
+  });
+
   it("keeps the picture a photo came with, and the preview a video came with", async () => {
     const photo = "https://www.pexels.com/photo/man-3811807/";
     const video = "https://www.pexels.com/video/landing-10393579/";

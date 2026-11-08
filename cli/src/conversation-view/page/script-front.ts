@@ -58,30 +58,12 @@ export const FRONT_SCRIPT = `
       .replace(/\\bthe captain\\b/gi, "you")
       .replace(/https?:\\/\\/(?:www\\.)?([^\\/\\s]+)\\S*/g, "$1");
   }
-  // A card's title in his words: the framing gone, and a long run-on cut at its first sentence.
+  // A card's title in his words, with the framing gone.
   function frontHeading(text, project) {
     if (/^act on\\s+(?:george's|the captain's|his|your)?\\s*answer\\b/i.test(frontText(text))) {
       return "Carrying out your choice" + (project ? " on " + project : "");
     }
-    var line = frontTitle(text);
-    if (line.length <= 92) return line;
-    var first = /^.{20,92}?[.!?](?=\\s|$)/.exec(line);
-    if (first) return first[0];
-    var cut = line.lastIndexOf(" ", 88);
-    return (cut > 40 ? line.slice(0, cut) : line.slice(0, 88)).replace(/[\\s,;:-]+$/, "") + "…";
-  }
-  // A working or waiting row says what happens next in one short sentence, never a run-on summary.
-  function frontNext(job) {
-    var said = frontTitle(job.detail);
-    if (!said) return "";
-    var parts = said.split(/(?<=[.!?])\\s+/);
-    // Where it stands, when a sentence says so ("Waiting for your pick: …"), heads the row; else what comes next.
-    var standing = parts.filter(function (part) { return /^(waiting|working|queued|ready|paused|running|landed|next)\\b/i.test(part); });
-    // One whole sentence, never a sentence cut in half: where it stands, else the shortest that fits a line.
-    var fits = parts.filter(function (part) { return part.length <= 90; });
-    var line = standing[0] || fits[0] || parts[0];
-    if (line.length > 90) line = line.slice(0, 88).replace(/\\s+\\S*$/, "") + "…";
-    return line.charAt(0).toUpperCase() + line.slice(1);
+    return frontTitle(text);
   }
   function frontProject(project) {
     var name = shortName(project || "");
@@ -258,26 +240,31 @@ export const FRONT_SCRIPT = `
   function frontLine(job) {
     var digest = job.digest || {};
     var needed = digest.needed && !/^(nothing|none|n\\/a)\\b/i.test(digest.needed) ? digest.needed : "";
-    var said = needed || digest.changed || digest.means || job.next || (job.group === "working" ? frontNext(job) : frontTitle(job.detail));
-    return said && frontText(said).toLowerCase() !== frontText(job.title).toLowerCase() ? frontGlance(said, 52) : "";
+    var said = needed || digest.changed || digest.means || job.next || frontTitle(job.detail);
+    return frontText(said || job.title);
   }
+  // The card's action line: a concrete next step in real counts or Flyd's own pick, else nothing.
+  function frontAction(job) {
+    var decision = job.group === "needs" && job.decision;
+    if (!decision) return "";
+    var list = Array.isArray(decision.decisions) ? decision.decisions : [];
+    if (list.length > 1) return list.filter(function (one) { return one && one.done; }).length + " of " + list.length + " decided";
+    return decision.recommended ? "Go with " + frontText(decision.recommended) : "";
+  }
+  // A job card: the project and when along the top, the picture (work under way is words only), what it says, and its next step.
   function frontJobCard(job) {
-    var pic = job.shots && job.shots.length
+    var moving = job.group === "working";
+    var pic = !moving && job.shots && job.shots.length
       ? '<div class="frame"><img src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy"></div>' : "";
-    var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
     var line = frontLine(job);
     var reading = line ? '<p class="next">' + frontEsc(line) + '</p>' : "";
-    // "Landed" under "Done" says nothing the group has not; a plain "needs …" is the group's own word.
-    var state = job.group === "done" ? "" : job.state.replace(/^needs\\b[^·]*(?: · |$)/i, "");
-    return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
-      + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
-      + '<div class="t">' + frontEsc(frontGlance(job.title, 60)) + '</div>' + reading + '<div class="m">' + dot + frontMeta([state, job.project])
-      + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div></button>';
-  }
-  // A card's state and project, as many as it has; the group above it already says "needs you".
-  function frontMeta(parts) {
-    return parts.map(function (part, index) { return part ? '<span class="' + (index ? "p" : "s") + '">' + frontEsc(part) + '</span>' : ""; })
-      .filter(Boolean).join('<span aria-hidden="true">·</span>');
+    var action = frontAction(job);
+    var tag = job.project || frontGlance(job.title, 32);
+    return '<button type="button" class="job ' + job.group + (pic ? "" : " text") + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
+      + (job.id === frontActive ? ' aria-current="true"' : "") + '>'
+      + '<div class="jtop"><span class="jtag">' + frontEsc(tag) + (moving ? '<i class="fdot pulse" aria-hidden="true"></i>' : "") + '</span>'
+      + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div>'
+      + pic + reading + (action ? '<span class="act"><i class="fdot" aria-hidden="true"></i>' + frontEsc(action) + '</span>' : "") + '</button>';
   }
   function frontGroup(label, count, body, extra) {
     return '<section class="fgroup"><h2 class="fhead"><span>' + frontEsc(label) + '</span><span>' + (count === "" ? "" : count) + '</span></h2>'
@@ -486,7 +473,7 @@ export const FRONT_SCRIPT = `
       var row = thread.kind === "conversation" ? el("button", "jv-thread", thread.title || "Conversation") : el("p", "jv-thread", thread.title || "Run");
       if (row.tagName === "BUTTON") {
         row.type = "button";
-        row.addEventListener("click", function () { connect(thread.id); frontSelect("talk"); });
+        row.addEventListener("click", function () { setCentre("talk", true); connect(thread.id); frontSelect("talk"); });
       }
       parts[parts.length - 1].appendChild(row);
     });
@@ -607,6 +594,7 @@ export const FRONT_SCRIPT = `
     historyList.addEventListener("click", function (event) { if (event.target.closest(".history-item")) frontSelect("talk"); });
   })();
   document.getElementById("stage-back").addEventListener("click", function () {
+    setCentre("talk", true);
     frontSelect("talk");
     if (!inThread()) return;
     // Out of a thread: back to this window's own conversation.
@@ -620,6 +608,7 @@ export const FRONT_SCRIPT = `
     if (event.key !== "Escape" || event.defaultPrevented || frontActive === "talk" || !lightbox.hidden) return;
     var from = event.target;
     if (from && from.closest && from.closest("input, textarea, select, [contenteditable]")) return;
+    setCentre("talk", true);
     frontSelect("talk");
   });
   // The conversation's heading follows its title as it changes.

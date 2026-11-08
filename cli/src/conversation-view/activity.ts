@@ -69,6 +69,8 @@ export interface ActivityItem {
   detail?: string;
   /** The actual stories behind a news card, shown only when he opens it. */
   stories?: ActivityStory[];
+  /** Complete decorated stories for the News page, when activity cards omit media. */
+  newsStories?: ActivityStory[];
   at: string;
 }
 
