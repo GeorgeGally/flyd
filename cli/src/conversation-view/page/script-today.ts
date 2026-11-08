@@ -152,7 +152,6 @@ export const TODAY_SCRIPT = `
       img.src = pic;
       node.appendChild(img);
     }
-    if (story.source) node.appendChild(el("span", "src", story.source));
     var head = el("h2");
     var link = el("a", "", story.title);
     link.href = story.url;
@@ -161,6 +160,8 @@ export const TODAY_SCRIPT = `
     head.appendChild(link);
     node.appendChild(head);
     if (story.gist && frontText(story.gist).toLowerCase() !== frontText(story.title).toLowerCase()) node.appendChild(el("p", "", story.gist));
+    // Where it came from, quietly after the story: never a label over the headline.
+    if (story.source) node.appendChild(el("p", "src", story.source));
     var talk = newsTalks[story.url];
     if (talk) node.appendChild(talk.box);
     return node;

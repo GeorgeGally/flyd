@@ -4068,7 +4068,9 @@ describe("the front page", () => {
     const shown = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
     expect(shown.map((story) => story.querySelector("h2")!.textContent)).toEqual(["Static Radio for the Chumby One", "Infinite Mac adds support for BeOS"]);
     expect(shown[0]!.classList.contains("lead")).toBe(true);
+    // The source is a quiet line after the story, never a label above the headline.
     expect(shown[0]!.querySelector(".src")!.textContent).toBe("Hackaday");
+    expect([...shown[0]!.children].map((child) => child.tagName.toLowerCase() + (child.className ? "." + child.className : ""))).toEqual(["img", "h2", "p", "p.src"]);
     expect(shown[0]!.querySelector("img")!.getAttribute("src")).toBe(`/api/story-image?u=1&token=${"a".repeat(48)}`);
     expect(shown[0]!.querySelector("h2 a")!.getAttribute("href")).toBe("https://hackaday.example/chumby");
     const input = document.getElementById("input") as HTMLTextAreaElement;

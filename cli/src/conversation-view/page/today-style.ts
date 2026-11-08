@@ -61,14 +61,13 @@ button.ev:hover { background: var(--sheet); }
 .news-cols { columns: 2; column-gap: 28px; }
 .story { display: block; margin: 0 0 34px; break-inside: avoid; color: var(--ink); }
 .story img { display: block; width: 100%; height: 236px; margin: 0 0 14px; object-fit: cover; object-position: left top; }
-.story .src { display: block; margin: 0 0 4px; font: 500 13px/1.3 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
-:root:not([data-theme="dark"]) .story .src { color: #000; }
-.story.pic .src { margin-top: 30px; }
+.story.pic h2 { margin-top: 22px; }
 .story h2 { margin: 0; font: 700 21px/1.26 var(--sans); letter-spacing: -.014em; text-wrap: pretty; }
 .story h2 a { color: inherit; text-decoration: none; }
 .story h2 a:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .story.lead h2 { max-width: 324px; font-size: 26px; line-height: 1.18; letter-spacing: -.02em; }
 .story > p { margin: 6px 0 0; font: 400 17px/1.42 var(--sans); color: var(--text); text-wrap: pretty; }
+.story > p.src { margin: 8px 0 0; font: 400 14px/1.4 var(--sans); color: var(--mute); }
 .story .talk { margin-top: 18px; }
 .story .talk:empty { display: none; }
 .story .talk .q { padding: 20px 0 4px; font: 700 17px/1.42 var(--sans); color: var(--ink); }
@@ -130,7 +129,7 @@ button.ev:hover { background: var(--sheet); }
 /* Machines: under the machines, the models and how much use is left. */
 .machine-setup { display: grid; gap: 8px; margin: 8px 0 0; }
 .machine-setup section { padding: 20px 22px 22px; border-radius: 12px; background: var(--card); color: var(--ink); }
-.machine-setup h2 { margin: 0 0 12px; font: 600 13px/1.3 var(--sans); letter-spacing: .04em; text-transform: uppercase; }
+.machine-setup h2 { margin: 0 0 12px; font: 600 17px/1.3 var(--sans); letter-spacing: -.01em; }
 .setup-models { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 16px; margin: 0; font: 400 15px/1.4 var(--sans); }
 .setup-models dt { color: var(--mute); }
 .setup-models dd { margin: 0; overflow-wrap: anywhere; }
