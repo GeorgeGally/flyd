@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { delimiter, join } from "node:path";
 import { modelSetup } from "../lib/model-setup.js";
 
 // The Machines tab's models and usage: which model does which job (the same
@@ -77,7 +79,8 @@ const USAGE_FRESH_MS = 5 * 60 * 1000;
 
 function readQuota(): Promise<unknown> {
   return new Promise((resolve) => {
-    execFile("quota-axi", ["--json", "--max-age", "5m", "--no-credential-refresh"], { timeout: 20_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout) => {
+    const path = [process.env.PATH, join(homedir(), ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin"].filter(Boolean).join(delimiter);
+    execFile("quota-axi", ["--json", "--max-age", "5m", "--no-credential-refresh"], { timeout: 20_000, maxBuffer: 2 * 1024 * 1024, env: { ...process.env, PATH: path } }, (error, stdout) => {
       if (error) { resolve(null); return; }
       try { resolve(JSON.parse(stdout)); } catch { resolve(null); }
     });

@@ -5079,9 +5079,10 @@ describe("the Machines tab", () => {
 
   it("adds a machine by name and alias, and shows what SSH would not take", async () => {
     let machines: object[] = [ONLINE];
+    const setup = { models: [{ role: "Chat", model: "example-model" }], spend: { usd: 3, cap: 20, calls: 4, capped: false }, usage: [{ provider: "Codex", left: 42 }] };
     const sent: Array<Record<string, string>> = [];
     serve((init) => {
-      if (!init?.method) return { machines };
+      if (!init?.method) return { machines, setup };
       const body = JSON.parse(String(init.body)) as Record<string, string>;
       sent.push(body);
       if (body.alias === "-x") return { error: "That is not an SSH host alias." };
@@ -5111,6 +5112,9 @@ describe("the Machines tab", () => {
     expect(form.hidden).toBe(true);
     expect(button.hidden).toBe(false);
     expect(Array.from(document.querySelectorAll(".machine-name")).map((one) => one.textContent)).toEqual(["Mac", "Studio"]);
+    expect(document.querySelector(".machine-setup")!.textContent).toContain("example-model");
+    expect(document.querySelector(".machine-setup")!.textContent).toContain("$3.00");
+    expect(document.querySelector(".machine-setup")!.textContent).toContain("42% left");
   });
 
   it("cancels and resets the machine form, returning focus", async () => {

@@ -10,6 +10,7 @@ export const MACHINES_SCRIPT = `
   var machineForm = document.getElementById("machine-form");
   var machineError = document.getElementById("machine-error");
   var machinesDrawn = "";
+  var machinesSetup = null;
   var machinesTimer = null;
   var MACHINES_EVERY = 30000;
   var MACHINES_SOON = 2000;
@@ -99,7 +100,7 @@ export const MACHINES_SCRIPT = `
   function loadMachines() {
     if (!machinesOnScreen()) { machinesAgain(false); return; }
     if (!VIEW_TOKEN) return;
-    fetch(withToken("/api/machines")).then(function (r) { if (!r.ok) throw new Error("machines unavailable"); return r.json(); }).then(drawMachines).then(machinesAgain).catch(function () { machinesAgain(false); });
+    fetch(withToken("/api/machines")).then(function (r) { if (!r.ok) throw new Error("machines unavailable"); return r.json(); }).then(function (view) { machinesSetup = view.setup; return drawMachines(view); }).then(machinesAgain).catch(function () { machinesAgain(false); });
   }
   function machineAdd(name, alias) {
     return fetch("/api/machines", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify({ name: name, alias: alias }) })
@@ -119,7 +120,7 @@ export const MACHINES_SCRIPT = `
     machineAdd(machineForm.elements.name.value, machineForm.elements.alias.value).then(function (result) {
       if (!result.ok) { machineError.textContent = result.data.error || "That did not save."; return; }
       machineFormShown(false);
-      machinesAgain(drawMachines(result.data));
+      machinesAgain(drawMachines({ machines: result.data.machines, setup: machinesSetup }));
     }).catch(function () { machineError.textContent = "That did not save."; });
   });
   rtabs.addEventListener("click", loadMachines);
