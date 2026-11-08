@@ -38,10 +38,16 @@ describe("weather", () => {
     }, { lat: 0, lon: 0, name: "Canggu" })!;
     expect(reading.localTime).toBe("13:00");
     expect(reading.days!.map((day) => [day.date, day.code, day.hiC, day.loC])).toEqual([["2026-11-07", 61, 29, 25], ["2026-11-08", 95, 30.4, 24]]);
-    // Late in the day, today's hours run on past midnight rather than leave the row half empty.
-    expect(reading.days![0]!.hours.map((hour) => hour.at.slice(11))).toEqual(["14:00", "16:00", "18:00", "20:00", "22:00", "00:00"]);
+    expect(reading.days![0]!.hours.map((hour) => hour.at)).toEqual(["2026-11-07T14:00", "2026-11-07T16:00", "2026-11-07T18:00", "2026-11-07T20:00", "2026-11-07T22:00"]);
     expect(reading.days![1]!.hours.map((hour) => hour.at.slice(11))).toEqual(["06:00", "09:00", "12:00", "15:00", "18:00", "21:00"]);
     expect(reading.days![1]!.hours[0]).toEqual({ at: "2026-11-08T06:00", tempC: 23, rainChance: 40, code: 61 });
+    const late = parseWeather({
+      current: { time: "2026-11-07T23:00", temperature_2m: 29, weather_code: 0 },
+      hourly: { time: times, temperature_2m: temps },
+      daily: { time: ["2026-11-07", "2026-11-08"], weather_code: [61, 95], temperature_2m_max: [29, 30], temperature_2m_min: [25, 24] },
+    }, { lat: 0, lon: 0 })!;
+    expect(late.days![0]!.hours).toEqual([]);
+    expect(late.days![1]!.hours.map((hour) => hour.at)).toEqual(["2026-11-08T06:00", "2026-11-08T09:00", "2026-11-08T12:00", "2026-11-08T15:00", "2026-11-08T18:00", "2026-11-08T21:00"]);
   });
 
   it("asks Open-Meteo for the week and each hour's sky", () => {

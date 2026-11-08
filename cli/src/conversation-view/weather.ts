@@ -138,11 +138,10 @@ function daysOf(
     const loC = lows[index];
     if (typeof date !== "string" || typeof code !== "number" || typeof hiC !== "number" || typeof loC !== "number") return;
     const hours: WeatherHour[] = [];
-    if (!days.length) {
-      // Today: every other hour from the next one, on into the night when the day is nearly over.
+    if (index === 0) {
       for (let at = start + 1; at < times.length && hours.length < 6; at += 2) {
         const hour = hourAt(at);
-        if (hour) hours.push(hour);
+        if (hour && hour.at.slice(0, 10) === date) hours.push(hour);
       }
     } else {
       for (const hh of LATER_HOURS) {

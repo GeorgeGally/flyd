@@ -4364,7 +4364,7 @@ describe("the front page", () => {
     const weather = {
       place: "Canggu", tempC: 29.2, code: 0, condition: "clear", read: "2026-11-07T05:00:00.000Z", localTime: "13:00", hours: [],
       days: [
-        { date: "2026-11-07", code: 61, hiC: 32, loC: 25, hours: [{ at: "2026-11-07T14:00", tempC: 29, rainChance: 88, code: 61 }, { at: "2026-11-08T00:00", tempC: 28.6, rainChance: 99, code: 3 }] },
+        { date: "2026-11-07", code: 61, hiC: 32, loC: 25, hours: [{ at: "2026-11-07T14:00", tempC: 29, rainChance: 88, code: 61 }, { at: "2026-11-07T16:00", tempC: 28.6, rainChance: 99, code: 3 }] },
         { date: "2026-11-08", code: 95, hiC: 30.4, loC: 24, hours: [{ at: "2026-11-08T06:00", tempC: 25, rainChance: 11, code: 1 }] },
       ],
     };
@@ -4380,7 +4380,7 @@ describe("the front page", () => {
     expect([...card().querySelectorAll(".wx-hours span")].map((rain) => rain.textContent)).toEqual(["88%", "99%"]);
     card().querySelector<HTMLElement>('[data-hour="1"]')!.click();
     expect(card().querySelector(".wx-deg")!.textContent).toBe("29°");
-    expect(card().querySelector(".wx-top time")!.textContent).toBe("Sunday 00:00");
+    expect(card().querySelector(".wx-top time")!.textContent).toBe("Today 16:00");
     card().querySelector<HTMLElement>('[data-day="0"]')!.click();
     expect(card().querySelector(".wx-deg")!.textContent).toBe("32°");
     card().querySelector<HTMLElement>('[data-day="1"]')!.click();
