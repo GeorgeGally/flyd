@@ -35,8 +35,10 @@ Split-plan Phases 0–5 run unchanged and in order, with delivery first. v8 begi
 Build on `Objective.after` and the Phase 2 mutation helper. Add no new store and no graph engine.
 
 **Work**
-- Intake may plan up to four runs for one objective. A run may wait on several runs (`after[runId] = [a, b]`). Its dependencies must name runs in the same objective, with no cycles. Intake that breaks this rule becomes a `blocked` report.
-- Release by reconciliation, as in the split plan. A run is dispatched when it is `queued`, every dependency is `completed` and it has no receipt. Its own ID is the request ID. Nothing new wakes it: `commandTick` (and the `hand_off` kick) already runs it.
+- **No fixed number of runs per objective.** A run may wait on several runs (`after[runId] = [a, b]`). Its dependencies must name runs in the same objective, with no cycles. Intake that breaks this rule becomes a `blocked` report.
+- **Plan only what is known now.** Intake plans the runs it can brief now. When a join completes, the CoS may add the next runs to the objective, with the joined results in hand. A twelve-step plan written before any research comes back goes stale, so a long objective grows layer by layer rather than being planned up front.
+- **Limit runs active at once, not runs in total.** Release counts the CoS-dispatched runs that are active across all objectives and holds the rest `queued` when the limit is reached (`FLYD_COS_MAX_ACTIVE`, default 3). This is enforced in code at release. A FirstMate run counts as one, because FirstMate schedules its own crew under its own limits. Flyd doesn't second-guess that.
+- Release by reconciliation, as in the split plan. A run is dispatched when it is `queued`, every dependency is `completed`, it has no receipt and the active limit has room. Its own ID is the request ID. Nothing new wakes it: `commandTick` (and the `hand_off` kick) already runs it.
 - **The join.** Before dispatching a run with more than one dependency, the CoS writes its brief from the dependencies' retained results in one `quickQuery`. The brief carries George's exact words, the synthesis and links to each dependency's layered result. Summaries never become the only copy that survives, per AGENTS.md.
 - **Revision guard.** `Objective` gets `revision`. Each run records the objective revision it was dispatched under. A `tell_work` correction bumps the revision. Queued runs get the new brief. A run already active gets the correction through `sendRunMessage`. When a result arrives stamped with an older revision, it is retained but never delivered. The CoS decides whether to re-run it, or raises a `decision` report if it can't tell.
 - **Acceptance.** Before writing `cos.report done`, the CoS checks the final result against the objective's `done_when`. Domain review stays where it is: FirstMate verifies code and the Creative Director reviews design. Add no generic reviewer layer.
@@ -47,6 +49,8 @@ Build on `Objective.after` and the Phase 2 mutation helper. Add no new store and
 - Kill Core after the parallel dispatch, after one dependency completes, and after the join dispatch. Each time, every run dispatches exactly once and George gets one delivery.
 - Change a requirement while FirstMate is working. The old-revision result is retained and not delivered, and the delivered result matches the new requirement.
 - A one-team objective still takes the one-run path.
+- With the active limit set to 1, the same parallel objective runs one run at a time and still finishes with one delivery.
+- A join that adds runs after it completes dispatches each added run exactly once, including after a crash.
 - Dogfood three real objectives that span domains.
 
 ### Phase 7 — Waiting work that needs George
@@ -90,6 +94,7 @@ Every guarantee in the CoS work must say which kind it is. Squad's docs are hone
 | A run dispatches once | Code | request ID and receipt |
 | Results from an old revision aren't delivered | Code | Phase 6 revision guard |
 | Monthly Claude spend cap | Code | `lib/claude-spend.ts` |
+| Active CoS runs at once (default 3) | Code | Phase 6 release, `FLYD_COS_MAX_ACTIVE` |
 | Send-back caps (≤2 Flyd, ≤3 Creative Director) | Code | `command/design-mate.ts` |
 | Trigger daily cap, field filter, off by default | Code | Phase 8 |
 | Asking George only for real decisions | Instructions | CoS intake prompt, SOUL |
@@ -125,7 +130,7 @@ Every guarantee in the CoS work must say which kind it is. Squad's docs are hone
 
 1. **Stuck objectives.** Staff silence never reaches you today. Should an *objective* with no progress for a day reach you as a one-tap decision (Nudge / Park / It's ongoing), or should it stay silent?
 2. **Send caps.** If staff ever send outbound email or messages on their own, do you want a daily cap enforced in code, or is today's "send asks George" policy enough?
-3. **Parallel limit.** Is four runs per objective the right ceiling for Phase 6, or should it be lower until the dogfood runs?
+3. **Active limit.** Is 3 runs active at once the right default? The real constraint is likely your Claude plan's usage limits rather than the machine.
 
 ## First backlog
 
