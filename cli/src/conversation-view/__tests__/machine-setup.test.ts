@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MachineSetupReader, usageFrom } from "../machine-setup.js";
 
 const QUOTA = {
@@ -40,5 +40,29 @@ describe("the Machines tab's usage", () => {
     const second = await reader.read();
     expect(second.usage.map((one) => one.provider)).toEqual(["Claude", "OpenCode Go"]);
     expect(calls).toBe(1);
+  });
+
+  it("keeps the last successful reading on failure and clears it on an empty success", async () => {
+    const now = vi.spyOn(Date, "now");
+    try {
+      now.mockReturnValue(1_800_000_000_000);
+      let finishEmpty!: (value: unknown) => void;
+      const quota = vi.fn<() => Promise<unknown>>()
+        .mockResolvedValueOnce(QUOTA).mockRejectedValueOnce(new Error("unavailable"))
+        .mockImplementationOnce(() => new Promise((resolve) => { finishEmpty = resolve; }));
+      const reader = new MachineSetupReader(quota);
+      await reader.read();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const first = await reader.read();
+      now.mockReturnValue(1_800_000_600_000);
+      await reader.read();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const failed = await reader.read();
+      expect(failed.usage).toEqual(first.usage);
+      expect(failed.usageAt).toBe(first.usageAt);
+      finishEmpty({ providers: [] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect((await reader.read()).usage).toEqual([]);
+    } finally { now.mockRestore(); }
   });
 });

@@ -130,7 +130,6 @@ export const TODAY_SCRIPT = `
       if (!at || item.at > at) at = item.at;
       item.stories.forEach(function (story) {
         if (!story.url || urls[story.url] || NEWS_FILLER.test(story.source || "") || NEWS_FILLER.test(story.url)) return;
-        if (story.media === "gif" || story.media === "video" || story.media === "stat" || story.media === "quote") return;
         urls[story.url] = true;
         stories.push(story);
       });
@@ -176,10 +175,10 @@ export const TODAY_SCRIPT = `
     newsWhen.hidden = !(when && !isNaN(when));
     if (!newsWhen.hidden) newsWhen.textContent = "Last updated " + when.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
     newsCols.textContent = "";
-    if (!news.stories.length) { newsCols.appendChild(el("p", "feed-empty", "No news yet today.")); return; }
+    if (!news.stories.length) { newsPick(null); newsCols.appendChild(el("p", "feed-empty", "No news yet today.")); return; }
     var leadAt = news.stories.findIndex(function (story) { return !!newsPicture(story); });
     news.stories.forEach(function (story, index) { newsCols.appendChild(newsStory(story, index, index === leadAt)); });
-    var still = newsPicked && newsStories.indexOf(newsPicked) >= 0 ? newsPicked : null;
+    var still = newsPicked && newsStories.find(function (story) { return story.url === newsPicked.url; });
     newsPick(still || newsStories[0] || null);
   }
   // The message box follows the story he is on: the one picked, else the one in view.
@@ -201,7 +200,7 @@ export const TODAY_SCRIPT = `
     if (first) newsPick(newsStories[+first.dataset.story]);
   }
   window.addEventListener("scroll", function () { if (centre === "news") newsPickInView(); }, { passive: true });
-  newsCols.addEventListener("scroll", newsPickInView, { passive: true });
+  document.getElementById("news-page").addEventListener("scroll", newsPickInView, { passive: true });
   newsCols.addEventListener("click", function (event) {
     if (event.target.closest("a, .talk")) return;
     var node = event.target.closest(".story");
@@ -305,6 +304,7 @@ export const TODAY_SCRIPT = `
   function wxDeg(value) { return Math.round(value) + "°"; }
   var weather = null;
   var wxDay = 0;
+  var wxSelected = false;
   function wxDayName(date, index, long) {
     if (!index) return "Today";
     var parts = date.split("-");
@@ -314,10 +314,14 @@ export const TODAY_SCRIPT = `
     var days = weather.days || [];
     var day = days[dayIndex];
     var today = !dayIndex;
-    var hour = day && hourIndex >= 0 ? day.hours[hourIndex] : null;
-    var nowCode = hour ? (hour.code != null ? hour.code : day.code) : today || !day ? weather.code : day.code;
-    var nowDeg = hour ? hour.tempC : today || !day ? weather.tempC : day.hiC;
-    var label = hour ? (today ? "Today " : wxDayName(day.date, dayIndex, true) + " ") + hour.at.slice(11, 16) : today ? (weather.localTime || clock(weather.read)) : wxDayName(day.date, dayIndex, true);
+    var hours = day ? day.hours : (weather.hours || []).filter(function (_, index) { return index % 2 === 1; }).slice(0, 6);
+    var hour = hourIndex >= 0 ? hours[hourIndex] : null;
+    var current = !day || (today && !wxSelected);
+    var nowCode = hour ? (hour.code != null ? hour.code : day ? day.code : weather.code) : current ? weather.code : day.code;
+    var nowDeg = hour ? hour.tempC : current ? weather.tempC : day.hiC;
+    var hourDate = hour && hour.at.slice(0, 10);
+    var todayDate = days[0] ? days[0].date : weather.hours && weather.hours[0] ? weather.hours[0].at.slice(0, 10) : "";
+    var label = hour ? wxDayName(hourDate, hourDate === todayDate ? 0 : 1, true) + " " + hour.at.slice(11, 16) : current ? (weather.localTime || clock(weather.read)) : wxDayName(day.date, dayIndex, true);
     var html = '<div class="wx-top"><span class="wx-tag">' + frontEsc(weather.place || "Here") + '</span><time>' + frontEsc(label) + '</time></div>'
       + '<div class="wx-now">' + wxIcon(nowCode, true) + '<div class="wx-deg">' + wxDeg(nowDeg) + '</div></div>';
     if (days.length) {
@@ -326,7 +330,6 @@ export const TODAY_SCRIPT = `
           + wxIcon(one.code) + '<b>' + wxDeg(one.hiC) + '</b><span>' + wxDeg(one.loC) + '</span></button>';
       }).join("") + '</div>';
     }
-    var hours = day ? day.hours : (weather.hours || []).filter(function (_, index) { return index % 2 === 1; }).slice(0, 6);
     if (hours.length) {
       html += '<ul class="wx-hours" style="grid-template-columns:repeat(' + hours.length + ',minmax(0,1fr))">' + hours.map(function (one, index) {
         return '<li><button type="button" data-hour="' + index + '" class="' + (index === hourIndex ? "on" : "") + '" aria-pressed="' + (index === hourIndex) + '"><time>' + frontEsc(one.at.slice(11, 16)) + '</time>'
@@ -348,7 +351,7 @@ export const TODAY_SCRIPT = `
   function wxClick(event) {
     var dayButton = event.target.closest("[data-day]");
     var hourButton = event.target.closest("[data-hour]");
-    if (dayButton) { wxDay = +dayButton.dataset.day; drawWeather(wxDay, -1); }
+    if (dayButton) { wxDay = +dayButton.dataset.day; wxSelected = true; drawWeather(wxDay, -1); }
     else if (hourButton) drawWeather(wxDay, +hourButton.dataset.hour);
   }
   newsSide.addEventListener("click", wxClick);

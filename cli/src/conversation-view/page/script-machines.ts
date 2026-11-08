@@ -111,6 +111,7 @@ export const MACHINES_SCRIPT = `
     else machineForm.reset();
   }
   machineOpen.addEventListener("click", function () { machineFormShown(true); });
+  document.getElementById("machine-cancel").addEventListener("click", function () { machineFormShown(false); machineOpen.focus(); });
   machineForm.addEventListener("submit", function (event) {
     event.preventDefault();
     machineAdd(machineForm.elements.name.value, machineForm.elements.alias.value).then(function (result) {

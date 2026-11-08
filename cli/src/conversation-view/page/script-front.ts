@@ -280,7 +280,7 @@ export const FRONT_SCRIPT = `
     var action = frontAction(job);
     var tag = job.project || frontGlance(job.title, 32);
     return '<button type="button" class="job ' + job.group + (pic ? "" : " text") + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
-      + (job.id === frontActive ? ' aria-current="true"' : "") + ' aria-label="' + frontEsc(frontGlance(job.title, 60)) + '">'
+      + (job.id === frontActive ? ' aria-current="true"' : "") + '>'
       + '<div class="jtop"><span class="jtag">' + frontEsc(tag) + (moving ? '<i class="fdot pulse" aria-hidden="true"></i>' : "") + '</span>'
       + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div>'
       + pic + reading + (action ? '<span class="act"><i class="fdot" aria-hidden="true"></i>' + frontEsc(action) + '</span>' : "") + '</button>';

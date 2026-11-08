@@ -83,7 +83,7 @@ function readQuota(): Promise<unknown> {
   return new Promise((resolve) => {
     if (!existsSync(QUOTA_BIN)) { resolve(null); return; }
     execFile(QUOTA_BIN, ["--json", "--max-age", "5m", "--no-credential-refresh"], { timeout: 20_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout) => {
-      if (error && !stdout) { resolve(null); return; }
+      if (error) { resolve(null); return; }
       try { resolve(JSON.parse(stdout)); } catch { resolve(null); }
     });
   });
@@ -101,10 +101,10 @@ export class MachineSetupReader {
     if (this.reading || Date.now() - this.usageAt < USAGE_FRESH_MS) return;
     this.reading = true;
     void this.quota().then((raw) => {
-      const usage = usageFrom(raw);
-      if (usage.length) this.usage = usage;
+      if (!raw || typeof raw !== "object" || !("providers" in raw) || !Array.isArray(raw.providers)) return;
+      this.usage = usageFrom(raw);
       this.usageAt = Date.now();
-    }).finally(() => { this.reading = false; });
+    }).catch(() => {}).finally(() => { this.reading = false; });
   }
 
   async read(): Promise<MachineSetup> {

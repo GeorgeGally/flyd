@@ -4095,11 +4095,36 @@ describe("the front page", () => {
     expect(input.placeholder).toBe("Message firstmate");
   });
 
+  it("keeps News selection across updates, scrolling, and an empty feed", async () => {
+    const stream = await opened();
+    const stories = [
+      { title: "First", url: "https://example.test/first", source: "Press", media: "video" },
+      { title: "Second", url: "https://example.test/second", source: "Press", media: "quote" },
+    ];
+    const update = (items: typeof stories) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: items, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    update(stories);
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    let cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
+    expect(cards).toHaveLength(2);
+    cards[1]!.click();
+    update([{ ...stories[0]! }, { ...stories[1]!, title: "Second updated" }]);
+    expect(input.placeholder).toBe("Ask about Second updated");
+    cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
+    vi.spyOn(cards[0]!, "getBoundingClientRect").mockReturnValue({ bottom: 100 } as DOMRect);
+    vi.spyOn(cards[1]!, "getBoundingClientRect").mockReturnValue({ bottom: 300 } as DOMRect);
+    cards[0]!.click();
+    document.getElementById("news-page")!.dispatchEvent(new Event("scroll"));
+    expect(input.placeholder).toBe("Ask about Second updated");
+    update([]);
+    expect(input.placeholder).toBe("Message firstmate");
+  });
+
   it("draws the weather card for the week, and a day or an hour sets the big reading", async () => {
     const weather = {
       place: "Canggu", tempC: 29.2, code: 0, condition: "clear", read: "2026-11-07T05:00:00.000Z", localTime: "13:00", hours: [],
       days: [
-        { date: "2026-11-07", code: 61, hiC: 29, loC: 25, hours: [{ at: "2026-11-07T14:00", tempC: 29, rainChance: 88, code: 61 }, { at: "2026-11-07T16:00", tempC: 28.6, rainChance: 99, code: 3 }] },
+        { date: "2026-11-07", code: 61, hiC: 32, loC: 25, hours: [{ at: "2026-11-07T14:00", tempC: 29, rainChance: 88, code: 61 }, { at: "2026-11-08T00:00", tempC: 28.6, rainChance: 99, code: 3 }] },
         { date: "2026-11-08", code: 95, hiC: 30.4, loC: 24, hours: [{ at: "2026-11-08T06:00", tempC: 25, rainChance: 11, code: 1 }] },
       ],
     };
@@ -4115,13 +4140,29 @@ describe("the front page", () => {
     expect([...card().querySelectorAll(".wx-hours span")].map((rain) => rain.textContent)).toEqual(["88%", "99%"]);
     card().querySelector<HTMLElement>('[data-hour="1"]')!.click();
     expect(card().querySelector(".wx-deg")!.textContent).toBe("29°");
-    expect(card().querySelector(".wx-top time")!.textContent).toBe("Today 16:00");
+    expect(card().querySelector(".wx-top time")!.textContent).toBe("Sunday 00:00");
+    card().querySelector<HTMLElement>('[data-day="0"]')!.click();
+    expect(card().querySelector(".wx-deg")!.textContent).toBe("32°");
     card().querySelector<HTMLElement>('[data-day="1"]')!.click();
     expect(card().querySelector(".wx-deg")!.textContent).toBe("30°");
     expect(card().querySelector('[data-day="1"]')!.getAttribute("aria-pressed")).toBe("true");
     expect(card().querySelectorAll(".wx-hours li")).toHaveLength(1);
     // The phone's copy sits above the stories.
     expect(document.querySelector("#news-side-phone .wxcard")).not.toBeNull();
+  });
+
+  it("selects a displayed fallback hour without daily forecasts", async () => {
+    const weather = { place: "Canggu", tempC: 29, code: 0, read: "2026-11-07T05:00:00Z", hours: [
+      { at: "2026-11-07T14:00", tempC: 29, rainChance: 0 },
+      { at: "2026-11-07T15:00", tempC: 26, rainChance: 30, code: 61 },
+    ] };
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/weather" ? { weather } : { assistantLabel: "Flyd", sessions: SESSIONS }));
+    await opened();
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    await settle();
+    document.querySelector<HTMLElement>('#news-side [data-hour="0"]')!.click();
+    expect(document.querySelector("#news-side .wx-deg")!.textContent).toBe("26°");
+    expect(document.querySelector("#news-side .wx-top time")!.textContent).toBe("Today 15:00");
   });
 
   it("says a job's next step in real counts or Flyd's own pick, and nothing when it has neither", async () => {
@@ -4724,6 +4765,23 @@ describe("the Machines tab", () => {
     expect(form.hidden).toBe(true);
     expect(button.hidden).toBe(false);
     expect(Array.from(document.querySelectorAll(".machine-name")).map((one) => one.textContent)).toEqual(["Mac", "Studio"]);
+  });
+
+  it("cancels and resets the machine form, returning focus", async () => {
+    serve(() => ({ machines: [ONLINE] }));
+    load("");
+    await settle();
+    tab().click();
+    await settle();
+    const button = document.getElementById("machine-open") as HTMLButtonElement;
+    const form = document.getElementById("machine-form") as HTMLFormElement;
+    button.click();
+    (form.elements.namedItem("name") as HTMLInputElement).value = "Studio";
+    document.getElementById("machine-cancel")!.click();
+    expect(form.hidden).toBe(true);
+    expect(document.activeElement).toBe(button);
+    button.click();
+    expect((form.elements.namedItem("name") as HTMLInputElement).value).toBe("");
   });
 
   it("keeps Tab and typing in the add form, away from the screen swap and the message box", async () => {
