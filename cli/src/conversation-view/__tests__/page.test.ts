@@ -4100,7 +4100,7 @@ describe("the front page", () => {
     expect(input.placeholder).toBe("Message firstmate");
   });
 
-  it("reconnects only the selected News conversation", async () => {
+  it("keeps an in-flight News reply live and closes it after completion", async () => {
     const stream = await opened();
     const stories = [
       { title: "First", url: "https://example.test/first", source: "Press" },
@@ -4116,6 +4116,10 @@ describe("the front page", () => {
     const first = FakeEventSource.instances.at(-1)!;
     expect(first.url).toContain("session=article%3Afirst");
     document.querySelectorAll<HTMLElement>("#news-cols .story")[1]!.click();
+    expect(first.closed).toBe(false);
+    first.emit("update", { order: ["q1"], messages: [{ id: "q1", role: "user", html: "Question?" }], working: true });
+    first.emit("update", { order: ["q1", "a1"], messages: [{ id: "a1", role: "assistant", html: "Answer.", answers: "q1" }], working: false });
+    expect(document.querySelector("#news-cols .story .talk")!.textContent).toContain("Answer.");
     expect(first.closed).toBe(true);
     document.querySelectorAll<HTMLElement>("#news-cols .story")[0]!.click();
     const reconnected = FakeEventSource.instances.at(-1)!;
@@ -4129,6 +4133,28 @@ describe("the front page", () => {
     expect(returned).not.toBe(reconnected);
     update([]);
     expect(returned.closed).toBe(true);
+  });
+
+  it("opens an in-flight story stream after selection changes", async () => {
+    const stream = await opened();
+    const stories = [{ title: "First", url: "https://example.test/first" }, { title: "Second", url: "https://example.test/second" }];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    let finishOpen!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (
+      url === "/api/article-chat" ? new Promise<Response>((resolve) => { finishOpen = resolve; }) : url === "/api/send" ? json({ id: "q1" }) : json({ assistantLabel: "Flyd", sessions: SESSIONS })
+    ));
+    const sending = type("Question?");
+    await settle();
+    document.querySelectorAll<HTMLElement>("#news-cols .story")[1]!.click();
+    finishOpen(json({ session: "article:first" }));
+    await sending;
+    await settle();
+    const article = FakeEventSource.instances.at(-1)!;
+    expect(article.url).toContain("session=article%3Afirst");
+    article.emit("update", { order: ["q1", "a1"], messages: [{ id: "q1", role: "user", html: "Question?" }, { id: "a1", role: "assistant", html: "Answer.", answers: "q1" }], working: false });
+    expect(document.querySelector("#news-cols .story .talk")!.textContent).toContain("Answer.");
+    expect(article.closed).toBe(true);
   });
 
   it("keeps News selection across updates, scrolling, and an empty feed", async () => {
