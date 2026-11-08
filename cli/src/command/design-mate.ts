@@ -6,7 +6,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { query, type QueryOptions } from "../lib/llm.js";
 import { readTaste } from "../council/taste.js";
-import { designLabSkill } from "./design.js";
+import { designLabSkill, designTeamSkills } from "./design.js";
 import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainRequest, DomainResult, DomainRun } from "./types.js";
 
@@ -402,6 +402,19 @@ export function pageOf(text: string): string | null {
 
 const TASTE_HEADER = "George's standing taste: TV-style clean type; Cursor-style framed imagery with padding; letter-spacing never wider than .04em; generous space above buttons; buttons never oversized; readable body copy; copy that says what a thing is (no slogans, never opens with \"Not…\"); every claim literally true; motion is TV-style fades only.";
 
+/** The team's skills, both bodies, in every Design Mate and Creative Director prompt: designs apply them, reviews check them. */
+function teamSkills(use: "apply" | "judge"): string[] {
+  const skills = designTeamSkills();
+  if (!skills.length) return [];
+  return [
+    "",
+    use === "apply"
+      ? "The team works by these skills. Follow every one of them in this work:"
+      : "The team works by these skills. Judge the work against every one of them, their checklists and guardrails included; a guardrail broken (a dark pattern, a false claim) costs points:",
+    ...skills.flatMap((skill) => [`SKILL: ${skill.name}`, skill.body]),
+  ];
+}
+
 export function briefPrompt(run: DomainRun, images: string[], taste: string, seeds: string[], flydNotes: string[] = [], context: LabContext = {}): string {
   return [
     "You are the Creative Director of George's design team. Flyd, his assistant, has brought you his brief. You turn it into a creative brief and directions for Design Mate, the producer, whose designers build them; later you judge the work and present it to Flyd. You never build anything yourself.",
@@ -413,6 +426,7 @@ export function briefPrompt(run: DomainRun, images: string[], taste: string, see
     ...(context.shots?.length ? ["The attached screenshots show what exists today. Redesign it; do not describe it back."] : []),
     ...(context.content ? ["", `What is on it today, the real content every version works from:\n${context.content}`] : []),
     ...(flydNotes.length ? ["", "Flyd rejected your last set of directions. Start again from these notes, with directions that answer them:", ...flydNotes.map((note) => `- ${note}`)] : []),
+    ...teamSkills("apply"),
     "",
     TASTE_HEADER,
     `His learned taste rules:\n${taste}`,
@@ -435,6 +449,7 @@ export function buildPrompt(run: DomainRun, lab: Lab, version: LabVersion, taste
     ...((run.messages ?? []).length ? ["Later from George, newer than the brief; the page must answer it:", ...(run.messages ?? []).map((message) => `- ${message.body}`)] : []),
     `Your seed (derive palette, grid and type scale from its digits and patterns; never show it): ${version.seed}`,
     ...(lab.content ? [`The real content to design with (use it, not invented copy):\n${lab.content}`] : []),
+    ...teamSkills("apply"),
     "",
     TASTE_HEADER,
     `His learned taste rules:\n${taste}`,
@@ -460,6 +475,7 @@ export function critiquePrompt(run: DomainRun, version: LabVersion, taste: strin
     `George asked for: "${run.request.originalMessage}"`,
     `${TASTE_HEADER}\nHis learned taste rules:\n${taste}`,
     `The version is "${version.name}": ${version.idea}`,
+    ...teamSkills("judge"),
     "Any invented person, company, quote or figure that is not in his request costs at least 3 points: claims must be literally true.",
     "1) Say how well it delivers what he asked for and how the best studio would execute exactly that brief. 2) List what to delete first, then the biggest remaining gaps, structural first, then fine detail. Penalise overdone or obviously AI-generated patterns (generic gradients, glows, pill clutter, icon-in-circle grids, centred-everything hero, emoji, wide letter-spacing) and clutter. Be specific, tight and opinionated. 3) Score it out of 10. Rank against concrete references (Cursor, micro1), not against average work.",
     'Reply with JSON only: {"score":0,"critique":"delete first, then gaps, in short lines"}',
@@ -504,6 +520,7 @@ export function makePrompt(run: DomainRun, build: Build, taste: string): string 
     `Outcome: ${run.request.intendedOutcome}`,
     `Done when: ${run.request.doneWhen.join("; ")}`,
     ...(build.reference ? [`Build it from the lab version George's team picked, "${build.reference.name}": its page is ${build.reference.page}${build.reference.shot ? ` and its screenshot is ${build.reference.shot}` : ""}. Match its composition, type and spacing in the project's own components, styles and real content; do not paste the lab page in.`] : []),
+    ...teamSkills("apply"),
     "",
     TASTE_HEADER,
     `His learned taste rules:\n${taste}`,
@@ -526,6 +543,7 @@ export function buildReviewPrompt(run: DomainRun, build: Build, diff: string, ta
     ...(build.reference ? [`It should realise the picked version "${build.reference.name}"${build.reference.shot ? ", whose screenshot is attached" : ""}.`] : []),
     `The designer says: ${build.report ?? "(nothing)"}`,
     `What changed:\n${diff.slice(0, 40_000) || "(nothing changed)"}`,
+    ...teamSkills("judge"),
     "Judge whether this delivers the design faithfully and cleanly: what to delete, what is missing, what is off. Then present it to Flyd in 2-4 plain lines. Score out of 10; nothing changed scores 0.",
     'Reply with JSON only: {"score":0,"critique":"short lines","presentation":"2-4 lines to Flyd"}',
   ].join("\n");

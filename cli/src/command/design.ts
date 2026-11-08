@@ -17,14 +17,27 @@ export const DESIGN_LAB_DONE_WHEN = [
   "the lab's URL (or file path) and a screenshot of every version are listed in artifacts",
 ];
 
-/** The design-lab skill: George's edited copy in ~/.flyd/skills, else the one Flyd ships with. */
-export function designLabSkill(home = skillsHome(), bundled = bundledSkillsDir()): { name: string; body: string } | null {
-  const own = (() => { try { return loadSkills(home).find((skill) => skill.name === DESIGN_LAB_SKILL); } catch { return undefined; } })();
+/** The ux-psychology skill: behavioural principles and dark-pattern guardrails every design applies and every review checks. */
+export const UX_PSYCHOLOGY_SKILL = "ux-psychology";
+
+/** A design skill: George's edited copy in ~/.flyd/skills, else the one Flyd ships with. */
+function designSkill(name: string, home: string, bundled: string): { name: string; body: string } | null {
+  const own = (() => { try { return loadSkills(home).find((skill) => skill.name === name); } catch { return undefined; } })();
   if (own) return { name: own.name, body: own.body };
-  const path = join(bundled, DESIGN_LAB_SKILL, "SKILL.md");
+  const path = join(bundled, name, "SKILL.md");
   if (!existsSync(path)) return null;
   const shipped = parseSkill(readFileSync(path, "utf8"), path);
   return shipped ? { name: shipped.name, body: shipped.body } : null;
+}
+
+/** The design-lab skill: George's edited copy in ~/.flyd/skills, else the one Flyd ships with. */
+export function designLabSkill(home = skillsHome(), bundled = bundledSkillsDir()): { name: string; body: string } | null {
+  return designSkill(DESIGN_LAB_SKILL, home, bundled);
+}
+
+/** Every skill the design team works by, on every run and every review: the lab process and UX psychology. */
+export function designTeamSkills(home = skillsHome(), bundled = bundledSkillsDir()): Array<{ name: string; body: string }> {
+  return [DESIGN_LAB_SKILL, UX_PSYCHOLOGY_SKILL].map((name) => designSkill(name, home, bundled)).filter((skill): skill is { name: string; body: string } => skill !== null);
 }
 
 /** A run that is a design lab: it carries the lab process, whichever handoff started it. */
