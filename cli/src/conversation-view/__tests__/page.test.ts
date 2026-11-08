@@ -3998,6 +3998,7 @@ describe("the front page", () => {
     const story = { title: "State that lasts", url: "https://magazine.example/state", source: "Magazine", gist: "The machinery, not a wrapper." };
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
     await settle();
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
     expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (
@@ -4008,6 +4009,8 @@ describe("the front page", () => {
     // The conversation takes the middle back: the article is not opened behind the job.
     await new Promise((resolve) => setTimeout(resolve, 260));
     expect(document.documentElement.hasAttribute("data-job")).toBe(false);
+    expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
+    expect(FakeEventSource.instances.at(-1)!.url).toContain("session=window%3Aarticle-0123456789abcdef");
     document.documentElement.removeAttribute("data-layout");
   });
 
