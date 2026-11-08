@@ -4059,6 +4059,15 @@ describe("the front page", () => {
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
   });
 
+  it("opens Today when the only timeline item is the WhatsApp linking prompt", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    stream.emit("update", { order: ["whatsapp-link"], messages: [{ id: "whatsapp-link", role: "assistant", html: "", card: { kind: "decision", line: "Link WhatsApp" } }], working: false, show: SHOW, live: { known: true, running: [], landed: [] } });
+    expect(document.documentElement.getAttribute("data-centre")).toBe("today");
+    expect(document.querySelector("#feed .feed-empty")!.textContent).toBe("Nothing has moved yet today.");
+  });
+
   it("shows News as stories in columns, leaves filler out, and the box asks about the story in view", async () => {
     const stream = await opened();
     const stories = [
@@ -4192,7 +4201,7 @@ describe("the front page", () => {
       { title: "A gif", url: "https://cdn.example/gif", source: "GIPHY" },
       { title: "Trending", url: "https://cdn.example/trend", source: "Google Trends" },
     ];
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: stories.slice(1), newsStories: stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
     document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
     expect([...document.querySelectorAll("#news-cols .story h2")].map((node) => node.textContent)).toEqual(["Reporting on Pexels", "A Giphy investigation"]);
   });

@@ -129,9 +129,10 @@ export const TODAY_SCRIPT = `
     var urls = {};
     var at = "";
     (recent || []).forEach(function (item) {
-      if (item.kind !== "news" || !item.stories) return;
+      var items = item.newsStories || item.stories;
+      if (item.kind !== "news" || !items) return;
       if (!at || item.at > at) at = item.at;
-      item.stories.forEach(function (story) {
+      items.forEach(function (story) {
         if (!story.url || urls[story.url] || NEWS_FILLER.test((story.source || "").trim())) return;
         urls[story.url] = true;
         stories.push(story);
@@ -496,7 +497,7 @@ export const TODAY_SCRIPT = `
     if (!update) return;
     todayUpdate = update;
     // At rest the middle is Today; a conversation that already has words keeps it.
-    if (!centreChosen) setCentre(update.order && update.order.length ? "talk" : "today");
+    if (!centreChosen) setCentre((update.order || []).some(function (id) { return id !== "whatsapp-link"; }) ? "talk" : "today");
     drawToday();
     if (update.leftColumn) drawNews2(update.leftColumn.recent);
   };
