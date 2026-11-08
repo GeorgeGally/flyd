@@ -73,7 +73,7 @@ async function settle(): Promise<void> {
 function load(search: string, html = renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) })): void {
   window.history.replaceState(null, "", `/${search}`);
   const body = /<body([^>]*)>([\s\S]*)<\/body>/.exec(html)!;
-  document.body.setAttribute("data-send-token", /data-send-token="([^"]+)"/.exec(body[1]!)![1]!);
+  document.body.setAttribute("data-send-token", /data-send-token="([^"]*)"/.exec(body[1]!)![1]!);
   const fresh = /data-new-session="([^"]+)"/.exec(body[1]!)?.[1];
   if (fresh) document.body.setAttribute("data-new-session", fresh);
   else document.body.removeAttribute("data-new-session");
@@ -4078,7 +4078,7 @@ describe("the front page", () => {
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories, at: "2026-11-03T06:00:00.000Z" }], semantic: [] } });
     document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
     expect(document.documentElement.getAttribute("data-centre")).toBe("news");
-    expect(document.getElementById("news-when")!.textContent).toMatch(/^Last updated .*3.*November/);
+    expect(document.getElementById("news-when")!.textContent).toMatch(/^Last updated (?=.*\b3\b)(?=.*November)/);
     const shown = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
     expect(shown.map((story) => story.querySelector("h2")!.textContent)).toEqual(["Static Radio for the Chumby One", "Infinite Mac adds support for BeOS"]);
     expect(shown[0]!.classList.contains("lead")).toBe(true);
@@ -4644,7 +4644,7 @@ describe("the front page", () => {
     // Two or three lines read well: the whole step he needs to take, not a line cut at 52 characters.
     expect(card.querySelector(".next")!.textContent).toBe(needed);
     expect(card.querySelector(".jtag")!.textContent).toBe("Product");
-    expect(card.textContent).not.toContain("certificate");
+    expect(card.textContent).not.toContain("PostTraction");
     expect(document.querySelector('.job[data-job="landed"] .next')!.textContent).toBe("Pages are live.");
     after(() => card.click());
     expect(document.querySelector(".job-view")!.textContent).toContain(long);
