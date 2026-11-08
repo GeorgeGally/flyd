@@ -36,6 +36,7 @@ export const TODAY_SCRIPT = `
     });
     if (name === "news") { loadWeather(); newsPlaceholder(newsPicked); newsPickInView(); newsConfirm(); }
     else { newsPlaceholder(null); paintConfirm(conversationConfirm); }
+    newsSyncStreams();
     if (name !== "talk") window.scrollTo(0, 0);
   }
   centreTabs.addEventListener("click", function (event) {
@@ -196,6 +197,7 @@ export const TODAY_SCRIPT = `
     newsPicked = story;
     newsCols.querySelectorAll(".story").forEach(function (node) { node.classList.toggle("on", newsStories[+node.dataset.story] === story); });
     if (centre === "news") { newsPlaceholder(story); newsConfirm(); }
+    newsSyncStreams();
   }
   function newsConfirm() {
     var talk = newsPicked && newsTalks[newsPicked.url];
@@ -278,9 +280,18 @@ export const TODAY_SCRIPT = `
     });
   }
   function newsListen(talk) {
-    if (talk.source || !talk.session) return;
-    talk.source = new EventSource("/api/stream?token=" + encodeURIComponent(VIEW_TOKEN) + "&session=" + encodeURIComponent(talk.session));
-    talk.source.addEventListener("update", function (event) { newsTalkDraw(talk, JSON.parse(event.data)); });
+    if (talk.source || !talk.session || centre !== "news" || !newsPicked || newsTalks[newsPicked.url] !== talk) return;
+    var source = new EventSource("/api/stream?token=" + encodeURIComponent(VIEW_TOKEN) + "&session=" + encodeURIComponent(talk.session));
+    talk.source = source;
+    source.addEventListener("update", function (event) { if (talk.source === source) newsTalkDraw(talk, JSON.parse(event.data)); });
+  }
+  function newsSyncStreams() {
+    var selected = centre === "news" && newsPicked && newsTalks[newsPicked.url];
+    Object.keys(newsTalks).forEach(function (url) {
+      var talk = newsTalks[url];
+      if (talk !== selected && talk.source) { talk.source.close(); talk.source = null; }
+    });
+    if (selected) newsListen(selected);
   }
   function newsSubmit(story, text, sending) {
     recall.index = -1;

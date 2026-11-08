@@ -4100,6 +4100,37 @@ describe("the front page", () => {
     expect(input.placeholder).toBe("Message firstmate");
   });
 
+  it("reconnects only the selected News conversation", async () => {
+    const stream = await opened();
+    const stories = [
+      { title: "First", url: "https://example.test/first", source: "Press" },
+      { title: "Second", url: "https://example.test/second", source: "Press" },
+    ];
+    const update = (items: typeof stories) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: items }], semantic: [] } });
+    update(stories);
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (
+      url === "/api/article-chat" ? json({ session: "article:first" }) : url === "/api/send" ? json({ id: "q1" }) : json({ assistantLabel: "Flyd", sessions: SESSIONS })
+    ));
+    await type("Question?");
+    const first = FakeEventSource.instances.at(-1)!;
+    expect(first.url).toContain("session=article%3Afirst");
+    document.querySelectorAll<HTMLElement>("#news-cols .story")[1]!.click();
+    expect(first.closed).toBe(true);
+    document.querySelectorAll<HTMLElement>("#news-cols .story")[0]!.click();
+    const reconnected = FakeEventSource.instances.at(-1)!;
+    expect(reconnected).not.toBe(first);
+    reconnected.emit("update", { order: ["q1", "a1"], messages: [{ id: "q1", role: "user", html: "Question?" }, { id: "a1", role: "assistant", html: "Answer." }], working: false });
+    expect(document.querySelector("#news-cols .story .talk")!.textContent).toContain("Answer.");
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    expect(reconnected.closed).toBe(true);
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    const returned = FakeEventSource.instances.at(-1)!;
+    expect(returned).not.toBe(reconnected);
+    update([]);
+    expect(returned.closed).toBe(true);
+  });
+
   it("keeps News selection across updates, scrolling, and an empty feed", async () => {
     const stream = await opened();
     const stories = [
