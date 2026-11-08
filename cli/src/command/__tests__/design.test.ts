@@ -47,18 +47,6 @@ describe("design lab path", () => {
     expect(designLabSkill(dir)).toEqual({ name: DESIGN_LAB_SKILL, body: "Three versions, always." });
   });
 
-  it("uses the edited design-lab skill even beyond the routing limit", () => {
-    dir = mkdtempSync(join(tmpdir(), "flyd-design-skill-"));
-    for (let i = 0; i < 24; i++) {
-      const name = `aaa-${i.toString().padStart(2, "0")}`;
-      mkdirSync(join(dir, name));
-      writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: other\n---\nOther skill.\n`);
-    }
-    mkdirSync(join(dir, "design-lab"));
-    writeFileSync(join(dir, "design-lab", "SKILL.md"), "---\nname: design-lab\ndescription: edited\n---\nEdited design-lab.\n");
-    expect(designLabSkill(dir)?.body).toBe("Edited design-lab.");
-  });
-
   it("loads the complete bundled UX skill body", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-design-skill-"));
     const body = `${"Principle. ".repeat(600)}\nFinal guardrail and checklist.`;

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { CodingDispatchInput } from "./coding.js";
-import { bundledSkillsDir, parseSkill, skillsHome } from "../runtime/skills.js";
+import { bundledSkillsDir, loadSkills, parseSkill, skillsHome } from "../runtime/skills.js";
 import type { DomainRequest, DomainRun } from "./types.js";
 
 // Design is a real path: a lab, N versions of a page, a redesign of a screen.
@@ -20,20 +20,14 @@ export const DESIGN_LAB_DONE_WHEN = [
 /** The ux-psychology skill: behavioural principles and dark-pattern guardrails every design applies and every review checks. */
 export const UX_PSYCHOLOGY_SKILL = "ux-psychology";
 
-/** A design skill: George's edited copy in ~/.flyd/skills, else the one Flyd ships with. */
-function designSkill(name: string, home: string, bundled: string): { name: string; body: string } | null {
-  const ownPath = join(home, name, "SKILL.md");
-  const own = (() => { try { return parseSkill(readFileSync(ownPath, "utf8"), ownPath); } catch { return null; } })();
-  if (own?.name === name) return { name: own.name, body: own.body };
-  const path = join(bundled, name, "SKILL.md");
+/** The design-lab skill: George's edited copy in ~/.flyd/skills, else the one Flyd ships with. */
+export function designLabSkill(home = skillsHome(), bundled = bundledSkillsDir()): { name: string; body: string } | null {
+  const own = (() => { try { return loadSkills(home).find((skill) => skill.name === DESIGN_LAB_SKILL); } catch { return undefined; } })();
+  if (own) return { name: own.name, body: own.body };
+  const path = join(bundled, DESIGN_LAB_SKILL, "SKILL.md");
   if (!existsSync(path)) return null;
   const shipped = parseSkill(readFileSync(path, "utf8"), path);
   return shipped ? { name: shipped.name, body: shipped.body } : null;
-}
-
-/** The design-lab skill: George's edited copy in ~/.flyd/skills, else the one Flyd ships with. */
-export function designLabSkill(home = skillsHome(), bundled = bundledSkillsDir()): { name: string; body: string } | null {
-  return designSkill(DESIGN_LAB_SKILL, home, bundled);
 }
 
 export function designTeamSkills(bundled = join(dirname(bundledSkillsDir()), "design-skills")): Array<{ name: string; body: string }> {
