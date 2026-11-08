@@ -1,10 +1,10 @@
-# Flyd Orchestration — Plan v8
+# Flyd Orchestration — Plan v8 (final)
 
-Status: Proposed; not implemented.
+Status: Final; approved by George 2026-11-08. Not implemented.
 Date: 2026-11-08
 Authority: `docs/product/flyd-personal-intelligence-prd.md` wins on conflict.
 Replaces: `2026-11-08-flyd-autonomous-orchestration-v7.md`.
-Keeps: `2026-10-30-flyd-chief-of-staff-split-plan.md` as the plan of record for Phases 0–5. v8 changes only its Phase 6 and adds three small phases after it.
+Keeps: `2026-10-30-flyd-chief-of-staff-split-plan.md` as the plan of record for Phases 0–5. v8 replaces its Phase 6 and adds two phases after it, plus one more held until George names a real trigger.
 
 ## Why v7 is replaced
 
@@ -23,6 +23,7 @@ v7 plans a durable task graph, event sourcing with correlation and causation IDs
 2. **Cross-domain joins.** The split plan's Phase 6 chains runs *in order*. It doesn't run research and design in parallel and then join them into one brief for FirstMate.
 3. **Stale results after a correction.** When George changes a requirement mid-flight, nothing stops a result produced under the old requirement from being delivered as if it were current.
 4. **Waiting work that needs George.** There is no way to snooze a question. Nothing guarantees that waiting work carries a question he can answer.
+5. **Recovering from failure.** A failed run always goes to George, even when the CoS could reasonably fix it itself.
 
 Everything else in v7 waits until real use shows it is needed.
 
@@ -53,7 +54,12 @@ Build on `Objective.after` and the Phase 2 mutation helper. Add no new store and
   - An executor that can't answer for a request ID leaves the run `unknown`. The CoS asks the executor where it stands (as the fleet monitor does) before doing anything else.
   - Side effects inside an executor, such as a pushed branch or an opened PR, are the executor's to keep single. FirstMate owns PR and delivery state (command PRD §5). The CoS never re-dispatches to cause a side effect a second time.
 - **Acceptance.** Before writing `cos.report done`, the CoS checks the final result against the objective's `done_when`. Domain review stays where it is: FirstMate verifies code and the Creative Director reviews design. Add no generic reviewer layer.
-- A failed or cancelled dependency still sends the objective to a `decision` report. Nothing retries on its own, as in the split plan.
+- **Adapt before escalating.** This changes the split plan's "nothing retries on its own". George wants Flyd to answer most of these itself.
+  - When a run fails, the CoS may try **one** alternative: re-brief the same team with the failure evidence, hand the work to another team, or drop the path if `done_when` doesn't need its result.
+  - At a join, the CoS may also cancel queued runs that the joined results make pointless.
+  - It never re-dispatches a run in `unknown` state, and never retries anything that may have caused an outside side effect.
+  - If the alternative also fails, or no alternative exists, the objective goes to a `decision` report.
+  - Every adaptation is recorded on the objective with its reason, so `work_status` can explain it. Code caps it at one per run.
 
 **Exit**
 - Librarian and Design Mate run at the same time. Their results are joined into one brief, which goes to FirstMate, and George gets exactly one delivery.
@@ -64,12 +70,19 @@ Build on `Objective.after` and the Phase 2 mutation helper. Add no new store and
 - A one-team objective still takes the one-run path.
 - With the active limit set to 1, the same parallel objective runs one run at a time and still finishes with one delivery.
 - A join that adds runs after it completes dispatches each added run exactly once, including after a crash.
+- A run that fails once gets one alternative and the objective still completes. A run that fails twice produces one `decision` report and no third attempt.
 - Dogfood three real objectives that span domains.
 
 ### Phase 7 — Waiting work that needs George
 
 **Work**
 - **Snooze.** A `decision`, `credential` or `blocked` report can be set aside until a time George picks (this evening, tomorrow morning, a chosen time). Until then the CoS doesn't raise it again and carries on with any part of the objective that doesn't depend on it. `work_status` still lists it as snoozed, with the time it comes back.
+- **Stuck objectives are mostly Flyd's to settle.** When an objective has made no progress for a day, the CoS settles it from George's known policy and what the objective is waiting on:
+  - *nudge* the owner, through the fleet monitor's existing chase;
+  - *park* it, if it is waiting on something outside Flyd's control;
+  - mark it *ongoing*, if it is meant to run continuously.
+
+  It records which it chose. Only when it can't tell does George get a one-tap decision (Nudge / Park / It's ongoing). Staff silence on its own still never reaches him.
 - **Every wait carries a question.** An objective in `needs_george` must have a report George can answer. If it has none, the CoS writes one ("X is waiting on you for Y"), so nothing sits waiting silently.
 - **Replying resumes the original objective** through its record. A reply never starts a new task in the chat.
 - **Plain run statuses in `work_status`**, shown only when George asks:
@@ -79,7 +92,7 @@ Build on `Objective.after` and the Phase 2 mutation helper. Add no new store and
   - *reported twice* (one result kept)
   - *still finishing* (gone quiet; the chaser is on it)
 
-**Exit:** George snoozes a decision and nothing is raised again before the chosen time. The other branches of that objective finish in the meantime. His later reply resumes the same objective and produces one delivery.
+**Exit:** a stuck objective whose owner can be chased is nudged without George hearing about it, and one the CoS can't read reaches him as one decision. George snoozes a decision and nothing is raised again before the chosen time. The other branches of that objective finish in the meantime. His later reply resumes the same objective and produces one delivery.
 
 ### Phase 8 — Triggers (only when George names a real one)
 
@@ -103,6 +116,8 @@ Every guarantee in the CoS work must say which kind it is. Squad's docs are hone
 |---|---|---|
 | Flyd never changes code | Code: tools removed from Flyd's tool set | split plan Phase 4 |
 | Push, publish, send, delete or pipe-to-shell ask George | Code | `runtime/tool-policy.ts` |
+| Staff never send outbound messages without George's explicit permission | Code: CoS-dispatched work has no send capability; a send becomes a `decision` report carrying the draft, and only George's approval of that item sends it | Phase 6, `tool-policy.ts` |
+| One alternative per failed run, then escalate | Code | Phase 6 adaptation count |
 | One delivery per report | Code | `flyd.delivered` event, split plan Phase 1 |
 | An executor accepts a run once | Code: request-ID replay; uncertain runs are reconciled, not retried | `command/firstmate.ts`, Phase 6 |
 | Side effects inside an executor happen once | The executor's job, not Flyd's | FirstMate (command PRD §5) |
@@ -123,13 +138,14 @@ Every guarantee in the CoS work must say which kind it is. Squad's docs are hone
 | Account and provider fallback in the middle of a task | Already built: `FLYD_FIRSTMATE_RUNTIMES` relaunch with backoff |
 | A brief with goal, context, constraints, decisions that come back, and done-when | Adopt the *decisions* field. The CoS brief lists which calls come back to George and which are settled by his known policy (command PRD: "whether a coding decision can be resolved from George's known policy") |
 | Snooze on Needs you; every waiting task has a question | Adopt (Phase 7) |
-| Stuck task triage: Nudge / Park it / It's fine | Open question (below). It conflicts with "staff silence never reaches George" |
+| Stuck task triage: Nudge / Park it / It's fine | Adopt, with the CoS settling most of them itself; George decides only what it can't (Phase 7) |
 | Run statuses (Interrupted, Picked up, Replaced, Reported twice) | Adopt as `work_status` vocabulary, shown only when asked (Phase 7) |
 | Trigger caps, field filter, suggested triggers off by default | Adopt if Phase 8 happens |
 | Inbound email and trigger text never learned as memory | Already a Flyd rule (AGENTS.md connectors). Restated in Phase 8 |
 | Memory that learns after every turn and recalls before every turn | Reject. It is the eager storing and over-connection Flyd exists to refuse |
 | Teach a task by demonstration | Reject for now. Squad's users are ops teams repeating browser chores, and nothing shows George needs it. Revisit only if a real repeated procedure turns up |
-| Daily send caps, a decision budget | Don't add without George. AGENTS.md says no new approval gates without asking him, and he ruled out an interruption cap |
+| Daily send caps | Not needed. Nothing is sent without George's explicit permission (decided 2026-11-08) |
+| A decision budget | Reject. George ruled out an interruption cap |
 | Mission board dashboard | Reject. Delivery is semantic (split plan), and `work_status` answers status questions |
 
 ## Dropped from v7
@@ -140,17 +156,17 @@ Every guarantee in the CoS work must say which kind it is. Squad's docs are hone
 - Quiet hours and interruption budgets (v7 Phase 7).
 - Event adapters for Gmail and webhooks in general. Phase 8 waits for a named trigger.
 
-## Open questions for George
+## Decided (George, 2026-11-08)
 
-1. **Stuck objectives.** Staff silence never reaches you today. Should an *objective* with no progress for a day reach you as a one-tap decision (Nudge / Park / It's ongoing), or should it stay silent?
-2. **Send caps.** If staff ever send outbound email or messages on their own, do you want a daily cap enforced in code, or is today's "send asks George" policy enough?
-3. **Active limit.** Is 3 runs active at once the right default? The real constraint is likely your Claude plan's usage limits rather than the machine.
+1. **Stuck objectives.** The CoS settles most of them itself (nudge, park or ongoing). George gets a one-tap decision only when it can't tell (Phase 7).
+2. **Sending.** Nothing is sent outbound without George's explicit permission. Staff work turns every send into a decision carrying the draft, and that is enforced in code, so no send cap is needed.
+3. **Active limit.** Undecided. Ship `FLYD_COS_MAX_ACTIVE=3` as the default, record queue waits and usage-limit backoffs during the Phase 6 dogfood, and set the default from that data.
 
 ## First backlog
 
 1. Split-plan Phase 0 baseline, then Phase 1 delivery. Neither is built yet.
 2. Split-plan Phases 2–5 as written.
 3. Phase 6: write failing tests for the parallel join, the three crash points and the stale revision; then add `revision`, multi-dependency release and the join brief.
-4. Dogfood three real objectives that span domains before starting Phase 7.
+4. Dogfood three real objectives that span domains before starting Phase 7, recording queue waits and usage-limit backoffs to settle the active limit.
 
 No implementation is claimed by this document.
