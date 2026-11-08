@@ -31,6 +31,11 @@ export function designLabSkill(home = skillsHome(), bundled = bundledSkillsDir()
 }
 
 export function designTeamSkills(bundled = join(dirname(bundledSkillsDir()), "design-skills")): Array<{ name: string; body: string }> {
+  const ownPath = join(skillsHome(), UX_PSYCHOLOGY_SKILL, "SKILL.md");
+  try {
+    const own = parseSkill(readFileSync(ownPath, "utf8"), ownPath, Infinity);
+    if (own?.name === UX_PSYCHOLOGY_SKILL && own.body) return [{ name: own.name, body: own.body }];
+  } catch { /* Fall back to the shipped skill. */ }
   const path = join(bundled, UX_PSYCHOLOGY_SKILL, "SKILL.md");
   if (!existsSync(path)) return [];
   const skill = parseSkill(readFileSync(path, "utf8"), path, Infinity);
