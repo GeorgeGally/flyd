@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { CodingDispatchInput } from "./coding.js";
-import { bundledSkillsDir, loadSkills, parseSkill, skillsHome } from "../runtime/skills.js";
+import { bundledSkillsDir, parseSkill, skillsHome } from "../runtime/skills.js";
 import type { DomainRequest, DomainRun } from "./types.js";
 
 // Design is a real path: a lab, N versions of a page, a redesign of a screen.
@@ -22,8 +22,9 @@ export const UX_PSYCHOLOGY_SKILL = "ux-psychology";
 
 /** A design skill: George's edited copy in ~/.flyd/skills, else the one Flyd ships with. */
 function designSkill(name: string, home: string, bundled: string): { name: string; body: string } | null {
-  const own = (() => { try { return loadSkills(home).find((skill) => skill.name === name); } catch { return undefined; } })();
-  if (own) return { name: own.name, body: own.body };
+  const ownPath = join(home, name, "SKILL.md");
+  const own = (() => { try { return parseSkill(readFileSync(ownPath, "utf8"), ownPath); } catch { return null; } })();
+  if (own?.name === name) return { name: own.name, body: own.body };
   const path = join(bundled, name, "SKILL.md");
   if (!existsSync(path)) return null;
   const shipped = parseSkill(readFileSync(path, "utf8"), path);
@@ -35,9 +36,9 @@ export function designLabSkill(home = skillsHome(), bundled = bundledSkillsDir()
   return designSkill(DESIGN_LAB_SKILL, home, bundled);
 }
 
-/** Every skill the design team works by, on every run and every review: the lab process and UX psychology. */
-export function designTeamSkills(home = skillsHome(), bundled = bundledSkillsDir()): Array<{ name: string; body: string }> {
-  return [DESIGN_LAB_SKILL, UX_PSYCHOLOGY_SKILL].map((name) => designSkill(name, home, bundled)).filter((skill): skill is { name: string; body: string } => skill !== null);
+export function designTeamSkills(home = skillsHome(), bundled = join(dirname(bundledSkillsDir()), "design-skills")): Array<{ name: string; body: string }> {
+  const skill = designSkill(UX_PSYCHOLOGY_SKILL, home, bundled);
+  return skill ? [skill] : [];
 }
 
 /** A run that is a design lab: it carries the lab process, whichever handoff started it. */

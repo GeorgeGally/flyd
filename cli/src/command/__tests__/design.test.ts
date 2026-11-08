@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DESIGN_LAB_DONE_WHEN, DESIGN_LAB_SKILL, designLabSkill, dispatchDesignLab, isDesignLabRun, labAwaitingReview } from "../design.js";
+import { DESIGN_LAB_DONE_WHEN, DESIGN_LAB_SKILL, designLabSkill, designTeamSkills, dispatchDesignLab, isDesignLabRun, labAwaitingReview } from "../design.js";
 import { FirstmateDomainTransport } from "../firstmate.js";
 import { listDomainRuns } from "../store.js";
 import type { DomainRun } from "../types.js";
@@ -45,6 +45,21 @@ describe("design lab path", () => {
     mkdirSync(join(dir, DESIGN_LAB_SKILL));
     writeFileSync(join(dir, DESIGN_LAB_SKILL, "SKILL.md"), "---\nname: design-lab\ndescription: his labs\n---\nThree versions, always.\n");
     expect(designLabSkill(dir)).toEqual({ name: DESIGN_LAB_SKILL, body: "Three versions, always." });
+  });
+
+  it("uses named edited design skills even beyond the routing limit", () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-design-skill-"));
+    for (let i = 0; i < 24; i++) {
+      const name = `aaa-${i.toString().padStart(2, "0")}`;
+      mkdirSync(join(dir, name));
+      writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: other\n---\nOther skill.\n`);
+    }
+    for (const name of ["design-lab", "ux-psychology"]) {
+      mkdirSync(join(dir, name));
+      writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: edited\n---\nEdited ${name}.\n`);
+    }
+    expect(designLabSkill(dir)?.body).toBe("Edited design-lab.");
+    expect(designTeamSkills(dir)).toEqual([{ name: "ux-psychology", body: "Edited ux-psychology." }]);
   });
 
   it("hands a lab to Design Mate with the lab process and the review contract, never to the coding boss", async () => {

@@ -167,8 +167,7 @@ describe("Design Mate", () => {
     expect(done.result!.specialistOutputs[0]!.specialist).toBe(CREATIVE_DIRECTOR);
   });
 
-  it("carries the design-lab and ux-psychology skills into every designer and Creative Director prompt", async () => {
-    const lab = (prompt: string) => prompt.includes("SKILL: design-lab") && prompt.includes("critic loop");
+  it("carries ux-psychology into every designer and Creative Director prompt", async () => {
     const ux = (prompt: string) => prompt.includes("SKILL: ux-psychology") && prompt.includes("Smart defaults");
     const prompts: Record<string, string[]> = { brief: [], build: [], critique: [], make: [], review: [] };
     const deps = staff([9]);
@@ -194,7 +193,7 @@ describe("Design Mate", () => {
     });
     for (const [role, sent] of Object.entries(prompts)) {
       expect(sent.length, role).toBeGreaterThan(0);
-      for (const prompt of sent) expect(lab(prompt) && ux(prompt), role).toBe(true);
+      for (const prompt of sent) expect(ux(prompt), role).toBe(true);
     }
     expect(prompts.critique![0]).toContain("Judge the work against every one of them, their checklists and guardrails included");
   });

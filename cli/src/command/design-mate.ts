@@ -402,7 +402,6 @@ export function pageOf(text: string): string | null {
 
 const TASTE_HEADER = "George's standing taste: TV-style clean type; Cursor-style framed imagery with padding; letter-spacing never wider than .04em; generous space above buttons; buttons never oversized; readable body copy; copy that says what a thing is (no slogans, never opens with \"Not…\"); every claim literally true; motion is TV-style fades only.";
 
-/** The team's skills, both bodies, in every Design Mate and Creative Director prompt: designs apply them, reviews check them. */
 function teamSkills(use: "apply" | "judge"): string[] {
   const skills = designTeamSkills();
   if (!skills.length) return [];
