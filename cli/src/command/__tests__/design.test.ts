@@ -47,36 +47,24 @@ describe("design lab path", () => {
     expect(designLabSkill(dir)).toEqual({ name: DESIGN_LAB_SKILL, body: "Three versions, always." });
   });
 
-  it("uses named edited design skills even beyond the routing limit", () => {
+  it("uses the edited design-lab skill even beyond the routing limit", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-design-skill-"));
     for (let i = 0; i < 24; i++) {
       const name = `aaa-${i.toString().padStart(2, "0")}`;
       mkdirSync(join(dir, name));
       writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: other\n---\nOther skill.\n`);
     }
-    for (const name of ["design-lab", "ux-psychology"]) {
-      mkdirSync(join(dir, name));
-      writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: edited\n---\nEdited ${name}.\n`);
-    }
+    mkdirSync(join(dir, "design-lab"));
+    writeFileSync(join(dir, "design-lab", "SKILL.md"), "---\nname: design-lab\ndescription: edited\n---\nEdited design-lab.\n");
     expect(designLabSkill(dir)?.body).toBe("Edited design-lab.");
-    expect(designTeamSkills(dir)).toEqual([{ name: "ux-psychology", body: "Edited ux-psychology." }]);
   });
 
-  it("keeps complete edited and bundled UX skill bodies while retaining the lab limit", () => {
+  it("loads the complete bundled UX skill body", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-design-skill-"));
-    const home = join(dir, "home");
-    const bundled = join(dir, "bundled");
     const body = `${"Principle. ".repeat(600)}\nFinal guardrail and checklist.`;
-    const skillText = `---\nname: ux-psychology\ndescription: UX\n---\n${body}\n`;
-    mkdirSync(join(bundled, "ux-psychology"), { recursive: true });
-    writeFileSync(join(bundled, "ux-psychology", "SKILL.md"), skillText);
-    expect(designTeamSkills(home, bundled)[0]?.body).toBe(body);
-    mkdirSync(join(home, "ux-psychology"), { recursive: true });
-    writeFileSync(join(home, "ux-psychology", "SKILL.md"), skillText);
-    expect(designTeamSkills(home, bundled)[0]?.body).toBe(body);
-    mkdirSync(join(home, "design-lab"));
-    writeFileSync(join(home, "design-lab", "SKILL.md"), `---\nname: design-lab\ndescription: lab\n---\n${body}\n`);
-    expect(designLabSkill(home)?.body).toHaveLength(6000);
+    mkdirSync(join(dir, "ux-psychology"), { recursive: true });
+    writeFileSync(join(dir, "ux-psychology", "SKILL.md"), `---\nname: ux-psychology\ndescription: UX\n---\n${body}\n`);
+    expect(designTeamSkills(dir)).toEqual([{ name: "ux-psychology", body }]);
   });
 
   it("hands a lab to Design Mate with the lab process and the review contract, never to the coding boss", async () => {

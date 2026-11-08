@@ -18,14 +18,6 @@ describe("skills", () => {
     expect(loadSkills(home).map((skill) => skill.name)).not.toContain("prioritize");
   });
 
-  it("excludes design-only UX psychology from routed skills by name", () => {
-    for (const [folder, name] of [["ux-psychology", "ux-psychology"], ["another-folder", "ux-psychology"], ["writing", "writing"]]) {
-      mkdirSync(join(home, folder!), { recursive: true });
-      writeFileSync(join(home, folder!, "SKILL.md"), `---\nname: ${name}\ndescription: A skill\n---\nInstructions.\n`);
-    }
-    expect(loadSkills(home).map((skill) => skill.name)).toEqual(["writing"]);
-  });
-
   it("imports one of his own skills, and refuses one without a description", () => {
     const claude = join(home, "claude");
     mkdirSync(join(claude, "copywriting"), { recursive: true });

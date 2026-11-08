@@ -77,7 +77,6 @@ export function loadSkills(home = skillsHome()): Skill[] {
       const path = join(home, entry.name, "SKILL.md");
       try { const skill = parseSkill(readFileSync(path, "utf8"), path); return skill ? [skill] : []; } catch { return []; }
     })
-    .filter((skill) => skill.name !== "ux-psychology")
     .sort((a, b) => a.name.localeCompare(b.name))
     .slice(0, MAX_MATCHED_SKILLS);
 }

@@ -22,13 +22,12 @@ export const UX_PSYCHOLOGY_SKILL = "ux-psychology";
 
 /** A design skill: George's edited copy in ~/.flyd/skills, else the one Flyd ships with. */
 function designSkill(name: string, home: string, bundled: string): { name: string; body: string } | null {
-  const maxBodyChars = name === UX_PSYCHOLOGY_SKILL ? Infinity : undefined;
   const ownPath = join(home, name, "SKILL.md");
-  const own = (() => { try { return parseSkill(readFileSync(ownPath, "utf8"), ownPath, maxBodyChars); } catch { return null; } })();
+  const own = (() => { try { return parseSkill(readFileSync(ownPath, "utf8"), ownPath); } catch { return null; } })();
   if (own?.name === name) return { name: own.name, body: own.body };
   const path = join(bundled, name, "SKILL.md");
   if (!existsSync(path)) return null;
-  const shipped = parseSkill(readFileSync(path, "utf8"), path, maxBodyChars);
+  const shipped = parseSkill(readFileSync(path, "utf8"), path);
   return shipped ? { name: shipped.name, body: shipped.body } : null;
 }
 
@@ -37,9 +36,11 @@ export function designLabSkill(home = skillsHome(), bundled = bundledSkillsDir()
   return designSkill(DESIGN_LAB_SKILL, home, bundled);
 }
 
-export function designTeamSkills(home = skillsHome(), bundled = join(dirname(bundledSkillsDir()), "design-skills")): Array<{ name: string; body: string }> {
-  const skill = designSkill(UX_PSYCHOLOGY_SKILL, home, bundled);
-  return skill ? [skill] : [];
+export function designTeamSkills(bundled = join(dirname(bundledSkillsDir()), "design-skills")): Array<{ name: string; body: string }> {
+  const path = join(bundled, UX_PSYCHOLOGY_SKILL, "SKILL.md");
+  if (!existsSync(path)) return [];
+  const skill = parseSkill(readFileSync(path, "utf8"), path, Infinity);
+  return skill ? [{ name: skill.name, body: skill.body }] : [];
 }
 
 /** A run that is a design lab: it carries the lab process, whichever handoff started it. */
