@@ -70,12 +70,11 @@ export const TODAY_SCRIPT = `
     }
     (live.running || []).forEach(function (item) {
       var at = item.at || item.since;
-      var said = item.step || item.title;
-      add({ at: at, text: todaySentence(said), moving: true, shot: todayShot(item) });
+      add({ at: at, text: todaySentence(item.step), moving: true, shot: todayShot(item) });
     });
     (live.landed || []).forEach(function (item) {
       if (!todayIs(item.at)) return;
-      add({ at: item.at, text: todaySentence(item.title), shot: todayShot(item) });
+      add({ at: item.at, text: todaySentence(item.step), shot: todayShot(item) });
     });
     // Where he left off: his latest other conversation today, which opens again from here.
     var left = todaySessions.filter(function (session) { return session.id !== current && session.title && todayIs(session.updatedAt); })[0];
@@ -121,6 +120,7 @@ export const TODAY_SCRIPT = `
   var NEWS_FILLER = /giphy|pexels|google trends/i;
   var newsStories = [];
   var newsPicked = null;
+  var newsPointer = null;
   function newsOf(recent) {
     var stories = [];
     var urls = {};
@@ -158,6 +158,9 @@ export const TODAY_SCRIPT = `
     link.rel = "noopener noreferrer";
     head.appendChild(link);
     node.appendChild(head);
+    if (story.media === "stat" && story.figure) node.appendChild(el("p", "", story.figure));
+    if (story.media === "quote" && story.quote) node.appendChild(el("p", "", "“" + story.quote + "”"));
+    if (story.media === "quote" && story.attribution) node.appendChild(el("p", "", "— " + story.attribution));
     if (story.gist && frontText(story.gist).toLowerCase() !== frontText(story.title).toLowerCase()) node.appendChild(el("p", "", story.gist));
     // Where it came from, quietly after the story: never a label over the headline.
     if (story.source) node.appendChild(el("p", "src", story.source));
@@ -167,7 +170,7 @@ export const TODAY_SCRIPT = `
   }
   function drawNews2(recent) {
     var news = newsOf(recent);
-    var signature = JSON.stringify([news.at, news.stories.map(function (story) { return [story.url, story.image, story.title, story.gist]; })]);
+    var signature = JSON.stringify([news.at, news.stories]);
     if (signature === newsDrawn) return;
     newsDrawn = signature;
     newsStories = news.stories;
@@ -194,6 +197,9 @@ export const TODAY_SCRIPT = `
   }
   function newsPickInView() {
     if (centre !== "news") return;
+    var under = newsPointer && document.elementFromPoint && document.elementFromPoint(newsPointer.x, newsPointer.y);
+    var pointed = under && under.closest("#news-cols .story");
+    if (pointed) { newsPick(newsStories[+pointed.dataset.story]); return; }
     var line = 140;
     var nodes = Array.prototype.slice.call(newsCols.querySelectorAll(".story"));
     var first = nodes.filter(function (node) { return node.getBoundingClientRect().bottom > line; })[0];
@@ -201,6 +207,7 @@ export const TODAY_SCRIPT = `
   }
   window.addEventListener("scroll", function () { if (centre === "news") newsPickInView(); }, { passive: true });
   document.getElementById("news-page").addEventListener("scroll", newsPickInView, { passive: true });
+  document.addEventListener("mousemove", function (event) { newsPointer = { x: event.clientX, y: event.clientY }; });
   newsCols.addEventListener("click", function (event) {
     if (event.target.closest("a, .talk")) return;
     var node = event.target.closest(".story");
@@ -254,7 +261,7 @@ export const TODAY_SCRIPT = `
     talk.box.appendChild(answer);
     function failed(why) { answer.textContent = why; answer.classList.remove("pending"); }
     var opened = talk.session ? Promise.resolve({ session: talk.session }) : tokenFetch("/api/article-chat", { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: story.url, title: story.title || "", media: story.media || "article", text: story.gist || "", description: story.gist || "" }) }, true)
+      body: JSON.stringify({ url: story.url, title: story.title || "", media: story.media || "article", text: story.quote || story.gist || "", description: story.gist || "", figure: story.figure || "", attribution: story.attribution || "" }) }, true)
       .then(function (response) { return response.ok ? response.json() : null; });
     opened.then(function (data) {
       if (!data || !data.session) { failed("That story could not be opened. Try again in a moment."); return; }
@@ -362,6 +369,7 @@ export const TODAY_SCRIPT = `
     weatherAt = Date.now();
     fetch("/api/weather").then(function (r) { return r.json(); }).then(function (data) {
       weather = data && data.weather ? data.weather : null;
+      if (!weather) weatherAt = 0;
       if (weather && weather.days && wxDay >= weather.days.length) wxDay = 0;
       drawWeather(wxDay, -1);
     }).catch(function () { weatherAt = 0; });

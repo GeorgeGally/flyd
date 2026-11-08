@@ -1,7 +1,4 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { modelSetup } from "../lib/model-setup.js";
 
 // The Machines tab's models and usage: which model does which job (the same
@@ -76,13 +73,11 @@ export function usageFrom(raw: unknown): SetupUsage[] {
   });
 }
 
-const QUOTA_BIN = join(homedir(), ".local", "bin", "quota-axi");
 const USAGE_FRESH_MS = 5 * 60 * 1000;
 
 function readQuota(): Promise<unknown> {
   return new Promise((resolve) => {
-    if (!existsSync(QUOTA_BIN)) { resolve(null); return; }
-    execFile(QUOTA_BIN, ["--json", "--max-age", "5m", "--no-credential-refresh"], { timeout: 20_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout) => {
+    execFile("quota-axi", ["--json", "--max-age", "5m", "--no-credential-refresh"], { timeout: 20_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout) => {
       if (error) { resolve(null); return; }
       try { resolve(JSON.parse(stdout)); } catch { resolve(null); }
     });

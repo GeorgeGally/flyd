@@ -4022,7 +4022,8 @@ describe("the front page", () => {
       live: {
         known: true, counts: { running: 1, needs: 0 }, paused: [], needs: [], older: [],
         running: [{ id: "live:cx", state: "running", title: "CleanX credit packs", step: "CleanX now shows credit packs only when you're under 200 credits", at: at(0), shots: [{ src: "/api/artefact-shot?task=cx&file=a.png", label: "a.png" }], previews: [], links: [] }],
-        landed: [{ id: "landed:today", state: "landed", title: "Conversations are now split by project.", at: at(0), shots: [], previews: [], links: [] },
+        landed: [{ id: "landed:today", state: "landed", title: "Conversation work", step: "Conversations are now split by project.", at: at(0), shots: [], previews: [], links: [] },
+          { id: "landed:no-detail", state: "landed", title: "A job title", at: at(0), shots: [], previews: [], links: [] },
           { id: "landed:old", state: "landed", title: "Something from last week landed.", at: "2026-10-01T09:00:00.000Z", shots: [], previews: [], links: [] }],
       },
     });
@@ -4039,6 +4040,7 @@ describe("the front page", () => {
     expect(cards[0]!.querySelector("time .fdot.pulse")).not.toBeNull();
     expect(cards[0]!.querySelector("img")!.getAttribute("src")).toContain("/api/artefact-shot?task=cx");
     expect(document.getElementById("feed")!.textContent).not.toContain("last week");
+    expect(document.getElementById("feed")!.textContent).not.toContain("A job title");
   });
 
   it("starts in the conversation when it has words, and Today brings the feed back", async () => {
@@ -4118,6 +4120,61 @@ describe("the front page", () => {
     expect(input.placeholder).toBe("Ask about Second updated");
     update([]);
     expect(input.placeholder).toBe("Message firstmate");
+  });
+
+  it("keeps the story under the pointer selected when News scrolls", async () => {
+    const stream = await opened();
+    const stories = [{ title: "Left", url: "https://example.test/left" }, { title: "Right", url: "https://example.test/right" }];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    const cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => cards[1]!;
+    try {
+      document.dispatchEvent(new MouseEvent("mousemove", { clientX: 600, clientY: 200, bubbles: true }));
+      for (const target of [document.getElementById("news-page")!, window]) {
+        target.dispatchEvent(new Event("scroll"));
+        expect((document.getElementById("input") as HTMLTextAreaElement).placeholder).toBe("Ask about Right");
+      }
+    } finally { document.elementFromPoint = original; }
+  });
+
+  it("shows and sends quote and statistic content to article chat", async () => {
+    const stream = await opened();
+    const stories = [
+      { title: "A quote", url: "https://example.test/quote", media: "quote", quote: "Keep going", attribution: "Ada", gist: "A remark" },
+      { title: "A statistic", url: "https://example.test/stat", media: "stat", figure: "42%", gist: "A result" },
+    ];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    const cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
+    expect(cards[0]!.textContent).toContain("Keep going");
+    expect(cards[0]!.textContent).toContain("Ada");
+    expect(cards[1]!.textContent).toContain("42%");
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/article-chat" ? { session: "window:article-0123456789abcdef" } : { id: "u9" }));
+    cards[0]!.click();
+    await type("What did she mean?");
+    cards[1]!.click();
+    await type("What does it measure?");
+    const openedStories = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/article-chat").map(([, init]) => JSON.parse(String(init!.body)));
+    expect(openedStories).toMatchObject([{ text: "Keep going", attribution: "Ada" }, { text: "A result", figure: "42%" }]);
+  });
+
+  it("retries weather after an initially empty reading", async () => {
+    let reads = 0;
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
+      if (url !== "/api/weather") return json({ assistantLabel: "Flyd", sessions: SESSIONS });
+      reads++;
+      return json({ weather: reads === 1 ? null : { place: "Canggu", tempC: 29, code: 0, read: "2026-11-07T05:00:00Z", hours: [] } });
+    });
+    await opened();
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    await settle();
+    expect(document.querySelector("#news-side .wxcard")).toBeNull();
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    await settle();
+    expect(document.querySelector("#news-side .wx-deg")!.textContent).toBe("29°");
   });
 
   it("draws the weather card for the week, and a day or an hour sets the big reading", async () => {
