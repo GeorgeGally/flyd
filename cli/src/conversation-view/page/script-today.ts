@@ -119,7 +119,7 @@ export const TODAY_SCRIPT = `
   }
 
   // News: the stories of the latest editions in two columns.
-  var NEWS_FILLER = /giphy|pexels|google trends/i;
+  var NEWS_FILLER = /^(giphy|pexels|google trends)$/i;
   var newsStories = [];
   var newsPicked = null;
   var newsPointer = null;
@@ -131,7 +131,7 @@ export const TODAY_SCRIPT = `
       if (item.kind !== "news" || !item.stories) return;
       if (!at || item.at > at) at = item.at;
       item.stories.forEach(function (story) {
-        if (!story.url || urls[story.url] || NEWS_FILLER.test(story.source || "") || NEWS_FILLER.test(story.url)) return;
+        if (!story.url || urls[story.url] || NEWS_FILLER.test((story.source || "").trim())) return;
         urls[story.url] = true;
         stories.push(story);
       });

@@ -4126,6 +4126,20 @@ describe("the front page", () => {
     expect(input.placeholder).toBe("Message firstmate");
   });
 
+  it("excludes named filler sources without filtering article URLs", async () => {
+    const stream = await opened();
+    const stories = [
+      { title: "Reporting on Pexels", url: "https://press.example/pexels", source: "Independent Press", media: "video" },
+      { title: "A Giphy investigation", url: "https://press.example/giphy", source: "Independent Press" },
+      { title: "A stock image", url: "https://cdn.example/image", source: "Pexels" },
+      { title: "A gif", url: "https://cdn.example/gif", source: "GIPHY" },
+      { title: "Trending", url: "https://cdn.example/trend", source: "Google Trends" },
+    ];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    expect([...document.querySelectorAll("#news-cols .story h2")].map((node) => node.textContent)).toEqual(["Reporting on Pexels", "A Giphy investigation"]);
+  });
+
   it("keeps the story under the pointer selected when News scrolls", async () => {
     const stream = await opened();
     const stories = [{ title: "Left", url: "https://example.test/left" }, { title: "Right", url: "https://example.test/right" }];
@@ -4509,7 +4523,7 @@ describe("the front page", () => {
     expect(answer.querySelector(".jtag")!.textContent).toBe("flyd");
     expect(answer.querySelector(".w")!.textContent).toBeTruthy();
     expect(answer.querySelector(".jtag .fdot.pulse")).not.toBeNull();
-    expect(answer.querySelector(".next")!.textContent).toBe("Building V5 with a framed hero.");
+    expect(answer.querySelector(".next")!.textContent).toBe("Building V5 with a framed hero. Then the editorial image goes in.");
     expect(answer.textContent).not.toMatch(/George|answer to:/);
     expect(answer.textContent).toContain("flyd");
     expect(answer.textContent).toContain("Building V5 with a framed hero.");
@@ -4545,13 +4559,14 @@ describe("the front page", () => {
     const long = "PostTraction's security certificate expired on 15 September and auto-renewal has failed since, so browsers block the site and every visitor sees a warning";
     const title = "Redesign how Flyd surfaces items in the conversation view's Held up modal and the brief feed, starting by inspecting the current rendering";
     const done = "Nothing";
+    const needed = "Reply OK to inspect the server. A worker can then log in read-only, verify the expired certificate, investigate renewal, and bring back an exact list of fixes with the evidence needed to choose the next step.";
     stream.emit("update", {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true,
       show: { title: "", summary: "", items: [], counts: {}, live: false },
       jobs: [{
         id: "cleanx", group: "needs", state: "Needs you", title, project: "Product", at: "2026-10-26T12:00:00.000Z",
         next: "", owner: "you", ask: "", because: "", shots: [], links: [], files: [], threads: [],
-        digest: { changed: long, means: long, needed: "Reply OK to inspect the server, so a worker can log in read-only and bring back an exact list of fixes" },
+        digest: { changed: long, means: long, needed },
       }, {
         id: "landed", group: "done", state: "Landed", title: "Logan", project: "Product", at: "2026-10-26T12:00:00.000Z",
         next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [],
@@ -4561,7 +4576,7 @@ describe("the front page", () => {
     const card = document.querySelector<HTMLElement>('.job[data-job="cleanx"]')!;
     expect(card.querySelectorAll("p")).toHaveLength(1);
     // Two or three lines read well: the whole step he needs to take, not a line cut at 52 characters.
-    expect(card.querySelector(".next")!.textContent).toBe("Reply OK to inspect the server, so a worker can log in read-only and bring back an exact list of fixes");
+    expect(card.querySelector(".next")!.textContent).toBe(needed);
     expect(card.querySelector(".jtag")!.textContent).toBe("Product");
     expect(card.textContent).not.toContain("certificate");
     expect(document.querySelector('.job[data-job="landed"] .next')!.textContent).toBe("Pages are live.");

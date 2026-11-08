@@ -58,30 +58,12 @@ export const FRONT_SCRIPT = `
       .replace(/\\bthe captain\\b/gi, "you")
       .replace(/https?:\\/\\/(?:www\\.)?([^\\/\\s]+)\\S*/g, "$1");
   }
-  // A card's title in his words: the framing gone, and a long run-on cut at its first sentence.
+  // A card's title in his words, with the framing gone.
   function frontHeading(text, project) {
     if (/^act on\\s+(?:george's|the captain's|his|your)?\\s*answer\\b/i.test(frontText(text))) {
       return "Carrying out your choice" + (project ? " on " + project : "");
     }
-    var line = frontTitle(text);
-    if (line.length <= 92) return line;
-    var first = /^.{20,92}?[.!?](?=\\s|$)/.exec(line);
-    if (first) return first[0];
-    var cut = line.lastIndexOf(" ", 88);
-    return (cut > 40 ? line.slice(0, cut) : line.slice(0, 88)).replace(/[\\s,;:-]+$/, "") + "…";
-  }
-  // A working or waiting row says what happens next in one short sentence, never a run-on summary.
-  function frontNext(job) {
-    var said = frontTitle(job.detail);
-    if (!said) return "";
-    var parts = said.split(/(?<=[.!?])\\s+/);
-    // Where it stands, when a sentence says so ("Waiting for your pick: …"), heads the row; else what comes next.
-    var standing = parts.filter(function (part) { return /^(waiting|working|queued|ready|paused|running|landed|next)\\b/i.test(part); });
-    // One whole sentence, never a sentence cut in half: where it stands, else the shortest that fits a line.
-    var fits = parts.filter(function (part) { return part.length <= 90; });
-    var line = standing[0] || fits[0] || parts[0];
-    if (line.length > 90) line = line.slice(0, 88).replace(/\\s+\\S*$/, "") + "…";
-    return line.charAt(0).toUpperCase() + line.slice(1);
+    return frontTitle(text);
   }
   function frontProject(project) {
     var name = shortName(project || "");
@@ -258,9 +240,8 @@ export const FRONT_SCRIPT = `
   function frontLine(job) {
     var digest = job.digest || {};
     var needed = digest.needed && !/^(nothing|none|n\\/a)\\b/i.test(digest.needed) ? digest.needed : "";
-    var said = needed || digest.changed || digest.means || job.next || (job.group === "working" ? frontNext(job) : frontTitle(job.detail));
-    // Two or three lines read well on a card; the whole of it is in the open job.
-    return said && frontText(said).toLowerCase() !== frontText(job.title).toLowerCase() ? frontGlance(said, 160) : frontGlance(job.title, 160);
+    var said = needed || digest.changed || digest.means || job.next || frontTitle(job.detail);
+    return frontText(said || job.title);
   }
   // The card's action line: a concrete next step in real counts or Flyd's own pick, else nothing.
   function frontAction(job) {
