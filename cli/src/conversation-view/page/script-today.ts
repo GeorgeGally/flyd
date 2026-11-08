@@ -18,6 +18,7 @@ export const TODAY_SCRIPT = `
   var newsSide = document.getElementById("news-side");
   var newsSidePhone = document.getElementById("news-side-phone");
   var centre = "";
+  var conversationConfirm = null;
   var centreChosen = false;
   var todayUpdate = null;
   var todayDrawn = "";
@@ -33,7 +34,8 @@ export const TODAY_SCRIPT = `
       var on = tab.dataset.centre === (name === "news" ? "news" : "today");
       tab.setAttribute("aria-pressed", String(on));
     });
-    if (name === "news") { loadWeather(); newsPlaceholder(newsPicked); newsPickInView(); } else newsPlaceholder(null);
+    if (name === "news") { loadWeather(); newsPlaceholder(newsPicked); newsPickInView(); newsConfirm(); }
+    else { newsPlaceholder(null); paintConfirm(conversationConfirm); }
     if (name !== "talk") window.scrollTo(0, 0);
   }
   centreTabs.addEventListener("click", function (event) {
@@ -193,16 +195,26 @@ export const TODAY_SCRIPT = `
   function newsPick(story) {
     newsPicked = story;
     newsCols.querySelectorAll(".story").forEach(function (node) { node.classList.toggle("on", newsStories[+node.dataset.story] === story); });
-    if (centre === "news") newsPlaceholder(story);
+    if (centre === "news") { newsPlaceholder(story); newsConfirm(); }
+  }
+  function newsConfirm() {
+    var talk = newsPicked && newsTalks[newsPicked.url];
+    paintConfirm(talk && talk.confirm);
   }
   function newsPickInView() {
     if (centre !== "news") return;
     var under = newsPointer && document.elementFromPoint && document.elementFromPoint(newsPointer.x, newsPointer.y);
     var pointed = under && under.closest("#news-cols .story");
     if (pointed) { newsPick(newsStories[+pointed.dataset.story]); return; }
-    var line = 140;
+    var page = document.getElementById("news-page").getBoundingClientRect();
+    var viewport = { top: Math.max(0, page.top), bottom: Math.min(window.innerHeight, page.bottom), left: Math.max(0, page.left), right: Math.min(window.innerWidth, page.right) };
+    var composerRect = composer.getBoundingClientRect();
+    if (composerRect.top > viewport.top && composerRect.left < viewport.right && composerRect.right > viewport.left) viewport.bottom = Math.min(viewport.bottom, composerRect.top);
     var nodes = Array.prototype.slice.call(newsCols.querySelectorAll(".story"));
-    var first = nodes.filter(function (node) { return node.getBoundingClientRect().bottom > line; })[0];
+    var first = nodes.filter(function (node) {
+      var rect = node.getBoundingClientRect();
+      return rect.bottom > viewport.top && rect.top < viewport.bottom && rect.right > viewport.left && rect.left < viewport.right;
+    }).sort(function (a, b) { return Math.max(a.getBoundingClientRect().top, viewport.top) - Math.max(b.getBoundingClientRect().top, viewport.top); })[0];
     if (first) newsPick(newsStories[+first.dataset.story]);
   }
   window.addEventListener("scroll", function () { if (centre === "news") newsPickInView(); }, { passive: true });
@@ -232,6 +244,8 @@ export const TODAY_SCRIPT = `
     return talk;
   }
   function newsTalkDraw(talk, update) {
+    talk.confirm = update.confirm || null;
+    if (centre === "news" && newsPicked && newsTalks[newsPicked.url] === talk) newsConfirm();
     (update.messages || []).forEach(function (message) {
       var line = talk.nodes[message.id];
       if (!line) {
@@ -253,21 +267,36 @@ export const TODAY_SCRIPT = `
     talk.source = new EventSource("/api/stream?token=" + encodeURIComponent(VIEW_TOKEN) + "&session=" + encodeURIComponent(talk.session));
     talk.source.addEventListener("update", function (event) { newsTalkDraw(talk, JSON.parse(event.data)); });
   }
-  function newsAsk(story, text) {
+  function newsSubmit(story, text, sending) {
+    recall.index = -1;
+    sentSinceLoad.push(text);
+    sendsInFlight += 1;
+    input.value = "";
+    attachments = [];
+    renderAttachments();
     var talk = newsTalkOf(story);
     var asked = el("div", "q pending", text);
     talk.box.appendChild(asked);
     var answer = el("div", "a pending", assistant + " is reading the story…");
     talk.box.appendChild(answer);
-    function failed(why) { answer.textContent = why; answer.classList.remove("pending"); }
+    function failed(why) {
+      sendsInFlight -= 1;
+      answer.textContent = why;
+      answer.classList.remove("pending");
+      if (!input.value && !attachments.length) { input.value = text; attachments = sending; renderAttachments(); }
+    }
     var opened = talk.session ? Promise.resolve({ session: talk.session }) : tokenFetch("/api/article-chat", { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ url: story.url, title: story.title || "", media: story.media || "article", text: story.quote || story.gist || "", description: story.gist || "", figure: story.figure || "", attribution: story.attribution || "" }) }, true)
       .then(function (response) { return response.ok ? response.json() : null; });
     opened.then(function (data) {
       if (!data || !data.session) { failed("That story could not be opened. Try again in a moment."); return; }
       talk.session = data.session;
-      return tokenFetch("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: talk.session, text: text }) }, true).then(function (response) {
+      return tokenFetch("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: talk.session, text: text,
+        images: sending.filter(function (a) { return !a.name; }).map(function (a) { return { mediaType: a.mediaType, data: a.data }; }),
+        files: sending.filter(function (a) { return a.name; }).map(function (a) { return { name: a.name, data: a.data }; }) }) }, true).then(function (response) {
         if (!response.ok) { failed("Not sent. Try again."); return; }
+        sendsInFlight -= 1;
+        if (!input.value && !attachments.length) saveDraftNow();
         asked.remove();
         newsListen(talk);
       });
@@ -276,17 +305,7 @@ export const TODAY_SCRIPT = `
   // On News the box talks about the story; elsewhere a message starts the conversation in the middle.
   document.addEventListener("submit", function (event) {
     if (event.target !== composer) return;
-    if (centre === "news" && newsPicked && VIEW_TOKEN) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      var text = input.value.trim();
-      if (!text) return;
-      input.value = "";
-      input.dispatchEvent(new Event("input"));
-      newsAsk(newsPicked, text);
-      return;
-    }
-    if (centre !== "talk") setCentre("talk", true);
+    if (centre !== "talk" && (centre !== "news" || !newsPicked)) setCentre("talk", true);
   }, true);
 
   // The weather card: where he is, now, the week, and the hours of the day picked.

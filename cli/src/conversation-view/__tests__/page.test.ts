@@ -4113,8 +4113,9 @@ describe("the front page", () => {
     update([{ ...stories[0]! }, { ...stories[1]!, title: "Second updated" }]);
     expect(input.placeholder).toBe("Ask about Second updated");
     cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
-    vi.spyOn(cards[0]!, "getBoundingClientRect").mockReturnValue({ bottom: 100 } as DOMRect);
-    vi.spyOn(cards[1]!, "getBoundingClientRect").mockReturnValue({ bottom: 300 } as DOMRect);
+    vi.spyOn(document.getElementById("news-page")!, "getBoundingClientRect").mockReturnValue({ top: 140, bottom: 700, left: 0, right: 800 } as DOMRect);
+    vi.spyOn(cards[0]!, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 100, left: 0, right: 300 } as DOMRect);
+    vi.spyOn(cards[1]!, "getBoundingClientRect").mockReturnValue({ top: 150, bottom: 300, left: 0, right: 300 } as DOMRect);
     cards[0]!.click();
     document.getElementById("news-page")!.dispatchEvent(new Event("scroll"));
     expect(input.placeholder).toBe("Ask about Second updated");
@@ -4137,6 +4138,59 @@ describe("the front page", () => {
         expect((document.getElementById("input") as HTMLTextAreaElement).placeholder).toBe("Ask about Right");
       }
     } finally { document.elementFromPoint = original; }
+  });
+
+  it("selects a visible story rather than an offscreen column", async () => {
+    const stream = await opened();
+    const stories = [{ title: "Offscreen", url: "https://example.test/off" }, { title: "Visible", url: "https://example.test/visible" }];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    const cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
+    vi.spyOn(document.getElementById("news-page")!, "getBoundingClientRect").mockReturnValue({ top: 100, bottom: 700, left: 100, right: 900 } as DOMRect);
+    vi.spyOn(cards[0]!, "getBoundingClientRect").mockReturnValue({ top: 800, bottom: 1000, left: 100, right: 400 } as DOMRect);
+    vi.spyOn(cards[1]!, "getBoundingClientRect").mockReturnValue({ top: 200, bottom: 500, left: 500, right: 800 } as DOMRect);
+    document.getElementById("news-page")!.dispatchEvent(new Event("scroll"));
+    expect((document.getElementById("input") as HTMLTextAreaElement).placeholder).toBe("Ask about Visible");
+  });
+
+  it("sends a News attachment without text to the article session", async () => {
+    const stream = await opened();
+    const stories = [{ title: "A story", url: "https://example.test/story" }];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/article-chat" ? { session: "window:article-0123456789abcdef" } : { id: "sent" }));
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { files: [new File(["hello"], "notes.md")] } });
+    document.body.dispatchEvent(drop);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment.file"); i += 1) await settle();
+    await type("");
+    const call = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(call[1]!.body))).toEqual({ session: "window:article-0123456789abcdef", text: "", images: [], files: [{ name: "notes.md", data: btoa("hello") }] });
+    expect(document.querySelector(".attachment.file")).toBeNull();
+  });
+
+  it("shows only the selected News session's confirmation", async () => {
+    const stream = await opened();
+    const stories = [{ title: "First", url: "https://example.test/first" }, { title: "Second", url: "https://example.test/second" }];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/article-chat" ? { session: "window:article-0123456789abcdef" } : { id: "sent" }));
+    await type("Remember this");
+    const article = FakeEventSource.instances.at(-1)!;
+    article.emit("update", { order: [], messages: [], working: true, confirm: { id: "confirm-news", prompt: "Remember this?" } });
+    const bar = document.getElementById("article-confirm")!;
+    expect(bar.hidden).toBe(false);
+    stream.emit("update", { order: ["u1"], messages: [], working: false });
+    expect(bar.textContent).toContain("Remember this?");
+    const cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
+    cards[1]!.click();
+    expect(bar.hidden).toBe(true);
+    cards[0]!.click();
+    expect(bar.hidden).toBe(false);
+    document.getElementById("article-confirm-yes")!.click();
+    await settle();
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/article-confirm")!;
+    expect(JSON.parse(String(call[1]!.body))).toEqual({ id: "confirm-news", allow: true });
   });
 
   it("shows and sends quote and statistic content to article chat", async () => {

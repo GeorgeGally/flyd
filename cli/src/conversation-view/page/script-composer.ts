@@ -97,7 +97,7 @@ export const COMPOSER_SCRIPT = `
     var id = box && box.dataset.id;
     if (!id) return;
     box.hidden = true;
-    tokenFetch("/api/article-confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: id, allow: allow }) }, true).catch(function () { box.hidden = false; });
+    tokenFetch("/api/article-confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: id, allow: allow }) }, true).catch(function () { if (box.dataset.id === id) box.hidden = false; });
   }
   var confirmYes = document.getElementById("article-confirm-yes");
   var confirmNo = document.getElementById("article-confirm-no");
@@ -552,7 +552,9 @@ export const COMPOSER_SCRIPT = `
     noteRefusal("");
     var text = input.value.trim();
     var sending = attachments.slice();
-    if ((!text && !sending.length) || !current) return;
+    if (!text && !sending.length) return;
+    if (centre === "news" && newsPicked && VIEW_TOKEN) { newsSubmit(newsPicked, text, sending); return; }
+    if (!current) return;
     if (aboutInfo && text) {
       text = "About “" + aboutInfo.title + "”" + (aboutInfo.detail && aboutInfo.detail !== aboutInfo.title ? " (" + aboutInfo.detail + ")" : "") + ":\\n\\n" + text;
       chatAbout(null);
