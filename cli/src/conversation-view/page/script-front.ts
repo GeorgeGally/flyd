@@ -259,25 +259,31 @@ export const FRONT_SCRIPT = `
     var digest = job.digest || {};
     var needed = digest.needed && !/^(nothing|none|n\\/a)\\b/i.test(digest.needed) ? digest.needed : "";
     var said = needed || digest.changed || digest.means || job.next || (job.group === "working" ? frontNext(job) : frontTitle(job.detail));
-    return said && frontText(said).toLowerCase() !== frontText(job.title).toLowerCase() ? frontGlance(said, 52) : "";
+    // Two or three lines read well on a card; the whole of it is in the open job.
+    return said && frontText(said).toLowerCase() !== frontText(job.title).toLowerCase() ? frontGlance(said, 160) : frontGlance(job.title, 160);
   }
+  // The card's action line: a concrete next step in real counts or Flyd's own pick, else nothing.
+  function frontAction(job) {
+    var decision = job.group === "needs" && job.decision;
+    if (!decision) return "";
+    var list = Array.isArray(decision.decisions) ? decision.decisions : [];
+    if (list.length > 1) return list.filter(function (one) { return one && one.done; }).length + " of " + list.length + " decided";
+    return decision.recommended ? "Go with " + frontText(decision.recommended) : "";
+  }
+  // A job card: the project and when along the top, the picture (work under way is words only), what it says, and its next step.
   function frontJobCard(job) {
-    var pic = job.shots && job.shots.length
+    var moving = job.group === "working";
+    var pic = !moving && job.shots && job.shots.length
       ? '<div class="frame"><img src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy"></div>' : "";
-    var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
     var line = frontLine(job);
     var reading = line ? '<p class="next">' + frontEsc(line) + '</p>' : "";
-    // "Landed" under "Done" says nothing the group has not; a plain "needs …" is the group's own word.
-    var state = job.group === "done" ? "" : job.state.replace(/^needs\\b[^·]*(?: · |$)/i, "");
-    return '<button type="button" class="job ' + job.group + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
-      + (job.id === frontActive ? ' aria-current="true"' : "") + '>' + pic
-      + '<div class="t">' + frontEsc(frontGlance(job.title, 60)) + '</div>' + reading + '<div class="m">' + dot + frontMeta([state, job.project])
-      + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div></button>';
-  }
-  // A card's state and project, as many as it has; the group above it already says "needs you".
-  function frontMeta(parts) {
-    return parts.map(function (part, index) { return part ? '<span class="' + (index ? "p" : "s") + '">' + frontEsc(part) + '</span>' : ""; })
-      .filter(Boolean).join('<span aria-hidden="true">·</span>');
+    var action = frontAction(job);
+    var tag = job.project || frontGlance(job.title, 32);
+    return '<button type="button" class="job ' + job.group + (pic ? "" : " text") + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
+      + (job.id === frontActive ? ' aria-current="true"' : "") + ' aria-label="' + frontEsc(frontGlance(job.title, 60)) + '">'
+      + '<div class="jtop"><span class="jtag">' + frontEsc(tag) + (moving ? '<i class="fdot pulse" aria-hidden="true"></i>' : "") + '</span>'
+      + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div>'
+      + pic + reading + (action ? '<span class="act"><i class="fdot" aria-hidden="true"></i>' + frontEsc(action) + '</span>' : "") + '</button>';
   }
   function frontGroup(label, count, body, extra) {
     return '<section class="fgroup"><h2 class="fhead"><span>' + frontEsc(label) + '</span><span>' + (count === "" ? "" : count) + '</span></h2>'

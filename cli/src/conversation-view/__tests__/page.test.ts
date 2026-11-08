@@ -4011,6 +4011,131 @@ describe("the front page", () => {
     document.documentElement.removeAttribute("data-layout");
   });
 
+  it("rests on Today: the day's events as cards, moving work with its dot, and a picture across both columns", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const now = new Date();
+    const at = (hour: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, 5).toISOString();
+    stream.emit("update", {
+      order: [], messages: [], working: false, show: SHOW,
+      live: {
+        known: true, counts: { running: 1, needs: 0 }, paused: [], needs: [], older: [],
+        running: [{ id: "live:cx", state: "running", title: "CleanX credit packs", step: "CleanX now shows credit packs only when you're under 200 credits", at: at(0), shots: [{ src: "/api/artefact-shot?task=cx&file=a.png", label: "a.png" }], previews: [], links: [] }],
+        landed: [{ id: "landed:today", state: "landed", title: "Conversations are now split by project.", at: at(0), shots: [], previews: [], links: [] },
+          { id: "landed:old", state: "landed", title: "Something from last week landed.", at: "2026-10-01T09:00:00.000Z", shots: [], previews: [], links: [] }],
+      },
+    });
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    await settle();
+    expect(document.documentElement.getAttribute("data-centre")).toBe("today");
+    expect(document.querySelector('.ctab[data-centre="today"]')!.getAttribute("aria-pressed")).toBe("true");
+    const cards = [...document.querySelectorAll<HTMLElement>("#feed .ev")];
+    expect(cards.map((card) => card.querySelector("p")!.textContent)).toEqual([
+      "CleanX now shows credit packs only when you're under 200 credits.",
+      "Conversations are now split by project.",
+    ]);
+    expect(cards[0]!.classList.contains("pic")).toBe(true);
+    expect(cards[0]!.querySelector("time .fdot.pulse")).not.toBeNull();
+    expect(cards[0]!.querySelector("img")!.getAttribute("src")).toContain("/api/artefact-shot?task=cx");
+    expect(document.getElementById("feed")!.textContent).not.toContain("last week");
+  });
+
+  it("starts in the conversation when it has words, and Today brings the feed back", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, live: { known: true, counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] } });
+    expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
+    expect(document.querySelector('.ctab[data-centre="today"]')!.getAttribute("aria-pressed")).toBe("true");
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    expect(document.documentElement.getAttribute("data-centre")).toBe("today");
+    expect(document.querySelector("#feed .feed-empty")!.textContent).toBe("Nothing has moved yet today.");
+    // Writing takes the middle back for the conversation.
+    await type("hello again");
+    expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
+  });
+
+  it("shows News as stories in columns, leaves filler out, and the box asks about the story in view", async () => {
+    const stream = await opened();
+    const stories = [
+      { title: "Static Radio for the Chumby One", url: "https://hackaday.example/chumby", source: "Hackaday", gist: "A native C client turns a 2009 Chumby One into a radio.", image: "/api/story-image?u=1" },
+      { title: "Infinite Mac adds support for BeOS", url: "https://waxy.example/beos", source: "Waxy", gist: "Another dead operating system boots in a tab." },
+      { title: "Halloween GIF", url: "https://giphy.com/gifs/1", source: "Giphy", gist: "A pumpkin." },
+    ];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories, at: "2026-11-03T06:00:00.000Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    expect(document.documentElement.getAttribute("data-centre")).toBe("news");
+    expect(document.getElementById("news-when")!.textContent).toMatch(/^Last updated .*3.*November/);
+    const shown = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
+    expect(shown.map((story) => story.querySelector("h2")!.textContent)).toEqual(["Static Radio for the Chumby One", "Infinite Mac adds support for BeOS"]);
+    expect(shown[0]!.classList.contains("lead")).toBe(true);
+    expect(shown[0]!.querySelector(".src")!.textContent).toBe("Hackaday");
+    expect(shown[0]!.querySelector("img")!.getAttribute("src")).toBe(`/api/story-image?u=1&token=${"a".repeat(48)}`);
+    expect(shown[0]!.querySelector("h2 a")!.getAttribute("href")).toBe("https://hackaday.example/chumby");
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    expect(input.placeholder).toBe("Ask about Static Radio for the Chumby One");
+    shown[1]!.click();
+    expect(input.placeholder).toBe("Ask about Infinite Mac adds support for BeOS");
+    // Asking goes to that story's own conversation, and the answer is drawn under the story.
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (
+      url === "/api/article-chat" ? json({ session: "window:article-0123456789abcdef" }) : url === "/api/send" ? json({ id: "u9" }) : json({ assistantLabel: "Flyd", sessions: SESSIONS })
+    ));
+    const streams = FakeEventSource.instances.length;
+    await type("Which tab?");
+    const sent = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(sent[1]!.body))).toMatchObject({ session: "window:article-0123456789abcdef", text: "Which tab?" });
+    expect(document.documentElement.getAttribute("data-centre")).toBe("news");
+    expect(FakeEventSource.instances.length).toBe(streams + 1);
+    FakeEventSource.instances.at(-1)!.emit("update", { order: ["q1", "a1"], working: false, messages: [{ id: "q1", role: "user", html: "<p>Which tab?</p>" }, { id: "a1", role: "assistant", html: "<p>Any browser tab.</p>" }] });
+    const talk = shown[1]!.querySelector(".talk")!;
+    expect([...talk.children].map((line) => [line.className, line.textContent])).toEqual([["q", "Which tab?"], ["a", "Any browser tab."]]);
+    // Back on Today the box is the conversation's again.
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    expect(input.placeholder).toBe("Message firstmate");
+  });
+
+  it("draws the weather card for the week, and a day or an hour sets the big reading", async () => {
+    const weather = {
+      place: "Canggu", tempC: 29.2, code: 0, condition: "clear", read: "2026-11-07T05:00:00.000Z", localTime: "13:00", hours: [],
+      days: [
+        { date: "2026-11-07", code: 61, hiC: 29, loC: 25, hours: [{ at: "2026-11-07T14:00", tempC: 29, rainChance: 88, code: 61 }, { at: "2026-11-07T16:00", tempC: 28.6, rainChance: 99, code: 3 }] },
+        { date: "2026-11-08", code: 95, hiC: 30.4, loC: 24, hours: [{ at: "2026-11-08T06:00", tempC: 25, rainChance: 11, code: 1 }] },
+      ],
+    };
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/weather" ? { weather } : { assistantLabel: "Flyd", sessions: SESSIONS }));
+    await opened();
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    await settle();
+    const card = () => document.querySelector<HTMLElement>("#news-side .wxcard")!;
+    expect(card().querySelector(".wx-tag")!.textContent).toBe("Canggu");
+    expect(card().querySelector(".wx-top time")!.textContent).toBe("13:00");
+    expect(card().querySelector(".wx-deg")!.textContent).toBe("29°");
+    expect([...card().querySelectorAll(".wx-days button")].map((day) => day.querySelector("time")!.textContent)).toEqual(["Today", expect.any(String)]);
+    expect([...card().querySelectorAll(".wx-hours span")].map((rain) => rain.textContent)).toEqual(["88%", "99%"]);
+    card().querySelector<HTMLElement>('[data-hour="1"]')!.click();
+    expect(card().querySelector(".wx-deg")!.textContent).toBe("29°");
+    expect(card().querySelector(".wx-top time")!.textContent).toBe("Today 16:00");
+    card().querySelector<HTMLElement>('[data-day="1"]')!.click();
+    expect(card().querySelector(".wx-deg")!.textContent).toBe("30°");
+    expect(card().querySelector('[data-day="1"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(card().querySelectorAll(".wx-hours li")).toHaveLength(1);
+    // The phone's copy sits above the stories.
+    expect(document.querySelector("#news-side-phone .wxcard")).not.toBeNull();
+  });
+
+  it("says a job's next step in real counts or Flyd's own pick, and nothing when it has neither", async () => {
+    const stream = await opened();
+    const call = SHOW.calls[0]!;
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, calls: [
+      { ...call, id: "call:dir", decision: { ...call.decision, decisions: [{ question: "Numbers", options: ["Yes"], done: "Done" }, { question: "Clock", options: ["Yes"] }, { question: "Dial", options: ["Yes"] }] } },
+      { ...call, id: "call:radio", task: "radio", decision: { ...call.decision, task: "radio", decisionId: "d9", recommended: "Radio" } },
+      { ...call, id: "call:plain", task: "plain", decision: { ...call.decision, task: "plain", decisionId: "d8" } },
+    ], counts: { call: 3 } } });
+    const act = (id: string) => document.querySelector(`.job[data-job="${id}"] .act`)?.textContent ?? null;
+    expect(act("call:dir")).toBe("1 of 3 decided");
+    expect(act("call:radio")).toBe("Go with Radio");
+    expect(act("call:plain")).toBeNull();
+  });
+
   it("lists the jobs as cards, and an unread fleet as unknown rather than empty", async () => {
     const stream = await opened();
     // The conversation is the middle of the page, not a card: he starts one by typing in it.
@@ -4021,7 +4146,7 @@ describe("the front page", () => {
     expect(needs.querySelector(".frame img")).not.toBeNull();
     // Under "Needs you" the dot says it; the card names the project.
     expect(needs.querySelector(".s")).toBeNull();
-    expect(needs.querySelector(".p")!.textContent).toBe("CopyCopy");
+    expect(needs.querySelector(".jtag")!.textContent).toBe("CopyCopy");
     expect(document.getElementById("stage-crumb")!.textContent).toContain("With firstmate");
   });
 
@@ -4095,12 +4220,16 @@ describe("the front page", () => {
       },
     });
     const answer = document.querySelector<HTMLElement>('.job[data-job="live:answer"]')!;
-    expect(answer.querySelector(".t")!.textContent).toBe("Carrying out your choice on flyd");
+    // Work under way is words only: its project along the top with the moving dot, the title kept for a screen reader.
+    expect(answer.getAttribute("aria-label")).toBe("Carrying out your choice on flyd");
+    expect(answer.querySelector(".jtag")!.textContent).toBe("flyd");
+    expect(answer.querySelector(".jtag .fdot.pulse")).not.toBeNull();
     expect(answer.querySelector(".next")!.textContent).toBe("Building V5 with a framed hero.");
     expect(answer.textContent).not.toMatch(/George|answer to:/);
+    expect(answer.getAttribute("aria-label")).not.toMatch(/George|answer to:/);
     const hero = document.querySelector<HTMLElement>('.job[data-job="live:hero"]')!;
     // A long run-on gives the card its first whole clause; the line says the state and the next step.
-    expect(hero.querySelector(".t")!.textContent).toBe("The HFTW shop hero images currently use product shots");
+    expect(hero.getAttribute("aria-label")).toBe("The HFTW shop hero images currently use product shots");
     expect(hero.querySelector(".next")!.textContent).toBe("Waiting for your pick: V5 framed hero.");
   });
 
@@ -4115,14 +4244,14 @@ describe("the front page", () => {
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, focus, needs: [lab] }, leftColumn: { now: [], recent: [], week: [], monitors: [], semantic: [lab] } });
     expect(Array.from(document.querySelectorAll("#jobs-list .job.needs")).map((card) => card.getAttribute("data-job"))).toEqual(["call:pick", "lab:run-7"]);
     const card = document.querySelector<HTMLElement>('.job[data-job="lab:run-7"]')!;
-    expect(card.querySelector(".s")!.textContent).toBe("Lab ready for review");
+    expect(card.querySelector(".jtag")!.textContent).toBe("capfive");
     expect(card.querySelector(".frame img")!.getAttribute("src")).toContain("/api/rail-image?path=");
     after(() => card.click());
     expect(document.querySelector<HTMLAnchorElement>(".job-view .fbtn")!.href).toBe("https://example.test/lab.html");
     expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
   });
 
-  it("keeps a job row to a short title and one short line, with all of it in the open job", async () => {
+  it("keeps a job card to its project, its time and two or three lines, with all of it in the open job", async () => {
     const stream = await opened();
     const long = "PostTraction's security certificate expired on 15 September and auto-renewal has failed since, so browsers block the site and every visitor sees a warning";
     const title = "Redesign how Flyd surfaces items in the conversation view's Held up modal and the brief feed, starting by inspecting the current rendering";
@@ -4142,9 +4271,9 @@ describe("the front page", () => {
     });
     const card = document.querySelector<HTMLElement>('.job[data-job="cleanx"]')!;
     expect(card.querySelectorAll("p")).toHaveLength(1);
-    expect(card.querySelector(".t")!.textContent!.length).toBeLessThanOrEqual(60);
-    expect(card.querySelector(".next")!.textContent!.length).toBeLessThanOrEqual(52);
-    expect(card.querySelector(".next")!.textContent).toBe("Reply OK to inspect the server");
+    // Two or three lines read well: the whole step he needs to take, not a line cut at 52 characters.
+    expect(card.querySelector(".next")!.textContent).toBe("Reply OK to inspect the server, so a worker can log in read-only and bring back an exact list of fixes");
+    expect(card.querySelector(".jtag")!.textContent).toBe("Product");
     expect(card.textContent).not.toContain("certificate");
     expect(document.querySelector('.job[data-job="landed"] .next')!.textContent).toBe("Pages are live.");
     after(() => card.click());
@@ -4472,6 +4601,27 @@ describe("the Machines tab", () => {
     expect(row.querySelector(".machine-state")?.textContent).toBe("Online");
     expect(Array.from(row.querySelectorAll(".machine-value")).map((one) => one.textContent)).toEqual(["2.5 on 10 cores", "18 of 32 GB", "None", "0.2 of 2 TB"]);
     expect(row.querySelector(".machine-running")?.textContent).toBe("node <42> 42%, launchd");
+  });
+
+  it("shows the models, Claude's spend and the usage left under the machines, a used-up plan in words", async () => {
+    const soon = new Date(Date.now() + 26 * 60 * 60_000).toISOString();
+    serve(() => ({ machines: [ONLINE], setup: {
+      models: [{ role: "Chat", model: "claude-sonnet-5-5" }, { role: "Coding crews", model: "gpt-6-luna" }],
+      spend: { usd: 1.789, cap: 100, calls: 1036, capped: false },
+      usage: [{ provider: "Claude", left: 69, resetsAt: soon }, { provider: "OpenCode Go", left: 0, resetsAt: soon }, { provider: "Codex", left: 24, resetsAt: soon, runsOutAt: soon }],
+    } }));
+    load("");
+    await settle();
+    tab().click();
+    await settle();
+    const setup = document.querySelector(".machine-setup")!;
+    expect([...setup.querySelectorAll(".setup-models dt, .setup-models dd")].map((one) => one.textContent)).toEqual(["Chat", "claude-sonnet-5-5", "Coding crews", "gpt-6-luna"]);
+    expect(setup.querySelector(".setup-spend")!.textContent).toBe("Claude this month: $1.79 of $100, 1036 calls.");
+    const usage = [...setup.querySelectorAll(".setup-usage li")];
+    expect(usage.map((one) => one.querySelector(".u-top")!.textContent)).toEqual(["Claude69% left", "OpenCode GoUsed up", "Codex24% left"]);
+    expect(usage[0]!.querySelector<HTMLElement>(".u-bar i")!.style.width).toBe("69%");
+    expect(usage[1]!.querySelector(".u-when")!.textContent).toMatch(/^Back tomorrow at /);
+    expect(usage[2]!.querySelector(".u-when.out")!.textContent).toMatch(/^Runs out tomorrow at /);
   });
 
   it("says plainly when a machine is offline, with no numbers", async () => {

@@ -52,9 +52,38 @@ export const MACHINES_SCRIPT = `
       + '<span class="machine-state">' + (offline ? "Offline" : machine.reading ? "Online" : "Checking") + '</span></div>' + body
       + '</article>';
   }
+  function machineWhen(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return "";
+    var days = Math.round((new Date(d.toDateString()) - new Date(new Date().toDateString())) / 86400000);
+    var day = days === 0 ? "today" : days === 1 ? "tomorrow" : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+    return day + " at " + clock(iso);
+  }
+  function machineSetup(setup) {
+    if (!setup) return "";
+    var html = "";
+    if ((setup.models && setup.models.length) || setup.spend) {
+      html += '<section aria-label="Models"><h2>Models</h2>' + (setup.models && setup.models.length ? '<dl class="setup-models">' + setup.models.map(function (one) {
+        return '<dt>' + frontEsc(one.role) + '</dt><dd>' + frontEsc(one.model) + '</dd>';
+      }).join("") + '</dl>' : "")
+        + (setup.spend ? '<p class="setup-spend">Claude this month: $' + frontEsc(setup.spend.usd.toFixed(2)) + ' of $' + frontEsc(String(setup.spend.cap)) + ', ' + frontEsc(String(setup.spend.calls)) + ' calls' + (setup.spend.capped ? '. Cap reached, so Flyd is on its fallbacks until the 1st.' : '.') + '</p>' : "")
+        + '</section>';
+    }
+    if (setup.usage && setup.usage.length) {
+      html += '<section aria-label="Usage left"><h2>Usage left</h2><ul class="setup-usage">' + setup.usage.map(function (one) {
+        var used = one.left <= 0;
+        var when = one.runsOutAt ? '<span class="u-when out">Runs out ' + frontEsc(machineWhen(one.runsOutAt)) + '</span>'
+          : one.resetsAt ? '<span class="u-when">' + (used ? "Back " : "Resets ") + frontEsc(machineWhen(one.resetsAt)) + '</span>' : "";
+        return '<li><div class="u-top">' + frontEsc(one.provider) + '<span' + (used ? ' class="out"' : "") + '>' + (used ? "Used up" : one.left + "% left") + '</span></div>'
+          + '<div class="u-bar" aria-hidden="true"><i style="width:' + Math.max(0, Math.min(100, one.left)) + '%"></i></div>' + when + '</li>';
+      }).join("") + '</ul></section>';
+    }
+    return html ? '<div class="machine-setup">' + html + '</div>' : "";
+  }
   function drawMachines(view) {
     var machines = view.machines || [];
-    var html = machines.length ? '<div class="fstrip machine-list">' + machines.map(machineRow).join("") + '</div>' : '<p class="fempty">No machines yet.</p>';
+    var html = (machines.length ? '<div class="fstrip machine-list">' + machines.map(machineRow).join("") + '</div>' : '<p class="fempty">No machines yet.</p>')
+      + machineSetup(view.setup);
     machineOpen.hidden = !VIEW_TOKEN || !machineForm.hidden;
     if (html !== machinesDrawn) {
       machinesDrawn = html;
@@ -82,7 +111,6 @@ export const MACHINES_SCRIPT = `
     else machineForm.reset();
   }
   machineOpen.addEventListener("click", function () { machineFormShown(true); });
-  document.getElementById("machine-cancel").addEventListener("click", function () { machineFormShown(false); machineOpen.focus(); });
   machineForm.addEventListener("submit", function (event) {
     event.preventDefault();
     machineAdd(machineForm.elements.name.value, machineForm.elements.alias.value).then(function (result) {

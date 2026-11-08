@@ -19,6 +19,8 @@ import { SESSION_SCRIPT } from "./page/script-session.js";
 import { SHOW_SCRIPT } from "./page/script-show.js";
 import { THREADS_SCRIPT } from "./page/script-threads.js";
 import { TODOS_SCRIPT } from "./page/script-todos.js";
+import { TODAY_SCRIPT } from "./page/script-today.js";
+import { TODAY_STYLE } from "./page/today-style.js";
 import { SHOW_STYLE } from "./page/show-style.js";
 import { THREAD_STYLE } from "./page/thread-style.js";
 import { TODO_STYLE } from "./page/todo-style.js";
@@ -38,7 +40,7 @@ function joined(parts: string[]): string {
   return "\n" + parts.map((part) => part.replace(/^\n/, "")).join("");
 }
 
-const STYLE = BASE_STYLE + joined([CHROME_STYLE, MESSAGE_STYLE, COMPOSER_STYLE]) + LEFT_STYLE + SHOW_STYLE + FRONT_STYLE + THREAD_STYLE + MACHINE_STYLE + TODO_STYLE;
+const STYLE = BASE_STYLE + joined([CHROME_STYLE, MESSAGE_STYLE, COMPOSER_STYLE]) + LEFT_STYLE + SHOW_STYLE + FRONT_STYLE + THREAD_STYLE + MACHINE_STYLE + TODO_STYLE + TODAY_STYLE;
 
 const SCRIPT = joined([
   CORE_SCRIPT,
@@ -53,6 +55,7 @@ const SCRIPT = joined([
   THREADS_SCRIPT,
   MACHINES_SCRIPT,
   TODOS_SCRIPT,
+  TODAY_SCRIPT,
   SHOW_SCRIPT,
 ]);
 
