@@ -237,7 +237,7 @@ export const TODAY_SCRIPT = `
   function newsTalkOf(story) {
     var talk = newsTalks[story.url];
     if (talk) return talk;
-    talk = { box: el("div", "talk"), nodes: {}, messages: {}, pending: [], claimed: {}, source: null, session: "" };
+    talk = { box: el("div", "talk"), nodes: {}, messages: {}, pending: [], source: null, session: "" };
     newsTalks[story.url] = talk;
     var node = newsCols.querySelector('.story[data-story="' + newsStories.indexOf(story) + '"]');
     if (node) node.appendChild(talk.box);
@@ -254,6 +254,10 @@ export const TODAY_SCRIPT = `
         talk.nodes[message.id] = line;
       }
       line.innerHTML = message.html || "";
+      if (message.images && message.images.length) line.appendChild(shots(message.images.map(function (id) {
+        return "/api/image?session=" + encodeURIComponent(talk.session) + "&id=" + encodeURIComponent(id);
+      })));
+      if (message.files && message.files.length) line.appendChild(docs(message.files));
     });
     var keep = {};
     (update.order || []).forEach(function (id) { keep[id] = true; });
@@ -265,21 +269,7 @@ export const TODAY_SCRIPT = `
   }
   function newsReconcile(talk) {
     talk.pending = talk.pending.filter(function (pending) {
-      var match = Object.keys(talk.messages).find(function (id) {
-        var message = talk.messages[id];
-        if (message.role !== "user" || talk.claimed[id]) return false;
-        if (pending.id) return id === pending.id;
-        var timestamp = Date.parse(message.timestamp || "");
-        if (pending.known[id] || !Number.isFinite(timestamp) || timestamp < pending.at - 5000) return false;
-        var text = document.createElement("div");
-        text.innerHTML = message.html || "";
-        var typed = letters(pending.text);
-        var shown = letters(text.textContent || "");
-        return (typed ? !!shown && carries(typed, shown) : !shown)
-          && (message.images || []).length === pending.images && (message.files || []).length === pending.files;
-      });
-      if (!match) return true;
-      talk.claimed[match] = true;
+      if (!pending.id || !talk.messages[pending.id] || talk.messages[pending.id].role !== "user") return true;
       pending.matched = true;
       pending.asked.remove();
       if (!pending.warning) pending.answer.remove();
@@ -301,11 +291,14 @@ export const TODAY_SCRIPT = `
     renderAttachments();
     var talk = newsTalkOf(story);
     var asked = el("div", "q pending", text);
+    var images = sending.filter(function (a) { return !a.name; });
+    var files = sending.filter(function (a) { return a.name; });
+    if (images.length) asked.appendChild(shots(images.map(function (a) { return a.url; })));
+    if (files.length) asked.appendChild(docs(files.map(function (a) { return a.name; })));
     talk.box.appendChild(asked);
     var answer = el("div", "a pending", assistant + " is reading the story…");
     talk.box.appendChild(answer);
-    var pending = { asked: asked, answer: answer, text: text, images: sending.filter(function (a) { return !a.name; }).length,
-      files: sending.filter(function (a) { return a.name; }).length, known: Object.assign({}, talk.messages), at: Date.now(), id: "", matched: false, warning: false };
+    var pending = { asked: asked, answer: answer, id: "", matched: false, warning: false };
     talk.pending.push(pending);
     function failed(why) {
       sendsInFlight -= 1;
@@ -321,13 +314,12 @@ export const TODAY_SCRIPT = `
       if (!data || !data.session) { failed("That story could not be opened. Try again in a moment."); return; }
       talk.session = data.session;
       var payload = JSON.stringify({ session: talk.session, text: text,
-        images: sending.filter(function (a) { return !a.name; }).map(function (a) { return { mediaType: a.mediaType, data: a.data }; }),
-        files: sending.filter(function (a) { return a.name; }).map(function (a) { return { name: a.name, data: a.data }; }) });
+        images: images.map(function (a) { return { mediaType: a.mediaType, data: a.data }; }),
+        files: files.map(function (a) { return { name: a.name, data: a.data }; }) });
       newsListen(talk);
       function send() { return deliver(payload).then(function (sent) {
         sendsInFlight -= 1;
         if (sent.unsure) {
-          if (pending.matched) { if (!input.value && !attachments.length) saveDraftNow(); return; }
           if (!talk.box.contains(answer)) talk.box.appendChild(answer);
           answer.classList.remove("pending");
           answer.textContent = "May not have sent. ";

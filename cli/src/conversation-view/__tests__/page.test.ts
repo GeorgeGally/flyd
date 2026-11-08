@@ -4190,7 +4190,7 @@ describe("the front page", () => {
     expect(document.querySelector("#news-cols .talk")!.textContent).toContain("Saved, but not passed on yet");
   });
 
-  it("reconciles a News question only with its own saved message", async () => {
+  it("keeps News delivery uncertain without a receipt, even for similar messages", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: [{ title: "A story", url: "https://example.test/story" }], at: "2026-11-03T06:00:00Z" }], semantic: [] } });
     document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
@@ -4200,16 +4200,17 @@ describe("the front page", () => {
       if (url === "/api/send") return new Promise<Response>((_, reject) => { rejectSend = reject; });
       return json({ token: "a".repeat(48) });
     });
-    await type("Remember this");
+    await type("再见");
     const article = FakeEventSource.instances.at(-1)!;
     article.emit("update", { order: ["old"], messages: [{ id: "old", role: "user", html: "<p>An older question</p>", timestamp: new Date(Date.now() - 60000).toISOString() }], working: false });
-    expect(document.querySelector("#news-cols .talk")!.textContent).toContain("Remember this");
-    article.emit("update", { order: ["old", "saved"], messages: [{ id: "old", role: "user", html: "<p>An older question</p>", timestamp: new Date(Date.now() - 60000).toISOString() }, { id: "saved", role: "user", html: "<p>Remember this</p>", timestamp: new Date().toISOString() }], working: false });
+    expect(document.querySelector("#news-cols .talk")!.textContent).toContain("再见");
+    article.emit("update", { order: ["old", "saved"], messages: [{ id: "old", role: "user", html: "<p>An older question</p>", timestamp: new Date(Date.now() - 60000).toISOString() }, { id: "saved", role: "user", html: "<p>你好</p>", timestamp: new Date().toISOString() }], working: false });
     rejectSend(new Error("response lost"));
     await settle();
-    expect(document.querySelector("#news-cols .talk")!.textContent).toContain("Remember this");
-    expect(document.querySelector("#news-cols .talk button")).toBeNull();
-    expect(document.querySelectorAll("#news-cols .talk .q.pending")).toHaveLength(0);
+    expect(document.querySelector("#news-cols .talk")!.textContent).toContain("再见");
+    expect(document.querySelector("#news-cols .talk")!.textContent).toContain("May not have sent");
+    expect(document.querySelector("#news-cols .talk button")).not.toBeNull();
+    expect(document.querySelectorAll("#news-cols .talk .q.pending")).toHaveLength(1);
   });
 
   it("retains a successful News question until its receipt appears", async () => {
@@ -4224,6 +4225,33 @@ describe("the front page", () => {
     article.emit("update", { order: ["old", "new"], messages: [{ id: "old", role: "user", html: "<p>Earlier</p>" }, { id: "new", role: "user", html: "<p>A new question</p>" }], working: false });
     expect(document.querySelector("#news-cols .q.pending")).toBeNull();
     expect(document.querySelector("#news-cols .talk")!.textContent).toContain("A new question");
+  });
+
+  it("shows News image and document attachments before and after their receipt", async () => {
+    const stream = await opened();
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: [{ title: "A story", url: "https://example.test/story" }], at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    let reply!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
+      if (url === "/api/article-chat") return json({ session: "window:article-0123456789abcdef" });
+      if (url === "/api/send") return new Promise<Response>((resolve) => { reply = resolve; });
+      return json({});
+    });
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { files: [new File(["picture"], "image.png", { type: "image/png" }), new File(["notes"], "notes.md")] } });
+    document.body.dispatchEvent(drop);
+    for (let i = 0; i < 20 && document.querySelectorAll("#attachments .attachment").length < 2; i += 1) await settle();
+    await type("See these");
+    expect(document.querySelector("#news-cols .q.pending .shot img")!.getAttribute("src")).toMatch(/^data:image\/png;base64,/);
+    expect(document.querySelector("#news-cols .q.pending .doc .name")!.textContent).toBe("notes.md");
+    const article = FakeEventSource.instances.at(-1)!;
+    article.emit("update", { order: ["saved"], messages: [{ id: "saved", role: "user", html: "<p>See these</p>", images: ["t1.0"], files: ["notes.md"] }], working: false });
+    expect(document.querySelector("#news-cols .q.pending")).not.toBeNull();
+    reply(json({ id: "saved" }));
+    await settle();
+    expect(document.querySelector("#news-cols .q.pending")).toBeNull();
+    expect(document.querySelector("#news-cols .q .shot img")!.getAttribute("src")).toBe("/api/image?session=window%3Aarticle-0123456789abcdef&id=t1.0");
+    expect(document.querySelector("#news-cols .q .doc .name")!.textContent).toBe("notes.md");
   });
 
   it("shows only the selected News session's confirmation", async () => {
