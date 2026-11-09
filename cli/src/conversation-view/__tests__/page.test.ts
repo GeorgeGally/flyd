@@ -731,6 +731,37 @@ describe("conversation page", () => {
     expect(Array.from(document.querySelectorAll(".msg.pending .doc .name")).map((n) => n.textContent)).toEqual(["Q3 report.pdf", "notes.md"]);
   });
 
+  it("attaches an image and a document picked with the + button and sends them with the message", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    const picker = document.getElementById("attach-input") as HTMLInputElement;
+    let opened = false;
+    picker.addEventListener("click", () => { opened = true; });
+    (document.getElementById("attach") as HTMLButtonElement).click();
+    expect(opened).toBe(true);
+    expect(picker.accept).toContain("image/png");
+    expect(picker.accept).toContain(".pdf");
+
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    const picked = [new File([png], "shot.png", { type: "image/png" }), new File(["%PDF-1.3 hi"], "brief.pdf", { type: "application/pdf" })];
+    Object.defineProperty(picker, "files", { value: picked, configurable: true });
+    picker.dispatchEvent(new Event("change"));
+    for (let i = 0; i < 20 && document.querySelectorAll(".attachment").length < 2; i += 1) await settle();
+    expect(document.querySelectorAll(".attachment img")).toHaveLength(1);
+    expect(document.querySelector(".attachment.file .name")?.textContent).toBe("brief.pdf");
+
+    await type("look at these");
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({
+      session: "latest",
+      text: "look at these",
+      images: [{ mediaType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" }],
+      files: [{ name: "brief.pdf", data: btoa("%PDF-1.3 hi") }],
+    });
+    expect(document.querySelectorAll(".attachment")).toHaveLength(0);
+  });
+
   it("says in the box why a dropped file was not attached, instead of looking ignored", async () => {
     load("");
     await settle();

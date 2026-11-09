@@ -1395,6 +1395,63 @@ describe("conversation action tools", () => {
     }
   });
 
+  it("puts attached words in the model prompt after his message, while routing reads his words alone", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-attached-"));
+    const prompts: string[] = [];
+    const routed: string[] = [];
+    try {
+      await respondToConversation({
+        message: "summarise this",
+        attached: "<attached-document name=\"brief.md\" saved=\"/tmp/brief.md\">\nQuarterly revenue grew.\n</attached-document>",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: null,
+        onToken: () => undefined,
+      }, {
+        routeTurn: async (message) => { routed.push(message); return null; },
+        runAgentLoop: async (_system, prompt) => { prompts.push(prompt); return "<final>Revenue grew.</final>"; },
+        persistReceipt: async (input) => input as never,
+      });
+      expect(routed).toEqual(["summarise this"]);
+      expect(prompts[0]).toContain("George: summarise this\n\n<attached-document name=\"brief.md\"");
+      expect(prompts[0]).toContain("Quarterly revenue grew.");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("asks before shell work when an attached document is already in the turn", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-action-outside-"));
+    const prompts: string[] = [];
+    const outputs: string[] = [];
+    try {
+      await respondToConversation({
+        message: "what does this say?",
+        history: [],
+        memory: { verdict: "insufficient", matches: [] },
+        situation: {
+          project: "test/project", branch: "main", head: "abc123", dirty: false,
+          changedFiles: 0, latestCommit: null, outcome: null, status: null, nextAction: null,
+          projectRoot: realpathSync(root),
+        },
+        outside: true,
+        onToken: () => undefined,
+        askUser: async (prompt) => { prompts.push(prompt); return false; },
+      }, {
+        runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
+          outputs.push(await onToolCall("bash", { command: "touch pwned.txt" }));
+          return "<final>done</final>";
+        },
+        persistReceipt: async (input) => input as never,
+      });
+      expect(outputs[0]).toMatch(/^Not approved: run: touch pwned\.txt/);
+      expect(prompts).toHaveLength(1);
+      expect(existsSync(join(root, "pwned.txt"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("enforces the turn's route: an answer turn sees no change tools and can't write through bash", async () => {
     const root = mkdtempSync(join(tmpdir(), "flyd-route-"));
     const outputs: string[] = [];
