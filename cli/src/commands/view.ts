@@ -86,7 +86,7 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   onStep?.("Remembering what I know about this", memoryLookup(question));
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
   const article = turn ? await articleForTurn(turn.source.sessionId, question) : undefined;
-  const text = await respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, ...(turn.askUser ? { askUser: turn.askUser } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: DIAGNOSIS_PROMPT });
+  const text = await respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: DIAGNOSIS_PROMPT });
   const declared = diagnosisFromText(text);
   if (declared) return declared;
   const form = await answerForm(question, text);

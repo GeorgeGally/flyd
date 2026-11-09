@@ -96,6 +96,8 @@ interface ConversationInput {
   formPrompt?: string;
   /** The article this conversation is about. Untrusted evidence: it cannot call tools or write memory. */
   article?: { title: string; url: string; text: string };
+  /** Outside content (a document he attached) is already in the prompt, so the turn starts as one that has read the web. */
+  outside?: boolean;
 }
 
 interface ConversationResponderDependencies {
@@ -595,6 +597,7 @@ function createToolHandler(
   /** Nobody asked for an agenda run or an eval: it never opens an app George has closed. A job he asked for may. */
   personalToolDeps: PersonalToolDependencies = {},
   articleChat = false,
+  outside = false,
 ): ToolHandler {
   const canonicalRoot = (value: string): string | null => {
     try { return realpathSync(resolve(value)); } catch { return null; }
@@ -625,7 +628,7 @@ function createToolHandler(
     return full.startsWith(`${root}${sep}`) || full === root ? full : null;
   };
 
-  const policy: ToolPolicyState = { tainted: articleChat, article: articleChat };
+  const policy: ToolPolicyState = { tainted: articleChat || outside, article: articleChat };
   const execute = async (name: string, input: Record<string, unknown>): Promise<string> => {
     if (PERSONAL_TOOL_NAMES.has(name)) return runPersonalTool(name, input, { fetchFn, ...personalToolDeps });
     if (ASSISTANT_TOOL_NAMES.has(name)) return runAssistantTool(name, input, assistantContext);
@@ -1282,7 +1285,7 @@ export async function respondToConversation(
     skill: skill ? { name: skill.name, body: skill.body } : null,
     onCodingHandoff: input.onCodingHandoff,
     background: Boolean(personalToolDeps.background),
-  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction, personalToolDeps, Boolean(input.article));
+  }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction, personalToolDeps, Boolean(input.article), Boolean(input.outside));
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;
   const repeats = createRepeatGuard();
