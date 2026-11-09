@@ -135,7 +135,7 @@ Every guarantee in the CoS work must say which kind it is. Squad's docs are hone
 | Squad | Verdict for Flyd |
 |---|---|
 | One job, one owner, readable log for each teammate | Already the pattern: FirstMate, Design Mate, Librarian, plus FirstMate's visible crew |
-| Account and provider fallback in the middle of a task | Already built: `FLYD_FIRSTMATE_RUNTIMES` relaunch with backoff |
+| Account and provider fallback in the middle of a task | Relaunch with backoff is built (`FLYD_FIRSTMATE_RUNTIMES`); by default it waits for Claude instead of falling back, since Codex is kept for images |
 | A brief with goal, context, constraints, decisions that come back, and done-when | Adopt the *decisions* field. The CoS brief lists which calls come back to George and which are settled by his known policy (command PRD: "whether a coding decision can be resolved from George's known policy") |
 | Snooze on Needs you; every waiting task has a question | Adopt (Phase 7) |
 | Stuck task triage: Nudge / Park it / It's fine | Adopt, with the CoS settling most of them itself; George decides only what it can't (Phase 7) |
