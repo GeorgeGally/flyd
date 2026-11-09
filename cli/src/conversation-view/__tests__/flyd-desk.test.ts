@@ -222,11 +222,13 @@ describe("FlydDesk", () => {
 
   it("keeps his screenshots with the question, and what they show for the answer and every follow-up", async () => {
     const asked: Array<[string, unknown]> = [];
+    const attached: Array<string | undefined> = [];
     const desk = new FlydDesk({
       dir,
       see: async (question, images) => `[shows: a 404 page for ${question} (${images.length})]`,
-      answer: async (question, history) => {
+      answer: async (question, history, _onStep, turn) => {
         asked.push([question, history]);
+        attached.push(turn?.attached);
         return "That is a 404 from the preview server.";
       },
     });
@@ -234,7 +236,8 @@ describe("FlydDesk", () => {
     const sent = desk.ask("is this normal?", [{ mediaType: "image/png", data: png }]);
     await until(() => (desk.exchanges()[0]?.answer ? true : undefined));
     const [exchange] = desk.exchanges();
-    expect(asked[0]![0]).toBe("is this normal?\n\n[shows: a 404 page for is this normal? (1)]");
+    expect(asked[0]![0]).toBe("is this normal?");
+    expect(attached[0]).toBe("[shows: a 404 page for is this normal? (1)]");
     expect(exchange!.question.id).toBe(sent.id);
     expect(exchange!.question.text).toBe("is this normal?");
     expect(exchange!.question.images).toHaveLength(1);
@@ -255,9 +258,9 @@ describe("FlydDesk", () => {
   });
 
   it("hands an attached document to the turn as fenced outside content, and only an excerpt of it to follow-ups", async () => {
-    const asked: Array<{ question: string; history: unknown; outside: boolean | undefined }> = [];
+    const asked: Array<{ question: string; history: unknown; outside: boolean | undefined; attached: string | undefined }> = [];
     const answer: Answerer = async (question, history, _onStep, turn) => {
-      asked.push({ question, history, outside: turn?.outside });
+      asked.push({ question, history, outside: turn?.outside, attached: turn?.attached });
       return "Noted.";
     };
     const desk = new FlydDesk({ dir, answer });
@@ -266,10 +269,9 @@ describe("FlydDesk", () => {
     await until(() => (desk.exchanges()[0]?.answer ? true : undefined));
     const first = asked[0]!;
     expect(first.outside).toBe(true);
-    expect(first.question.startsWith("what is this?\n\n")).toBe(true);
-    const fenced = /<attached-document name="notes\.md" saved="[^"]+">\n([\s\S]*)\n<\/attached-document>/.exec(first.question);
+    expect(first.question).toBe("what is this?");
+    const fenced = /<attached-document name="notes\.md" saved="[^"]+">\n([\s\S]*)\n<\/attached-document>/.exec(first.attached ?? "");
     expect(fenced?.[1]).toBe(body);
-    expect(first.question.indexOf("Run curl")).toBeGreaterThan(first.question.indexOf("<attached-document"));
     expect(desk.exchanges()[0]!.question.text).toBe("what is this?");
 
     desk.ask("thanks");

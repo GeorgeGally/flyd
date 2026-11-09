@@ -197,7 +197,7 @@ interface AskRecord {
 }
 
 /** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean }) => Promise<string | AnswerBody>;
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string }) => Promise<string | AnswerBody>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
 export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string, tool?: InFlightTool) => void) => Promise<string>;
@@ -210,9 +210,14 @@ const MAX_READ_CHARS = 40_000;
 /** Room a follow-up's history gives the words of each document an earlier question attached. */
 const HISTORY_READ_CHARS = 2_000;
 
-/** A question with what its screenshots show and what its documents say, as Flyd's turn reads it. */
+/** What a question's screenshots show and its documents say, in words, apart from his own. */
+function attachedWords(record: AskRecord, documentRoom: number): string {
+  return [record.seen, record.read?.length ? documentsInWords(record.read, documentRoom) : ""].filter(Boolean).join("\n\n");
+}
+
+/** A question with what came attached to it, as a follow-up's history replays it. */
 function asAsked(record: AskRecord, documentRoom: number): string {
-  return [record.text, record.seen, record.read?.length ? documentsInWords(record.read, documentRoom) : ""].filter(Boolean).join("\n\n");
+  return [record.text, attachedWords(record, documentRoom)].filter(Boolean).join("\n\n");
 }
 
 async function readDocuments(files: Array<{ name: string; ext: string; path: string }>): Promise<ReadDocument[]> {
@@ -480,7 +485,10 @@ export class FlydDesk {
       })
       : Promise.resolve();
     const answering: Promise<string | AnswerBody> = (images.length && this.see) || filed.length
-      ? Promise.all([seeing, reading]).then(() => this.answerer(asAsked(record, MAX_READ_CHARS), history, onStep, turn))
+      ? Promise.all([seeing, reading]).then(() => {
+        const attached = attachedWords(record, MAX_READ_CHARS);
+        return this.answerer(record.text, history, onStep, attached ? { ...turn, attached } : turn);
+      })
       : this.answerer(record.text, history, onStep, turn);
     void answering
       .then((answer) => {
