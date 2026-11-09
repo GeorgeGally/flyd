@@ -158,6 +158,19 @@ function safeFileName(name: string, ext: string): string {
   return `${stem || "document"}.${ext}`;
 }
 
+/** Checks dropped documents by name, size and bytes; returns each one's bytes and a safe name to save it under. */
+export function checkDocuments(files: FileUpload[]): Array<{ bytes: Buffer; name: string; ext: string }> {
+  if (files.length > MAX_FILES) throw new Error(`At most ${MAX_FILES} documents per message`);
+  return files.map((file) => {
+    const ext = documentExtension(file.name);
+    if (!ext) throw new Error(`${file.name}: only PDFs, text, Markdown, Word, Excel and PowerPoint files can be sent`);
+    const bytes = Buffer.from(file.data, "base64");
+    if (bytes.length === 0 || bytes.length > MAX_FILE_BYTES) throw new Error(`Documents must be under ${MAX_FILE_BYTES / (1024 * 1024)}MB`);
+    if (!DOCUMENT_TYPES[ext as DocumentExtension](bytes)) throw new Error(`${file.name} is not a ${ext.toUpperCase()} file`);
+    return { bytes, name: safeFileName(file.name, ext), ext };
+  });
+}
+
 /** Accepted image types, recognised by their bytes rather than the claimed type. */
 const IMAGE_TYPES: Array<{ mediaType: string; ext: string; matches: (b: Buffer) => boolean }> = [
   { mediaType: "image/png", ext: "png", matches: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
@@ -310,16 +323,7 @@ export class FirstmateInbox implements CaptainInbox {
 
   /** Checks and saves dropped documents under their own names; returns their absolute paths. */
   private saveFiles(files: FileUpload[]): string[] {
-    if (files.length > MAX_FILES) throw new Error(`At most ${MAX_FILES} documents per message`);
-    const decoded = files.map((file) => {
-      const ext = documentExtension(file.name);
-      if (!ext) throw new Error(`${file.name}: only PDFs, text, Markdown, Word, Excel and PowerPoint files can be sent`);
-      const bytes = Buffer.from(file.data, "base64");
-      if (bytes.length === 0 || bytes.length > MAX_FILE_BYTES) throw new Error(`Documents must be under ${MAX_FILE_BYTES / (1024 * 1024)}MB`);
-      if (!DOCUMENT_TYPES[ext as DocumentExtension](bytes)) throw new Error(`${file.name} is not a ${ext.toUpperCase()} file`);
-      return { bytes, name: safeFileName(file.name, ext) };
-    });
-    return decoded.map(({ bytes, name }) => {
+    return checkDocuments(files).map(({ bytes, name }) => {
       const folder = join(this.filesDir, `${Date.now()}-${randomBytes(4).toString("hex")}`);
       mkdirSync(folder, { recursive: true, mode: 0o700 });
       const path = join(folder, name);

@@ -11,9 +11,10 @@ import { clipKeepingLinks } from "./line-links.js";
 import { plainNote } from "./rail.js";
 import { answerBody, plainAnswer, type AnswerBody } from "./answer-form.js";
 import { answeringLine } from "./living.js";
-import { MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
+import { checkDocuments, MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
+import { documentText } from "./document-text.js";
 import { isPlaceholderStatus, relayStatus, type InFlightTool } from "./status-text.js";
-import type { ConversationMessage, Exchange, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
+import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
 import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
 import type { RouteReading } from "../runtime/turn-plan.js";
 import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
@@ -179,6 +180,10 @@ interface AskRecord {
   images?: string[];
   /** What those screenshots show, read once and kept for the answer and every follow-up. */
   seen?: string;
+  /** The documents he attached, by their saved names, kept beside the asks under files/<id>/. */
+  files?: string[];
+  /** What those documents say, read once and kept for the answer and every follow-up. */
+  read?: string;
   answer?: string;
   /** The answer's shape, when the answerer gave one rather than a string. */
   form?: AnswerBody;
@@ -199,7 +204,22 @@ export type Seer = (question: string, images: ImageUpload[], onStep?: (step: str
 
 /** A question with what its screenshots show, as Flyd's turn reads it. */
 function asAsked(record: AskRecord): string {
-  return record.seen ? `${record.text}\n\n${record.seen}` : record.text;
+  return [record.text, record.seen, record.read].filter(Boolean).join("\n\n");
+}
+
+/** Room a turn gives the words of attached documents; a longer one is cut and says so. */
+const MAX_READ_CHARS = 40_000;
+
+/** The attached documents in words for Flyd's turn: each under its name and saved path, cut to fit. */
+async function readDocuments(files: Array<{ name: string; ext: string; path: string }>): Promise<string> {
+  const room = Math.floor(MAX_READ_CHARS / files.length);
+  const parts = await Promise.all(files.map(async (file) => {
+    const words = (await documentText(file.path, file.ext).catch(() => null))?.trim();
+    const head = `Attached document "${file.name}" (saved at ${file.path}):`;
+    if (!words) return `${head}\n(Its text could not be read here.)`;
+    return words.length > room ? `${head}\n${words.slice(0, room)}\n(…cut; ${words.length - room} more characters in the file)` : `${head}\n${words}`;
+  }));
+  return parts.join("\n\n");
 }
 
 const ROUTED_TURNS = "routed-projects.jsonl";
@@ -378,10 +398,12 @@ export class FlydDesk {
   }
 
   /** Takes the question and starts answering it; the answer lands in a later `exchanges()`. */
-  ask(text: string, images: ImageUpload[] = [], sessionId = "conversation"): SentMessage {
+  ask(text: string, images: ImageUpload[] = [], sessionId = "conversation", files: FileUpload[] = []): SentMessage {
     const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    const documents = checkDocuments(files);
     const kept = this.keepImages(id, images);
-    let record: AskRecord = { id, sessionId, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}) };
+    const filed = this.keepFiles(id, documents);
+    let record: AskRecord = { id, sessionId, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}), ...(filed.length ? { files: filed.map((file) => file.name) } : {}) };
     const conversation = conversationOf(record);
     const history = this.recordsForSession(conversation)
       .filter((earlier) => earlier.answer)
@@ -426,15 +448,22 @@ export class FlydDesk {
       onPreparation: (preparationId: string) => { record = { ...record, preparationId }; this.write(record); },
       onArtefact: (artefact: string) => { record = { ...record, artefact }; this.write(record); },
     };
-    const answering: Promise<string | AnswerBody> = images.length && this.see
+    const seeing: Promise<void> = images.length && this.see
       ? this.see(record.text, images, onStep).then((seen) => {
         if (seen.trim()) {
           record = { ...record, seen: seen.trim() };
           this.write(record);
         }
-        return this.answerer(asAsked(record), history, onStep, turn);
       })
-      : this.answerer(record.text, history, onStep, turn);
+      : Promise.resolve();
+    const reading: Promise<void> = filed.length
+      ? readDocuments(filed).then((read) => {
+        record = { ...record, read };
+        this.write(record);
+      })
+      : Promise.resolve();
+    const answering: Promise<string | AnswerBody> = Promise.all([seeing, reading])
+      .then(() => this.answerer(record.seen || record.read ? asAsked(record) : record.text, history, onStep, turn));
     void answering
       .then((answer) => {
         const body = typeof answer === "string" ? null : answerBody(answer);
@@ -494,6 +523,21 @@ export class FlydDesk {
     });
   }
 
+  /** Saves the documents of a question beside the asks under their own names; returns where each went. */
+  private keepFiles(id: string, documents: Array<{ bytes: Buffer; name: string; ext: string }>): Array<{ name: string; ext: string; path: string }> {
+    if (!documents.length) return [];
+    const folder = join(this.dir, "files", id);
+    mkdirSync(folder, { recursive: true, mode: 0o700 });
+    const used = new Set<string>();
+    return documents.map(({ bytes, name, ext }, index) => {
+      const unique = used.has(name) ? `${index + 1}-${name}` : name;
+      used.add(unique);
+      const path = join(folder, unique);
+      writeFileSync(path, bytes, { mode: 0o600, flag: "wx" });
+      return { name: unique, ext, path };
+    });
+  }
+
   /** A screenshot kept with a question, by its image id; null when it is not one of ours. */
   image(imageId: string): ImageData | null {
     const name = ASK_IMAGE.exec(imageId)?.[1];
@@ -506,7 +550,7 @@ export class FlydDesk {
 
   exchanges(sessionId?: string): Exchange[] {
     return (sessionId === undefined ? this.records() : this.recordsForSession(sessionId)).map((record) => {
-      const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}) };
+      const question: ConversationMessage = { id: `ask:${record.id}`, role: "user", text: record.text, timestamp: record.at, ...(record.images?.length ? { images: record.images } : {}), ...(record.files?.length ? { files: record.files } : {}) };
       if (record.answer) {
         const preparation = record.preparationId ? this.preparations.read(record.preparationId) : undefined;
         const prepared = preparation?.status === "prepared" && preparation.content

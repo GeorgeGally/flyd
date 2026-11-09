@@ -49,6 +49,8 @@ export const COMPOSER_STYLE = `
 .composer .prediction-suffix { color: var(--muted); opacity: .65; }
 .composer .prediction-toggle { background: transparent; color: var(--muted); padding: 8px 3px; font-size: 15px; font-weight: 400; }
 .composer .prediction-toggle[aria-pressed="false"] { opacity: .4; }
+.composer .attach { background: transparent; color: var(--muted); padding: 8px 4px; font-size: 18px; font-weight: 400; }
+.composer .attach:hover { color: var(--strong); }
 .composer button {
   font: 800 14px/1 var(--mono); letter-spacing: -0.03em; text-transform: uppercase;
   color: var(--bg); background: var(--accent); border: 0;

@@ -79,8 +79,7 @@ export class FlydConversationSource implements ConversationSource {
 
   async send(sessionId: string, text: string, images: ImageUpload[] = [], files: FileUpload[] = []): Promise<SentMessage> {
     if (!this.isConversationSession(sessionId)) throw new Error(`No such Flyd conversation: ${sessionId}`);
-    if (files.length) throw new Error("File attachments need an active coding or document tool");
-    return this.options.desk.ask(text, images, sessionId);
+    return this.options.desk.ask(text, images, sessionId, files);
   }
 
   async sendDecisionFollowUp(text: string, decision: { decisionId: string; taskId: string }, sessionId?: string): Promise<SentMessage> {

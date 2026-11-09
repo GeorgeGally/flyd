@@ -109,6 +109,8 @@ ${FRONT_HTML}
       <button type="button" id="article-confirm-no">Not now</button>
     </div>
     <div class="field">
+      <button class="attach" id="attach" type="button" aria-label="Attach images or documents" title="Attach images or documents">+</button>
+      <input type="file" id="attach-input" multiple hidden tabindex="-1">
       <div class="typing">
         <div class="prediction-layer" id="prediction-layer" aria-hidden="true" hidden><span class="prediction-prefix" id="prediction-prefix"></span><span class="prediction-suffix" id="prediction-suffix"></span></div>
         <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>

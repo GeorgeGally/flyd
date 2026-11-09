@@ -290,6 +290,15 @@ export const COMPOSER_SCRIPT = `
     applyScreen("terminal", false);
     store("flyd-view-screen", "terminal");
   }
+  // The + button opens the picker; what is picked goes the same way as a drop.
+  var attachInput = document.getElementById("attach-input");
+  attachInput.accept = IMAGE_TYPES.concat(DOCUMENTS.map(function (ext) { return "." + ext; })).join(",");
+  document.getElementById("attach").addEventListener("click", function () { attachInput.click(); });
+  attachInput.addEventListener("change", function () {
+    if (attachInput.files && attachInput.files.length) addFiles(attachInput.files);
+    attachInput.value = "";
+    input.focus();
+  });
   input.addEventListener("paste", function (event) {
     var files = Array.prototype.map.call((event.clipboardData && event.clipboardData.items) || [], function (item) {
       return item.kind === "file" ? item.getAsFile() : null;
