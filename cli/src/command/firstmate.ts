@@ -4,7 +4,6 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { firstmateHome, firstmateInboxScript } from "../lib/firstmate-home.js";
 import { FLYD_DIR } from "../lib/config.js";
-import { codexPathCandidates } from "../runtime/codex-adapter.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } from "../runtime/repeat-guard.js";
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
@@ -292,7 +291,8 @@ export class FirstmateDomainTransport {
   }
 }
 
-type SessionRuntime = "claude" | "codex" | "opencode";
+/** Codex is never a session runtime: George keeps it for images only, so coding work waits for Claude rather than spending Codex limits. */
+type SessionRuntime = "claude" | "opencode";
 
 const SESSION_PROMPT = "Run bin/fm-session-start.sh exactly once in this home. Then handle the unread inbox notes, verify the requested work, and publish each stable outcome or genuine decision with bin/fm-inbox.sh reply. Do not send messages to George; Flyd relays replies.";
 const SESSION_LAUNCH_FAILURE = "I couldn't start the work right now. I'll keep it safe and try again when I can.";
@@ -435,22 +435,20 @@ function stopHelper(helper: FirstmateHelper, nowMs: number): void {
 
 function sessionRuntimes(env = process.env): SessionRuntime[] {
   const configured = env.FLYD_FIRSTMATE_RUNTIMES?.split(",").map((item) => item.trim()).filter(Boolean);
-  const values = configured?.length ? configured : ["claude", "codex", "opencode"];
-  return values.filter((value): value is SessionRuntime => value === "claude" || value === "codex" || value === "opencode");
+  const values = (configured ?? []).filter((value): value is SessionRuntime => value === "claude" || value === "opencode");
+  // Claude only by default: when it is busy or limited the launch fails and is retried later, never handed to another runtime.
+  return values.length ? values : ["claude"];
 }
 
 function sessionExecutable(runtime: SessionRuntime): string {
-  const candidates = runtime === "codex" ? codexPathCandidates()
-    : runtime === "opencode" ? openCodePathCandidates()
-    : [];
+  const candidates = runtime === "opencode" ? openCodePathCandidates() : [];
   return candidates.find((candidate) => existsSync(candidate)) ?? runtime;
 }
 
 function sessionArgs(runtime: SessionRuntime): string[] {
   // Nobody is there to approve a prompt: without a mode, every firstmate script is refused and his notes go unanswered.
-  // "auto" runs routine commands and still blocks risky ones, as codex's --full-auto does. George chose this on 2026-10-18.
+  // "auto" runs routine commands and still blocks risky ones. George chose this on 2026-10-18.
   if (runtime === "claude") return ["-p", "--permission-mode", "auto", "--output-format", "stream-json", "--verbose", SESSION_PROMPT];
-  if (runtime === "codex") return ["exec", "--full-auto", SESSION_PROMPT];
   return ["run", SESSION_PROMPT];
 }
 
