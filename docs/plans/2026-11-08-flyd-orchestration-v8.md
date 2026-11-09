@@ -11,7 +11,7 @@ Keeps: `2026-10-30-flyd-chief-of-staff-split-plan.md` as the plan of record for 
 v7 plans a durable task graph, event sourcing with correlation and causation IDs, idempotent dispatch, restart reconciliation, an independent reviewer layer, a learning-by-demonstration runtime and an interruption budget. Most of that already exists inside each domain. The rest isn't justified by real use yet.
 
 - **FirstMate already is the Chief of Staff pattern for code.** It is one point of contact with a crew working in parallel worktrees. It wakes on events at no token cost, keeps all state on disk so restarts lose nothing, has scout tasks for research reports, and escalates only real decisions (`~/Documents/firstmate`, README and VISION).
-- **Flyd's command layer already has the durable parts.** That covers the idempotent FirstMate inbox (`command/firstmate.ts`, `--request-id`), the staff chaser (`command/fleet-monitor.ts`) and session relaunch with runtime fallback across claude, codex and opencode, capped at 3 identical failures (`FLYD_FIRSTMATE_RUNTIMES`). It also covers Design Mate's Creative Director review (≤3 rounds, ≤2 send-backs) and Librarian's fact checker.
+- **Flyd's command layer already has the durable parts.** That covers the idempotent FirstMate inbox (`command/firstmate.ts`, `--request-id`), the staff chaser (`command/fleet-monitor.ts`) and session relaunch on Claude only (Codex is kept for images), capped at 3 identical failures (`FLYD_FIRSTMATE_RUNTIMES`). It also covers Design Mate's Creative Director review (≤3 rounds, ≤2 send-backs) and Librarian's fact checker.
 - **The split plan already designs the rest.** It has `Objective.after` (runId → runIds it waits for), release by reconciliation, the revision-checked mutation helper (Phase 2) and replay by request ID for Librarian and Design Mate. It also rules out a new workflow engine, a permanent CoS session, an interruption cap and new approval gates.
 - **v7 contradicts a locked decision.** Its Phase 7 adds quiet hours and interruption budgets, but on 2026-10-30 George decided there would be no interruption cap.
 - **v7 tests the hardest case first.** Its first test runs parallel branches, a crash, a mid-flight change and a flawed result at once.
@@ -135,7 +135,7 @@ Every guarantee in the CoS work must say which kind it is. Squad's docs are hone
 | Squad | Verdict for Flyd |
 |---|---|
 | One job, one owner, readable log for each teammate | Already the pattern: FirstMate, Design Mate, Librarian, plus FirstMate's visible crew |
-| Account and provider fallback in the middle of a task | Already built: `FLYD_FIRSTMATE_RUNTIMES` relaunch with backoff |
+| Account and provider fallback in the middle of a task | Relaunch with backoff is built (`FLYD_FIRSTMATE_RUNTIMES`); by default it waits for Claude instead of falling back, since Codex is kept for images |
 | A brief with goal, context, constraints, decisions that come back, and done-when | Adopt the *decisions* field. The CoS brief lists which calls come back to George and which are settled by his known policy (command PRD: "whether a coding decision can be resolved from George's known policy") |
 | Snooze on Needs you; every waiting task has a question | Adopt (Phase 7) |
 | Stuck task triage: Nudge / Park it / It's fine | Adopt, with the CoS settling most of them itself; George decides only what it can't (Phase 7) |

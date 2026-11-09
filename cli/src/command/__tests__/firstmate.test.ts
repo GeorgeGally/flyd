@@ -113,7 +113,7 @@ describe("FirstMate domain transport", () => {
     expect(exec).not.toHaveBeenCalled();
   });
 
-  it("tries the next runtime when the first reports a usage limit", async () => {
+  it("waits for Claude instead of falling back when it reports a usage limit", async () => {
     const calls: string[] = [];
     const exec: FirstmateExec = async (runtime) => {
       calls.push(runtime);
@@ -125,8 +125,21 @@ describe("FirstMate domain transport", () => {
       readiness: { available: true, canReceive: false, liveHarness: false },
       recordAttempt: vi.fn(),
     });
+    expect(result.started).toBe(false);
+    expect(calls).toEqual(["claude"]);
+  });
+
+  it("never starts a session on Codex, even when it is configured", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); return { stdout: "started", stderr: "" }; };
+    const result = await startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request: "domain-test-codex",
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      env: { FLYD_FIRSTMATE_RUNTIMES: "codex,claude" },
+      recordAttempt: vi.fn(),
+    });
     expect(result.started).toBe(true);
-    expect(calls).toEqual(["claude", "codex"]);
+    expect(calls).toEqual(["claude"]);
   });
 
   it("returns one plain failure after every runtime fails", async () => {
@@ -138,7 +151,7 @@ describe("FirstMate domain transport", () => {
       recordAttempt: vi.fn(),
     });
     expect(result).toEqual({ started: false, failure: "I couldn't start the work right now. I'll keep it safe and try again when I can." });
-    expect(calls).toEqual(["claude", "codex", "opencode"]);
+    expect(calls).toEqual(["claude"]);
   });
 
   it("starts a session without the paid Anthropic API variables in its environment", async () => {
