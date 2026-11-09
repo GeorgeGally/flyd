@@ -42,15 +42,14 @@ import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from 
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
 import { liveActivityOf, type LiveActivity } from "./live-activity.js";
 import { readDigests, scheduleDigest } from "./job-digest.js";
-import { ArtefactFeed, composeArtefact, WHATSAPP_LINK, type ArtefactInputs, type ArtefactRow } from "./artefact.js";
+import { ArtefactFeed, composeArtefact, type ArtefactInputs, type ArtefactRow } from "./artefact.js";
 import type { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
 import type { Rail, RailState } from "./rail.js";
-import { isThread } from "./project-threads.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailNotice, type RailPreview, plainNote } from "./rail.js";
 import { Workshop } from "./workshop.js";
 import type { ActivityPanel, ActivityReader } from "./activity.js";
-import { isArticleSession, openArticleChat } from "./article-chat.js";
+import { openArticleChat } from "./article-chat.js";
 import { storyAsset, toggleSavedStory } from "./story-media.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
 import { withFollowUps } from "./follow-ups.js";
@@ -193,8 +192,6 @@ export interface ShowOptions {
   leftColumn?: () => ActivityPanel;
   /** Whether a page on this machine answers, so a link to one that closed is said in words. */
   live?: (url: string) => string;
-  /** Whether WhatsApp still needs linking: the offer card is shown in the timeline and the panel only while it does. */
-  whatsappUnlinked?: () => boolean;
   /**
    * Durable jobs for the right column. Set only by the live view. A differ
    * under test does not read the project list or attach jobs.
@@ -581,15 +578,6 @@ export class SnapshotDiffer {
         ...(message.answeredFor !== undefined ? { answeredFor: message.answeredFor, ...(undone.has(message.id) ? { undone: true } : {}) } : {}),
       });
     }
-    // WhatsApp unlinked: the one action card, last in the timeline, until he links it.
-    if (this.show?.whatsappUnlinked?.()) {
-      order.push(WHATSAPP_LINK.id);
-      seen.add(WHATSAPP_LINK.id);
-      if (this.sent.get(WHATSAPP_LINK.id) !== "1") {
-        this.sent.set(WHATSAPP_LINK.id, "1");
-        changed.push({ id: WHATSAPP_LINK.id, role: "assistant", html: "", card: { kind: "decision", line: WHATSAPP_LINK.title, sub: WHATSAPP_LINK.line, url: WHATSAPP_LINK.url } });
-      }
-    }
     for (const id of [...this.sent.keys()]) if (!seen.has(id)) this.sent.delete(id);
     const artefact = this.show?.artefact?.();
     // Without a reading of the fleet, nothing on the screen may claim that all is quiet (show.ts).
@@ -776,7 +764,7 @@ export class ConversationViewServer {
     private readonly routines = new RoutineArtefacts(),
     /** Flyd's own activity records, read for the left column; without it the column is not offered. */
     private readonly activity?: ActivityReader,
-    /** WhatsApp, when it still needs linking: the code is drawn here, and the offers are shown here. */
+    /** WhatsApp pairing for the People page, where the code is drawn. Never shown on the main screen. */
     private readonly whatsapp?: WhatsAppPairing,
     /** The Machines tab's list and readings; without it the tab is empty. */
     private readonly machines?: MachinesBoard,
@@ -1186,15 +1174,12 @@ export class ConversationViewServer {
     res.end(data);
   }
 
-  /** Whether WhatsApp still needs linking. The offers are shown only while it does. */
-  private whatsappUnlinked(): boolean {
-    return Boolean(this.whatsapp && !this.whatsapp.state().paired);
-  }
-
-  /** The artefact inputs with the unlinked-WhatsApp offer folded in, when it applies. */
+  /**
+   * The artefact inputs. An unlinked WhatsApp is never offered here: linking it
+   * lives on the People page, and the main screen stays his.
+   */
   private artefactInputs(): ArtefactInputs {
-    const inputs = this.feed.current();
-    return this.whatsappUnlinked() ? { ...inputs, whatsappLink: true } : inputs;
+    return this.feed.current();
   }
 
   /** Flyd's right column: his questions with their answers, and the artefacts beside them. */
@@ -2341,8 +2326,6 @@ export class ConversationViewServer {
         rail: (snapshot) => this.rail(snapshot),
         ...(this.activity ? { leftColumn: () => this.activity!.current() } : {}),
         live: (url) => this.previews.state(url),
-        // A chat about one article, or a project's thread, is about that: the WhatsApp offer stays out of it.
-        whatsappUnlinked: () => !isArticleSession(session.id) && !isThread(session.id) && this.whatsappUnlinked(),
         jobs: (shot, screen) => this.jobBoard(shot, screen),
         todos: (jobs) => this.todoList(jobs),
       });
@@ -2384,10 +2367,6 @@ export class ConversationViewServer {
     const stopActivity = this.activity?.onChange(() => {
       if (!closed && latest) emitUpdate(latest);
     });
-    // WhatsApp linked (or a new code drawn): the offer goes, or its code turns over.
-    const stopPairing = this.whatsapp?.onChange(() => {
-      if (!closed && latest) emitUpdate(latest);
-    });
     const wakeJobs = () => { if (!closed && latest) emitUpdate(latest); };
     this.jobWake.add(wakeJobs);
     emitStaff();
@@ -2419,7 +2398,6 @@ export class ConversationViewServer {
       stopPreviews();
       stopMemory?.();
       stopActivity?.();
-      stopPairing?.();
       this.jobWake.delete(wakeJobs);
       stopNotices();
       follower.close();

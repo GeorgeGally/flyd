@@ -1,6 +1,6 @@
 import { PreparationStore } from "../runtime/preparation-store.js";
 import type { ConversationTurnSource } from "../runtime/conversation-turn.js";
-import { isAccountIntent } from "../connectors/invocation.js";
+import { asksToChangeFlyd, isAccountIntent } from "../connectors/invocation.js";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -114,6 +114,8 @@ export async function routeMessage(
 ): Promise<Route> {
   // Documents are read by firstmate; a screenshot goes with his words to whoever they are for.
   if (input.command || (input.files ?? 0) > 0 || !input.text.trim()) return "firstmate";
+  // Changing Flyd itself (its screen, UI, code) is FirstMate's, however it is worded.
+  if (asksToChangeFlyd(input.text)) return "firstmate";
   if (/\bwhatsapp\b/i.test(input.text) && isAccountIntent(input.text)) return "flyd";
   const started = Date.now();
   const mode = options.mode ?? (process.env.FLYD_ROUTING_CASCADE === "live" ? "live" : process.env.FLYD_ROUTING_CASCADE === "off" ? "off" : "shadow");

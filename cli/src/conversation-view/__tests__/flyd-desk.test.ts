@@ -73,6 +73,11 @@ describe("routeMessage", () => {
     expect(await routeMessage({ ...input, text: "fix the island filter" }, ask("FIRSTMATE"))).toBe("firstmate");
   });
 
+  it("hands a request to change Flyd itself to firstmate, even when it names WhatsApp", async () => {
+    expect(await routeMessage({ ...input, text: "Why is the WhatsApp message still on the main screen in Flyd? Show me what it says and remove it" }, ask("FLYD"))).toBe("firstmate");
+    expect(await routeMessage({ ...input, text: "Check WhatsApp for what Anna said" }, ask("FIRSTMATE"))).toBe("flyd");
+  });
+
   it("keeps slash commands, documents and anything unsure with firstmate", async () => {
     expect(await routeMessage({ ...input, command: "review" }, ask("FLYD"))).toBe("firstmate");
     expect(await routeMessage({ ...input, files: 1 }, ask("FLYD"))).toBe("firstmate");

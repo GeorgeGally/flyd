@@ -4090,15 +4090,6 @@ describe("the front page", () => {
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
   });
 
-  it("opens Today when the only timeline item is the WhatsApp linking prompt", async () => {
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    stream.emit("update", { order: ["whatsapp-link"], messages: [{ id: "whatsapp-link", role: "assistant", html: "", card: { kind: "decision", line: "Link WhatsApp" } }], working: false, show: SHOW, live: { known: true, running: [], landed: [] } });
-    expect(document.documentElement.getAttribute("data-centre")).toBe("today");
-    expect(document.querySelector("#feed .feed-empty")!.textContent).toBe("Nothing has moved yet today.");
-  });
-
   it("shows News as stories in columns, leaves filler out, and the box asks about the story in view", async () => {
     const stream = await opened();
     const stories = [
