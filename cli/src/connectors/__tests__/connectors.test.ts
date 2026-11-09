@@ -153,6 +153,10 @@ describe("runtime and overlay", () => {
     expect(visibleTools(connectorTools, plan).map(t => t.name)).not.toContain("email_draft");
     expect(isAccountIntent("Find the latest Nuanu email and Google Drive proposal")).toBe(true);
     expect(isAccountIntent("What am I working on?")).toBe(false);
+    // Changing Flyd itself is coding work for FirstMate, even when it names WhatsApp.
+    expect(isAccountIntent("Remove the WhatsApp message from Flyd's main screen")).toBe(false);
+    expect(isAccountIntent("Why is the WhatsApp message still on the main screen? Get it off")).toBe(false);
+    expect(isAccountIntent("Search WhatsApp for the screen printer quote")).toBe(true);
     expect(requestedComposeTools("Read my email").size).toBe(0);
     expect(requestedComposeTools("Read email but do not compose anything").size).toBe(0);
     expect(requestedComposeTools("How do I compose an email?").size).toBe(0);

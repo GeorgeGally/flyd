@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { composeArtefact, WHATSAPP_LINK, type ArtefactInputs } from "../artefact.js";
+import { composeArtefact, type ArtefactInputs } from "../artefact.js";
 import { qrSvg } from "../../connectors/whatsapp-pairing.js";
 import { ConversationViewServer, SnapshotDiffer } from "../server.js";
 import type { WhatsAppPairing } from "../../connectors/whatsapp-pairing.js";
@@ -57,25 +57,10 @@ describe("the pairing code as an image", () => {
   });
 });
 
-describe("the offer card", () => {
-  it("leads the artefact while WhatsApp is unlinked, and is gone once it is", () => {
-    const linked = composeArtefact({ ...EMPTY, whatsappLink: true });
-    expect(linked[0]).toMatchObject({ id: "news:whatsapp-link", headline: WHATSAPP_LINK.title, links: [{ url: "/whatsapp" }] });
-    expect(composeArtefact(EMPTY).some((item) => item.id === "news:whatsapp-link")).toBe(false);
-  });
-
-  it("appears in the timeline last, and disappears the moment WhatsApp is linked", () => {
-    const unlinked = new SnapshotDiffer(undefined, { whatsappUnlinked: () => true });
-    const first = unlinked.next(snapshot());
-    expect(first.order.at(-1)).toBe("whatsapp-link");
-    expect(first.messages.find((message) => message.id === "whatsapp-link")?.card).toMatchObject({ line: WHATSAPP_LINK.title, url: "/whatsapp" });
-    // Said once: a later update keeps it in place without re-sending it, so the card never flickers.
-    const second = unlinked.next(snapshot());
-    expect(second.order.at(-1)).toBe("whatsapp-link");
-    expect(second.messages.some((message) => message.id === "whatsapp-link")).toBe(false);
-
-    const linked = new SnapshotDiffer(undefined, { whatsappUnlinked: () => false }).next(snapshot());
-    expect(linked.order).not.toContain("whatsapp-link");
+describe("an unlinked WhatsApp on the main screen", () => {
+  it("is never offered in the timeline or the artefact: linking lives on the People page", () => {
+    expect(new SnapshotDiffer().next(snapshot()).order).not.toContain("whatsapp-link");
+    expect(composeArtefact(EMPTY).some((item) => item.id.includes("whatsapp"))).toBe(false);
   });
 });
 
@@ -100,9 +85,9 @@ describe("the pairing endpoints", () => {
       const pair = await fetch(base + "/api/whatsapp-pair", { method: "POST", headers: { "x-flyd-view-token": token }, body: JSON.stringify({ action: "start" }) });
       expect(await pair.json()).toMatchObject({ result: { paired: false } });
       expect((await fetch(base + "/api/whatsapp-pair", { method: "POST", body: "{}" })).status).toBe(403);
-      // The artefacts column carries the same offer, opening the code.
+      // Unpaired, the artefacts column still carries nothing about WhatsApp.
       const rail = (server as unknown as { rail: (snapshot: ConversationSnapshot) => { artefacts: Array<{ id: string; title: string; url?: string }> } }).rail(snapshot());
-      expect(rail.artefacts.find((card) => card.id === "news:whatsapp-link")).toMatchObject({ title: WHATSAPP_LINK.title, url: "/whatsapp" });
+      expect(rail.artefacts.some((card) => card.id.includes("whatsapp"))).toBe(false);
     } finally { await server.close(); }
   });
 

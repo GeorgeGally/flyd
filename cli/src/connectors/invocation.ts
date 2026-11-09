@@ -4,8 +4,19 @@ import { chatModelChain } from "../lib/config.js";
 import { connectorTools, CONNECTOR_TOOL_NAMES, CONNECTOR_WRITE_TOOLS, runConnectorTool } from "./tools.js";
 import { decideToolCall, marksTurnUntrusted, type ToolPolicyState } from "../runtime/tool-policy.js";
 
+/**
+ * George asking to change Flyd itself (its screen, UI, code or a bug), even
+ * when it names WhatsApp or email: that is coding work for FirstMate, never an
+ * account lookup that can only answer "I can't change Flyd's UI".
+ */
+export function asksToChangeFlyd(text: string): boolean {
+  return /\b(?:flyd(?:'s)?|floyd's|(?:main|front|home) (?:screen|page)|(?:on|from|off) (?:the|my|your) screen|the ui|your (?:ui|screen|interface|code))\b/i.test(text)
+    && /\b(?:remove|hide|dismiss|delete|get rid of|get (?:it|that|this|them) off|take (?:it|that|this|them) (?:off|out|away|down)|out of my (?:\w+ )?face|stop showing|clean up|change|fix|move|redesign)\b/i.test(text);
+}
+
 /** Explicit account-data requests only; dictation is excluded by the caller. */
 export function isAccountIntent(intent: string): boolean {
+  if (asksToChangeFlyd(intent)) return false;
   return /\b(?:whatsapp|gmail|dreamhost|google drive|google doc(?:s)?|drive file(?:s)?|inbox|emails?|e-mails?|mailbox)\b/i.test(intent)
     && /\b(?:find|search|look|check|read|summari[sz]e|show|what|which|who|latest|recent|draft|compose|write|reply|create|save|send|tell|message)\b/i.test(intent);
 }

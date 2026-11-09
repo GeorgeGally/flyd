@@ -497,7 +497,7 @@ export const TODAY_SCRIPT = `
     if (!update) return;
     todayUpdate = update;
     // At rest the middle is Today; a conversation that already has words keeps it.
-    if (!centreChosen) setCentre((update.order || []).some(function (id) { return id !== "whatsapp-link"; }) ? "talk" : "today");
+    if (!centreChosen) setCentre((update.order || []).length ? "talk" : "today");
     drawToday();
     if (update.leftColumn) drawNews2(update.leftColumn.recent);
   };
