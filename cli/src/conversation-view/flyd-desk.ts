@@ -594,7 +594,8 @@ export class FlydDesk {
         };
       }
       if (this.inFlight.has(record.id) && !record.error) return { question, waiting: this.steps.get(record.id) ?? answeringLine(record.text, Boolean(record.images?.length)) };
-      const waiting = record.error ? `Flyd couldn't answer this: ${record.error}` : "Flyd was interrupted before answering; send it again";
+      // What went wrong is Flyd's to read in its own record; he gets one plain line and the way to try again.
+      const waiting = record.error ? "Flyd couldn't answer that; send it again" : "Flyd was interrupted before answering; send it again";
       return { question, waiting, waitingFailed: true };
     });
   }

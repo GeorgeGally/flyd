@@ -331,6 +331,8 @@ function handledIn(messages: ConversationMessage[]): (message: ConversationMessa
 /** Turns successive snapshots into minimal updates, rendering only what changed. */
 /** Held relays already recorded in this process, so a reload or a reconnect does not record one twice. */
 const heldRelays = new Set<string>();
+/** What leads an answer to him whose own words may not be shown: the original stays one tap away. */
+const HELD_ANSWER = "There's an answer to this; it's under show original.";
 
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
@@ -400,12 +402,32 @@ export class SnapshotDiffer {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
     const shown = stripCommitIds(message.text);
-    if (cached) return { body: message.text, summary: glance(inFlydsVoice(cached), "flyd") };
+    if (cached) {
+      // Flyd's reading passes the same checks the staff's words do before it leads; one that fails is Flyd's to keep.
+      const reading = inFlydsVoice(cached);
+      return this.heldRelay(reading) ? null : { body: message.text, summary: glance(reading, "flyd") };
+    }
     this.readAnswer(message, snapshot, newest);
     // With no reading of Flyd's to lead, staff words that fail the checks are not shown at all: Flyd handles them.
     if (this.heldRelay(message.text)) return null;
     const pending = interpreter?.pending(message.text) ?? false;
     return { body: message.text, summary: pending ? glance(shown, "digest", true) : briefOf(shown) };
+  }
+
+  /**
+   * A staff update's summary parts, screened like every relay: what leads (Flyd's
+   * summary, else the staff's own words while it reads) must pass the outgoing
+   * checks, or the update is Flyd's to keep. Never opened by default: the
+   * staff's words wait behind "show original". One that answers words he typed
+   * is never dropped: a plain line leads, the original one tap away.
+   */
+  private relaySummary(message: ConversationMessage, newest: boolean, toHim = false): (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null {
+    const parts = this.summarize(message, newest);
+    const model = this.summaries?.summarizer?.cached(message.text);
+    const lead = model && parts.summary?.source === "model" ? inFlydsVoice(model) : message.text;
+    if (this.heldRelay(lead)) return toHim ? { body: message.text, summary: { html: renderMarkdown(HELD_ANSWER), source: "flyd" } } : null;
+    const { expanded: _expanded, ...closed } = parts;
+    return closed;
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
@@ -448,6 +470,11 @@ export class SnapshotDiffer {
     const reading = message.answers?.startsWith("note:") ? this.summaries?.interpreter?.cached(message.text) : undefined;
     const said = replyCard(inFlydsVoice(reading ?? message.text));
     if (!said) return undefined;
+    // The card's words pass the same outgoing checks as any relay: a line that fails leaves no card, a sub that fails is dropped.
+    if (message.aside || message.answers?.startsWith("note:")) {
+      if (this.heldRelay(said.line)) return undefined;
+      if (said.sub && this.heldRelay(said.sub)) delete said.sub;
+    }
     const kinds: Record<OutcomeState, NonNullable<RenderedMessage["card"]>["kind"]> = { landed: "landed", needs: "decision", stuck: "blocker", underway: "underway", note: "note", handled: "note" };
     const url = message.text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/)?.[0];
     return { kind: kinds[said.state], line: said.line, ...(said.sub ? { sub: said.sub } : {}), ...(url && said.state === "landed" ? { url } : {}) };
@@ -515,12 +542,14 @@ export class SnapshotDiffer {
       if (!toHim && absorbed(message, handled)) continue;
       // Landed, his call or stuck: a compact card, whether or not it answers something he typed.
       const relay = message.role === "assistant" && message.aside ? staffLine(message.text, handled) : undefined;
+      // A relay card's line is the staff's, so it passes the outgoing checks too; a decision stays his whatever its words.
+      if (!toHim && relay && relay.kind !== "absorbed" && relay.kind !== "decision" && this.heldRelay(relay.line)) continue;
       // An answer to his own question is never muted as routine: firstmate's is told by Flyd, Flyd's own
       // shows whole when it fits a glance and else leads with its first few lines.
       const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.form ? { body: message.text } : message.role !== "assistant" ? { body: plainNote(message.text).thread ? plainNote(message.text).words : message.text }
         : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
           : relay && relay.kind !== "absorbed" ? { body: message.text, summary: { html: renderMarkdown(georgeMarkdown(relay)), source: "flyd" } }
-            : !message.answers ? this.summarize(message, fresh)
+            : !message.answers ? (message.aside ? this.relaySummary(message, fresh, toHim) : this.summarize(message, fresh))
               : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh)
                 : fitsAtAGlance(message.text) ? { body: message.text }
                   : { body: message.text, summary: glance(message.text, "flyd"), ...(isActionable(message.text) ? { expanded: true } : {}) };
@@ -544,7 +573,9 @@ export class SnapshotDiffer {
       // The card is his glance: the reply as written waits behind it, never shown twice.
       if (card && !parts.summary) parts.summary = briefOf(message.text);
       // What he has to act on stays open under the card, never folded behind "as written".
-      const expanded = parts.expanded === true || (card !== undefined && !artifact && isActionable(message.text));
+      // The staff's own words are never opened by default: Flyd's line leads, the original one tap away.
+      const staffWords = message.aside === true || message.answers?.startsWith("note:") === true;
+      const expanded = !staffWords && (parts.expanded === true || (card !== undefined && !artifact && isActionable(message.text)));
       // Several pieces of work read as a card each, not as paragraphs; Flyd's own answers stay as written.
       const outcomes = message.role === "assistant" && !message.form && !routine && !message.answers?.startsWith("ask:") ? outcomesOf(message.text, handled) ?? undefined : undefined;
       const key = JSON.stringify([message.text, message.images ?? [], message.files ?? [], shots, message.page, parts.summary, parts.compare, artifact, routine, expanded, card, outcomes, message.waiting, message.waitingFailed, message.settled, message.doing, message.answers, message.aside, message.replyTo, message.receipt, choice, message.answeredFor, message.form, undone.has(message.id)]);
@@ -1919,7 +1950,7 @@ export class ConversationViewServer {
   /** The question he answered has gone: Flyd deals with that, and his words reach the same job as a normal message. */
   private sendJobResult(res: ServerResponse, status: number, result: Record<string, unknown>, receipt?: Record<string, unknown>): void {
     if (!receipt) return sendJson(res, status, result);
-    const warning = status >= 400 ? `The picture was not delivered: ${String(result.error)}` : result.warning;
+    const warning = status >= 400 ? "The picture didn't go through; send it again" : result.warning;
     sendJson(res, 200, { ...receipt, ...(warning ? { warning } : {}) });
   }
 

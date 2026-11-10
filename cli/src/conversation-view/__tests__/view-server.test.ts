@@ -190,7 +190,7 @@ describe("SnapshotDiffer relays", () => {
   });
 
   it("never calls a reply that puts nothing to him his call, nor says a short one twice", () => {
-    const status = "The fleet is moving: three jobs are open and none is waiting on you right now.";
+    const status = "Work is moving: three jobs are open and none is waiting on you right now.";
     const [, shown] = new SnapshotDiffer().next({ messages: [
       { id: "u1", role: "user", text: "how is it going?" },
       { id: "t1", role: "assistant", text: status, aside: true },
@@ -201,13 +201,25 @@ describe("SnapshotDiffer relays", () => {
     expect(shown!.summary).toBeDefined();
   });
 
-  it("keeps the rules he has to paste open under the card that leads a relayed answer", () => {
+  it("never shows the staff's own words naming how the work runs, even in reply to him: a plain line leads, the original one tap away", () => {
+    const said = "The message fix is ready on branch fm/logan-codex-limit-msg. The worker pushed it and the Fact Checker signed off.";
+    const [, shown] = new SnapshotDiffer().next({ messages: [
+      { id: "u1", role: "user", text: "how is it going?" },
+      { id: "t1", role: "assistant", text: said, aside: true },
+    ], working: false }).messages;
+    expect(shown!.card).toBeUndefined();
+    expect(shown!.expanded).toBeUndefined();
+    expect(shown!.summary!.html).not.toMatch(/branch|worker|Fact Checker/);
+    expect(shown!.html).toContain("fm/logan-codex-limit-msg");
+  });
+
+  it("keeps the rules he has to paste one tap away under the card that leads a relayed answer, never opened by default", () => {
     const [, shown] = new SnapshotDiffer().next({ messages: [
       { id: "note:1", role: "user", text: "what are the kinsta rules again" },
       { id: "t1", role: "assistant", text: KINSTA_RULES, answers: "note:1" },
     ], working: false }).messages;
     expect(shown!.card).toBeDefined();
-    expect(shown!.expanded).toBe(true);
+    expect(shown!.expanded).toBeUndefined();
     expect(shown!.html).toContain("https://capfive.com/$1");
   });
 
@@ -753,7 +765,7 @@ describe("ConversationViewServer", () => {
       } });
       const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "another round", images: [{ mediaType: "image/png", data: PNG }] }), headers);
       expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toMatchObject({ id: "resolved", followUp: "decision-1", warning: expect.stringContaining("picture was not delivered") });
+      expect(JSON.parse(response.body)).toMatchObject({ id: "resolved", followUp: "decision-1", warning: expect.stringContaining("picture didn't go through") });
       expect(resolutions).toBe(1);
     });
 
@@ -777,7 +789,7 @@ describe("ConversationViewServer", () => {
         expect(readDomainRun("changed")?.messages?.at(-1)).toMatchObject({ kind: "correction", body: expect.stringContaining("Case differs") });
         const failedPicture = await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Recorded once", images: [{ mediaType: "image/png", data: "" }] }), headers);
         expect(failedPicture.status).toBe(200);
-        expect(JSON.parse(failedPicture.body)).toMatchObject({ id: expect.stringContaining(":decision:"), warning: expect.stringContaining("picture was not delivered") });
+        expect(JSON.parse(failedPicture.body)).toMatchObject({ id: expect.stringContaining(":decision:"), warning: expect.stringContaining("picture didn't go through") });
         expect(readDomainRun("changed")?.messages?.filter((message) => message.body === "Recorded once")).toHaveLength(1);
         expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local with picture", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
         const attached = readDomainRun("changed")?.messages?.slice(-2);

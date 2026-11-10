@@ -1,5 +1,6 @@
 import { inFlydsVoice } from "./flyd-voice.js";
 import { isPlumbing } from "./for-george.js";
+import { namesBackstage } from "../runtime/honesty-check.js";
 import { asksForDecision, headlineOf, statusOf } from "./status.js";
 import { capitalise, clip, digestReply, inline, isRoutine, sentences } from "./summaries.js";
 import { withoutStubs } from "./executive.js";
@@ -304,7 +305,8 @@ export function siteProjectOf(url: string, projects: ShowProject[]): string | un
 /** Flyd's three things: what he needs to see now, most important first. */
 export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}): ShowScreen {
   const now = inputs.now ?? Date.now();
-  const assistant = inputs.assistant ?? "firstmate";
+  // Who the words came from, as he may see it: never a staff name (the relay check).
+  const assistant = inputs.assistant && !namesBackstage(inputs.assistant) ? inputs.assistant : "Flyd";
   const projects = inputs.projects ?? [];
   const messages = snapshot.messages;
   const readingOf = (message: ConversationMessage): string => inputs.reading?.(message) || message.text;

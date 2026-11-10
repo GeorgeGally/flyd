@@ -277,15 +277,14 @@ export const FRONT_SCRIPT = `
     // A jobs array is the list. Until one arrives, an empty fleet group is unknown.
     var listed = !!(frontUpdate && Array.isArray(frontUpdate.jobs));
     var known = listed || !!(frontUpdate && frontUpdate.show && frontUpdate.show.read);
-    var fleetKnown = listed ? !!frontUpdate.jobsFleetKnown : known;
-    var unread = '<p class="fempty">Not read yet.</p>';
+    var unread = '<p class="fempty">Checking…</p>';
     var needs = jobs.filter(function (job) { return job.group === "needs"; });
     var working = jobs.filter(function (job) { return job.group === "working"; });
     var waiting = jobs.filter(function (job) { return job.group === "waiting"; });
     var done = jobs.filter(function (job) { return job.group === "done"; });
     var shownDone = frontOpen.done ? done : done.slice(0, DONE_FEW_FRONT);
     var needsEmpty = listed ? "No decision is waiting." : "Nothing waits on you.";
-    var workingEmpty = listed && !fleetKnown ? "No run has reported yet." : "Nothing is running right now.";
+    var workingEmpty = "Nothing is running right now.";
     var doneEmpty = listed ? "Nothing has landed lately." : "Nothing landed this week.";
     rtabDot.hidden = !needs.length;
     var html = (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
@@ -443,7 +442,8 @@ export const FRONT_SCRIPT = `
       parts.push(block);
     } else if (job.next) {
       var next = el("p", "jv-next", job.next);
-      if (job.owner) next.appendChild(el("span", "own", job.owner === "you" ? " · you" : " · " + job.owner));
+      // Only whether the move is his: who on the staff carries it is Flyd's business.
+      if (job.owner === "you") next.appendChild(el("span", "own", " · you"));
       parts.push(next);
     }
     // With no picture, the words are the work; a block only repeats the state when there are none.

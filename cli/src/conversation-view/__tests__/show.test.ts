@@ -39,7 +39,7 @@ describe("showOf", () => {
     const [call, landed, live] = screen.items;
     expect(call).toMatchObject({ id: "call:a2", ref: "a2", headline: "The island filter is still paused on your call. A or B?", why: "waiting on you" });
     expect(landed).toMatchObject({ id: "landed:a1", headline: "The setup card fix merged into main: #74.", links: [{ label: "flyd #74", url: PR }] });
-    expect(live).toMatchObject({ id: "live", headline: "Running the Swift tests", why: "firstmate is on it now" });
+    expect(live).toMatchObject({ id: "live", headline: "Running the Swift tests", why: "Flyd is on it now" });
   });
 
   it("never shows more than a few things", () => {
@@ -84,12 +84,12 @@ describe("showOf", () => {
 
   it("recaps what last ran, newest first, when nothing is outstanding", () => {
     const screen = showOf(snapshot([
-      fleet("a1", "Sir, the scout is evolving its sources.", 60 * 30),
+      fleet("a1", "Sir, the news sources are being refreshed.", 60 * 30),
       fleet("a2", "Sir, the island fix is queued next.", 60 * 20),
     ]), { now: NOW });
     expect(screen.items.map((item) => [item.kind, item.why])).toEqual([
-      ["news", "last from firstmate"],
-      ["news", "last from firstmate"],
+      ["news", "last from Flyd"],
+      ["news", "last from Flyd"],
     ]);
     expect(screen.items.map((item) => item.ref)).toEqual(["a2", "a1"]);
     expect(screen.title).toBe("Here's where things stand, sir.");
@@ -310,7 +310,7 @@ describe("SnapshotDiffer show", () => {
     const update = differ.next(snapshot([shipped], { working: true, activity: "Checking the live site", lastActivity: new Date().toISOString() }));
     expect(update.show.items.map((item) => [item.kind, item.headline, item.why])).toEqual([
       ["landed", "The menu change shipped to production.", "just landed"],
-      ["live", "Checking the live site", "firstmate is on it now"],
+      ["live", "Checking the live site", "Flyd is on it now"],
     ]);
     expect(update.show.title).toBe("Good news, sir.");
   });

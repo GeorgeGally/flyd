@@ -233,8 +233,8 @@ export const MESSAGES_SCRIPT = `
       el.insertBefore(compare, body);
     }
     var more = document.createElement("button");
-    // Flyd's whole reading already leads; what waits behind it is the reply as firstmate wrote it.
-    var word = message.summary.source === "brief" ? "as written" : "more";
+    // Flyd's whole reading already leads; what waits behind it is the staff's original, one tap away.
+    var word = message.aside || (message.answers && message.answers.indexOf("note:") === 0) ? "show original" : message.summary.source === "brief" ? "as written" : "more";
     more.type = "button";
     more.className = "more";
     more.textContent = el.classList.contains("open") ? "less" : word;

@@ -53,6 +53,17 @@ describe("jobsFrom", () => {
     expect(board.jobs.find((job) => job.group === "working")).toMatchObject({ started: "2026-10-26T09:00:00Z", at: "2026-10-26T11:59:00Z" });
   });
 
+  it("never names the staff or how the work runs on a card, whatever a run's status", () => {
+    const statuses = ["queued", "accepted", "working", "needs_decision", "completed", "incomplete", "failed", "cancelled"] as const;
+    const runs = statuses.map((status, index) => run({ id: status, status, project: `P${index}`, outcome: "", owner: "Design Mate", ...(status === "needs_decision" ? { question: "Ready on branch fm/x: merge it?" } : {}) }));
+    const board = jobsFrom({ runs: [...runs, run({ id: "quiet", project: "Q", outcome: "", updatedAt: "2026-10-20T11:00:00.000Z" })], now: NOW });
+    expect(board.jobs.length).toBeGreaterThan(0);
+    for (const job of board.jobs) {
+      expect(["you", "Flyd", ""]).toContain(job.owner);
+      expect(`${job.next} ${job.ask}`).not.toMatch(/Design Mate|worker|handoff|branch|fm\/|Nothing has moved/i);
+    }
+  });
+
   it("does not count queued work or a run gone quiet as working", () => {
     const show = { ...screen, next: [{ id: "next:q", kind: "next", headline: "Queued thing", why: "", task: "q" }] } as unknown as ShowScreen;
     const board = jobsFrom({ show, runs: [run({ id: "stale", project: "", updatedAt: "2026-10-20T11:00:00.000Z" }), run({ id: "note", project: "", status: "queued" })], now: NOW });
@@ -63,13 +74,13 @@ describe("jobsFrom", () => {
   });
 
   it("shows paused, parked and blocked workers as paused without requiring attention", () => {
-    const fleet = parseBearings({ in_flight: ["paused", "parked", "blocked"].map((state) => ({ id: state, name: `${state} worker`, state })) });
+    const fleet = parseBearings({ in_flight: ["paused", "parked", "blocked"].map((state) => ({ id: state, name: `${state} job`, state })) });
     const show = { ...screen, held: heldItems(fleet) };
     const board = jobsFrom({ show, now: NOW });
     expect(board.jobs.map((job) => [job.title, job.group, job.state, job.ask])).toEqual([
-      ["Paused worker", "waiting", "Paused", ""],
-      ["Parked worker", "waiting", "Paused", ""],
-      ["Blocked worker", "waiting", "Paused", ""],
+      ["Paused job", "waiting", "Paused", ""],
+      ["Parked job", "waiting", "Paused", ""],
+      ["Blocked job", "waiting", "Paused", ""],
     ]);
   });
 

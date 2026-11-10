@@ -382,7 +382,7 @@ describe("conversation page", () => {
       return real(url as string, init);
     });
     await type("ship it after the update");
-    expect(pending()[0]).toContain("not sent");
+    expect(pending()[0]).toContain("Not sent");
     expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("ship it after the update");
     down = false;
     await new Promise((resolve) => setTimeout(resolve, 1_100));
@@ -1121,7 +1121,9 @@ describe("conversation page", () => {
     expect(document.querySelector(".msg.failed")).not.toBeNull();
     // The words are kept, with one clear line saying they did not go.
     expect((document.getElementById("input") as HTMLTextAreaElement).value).toBe("pong");
-    expect(document.querySelector(".msg.failed .state")?.textContent).toContain("not sent: firstmate did not take the message: no");
+    expect(document.querySelector(".msg.failed .state")?.textContent).toContain("Not sent. It's back in the box to try again");
+    // The server's reason is never his to read.
+    expect(document.querySelector(".msg.failed .state")?.textContent).not.toContain("firstmate");
     expect(blips).toBe(1);
   });
 
@@ -1149,7 +1151,8 @@ describe("conversation page", () => {
     expect(sends.slice(2)).toEqual([fresh]);
     vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/token" ? json({ token: fresh }) : url === "/api/send" ? json({ error: "missing or wrong token" }, 403) : json({ sessions: SESSIONS }))));
     await type("third");
-    expect(document.querySelector(".msg.failed .state")?.textContent).toContain("missing or wrong token");
+    expect(document.querySelector(".msg.failed .state")?.textContent).toContain("Not sent");
+    expect(document.querySelector(".msg.failed .state")?.textContent).not.toContain("token");
   });
 
   it("never sits on \"reconnecting…\" after the view restarts: a new view's token reloads the page, the same one reconnects", async () => {
@@ -1886,7 +1889,7 @@ describe("header and artefact view", () => {
     document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
     expect(input.value).toBe("");
-    expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toContain("picture was not delivered");
+    expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toContain("picture didn't go through");
     expect(document.querySelector(".scene-ask .art-thread")!.textContent).toContain("another round");
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(1);
     expect(document.querySelectorAll(".scene-ask .art-chat-images img")).toHaveLength(1);
@@ -2216,7 +2219,7 @@ describe("header and artefact view", () => {
     await settle();
     expect(ask.querySelector<HTMLElement>(".art-thread")!.hidden).toBe(true);
     expect(chat.value).toBe("Make the pins bigger");
-    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("firstmate did not take the message");
+    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Not delivered; try again.");
   });
 
   it("shows a card's thread again after a reload, answers and all", async () => {
@@ -2997,7 +3000,7 @@ describe("header and artefact view", () => {
     const stream = open("latest", []);
     stream.emit("update", { order: [], messages: [], working: false, show: { ...SHOW, live: false } });
     expect(document.getElementById("scene-head")!.textContent).toBe("Your move, sir.");
-    expect(document.getElementById("show-doing")!.textContent).toBe("Standby");
+    expect(document.getElementById("show-doing")!.textContent).toBe("Nothing running right now");
   });
 
   it("offers no left column and no header button while nothing needs him, even with the column switched on", async () => {
@@ -4536,7 +4539,7 @@ describe("the front page", () => {
   it("lists the jobs as cards, and an unread fleet as unknown rather than empty", async () => {
     const stream = await opened();
     // The conversation is the middle of the page, not a card: he starts one by typing in it.
-    expect(groups()).toEqual([["Needs you", "Not read yet."], ["Working", "Not read yet."], ["Done", "Not read yet."]]);
+    expect(groups()).toEqual([["Needs you", "Checking…"], ["Working", "Checking…"], ["Done", "Checking…"]]);
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
     expect(groups()).toEqual([["Needs you", 1], ["Working", "Nothing is running right now."], ["Done", 1]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
@@ -4727,7 +4730,7 @@ describe("the front page", () => {
     expect(document.body.textContent).not.toContain("Not read yet");
     expect(groups()).toEqual([
       ["Needs you", "No decision is waiting."],
-      ["Working", "No run has reported yet."],
+      ["Working", "Nothing is running right now."],
       ["Waiting", "Nothing is waiting."],
       ["Done", "Nothing has landed lately."],
     ]);

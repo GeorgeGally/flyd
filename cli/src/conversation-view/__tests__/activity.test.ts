@@ -136,10 +136,21 @@ describe("composeActivity", () => {
       jobs: [{ id: "a1", status: "running", startedAt: minutesAgo(3), updatedAt: minutesAgo(1), contract: { task: "Tidy the notes." } }],
       advice: [],
       records: [{ kind: "decided", title: "Answered your staff's question", at: "2026-10-17T11:00:00.000Z" }],
+      upkeep: true,
     }, NOW);
     expect(panel.now.map((item) => item.title)).toEqual(["Working on a job for you"]);
     expect(panel.recent.map((item) => item.title)).toEqual(["Answered your staff's question", "Watched the news for you", "Read back its own answers"]);
     expect(panel.recent[2]!.line).toBe("10 recent answers checked; all held up.");
+  });
+
+  it("keeps Flyd's own upkeep off his screen unless he asks how Flyd works", () => {
+    const log = [
+      "2026-10-17T03:58:43.648Z self-review: reviewed, 10 reviewed, 0 short",
+      "2026-10-17T04:00:00.000Z council: 3 turns, 1 captures, 0 advisories",
+      "2026-10-17T04:02:32.232Z scout: watch: 0 must-know",
+    ];
+    const panel = composeActivity({ log, jobs: [], advice: [], records: [] }, NOW);
+    expect(panel.recent.map((item) => item.title)).toEqual(["Watched the news for you"]);
   });
 
   it("lets a news record supersede the log line that repeats it, keeping its story links", () => {

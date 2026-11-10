@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ClaudeUsage } from "../lib/claude-spend.js";
+import { namesBackstage } from "../runtime/honesty-check.js";
 
 // Plain-English summaries of the assistant's replies, so the captain can read
 // the outcome first and open the full reply only when he wants it.
@@ -297,9 +298,10 @@ export function digestReply(text: string): ReplyDigest {
   while (paragraphs.length > 1 && isAcknowledgement(paragraphs[0]!)) paragraphs.shift();
   const opening = sentences(inline(paragraphs[0] ?? ""));
   while (opening.length > 1 && ACK_LEAD.test(opening[0]!)) opening.shift();
-  const lead = capitalise(clip(opening[0] ?? firstSentence(body), 220));
-  const points = pointsOf(body);
-  return { routine: isRoutine(text), lead, points: points.length ? points : paragraphPoints(paragraphs) };
+  // The relay check holds back sentences that name the staff or how the work runs: the lead is the first that does not, when one does not.
+  const lead = capitalise(clip(opening.find((sentence) => !namesBackstage(sentence)) ?? opening[0] ?? firstSentence(body), 220));
+  const points = (pointsOf(body).length ? pointsOf(body) : paragraphPoints(paragraphs)).filter((point) => !namesBackstage(`${point.label ?? ""} ${point.text}`));
+  return { routine: isRoutine(text), lead, points };
 }
 
 /** The digest as Markdown: the lead, then one line per point. */

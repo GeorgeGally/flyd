@@ -34,15 +34,15 @@ describe("parseBearings", () => {
     expect(fleet.generated).toBe("2026-10-09T10:56:01Z");
     expect(fleet.unavailable).toBeUndefined();
     expect(fleet.calls).toEqual([{ label: "Review the Jev decision log: keep or remove it?", task: "jev" }]);
-    expect(fleet.live).toEqual([{ label: "Artefact mode must always show something real", task: "a", detail: "A worker is on it", repo: "flyd" }]);
+    expect(fleet.live).toEqual([{ label: "Artefact mode must always show something real", task: "a", detail: "Under way", repo: "flyd" }]);
     expect(fleet.ready).toEqual([{
-      label: "Flyd: island filter", task: "b", detail: "PR open; its checks passed", repo: "flyd", url: "https://github.com/GeorgeGally/flyd/pull/70", status: "PR open",
+      label: "Flyd: island filter", task: "b", detail: "Ready to land; its checks passed", repo: "flyd", url: "https://github.com/GeorgeGally/flyd/pull/70", status: "PR open",
     }]);
     expect(fleet.landed).toEqual([
       { label: "Refresh the PR branches", task: "c", detail: "#76 merged green", repo: "flyd", url: "https://github.com/GeorgeGally/flyd/pull/76", status: "merged" },
       { label: "Flyd: visual show mode", task: "flyd-show-mode", repo: "flyd", url: "https://github.com/GeorgeGally/flyd/pull/79", status: "landed" },
     ]);
-    expect(fleet.held).toEqual([{ label: "Admin redesign", task: "d", detail: "The run failed", repo: "gnm", status: "failed" }]);
+    expect(fleet.held).toEqual([{ label: "Admin redesign", task: "d", detail: "Hit a snag; Flyd is sorting it out", repo: "gnm", status: "failed" }]);
     expect(fleet.next).toEqual([{ label: "Add a subtle flat green light to the Flyd icon", task: "flyd-icon-led", status: "queued" }]);
     // The failed job is the staff's to repair (Flyd chases it), never a count on his screen.
     expect(fleetCounts(fleet)).toEqual({ call: 1, live: 1, ready: 1, landed: 2, waiting: 0, next: 1 });
@@ -63,8 +63,8 @@ describe("parseBearings", () => {
   });
 
   it("says firstmate's run notes in plain words", () => {
-    expect(plainStep("harness state unavailable (unknown missing)")).toBe("No word from the worker");
-    expect(plainStep("ready in branch fm/capfive-lab")).toBe("Ready on branch fm/capfive-lab");
+    expect(plainStep("harness state unavailable (unknown missing)")).toBe("Under way");
+    expect(plainStep("ready in branch fm/capfive-lab")).toBe("Ready to land");
     expect(plainStep("PR https://github.com/GeorgeGally/capfive/pull/3 rebased onto main and pushed; mergeable; …")).toBe("PR #3 rebased onto main and pushed; mergeable…");
     expect(plainStep("76 MERGED green https://github.com/GeorgeGally/flyd/pull/76 | 71 MERGED green https://gith…")).toBe("#76 merged green; #71 merged green…");
     expect(readyStatus("PR https://github.com/x/y/pull/53 checks green")).toBe("checks green");
@@ -523,14 +523,14 @@ describe("composeArtefact", () => {
       ["call", "Review the Jev decision log: keep or remove it?"],
       ["live", "Artefact mode must always show something real"],
       ["ready", "Island filter"],
-      ["landed", "Refresh the PR branches"],
+      ["landed", "Finished"],
       ["landed", "Visual show mode"],
       ["next", "Add a subtle flat green light to the Flyd icon"],
       ["news", "George wants Bloom finished."],
       ["news", "Hybrid RAG"],
     ]);
     expect(items[0]!.why).toBe("");
-    expect(items[2]).toMatchObject({ project: "flyd", status: "PR open", detail: "PR open; its checks passed" });
+    expect(items[2]).toMatchObject({ project: "flyd", status: "PR open", detail: "Ready to land; its checks passed" });
     expect(items[4]!.links).toEqual([{ label: "flyd #79", url: "https://github.com/GeorgeGally/flyd/pull/79" }]);
     expect(items[6]).toMatchObject({ why: "from your memory" });
   });
@@ -735,7 +735,7 @@ describe("ArtefactFeed", () => {
 
     read("Drag and drop documents", "harness busy");
     await feed.refresh();
-    const first = { kind: "under way", title: "Drag and drop documents", detail: "A worker is on it", project: "flyd" };
+    const first = { kind: "under way", title: "Drag and drop documents", detail: "Under way", project: "flyd" };
     answers.shift()!(JSON.stringify([{ id: voiceKey(first), headline: "Documents will drop straight into the window.", line: "Nothing for you yet." }]));
     await settle();
     expect(feed.current().fleet!.live[0]!.said?.headline).toBe("Documents will drop straight into the window.");

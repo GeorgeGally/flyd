@@ -307,9 +307,11 @@ export const ARTEFACT_CHAT_SCRIPT = `
       authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, true)
         .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
         .then(function (result) {
-          if (!result.ok) throw new Error(result.data.error || "Not delivered; try again.");
+          // The server's reason is Flyd's to read: he sees one plain line, and his words go back in the box.
+          if (!result.ok) throw new Error("Not delivered; try again.");
           state.receipt = "sent";
-          state.error = result.data.warning || "";
+          // A warning is the server's own reason (a picture that missed, a message not passed on yet): he gets one plain line.
+          state.error = !result.data.warning ? "" : sending.length ? "The picture didn't go through; send it again" : "Saved; Flyd passes it on shortly";
           if (target.decision && result.data.followUp) state.followUpRequired = result.data.followUp;
           entry.id = result.data.id;
           // Only what went is cleared: one pasted while it was on its way stays for the next.
@@ -326,7 +328,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
         })
         .catch(function (error) {
           state.receipt = "";
-          state.error = error.message || "Not delivered; try again.";
+          state.error = "Not delivered; try again.";
           // Nothing went, so it is not in the thread: his words go back in the box to try again.
           state.thread = (state.thread || []).filter(function (one) { return one !== entry; });
           if (draft && !input.value) { input.value = draft; state.text = draft; save(); }

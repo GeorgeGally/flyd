@@ -2,6 +2,12 @@ const HELPERS = /\b(?:firstmates?|first mate|crew ?mates?|crewmembers?|subagents
 const MACHINERY = /\b(?:worktrees?|system-1|jev)\b/i;
 // Proper names are matched as written so "a critic" or "my muse" stays ordinary speech.
 const COUNCIL_NAMED = /\b(?:the (?:Librarian|Critic|Strategist|Muse|Council)|Scouts?)\b/;
+/** The command layer's bosses and specialists, by the names nobody else uses. */
+const STAFF_UNMISTAKABLE = /\b(?:Design Mates?|Fact Checkers?|coding boss(?:es)?)\b/i;
+/** Staff titles that are also ordinary job titles ("the creative director at the agency"): held back where Flyd reports its own work, not in chat. */
+const STAFF_TITLES = /\b(?:Creative Directors?|Librarians?|Retrievers?|Researchers?)\b/;
+/** How the staff's work is run, never what it came to: who is on it, the fleet, a handoff between them. */
+const STAFF_MACHINERY = /\b(?:workers?|fleets?|hand-?offs?)\b/i;
 
 const COMMIT_ID = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/i;
 const FM_BRANCH = /\bfm\/[\w.-]+/i;
@@ -17,13 +23,13 @@ const COUNCIL_ROLES: RegExp[] = [
 ];
 
 /** Flyd's backstage roles and agents, as opposed to the mechanics of the work. */
-export const BACKSTAGE_ROLES: RegExp[] = [HELPERS, CREWS, /\bjev\b/i, COUNCIL_NAMED, ...COUNCIL_ROLES];
+export const BACKSTAGE_ROLES: RegExp[] = [HELPERS, STAFF_UNMISTAKABLE, STAFF_TITLES, CREWS, /\bjev\b/i, COUNCIL_NAMED, ...COUNCIL_ROLES];
 
 /** Git and run telemetry: commit hashes, fm/ branches, task, run, job and domain-run ids. */
 export const BACKSTAGE_TELEMETRY: RegExp[] = [COMMIT_ID, FM_BRANCH, RUN_ID, JOB_ID, DOMAIN_RUN_ID];
 
 /** The names chat review holds back: helpers, machinery and the council by name, words that are rarely ordinary speech in an answer. */
-export const CHAT_BACKSTAGE: RegExp[] = [HELPERS, MACHINERY, COUNCIL_NAMED];
+export const CHAT_BACKSTAGE: RegExp[] = [HELPERS, STAFF_UNMISTAKABLE, MACHINERY, COUNCIL_NAMED];
 
 /** What a chat answer may not name. A PR number or a job or domain-run id George asked about may be named back to him. */
 export const CHAT_ANSWER_BACKSTAGE: RegExp[] = [
@@ -38,7 +44,7 @@ export const CHAT_ANSWER_BACKSTAGE: RegExp[] = [
 ];
 
 /** Everything relays, notices, status cards and agenda lines may not show. */
-export const BACKSTAGE_DENYLIST: RegExp[] = [...CHAT_ANSWER_BACKSTAGE, PR_NUMBER, JOB_ID, DOMAIN_RUN_ID];
+export const BACKSTAGE_DENYLIST: RegExp[] = [...CHAT_ANSWER_BACKSTAGE, STAFF_TITLES, STAFF_MACHINERY, PR_NUMBER, JOB_ID, DOMAIN_RUN_ID];
 
 /** A commit id inside a link is part of the address, not news: masked before the denylist reads the text. Pure. */
 export function withoutLinkIds(text: string): string {

@@ -325,7 +325,7 @@ describe("FlydDesk", () => {
     desk.ask("what's the weather");
     turn.reject(new Error("model unavailable"));
     await until(() => (desk.exchanges()[0]?.waiting.startsWith("Flyd couldn't") ? true : undefined));
-    expect(desk.exchanges()[0]!.waiting).toBe("Flyd couldn't answer this: model unavailable");
+    expect(desk.exchanges()[0]!.waiting).toBe("Flyd couldn't answer that; send it again");
     expect(desk.exchanges()[0]!.waitingFailed).toBe(true);
 
     desk.ask("still there?");
