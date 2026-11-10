@@ -54,4 +54,26 @@ describe("state of play", () => {
     play.record({ id: "old", text: "DIR\n- Request page: blocked on the login.\n- Previews: started.", timestamp: "2026-11-09T20:00:00Z" }, PROJECTS, now);
     expect(play.current(now).find((item) => item.project === "DIR")?.source).toBe("new");
   });
+
+  it("reads each item's state from its status, not from words in what it is about", () => {
+    const report = `DIR
+- Fix for the failing previews: landed and pushed.
+- Layout: Flyd will decide the layout next.
+- Request page: landed after review.
+- Still in progress: search and replace.
+- Blocked: waiting on the PC.
+- Up next: the intro, the outro and the credits.`;
+    const [dir] = parseStateReport(report, PROJECTS);
+    expect(dir!.items.map((item) => [item.label, item.state, item.count])).toEqual([
+      ["Fix for the failing previews", "landed", 1],
+      ["Layout", "moving", 1],
+      ["Request page", "landed", 1],
+      ["Still in progress", "moving", 1],
+      ["Blocked", "stuck", 1],
+      ["Up next", "moving", 1],
+    ]);
+    const file = join(mkdtempSync(join(tmpdir(), "play-")), "state.json");
+    const news = new StateOfPlay(file).record({ id: "m", text: report.split("\n").slice(0, 2).join("\n") + "\n- Deep dive: started.", timestamp: "2026-11-10T01:30:00Z" }, PROJECTS, Date.parse("2026-11-10T02:00:00Z"));
+    expect(playKind(news)).toBe("deliverable");
+  });
 });

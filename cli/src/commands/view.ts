@@ -20,7 +20,7 @@ import { threadCatalogue } from "../conversation-view/project-tags.js";
 import { ProjectThreads, withProjectThreads, type ThreadFeed } from "../conversation-view/project-threads.js";
 import { QuestionGone, type ConversationMessage, type ConversationSource } from "../conversation-view/types.js";
 import { playKind, StateOfPlay } from "../lib/state-of-play.js";
-import { notifyMac } from "../runtime/agenda.js";
+import { deliverNotification } from "../runtime/agenda.js";
 import { inFlydsVoice } from "../conversation-view/flyd-voice.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { memoryLookup } from "../conversation-view/living.js";
@@ -180,8 +180,12 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, i
       try {
         const news = play.record(message, projects);
         const kind = playKind(news);
-        // What landed or needs him rings once; the rest waits for his next briefing.
-        if (kind && !process.env.VITEST) void notifyMac("Flyd", news.map((item) => item.line).join(" "), kind, news[0]!.project).catch(() => undefined);
+        // What landed or needs him rings once and counts as told; what was held back, and the rest, waits for his next briefing.
+        if (kind && !process.env.VITEST) {
+          void deliverNotification("Flyd", news.map((item) => item.line).join(" "), kind, news[0]!.project)
+            .then((outcome) => { if (outcome === "shown") play.markTold(news); })
+            .catch(() => undefined);
+        }
       } catch { /* The state of play is Flyd's own notebook; the threads go on without it. */ }
     }
   };
