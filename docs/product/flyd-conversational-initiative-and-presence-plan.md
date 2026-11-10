@@ -362,7 +362,7 @@ Existing files listed here were checked against the reviewed repository. New nam
 | Package | Existing files to extend | Proposed small modules / constraints |
 |---|---|---|
 | Turn boundary | `runtime/conversation-responder.ts`, `runtime/read-the-room.ts`, `runtime/turn-plan.ts`, `runtime/turn-receipt.ts`, `cognition/system-one/registry.ts` | `runtime/conversation-turn.ts` for shared input/understanding and source identity; avoid replacing the existing runtime |
-| Voice/context | `lib/soul.ts`, `runtime/room-context.ts`, `cognition/context-compiler.ts`, `council/chief-of-staff.ts`, `council/reply-review.ts` | Compact shared voice builder only if extraction removes duplication; keep user overrides authoritative |
+| Voice/context | `lib/soul.ts`, `runtime/room-context.ts`, `cognition/context-compiler.ts`, `council/standard.ts`, `council/reply-review.ts` | Compact shared voice builder only if extraction removes duplication; keep user overrides authoritative |
 | Initiative | Existing ContextEnvelope/event store/projection and existing tick | `runtime/conversational-initiative.ts` for deterministic eligibility, remit projection and outbox coordination; no new daemon |
 | Scope and workers | `runtime/tool-policy.ts`, `runtime/background-jobs.ts`, `runtime/acceptance.ts`, `command/types.ts`, `command/firstmate.ts`, `command/librarian.ts`, `command/messages.ts`, `command/scheduler.ts` | Inherited scope gate at every actual effect; transport contract evidence before dispatching to an external boss |
 | View/audio | `conversation-view/flyd-desk.ts`, `conversation-view/server.ts`, `realtime-session.ts`, `mac-adapter/Sources/Bridge/LiveAudioBridge.swift` | Share turn IDs/routing result and audio response ownership; no replacement UI framework |

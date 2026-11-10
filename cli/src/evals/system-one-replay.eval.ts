@@ -1,5 +1,5 @@
 import { museCandidates } from "../council/muse.js";
-import { checkSaid, handsHimInternalDecision, isPlaceholder, type Said } from "../council/chief-of-staff.js";
+import { checkSaid, handsHimInternalDecision, isPlaceholder, type Said } from "../council/standard.js";
 import { existsSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,7 +90,7 @@ const BASELINES: Record<string, BaselineFn> = {
   // Every invocation that reaches a model uses the main model today.
   needs_reasoning_model: () => true,
   // outcome_supported: the incumbent is an LLM judge (transitions/judge.ts); no deterministic baseline.
-  // Self-review: the deterministic checks Jev backs up (council/chief-of-staff.ts).
+  // Self-review: the deterministic checks Jev backs up (council/standard.ts).
   cos_outcome_first: (inputs) => !checkSaid(said(inputs)).some((item) => item.requirement === "outcome_first" || item.requirement === "real_status"),
   cos_placeholder: (inputs) => isPlaceholder(text(inputs, "text")),
   cos_internal_decision: (inputs) => handsHimInternalDecision(text(inputs, "text")),
@@ -192,7 +192,7 @@ describe("System-1 replay bench", () => {
     expect(note.filter((r) => r.label === true && r.jev === true).length).toBeGreaterThanOrEqual(4);
     // Self-review: every decided answer is right but one. An "I'll take a
     // look and get back to you" promise reads as naming the work (0.14), so
-    // the preamble check (council/chief-of-staff.ts) carries that case. An
+    // the preamble check (council/standard.ts) carries that case. An
     // internal call handed to George is decided (0.88-0.92) and his own
     // calls (send, merge, a hero palette) are not flagged (<= 0.12).
     for (const id of ["cos_outcome_first", "cos_placeholder", "cos_internal_decision", "cos_wants_artefact", "cos_off_voice"]) {

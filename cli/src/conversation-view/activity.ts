@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, sep } from "node:path";
-import { checkSaid } from "../council/chief-of-staff.js";
+import { checkSaid } from "../council/standard.js";
 import { labAwaitingReview } from "../command/design.js";
 import { labsDir } from "../command/design-mate.js";
 import { commandDir, listDomainRuns } from "../command/store.js";

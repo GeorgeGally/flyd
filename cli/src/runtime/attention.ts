@@ -131,7 +131,7 @@ export function released<T extends Held>(held: T[], focus: Focus): T[] {
 }
 
 const COUNT = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
-/** A notification is one line of at most this many characters (council/chief-of-staff.ts notificationLine). */
+/** A notification is one line of at most this many characters (council/standard.ts notificationLine). */
 const BATCH_MAX = 140;
 const NAME_MAX = 48;
 

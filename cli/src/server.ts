@@ -91,7 +91,7 @@ import { captureRuntimeSnapshot } from "./planning/runtime-capture.js";
 import { materializePresentFromWork } from "./cognition/present-materializer.js";
 import { rebuildKnowledgeProjections } from "./cognition/projections/store.js";
 import { runCuratorSweep } from "./cognition/curator/reconcile.js";
-import { isIdleNotice, notificationLine } from "./council/chief-of-staff.js";
+import { isIdleNotice, notificationLine } from "./council/standard.js";
 import { GEORGE_KINDS, reachesGeorge, untaggedKind, type GeorgeKind } from "./lib/reaches-george.js";
 import { recordKept } from "./council/reply-review.js";
 
