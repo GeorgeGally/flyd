@@ -35,8 +35,8 @@ export function correctNames(text: string, terms: string[], learned: Replacement
   if (!text) return text;
   const known = new Set(terms.map(term => term.toLowerCase()));
   const has = (name: string) => known.has(name.toLowerCase());
-  // A learned rule never rewrites one of his names into another.
-  let current = applyRules(text, learned.filter(rule => !has(rule.from)));
+  // A learned rule never rewrites one of his names, and lapses when its name is no longer his.
+  let current = applyRules(text, learned.filter(rule => !has(rule.from) && has(rule.to)));
   const builtIn = KNOWN_SOUND_ALIKES.filter(entry => has(entry.to))
     .flatMap(entry => entry.from.filter(from => !has(from)).map(from => ({ from, to: entry.to })));
   current = applyRules(current, builtIn);

@@ -32,7 +32,7 @@ beforeEach(() => {
   vi.stubEnv("FLYD_DICTATE_MODEL", "");
   vi.stubEnv("OPENAI_API_KEY", "test-key");
   writeFileSync(join(dir, "projects.json"), JSON.stringify({ projects: [
-    project("CleanX"), project("Posttraction"), project("Logan"), project("Pierre"), project("Tastemaker"), project("Fonzo"),
+    project("CleanX"), project("Posttraction"), project("Logan"), project("Pierre"), project("Tastemaker"), project("Fonzo"), project("Fonzi"),
   ] }));
   writeFileSync(join(dir, "USER.md"), "# George\n\nWatches YouTube and TikTok, collects CryptoArt.\n");
 });
@@ -143,6 +143,23 @@ describe("his corrections teach Flyd", () => {
     await edit("book a flight today", "book a fight today", "d2");
     expect(learnedNameRules()).toEqual([{ from: "fonso", to: "Fonzo" }]);
     expect(correctVoiceNames("is fonso live")).toBe("is Fonzo live");
+    const listed = (await learningRequest("/learning", "GET")).body as { corrections: Array<{ to: string; status: string; activation?: string }> };
+    expect(listed.corrections.find(c => c.to === "Fonzo")).toMatchObject({ status: "active", activation: "automatic" });
+  });
+
+  it("withholds heard words taught two different names", async () => {
+    await learning("enable");
+    learnLiveUtterance("it's Fonzo not Fonso", "anything");
+    learnLiveUtterance("it's Fonzi not Fonso", "anything");
+    expect(learnedNameRules()).toEqual([]);
+  });
+
+  it("a learned name lapses when it is no longer one of his", async () => {
+    await learning("enable");
+    learnLiveUtterance("it's Fonzo not Fonso", "anything");
+    expect(correctVoiceNames("a fonso box")).toBe("a Fonzo box");
+    writeFileSync(join(dir, "projects.json"), JSON.stringify({ projects: [project("CleanX")] }));
+    expect(correctVoiceNames("a fonso box")).toBe("a fonso box");
   });
 });
 

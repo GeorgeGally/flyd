@@ -171,7 +171,7 @@ export function correctionCandidates(store: IntelligenceEventStore): CorrectionC
     const { manual, disabled } = summary;
     const conflict = (spellings.get(scopeKey(c))?.size ?? 0) > 1;
     const safe = summary.eligible.has(c.sequence);
-    const named = c.bundleId === NAME_LESSONS && !disabled;
+    const named = c.name === true && !disabled && !conflict;
     const active = !disabled && (named || !conflict && safe && summary.count >= CORRECTION_PROMOTION_THRESHOLD);
     return { ...c, approved: manual, reviewed: manual || disabled, evidenceCount: safe ? summary.count : group.length,
       status: manual ? "active" : disabled ? "disabled" : named ? "active" : conflict || !safe ? "blocked" : active ? "active" : "tentative",
@@ -254,7 +254,10 @@ export function recordNameLesson(pair: ReplacementRule, learnedFrom: string): nu
   } finally { store.close(); }
 }
 
-/** His name corrections, for every voice path. A spelling he rejected anywhere stays off everywhere. */
+/**
+ * His active name corrections, for every voice path. A spelling he rejected
+ * anywhere stays off everywhere; heard words taught two spellings are withheld.
+ */
 export function learnedNameRules(): ReplacementRule[] {
   if (learningRegistry().status(CORRECTION_SOURCE) !== "enabled") return [];
   const store = new IntelligenceEventStore();
@@ -262,9 +265,12 @@ export function learnedNameRules(): ReplacementRule[] {
     const candidates = correctionCandidates(store);
     const pairKey = (c: ReplacementRule) => normalize(c.from) + "\u0000" + normalize(c.to);
     const rejected = new Set(candidates.filter(c => c.status === "disabled").map(pairKey));
-    const rules = new Map<string, ReplacementRule>();
-    for (const c of candidates) if (c.name && !rejected.has(pairKey(c))) rules.set(normalize(c.from), { from: c.from, to: c.to });
-    return [...rules.values()];
+    const rules = new Map<string, ReplacementRule | null>();
+    for (const c of candidates) if (c.name && c.status === "active" && !rejected.has(pairKey(c))) {
+      const known = rules.get(normalize(c.from));
+      rules.set(normalize(c.from), known === undefined || known !== null && normalize(known.to) === normalize(c.to) ? { from: c.from, to: c.to } : null);
+    }
+    return [...rules.values()].filter((rule): rule is ReplacementRule => rule !== null);
   } finally { store.close(); }
 }
 
