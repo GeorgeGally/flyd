@@ -34,6 +34,8 @@ export interface JobContract {
   deliverable?: string;
   /** Started by an unattended run, not by George: it never opens an app he has closed. */
   background?: boolean;
+  /** Started for a Chief of Staff objective: the objective reports the result, so the job never tells George itself. */
+  objectiveId?: string;
 }
 
 export type JobCheck = AcceptanceCheck;
@@ -343,7 +345,7 @@ async function executeJob(job: JobRecord, deps: JobDependencies): Promise<void> 
   }, outcome.unresolved ? { unresolved: outcome.unresolved } : {});
   try { saveJob(job, deps.dir); } catch { /* the result still reaches George */ }
   const done: JobResult = { id: job.id, task: job.contract.task, status: outcome.status, result: outcome.result };
-  await deps.deliver?.(done).catch(() => undefined);
+  if (!job.contract.objectiveId) await deps.deliver?.(done).catch(() => undefined);
   jobEvents.emit("done", done);
 }
 

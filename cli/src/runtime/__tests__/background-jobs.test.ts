@@ -55,6 +55,12 @@ describe("done_when gate", () => {
     expect(verify.mock.calls[0][0]).not.toContain("if blocked");
   });
 
+  it("never tells George itself about a job a Chief of Staff objective reports", async () => {
+    const deliver = vi.fn(async () => undefined);
+    await finish({ ...canva, objectiveId: "obj-1" }, { run: async () => "Imported.", verify: async () => "MET 1: it's in Canva", deliver });
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
   it("keeps a job an unattended run started unattended through its build and check turns", async () => {
     const run = vi.fn(async (_message: string, _id: string, _background?: boolean) => "Imported the deck into Canva as design DAGk3x9QbZ1.");
     const verify = vi.fn(async (_message: string, _id: string, _background?: boolean) => "MET 1: it's in Canva");

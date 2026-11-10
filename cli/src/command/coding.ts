@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { FirstmateDomainTransport } from "./firstmate.js";
-import { recordDomainRunRefusal } from "./store.js";
-import type { DomainRequest, DomainRun } from "./types.js";
+import { isDomainRunId, recordDomainRunRefusal } from "./store.js";
+import type { BriefDecisions, DomainRequest, DomainRun } from "./types.js";
 
 export type CodingDomainRefusalReason = "project_not_found" | "test_worker";
 export type CodingDomainDispatch = { status: "accepted"; run: DomainRun } | { status: "refused"; reason: CodingDomainRefusalReason };
@@ -24,6 +24,10 @@ export interface CodingDispatchInput {
   project?: { name?: string; root?: string };
   transport?: FirstmateDomainTransport;
   skill?: DomainRequest["skill"];
+  /** A stable id: the same request handed over again is replayed by FirstMate's inbox, never started twice. */
+  requestId?: string;
+  objectiveId?: string;
+  decisions?: BriefDecisions;
   now?: Date;
 }
 
@@ -33,9 +37,10 @@ export async function dispatchCodingDomain(input: CodingDispatchInput): Promise<
     recordDomainRunRefusal({ at: (input.now ?? new Date()).toISOString(), origin: input.source ?? "system", reason: guarded.reason, ...(input.project?.root ? { projectRoot: resolve(input.project.root) } : {}) });
     return { status: "refused", reason: guarded.reason };
   }
+  if (input.requestId !== undefined && !isDomainRunId(input.requestId)) throw new Error("Invalid request id");
   const now = input.now ?? new Date();
   const request: DomainRequest = {
-    id: `domain-${randomUUID()}`,
+    id: input.requestId ?? `domain-${randomUUID()}`,
     domain: "coding",
     originalMessage: input.originalMessage.trim() || input.intendedOutcome,
     intendedOutcome: input.intendedOutcome.trim(),
@@ -46,6 +51,8 @@ export async function dispatchCodingDomain(input: CodingDispatchInput): Promise<
     ...(input.contextRefs?.length ? { contextRefs: input.contextRefs } : {}),
     ...(input.project ? { project: { ...input.project, ...(guarded.projectRoot ? { root: guarded.projectRoot } : {}) } } : {}),
     ...(input.skill ? { skill: input.skill } : {}),
+    ...(input.objectiveId ? { objectiveId: input.objectiveId } : {}),
+    ...(input.decisions ? { decisions: input.decisions } : {}),
   };
   return { status: "accepted", run: await (input.transport ?? new FirstmateDomainTransport()).submit(request) };
 }

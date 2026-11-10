@@ -10,6 +10,7 @@ import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDoma
 import { checkDomainHandoff } from "../runtime/acceptance.js";
 import { commandDir, commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
+import { decisionsLines } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -699,6 +700,7 @@ export function firstmateRequestBody(request: DomainRequest): string {
     "",
     "DONE WHEN:",
     ...request.doneWhen.map((point, index) => `${index + 1}. ${point}`),
+    ...(request.decisions ? ["", "DECISIONS:", ...decisionsLines(request.decisions)] : []),
     "",
     "RETURN CONTRACT:",
     "When this request reaches a stable outcome or needs a real decision, publish a durable reply to this inbox note using fm-inbox.sh reply.",

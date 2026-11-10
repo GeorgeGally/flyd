@@ -9,6 +9,7 @@ import { readTaste } from "../council/taste.js";
 import { designLabSkill, designTeamSkills } from "./design.js";
 import { createDomainRun, isDomainRunId, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
 import type { DomainRequest, DomainResult, DomainRun } from "./types.js";
+import { decisionsLines } from "./types.js";
 
 // The design team beside FirstMate. The Creative Director is its voice: it
 // takes Flyd's brief, sets genuinely different directions, judges the work
@@ -245,6 +246,8 @@ export interface DesignMateDispatchInput {
   background?: boolean;
   /** A stable id for this request: dispatching it again returns its run instead of making a second lab. */
   requestId?: string;
+  objectiveId?: string;
+  decisions?: DomainRequest["decisions"];
   now?: Date;
   /** Make it for real in the project instead of a lab; `reference` is the picked lab version, if any. */
   build?: { reference?: Build["reference"] };
@@ -280,6 +283,8 @@ export function dispatchDesignMate(input: DesignMateDispatchInput, root = labsDi
     ...(input.project ? { project: input.project } : {}),
     ...(skill ? { skill } : {}),
     ...(input.background ? { background: true } : {}),
+    ...(input.objectiveId ? { objectiveId: input.objectiveId } : {}),
+    ...(input.decisions ? { decisions: input.decisions } : {}),
   };
   mkdirSync(join(labDir(request.id, root), "review"), { recursive: true, mode: 0o700 });
   if (input.context && (input.context.shots?.length || input.context.content)) {
@@ -425,6 +430,7 @@ export function briefPrompt(run: DomainRun, images: string[], taste: string, see
     `George asked: "${run.request.originalMessage}"`,
     `Outcome: ${run.request.intendedOutcome}`,
     `Done when: ${run.request.doneWhen.join("; ")}`,
+    ...decisionsLines(run.request.decisions),
     ...((run.messages ?? []).length ? ["Later from George:", ...(run.messages ?? []).map((message) => `- ${message.body}`)] : []),
     ...(run.request.project?.name ? [`Project: ${run.request.project.name}`] : []),
     ...(context.shots?.length ? ["The attached screenshots show what exists today. Redesign it; do not describe it back."] : []),

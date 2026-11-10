@@ -523,7 +523,9 @@ const conversationTools: AgentTool[] = [
 
 /** The tools chat offers on a turn: what its plan leaves in sight, code tools only on code turns. */
 export function chatToolSet(plan: TurnPlan | null, codeTurn: boolean): AgentTool[] {
-  return visibleTools([...conversationTools, ...personalTools, ...assistantTools], plan).filter((tool) => codeTurn || !CODE_TOOLS.has(tool.name));
+  // hand_off exists only while the Chief of Staff runs delegated work (FLYD_COS=1).
+  return visibleTools([...conversationTools, ...personalTools, ...assistantTools], plan)
+    .filter((tool) => (codeTurn || !CODE_TOOLS.has(tool.name)) && (tool.name !== "hand_off" || process.env.FLYD_COS === "1"));
 }
 
 export function isInstagramLoginWall(url: string, text: string): boolean {
@@ -1300,6 +1302,7 @@ export async function respondToConversation(
     skill: skill ? { name: skill.name, body: skill.body } : null,
     onCodingHandoff: input.onCodingHandoff,
     background: Boolean(personalToolDeps.background),
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
   }, input.sessionId?.match(/^job-([0-9a-f]{8})$/)?.[1], input.signal, input.onAction, personalToolDeps, Boolean(input.article), Boolean(input.outside));
   // A failed attempt may only be replayed on another provider if it changed nothing.
   let attemptMutated = false;

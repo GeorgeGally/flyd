@@ -58,6 +58,19 @@ export const assistantTools: AgentTool[] = [
     },
   },
   {
+    name: "hand_off",
+    description: "Hand this piece of George's work to his Chief of Staff, who chooses the team, writes the brief, runs it and reports back to you when there is something for him. Give his exact words and what you know that would help: the project, people, taste, urgency. Returns at once, once it is safely recorded.",
+    input_schema: {
+      type: "object",
+      properties: {
+        words: { type: "string", description: "George's exact words for the work, unchanged" },
+        notes: { type: "string", description: "What you know and judge that the brief needs: project, people, taste, constraints, urgency" },
+        urgency: { type: "string", enum: ["now", "today", "whenever"], description: "How soon he needs it, when he said or it is clear" },
+      },
+      required: ["words", "notes"],
+    },
+  },
+  {
     name: "start_coding_task",
     description: "Hand code work in one of George's repos to the crew, in the background. The crew can build the change on its own branch, install dependencies, run the repo's tests, and commit. It cannot push, deploy, publish, or merge: those happen only after George says /land, and only if he approves them now. So if what he asked for includes pushing or deploying, put those steps in after_land and he is asked right away; never promise them otherwise. Returns immediately.",
     input_schema: {
@@ -161,6 +174,8 @@ export interface AssistantToolContext {
   onCodingHandoff?: (outcome: string) => void;
   /** This turn is unattended, so a job it starts is too. */
   background?: boolean;
+  /** The conversation this turn belongs to, recorded on an objective handed off from it. */
+  sessionId?: string;
 }
 
 function lines(text: unknown): string[] {
@@ -172,10 +187,10 @@ export async function runAssistantTool(
   input: Record<string, unknown>,
   context: AssistantToolContext = {},
 ): Promise<string> {
-  const launches = ["start_coding_task", "start_knowledge_task", "start_design_task", "pass_on_question", "background_task"].includes(name)
+  const launches = ["start_coding_task", "start_knowledge_task", "start_design_task", "pass_on_question", "background_task", "hand_off"].includes(name)
     || (name === "domain_work" && input.action === "ask");
   if (launches) {
-    const refusal = refuseLeakedLaunch([String(input.outcome ?? ""), String(input.question ?? ""), String(input.task ?? "")]);
+    const refusal = refuseLeakedLaunch([String(input.outcome ?? ""), String(input.question ?? ""), String(input.task ?? ""), String(input.words ?? "")]);
     if (refusal) return refusal;
   }
   try {
@@ -280,6 +295,25 @@ export async function runAssistantTool(
           situation: context.situation ?? null,
         });
         return reply ?? `${specialist.name} had nothing to add.`;
+      }
+      case "hand_off": {
+        const { cosEnabled, openObjective } = await import("../command/cos/objectives.js");
+        if (!cosEnabled()) return "Error: hand_off is not available";
+        // His own message is the record of what he asked; the model's copy only stands in when there is none.
+        const words = (context.userMessage ?? String(input.words ?? "")).trim();
+        if (!words) return "Error: hand_off needs his words";
+        const urgency = ["now", "today", "whenever"].includes(String(input.urgency)) ? input.urgency as "now" | "today" | "whenever" : undefined;
+        const project = context.situation?.project || context.situation?.projectRoot
+          ? { ...(context.situation.project ? { name: context.situation.project } : {}), ...(context.situation.projectRoot ? { root: context.situation.projectRoot } : {}) }
+          : undefined;
+        const objective = openObjective({
+          words, flydNotes: String(input.notes ?? "").trim(),
+          origin: { surface: "chat", ...(context.sessionId ? { sessionId: context.sessionId } : {}) },
+          ...(urgency ? { urgency } : {}), ...(project ? { project } : {}),
+        });
+        // Intake starts now rather than on the next command tick (never from a test: intake asks a model).
+        if (!process.env.VITEST) void import("../command/cos/tick.js").then(({ cosTick }) => cosTick()).catch(() => undefined);
+        return `Handed off (${objective.id}): it is recorded and being set going now. Tell him in a line what will happen and what he will get back; no ids, and not who does it.`;
       }
       case "start_coding_task": {
         const outcome = String(input.outcome ?? "").replace(/\s+/g, " ").trim();
