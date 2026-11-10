@@ -585,8 +585,8 @@ export class FlydDesk {
           ? `\n\n### Prepared draft\n\n${preparation.content}\n\n[Review or stop preparation](/preparation?session=${encodeURIComponent(record.sessionId ?? "conversation")})` : "";
         const failure = preparation?.status === "failed" || preparation?.status === "unknown"
           ? "\n\nI could not finish checking the draft. Nothing was sent." : preparation?.status === "cancelled" ? "\n\nThis preparation was stopped." : "";
-        // A draft's note replaces the shaped body; Flyd's working diagnosis still reads as its short reply.
-        const said = (prepared || failure) && record.form ? workingReply(record.form) ?? record.answer : record.answer;
+        // Flyd's working diagnosis reads as its short reply everywhere George sees the answer: the window, a draft's note and the rail.
+        const said = record.form ? workingReply(record.form) ?? record.answer : record.answer;
         return {
           question,
           answer: { id: `answer:${record.id}`, role: "assistant", text: inFlydsVoice(said) + prepared + failure, timestamp: record.answeredAt ?? record.at, answers: question.id, ...(record.artefact ? { artefact: record.artefact } : {}), ...(record.form && !prepared && !failure ? { form: record.form } : {}) },

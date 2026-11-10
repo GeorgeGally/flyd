@@ -92,6 +92,19 @@ describe("answerHtml", () => {
     expect(html).not.toMatch(/Evidence|router log|timed out/);
   });
 
+  it("keeps an abbreviation inside the one cause sentence it adds", () => {
+    const html = answerHtml(answerBody({
+      lead: "Dragging is slow.",
+      form: "diagnosis",
+      askedWhy: true,
+      parts: [
+        { label: "Cause", text: "Both views redraw, e.g. the previews and the canvas, i.e. twice per move. The log shows it." },
+        { label: "Next", text: "I'll fix it." },
+      ],
+    }));
+    expect(html).toBe(renderMarkdown("Dragging is slow. Both views redraw, e.g. the previews and the canvas, i.e. twice per move.\n\nI'll fix it."));
+  });
+
   it("draws a comparison as one table, options across and criteria down", () => {
     const html = answerHtml(answerBody({
       lead: "Pink for reading, blue for counting.",

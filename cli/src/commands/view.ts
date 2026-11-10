@@ -103,8 +103,15 @@ function withAskedWhy(body: AnswerBody, question: string): AnswerBody {
 
 /** Whether George asked why something failed, rather than reporting it. */
 export function asksWhy(question: string): boolean {
-  return /\bwhy\b|\bhow come\b|\bwhat (?:went wrong|happened|caused)\b|\bwhat'?s (?:the )?cause\b/i.test(question);
+  return question.split(/(?<=[.!?])\s+|\n+/).some((sentence) => {
+    const said = sentence.trim();
+    return WHY_OPENING.test(said) || (said.endsWith("?") && WHY_ASKED.test(said));
+  });
 }
+
+const WHY = String.raw`(?:why|how come|what (?:went wrong|happened|caused)|what'?s (?:the )?cause)\b`;
+const WHY_OPENING = new RegExp(`^${WHY}`, "i");
+const WHY_ASKED = new RegExp(`\\b${WHY}`, "i");
 
 /** The article this turn is grounded in; none for an off-topic question or an unreadable page, so the turn takes the ordinary path with its tools. */
 async function articleForTurn(sessionId: string, question: string): Promise<{ title: string; url: string; text: string } | undefined> {

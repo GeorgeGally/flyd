@@ -1078,7 +1078,7 @@ describe("FlydDesk structured answers", () => {
     }) });
     const sent = desk.ask("why is the island filter off?");
     const [exchange] = await until(() => (desk.exchanges()[0]?.answer ? desk.exchanges() : undefined));
-    expect(exchange!.answer).toMatchObject({ answers: sent.id, text: "The island filter is paused.\n\nCause\nPaused on 14 Oct.\n\nTurn it back on?" });
+    expect(exchange!.answer).toMatchObject({ answers: sent.id, text: "The island filter is paused.\n\nTurn it back on?" });
     expect(exchange!.answer!.form).toMatchObject({ form: "diagnosis", parts: [{ label: "Cause", text: "Paused on 14 Oct." }] });
 
     const prose = new FlydDesk({ dir: join(dir, "prose"), answer: async () => "Merged." });
@@ -1086,5 +1086,22 @@ describe("FlydDesk structured answers", () => {
     const [plain] = await until(() => (prose.exchanges()[0]?.answer ? prose.exchanges() : undefined));
     expect(plain!.answer).toMatchObject({ text: "Merged." });
     expect(plain!.answer!.form).toBeUndefined();
+  });
+  it("gives every reader of the answer, the rail included, the short reply rather than Flyd's labelled working", async () => {
+    const desk = new FlydDesk({ dir, answer: async () => ({
+      lead: "Dragging pages in Logan is slow and unreliable.",
+      form: "diagnosis" as const,
+      parts: [
+        { label: "Expected", text: "Dragging pages should be smooth." },
+        { label: "Observed", text: "Moving pages is very slow." },
+        { label: "Cause", text: "The previews and canvas may redraw twice." },
+        { label: "Evidence", text: "George mentioned it earlier." },
+      ],
+      next: "I'm fixing it now and will tell you when it's in.",
+    }) });
+    desk.ask("dragging pages in Logan is slow and unreliable");
+    const [exchange] = await until(() => (desk.exchanges()[0]?.answer ? desk.exchanges() : undefined));
+    expect(exchange!.answer!.text).toBe("Dragging pages in Logan is slow and unreliable.\n\nI'm fixing it now and will tell you when it's in.");
+    expect(exchange!.answer!.form).toMatchObject({ form: "diagnosis" });
   });
 });
