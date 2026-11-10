@@ -146,7 +146,7 @@ export function toollessPlanBrief(plan: TurnPlan): string {
   const instruction = plan.route === "clarify"
     ? plan.instruction
     : plan.route === "answer"
-      ? "This turn is an answer. Answer him in full from what you have here. Never offer to look something up or ask whether to. Don't claim to have started or changed anything; if doing something would clearly help, offer it in one line."
+      ? "This turn is an answer. Answer him in full from what you have here. Never offer to look something up or ask whether to. Don't claim to have started or changed anything; if doing something beyond his ask would clearly help, offer it in one line. Never ask whether to take the obvious next step of what he asked."
       : "He wants something done. Nothing runs from this answer: give him exactly what gets it done (the draft, the steps, or who should take it) and never claim it is done or started.";
   return planBrief({ ...plan, instruction });
 }

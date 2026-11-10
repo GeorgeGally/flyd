@@ -59,6 +59,8 @@ export interface Job {
   decision?: ShowItem["decision"];
   /** The domain run an answer given on this job reaches. Absent when the run has finished and cannot take one. */
   domainRun?: string;
+  /** A call Flyd answered for him by one of his standing rules; his own answer takes it back. */
+  handled?: { decisionId: string; task: string };
 }
 
 export interface JobRun {
@@ -154,6 +156,7 @@ interface Signal {
   because: string;
   decision?: ShowItem["decision"];
   domainRun?: string;
+  handled?: Job["handled"];
 }
 
 function rank(group: JobGroup): number {
@@ -302,10 +305,12 @@ export function jobsFrom(input: {
     if (!group) continue;
     // Every running worker is its own card: two on one project are two, and a project's open call never hides one.
     const name = item.project && (projectOfRepo(item.project) ?? item.project);
-    const bucket = name && item.kind !== "live" ? bucketFor(name, item.headline) : lone(buckets, item.id, item.headline);
+    // A call Flyd answered for him is its own quiet line, so his take-back reaches that one answer.
+    const handled = item.kind === "landed" && item.status === "handled" && item.executiveDecisionId ? { decisionId: item.executiveDecisionId, task: item.task ?? "" } : undefined;
+    const bucket = name && item.kind !== "live" && !handled ? bucketFor(name, item.headline) : lone(buckets, item.id, item.headline);
     if (item.kind === "live" && name) { bucket.project = basename(name); markActive(bucket.project, bucket); }
     const ask = group === "needs" ? (item.decision?.question || item.detail || item.headline) : "";
-    const state = itemState(item);
+    const state = handled ? "Handled for you" : itemState(item);
     bucket.signals.push({
       group,
       ...(state ? { state } : {}),
@@ -316,6 +321,7 @@ export function jobsFrom(input: {
       ask,
       because: `Fleet ${item.kind}: ${item.id}`,
       ...(group === "needs" && item.decision ? { decision: item.decision } : {}),
+      ...(handled ? { handled } : {}),
     });
     for (const shot of item.shots ?? []) if (shot.src) bucket.shots.push({ src: shot.src, label: shot.label });
     for (const link of [...(item.links ?? []), ...(item.open ? [item.open] : [])]) {
@@ -386,6 +392,7 @@ export function jobsFrom(input: {
       digest: digest ? { changed: digest.changed, means: digest.means, needed: digest.needed, ...(digest.link ? { link: digest.link } : {}) } : null,
       ...(lead.decision ? { decision: lead.decision } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
+      ...(lead.handled ? { handled: lead.handled } : {}),
     });
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));

@@ -43,7 +43,8 @@ import { listDomainRuns } from "../command/store.js";
 import { sendRunMessage } from "../command/messages.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
-import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision } from "../intelligence/executive/decision-step.js";
+import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
+import { STANDING_RULES_POLICY, standingPreferences } from "../intelligence/executive/standing-rules.js";
 import { deliverBossNote } from "../command/scheduler.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { runCuratorSweep } from "../cognition/curator/reconcile.js";
@@ -240,6 +241,21 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     const store = new IntelligenceEventStore({ path: join(FLYD_DIR, "intelligence.sqlite") });
     try {
       const decision = readExecutiveDecision(store, decisionId);
+      // His own answer to a call Flyd settled for him by a standing rule takes that answer back and goes in its place.
+      if (decision?.settled && decision.taskId === taskId && update) {
+        if (decision.settled.takenBack) return;
+        const message = `George takes back the answer Flyd gave for him by his standing rule ("${decision.settled.answer}") to: ${decision.settled.question}\n\nHis own answer: ${answer.trim()}`;
+        const run = listDomainRuns().find((item) => item.id === taskId && item.transport.kind === "firstmate" && item.request.domain === "coding");
+        if (run) {
+          const sent = await sendRunMessage({ run, kind: "decision", body: message, from: "flyd" });
+          if (!sent.delivered) throw new Error("Flyd could not deliver that answer to the work");
+        } else {
+          if (!inbox.available()) throw new Error("There is no connected coding employee to receive that answer");
+          await inbox.sendTaskNote(taskId, message);
+        }
+        takeBackSettledDecision(store, decisionId, answer);
+        return;
+      }
       if (!decision || decision.taskId !== taskId || decision.disposition !== "ask_george") throw new QuestionGone("That decision is no longer available");
       if (decision.resolution && !update) {
         if (decision.resolution.answer === answer.trim()) return;
@@ -322,6 +338,9 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   const decideChanges = async (changes: import("../intelligence/executive/firstmate-decision.js").FirstmateChange[]) => {
     const runs = listDomainRuns();
     const activeStatuses = new Set(["queued", "accepted", "working", "needs_decision", "incomplete", "failed"]);
+    // His recorded words, read once: the routine calls they settle are answered for him (FLYD_STANDING_RULES=0 off).
+    const standing = process.env.FLYD_STANDING_RULES === "0" ? undefined : standingPreferences();
+    const openCalls = [...new Set(changes.flatMap((change) => change.kind === "decision" && change.taskId ? [change.taskId] : []))];
     const prepared = changes.map((change) => {
       const run = change.taskId ? runs.find((item) => item.id === change.taskId) : undefined;
       const authority = run ? authorityForStaffRun({
@@ -329,11 +348,16 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         firstmate: run.transport.kind === "firstmate" && run.request.domain === "coding",
         active: activeStatuses.has(run.status),
         autonomy: autonomyLevel(),
+        ...(change.kind === "decision" ? { standing } : {}),
       }) : change.taskId && change.kind === "fleet_state" && ["working", "paused", "unknown", "failed"].includes(change.state)
         ? authorityForStaffRun({ runId: change.taskId, firstmate: inbox.available(), active: true, autonomy: autonomyLevel() })
-        : [];
+        // A call firstmate holds with no run of Flyd's behind it: only his standing rules may answer it.
+        : change.taskId && change.kind === "decision"
+          ? authorityForStaffRun({ runId: change.taskId, firstmate: inbox.available(), active: true, autonomy: autonomyLevel(), standing })
+            .filter((grant) => grant.grantId === STANDING_RULES_POLICY.id)
+          : [];
       const sentToBoss = notesSentToBoss(run?.messages);
-      return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
+      return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), ...(standing !== undefined && change.kind === "decision" ? { standing } : {}), ...(openCalls.length ? { openCalls } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
     });
     return processFirstmateChanges(prepared, {
       complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),

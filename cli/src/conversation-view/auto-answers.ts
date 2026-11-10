@@ -38,7 +38,7 @@ const NOT_GREEN = /\b(?:fail(?:ed|ing|s|ures?)?|red|conflicts?|not (?:yet )?(?:g
 /** A merge is only ever settled by the merge rule, which reads whether the work is green. */
 const LANDS = /\b(?:merge|land)\b/i;
 /** He asked his staff to take control rather than hand problems back: what lets Flyd settle the routine. */
-const TAKE_CONTROL = [
+export const TAKE_CONTROL = [
   /take control of situations|rather than sending problems back/i,
   /does not want to be given extra work or decisions/i,
 ];
@@ -95,7 +95,7 @@ const RULES: StandingRule[] = [
  * Never answered for him, whatever a rule says: what cannot be taken back,
  * costs, goes public or touches access.
  */
-const NEVER = /\b(?:delet|remov|drop|wip(?:e|ing)\b|purg|destroy|force|reset|revert|roll ?back|overwrit|discard|uninstall|publish|deploy|releas|go(?:es|ing)? live|live site|tweet|whatsapp|pay|purchas|buy|spend|cost|bill|charg|subscri|price|pricing|invoice|contract|secret|token|password|credential|api key|permission|secur|auth(?:entic|oriz)|login|production|prod\b|public|share|irreversibl|client|customer)/i;
+export const NEVER = /\b(?:delet|remov|drop|wip(?:e|ing)\b|purg|destroy|force|reset|revert|roll ?back|overwrit|discard|uninstall|publish|deploy|releas|go(?:es|ing)? live|live site|tweet|whatsapp|pay|purchas|buy|spend|cost|bill|charg|subscri|price|pricing|invoice|contract|secret|token|password|credential|api key|permission|secur|auth(?:entic|oriz)|login|production|prod\b|public|share|irreversibl|client|customer)/i;
 /** A communicating verb: it speaks for him only when what follows names someone it reaches. */
 const COMMUNICATES = /\b(?:messag(?:e|es|ed|ing)|dm|notif(?:y|ies|ied|ying)|ping(?:s|ed|ing)?|email(?:s|ed|ing)?|send(?:s|ing)?|sent|slack(?:s|ed|ing)?|comment(?:s|ed|ing)?|forward(?:s|ed|ing)?|cc|invit(?:e|es|ed|ing)|respond(?:s|ed|ing)?|repl(?:y|ies|ied|ying)|reach(?:es|ing)? out|post(?:s|ed|ing)?|tweet\w*|whatsapp\w*|announc\w*|writ(?:e|es|ing|ten)|tell(?:s|ing)?|told|updat(?:e|es|ed|ing)|text(?:s|ed|ing)?|remind\w*)\b/gi;
 /** People, or a public place, a message reaches. */
@@ -111,7 +111,7 @@ const SENDS_TO = /^(?:send|sent|writ|respond|reach)/i;
 const PRONOUN = /^\s*(?:to\s+)?(?:him|her|them)\b/i;
 
 /** Whether the question speaks for him to other people: a communicating verb aimed at a person, team or public place. */
-function speaksForHim(question: string): boolean {
+export function speaksForHim(question: string): boolean {
   for (const verb of question.matchAll(COMMUNICATES)) {
     const after = question.slice(verb.index + verb[0].length).split(/[?.,;!]|\band\b/)[0]!;
     if (RECIPIENT.test(after)) return true;
@@ -122,9 +122,9 @@ function speaksForHim(question: string): boolean {
   return false;
 }
 /** A taste or strategy call: his to make even when it is reversible. */
-const HIS_TASTE = /\b(?:design|look|feel|colou?rs?|fonts?|layout|style|brand\w*|logo|strategy|direction|priorit\w*|roadmap)\b/i;
+export const HIS_TASTE = /\b(?:design|look|feel|colou?rs?|fonts?|layout|style|brand\w*|logo|strategy|direction|priorit\w*|roadmap)\b/i;
 /** Firstmate wants his own word on it. */
-const WANTS_HIM = /\b(?:needs? your (?:go|yes|ok|okay|approval|call|decision|sign-?off|word)|want your (?:yes|go|ok|okay|approval|word)|your (?:yes|go-ahead|approval|sign-?off) first|only you can|up to you)\b/i;
+export const WANTS_HIM = /\b(?:needs? your (?:go|yes|ok|okay|approval|call|decision|sign-?off|word)|want your (?:yes|go|ok|okay|approval|word)|your (?:yes|go-ahead|approval|sign-?off) first|only you can|up to you)\b/i;
 /** Only a question just asked is answered for him; an old one he may already be weighing. */
 const ANSWER_WITHIN_MS = 15 * 60 * 1000;
 
@@ -139,7 +139,7 @@ export interface Settled {
  * The recorded line that holds this preference: its rule, without its list
  * mark, date or the gloss after a dash; in a long memo, the sentence that says it.
  */
-function recordedLine(preferences: string, preference: RegExp): string | null {
+export function recordedLine(preferences: string, preference: RegExp): string | null {
   const line = preferences.split("\n").find((entry) => preference.test(entry));
   if (!line) return null;
   const rule = inline(line).replace(/^[-*+]\s+/, "").replace(/(?:\s*\(\d{4}-\d{2}-\d{2}\))+\s*$/, "").split(/\s+[—–]\s+/)[0]!;
@@ -164,13 +164,22 @@ export interface Asked {
 export function settledBy(message: ConversationMessage, asked: Asked, preferences: string): Settled | null {
   // A yes-or-no question only, put by firstmate, not by Flyd's own desk.
   if (!asked.options.includes("Yes") || choiceTarget(message).startsWith("ask:")) return null;
-  const question = asked.question;
-  if (NEVER.test(question) || HIS_TASTE.test(question) || WANTS_HIM.test(message.text) || speaksForHim(question)) return null;
+  return standingAnswer(asked.question, message.text, preferences);
+}
+
+/**
+ * The answer one of his standing rules gives a question, read from the
+ * question and the whole message that asked it, or null when it stays his:
+ * no rule plainly settles it, or it is destructive, costly, public, a taste
+ * call, or something the asker wants his own word on. Pure.
+ */
+export function standingAnswer(question: string, reply: string, preferences: string): Settled | null {
+  if (NEVER.test(question) || HIS_TASTE.test(question) || WANTS_HIM.test(reply) || speaksForHim(question)) return null;
   for (const rule of RULES) {
     if (!rule.asks.test(question)) continue;
     for (const preference of rule.preferences) {
       const because = recordedLine(preferences, preference);
-      if (because && (!rule.holds || rule.holds(question, message.text, because))) return { rule: rule.id, answer: rule.answer, because };
+      if (because && (!rule.holds || rule.holds(question, reply, because))) return { rule: rule.id, answer: rule.answer, because };
     }
   }
   return null;

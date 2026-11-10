@@ -94,7 +94,7 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domai
       return {
         route, source, cover, allows: new Set(["read"]), handoffs: new Set(PASS_ON), budget: null,
         hidden: new Set(CHANGE_ONLY.filter((name) => !PASS_ON.includes(name))),
-        instruction: "This turn is an answer. Look up what you need with your tools now, then answer him in full. Never offer to look something up or ask whether to: look. If your tools can't get the answer, pass it on in this turn with pass_on_question, then tell him in a line that it's being looked into. Don't start work or change anything; if doing something would clearly help, offer it in one line.",
+        instruction: "This turn is an answer. Look up what you need with your tools now, then answer him in full. Never offer to look something up or ask whether to: look. If your tools can't get the answer, pass it on in this turn with pass_on_question, then tell him in a line that it's being looked into. Don't start work or change anything; if doing something beyond his ask would clearly help, offer it in one line. Never ask whether to take the obvious next step of what he asked.",
       };
     case "clarify":
       return {
@@ -125,7 +125,7 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domai
         // A few quick steps; past this it should have been handed off.
         route, source, cover, allows: new Set(["read", "local", "outward", "destructive"]), handoffs: new Set(HANDOFFS), budget: { iterations: 10, toolCalls: 12 },
         hidden: new Set(),
-        instruction: "He wants this done. Do it with the tools, check it worked, then tell him in a line or two. A change to code in a repo, or anything bigger than a few quick steps, goes to start_coding_task or background_task instead.",
+        instruction: "He wants this done. Do it with the tools, check it worked, then tell him in a line or two. Carry out the obvious next step of his ask too and say so; never ask whether to. A change to code in a repo, or anything bigger than a few quick steps, goes to start_coding_task or background_task instead.",
       };
   }
 }

@@ -1,3 +1,4 @@
+import { HIS_TASTE, NEVER, speaksForHim } from "./auto-answers.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
 import type { ManifestationEvidence, ManifestationPart, ManifestationPlan } from "./semantic.js";
 
@@ -30,12 +31,43 @@ const evidenceFrom = (value: unknown): ManifestationEvidence[] => (Array.isArray
   })
   : []);
 
+/** A yes-or-no ask for leave to take a step: "Should I send the link?", "Want me to open it?". */
+const LEAVE_TO = /^(?:(?:should|shall) I|(?:do you want|would you like|want) me to)\s+(.+?)\s*\?$/i;
+/** Steps that reach past his own machine: landing or pushing work stays his yes. */
+const OUTWARD = /\b(?:merg|land|push|ship|commit)/i;
+
+/**
+ * The obvious next step of his own ask said as what Flyd is doing, not asked:
+ * a question the rest of the answer already commits Flyd to ("…and will send
+ * you the link. Should I send the link?"). A real choice stays a question:
+ * either/or, destructive, costly, public, outward, a taste call, or a step
+ * the answer never said it was taking. Pure.
+ */
+export function doingNotAsking(question: string, answer: string): string {
+  const step = LEAVE_TO.exec(question.trim())?.[1];
+  const verb = step ? /^[a-z]+/i.exec(step)?.[0] : undefined;
+  if (!step || !verb || /\bor\b/i.test(step) || NEVER.test(step) || OUTWARD.test(step) || HIS_TASTE.test(step) || speaksForHim(step)) return question;
+  const then = `\\s+(?:also\\s+|then\\s+)?${verb}\\b`;
+  return new RegExp(`\\b(?:(?:I|we)['’]ll|(?:I|we) will|(?:I['’]m|we['’]re|I am|we are) going to)${then}|\\b(?:I|we)\\b[^.!?;\\n]*?\\band will${then}`, "i").test(answer) ? `I'll ${step}.` : question;
+}
+
+/** An answer whose closing question only asks leave for the obvious next step, ending on that step instead. Pure. */
+export function withoutObviousAsk(text: string): string {
+  const closing = /[^\s.!?][^\n.!?]*\?\s*$/.exec(text);
+  if (!closing) return text;
+  const before = text.slice(0, closing.index);
+  const ask = closing[0].trim();
+  const done = doingNotAsking(ask, before);
+  return done === ask ? text : `${before}${done}`;
+}
+
 /** Whatever an answerer returned, as a body: a string is prose, a shape is one only when it is whole. */
 export function answerBody(value: unknown): AnswerBody {
-  if (typeof value === "string") return { lead: value, form: "prose" };
+  if (typeof value === "string") return { lead: withoutObviousAsk(value), form: "prose" };
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const lead = said(record.lead);
-  const next = said(record.next);
+  const told = [lead, ...partsFrom(record.parts).map((part) => part.text)].join("\n");
+  const next = doingNotAsking(said(record.next), told);
   if (record.form === "diagnosis") {
     const parts = partsFrom(record.parts);
     const evidence = evidenceFrom(record.evidence);
@@ -55,7 +87,7 @@ export function answerBody(value: unknown): AnswerBody {
       return { lead, form: "comparison", criteria, alternatives, ...(next ? { next } : {}) };
     }
   }
-  return { lead, form: "prose" };
+  return { lead: withoutObviousAsk(lead), form: "prose" };
 }
 
 /** The body as one string: what history, search and every prose reader keep. */

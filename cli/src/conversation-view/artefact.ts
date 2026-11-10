@@ -1,3 +1,4 @@
+import { plainQuestionFor } from "../intelligence/executive/plain-question.js";
 import { recommendationText } from "../intelligence/executive/decision-step.js";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
@@ -657,13 +658,49 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     ...fleet.calls.map((row) => ({ row, firstmate: true })),
     ...stateRows.map((row) => ({ row, firstmate: false })),
   ];
+  // A call his standing rules settled for him leaves Needs you: one quiet handled line says what Flyd answered, and he can take it back.
+  const handled: ArtefactRow[] = [];
+  const settledTasks = new Set<string>();
+  // The latest answer per task, unless a later decision put the call to him after all.
+  const settledBy = new Map<string, ExecutiveDecisionRecord>();
+  for (const decision of decisions) {
+    if (!decision.taskId) continue;
+    if (decision.disposition === "ask_george" && decision.show) settledBy.delete(decision.taskId);
+    else if (decision.settled) settledBy.set(decision.taskId, decision);
+  }
+  for (const decision of settledBy.values()) {
+    if (!decision.settled || decision.settled.takenBack || !decision.taskId) continue;
+    // An answer whose note did not arrive is not handled: the call stays his.
+    if (decision.action && decision.verification.status !== "verified" && decision.verification.status !== "pending") continue;
+    settledTasks.add(decision.taskId);
+    if (!decision.settled.line) continue;
+    const row = candidates.find((candidate) => candidate.row.task === decision.taskId)?.row;
+    handled.push({
+      label: decision.settled.line,
+      task: decision.taskId,
+      status: "handled",
+      executiveDecisionId: decision.decisionId,
+      at: decision.createdAt,
+      ...(row?.repo ? { repo: row.repo } : {}),
+    });
+  }
+  const tasks = candidates.flatMap(({ row }) => row.task ? [row.task] : []);
   const calls = candidates.flatMap(({ row, firstmate }) => {
     if (row.ledgerOnly) return [row];
+    if (row.task && settledTasks.has(row.task)) return [];
     const decision = row.task ? byTask.get(row.task) : undefined;
     const asked = decision?.disposition === "ask_george" && decision.show && decision.question.trim() ? decision : undefined;
     // A rewrite that never came or was not grounded is not a reason to drop
-    // Firstmate's decision: it still asks him, in Firstmate's own words.
-    if (!asked) return firstmate ? [row] : [];
+    // Firstmate's decision, nor to show it in Firstmate's own words: it asks
+    // him in plain words by fixed rules, or waits while its boss restates it.
+    if (!asked) {
+      if (!firstmate) return [];
+      const plain = plainQuestionFor(row.question ?? row.label, tasks);
+      const detail = row.detail ? plainQuestionFor(row.detail, tasks) : null;
+      if (plain) return [{ ...row, label: plain, ...(row.question ? { question: plain } : {}), detail: detail ?? undefined }];
+      const { question: _question, detail: _detail, choices: _choices, ...held } = row;
+      return [{ ...held, label: `A call on ${row.repo ?? "your work"} is waiting; Flyd is getting it restated.` }];
+    }
     return [{
       ...row,
       executiveDecisionId: asked.decisionId,
@@ -708,7 +745,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     live: current(fleet.live),
     ready: current(fleet.ready).filter((row) => !verifiedTasks.has(row.task)),
     next: current(fleet.next),
-    landed: [...verified, ...current(fleet.landed).filter((row) => !verifiedTasks.has(row.task)), ...finished],
+    landed: [...handled, ...verified, ...current(fleet.landed).filter((row) => !verifiedTasks.has(row.task)), ...finished],
     held: [...failed, ...paused, ...open],
   };
 }

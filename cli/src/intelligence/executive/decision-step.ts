@@ -3,6 +3,8 @@ import { BACKSTAGE_ROLES } from "../../lib/backstage.js";
 import { createHash } from "node:crypto";
 import { validateEnvelope, type ContextEnvelope } from "../context-envelope.js";
 import type { IntelligenceEventStore, StoredEvent } from "../event-store.js";
+import { plainQuestionFor, showsMachinery } from "./plain-question.js";
+import { settleCall, STANDING_ANSWER_MARK, STANDING_RULES_POLICY, type StandingSettlement } from "./standing-rules.js";
 
 export const EXECUTIVE_DECISION_VERSION = "flyd.executive-decision.v1";
 export const EXECUTIVE_DISPOSITIONS = ["handle_internally", "ask_george", "backstage"] as const;
@@ -53,11 +55,28 @@ export interface ExecutiveDecisionInput {
   sourceFailed?: boolean;
   /** George asked for this outcome himself, so its verified result is his news. */
   requested?: boolean;
+  /** His recorded preferences, read once per decision; with a standing-rules grant, the calls they settle are answered for him. */
+  standing?: string;
+  /** He took back an answer Flyd gave for him on this task: its calls are his until he answers. */
+  takenBack?: boolean;
+  /** The work it is about, in a few words. */
+  label?: string;
+  /** The tasks whose calls are open for him right now. */
+  openCalls?: readonly string[];
 }
 
 export interface ExecutiveVerification {
   status: "pending" | "verified" | "failed" | "unknown";
   evidenceRefs: string[];
+}
+/** A call his standing rules settled for him, and his taking it back. */
+export interface ExecutiveSettlement {
+  rule: string;
+  answer: string;
+  because: string;
+  question: string;
+  line?: string;
+  takenBack?: { answer: string; at: string };
 }
 export interface ExecutiveRecommendation {
   option?: string;
@@ -73,6 +92,8 @@ interface ExecutiveDecisionBase {
   summary: string;
   evidenceRefs: string[];
   createdAt: string;
+  /** A call his standing rules settled for him: on a held record or on the note that carried the answer. */
+  settled?: ExecutiveSettlement;
 }
 export interface ExecutiveInternalAction {
   capability: "firstmate.message";
@@ -135,13 +156,40 @@ export const HELD_FOR_ATTENTION = "already returned to its boss once; held for F
 
 const BOSS_NOTES = [HANDLE_IT_YOURSELF, RECOVER_IT_YOURSELF, RESTATE_FOR_GEORGE];
 
-/** The hand-back notes Flyd has delivered on a run; George's own answers and check-ins are not among them. */
+/** The hand-back notes and standing-rule answers Flyd has delivered on a run; George's own answers and check-ins are not among them. */
 export function notesSentToBoss(messages: ReadonlyArray<{ from?: string; body: string; deliveredAt?: string }> = []): string[] {
-  return [...new Set(messages.filter((message) => message.from === "flyd" && message.deliveredAt && BOSS_NOTES.includes(message.body)).map((message) => message.body))];
+  return [...new Set(messages.filter((message) => message.from === "flyd" && message.deliveredAt
+    && (BOSS_NOTES.includes(message.body) || message.body.startsWith(STANDING_ANSWER_MARK))).map((message) => message.body))];
 }
 
 export function bossMessageKind(text: string): "decision" | "question" {
-  return text === HANDLE_IT_YOURSELF || text === RECOVER_IT_YOURSELF ? "decision" : "question";
+  return text === HANDLE_IT_YOURSELF || text === RECOVER_IT_YOURSELF || text.startsWith(STANDING_ANSWER_MARK) ? "decision" : "question";
+}
+
+/** A call his standing rules settle, answered once through the boss's note path; null when it stays his. */
+function settledByRule(input: ExecutiveDecisionInput, held: HeldDecision, question: string, recommendation?: string): ExecutiveDecisionRecord | null {
+  if (!input.taskId || input.standing === undefined || input.takenBack) return null;
+  const grant = input.authority?.find((candidate) => candidate.capability === STANDING_RULES_POLICY.capability && candidate.target === input.taskId);
+  if (!grant) return null;
+  const settlement: StandingSettlement | null = settleCall({
+    taskId: input.taskId, label: input.label ?? "", question, sourceText: input.sourceText, ...(recommendation ? { recommendation } : {}),
+    ...(input.openCalls ? { openCalls: input.openCalls } : {}),
+  }, input.standing);
+  if (!settlement) return null;
+  const settled: ExecutiveSettlement = {
+    rule: settlement.rule, answer: settlement.answer, because: settlement.because, question: settlement.question,
+    ...(settlement.line ? { line: settlement.line } : {}),
+  };
+  const reason = `settled by his standing rule: ${settlement.rule}`;
+  if (!settlement.note || input.sentToBoss?.includes(settlement.note)) return { ...held, reason, settled };
+  return {
+    ...held,
+    disposition: "handle_internally",
+    reason,
+    action: { capability: "firstmate.message", grantId: grant.grantId, target: input.taskId, text: settlement.note, idempotencyKey: `executive:${held.decisionId}:${grant.grantId}` },
+    verification: { status: "pending", evidenceRefs: [] },
+    settled,
+  };
 }
 
 type HeldDecision = Extract<ExecutiveDecisionRecord, { disposition: "backstage" }>;
@@ -188,6 +236,10 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
     const grounded = containsEvidence(input.sourceText, proposal.questionEvidence);
     const alternativesGrounded = options.length >= 2 && options.length <= 6
       && options.every((option) => containsEvidence(proposal.questionEvidence, option));
+    // What his own recorded words already settle is answered for him, before anyone weighs whether to ask him.
+    const byRule = grounded ? settledByRule(input, decision, proposal.questionEvidence,
+      proposal.recommendation && options.includes(proposal.recommendation.option) && containsEvidence(input.sourceText, proposal.recommendation.evidence) ? proposal.recommendation.option : undefined) : null;
+    if (byRule) return byRule;
     if (!grounded || judgment?.route === "backstage" && confidence >= MIN_CONFIDENCE) {
       return { ...decision, reason: grounded ? "Jev judged the item backstage" : "question or alternatives were not grounded in source evidence" };
     }
@@ -199,11 +251,13 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
       && containsEvidence(input.sourceText, proposal.recommendation.evidence)
       ? { option: proposal.recommendation.option, rationale: proposal.recommendation.rationale.trim() }
       : { rationale: "I recommend holding this choice open; the evidence does not support a preference yet." };
+    // Said to him, once, without paths, task ids or pipeline words; what no rule makes plain the final check holds.
+    const asked = alternativesGrounded && proposal.question.trim() ? proposal.question.trim() : proposal.questionEvidence.trim();
     return {
       ...decision,
       disposition: "ask_george",
       reason: "a source-grounded choice remains George's",
-      question: alternativesGrounded && proposal.question.trim() ? proposal.question.trim() : proposal.questionEvidence.trim(),
+      question: plainQuestionFor(asked, [...(input.taskId ? [input.taskId] : []), ...(input.openCalls ?? [])]) ?? asked,
       options: alternativesGrounded ? options : [],
       recommendation: alternativesGrounded ? recommendation : { rationale: "I recommend clarifying the alternatives before acting." },
       verification: { status: "unknown", evidenceRefs: [] },
@@ -256,7 +310,9 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
 
 function fenced(decision: ExecutiveDecisionRecord): boolean {
   const displayed = [decision.question ?? decision.summary, ...(decision.options ?? []), decision.recommendation?.rationale ?? ""].join("\n");
-  return relayShortfalls(displayed).length > 0 || /\b(?:I|we|Flyd)(?:['’]ll|\s+will|\s+(?:am|are|is)\s+going\s+to)\b/i.test(displayed);
+  return relayShortfalls(displayed).length > 0 || /\b(?:I|we|Flyd)(?:['’]ll|\s+will|\s+(?:am|are|is)\s+going\s+to)\b/i.test(displayed)
+    // A question for him never carries a path, a task id, "George's" or a pipeline word.
+    || decision.disposition === "ask_george" && showsMachinery(displayed, decision.taskId);
 }
 
 function plainWords(text: string): string {
@@ -268,12 +324,17 @@ function plainWords(text: string): string {
 /** After one restate request, Flyd asks George itself, in its own words, dropping alternatives it cannot say cleanly. */
 function plainAsk(decision: AskDecision, held: HeldDecision): ExecutiveDecisionRecord {
   const clarify = { rationale: "I recommend clarifying the alternatives before acting." };
-  for (const question of [decision.question, decision.summary].map(plainWords).filter(Boolean)) {
+  for (const question of [decision.question, decision.summary].map((said) => plainQuestionFor(plainWords(said), decision.taskId) ?? "").filter(Boolean)) {
     const withOptions: AskDecision = {
       ...decision,
       reason: "its boss was asked to restate it once; Flyd asks in its own words",
       question,
-      options: decision.options.map(plainWords),
+      options: decision.options.map((option) => {
+        const plain = plainQuestionFor(plainWords(option), decision.taskId);
+        // An option keeps its own case: "wait for Monday" is not a sentence of its own.
+        const own = plainWords(option);
+        return plain && plain.charAt(0) === own.charAt(0).toUpperCase() ? `${own.charAt(0)}${plain.slice(1)}` : plain ?? own;
+      }),
       recommendation: decision.recommendation.option
         ? { option: plainWords(decision.recommendation.option), rationale: plainWords(decision.recommendation.rationale) }
         : { rationale: plainWords(decision.recommendation.rationale) },
@@ -358,19 +419,56 @@ export function parseExecutiveDecision(value: unknown): ExecutiveDecisionRecord 
       show: item.show, notify: item.notify, ...(resolution ? { resolution } : {}) };
   }
   if (item.question !== undefined || item.options !== undefined || item.recommendation !== undefined || item.resolution !== undefined) return null;
+  const settled = parseSettlement(item.settled);
+  if (item.settled !== undefined && !settled) return null;
   if (item.disposition === "backstage" && item.show === false && item.notify === false && item.action === undefined) {
-    return { ...base, disposition: "backstage", show: false, notify: false, verification };
+    return { ...base, disposition: "backstage", show: false, notify: false, verification, ...(settled ? { settled } : {}) };
   }
   if (item.disposition !== "handle_internally") return null;
   const action = object(item.action);
   if (action && action.capability === "firstmate.message" && typeof action.target === "string" && typeof action.text === "string"
     && typeof action.grantId === "string" && typeof action.idempotencyKey === "string" && item.show === false && item.notify === false) {
-    return { ...base, disposition: "handle_internally", action: { capability: action.capability, target: action.target, text: action.text, grantId: action.grantId, idempotencyKey: action.idempotencyKey }, verification, show: false, notify: false };
+    return { ...base, disposition: "handle_internally", action: { capability: action.capability, target: action.target, text: action.text, grantId: action.grantId, idempotencyKey: action.idempotencyKey }, verification, show: false, notify: false, ...(settled ? { settled } : {}) };
   }
+  if (settled) return null;
   if (item.action === undefined && status === "verified" && checkRefs.length && item.show === true && typeof item.notify === "boolean") {
     return { ...base, disposition: "handle_internally", verification: { status, evidenceRefs: checkRefs }, show: true, notify: item.notify };
   }
   return null;
+}
+
+function parseSettlement(value: unknown): ExecutiveSettlement | null {
+  const item = object(value);
+  if (!item || typeof item.rule !== "string" || typeof item.answer !== "string" || typeof item.because !== "string" || typeof item.question !== "string"
+    || item.line !== undefined && typeof item.line !== "string") return null;
+  const back = object(item.takenBack);
+  if (item.takenBack !== undefined && (!back || typeof back.answer !== "string" || typeof back.at !== "string")) return null;
+  return {
+    rule: item.rule, answer: item.answer, because: item.because, question: item.question,
+    ...(typeof item.line === "string" ? { line: item.line } : {}),
+    ...(back && typeof back.answer === "string" && typeof back.at === "string" ? { takenBack: { answer: back.answer, at: back.at } } : {}),
+  };
+}
+
+/** Whether he took back an answer Flyd gave for him on this task. */
+export function tookBackOn(store: IntelligenceEventStore, taskId: string): boolean {
+  for (const event of store.readSource("executive.cycle")) {
+    const candidate = parseExecutiveDecision(event.payload?.decision);
+    if (candidate?.taskId === taskId && candidate.settled?.takenBack) return true;
+  }
+  return false;
+}
+
+/** He takes back an answer Flyd gave for him by a standing rule, giving his own: recorded once, after his answer was delivered. */
+export function takeBackSettledDecision(store: IntelligenceEventStore, decisionId: string, answer: string, now = new Date()): ExecutiveDecisionRecord {
+  const current = readExecutiveDecision(store, decisionId);
+  if (!current?.settled) throw new Error(`Decision ${decisionId} was not answered for him`);
+  if (current.settled.takenBack) return current;
+  const value = answer.trim();
+  if (!value) throw new Error("Decision answer is required");
+  const taken = { ...current, settled: { ...current.settled, takenBack: { answer: value, at: now.toISOString() } } } as ExecutiveDecisionRecord;
+  persistExecutiveDecision(store, taken, "takeback");
+  return taken;
 }
 
 export function readExecutiveDecision(store: IntelligenceEventStore, decisionId: string): ExecutiveDecisionRecord | null {

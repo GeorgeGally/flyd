@@ -4703,6 +4703,24 @@ describe("the front page", () => {
     expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-2", questionText: `${prefix} new`, text: "Yes" });
   });
 
+  it("opens a handled line from the server's jobs on a take-back form that reaches Flyd's answer", async () => {
+    const stream = await opened();
+    stream.emit("update", {
+      order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false },
+      jobs: [{ id: "landed:sync", group: "done", state: "Handled for you", title: "Said yes for you: rebase and push.", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, handled: { decisionId: "dec-1", task: "sync" } }],
+    });
+    after(() => document.querySelector<HTMLElement>('.job[data-job="landed:sync"]')!.click());
+    const form = document.querySelector<HTMLFormElement>(".job-view .art-chat")!;
+    const input = form.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(input.placeholder).toBe("Your own answer takes this back…");
+    input.value = "No, hold it";
+    input.dispatchEvent(new Event("input"));
+    form.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(request[1]!.body))).toMatchObject({ decisionFollowUp: "dec-1", decisionTask: "sync", text: "No, hold it" });
+  });
+
   it("renders stored job digests and says what an empty list actually is", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, jobs: [], jobsFleetKnown: false, show: { title: "", summary: "", items: [], counts: {}, live: false } });

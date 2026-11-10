@@ -20,6 +20,10 @@ Under a matching grant, a staff question that Jev has not confidently routed to 
 
 `STAFF_COORDINATION_POLICY` defines the permitted internal effect. Under `trusted` or `full` autonomy, Flyd can request evidence about a known existing FirstMate task. `ask` autonomy grants no such effect. The fixed message grants no new scope and no outward authority. Neither model output nor Jev confidence creates a grant.
 
+`STANDING_RULES_POLICY` (`cli/src/intelligence/executive/standing-rules.ts`) is a second grant, given only alongside the first and only while George's own recorded lines in USER.md contain one Flyd may answer by; `FLYD_STANDING_RULES=0` turns it off. With it, the review step answers a call his words already settle, before asking him: a plain yes-or-no ask covered by the `AutoAnswers` rules, the staff's recommended option, a recurring routine that is due, a report that asks nothing. A call that points at another task's call still open for him is held quietly. Review findings and ask-user pipeline gates are never settled by Flyd. Nothing destructive, costly, public, security- or access-related, a taste call, an either/or, a stop, or anything the staff say needs his own word is settled. The answer goes once through the boss note path (`George's answer, given by Flyd, to: …`, a decision message), and the view shows one quiet "Handled for you" line under Done; his own answer there takes it back and goes to the boss in its place, and no later call on that task is answered for him.
+
+A question for George never carries a path, a task id, "George's" or a pipeline word (`plain-question.ts`). Repeated passages are kept once and the rest is rewritten by fixed rules; what no rule makes plain stays in Needs you as a held line in Flyd's words ("A call on … is waiting; Flyd is getting it restated."), never in the staff's own words and never dropped.
+
 Before delivery, Core claims an internal action in a SQLite transaction. Concurrent observers cannot execute that claim twice. A failed or uncertain delivery remains recorded and does not retry automatically. A delivery receipt proves that the note arrived; it does not prove that the underlying work recovered.
 
 For displayed completion in this slice, the existing GitHub evidence adapter independently checks a referenced pull request. A merged flag and merge commit establish the narrow result, and the displayed summary describes that merge. A completed label, a staff-authored evidence list, an open pull request or an unsupported evidence type does not establish success. A completed Librarian run that George asked for counts as verified once its detailed report exists, and its brief reaches him as an outcome. Other result-verification adapters remain future work.
@@ -34,7 +38,7 @@ The island announces an open decision, an independently verified outcome that pa
 
 This production path supersedes:
 
-- regex-based automatic standing-rule `Yes` answers in `AutoAnswers`;
+- automatic standing-rule `Yes` answers from the conversation transcript in `AutoAnswers` (its rules now answer through the review step's standing-rules grant);
 - status-to-card presentation and row-voice narration as the authority for staff news;
 - legacy decision-age/choice-parser filtering before Core interpretation;
 - the domain notifier's regex implementation-question return rule and raw-status conclusion;

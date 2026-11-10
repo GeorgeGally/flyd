@@ -37,6 +37,17 @@ describe("jobsFrom", () => {
     expect(board.jobs.find((job) => job.id === "cap5")!.group).toBe("needs");
   });
 
+  it("keeps a call Flyd answered by his rules as its own handled line he can take back, even beside the project's open call", () => {
+    const item = (kind: string, id: string, over = {}) => ({ id: `${kind}:${id}`, kind, headline: id, why: "", task: id, project: "Cap5", ...over });
+    const handledLine = item("landed", "sync", { headline: "Said yes for you: rebase and push.", status: "handled", executiveDecisionId: "dec-1", at: "2026-10-26T10:00:00.000Z" });
+    const show = { ...screen, calls: [item("call", "pick")], done: [handledLine, item("landed", "shipped", { at: "2026-10-26T09:00:00.000Z" })] } as unknown as ShowScreen;
+    const board = jobsFrom({ projects: [project()], show, now: NOW });
+    const handled = board.jobs.find((job) => job.id === "landed:sync");
+    expect(handled).toMatchObject({ group: "done", state: "Handled for you", handled: { decisionId: "dec-1", task: "sync" } });
+    expect(board.jobs.find((job) => job.id === "cap5")).toMatchObject({ group: "needs" });
+    expect(board.jobs.filter((job) => job.handled).map((job) => job.id)).toEqual(["landed:sync"]);
+  });
+
   it("carries the run start separately from its latest update", () => {
     const board = jobsFrom({ runs: [run({ started: "2026-10-26T09:00:00Z", updatedAt: "2026-10-26T11:59:00Z" })], now: NOW });
     expect(board.jobs.find((job) => job.group === "working")).toMatchObject({ started: "2026-10-26T09:00:00Z", at: "2026-10-26T11:59:00Z" });
