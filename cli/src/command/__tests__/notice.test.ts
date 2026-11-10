@@ -319,11 +319,16 @@ describe("notifyRun", () => {
     await notifyRun(finished("chat-own", { source: "chat", originalMessage: "can you make the island quieter\nthanks", intendedOutcome: "Reduce island notifications" }), notify, undefined, decide, closed);
     // An outcome the model wrote with no message of his: the bare fact.
     await notifyRun(finished("chat-model", { source: "chat", originalMessage: "Reduce island notifications", intendedOutcome: "Reduce island notifications" }), notify, undefined, decide, closed);
+    // A message sent from an artefact card or a decision: the window's addressing line is not his, the words under it are.
+    await notifyRun(finished("chat-card", { source: "chat", originalMessage: "About the artefact \"Logan\"\n\nin liesel settings, let me choose every screen format", intendedOutcome: "Let Liesel's settings toggle every screen format" }), notify, undefined, decide, closed);
+    await notifyRun(finished("desk-card", { source: "view", session: "s", originalMessage: "About the artefact \"Map\"\nthe pins are off by a block", intendedOutcome: "About the artefact \"Map\"" }), notify, undefined, decide, closed);
     expect(sent).toEqual([
       "A piece of your work is finished; I haven't checked it yet.",
       "Your request “The footer link is broken” is finished; I haven't checked it yet.",
       "Your request “can you make the island quieter” is finished; I haven't checked it yet.",
       "A piece of your work is finished; I haven't checked it yet.",
+      "Your request “in liesel settings, let me choose every screen format” is finished; I haven't checked it yet.",
+      "Your request “the pins are off by a block” is finished; I haven't checked it yet.",
     ]);
   });
 

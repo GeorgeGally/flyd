@@ -17,6 +17,7 @@ import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intell
 import { deliverOnce, deliverOwed, finishedKey, markTold, seedOnce } from "../runtime/delivered.js";
 import { windowOpen } from "../conversation-view/window-presence.js";
 import { deskWords } from "../conversation-view/firstmate-inbox.js";
+import { plainNote } from "../conversation-view/rail.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -43,10 +44,11 @@ export async function deliverBossNote(
 
 /** His own words for a run he asked for, or empty when its outcome was written by Flyd (a tool's brief, a follow-up, a stand-in). */
 function hisWords(request: DomainRun["request"]): string {
-  if (request.source === "view") return deskWords(request);
-  if (request.source === "chat" && request.originalMessage.trim() !== request.intendedOutcome.trim()) {
-    return request.originalMessage.split("\n").find((line) => line.trim())?.trim() ?? "";
-  }
+  // The window's addressing lines ("About the artefact …", "Answer to pending decision …") are plumbing he never typed.
+  const typed = plainNote(request.originalMessage);
+  const first = typed.words.split("\n").find((line) => line.trim())?.trim() ?? "";
+  if (request.source === "view") return deskWords(request) && (typed.words !== request.originalMessage ? first : deskWords(request));
+  if (request.source === "chat" && request.originalMessage.trim() !== request.intendedOutcome.trim()) return first;
   return "";
 }
 
