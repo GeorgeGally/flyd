@@ -264,9 +264,6 @@ export function seedOnce(keys: string[], options: { store?: IntelligenceEventSto
   }
 }
 
-/** How far back held reports are read: past the next morning brief. */
-const HELD_WINDOW_MS = 48 * 60 * 60_000;
-
 /** Holds a report for a natural break; nothing when it was held or told already. */
 export function holdReport(report: DeliveryReport, held: HeldFor, options: { store?: IntelligenceEventStore; now?: () => Date } = {}): void {
   const store = openStore(options.store);
@@ -284,13 +281,12 @@ export function holdReport(report: DeliveryReport, held: HeldFor, options: { sto
   }
 }
 
-/** Reports still held: held, and neither told nor briefed since. */
-export function heldReports(options: { store?: IntelligenceEventStore; now?: () => Date } = {}): Array<DeliveryReport & { at: string; held: HeldFor }> {
+/** Reports still held, however long ago: held, and neither told nor briefed since. */
+export function heldReports(options: { store?: IntelligenceEventStore } = {}): Array<DeliveryReport & { at: string; held: HeldFor }> {
   const store = openStore(options.store);
   try {
-    const after = new Date((options.now?.() ?? new Date()).getTime() - HELD_WINDOW_MS).toISOString();
     const held = new Map<string, DeliveryReport & { at: string; held: HeldFor }>();
-    for (const event of store.readSourcePage(DELIVERED_SOURCE, { after, limit: 5_000 })) {
+    for (const event of store.readByIdempotencyPrefix(DELIVERED_SOURCE, "held:")) {
       const record = event.payload?.delivered as DeliveredRecord | undefined;
       if (!record?.held || held.has(record.key) || found(store, `claim:${record.key}`)) continue;
       held.set(record.key, {

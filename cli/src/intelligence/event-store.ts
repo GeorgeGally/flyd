@@ -237,6 +237,15 @@ export class IntelligenceEventStore {
     return rows.map((row) => this.mapRow(row));
   }
 
+  /** A source's live events whose idempotency key starts with a prefix, oldest first, by the (source, key) index. */
+  readByIdempotencyPrefix(sourceId: string, prefix: string): StoredEvent[] {
+    if (!prefix) throw new Error("Invalid idempotency prefix");
+    const rows = this.db
+      .prepare(`SELECT * FROM personal_events WHERE source_id = ? AND erased = 0 AND idempotency_key >= ? AND idempotency_key < ? ORDER BY sequence ASC`)
+      .all(sourceId, prefix, prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1)) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.mapRow(row));
+  }
+
   /** A source family, using an indexed lexical range instead of replaying unrelated memory. */
   readSourcePrefix(prefix: string): StoredEvent[] {
     if (!prefix || !/^[a-zA-Z0-9_.:-]+$/.test(prefix)) throw new Error("Invalid source prefix");

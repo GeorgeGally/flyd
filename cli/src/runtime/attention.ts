@@ -47,7 +47,7 @@ export interface Focus {
 }
 
 export type Timing =
-  | { when: "now"; depth: "full" | "lead" }
+  | { when: "now" }
   | { when: "held"; until: "break" | "meeting" };
 
 export interface Arrival {
@@ -66,8 +66,6 @@ export interface Held {
   focus?: string;
   /** Finished work, rather than a call or a blocker. */
   finished?: boolean;
-  /** Names the work, for the batch line. */
-  work?: string;
 }
 
 /** A project by its name or its folder, compared loosely. Pure. */
@@ -92,13 +90,12 @@ export function readFocus(signals: FocusSignals): Focus {
   };
 }
 
-/** When a report arriving now is told, and how much. Pure. */
+/** When a report arriving now is told. Pure. */
 export function timing(report: Arrival, focus: Focus): Timing {
-  const onFocus = focus.project !== undefined && sameProject(report.project, focus.project);
-  if (report.kind === "irreversible" || report.kind === "credential" || report.blocking) return { when: "now", depth: onFocus ? "full" : "lead" };
+  if (report.kind === "irreversible" || report.kind === "credential" || report.blocking) return { when: "now" };
   if (focus.meetingEndsAt !== undefined) return { when: "held", until: "meeting" };
-  if (focus.project === undefined) return { when: "now", depth: "lead" };
-  return onFocus ? { when: "now", depth: "full" } : { when: "held", until: "break" };
+  if (focus.project === undefined || sameProject(report.project, focus.project)) return { when: "now" };
+  return { when: "held", until: "break" };
 }
 
 /** Held reports whose wait is over: the meeting ended, or his focus broke since they were held. Pure. */
@@ -121,9 +118,9 @@ function countWord(n: number): string {
   return COUNT[n] ?? String(n);
 }
 
-/** A held report's work, named short. */
+/** A held report named short, from the line it would have been told by (already screened for him). */
 function nameOf(report: Held): string {
-  const words = (report.work?.trim() || report.line.split(/(?<=[.!?])\s/)[0] || "").replace(/\s+/g, " ").replace(/[.!?]+$/, "").trim();
+  const words = (report.line.split(/(?<=[.!?])\s/)[0] ?? "").replace(/^Done:\s*/, "").replace(/\s+/g, " ").replace(/[.!?]+$/, "").trim();
   if (words.length <= NAME_MAX) return words;
   const cut = words.slice(0, NAME_MAX - 1);
   return `${cut.slice(0, cut.lastIndexOf(" ") > 0 ? cut.lastIndexOf(" ") : cut.length)}…`;

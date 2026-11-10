@@ -112,7 +112,7 @@ const readAttention: ReadAttention = async () => readFocus(await readSignals());
 /** When a run's report is told, from what George is focused on; told now when focus cannot be read. */
 async function whenToTell(run: DomainRun, decision: ExecutiveDecisionRecord, attention: ReadAttention): Promise<{ timing: Timing; focus?: Focus }> {
   const focus = await attention().catch(() => undefined);
-  if (!focus) return { timing: { when: "now", depth: "lead" } };
+  if (!focus) return { timing: { when: "now" } };
   const project = projectOf(run);
   const kind = reportFromRun(run, decision).kind;
   // His call on the work he is on blocks it.

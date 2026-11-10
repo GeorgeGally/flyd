@@ -18,17 +18,17 @@ describe("when to tell George", () => {
     expect(onBloom.project).toBe("Bloom");
     expect(noFocus.project).toBeUndefined();
     // Irreversible or credential: now, whatever he is doing, a meeting included.
-    expect(timing({ project: "cap5", kind: "irreversible" }, inMeeting)).toEqual({ when: "now", depth: "lead" });
-    expect(timing({ project: "cap5", kind: "credential" }, onBloom)).toEqual({ when: "now", depth: "lead" });
+    expect(timing({ project: "cap5", kind: "irreversible" }, inMeeting)).toEqual({ when: "now" });
+    expect(timing({ project: "cap5", kind: "credential" }, onBloom)).toEqual({ when: "now" });
     // About his focus: now, fuller (the folder names the same project).
-    expect(timing({ project: "/Users/g/Documents/bloom", kind: "done" }, onBloom)).toEqual({ when: "now", depth: "full" });
+    expect(timing({ project: "/Users/g/Documents/bloom", kind: "done" }, onBloom)).toEqual({ when: "now" });
     // Another project while focused: held until focus breaks.
     expect(timing({ project: "cap5", kind: "done" }, onBloom)).toEqual({ when: "held", until: "break" });
     // In a meeting: held to its end, unless it blocks him now.
     expect(timing({ project: "Bloom", kind: "done" }, inMeeting)).toEqual({ when: "held", until: "meeting" });
-    expect(timing({ project: "Bloom", kind: "decision", blocking: true }, inMeeting)).toEqual({ when: "now", depth: "full" });
+    expect(timing({ project: "Bloom", kind: "decision", blocking: true }, inMeeting)).toEqual({ when: "now" });
     // No particular focus: now, as a lead line.
-    expect(timing({ project: "cap5", kind: "done" }, noFocus)).toEqual({ when: "now", depth: "lead" });
+    expect(timing({ project: "cap5", kind: "done" }, noFocus)).toEqual({ when: "now" });
   });
 
   it("releases an off-focus report only when focus breaks, and a meeting's at its end", () => {
@@ -48,19 +48,18 @@ describe("when to tell George", () => {
   });
 
   it("batches held reports into one notification line naming each that fits", () => {
-    const one: Held = { key: "work:a", line: "The cap5 export is finished.", work: "the cap5 export", heldAt: NOW, until: "break", focus: "Bloom", finished: true };
-    expect(batch([one])).toBe("The cap5 export is finished.");
-    expect(batch([one, { ...one, key: "work:b", work: "the cap5 footer" }])).toBe("Two things finished while you were on Bloom: the cap5 export and the cap5 footer.");
-    // No work name: a short form of its line.
-    expect(batch([one, { ...one, key: "work:b", work: undefined, line: "Cap5's footer change landed. Checks passed." }]))
+    const one: Held = { key: "work:a", line: "Done: the cap5 export. https://github.com/g/cap5/pull/3", heldAt: NOW, until: "break", focus: "Bloom", finished: true };
+    expect(batch([one])).toBe(one.line);
+    // Each named from its own line, never from his raw request.
+    expect(batch([one, { ...one, key: "work:b", line: "Cap5's footer change landed. Checks passed." }]))
       .toBe("Two things finished while you were on Bloom: the cap5 export and Cap5's footer change landed.");
-    const long = "a very long name for a piece of work that will not fit";
-    const many = batch([one, { ...one, key: "b", finished: false, work: long }, { ...one, key: "c", work: long }, { ...one, key: "d", work: long }]);
+    const long = "A very long name for a piece of work that will not fit in one line.";
+    const many = batch([one, { ...one, key: "b", finished: false, line: long }, { ...one, key: "c", line: long }, { ...one, key: "d", line: long }]);
     expect(many.startsWith("Four things came in while you were on Bloom: the cap5 export, ")).toBe(true);
     expect(many.endsWith(" more.")).toBe(true);
     expect(many.includes("\n")).toBe(false);
     expect(many.length).toBeLessThanOrEqual(140);
-    expect(morningLines([one])).toEqual(["Held for you (1):", "  • The cap5 export is finished."]);
+    expect(morningLines([one])).toEqual(["Held for you (1):", `  • ${one.line}`]);
   });
 });
 
@@ -77,17 +76,21 @@ describe("held reports", () => {
     const now = () => new Date(NOW);
     const said: string[] = [];
     const say = async (_title: string, message: string) => { said.push(message); return "shown" as const; };
-    for (const key of ["work:a", "work:b", "work:c"]) holdReport({ key, line: `${key} is finished.`, work: key.slice(5) }, { until: "break", focus: "Bloom", finished: true }, { store, now });
+    for (const key of ["work:a", "work:b", "work:c"]) holdReport({ key, line: `Done: ${key.slice(5)}.` }, { until: "break", focus: "Bloom", finished: true }, { store, now });
     holdReport({ key: "work:a", line: "said twice" }, { until: "break" }, { store, now });
-    expect(heldReports({ store, now }).map((report) => report.line)).toEqual(["work:a is finished.", "work:b is finished.", "work:c is finished."]);
+    // A weekend away: still held, however long ago.
+    holdReport({ key: "work:old", line: "Done: old." }, { until: "break", focus: "Bloom", finished: true }, { store, now: () => new Date(NOW - 72 * 60 * MINUTE) });
+    expect(heldReports({ store }).map((report) => report.key)).toContain("work:old");
+    markBriefed(["work:old"], { store, now });
+    expect(heldReports({ store }).map((report) => report.line)).toEqual(["Done: a.", "Done: b.", "Done: c."]);
 
-    const due = heldReports({ store, now }).slice(0, 2);
+    const due = heldReports({ store }).slice(0, 2);
     await deliverOnce(due, { store, say, now, together: (claimed) => batch(claimed.map((report) => ({ ...report, heldAt: NOW, until: "break", focus: "Bloom", finished: true }))) });
     expect(said).toEqual(["Two things finished while you were on Bloom: a and b."]);
-    expect(heldReports({ store, now }).map((report) => report.key)).toEqual(["work:c"]);
+    expect(heldReports({ store }).map((report) => report.key)).toEqual(["work:c"]);
 
     markBriefed(["work:c"], { store, now });
-    expect(heldReports({ store, now })).toEqual([]);
+    expect(heldReports({ store })).toEqual([]);
     store.close();
   });
 });
