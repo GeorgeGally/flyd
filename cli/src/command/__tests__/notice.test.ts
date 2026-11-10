@@ -349,14 +349,15 @@ describe("notifyRun", () => {
     const calls = [
       ["domain-call-1", "Publish the cap5 website now?"], ["domain-call-2", "Pay the cap5 hosting invoice now?"],
       ["domain-call-3", "Can I have your Stripe API key?"], ["domain-call-4", "Blue or green for the header?"],
-      ["domain-call-5", "Should I fix the login page first?"],
+      ["domain-call-5", "Should I redesign your login page?"], ["domain-call-6", "Keep your token parser or swap it?"],
+      ["domain-call-7", "Refactor the 2FA code module first?"], ["domain-call-8", "Should users sign in to the dashboard with Google?"],
     ];
     for (const [id, question] of calls) {
       const [asked, decided] = ask(id!, question!);
       await notifyRun(asked, notify, undefined, async () => decided, () => false, onBloom);
     }
     expect(sent).toHaveLength(3);
-    expect(sent.join(" ")).not.toMatch(/Blue or green|login page/);
+    expect(sent.join(" ")).not.toMatch(/Blue or green|login page|token parser|2FA code module|sign in to the dashboard/);
   });
 
   it("quotes only George's own words for a finished run, and says Flyd's stand-ins as the bare fact", async () => {

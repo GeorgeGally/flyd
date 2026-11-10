@@ -92,13 +92,14 @@ export function readFocus(signals: FocusSignals): Focus {
 }
 
 const SECRET = String.raw`(?:login|log-in|password|passcode|api keys?|tokens?|credentials?|2fa|two[- ]factor(?: code)?|otp|one[- ]time (?:code|password)|verification code)`;
+const NOT_A_THING = String.raw`\b(?!\s+(?:page|screen|form|button|flow|field|parser|handler|module|path|logic|code|component|endpoint|route|view))`;
 /** Asks him for his own secret: "your password", "an API key from you", "log in to Stripe", "the 2FA code". */
 const ASKS_CREDENTIAL = new RegExp([
-  String.raw`\byour\s+(?:[\w.-]+\s+){0,2}${SECRET}\b`,
+  String.raw`\byour\s+(?:[\w.-]+\s+){0,2}${SECRET}${NOT_A_THING}`,
   String.raw`\b${SECRET}\s+from\s+you\b`,
-  String.raw`\b(?:log|sign)\s?in\s+(?:to|into)\s+\w`,
-  String.raw`\bthe\s+(?:2fa|two[- ]factor|one[- ]time|otp|verification)\s+code\b`,
-].join("|"), "i");
+  String.raw`(?:^|[.!?]\s+|\byou\s+(?:to\s+)?|\bplease\s+)(?:log|sign)\s?in\s+(?:to|into)\s+\w`,
+  String.raw`\bthe\s+(?:2fa|two[- ]factor|one[- ]time|otp|verification)\s+code${NOT_A_THING}`,
+].join("|"), "im");
 const MONEY_OR_FINAL = /\b(pay|charge|refund|spend|buy|purchase|cancel|delete|deploy|publish|release|merge\s+(?:\w+\s+){0,3}(?:to|into)\s+(?:production|prod)|sign\s+(?:the|a|this)\s+contract)\b/i;
 const FINAL_VERBS = new Set(["send", "publish", "purchase", "delete"]);
 
