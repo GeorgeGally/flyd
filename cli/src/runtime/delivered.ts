@@ -33,7 +33,19 @@ export interface DeliveryReport {
   evidenceRefs?: string[];
 }
 
-export type DeliveryOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered" | "seeded";
+export type DeliveryOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered" | "seeded" | "briefed";
+
+/** A report held for a natural break (runtime/attention.ts): told later, batched, or in the morning brief. */
+export interface HeldFor {
+  until: "break" | "meeting";
+  /** What he was on when it was held. */
+  focus?: string;
+  project?: string;
+  finished?: boolean;
+  /** The run it reports on, whose told line is recorded when it is said. */
+  run?: string;
+  decisionId?: string;
+}
 
 export interface DeliveredRecord {
   schema: typeof DELIVERED_SCHEMA;
@@ -44,6 +56,7 @@ export interface DeliveredRecord {
   outcome?: DeliveryOutcome;
   kind?: GeorgeKind;
   work?: string;
+  held?: HeldFor;
 }
 
 function envelope(record: DeliveredRecord, idempotencyKey: string, evidenceRefs: string[] = []): ContextEnvelope {
@@ -165,7 +178,7 @@ function openStore(store?: IntelligenceEventStore): IntelligenceEventStore {
  */
 export async function deliverOnce(
   reports: DeliveryReport[],
-  options: { store?: IntelligenceEventStore; say?: Say; now?: () => Date } = {},
+  options: { store?: IntelligenceEventStore; say?: Say; now?: () => Date; together?: (claimed: DeliveryReport[]) => string } = {},
 ): Promise<{ told: DeliveryReport[]; owed: DeliveryReport[] }> {
   const store = openStore(options.store);
   const owns = options.store === undefined;
@@ -177,10 +190,17 @@ export async function deliverOnce(
       const attempt = claimDelivery(store, report, now());
       return attempt === undefined ? [] : [{ report, attempt }];
     });
-    for (const { report, attempt } of claimed) {
-      const outcome = await say("Flyd", report.line, report.kind ?? "deliverable", report.work).catch(() => "undelivered" as const);
-      // Not delivered (no adapter listening, Core down): kept open, so a later sweep says it again.
-      recordOutcome(store, report, outcome ?? "shown", attempt, now());
+    if (options.together && claimed.length > 1) {
+      // Held reports come out together: one delivery, each its own line (runtime/attention.ts).
+      const first = claimed[0]!.report;
+      const outcome = await say("Flyd", options.together(claimed.map(({ report }) => report)), first.kind ?? "deliverable", first.work).catch(() => "undelivered" as const);
+      for (const { report, attempt } of claimed) recordOutcome(store, report, outcome ?? "shown", attempt, now());
+    } else {
+      for (const { report, attempt } of claimed) {
+        const outcome = await say("Flyd", report.line, report.kind ?? "deliverable", report.work).catch(() => "undelivered" as const);
+        // Not delivered (no adapter listening, Core down): kept open, so a later sweep says it again.
+        recordOutcome(store, report, outcome ?? "shown", attempt, now());
+      }
     }
     return { told: claimed.map(({ report }) => report), owed: unique.filter((report) => owed(store, report.key)) };
   } finally {
@@ -240,6 +260,58 @@ export function seedOnce(keys: string[], options: { store?: IntelligenceEventSto
       append(store, envelope({ schema: DELIVERED_SCHEMA, key: SEED_MARK, line: "", surface: "notification", at, outcome: "seeded" }, SEED_MARK));
       return true;
     });
+  } finally {
+    if (options.store === undefined) store.close();
+  }
+}
+
+/** How far back held reports are read: past the next morning brief. */
+const HELD_WINDOW_MS = 48 * 60 * 60_000;
+
+/** Holds a report for a natural break; nothing when it was held or told already. */
+export function holdReport(report: DeliveryReport, held: HeldFor, options: { store?: IntelligenceEventStore; now?: () => Date } = {}): void {
+  const store = openStore(options.store);
+  try {
+    store.transaction(() => {
+      if (found(store, `held:${report.key}`) || found(store, `claim:${report.key}`)) return;
+      const record: DeliveredRecord = {
+        schema: DELIVERED_SCHEMA, key: report.key, line: report.line, surface: "notification", at: (options.now?.() ?? new Date()).toISOString(), held,
+        ...(report.kind ? { kind: report.kind } : {}), ...(report.work ? { work: report.work } : {}),
+      };
+      append(store, envelope(record, `held:${report.key}`, report.evidenceRefs));
+    });
+  } finally {
+    if (options.store === undefined) store.close();
+  }
+}
+
+/** Reports still held: held, and neither told nor briefed since. */
+export function heldReports(options: { store?: IntelligenceEventStore; now?: () => Date } = {}): Array<DeliveryReport & { at: string; held: HeldFor }> {
+  const store = openStore(options.store);
+  try {
+    const after = new Date((options.now?.() ?? new Date()).getTime() - HELD_WINDOW_MS).toISOString();
+    const held = new Map<string, DeliveryReport & { at: string; held: HeldFor }>();
+    for (const event of store.readSourcePage(DELIVERED_SOURCE, { after, limit: 5_000 })) {
+      const record = event.payload?.delivered as DeliveredRecord | undefined;
+      if (!record?.held || held.has(record.key) || found(store, `claim:${record.key}`)) continue;
+      held.set(record.key, {
+        key: record.key, line: record.line, at: record.at, held: record.held, evidenceRefs: event.evidenceRefs ?? [],
+        ...(record.kind ? { kind: record.kind } : {}), ...(record.work ? { work: record.work } : {}),
+      });
+    }
+    return [...held.values()];
+  } finally {
+    if (options.store === undefined) store.close();
+  }
+}
+
+/** Held reports told in the morning brief: nothing tells them again. */
+export function markBriefed(keys: string[], options: { store?: IntelligenceEventStore; now?: () => Date } = {}): void {
+  if (!keys.length) return;
+  const store = openStore(options.store);
+  try {
+    const at = (options.now?.() ?? new Date()).toISOString();
+    store.transaction(() => { for (const key of new Set(keys)) recordTold(store, key, at, "briefed"); });
   } finally {
     if (options.store === undefined) store.close();
   }

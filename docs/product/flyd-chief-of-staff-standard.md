@@ -115,6 +115,15 @@ authoritative path. This change does not rewrite historical private entries.
     instead of being cut; it never falls back to "Done:" (an unchecked one
     unfit to show becomes "<work> is finished; I haven't checked it yet.").
     The line sent is kept on the run (`told`) for the next chat turn.
+  - When a domain run's notice goes follows his focus (`cli/src/runtime/attention.ts`),
+    read from his recent commits, the foreground repo, his last chat turn and a
+    meeting on his calendar: irreversible or credential reports, and his call on
+    the work he is on, go now; in a meeting the rest wait for its end; about the
+    project he is on, now with its detail; about another project, held until
+    his focus breaks (he switches project, is quiet for about 20 minutes, or
+    starts a chat turn), then told together as one notification, each its own
+    line; with no particular focus, now as the lead line. Held reports that
+    never found a break are in the morning brief ("Held for you").
   - A domain run that asks George for an implementation call goes back to its
     boss, marked as Flyd's own note (not George's wording, no new authority),
     to settle it and report the outcome. Only FirstMate, which replies, is

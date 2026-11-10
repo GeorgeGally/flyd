@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
-import { decideRun, notifyRun } from "../scheduler.js";
+import { decideRun, notifyRun, tellHeld } from "../scheduler.js";
 import { deliverOwed } from "../../runtime/delivered.js";
 import { readDomainRun } from "../store.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
@@ -307,6 +307,30 @@ describe("notifyRun", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("holds another project's finished work while he is focused, and tells it once his focus breaks", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const line = "Done: keep the island quiet. https://github.com/GeorgeGally/flyd/pull/9";
+    const finished: ExecutiveDecisionRecord = {
+      schema: "flyd.executive-decision.v1", decisionId: "decision-held", sourceId: "firstmate.change", sourceEventId: "event-held",
+      taskId: "domain-held-1", disposition: "handle_internally", reason: "finished work, checked: its change is in", summary: line,
+      delivery: { line, checked: true, url: "https://github.com/GeorgeGally/flyd/pull/9" }, evidenceRefs: ["domain-held-1"],
+      verification: { status: "verified", evidenceRefs: ["https://github.com/GeorgeGally/flyd/pull/9"] }, show: true, notify: true,
+      createdAt: "2026-11-10T10:00:00.000Z",
+    };
+    const held: DomainRun = { ...run("Captain, done."), id: "domain-held-1", request: { ...run("Captain, done.").request, id: "domain-held-1", project: { name: "flyd" } } };
+    // On Bloom: the flyd change waits for a natural break.
+    await notifyRun(held, notify, undefined, async () => finished, () => false, async () => ({ project: "Bloom" }));
+    expect([sent, readDomainRun("domain-held-1")?.notified, readDomainRun("domain-held-1")?.told]).toEqual([[], true, undefined]);
+    await tellHeld(async () => ({ project: "Bloom" }), notify);
+    expect(sent).toEqual([]);
+    // He moves to flyd: told now, once, and recorded as told.
+    await tellHeld(async () => ({ project: "flyd" }), notify);
+    await tellHeld(async () => ({}), notify);
+    expect(sent).toEqual([line]);
+    expect(readDomainRun("domain-held-1")?.told?.line).toBe(line);
   });
 
   it("quotes only George's own words for a finished run, and says Flyd's stand-ins as the bare fact", async () => {
