@@ -172,15 +172,16 @@ export async function composeMorning(deps: SessionBriefingDependencies = {}): Pr
   }
 
   try {
-    // firstmate's latest round-up per project (lib/state-of-play.ts), told once in Flyd's words.
+    // firstmate's latest round-up per project (lib/state-of-play.ts), told once in Flyd's words;
+    // a peek (/brief, the daily brief) is the morning as it stands, so it shows every current line.
     if (!deps.paths) {
       const { StateOfPlay } = await import("../lib/state-of-play.js");
       const play = new StateOfPlay();
-      const untold = play.untold(now.getTime());
-      if (untold.length) {
+      const shown = deps.peek ? play.current(now.getTime()) : play.untold(now.getTime());
+      if (shown.length) {
         lines.push("Where your work stands:");
-        for (const item of untold.slice(0, 6)) lines.push(`  • ${item.line}`);
-        if (!deps.peek) play.markTold(untold);
+        for (const item of shown.slice(0, 6)) lines.push(`  • ${item.line}`);
+        if (!deps.peek) play.markTold(shown);
       }
     }
   } catch {
