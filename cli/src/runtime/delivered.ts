@@ -8,14 +8,18 @@ import type { GeorgeKind } from "../lib/reaches-george.js";
 // it is said and marked with what became of it after, inside the event store's
 // own write lock, so Core and the conversation window never both say it and a
 // restart never says it twice. A report that could not be delivered (no Mac
-// adapter listening) is said again on a later sweep until it is; one left
-// without any outcome (the process died mid-send) is said once more after a
-// grace period. Nothing is dropped either.
+// adapter listening) is said again on later sweeps, each wait twice the last,
+// up to MAX_TRIES tries; one left without any outcome (the process died
+// mid-send) is said once more. Whatever is not told stays on its Jobs row.
 
 export const DELIVERED_SOURCE = "flyd.delivered";
 export const DELIVERED_SCHEMA = "flyd.delivered.v1";
-/** A try this old with no outcome may be tried again: undelivered ones each time, ones cut off mid-send once. */
+/** The wait before a try with no outcome is tried again; it doubles with each try. */
 export const UNFINISHED_CLAIM_MS = 5 * 60_000;
+/** Tries after the first before a report no adapter took is given up (about five hours of waits in all). */
+export const MAX_TRIES = 6;
+/** How far back the sweep reads: longer than every wait together. */
+const OWED_WINDOW_MS = 24 * 60 * 60_000;
 
 export interface DeliveryReport {
   /** What the report is about, stable across restarts: "task:flyd-hide-whatsapp-card", "run:domain-…". */
@@ -31,7 +35,7 @@ export interface DeliveryReport {
   aliases?: string[];
 }
 
-export type DeliveryOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered";
+export type DeliveryOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered" | "seeded";
 
 export interface DeliveredRecord {
   schema: typeof DELIVERED_SCHEMA;
@@ -78,21 +82,35 @@ function atOf(event: ReturnType<IntelligenceEventStore["findByIdempotencyKey"]>)
   return typeof at === "string" ? Date.parse(at) : 0;
 }
 
-/** The latest try at a report (the claim is try 0), or nothing when it was never claimed. */
-function lastTry(store: IntelligenceEventStore, key: string): { n: number; at: number } | undefined {
-  let event = store.findByIdempotencyKey(DELIVERED_SOURCE, `claim:${key}`);
-  if (!event) return undefined;
+/**
+ * The latest try at a report (the claim is try 0), or nothing when it was never claimed. At most MAX_TRIES
+ * lookups. `alias` when the key was claimed as another report's other name: that report tells it.
+ */
+function lastTry(store: IntelligenceEventStore, key: string): { n: number; at: number; alias: boolean } | undefined {
+  const claim = store.findByIdempotencyKey(DELIVERED_SOURCE, `claim:${key}`);
+  if (!claim) return undefined;
+  let event = claim;
   let n = 0;
-  for (let next = store.findByIdempotencyKey(DELIVERED_SOURCE, `try:${key}:1`); next; next = store.findByIdempotencyKey(DELIVERED_SOURCE, `try:${key}:${n + 1}`)) {
+  while (n < MAX_TRIES) {
+    const next = store.findByIdempotencyKey(DELIVERED_SOURCE, `try:${key}:${n + 1}`);
+    if (!next) break;
     event = next;
     n += 1;
   }
-  return { n, at: atOf(event) };
+  return { n, at: atOf(event), alias: Boolean((claim.payload?.delivered as DeliveredRecord | undefined)?.aliasOf) };
 }
 
-/** Whether a claimed report with no outcome may be tried again: always when its last try was undelivered, once when one was cut off mid-send. */
-function retryable(store: IntelligenceEventStore, key: string, last: { n: number }): boolean {
-  return found(store, `undelivered:${key}:${last.n}`) || !found(store, `reclaim:${key}`);
+/**
+ * Whether a claimed report with no outcome may still be tried: under the cap, and either its last try was
+ * undelivered or none was yet cut off mid-send (that is said once more only).
+ */
+function retryable(store: IntelligenceEventStore, key: string, last: { n: number; alias: boolean }): boolean {
+  return !last.alias && last.n < MAX_TRIES && (found(store, `undelivered:${key}:${last.n}`) || !found(store, `reclaim:${key}`));
+}
+
+/** When the next try may go: the wait doubles with each try. */
+function due(last: { n: number; at: number }, now: Date): boolean {
+  return now.getTime() - last.at >= UNFINISHED_CLAIM_MS * 2 ** last.n;
 }
 
 /**
@@ -114,7 +132,7 @@ export function claimDelivery(store: IntelligenceEventStore, report: DeliveryRep
       return 0;
     }
     if (found(store, `outcome:${report.key}`)) return undefined;
-    if (now.getTime() - last.at < UNFINISHED_CLAIM_MS || !retryable(store, report.key, last)) return undefined;
+    if (!due(last, now) || !retryable(store, report.key, last)) return undefined;
     if (!found(store, `undelivered:${report.key}:${last.n}`)) append(store, envelope(record, `reclaim:${report.key}`, report.evidenceRefs));
     append(store, envelope(record, `try:${report.key}:${last.n + 1}`, report.evidenceRefs));
     return last.n + 1;
@@ -134,7 +152,7 @@ export function recordOutcome(store: IntelligenceEventStore, report: DeliveryRep
 export function deliveredRecords(store: IntelligenceEventStore): DeliveredRecord[] {
   return store.readSource(DELIVERED_SOURCE)
     .map((event) => event.payload?.delivered as DeliveredRecord | undefined)
-    .filter((record): record is DeliveredRecord => Boolean(record?.outcome) && record?.outcome !== "undelivered");
+    .filter((record): record is DeliveredRecord => Boolean(record?.outcome) && record?.outcome !== "undelivered" && record?.key !== SEED_MARK);
 }
 
 export type Say = (title: string, message: string, kind?: GeorgeKind, work?: string) => Promise<DeliveryOutcome | void>;
@@ -189,12 +207,39 @@ export async function deliverOwed(options: { store?: IntelligenceEventStore; say
   const store = openStore(options.store);
   try {
     const open = new Map<string, DeliveryReport>();
-    for (const event of store.readSource(DELIVERED_SOURCE)) {
+    for (const event of store.readSourcePage(DELIVERED_SOURCE, { after: new Date(Date.now() - OWED_WINDOW_MS).toISOString(), limit: 5_000 })) {
       const record = event.payload?.delivered as DeliveredRecord | undefined;
       if (!record || record.outcome || record.aliasOf || open.has(record.key) || !owed(store, record.key)) continue;
       open.set(record.key, { key: record.key, line: record.line, ...(record.kind ? { kind: record.kind } : {}), ...(record.work ? { work: record.work } : {}), evidenceRefs: event.evidenceRefs ?? [] });
     }
     return open.size ? await deliverOnce([...open.values()], { ...options, store }) : { told: [], owed: [] };
+  } finally {
+    if (options.store === undefined) store.close();
+  }
+}
+
+/** Marks that finished work on record when this shipped was seeded; later finished work is told. */
+const SEED_MARK = "seed:finished.v1";
+
+/**
+ * Once ever: records every finished report already on record as told, without telling it, so work George already
+ * knew about never rings on the upgrade. Returns false (doing nothing) on every later call.
+ */
+export function seedOnce(keys: string[], options: { store?: IntelligenceEventStore; now?: () => Date } = {}): boolean {
+  const store = openStore(options.store);
+  try {
+    return store.transaction(() => {
+      if (found(store, SEED_MARK)) return false;
+      const at = (options.now?.() ?? new Date()).toISOString();
+      for (const key of new Set(keys)) {
+        if (found(store, `claim:${key}`)) continue;
+        const record: DeliveredRecord = { schema: DELIVERED_SCHEMA, key, line: "", surface: "notification", at };
+        append(store, envelope(record, `claim:${key}`));
+        append(store, envelope({ ...record, outcome: "seeded" }, `outcome:${key}`));
+      }
+      append(store, envelope({ schema: DELIVERED_SCHEMA, key: SEED_MARK, line: "", surface: "notification", at, outcome: "seeded" }, SEED_MARK));
+      return true;
+    });
   } finally {
     if (options.store === undefined) store.close();
   }
@@ -221,7 +266,7 @@ export function finishedReports(decisions: ReadonlyArray<{
   });
 }
 
-/** One key per piece of finished work, whichever path reports it (a run or a staff task of the same id). */
+/** One key per piece of finished work, whichever path reports it (a run, or a staff task recorded on it). */
 export function finishedKey(id: string): string {
   return `work:${id}`;
 }

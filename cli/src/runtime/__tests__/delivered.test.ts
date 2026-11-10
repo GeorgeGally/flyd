@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { deliveredRecords, deliverOnce, deliverOwed, finishedReports, UNFINISHED_CLAIM_MS, claimDelivery, type DeliveryReport } from "../delivered.js";
+import { deliveredRecords, deliverOnce, deliverOwed, MAX_TRIES, seedOnce, finishedReports, UNFINISHED_CLAIM_MS, claimDelivery, type DeliveryReport } from "../delivered.js";
 
 let dir: string | undefined;
 afterEach(() => {
@@ -99,6 +99,54 @@ describe("flyd.delivered", () => {
     const said: string[] = [];
     await deliverOwed({ store, say: async (_t, message) => { said.push(message); return "shown"; }, now: () => new Date(at.getTime() + UNFINISHED_CLAIM_MS + 1) });
     expect(said).toEqual(["Done: work:e."]);
+    store.close();
+  });
+
+  it("waits twice as long before each try, and gives up after the cap", async () => {
+    const store = new IntelligenceEventStore({ path: home() });
+    const at = new Date("2026-11-10T10:00:00Z");
+    let tries = 0;
+    const say = async () => { tries++; return "undelivered" as const; };
+    await deliverOnce([report("work:f")], { store, say, now: () => at });
+    // Waits of 5, 10, 20, 40, 80 and 160 minutes: 315 minutes for MAX_TRIES (6) more tries.
+    let minutes = 0;
+    for (const wait of [5, 10, 20, 40, 80, 160]) {
+      await deliverOwed({ store, say, now: () => new Date(at.getTime() + (minutes + wait - 1) * 60_000) });
+      minutes += wait;
+      await deliverOwed({ store, say, now: () => new Date(at.getTime() + minutes * 60_000) });
+    }
+    expect([tries, MAX_TRIES]).toEqual([7, 6]);
+    // Given up: no longer owed, never tried again.
+    expect(await deliverOwed({ store, say, now: () => new Date(at.getTime() + 2 * 24 * 60 * 60_000) })).toEqual({ told: [], owed: [] });
+    expect(tries).toBe(7);
+    store.close();
+  });
+
+  it("never tells under a key that was claimed as another report's other name", async () => {
+    const store = new IntelligenceEventStore({ path: home() });
+    const at = new Date("2026-11-10T10:00:00Z");
+    const said: string[] = [];
+    const say = async (_t: string, message: string) => { said.push(message); return "shown" as const; };
+    await deliverOnce([{ ...report("work:desk-1"), aliases: ["work:flyd-task"] }], { store, say, now: () => at });
+    await deliverOnce([report("work:flyd-task", "Done: flyd task.")], { store, say, now: () => new Date(at.getTime() + 24 * 60 * 60_000) });
+    expect(said).toEqual(["Done: work:desk-1."]);
+    store.close();
+  });
+
+  it("seeds finished work on record at upgrade as told, once, and tells only what finishes after", async () => {
+    const path = home();
+    let store = new IntelligenceEventStore({ path });
+    const said: string[] = [];
+    const say = async (_t: string, message: string) => { said.push(message); return "shown" as const; };
+    expect(seedOnce(["work:old-1", "work:old-2"], { store })).toBe(true);
+    await deliverOnce([report("work:old-1"), report("work:old-2")], { store, say });
+    store.close();
+    store = new IntelligenceEventStore({ path });
+    // A restart never seeds again: work finishing now is told.
+    expect(seedOnce(["work:new-1"], { store })).toBe(false);
+    await deliverOnce([report("work:old-1"), report("work:new-1")], { store, say });
+    expect(said).toEqual(["Done: work:new-1."]);
+    expect(await deliverOwed({ store, say, now: () => new Date(Date.now() + 24 * 60 * 60_000) })).toEqual({ told: [], owed: [] });
     store.close();
   });
 

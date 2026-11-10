@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
-import { decideRun, notifyRun, runForTask } from "../scheduler.js";
-import { deliverOwed } from "../../runtime/delivered.js";
+import { backstageRun, decideRun, notifyRun, runOfTask } from "../scheduler.js";
+import { deliverOnce, deliverOwed, finishedReports } from "../../runtime/delivered.js";
 import { readDomainRun } from "../store.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -286,7 +286,8 @@ describe("notifyRun", () => {
       vi.setSystemTime(new Date("2026-11-10T10:06:00Z"));
       await deliverOwed({ say: async () => "undelivered" });
       up = true;
-      vi.setSystemTime(new Date("2026-11-10T10:12:00Z"));
+      // The wait doubles: ten minutes after the second try.
+      vi.setSystemTime(new Date("2026-11-10T10:17:00Z"));
       await deliverOwed({ say });
       await deliverOwed({ say });
       expect(sent).toEqual([line]);
@@ -295,15 +296,30 @@ describe("notifyRun", () => {
     }
   });
 
-  it("finds the run a finished staff task is George's work for, so both paths key it alike", () => {
-    const desk = (id: string, brief: string, source: DomainRun["request"]["source"] = "view"): DomainRun => {
-      const base = run(JSON.stringify({ status: "completed", brief }));
-      return { ...base, id, request: { ...base.request, id, source } };
+  it("tells a finished task once between Core and the window, by the task its run recorded, never by a task it only mentions", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const base = run(JSON.stringify({ status: "completed", brief: "Merged; unblocked by logan-drag.", tasks: ["flyd-pa-tell-done"] }));
+    const linked: DomainRun = { ...base, id: "desk-linked", request: { ...base.request, id: "desk-linked" }, firstmateTasks: ["flyd-pa-tell-done"] };
+    const line = "Flyd: pa tell done is finished; I haven't checked it yet.";
+    const finished: ExecutiveDecisionRecord = {
+      schema: "flyd.executive-decision.v1", decisionId: "decision-linked", sourceId: "firstmate.change", sourceEventId: "event-linked",
+      taskId: "desk-linked", disposition: "handle_internally", reason: "finished work; its outcome could not be checked", summary: line,
+      delivery: { line, checked: false }, evidenceRefs: [], verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true,
+      createdAt: "2026-11-10T10:00:00.000Z",
     };
-    const runs = [desk("flyd-task-note", "Nudged flyd-pa-tell-done along.", "flyd"), desk("desk-1", "flyd-pa-tell-done is finished and merged."), desk("desk-2", "flyd-pa-tell-done-v2 is open.")];
-    expect(runForTask(runs, "flyd-pa-tell-done")?.id).toBe("desk-1");
-    expect(runForTask(runs, "desk-2")?.id).toBe("desk-2");
-    expect(runForTask(runs, "logan-drag")).toBeUndefined();
+    await notifyRun(linked, notify, undefined, async () => finished);
+    // The window reads the same task's fleet row as done, and another task the run's report only mentions.
+    const backstage: DomainRun = { ...base, id: "flyd-note-1", request: { ...base.request, id: "flyd-note-1", source: "flyd" }, firstmateTasks: ["cap5-note"] };
+    const runs = [linked, backstage];
+    const row = (taskId: string) => ({ ...finished, taskId, delivery: { line: `${taskId} is finished; I haven't checked it yet.`, checked: false } });
+    const reports = finishedReports([row("flyd-pa-tell-done"), row("logan-drag"), row("cap5-note")], (task) => task, (task) => {
+      const owner = runOfTask(runs, task);
+      return owner && backstageRun(owner) ? undefined : task;
+    });
+    await deliverOnce(reports, { say: async (_t, message) => { sent.push(message); return "shown"; } });
+    expect(sent).toEqual([line, "logan-drag is finished; I haven't checked it yet."]);
+    expect(runOfTask(runs, "logan-drag")).toBeUndefined();
   });
 
   it("reaches George once with a decision, and says nothing for a quiet run", async () => {

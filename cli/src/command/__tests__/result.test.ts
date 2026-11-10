@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultProseJudge, modelProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff } from "../result.js";
+import { defaultProseJudge, modelProseJudge, parseDomainResult, proseOutcomeByWords, reportedTasks, validateDomainHandoff } from "../result.js";
 
 describe("validateDomainHandoff", () => {
   it("flags prose with no brief/report/evidence layers", () => {
@@ -103,5 +103,14 @@ describe("prose replies", () => {
       if (savedVitest === undefined) delete process.env.VITEST; else process.env.VITEST = savedVitest;
       if (savedFixture === undefined) delete process.env.FLYD_MODEL_FIXTURE; else process.env.FLYD_MODEL_FIXTURE = savedFixture;
     }
+  });
+});
+
+describe("the tasks a FirstMate reply records", () => {
+  it("reads only its own task field, never a task it mentions in prose", () => {
+    expect(reportedTasks('{"status":"completed","brief":"Merged.","tasks":["flyd-pa-tell-done"],"task":"logan-drag"}')).toEqual(["flyd-pa-tell-done", "logan-drag"]);
+    expect(reportedTasks("Done: the footer link is fixed, unblocked by cap5-deal-email.\ntask: flyd-footer-link, gnm-hero")).toEqual(["flyd-footer-link", "gnm-hero"]);
+    // A "Task:" heading in prose is not a task id.
+    expect(reportedTasks("Task: fix the footer link\nDone, and cap5-deal-email is unblocked.")).toEqual([]);
   });
 });

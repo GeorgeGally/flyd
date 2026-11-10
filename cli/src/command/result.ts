@@ -104,6 +104,27 @@ function structuredResult(raw: string, parsed: Record<string, unknown>): { statu
   };
 }
 
+const TASK_ID = /^[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+$/;
+
+/** The task ids a FirstMate reply names in its own task field: JSON "task"/"tasks", or a line "task: <id>[, <id>]" of ids only. Pure. */
+export function reportedTasks(body: string): string[] {
+  const raw = body.trim();
+  const ids: string[] = [];
+  const json = raw.match(/\{[\s\S]*\}/);
+  if (json) {
+    try {
+      const parsed = JSON.parse(json[0]) as Record<string, unknown>;
+      ids.push(...strings(parsed.tasks), ...(typeof parsed.task === "string" ? [parsed.task.trim()] : []));
+    } catch { /* not JSON: the lines below */ }
+  }
+  for (const line of raw.split("\n")) {
+    const value = /^\s*tasks?\s*:\s*(.+?)\s*$/i.exec(line)?.[1]?.replace(/[`"']/g, "");
+    const listed = value?.split(/\s*,\s*/) ?? [];
+    if (listed.length && listed.every((id) => TASK_ID.test(id))) ids.push(...listed);
+  }
+  return [...new Set(ids.filter((id) => TASK_ID.test(id)))];
+}
+
 export function parseDomainResult(body: string): { status?: "completed" | "needs_decision" | "failed" | "working"; result: DomainResult } {
   const raw = body.trim();
   const match = raw.match(/\{[\s\S]*\}/);

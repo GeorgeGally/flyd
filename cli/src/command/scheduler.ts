@@ -97,15 +97,14 @@ export function shownInWindow(run: DomainRun, windowIsOpen: (session: string) =>
   return run.request.source === "view" && run.request.session !== undefined && windowIsOpen(run.request.session);
 }
 
-/**
- * The run a finished staff task is George's work for: the run of that id, else the FirstMate run of his whose result names
- * the task. Its finished work is told under the run's key, so Core and the window tell it once between them. Pure.
- */
-export function runForTask(runs: readonly DomainRun[], task: string): DomainRun | undefined {
-  const named = new RegExp(`(?:^|[^A-Za-z0-9_-])${task.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^A-Za-z0-9_-]|$)`);
-  return runs.find((run) => run.id === task)
-    ?? runs.find((run) => run.transport.kind === "firstmate" && run.request.source !== "flyd" && run.request.source !== "self-improvement"
-      && Boolean(run.result) && named.test([run.result!.brief, run.result!.detailedReport, ...run.result!.evidence].join("\n")));
+/** Backstage: Flyd's own note to the staff, or its own fix. Its finished work is never George's to hear. */
+export function backstageRun(run: DomainRun): boolean {
+  return run.request.source === "flyd" || run.request.source === "self-improvement";
+}
+
+/** The run whose recorded FirstMate tasks include this one (or the run of that id). Pure. */
+export function runOfTask(runs: readonly DomainRun[], task: string): DomainRun | undefined {
+  return runs.find((run) => run.id === task || run.firstmateTasks?.includes(task));
 }
 
 /** Tells George only what the executive record says needs his attention, each report once (runtime/delivered.ts). */
@@ -120,7 +119,7 @@ export async function notifyRun(
   // His own message from the conversation window: with the window open on that conversation the reply shows under it
   // there, so a notice would say it twice; otherwise he hears it like any other result.
   // Flyd's own note to the staff, and its own fixes, are backstage: their replies settle them and are never his to hear.
-  if (shownInWindow(run, windowIsOpen) || run.request.source === "flyd" || run.request.source === "self-improvement") {
+  if (shownInWindow(run, windowIsOpen) || backstageRun(run)) {
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
     return;
   }
@@ -137,10 +136,12 @@ export async function notifyRun(
       const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
       // A run's finished work is one report; anything else is one per decision. A restart never says either twice.
       const url = decision.delivery?.url;
+      // Its FirstMate tasks are the same finished work: told under any of them, it is not told again.
+      const aliases = [...(decision.delivery ? (run.firstmateTasks ?? []).map(finishedKey) : []), ...(url ? [`link:${url}`] : [])];
       owed = (await deliverOnce([{
         key: decision.delivery ? finishedKey(run.id) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`,
         line: notice, kind, work: run.request.intendedOutcome, evidenceRefs: decision.evidenceRefs,
-        ...(url ? { aliases: [`link:${url}`] } : {}),
+        ...(aliases.length ? { aliases } : {}),
       }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
     } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     // A report not delivered yet is never marked told; the command tick's sweep says it again (deliverOwed).
