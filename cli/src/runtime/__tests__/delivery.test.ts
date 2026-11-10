@@ -93,6 +93,13 @@ describe("deliver", () => {
     expect(deliver(lab, "notification").text).toBe("Your hero lab is ready to look at.");
     const long = "The pricing comparison of every provider at your volume is in the [report](http://127.0.0.1:4818/lab/pricing-comparison-of-every-provider).";
     expect(deliver(report({ outcome: long }), "window").text).toBe(long);
+    // A lead cut past 120 characters keeps the link its kept words carry, and the notification still drops it.
+    const cut = report({ outcome: "Your [hero lab](http://127.0.0.1:4818/lab/hero) is ready to look at, with three versions side by side and the one I would pick marked at the top of the page." });
+    const shown = deliver(cut, "window").text!;
+    expect(shown.startsWith("Your [hero lab](http://127.0.0.1:4818/lab/hero) is ready")).toBe(true);
+    expect(shown.endsWith("…")).toBe(true);
+    expect(shown.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").length).toBeLessThanOrEqual(120);
+    expect(deliver(cut, "notification").text).not.toContain("http");
   });
 
   it("reads dates, phone numbers and model names as words, not task ids", () => {

@@ -326,6 +326,25 @@ function shownChars(text: string): number {
   return text.replace(MARKDOWN_LINK, "$1").length;
 }
 
+/** The text up to `shown` characters as he reads them, each Markdown link kept whole or, when cut through, by its words alone. Pure. */
+function keptLinksUpTo(text: string, shown: number): string {
+  let out = "";
+  let read = 0;
+  let at = 0;
+  for (const link of text.matchAll(MARKDOWN_LINK)) {
+    const before = text.slice(at, link.index);
+    if (read + before.length >= shown) return out + before.slice(0, shown - read);
+    out += before;
+    read += before.length;
+    const label = link[1]!;
+    if (read + label.length > shown) return out + label.slice(0, shown - read);
+    out += link[0];
+    read += label.length;
+    at = link.index! + link[0].length;
+  }
+  return out + text.slice(at, at + shown - read);
+}
+
 /**
  * A notification as George reads it: one line, outcome first. Markdown,
  * lists, the opening address and sentences that say nothing go; the rest
@@ -347,7 +366,10 @@ export function notificationLine(text: string, max = NOTIFICATION_CHARS, keepLin
   const first = whole && shownChars(whole) <= max ? whole : kept[0] ?? said[0] ?? opened;
   if (shownChars(first) <= max) return first.charAt(0).toUpperCase() + first.slice(1);
   const plain = first.replace(MARKDOWN_LINK, "$1");
-  const line = `${plain.slice(0, plain.lastIndexOf(" ", max - 1) > 60 ? plain.lastIndexOf(" ", max - 1) : max - 1).replace(/[\s,;:—-]+$/, "")}…`;
+  const end = plain.lastIndexOf(" ", max - 1) > 60 ? plain.lastIndexOf(" ", max - 1) : max - 1;
+  // Cut by what he reads; where links are kept, a link wholly inside the cut keeps its address.
+  const cut = keepLinks ? keptLinksUpTo(first, end) : plain.slice(0, end);
+  const line = `${cut.replace(/[\s,;:—-]+$/, "")}…`;
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
