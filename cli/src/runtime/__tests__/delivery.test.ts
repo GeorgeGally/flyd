@@ -215,6 +215,12 @@ describe("finished work's line, its outcome clause whole", () => {
     });
   }
 
+  it("keeps dollar signs in a shortened quote as he wrote them", () => {
+    const said = notice(finishedLine({ request: "Set the price to $$9 and $& for the Good Neighbours market checkout on every phone and tablet" }, "waiting", url));
+    expect(said.startsWith("Your request “Set the price to $$9 and $& for")).toBe(true);
+    expect(said.slice(0, -url.length - 1).length).toBeLessThanOrEqual(120);
+  });
+
   for (const checked of [true, false]) {
     it(`says a ${checked ? "checked" : "unchecked"} line that shows only a path as written, never "Done:"`, () => {
       const line = finishedLine({ title: "Fix src/checkout.ts crash" }, checked ? "waiting" : "unchecked", url);

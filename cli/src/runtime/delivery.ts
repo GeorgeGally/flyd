@@ -176,7 +176,7 @@ function shortQuote(line: string): string {
   const quoted = line.match(/“([^”]*)”/);
   if (line.length <= LINE_CHARS || !quoted) return line;
   const kept = quoted[1]!.slice(0, Math.max(0, LINE_CHARS - (line.length - quoted[1]!.length) - 1)).replace(/\s+\S*$/, "");
-  return kept.length >= 12 ? line.replace(quoted[0], `“${kept}…”`) : line.replace(` ${quoted[0]}`, "");
+  return kept.length >= 12 ? line.replace(quoted[0], () => `“${kept}…”`) : line.replace(` ${quoted[0]}`, "");
 }
 
 /**
