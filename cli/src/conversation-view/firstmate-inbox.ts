@@ -74,7 +74,7 @@ export function deskDoneWhen(command?: string): string[] {
 }
 
 /** The domain request one desk message opens: his words whole as the original, under the request's own id. */
-export function deskRequest(input: { text: string; command?: string; attachments?: string[]; parentRequestId?: string; now?: Date }): DomainRequest {
+export function deskRequest(input: { text: string; command?: string; attachments?: string[]; parentRequestId?: string; session?: string; now?: Date }): DomainRequest {
   const words = input.text.trim();
   // A reply's first line says what it answers; what it asks for is his own words under it.
   const first = ownWords(words).split("\n").find((line) => line.trim())?.trim() ?? "";
@@ -91,6 +91,7 @@ export function deskRequest(input: { text: string; command?: string; attachments
     doneWhen: deskDoneWhen(input.command),
     createdAt: (input.now ?? new Date()).toISOString(),
     source: "view",
+    ...(input.session ? { session: input.session } : {}),
     ...(input.attachments?.length ? { contextRefs: input.attachments } : {}),
     ...(input.parentRequestId ? { parentRequestId: input.parentRequestId } : {}),
   };
@@ -111,7 +112,7 @@ const CONTRACT_BLOCK = /\n*^--- Flyd's return contract \(request [^)\n]*\) ---$[
 
 export interface CaptainInbox {
   /** His words to firstmate, with Flyd's own brief under them when it has one. */
-  send(text: string, images?: ImageUpload[], command?: string, files?: FileUpload[], brief?: string): Promise<SentMessage>;
+  send(text: string, images?: ImageUpload[], command?: string, files?: FileUpload[], brief?: string, session?: string): Promise<SentMessage>;
   /** Every note the captain has sent, pending or already read by firstmate, with its reply; oldest first. */
   notes(): Exchange[];
   /** A saved image a note names, by the id `notes()` gave it. */
@@ -397,7 +398,7 @@ export class FirstmateInbox implements CaptainInbox {
    * through the command layer's transport, with the text on stdin (no shell, no interpolation).
    * A reply to one of his earlier messages is a follow-up: its run names that message's run as its parent.
    */
-  async send(text: string, images: ImageUpload[] = [], command?: string, files: FileUpload[] = [], brief?: string): Promise<SentMessage> {
+  async send(text: string, images: ImageUpload[] = [], command?: string, files: FileUpload[] = [], brief?: string, session?: string): Promise<SentMessage> {
     const typed = text.trim();
     if (!typed && images.length === 0 && files.length === 0) throw new Error("Nothing to send");
     if (typed.length > MAX_NOTE_CHARS) throw new Error(`Message is longer than ${MAX_NOTE_CHARS} characters`);
@@ -410,7 +411,7 @@ export class FirstmateInbox implements CaptainInbox {
     const filePaths = this.saveFiles(files);
     const attached = [...paths.map((path) => `[image: ${path}]`), ...filePaths.map((path) => `[file: ${path}]`)].join("\n");
     const parentRequestId = this.parentRun(typed);
-    const request = deskRequest({ text: typed, ...(command ? { command } : {}), attachments: [...paths, ...filePaths], ...(parentRequestId ? { parentRequestId } : {}) });
+    const request = deskRequest({ text: typed, ...(command ? { command } : {}), attachments: [...paths, ...filePaths], ...(parentRequestId ? { parentRequestId } : {}), ...(session ? { session } : {}) });
     const body = [typed, attached, brief?.trim() ? briefBlock(brief) : "", command ? commandMarker(command) : "", contractBlock(request)]
       .filter(Boolean)
       .join("\n\n");

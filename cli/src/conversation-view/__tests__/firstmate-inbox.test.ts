@@ -6,6 +6,7 @@ import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
 import { FirstmateInbox, deskDoneWhen, mergeNotes, relayed } from "../firstmate-inbox.js";
 import { FirstmateDomainTransport, syncFirstmateDomainRuns, type FirstmateExec } from "../../command/firstmate.js";
 import { notifyRun } from "../../command/scheduler.js";
+import { markWindowOpen } from "../window-presence.js";
 import { listDomainRuns, readDomainRun } from "../../command/store.js";
 import type { FlydDesk } from "../flyd-desk.js";
 import type { ConversationSnapshot } from "../types.js";
@@ -157,7 +158,9 @@ printf '{"id":"%s","saved":true,"acknowledged":false,"outcome":"queued"}\\n' "$3
       expect(questions(inbox)[0]).toMatchObject({ id: sent.id, text: "the GNM hero is too tall on phones", run: run!.id });
     });
 
-    it("settles from firstmate's receipts and reply through the command layer, and leaves the telling to the window", async () => {
+    it("settles from firstmate's receipts and reply through the command layer, and leaves the telling to the window open on it", async () => {
+      const presence = join(dir, "window.json");
+      vi.stubEnv("FLYD_VIEW_PRESENCE_FILE", presence);
       let reply: { id: string; body: string; cursor: string; at: string } | null = null;
       let noteId = "";
       let requestId = "";
@@ -177,17 +180,20 @@ printf '{"id":"%s","saved":true,"acknowledged":false,"outcome":"queued"}\\n' "$3
       };
       const script = join(dir, "fm-inbox.sh");
       const inbox = new FirstmateInbox({ home, script, exec });
-      await inbox.send("fix the footer link");
+      await inbox.send("fix the footer link", [], undefined, [], undefined, "session-footer");
       const [opened] = listDomainRuns();
+      expect(opened!.request.session).toBe("session-footer");
       const transport = new FirstmateDomainTransport({ home, script, exec });
       const judge = async () => "completed" as const;
       expect(await syncFirstmateDomainRuns({ transport, judge })).toEqual([]);
 
       reply = { id: noteId, body: "Done: the footer link opens the partners page, verified on the live site.", cursor: "000001", at: new Date().toISOString() };
+      markWindowOpen("stream-1", "session-footer", presence);
       const notify = async () => { throw new Error("the window shows his reply; no notice"); };
       const changed = await syncFirstmateDomainRuns({ transport, judge, onChanged: (run) => notifyRun(run, notify) });
       expect(changed.map((run) => [run.id, run.status])).toEqual([[opened!.id, "completed"]]);
       expect(readDomainRun(opened!.id)).toMatchObject({ status: "completed", notified: true, result: { brief: expect.stringContaining("footer link") }, transport: { replyCursor: "000001" } });
+      vi.unstubAllEnvs();
     });
   });
 

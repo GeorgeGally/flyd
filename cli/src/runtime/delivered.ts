@@ -15,8 +15,6 @@ export const DELIVERED_SOURCE = "flyd.delivered";
 export const DELIVERED_SCHEMA = "flyd.delivered.v1";
 /** A claim this old with no outcome was cut off mid-send: it may be said once more. */
 export const UNFINISHED_CLAIM_MS = 5 * 60_000;
-/** More finished reports than this at once are told as one line, not a run of notifications. */
-export const BATCH_OVER = 3;
 
 export interface DeliveryReport {
   /** What the report is about, stable across restarts: "task:flyd-hide-whatsapp-card", "run:domain-…". */
@@ -32,7 +30,7 @@ export interface DeliveryReport {
   aliases?: string[];
 }
 
-export type DeliveryOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered" | "batched";
+export type DeliveryOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered";
 
 export interface DeliveredRecord {
   schema: typeof DELIVERED_SCHEMA;
@@ -70,11 +68,6 @@ function claimedAt(store: IntelligenceEventStore, key: string): number | undefin
   const event = store.findByIdempotencyKey(DELIVERED_SOURCE, `claim:${key}`);
   const at = (event?.payload?.delivered as { at?: unknown } | undefined)?.at;
   return typeof at === "string" ? Date.parse(at) : event ? 0 : undefined;
-}
-
-/** Whether this report was already told (or is being told right now). */
-export function wasDelivered(store: IntelligenceEventStore, key: string): boolean {
-  return claimedAt(store, key) !== undefined;
 }
 
 /**
@@ -119,30 +112,21 @@ async function defaultSay(title: string, message: string, kind?: GeorgeKind, wor
   return deliverNotification(title, message, kind, work);
 }
 
-/** "a, b and c". Pure. */
-function listed(items: string[]): string {
-  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
-}
-
-/** The one line several finished reports are told as. Pure. */
-export function batchLine(reports: DeliveryReport[]): string {
-  const names = reports.map((report) => report.work?.trim()).filter((name): name is string => Boolean(name));
-  const shown = names.slice(0, 3);
-  const more = reports.length - shown.length;
-  return shown.length
-    ? `${reports.length} pieces of your work are finished: ${listed(more > 0 ? [...shown, `${more} more`] : shown)}.`
-    : `${reports.length} pieces of your work are finished.`;
+/** Claimed under its own name with no outcome yet, and not yet said a second time: it is still to be told. */
+function owed(store: IntelligenceEventStore, key: string): boolean {
+  return Boolean(store.findByIdempotencyKey(DELIVERED_SOURCE, `claim:${key}`))
+    && !store.findByIdempotencyKey(DELIVERED_SOURCE, `outcome:${key}`)
+    && !store.findByIdempotencyKey(DELIVERED_SOURCE, `reclaim:${key}`);
 }
 
 /**
- * Tells George each report exactly once. Several at once become one line, so a
- * restart or a backlog of finished work never rings him once per item.
- * Returns the reports told now.
+ * Tells George each report exactly once, each in its own line.
+ * Returns the reports told now, and those still owed (not delivered yet, to be tried again).
  */
 export async function deliverOnce(
   reports: DeliveryReport[],
   options: { store?: IntelligenceEventStore; say?: Say; now?: () => Date } = {},
-): Promise<DeliveryReport[]> {
+): Promise<{ told: DeliveryReport[]; owed: DeliveryReport[] }> {
   // A test that names no store of its own keeps its deliveries in memory, never in the real home.
   const store = options.store ?? new IntelligenceEventStore(process.env.VITEST && !process.env.FLYD_DIR ? { path: ":memory:" } : {});
   const owns = options.store === undefined;
@@ -151,18 +135,12 @@ export async function deliverOnce(
   try {
     const unique = [...new Map(reports.map((report) => [report.key, report])).values()];
     const claimed = unique.filter((report) => claimDelivery(store, report, now()));
-    if (!claimed.length) return [];
-    if (claimed.length > BATCH_OVER) {
-      const outcome = await say("Flyd", batchLine(claimed), "deliverable").catch(() => "undelivered" as const);
-      // Not delivered (Core down): left claimed, so it is said once more after the grace period.
-      if (outcome !== "undelivered") for (const report of claimed) recordOutcome(store, report, outcome === "shown" || outcome === undefined ? "batched" : outcome, now());
-      return claimed;
-    }
     for (const report of claimed) {
       const outcome = await say("Flyd", report.line, report.kind ?? "deliverable", report.work).catch(() => "undelivered" as const);
+      // Not delivered (Core down): left claimed, so it is said once more after the grace period.
       if (outcome !== "undelivered") recordOutcome(store, report, outcome ?? "shown", now());
     }
-    return claimed;
+    return { told: claimed, owed: unique.filter((report) => owed(store, report.key)) };
   } finally {
     if (owns) store.close();
   }

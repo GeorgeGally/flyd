@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { relayShortfalls } from "../../runtime/honesty-check.js";
 import { plainWords } from "./decision-step.js";
+import { readProjects, type Project } from "../../council/projects.js";
 import { plainTitle, verifyStaffOutcome } from "./verify-outcome.js";
 
 // Finished work, checked by Flyd itself before it tells George.
@@ -99,30 +100,35 @@ export const githubReaders: FinishedReaders = {
 /** Readers that read nothing: tests and evals never reach GitHub unless they pass their own. */
 export const offlineReaders: FinishedReaders = { pull: async () => null, commitOnDefault: async () => null };
 
-/** A task id as words: "flyd-hide-whatsapp-card" is "Flyd: hide whatsapp card". Pure. */
-export function plainLabel(label: string): string {
+/** A task id as words under its project's own name: "gnm-hero-height" is "GNM: hero height"; an unknown project's id is left as it is. */
+export function plainLabel(label: string, projects: ReadonlyArray<Pick<Project, "id" | "name">> = readProjects()): string {
   const said = label.replace(/\s+/g, " ").trim();
   if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/i.test(said)) return said;
-  const [project, ...rest] = said.split(/[-_]/);
-  const words = rest.join(" ");
-  return `${project!.charAt(0).toUpperCase()}${project!.slice(1)}: ${words}`;
+  const [prefix, ...rest] = said.split(/[-_]/);
+  const project = projects.find((known) => known.id.toLowerCase() === prefix!.toLowerCase());
+  return project ? `${project.name}: ${rest.join(" ")}` : said;
 }
 
 function sayable(line: string): boolean {
   return relayShortfalls(line).length === 0;
 }
 
-/** One line George may be told, in the order: as written, in plain words, then the bare fact. Never empty. Pure. */
-export function finishedLine(what: string, outcome: "landed" | "waiting" | "closed" | "unchecked", url?: string): string {
+/**
+ * One line George may be told, in the order: as written, in plain words, then the bare fact. Never empty. Pure.
+ * A title read from the change itself says what changed; without one, his request is only named, never said to be done.
+ */
+export function finishedLine(what: { title: string } | { request: string }, outcome: "landed" | "waiting" | "closed" | "unchecked", url?: string): string {
+  const titled = "title" in what;
   const lines = (subject: string) => {
     const said = subject.replace(/[.\s]+$/, "");
-    const body = outcome === "landed" ? `Done: ${said.charAt(0).toLowerCase()}${said.slice(1)}.`
-      : outcome === "waiting" ? `${said} is finished and waiting to go in.`
-        : outcome === "closed" ? `${said} is finished, but its change was closed without going in.`
-          : `${said} is finished; I haven't checked it yet.`;
+    const named = titled ? said : `The work on “${said}”`;
+    const body = outcome === "landed" ? titled ? `Done: ${/^[A-Z][a-z]/.test(said) ? `${said.charAt(0).toLowerCase()}${said.slice(1)}` : said}.` : `${named} is done.`
+      : outcome === "waiting" ? `${named} is finished and waiting to go in.`
+        : outcome === "closed" ? `${named} is finished, but its change was closed without going in.`
+          : `${named} is finished; I haven't checked it yet.`;
     return url ? `${body} ${url}` : body;
   };
-  const subject = what.trim();
+  const subject = ("title" in what ? what.title : what.request).trim();
   for (const candidate of [subject, plainWords(subject)]) {
     if (!candidate) continue;
     const line = lines(candidate);
@@ -141,7 +147,7 @@ export async function checkFinished(
   readers: FinishedReaders = githubReaders,
 ): Promise<FinishedCheck> {
   const text = [input.detail, ...(input.evidenceRefs ?? [])].join("\n");
-  const what = plainLabel(input.label);
+  const what = { request: plainLabel(input.label) };
   const pulls = [...new Set([...text.matchAll(PULL_URL)].map((match) => match[0]))].slice(0, 2);
   let open: { url: string; title?: string } | undefined;
   let closed: { url: string; title?: string } | undefined;
@@ -152,20 +158,20 @@ export async function checkFinished(
     if (pull.merged) {
       return {
         checked: true, landed: true, url,
-        line: finishedLine(title ?? what, "landed", url),
+        line: finishedLine(title ? { title } : what, "landed", url),
         evidenceRefs: [url, ...(pull.mergeCommit ? [`github-merge:${pull.mergeCommit}`] : [])],
       };
     }
     if (pull.state === "closed") closed ??= { url, ...(title ? { title } : {}) };
     else open ??= { url, ...(title ? { title } : {}) };
   }
-  if (open) return { checked: true, landed: false, url: open.url, line: finishedLine(open.title ?? what, "waiting", open.url), evidenceRefs: [open.url] };
+  if (open) return { checked: true, landed: false, url: open.url, line: finishedLine(open.title ? { title: open.title } : what, "waiting", open.url), evidenceRefs: [open.url] };
   const commit = [...text.matchAll(COMMIT_URL)][0];
   if (commit) {
     const onDefault = await readers.commitOnDefault(commit[1]!, commit[2]!).catch(() => null);
     if (onDefault) return { checked: true, landed: true, url: commit[0], line: finishedLine(what, "landed", commit[0]), evidenceRefs: [commit[0], `github-commit-on-default:${commit[2]}`] };
   }
-  if (closed) return { checked: true, landed: false, url: closed.url, line: finishedLine(closed.title ?? what, "closed", closed.url), evidenceRefs: [closed.url] };
+  if (closed) return { checked: true, landed: false, url: closed.url, line: finishedLine(closed.title ? { title: closed.title } : what, "closed", closed.url), evidenceRefs: [closed.url] };
   const url = pulls[0] ?? commit?.[0];
   return { checked: false, landed: false, ...(url ? { url } : {}), line: finishedLine(what, "unchecked", url), evidenceRefs: [] };
 }

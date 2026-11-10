@@ -58,7 +58,7 @@ export function markWindowClosed(stream: string, path = defaultWindowPresenceFil
   } catch { /* A stale line ages out on its own. */ }
 }
 
-/** Whether a window is open now, on the given session when one is named. */
-export function windowOpen(session?: string, path = defaultWindowPresenceFile(), now = Date.now()): boolean {
-  return Object.values(read(path).streams).some((entry) => now - entry.at < WINDOW_STALE_MS && (!session || entry.session === session));
+/** Whether a window is open now on the given session. */
+export function windowOpen(session: string, path = defaultWindowPresenceFile(), now = Date.now()): boolean {
+  return Object.values(read(path).streams).some((entry) => now - entry.at < WINDOW_STALE_MS && entry.session === session);
 }

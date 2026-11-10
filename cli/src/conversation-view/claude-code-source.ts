@@ -318,7 +318,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       // Firstmate is one of Flyd's staff: his words go with Flyd's own brief. A slash command runs exactly as he typed it.
       const brief = command || carriesCommand(text) ? undefined : await this.desk.brief?.(text, this.latest.get(sessionId) ?? []).catch(() => undefined);
       try {
-        const sent = await this.inbox.send(text, images, command?.name, files, brief);
+        const sent = await this.inbox.send(text, images, command?.name, files, brief, sessionId);
         this.desk.desk.routed?.(text, sessionId, sent.timestamp);
         return { ...sent, waiting: handoffLine("queued", { text: ownWords(text), projects: projectNames() }) };
       } catch (error) {
@@ -329,7 +329,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
         throw new Error("Flyd couldn't pass this on just now; send it again");
       }
     }
-    return this.inbox.send(text, images, command?.name, files);
+    return this.inbox.send(text, images, command?.name, files, undefined, sessionId);
   }
 
   async sendDecision(text: string, images?: ImageUpload[]): Promise<SentMessage> {

@@ -68,6 +68,7 @@ export async function decideRun(
     }),
     sentToBoss: notesSentToBoss(run.messages),
     ...(standing !== undefined ? { standing } : {}),
+    ...(result?.unresolvedQuestions?.length || result?.risks?.length ? { unresolved: true } : {}),
     ...(report ? { requested: true, verification: { status: "verified" as const, evidenceRefs: [`domain-report:${run.id}`] } } : {}),
   }, {
     complete,
@@ -96,13 +97,13 @@ export async function notifyRun(
   notify?: Notify,
   send: typeof sendRunMessage = sendRunMessage,
   decide: RunDecisionStep = decideRun,
-  windowIsOpen: () => boolean = () => windowOpen(),
+  windowIsOpen: (session: string) => boolean = (session) => windowOpen(session),
 ): Promise<void> {
   if (!run.result || run.notified || !["completed", "failed", "needs_decision"].includes(run.status)) return;
-  // His own message from the conversation window: with the window open the reply shows under it there, so a notice
-  // would say it twice; with it closed he hears it like any other result.
+  // His own message from the conversation window: with the window open on that conversation the reply shows under it
+  // there, so a notice would say it twice; otherwise he hears it like any other result.
   // Flyd's own note to the staff, and its own fixes, are backstage: their replies settle them and are never his to hear.
-  if (run.request.source === "view" && windowIsOpen() || run.request.source === "flyd" || run.request.source === "self-improvement") {
+  if (run.request.source === "view" && run.request.session !== undefined && windowIsOpen(run.request.session) || run.request.source === "flyd" || run.request.source === "self-improvement") {
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
     return;
   }
@@ -114,17 +115,19 @@ export async function notifyRun(
     const notice = noticeForDecision(decision);
     const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
       || decision.action !== undefined || decision.reason === FENCE_HELD || decision.reason === HELD_FOR_ATTENTION;
+    let owed = false;
     if (notice) {
       const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
       // A run's finished work is one report; anything else is one per decision. A restart never says either twice.
       const url = decision.delivery?.url;
-      await deliverOnce([{
+      owed = (await deliverOnce([{
         key: decision.delivery ? finishedKey(run.id) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`,
         line: notice, kind, work: run.request.intendedOutcome, evidenceRefs: decision.evidenceRefs,
         ...(url ? { aliases: [`link:${url}`] } : {}),
-      }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) });
+      }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
     } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
-    saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
+    // A report not delivered yet is tried again on a later tick, never marked told.
+    if (!owed) saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
   } catch {
     // The durable result remains in the command store; notification is best effort.
   }

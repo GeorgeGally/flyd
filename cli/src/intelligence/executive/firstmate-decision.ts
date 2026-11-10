@@ -30,6 +30,8 @@ export interface FirstmateChange {
   standing?: string;
   /** The tasks whose calls are open for him right now. */
   openCalls?: string[];
+  /** The result still carries open questions or risks: it is decided as a reply, so nothing George must decide is lost. */
+  unresolved?: boolean;
 }
 
 export interface FirstmateDecisionOptions {
@@ -46,8 +48,8 @@ export interface FirstmateDecisionOptions {
 const FINISHED_POLICY = "finished.v1";
 
 /** Whether a change reports finished work (not a decision about it). Pure. */
-export function reportsFinished(change: Pick<FirstmateChange, "kind" | "state">): boolean {
-  return change.kind !== "decision" && FINISHED_STATES.has(change.state);
+export function reportsFinished(change: Pick<FirstmateChange, "kind" | "state" | "unresolved">): boolean {
+  return change.kind !== "decision" && !change.unresolved && FINISHED_STATES.has(change.state);
 }
 
 export const STAFF_COORDINATION_POLICY = {
@@ -231,7 +233,7 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
       proposal = { kind: "routine", summary: text(change.label, 160), evidenceRefs: change.evidenceRefs };
       finished = change.verification?.status === "verified"
         // A verified report leads with its own finding ("Lender B is cheaper over five years.").
-        ? { checked: true, landed: true, line: sayable(text(change.detail.split("\n")[0], 220)) || finishedLine(plainLabel(text(change.label, 160)), "landed"), evidenceRefs: change.verification.evidenceRefs }
+        ? { checked: true, landed: true, line: sayable(text(change.detail.split("\n")[0], 220)) || finishedLine({ request: plainLabel(text(change.label, 160)) }, "landed"), evidenceRefs: change.verification.evidenceRefs }
         : await checkFinished({ label: text(change.label, 160), detail: change.detail, evidenceRefs: change.evidenceRefs },
           options.finishedReaders ?? (process.env.VITEST ? offlineReaders : githubReaders));
     } else {

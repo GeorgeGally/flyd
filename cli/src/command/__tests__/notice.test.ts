@@ -229,7 +229,7 @@ describe("notifyRun", () => {
     expect(sent).toEqual(["Dark mode is merged."]);
   });
 
-  it("announces work he started from the window only when the window is not open, once, in its checked line", async () => {
+  it("announces work he started from the window unless that conversation is open, once, in its checked line", async () => {
     const sent: string[] = [];
     const notify = async (_title: string, message: string) => { sent.push(message); };
     const finished: ExecutiveDecisionRecord = {
@@ -240,22 +240,54 @@ describe("notifyRun", () => {
       taskId: "domain-notice-1",
       disposition: "handle_internally",
       reason: "finished work; its outcome could not be checked",
-      summary: "Fix the island is finished; I haven't checked it yet.",
-      delivery: { line: "Fix the island is finished; I haven't checked it yet.", checked: false },
+      summary: "The work on “Fix the island” is finished; I haven't checked it yet.",
+      delivery: { line: "The work on “Fix the island” is finished; I haven't checked it yet.", checked: false },
       evidenceRefs: ["domain-notice-1"],
       verification: { status: "unknown", evidenceRefs: [] },
       show: true,
       notify: true,
       createdAt: "2026-10-21T00:00:00.000Z",
     };
-    const fromWindow = (): DomainRun => ({ ...run("Captain, done."), request: { ...run("Captain, done.").request, source: "view" } });
+    const fromWindow = (): DomainRun => ({ ...run("Captain, done."), request: { ...run("Captain, done.").request, source: "view", session: "session-a" } });
     let decided = 0;
     const decide = async () => { decided++; return finished; };
-    await notifyRun(fromWindow(), notify, undefined, decide, () => true);
+    await notifyRun(fromWindow(), notify, undefined, decide, (session) => session === "session-a");
     expect([sent, decided, readDomainRun("domain-notice-1")?.notified]).toEqual([[], 0, true]);
-    await notifyRun(fromWindow(), notify, undefined, decide, () => false);
-    await notifyRun(fromWindow(), notify, undefined, decide, () => false);
-    expect(sent).toEqual(["Fix the island is finished; I haven't checked it yet."]);
+    // Another conversation (or the News tab) open does not show his reply under his message.
+    await notifyRun(fromWindow(), notify, undefined, decide, (session) => session === "session-b");
+    await notifyRun(fromWindow(), notify, undefined, decide, (session) => session === "session-b");
+    expect(sent).toEqual(["The work on “Fix the island” is finished; I haven't checked it yet."]);
+  });
+
+  it("keeps a report it could not deliver owed, and tells it once when delivery comes back", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-10T10:00:00Z"));
+      const sent: string[] = [];
+      let up = false;
+      const notify = async (_title: string, message: string) => {
+        if (!up) throw new Error("adapter not connected");
+        sent.push(message);
+      };
+      const line = "Done: keep the island quiet. https://github.com/GeorgeGally/flyd/pull/9";
+      const finished: ExecutiveDecisionRecord = {
+        schema: "flyd.executive-decision.v1", decisionId: "decision-owed", sourceId: "firstmate.change", sourceEventId: "event-owed",
+        taskId: "domain-owed-1", disposition: "handle_internally", reason: "finished work, checked: its change is in", summary: line,
+        delivery: { line, checked: true, url: "https://github.com/GeorgeGally/flyd/pull/9" }, evidenceRefs: ["domain-owed-1"],
+        verification: { status: "verified", evidenceRefs: ["https://github.com/GeorgeGally/flyd/pull/9"] }, show: true, notify: true,
+        createdAt: "2026-11-10T10:00:00.000Z",
+      };
+      const owedRun = (): DomainRun => ({ ...run("Captain, done."), id: "domain-owed-1", request: { ...run("Captain, done.").request, id: "domain-owed-1" } });
+      await notifyRun(owedRun(), notify, undefined, async () => finished);
+      expect([sent, readDomainRun("domain-owed-1")?.notified]).toEqual([[], undefined]);
+      up = true;
+      vi.setSystemTime(new Date("2026-11-10T10:06:00Z"));
+      await notifyRun(owedRun(), notify, undefined, async () => finished);
+      await notifyRun(owedRun(), notify, undefined, async () => finished);
+      expect([sent, readDomainRun("domain-owed-1")?.notified]).toEqual([[line], true]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reaches George once with a decision, and says nothing for a quiet run", async () => {
