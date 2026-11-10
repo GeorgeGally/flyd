@@ -94,7 +94,7 @@ function stateOf(clause: string): PlayState | undefined {
 function countOf(label: string, rest: string): number {
   if (!/^(?:still |also )?(?:in progress|under way|underway|still going|ongoing|pending|open)$/i.test(label.replace(/^still\s+/i, "still ").trim())) return 1;
   const parts = rest.replace(/\(.*?\)/g, "").replace(/\.\s*$/, "").split(",").map((part) => part.trim()).filter(Boolean);
-  if (parts.length > 1 && !/^and\b/i.test(parts.at(-1)!)) parts.push(...parts.pop()!.split(/\s+and\s+/).slice(1));
+  if (parts.length > 1 && !/^and\b/i.test(parts.at(-1)!)) parts.push(...parts.pop()!.split(/\s+and\s+/));
   return Math.max(1, parts.length);
 }
 

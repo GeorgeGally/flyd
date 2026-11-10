@@ -61,6 +61,7 @@ describe("state of play", () => {
 - Layout: Flyd will decide the layout next.
 - Request page: landed after review.
 - Still in progress: search and replace.
+- Still in progress: the intro, the outro and the credits.
 - Blocked: waiting on the PC.
 - Up next: the intro, the outro and the credits.`;
     const [dir] = parseStateReport(report, PROJECTS);
@@ -69,6 +70,7 @@ describe("state of play", () => {
       ["Layout", "moving", 1],
       ["Request page", "landed", 1],
       ["Still in progress", "moving", 1],
+      ["Still in progress", "moving", 3],
       ["Blocked", "stuck", 1],
       ["Up next", "moving", 1],
     ]);

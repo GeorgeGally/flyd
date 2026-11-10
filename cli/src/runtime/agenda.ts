@@ -241,16 +241,21 @@ export function rangRecently(message: string, dir = process.env.FLYD_AGENDA_DIR?
 
 /** `work` names what the notification is about, for the line he hears when a held decision or blocker still needs his call. */
 export async function deliverNotification(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string): Promise<NotificationOutcome> {
+  return (await deliverNotificationLine(title, message, kind, work)).outcome;
+}
+
+/** As deliverNotification, with the line he was shown when it was. */
+export async function deliverNotificationLine(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string): Promise<{ outcome: NotificationOutcome; line?: string }> {
   // One line, outcome first: the rest of what was said is Flyd's to keep or show elsewhere.
   const { isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/chief-of-staff.js");
   // A coding session idle at its prompt is never George's to hear about.
-  if (isIdleNotice(title, message)) return "idle";
+  if (isIdleNotice(title, message)) return { outcome: "idle" };
   const { noteSaid, recordHeld, recordKept } = await import("../council/reply-review.js");
   // Only what may reach him: a fault, a stale reading or staff silence is Flyd's own, recorded and kept.
   const gated = reachesGeorge({ kind, text: message }, "notification");
   if (!gated.reach) {
     recordKept("notification", gated, message);
-    return "kept";
+    return { outcome: "kept" };
   }
   title = stripCommitIds(title);
   message = stripCommitIds(gated.line);
@@ -261,13 +266,13 @@ export async function deliverNotification(title: string, message: string, kind: 
   const backstage = relayShortfalls(message).filter((item) => item.requirement === "backstage_hidden");
   if (backstage.length) {
     recordHeld({ surface: "notification", source: "notification", text: message }, backstage);
-    if (kind !== "decision" && kind !== "blocker") return "backstage";
+    if (kind !== "decision" && kind !== "blocker") return { outcome: "backstage" };
     const { quotedWork } = await import("../command/notice.js");
     const named = work && quotedWork(work);
     // A call he can't tell apart from any other is no use pushed at him: it waits in the chat inbox, where Flyd can say what it is.
     if (!named) {
       recordInbox({ itemId: `held:${randomUUID().slice(0, 8)}`, task: "A decision", status: kind === "blocker" ? "blocked" : "short", result: message });
-      return "backstage";
+      return { outcome: "backstage" };
     }
     message = `I need your decision on ${named}.`;
   }
@@ -278,11 +283,11 @@ export async function deliverNotification(title: string, message: string, kind: 
   const placeholder = screened.shortfalls.filter((item) => item.requirement === "real_status");
   if (placeholder.length) {
     recordHeld({ surface: "notification", source: "notification", text: message }, placeholder);
-    return "placeholder";
+    return { outcome: "placeholder" };
   }
   // The same line twice in a day is noise: he heard it the first time.
-  if (rangRecently(message)) return "repeat";
-  if (process.platform !== "darwin") return "undelivered";
+  if (rangRecently(message)) return { outcome: "repeat" };
+  if (process.platform !== "darwin") return { outcome: "undelivered" };
   noteSaid({ surface: "notification", text: message });
   try {
     const token = readFileSync(join(homedir(), ".flyd", "overlay", "auth-token"), "utf8").trim();
@@ -292,11 +297,11 @@ export async function deliverNotification(title: string, message: string, kind: 
       body: JSON.stringify({ title, message: message.replace(/\s+/g, " ").slice(0, 220), kind: gated.kind }),
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return "undelivered";
+    if (!response.ok) return { outcome: "undelivered" };
     const { delivered } = await response.json() as { delivered?: number };
-    return (delivered ?? 0) > 0 ? "shown" : "undelivered";
+    return (delivered ?? 0) > 0 ? { outcome: "shown", line: message } : { outcome: "undelivered" };
   } catch {
-    return "undelivered";
+    return { outcome: "undelivered" };
   }
 }
 
