@@ -44,6 +44,31 @@ export const CHAT_ANSWER_BACKSTAGE: RegExp[] = [
 /** Everything relays, notices, status cards and agenda lines may not show. */
 export const BACKSTAGE_DENYLIST: RegExp[] = [...CHAT_ANSWER_BACKSTAGE, STAFF_TITLES, PR_NUMBER, JOB_ID, DOMAIN_RUN_ID];
 
+const STAFF_SAID: Array<[RegExp, string]> = [
+  [/^(?:the |a )?(?:workers?|crew ?mates?|firstmate|team)\s+(?:has |have )?(?:finished|is done|are done|reports?|reported|says|said)\s*[:;,\u2014-]\s*/i, ""],
+  [/\s*,?\s+(?:on|in) (?:the |a )?branch\b(?:\s+`?fm\/[\w-]+(?:\.[\w-]+)*`?)?/gi, ""],
+  [/\b(?:[Tt]he |[Aa] )?(?:Creative Directors?|Retrievers?|Researchers?|Fact Checkers?|Design Mates?|coding boss(?:es)?)\b/g, "the team"],
+  [/\b(?:the|a|one) workers?\b|\bworkers\b(?=\s+(?:is|are|has|have|pushed|finished|added|opened)\b)/gi, "the team"],
+  [/\bthe fleet\b/gi, "the work"],
+  [/\b(?:the|this|that) (?:last )?run\b(?!\s+(?:of|button|command|script)\b)/gi, "the work"],
+  [/\bhand-?offs?\b(?!\s+(?:spec|doc|document|notes?|file|template|meeting)s?\b)/gi, "step"],
+];
+
+/**
+ * A line for his screen said without the machinery: how the staff ran the work
+ * (who was on it, the branch, the run, a handoff) gives way to the work itself,
+ * so "The worker finished: dark mode is merged." reads "Dark mode is merged.".
+ * Ordinary uses ("a service worker", "a vehicle fleet", "the handoff spec") stay. Pure.
+ */
+export function plainSaid(text: string): string {
+  const said = STAFF_SAID.reduce((line, [pattern, plain]) => line.replace(pattern, (found) => (/^[A-Z]/.test(found) ? plain.replace(/^[a-z]/, (first) => first.toUpperCase()) : plain)), text)
+    .replace(/\bthe team and the team\b/gi, "the team")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .trim();
+  return /^[A-Z]/.test(text) ? said.replace(/^[a-z]/, (first) => first.toUpperCase()) : said;
+}
+
 /** A commit id inside a link is part of the address, not news: masked before the denylist reads the text. Pure. */
 export function withoutLinkIds(text: string): string {
   return text.replace(/https?:\/\/\S+/g, (url) => url.replace(/[0-9a-f]{7,40}/gi, ""));

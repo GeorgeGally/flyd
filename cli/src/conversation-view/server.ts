@@ -48,6 +48,7 @@ import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } fro
 import type { Rail, RailState } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailNotice, type RailPreview, plainNote } from "./rail.js";
 import { Workshop } from "./workshop.js";
+import { plainSaid } from "../lib/backstage.js";
 import { asksHowFlydWorks, type ActivityPanel, type ActivityReader } from "./activity.js";
 import { openArticleChat } from "./article-chat.js";
 import { storyAsset, toggleSavedStory } from "./story-media.js";
@@ -406,15 +407,15 @@ export class SnapshotDiffer {
   private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
-    const shown = stripCommitIds(message.text);
+    const shown = plainSaid(stripCommitIds(message.text));
     if (cached) {
       // Flyd's reading passes the same checks the staff's words do before it leads; one that fails gives way to a plain line.
-      const reading = inFlydsVoice(cached);
+      const reading = plainSaid(inFlydsVoice(cached));
       return this.heldRelay(reading) ? heldAnswer(message) : { body: message.text, summary: glance(reading, "flyd") };
     }
     this.readAnswer(message, snapshot, newest);
     // An answer to his note is never dropped: staff words that fail the checks wait behind a plain line.
-    if (this.heldRelay(message.text)) return heldAnswer(message);
+    if (this.heldRelay(shown)) return heldAnswer(message);
     const pending = interpreter?.pending(message.text) ?? false;
     return { body: message.text, summary: pending ? glance(shown, "digest", true) : briefOf(shown) };
   }
@@ -429,9 +430,10 @@ export class SnapshotDiffer {
   private relaySummary(message: ConversationMessage, newest: boolean, toHim = false): (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null {
     const parts = this.summarize(message, newest);
     const model = this.summaries?.summarizer?.cached(message.text);
-    const lead = model && parts.summary?.source === "model" ? inFlydsVoice(model) : message.text;
+    const said = model && parts.summary?.source === "model" ? inFlydsVoice(model) : message.text;
+    const lead = plainSaid(said);
     if (this.heldRelay(lead)) return toHim ? heldAnswer(message) : null;
-    return parts;
+    return lead === said ? parts : { ...parts, summary: glance(lead, parts.summary?.source ?? "brief") };
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
@@ -472,10 +474,12 @@ export class SnapshotDiffer {
   /** An answer to him, or a relayed update that answers him, as one compact card: Flyd's reading when it has one. */
   private answerCard(message: ConversationMessage): RenderedMessage["card"] {
     const reading = message.answers?.startsWith("note:") ? this.summaries?.interpreter?.cached(message.text) : undefined;
-    const said = replyCard(inFlydsVoice(reading ?? message.text));
+    const staff = message.aside === true || message.answers?.startsWith("note:") === true;
+    const voiced = inFlydsVoice(reading ?? message.text);
+    const said = replyCard(staff ? plainSaid(voiced) : voiced);
     if (!said) return undefined;
     // The card's words pass the same outgoing checks as any relay: a line that fails leaves no card, a sub that fails is dropped.
-    if (message.aside || message.answers?.startsWith("note:")) {
+    if (staff) {
       if (this.heldRelay(said.line)) return undefined;
       if (said.sub && this.heldRelay(said.sub)) delete said.sub;
     }

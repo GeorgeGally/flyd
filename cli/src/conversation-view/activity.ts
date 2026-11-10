@@ -553,8 +553,7 @@ export class ActivityReader {
   private readonly commandDir: string;
   private readonly pollMs: number;
   private readonly now: () => number;
-  private panel: ActivityPanel | null = null;
-  private upkeep = false;
+  private panels: { plain: ActivityPanel; upkeep: ActivityPanel } | null = null;
   private signature = "";
   private readonly listeners = new Set<() => void>();
   private timer: NodeJS.Timeout | undefined;
@@ -594,7 +593,7 @@ export class ActivityReader {
     const day = localDay(new Date(now));
     const scout = join(this.dir, "scout");
     const editionFile = oneJson(join(scout, "edition-latest.json"));
-    const composed = composeActivity({
+    const inputs: ActivityInputs = {
       log: lines(join(this.dir, "logs", "agenda.log"), 600),
       jobs: this.jobs(),
       advice: jsonLines(join(this.dir, "council", "advisories.jsonl"), 4) as ActivityInputs["advice"],
@@ -604,17 +603,17 @@ export class ActivityReader {
         watch: flashStories(jsonLines(join(scout, "flash.jsonl"), 200), day),
       },
       runs: listDomainRuns(this.commandDir),
-      upkeep: this.upkeep,
-    }, now);
-    const panel = applyStoryMedia(composed, this.dir);
+    };
+    const panel = applyStoryMedia(composeActivity(inputs, now), this.dir);
+    const upkeep = applyStoryMedia(composeActivity({ ...inputs, upkeep: true }, now), this.dir);
     const onStored = () => {
       if (this.refresh()) for (const each of this.listeners) each();
     };
     scheduleStoryMedia(storyUrls(panel), { dir: this.dir, onStored });
     scheduleStorySources(storySources(editionFile), { dir: this.dir, onStored });
     scheduleStoryClips(storyClips(editionFile), { dir: this.dir, onStored });
-    const signature = JSON.stringify(panel);
-    this.panel = panel;
+    const signature = JSON.stringify([panel, upkeep]);
+    this.panels = { plain: panel, upkeep };
     if (signature === this.signature) return false;
     this.signature = signature;
     return true;
@@ -622,12 +621,8 @@ export class ActivityReader {
 
   /** The panel; with upkeep (he asked how Flyd works) Flyd's own upkeep shows too. */
   current(upkeep = false): ActivityPanel {
-    if (upkeep !== this.upkeep) {
-      this.upkeep = upkeep;
-      this.panel = null;
-    }
-    if (!this.panel) this.refresh();
-    return this.panel!;
+    if (!this.panels) this.refresh();
+    return upkeep ? this.panels!.upkeep : this.panels!.plain;
   }
 
   /** Calls back when the panel changes; polls only while someone listens. */

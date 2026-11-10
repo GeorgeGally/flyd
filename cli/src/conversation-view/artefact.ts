@@ -12,6 +12,7 @@ import { syncFleetFollowups } from "../runtime/fleet-followups.js";
 import { readPlans, type Plan } from "../lib/plans.js";
 import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
+import { plainSaid } from "../lib/backstage.js";
 import { recordKept } from "../council/reply-review.js";
 import { adviceHeadline } from "../council/advisors.js";
 import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
@@ -1175,10 +1176,12 @@ export function gatedItem(item: ShowItem | undefined, about?: GeorgeKind): ShowI
   const { detail, ...shown } = item;
   const said = detail ? reachesGeorge({ kind, text: detail }, "panel") : undefined;
   // Staff names, branches, ids and handoffs never reach the screen: a headline says where the work stands instead, a detail is dropped.
-  const quiet = namesBackstage(headline.line);
-  if (quiet && item.kind !== "call" && !QUIET_HEADLINE[item.kind]) return undefined;
-  const line = quiet && item.kind !== "call" ? QUIET_HEADLINE[item.kind]! : headline.line;
-  return { ...shown, headline: line, ...(said?.reach && !namesBackstage(said.line) ? { detail: said.line } : {}) };
+  const plain = item.kind === "call" ? headline.line : plainSaid(headline.line);
+  const quiet = item.kind !== "call" && namesBackstage(plain);
+  if (quiet && !QUIET_HEADLINE[item.kind]) return undefined;
+  const line = quiet ? QUIET_HEADLINE[item.kind]! : plain;
+  const told = said?.reach ? plainSaid(said.line) : "";
+  return { ...shown, headline: line, ...(told && !namesBackstage(told) ? { detail: told } : {}) };
 }
 
 /** Where a piece of work stands, when its own headline would name the machinery. A call keeps its question (the decision is his); anything else is Flyd's to keep. */

@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { applyProjectOps, projectId, readProjects, type Project, type ProjectKind } from "../council/projects.js";
 import type { DomainRun } from "../command/types.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
+import { plainSaid } from "../lib/backstage.js";
 import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import type { ShowItem, ShowScreen } from "./show.js";
 
@@ -406,7 +407,9 @@ const QUIET_LINE: Record<Exclude<JobGroup, "needs">, string> = { working: "Under
 
 /** A card's line as he may see it: the relay check holds back staff names, branches and ids. A decision keeps its question: the call is his. Pure. */
 function shownLine(line: string, group: JobGroup): string {
-  return group === "needs" || !line || !namesBackstage(line) ? line : QUIET_LINE[group];
+  if (group === "needs" || !line) return line;
+  const plain = plainSaid(line);
+  return namesBackstage(plain) ? QUIET_LINE[group] : plain;
 }
 
 function labelOf(project: Project): string {

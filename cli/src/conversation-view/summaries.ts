@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ClaudeUsage } from "../lib/claude-spend.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
+import { plainSaid } from "../lib/backstage.js";
 
 // Plain-English summaries of the assistant's replies, so the captain can read
 // the outcome first and open the full reply only when he wants it.
@@ -298,11 +299,13 @@ export function digestReply(text: string): ReplyDigest {
   while (paragraphs.length > 1 && isAcknowledgement(paragraphs[0]!)) paragraphs.shift();
   const opening = sentences(inline(paragraphs[0] ?? ""));
   while (opening.length > 1 && ACK_LEAD.test(opening[0]!)) opening.shift();
-  // The relay check holds back sentences that name the staff or how the work runs: the lead is the first that does not, when one does not.
-  const lead = capitalise(clip(opening.find((sentence) => !namesBackstage(sentence)) ?? opening[0] ?? firstSentence(body), 220));
+  // Said without the machinery; what still names the staff or how the work runs is held back (the relay check).
   const listed = pointsOf(body);
-  const points = (listed.length ? listed : paragraphPoints(paragraphs)).filter((point) => !namesBackstage(`${point.label ?? ""} ${point.text}`));
-  return { routine: isRoutine(text), lead, points };
+  const points = (listed.length ? listed : paragraphPoints(paragraphs))
+    .map((point) => ({ ...point, text: plainSaid(point.text), ...(point.label ? { label: plainSaid(point.label) } : {}) }))
+    .filter((point) => !namesBackstage(`${point.label ?? ""} ${point.text}`));
+  const lead = (opening.length ? opening : [firstSentence(body)]).map(plainSaid).find((sentence) => !namesBackstage(sentence)) ?? points[0]?.text ?? "";
+  return { routine: isRoutine(text), lead: capitalise(clip(lead, 220)), points };
 }
 
 /** The digest as Markdown: the lead, then one line per point. */

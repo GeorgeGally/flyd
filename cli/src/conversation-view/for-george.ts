@@ -1,6 +1,7 @@
 import { choiceOf } from "./choices.js";
 import { stateOf } from "./executive.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
+import { plainSaid } from "../lib/backstage.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { capitalise, clip, inline, isAcknowledgement, SALUTATION, sentences } from "./summaries.js";
 
@@ -160,7 +161,9 @@ export function staffLine(text: string, handled?: (text: string) => boolean): Ge
   const said = lineOf(text, handled);
   // The staff's own words never reach him naming the staff or how the work runs (the relay check):
   // a landing is told plainly, a stop is Flyd's to chase. His decision stays his, in its own words.
-  if (said.kind === "absorbed" || said.kind === "decision" || !namesBackstage(said.line)) return said;
+  if (said.kind === "absorbed" || said.kind === "decision") return said;
+  const line = plainSaid(said.line);
+  if (!namesBackstage(line)) return { ...said, line };
   return said.kind === "landed" ? { kind: "landed", line: "That's done.", ...(said.url ? { url: said.url } : {}) } : { kind: "absorbed" };
 }
 

@@ -62,6 +62,8 @@ describe("jobsFrom", () => {
       expect(["you", "Flyd", ""]).toContain(job.owner);
       if (job.group !== "needs") expect(`${job.next} ${job.ask}`).not.toMatch(/Design Mate|worker|handoff|branch|fm\/|Nothing has moved/i);
     }
+    const stalled = jobsFrom({ runs: [run({ id: "stalled", status: "failed", project: "S", outcome: "The last handoff stalled on the worker." })], now: NOW });
+    expect(stalled.jobs[0]!.next).toBe("The last step stalled on the team.");
     // The decision is his: its card keeps the question as asked.
     expect(board.jobs.find((job) => job.group === "needs")).toMatchObject({ next: "Ready on branch fm/x: merge it?", ask: "Ready on branch fm/x: merge it?" });
   });

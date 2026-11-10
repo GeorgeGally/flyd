@@ -201,27 +201,27 @@ describe("SnapshotDiffer relays", () => {
     expect(shown!.summary).toBeDefined();
   });
 
-  it("never shows the staff's own words naming how the work runs, even in reply to him: a plain line leads, the original one tap away", () => {
+  it("never shows the staff's own words naming how the work runs, even in reply to him: they are told plainly, the original one tap away", () => {
     const said = "The message fix is ready on branch fm/logan-codex-limit-msg. The worker pushed it and the Fact Checker signed off.";
     const [, shown] = new SnapshotDiffer().next({ messages: [
       { id: "u1", role: "user", text: "how is it going?" },
       { id: "t1", role: "assistant", text: said, aside: true },
     ], working: false }).messages;
-    expect(shown!.card).toBeUndefined();
     expect(shown!.expanded).toBeUndefined();
-    expect(shown!.summary!.html).not.toMatch(/branch|worker|Fact Checker/);
+    expect(shown!.summary!.html).toContain("The message fix is ready");
+    expect(`${shown!.summary!.html} ${shown!.card?.line ?? ""} ${shown!.card?.sub ?? ""}`).not.toMatch(/branch|worker|Fact Checker|fm\//);
     expect(shown!.html).toContain("fm/logan-codex-limit-msg");
   });
 
   it("never drops an answer to his note whose words name how the work runs: a plain line leads, the original one tap away", () => {
-    const said = "The message fix is ready on branch fm/logan-codex-limit-msg and the Fact Checker signed off.";
+    const said = "The message fix went in as PR #253 from fm/logan-codex-limit-msg and the Fact Checker signed off.";
     const [, shown] = new SnapshotDiffer().next({ messages: [
       { id: "note:1", role: "user", text: "is the message fix ready?" },
       { id: "t1", role: "assistant", text: said, answers: "note:1" },
     ], working: false }).messages;
     expect(shown).toBeDefined();
     expect(shown!.summary!.html).toContain("show original");
-    expect(shown!.summary!.html).not.toMatch(/branch|Fact Checker/);
+    expect(shown!.summary!.html).not.toMatch(/PR #253|fm\/|Fact Checker/);
     expect(shown!.html).toContain("fm/logan-codex-limit-msg");
   });
 
