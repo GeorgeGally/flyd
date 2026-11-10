@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
-import { decideRun, notifyRun } from "../scheduler.js";
+import { decideRun, notifyRun, runForTask } from "../scheduler.js";
+import { deliverOwed } from "../../runtime/delivered.js";
 import { readDomainRun } from "../store.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -259,7 +260,7 @@ describe("notifyRun", () => {
     expect(sent).toEqual(["The work on “Fix the island” is finished; I haven't checked it yet."]);
   });
 
-  it("keeps a report it could not deliver owed, and tells it once when delivery comes back", async () => {
+  it("keeps a report it could not deliver owed, and the tick's sweep tells it once when delivery comes back", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       vi.setSystemTime(new Date("2026-11-10T10:00:00Z"));
@@ -280,14 +281,29 @@ describe("notifyRun", () => {
       const owedRun = (): DomainRun => ({ ...run("Captain, done."), id: "domain-owed-1", request: { ...run("Captain, done.").request, id: "domain-owed-1" } });
       await notifyRun(owedRun(), notify, undefined, async () => finished);
       expect([sent, readDomainRun("domain-owed-1")?.notified]).toEqual([[], undefined]);
-      up = true;
+      // The sync loops never come back to a finished run: the sweep every command tick runs is what says it again.
+      const say = async (_title: string, message: string) => { await notify("Flyd", message); return "shown" as const; };
       vi.setSystemTime(new Date("2026-11-10T10:06:00Z"));
-      await notifyRun(owedRun(), notify, undefined, async () => finished);
-      await notifyRun(owedRun(), notify, undefined, async () => finished);
-      expect([sent, readDomainRun("domain-owed-1")?.notified]).toEqual([[line], true]);
+      await deliverOwed({ say: async () => "undelivered" });
+      up = true;
+      vi.setSystemTime(new Date("2026-11-10T10:12:00Z"));
+      await deliverOwed({ say });
+      await deliverOwed({ say });
+      expect(sent).toEqual([line]);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("finds the run a finished staff task is George's work for, so both paths key it alike", () => {
+    const desk = (id: string, brief: string, source: DomainRun["request"]["source"] = "view"): DomainRun => {
+      const base = run(JSON.stringify({ status: "completed", brief }));
+      return { ...base, id, request: { ...base.request, id, source } };
+    };
+    const runs = [desk("flyd-task-note", "Nudged flyd-pa-tell-done along.", "flyd"), desk("desk-1", "flyd-pa-tell-done is finished and merged."), desk("desk-2", "flyd-pa-tell-done-v2 is open.")];
+    expect(runForTask(runs, "flyd-pa-tell-done")?.id).toBe("desk-1");
+    expect(runForTask(runs, "desk-2")?.id).toBe("desk-2");
+    expect(runForTask(runs, "logan-drag")).toBeUndefined();
   });
 
   it("reaches George once with a decision, and says nothing for a quiet run", async () => {

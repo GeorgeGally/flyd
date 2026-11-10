@@ -47,7 +47,7 @@ import { deliverOnce, finishedReports } from "../runtime/delivered.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
 import { STANDING_RULES_POLICY, standingPreferences } from "../intelligence/executive/standing-rules.js";
-import { deliverBossNote } from "../command/scheduler.js";
+import { deliverBossNote, runForTask, shownInWindow } from "../command/scheduler.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { runCuratorSweep } from "../cognition/curator/reconcile.js";
 import { autonomyLevel } from "../runtime/tool-policy.js";
@@ -382,7 +382,11 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     });
     // Finished work is told once, in its checked line, however often the fleet is read (runtime/delivered.ts).
     const labels = new Map(prepared.flatMap((change) => change.taskId ? [[change.taskId, plainLabel(change.label)] as const] : []));
-    const reports = finishedReports(decisions, (task) => labels.get(task) ?? plainLabel(task));
+    // Keyed by the run the task is his work for, so Core and the window tell it once; quiet when that conversation is open.
+    const reports = finishedReports(decisions, (task) => labels.get(task) ?? plainLabel(task), (task) => {
+      const run = runForTask(runs, task);
+      return run && shownInWindow(run) ? undefined : run?.id ?? task;
+    });
     if (reports.length) void deliverOnce(reports).catch(() => undefined);
     return decisions;
   };

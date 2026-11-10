@@ -14,7 +14,7 @@ import { relayShortfalls } from "../runtime/honesty-check.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
-import { deliverOnce, finishedKey } from "../runtime/delivered.js";
+import { deliverOnce, deliverOwed, finishedKey } from "../runtime/delivered.js";
 import { windowOpen } from "../conversation-view/window-presence.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -57,6 +57,7 @@ export async function decideRun(
     kind: run.status === "needs_decision" ? "decision" : "reply",
     state: run.status,
     label: run.request.intendedOutcome,
+    labelFromGeorge: true,
     detail: [detail, ...(result?.evidence ?? [])].join("\n"),
     evidenceRefs: [`domain-run:${run.id}`],
     authority: authorityForStaffRun({
@@ -91,6 +92,22 @@ function noticeForDecision(decision: ExecutiveDecisionRecord): string | null {
   return line && relayShortfalls(line).length === 0 ? line : null;
 }
 
+/** Work he started from the window, with the window open on that conversation: his reply shows under his message there. */
+export function shownInWindow(run: DomainRun, windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): boolean {
+  return run.request.source === "view" && run.request.session !== undefined && windowIsOpen(run.request.session);
+}
+
+/**
+ * The run a finished staff task is George's work for: the run of that id, else the FirstMate run of his whose result names
+ * the task. Its finished work is told under the run's key, so Core and the window tell it once between them. Pure.
+ */
+export function runForTask(runs: readonly DomainRun[], task: string): DomainRun | undefined {
+  const named = new RegExp(`(?:^|[^A-Za-z0-9_-])${task.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^A-Za-z0-9_-]|$)`);
+  return runs.find((run) => run.id === task)
+    ?? runs.find((run) => run.transport.kind === "firstmate" && run.request.source !== "flyd" && run.request.source !== "self-improvement"
+      && Boolean(run.result) && named.test([run.result!.brief, run.result!.detailedReport, ...run.result!.evidence].join("\n")));
+}
+
 /** Tells George only what the executive record says needs his attention, each report once (runtime/delivered.ts). */
 export async function notifyRun(
   run: DomainRun,
@@ -103,7 +120,7 @@ export async function notifyRun(
   // His own message from the conversation window: with the window open on that conversation the reply shows under it
   // there, so a notice would say it twice; otherwise he hears it like any other result.
   // Flyd's own note to the staff, and its own fixes, are backstage: their replies settle them and are never his to hear.
-  if (run.request.source === "view" && run.request.session !== undefined && windowIsOpen(run.request.session) || run.request.source === "flyd" || run.request.source === "self-improvement") {
+  if (shownInWindow(run, windowIsOpen) || run.request.source === "flyd" || run.request.source === "self-improvement") {
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
     return;
   }
@@ -126,7 +143,7 @@ export async function notifyRun(
         ...(url ? { aliases: [`link:${url}`] } : {}),
       }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
     } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
-    // A report not delivered yet is tried again on a later tick, never marked told.
+    // A report not delivered yet is never marked told; the command tick's sweep says it again (deliverOwed).
     if (!owed) saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
   } catch {
     // The durable result remains in the command store; notification is best effort.
@@ -142,6 +159,8 @@ export async function commandTick(): Promise<void> {
       syncLibrarianDomainRuns({ onChanged: notifyRun }),
       syncDesignMateRuns({ onChanged: notifyRun }),
     ]);
+    // Every report still owed (left undelivered, or cut off mid-send) is said again, from the first tick at Core start on.
+    await deliverOwed().catch(() => undefined);
   } finally {
     running = false;
   }

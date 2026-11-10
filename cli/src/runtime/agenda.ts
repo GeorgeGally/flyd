@@ -227,13 +227,14 @@ export type NotificationOutcome = "shown" | "kept" | "idle" | "backstage" | "pla
 const REPEAT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** Whether this line already rang him within a day; records it when not. Lines differing only in a count ("for 1 h", "for 3 h") are the same line. */
-export function rangRecently(message: string, dir = process.env.FLYD_AGENDA_DIR?.trim() || FLYD_DIR, now = Date.now()): boolean {
+export function rangRecently(message: string, dir = process.env.FLYD_AGENDA_DIR?.trim() || FLYD_DIR, now = Date.now(), record = true): boolean {
   const path = join(dir, "notified.json");
   const key = message.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
   let rung: Record<string, number> = {};
   try { rung = JSON.parse(readFileSync(path, "utf8")) as Record<string, number>; } catch { /* first ring */ }
   rung = Object.fromEntries(Object.entries(rung).filter(([, at]) => now - at < REPEAT_WINDOW_MS));
   if (rung[key]) return true;
+  if (!record) return false;
   rung[key] = now;
   atomicWrite(path, JSON.stringify(rung));
   return false;
@@ -286,7 +287,7 @@ export async function deliverNotificationLine(title: string, message: string, ki
     return { outcome: "placeholder" };
   }
   // The same line twice in a day is noise: he heard it the first time.
-  if (rangRecently(message)) return { outcome: "repeat" };
+  if (rangRecently(message, undefined, undefined, false)) return { outcome: "repeat" };
   if (process.platform !== "darwin") return { outcome: "undelivered" };
   noteSaid({ surface: "notification", text: message });
   try {
@@ -299,7 +300,10 @@ export async function deliverNotificationLine(title: string, message: string, ki
     });
     if (!response.ok) return { outcome: "undelivered" };
     const { delivered } = await response.json() as { delivered?: number };
-    return (delivered ?? 0) > 0 ? { outcome: "shown", line: message } : { outcome: "undelivered" };
+    if ((delivered ?? 0) === 0) return { outcome: "undelivered" };
+    // Only a line that reached him counts as heard, so one never delivered can be tried again.
+    rangRecently(message);
+    return { outcome: "shown", line: message };
   } catch {
     return { outcome: "undelivered" };
   }

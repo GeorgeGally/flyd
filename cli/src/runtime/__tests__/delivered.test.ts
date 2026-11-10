@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { deliveredRecords, deliverOnce, finishedReports, UNFINISHED_CLAIM_MS, claimDelivery, type DeliveryReport } from "../delivered.js";
+import { deliveredRecords, deliverOnce, deliverOwed, finishedReports, UNFINISHED_CLAIM_MS, claimDelivery, type DeliveryReport } from "../delivered.js";
 
 let dir: string | undefined;
 afterEach(() => {
@@ -55,31 +55,50 @@ describe("flyd.delivered", () => {
     store.close();
   });
 
-  it("says a report cut off mid-send once more after the grace period, and one Core never took once more only", async () => {
+  it("says a report cut off mid-send once more after the grace period, and never a third time", async () => {
     const store = new IntelligenceEventStore({ path: home() });
     const at = new Date("2026-11-10T10:00:00Z");
-    expect(claimDelivery(store, report("work:c"), at)).toBe(true);
-    expect(claimDelivery(store, report("work:c"), new Date(at.getTime() + 60_000))).toBe(false);
+    // Claimed, then the process died before any outcome was recorded.
+    expect(claimDelivery(store, report("work:c"), at)).toBe(0);
+    expect(claimDelivery(store, report("work:c"), new Date(at.getTime() + 60_000))).toBeUndefined();
     const later = new Date(at.getTime() + UNFINISHED_CLAIM_MS + 1);
+    expect(claimDelivery(store, report("work:c"), later)).toBe(1);
+    // Cut off again: whether he heard it is unknown, so it is not said a third time.
     const said: string[] = [];
-    const cut = await deliverOnce([report("work:c")], { store, say: async (_t, message) => { said.push(message); return "undelivered"; }, now: () => later });
-    // Said once more and still not delivered: the second try was its last, so it is no longer owed.
-    expect([cut.told.length, cut.owed.length]).toEqual([1, 0]);
-    expect(await deliverOnce([report("work:c")], { store, say: async (_t, message) => { said.push(message); }, now: () => new Date(later.getTime() + UNFINISHED_CLAIM_MS + 1) })).toEqual({ told: [], owed: [] });
-    expect(said).toEqual(["Done: work:c."]);
+    const after = await deliverOnce([report("work:c")], { store, say: async (_t, message) => { said.push(message); }, now: () => new Date(later.getTime() + UNFINISHED_CLAIM_MS + 1) });
+    expect([after, said]).toEqual([{ told: [], owed: [] }, []]);
     store.close();
   });
 
-  it("keeps a first send that was not delivered owed until it is told", async () => {
-    const store = new IntelligenceEventStore({ path: home() });
+  it("keeps a report that was not delivered owed, and says it again on each sweep until it is", async () => {
+    const path = home();
+    let store = new IntelligenceEventStore({ path });
     const at = new Date("2026-11-10T10:00:00Z");
-    const first = await deliverOnce([report("work:d")], { store, say: async () => "undelivered", now: () => at });
+    const step = (minutes: number) => () => new Date(at.getTime() + minutes * 60_000);
+    const first = await deliverOnce([{ ...report("work:d"), kind: "deliverable", work: "the footer" }], { store, say: async () => "undelivered", now: step(0) });
     expect(first.owed.map((item) => item.key)).toEqual(["work:d"]);
     // Inside the grace period nothing is said, and it is still owed.
-    expect((await deliverOnce([report("work:d")], { store, say: async () => "shown", now: () => new Date(at.getTime() + 60_000) })).owed).toHaveLength(1);
+    expect(await deliverOwed({ store, say: async () => "shown", now: step(1) })).toMatchObject({ told: [], owed: [{ key: "work:d" }] });
+    // No adapter listening twice more, across a restart: still owed, never dropped.
+    expect((await deliverOwed({ store, say: async () => "undelivered", now: step(6) })).told).toHaveLength(1);
+    store.close();
+    store = new IntelligenceEventStore({ path });
+    expect((await deliverOwed({ store, say: async () => "undelivered", now: step(12) })).owed).toHaveLength(1);
+    const said: Array<[string, string | undefined, string | undefined]> = [];
+    const told = await deliverOwed({ store, say: async (_t, message, kind, work) => { said.push([message, kind, work]); return "shown"; }, now: step(18) });
+    expect([said, told.owed]).toEqual([[["Done: work:d.", "deliverable", "the footer"]], []]);
+    expect(await deliverOwed({ store, say: async () => "shown", now: step(30) })).toEqual({ told: [], owed: [] });
+    expect(deliveredRecords(store).map((record) => [record.key, record.outcome])).toEqual([["work:d", "shown"]]);
+    store.close();
+  });
+
+  it("does not sweep the other name (link) a report was claimed under", async () => {
+    const store = new IntelligenceEventStore({ path: home() });
+    const at = new Date("2026-11-10T10:00:00Z");
+    await deliverOnce([{ ...report("work:e"), aliases: ["link:https://x/pull/5"] }], { store, say: async () => "undelivered", now: () => at });
     const said: string[] = [];
-    const later = await deliverOnce([report("work:d")], { store, say: async (_t, message) => { said.push(message); return "shown"; }, now: () => new Date(at.getTime() + UNFINISHED_CLAIM_MS + 1) });
-    expect([said, later.owed]).toEqual([["Done: work:d."], []]);
+    await deliverOwed({ store, say: async (_t, message) => { said.push(message); return "shown"; }, now: () => new Date(at.getTime() + UNFINISHED_CLAIM_MS + 1) });
+    expect(said).toEqual(["Done: work:e."]);
     store.close();
   });
 
@@ -91,5 +110,9 @@ describe("flyd.delivered", () => {
     ], (task) => `named ${task}`)).toEqual([
       { key: "work:flyd-a", line: "Done: a. https://x/pull/2", kind: "deliverable", work: "named flyd-a", evidenceRefs: ["r"], aliases: ["link:https://x/pull/2"] },
     ]);
+    // Keyed by the run the task is his work for; a task its owner keeps quiet makes no report.
+    const done = (taskId: string) => ({ taskId, show: true, notify: true, evidenceRefs: [], delivery: { line: `Done: ${taskId}.` } });
+    expect(finishedReports([done("flyd-c"), done("flyd-d")], (task) => task, (task) => (task === "flyd-c" ? "desk-1" : undefined)).map((item) => item.key))
+      .toEqual(["work:desk-1"]);
   });
 });

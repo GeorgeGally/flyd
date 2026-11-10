@@ -33,7 +33,7 @@ describe("finished work, checked by Flyd", () => {
   it("says a merged change in one line, with the change's own title and its link", async () => {
     const check = await checkFinished({ label: "flyd-hide-whatsapp-card", detail: `done: PR ${PR} merged` },
       readers({ merged: true, title: "fix(conversation-view): keep unpaired WhatsApp off the main screen (#251)", mergeCommit: "a".repeat(40) }));
-    expect(check).toMatchObject({ checked: true, landed: true, url: PR, line: `Done: keep unpaired WhatsApp off the main screen. ${PR}` });
+    expect(check).toMatchObject({ checked: true, landed: true, url: PR, line: `Done: Keep unpaired WhatsApp off the main screen. ${PR}` });
     expect(check.evidenceRefs).toEqual([PR, `github-merge:${"a".repeat(40)}`]);
   });
 
@@ -41,30 +41,32 @@ describe("finished work, checked by Flyd", () => {
     expect((await checkFinished({ label: "Liesel: mode words", detail: PR }, readers({ merged: false, state: "open", title: "feat: mode words (#251)" }))).line)
       .toBe(`Mode words is finished and waiting to go in. ${PR}`);
     expect((await checkFinished({ label: "Liesel: mode words", detail: PR }, readers({ merged: false, state: "closed" }))).line)
-      .toBe(`The work on “Liesel: mode words” is finished, but its change was closed without going in. ${PR}`);
+      .toBe(`Liesel: mode words is finished, but its change was closed without going in. ${PR}`);
   });
 
-  it("checks a named commit against the default branch", async () => {
+  it("checks a named commit against the default branch, and says one checked and not in yet is waiting", async () => {
     const commit = "https://github.com/GeorgeGally/dir/commit/3ce3245";
     const check = await checkFinished({ label: "dir-failed-jobs", detail: `landed ${commit}` }, readers(null, true));
-    expect(check).toMatchObject({ checked: true, landed: true, line: `The work on “DIR: failed jobs” is done. ${commit}` });
+    expect(check).toMatchObject({ checked: true, landed: true, line: `Done: DIR: failed jobs. ${commit}` });
+    expect(await checkFinished({ label: "dir-failed-jobs", detail: `landed ${commit}` }, readers(null, false)))
+      .toMatchObject({ checked: true, landed: false, url: commit, line: `DIR: failed jobs is finished and waiting to go in. ${commit}` });
   });
 
   it("still says it is done when nothing can be checked, and never says nothing", async () => {
     const check = await checkFinished({ label: "logan-make-transparent", detail: "ready in branch fm/logan-make-transparent" }, readers(null));
-    expect(check).toMatchObject({ checked: false, landed: false, line: "The work on “Logan: make transparent” is finished; I haven't checked it yet." });
+    expect(check).toMatchObject({ checked: false, landed: false, line: "Logan: make transparent is finished; I haven't checked it yet." });
     // A name that is itself backstage is said in plain words, then as the bare fact.
-    expect(finishedLine({ request: "Set up a remote firstmate on the PC" }, "unchecked")).toBe("The work on “Set up a remote the team on the PC” is finished; I haven't checked it yet.");
+    expect(finishedLine({ request: "Set up a remote firstmate on the PC" }, "unchecked")).toBe("Your request “Set up a remote the team on the PC” is finished; I haven't checked it yet.");
     expect(finishedLine({ request: "fm/pc-secondmate" }, "unchecked")).toBe("A piece of your work is finished; I haven't checked it yet.");
   });
 
   it("never says his request itself is done when no title of the change was read", async () => {
     const commit = "https://github.com/GeorgeGally/gnm/commit/3ce3245";
     // His first line is a problem statement: the landed change is named by it, never said to have done it.
-    expect((await checkFinished({ label: "the GNM hero is too tall on phones", detail: commit }, readers(null, true))).line)
-      .toBe(`The work on “the GNM hero is too tall on phones” is done. ${commit}`);
-    expect((await checkFinished({ label: "the GNM hero is too tall on phones", detail: "ready" }, readers(null))).line)
-      .toBe("The work on “the GNM hero is too tall on phones” is finished; I haven't checked it yet.");
+    expect((await checkFinished({ label: "the GNM hero is too tall on phones", detail: commit, labelFromGeorge: true }, readers(null, true))).line)
+      .toBe(`Your request “the GNM hero is too tall on phones” is done. ${commit}`);
+    expect((await checkFinished({ label: "the GNM hero is too tall on phones", detail: "ready", labelFromGeorge: true }, readers(null))).line)
+      .toBe("Your request “the GNM hero is too tall on phones” is finished; I haven't checked it yet.");
     // A title read from the change keeps its own capitals.
     expect((await checkFinished({ label: "gnm-hero", detail: PR }, readers({ merged: true, title: "GNM hero fits phones" }))).line)
       .toBe(`Done: GNM hero fits phones. ${PR}`);
@@ -85,10 +87,10 @@ describe("finished work, checked by Flyd", () => {
     const options = { store, complete: async () => { asked++; return "{}"; }, finishedReaders: readers({ merged: true, title: "Hide the card", mergeCommit: "b".repeat(40) }) };
     const change = { eventId: "result:flyd-hide-whatsapp-card", taskId: "flyd-hide-whatsapp-card", kind: "fleet_state" as const, state: "done", label: "flyd-hide-whatsapp-card", detail: `PR ${PR} checks green`, evidenceRefs: ["firstmate-task:flyd-hide-whatsapp-card"] };
     const first = await processFirstmateChange(change, options);
-    expect(first).toMatchObject({ disposition: "handle_internally", show: true, notify: true, summary: `Done: hide the card. ${PR}`, delivery: { checked: true, url: PR } });
+    expect(first).toMatchObject({ disposition: "handle_internally", show: true, notify: true, summary: `Done: Hide the card. ${PR}`, delivery: { checked: true, url: PR } });
     expect(asked).toBe(0);
     const unchecked = await processFirstmateChange({ ...change, eventId: "result:logan-page-drag", taskId: "logan-page-drag", label: "logan-page-drag", detail: "ready in branch fm/logan-page-drag" }, { ...options, finishedReaders: readers(null) });
-    expect(unchecked).toMatchObject({ disposition: "handle_internally", show: true, notify: true, reason: "finished work; its outcome could not be checked", delivery: { line: "The work on “Logan: page drag” is finished; I haven't checked it yet.", checked: false } });
+    expect(unchecked).toMatchObject({ disposition: "handle_internally", show: true, notify: true, reason: "finished work; its outcome could not be checked", delivery: { line: "Logan: page drag is finished; I haven't checked it yet.", checked: false } });
     // A result that still asks George something keeps the question path rather than a finished line.
     let interpreted = 0;
     const open = await processFirstmateChange({ ...change, eventId: "result:gnm-open", taskId: "gnm-open", label: "gnm-open", detail: "Shipped.\nShould the old hero stay for one release?", unresolved: true },

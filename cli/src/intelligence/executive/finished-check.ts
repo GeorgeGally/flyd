@@ -115,14 +115,14 @@ function sayable(line: string): boolean {
 
 /**
  * One line George may be told, in the order: as written, in plain words, then the bare fact. Never empty. Pure.
- * A title read from the change itself says what changed; without one, his request is only named, never said to be done.
+ * A title (the change's own, else the task's) says what changed; his own words are only quoted as his request, never as the outcome.
  */
 export function finishedLine(what: { title: string } | { request: string }, outcome: "landed" | "waiting" | "closed" | "unchecked", url?: string): string {
   const titled = "title" in what;
   const lines = (subject: string) => {
     const said = subject.replace(/[.\s]+$/, "");
-    const named = titled ? said : `The work on “${said}”`;
-    const body = outcome === "landed" ? titled ? `Done: ${/^[A-Z][a-z]/.test(said) ? `${said.charAt(0).toLowerCase()}${said.slice(1)}` : said}.` : `${named} is done.`
+    const named = titled ? said : `Your request “${said}”`;
+    const body = outcome === "landed" ? titled ? `Done: ${said}.` : `${named} is done.`
       : outcome === "waiting" ? `${named} is finished and waiting to go in.`
         : outcome === "closed" ? `${named} is finished, but its change was closed without going in.`
           : `${named} is finished; I haven't checked it yet.`;
@@ -143,11 +143,11 @@ export function finishedLine(what: { title: string } | { request: string }, outc
  * Reads at most two pull requests and one commit; a read that fails is simply not a check.
  */
 export async function checkFinished(
-  input: { label: string; detail: string; evidenceRefs?: string[] },
+  input: { label: string; detail: string; evidenceRefs?: string[]; labelFromGeorge?: boolean },
   readers: FinishedReaders = githubReaders,
 ): Promise<FinishedCheck> {
   const text = [input.detail, ...(input.evidenceRefs ?? [])].join("\n");
-  const what = { request: plainLabel(input.label) };
+  const what = input.labelFromGeorge ? { request: input.label } : { title: plainLabel(input.label) };
   const pulls = [...new Set([...text.matchAll(PULL_URL)].map((match) => match[0]))].slice(0, 2);
   let open: { url: string; title?: string } | undefined;
   let closed: { url: string; title?: string } | undefined;
@@ -167,11 +167,12 @@ export async function checkFinished(
   }
   if (open) return { checked: true, landed: false, url: open.url, line: finishedLine(open.title ? { title: open.title } : what, "waiting", open.url), evidenceRefs: [open.url] };
   const commit = [...text.matchAll(COMMIT_URL)][0];
-  if (commit) {
-    const onDefault = await readers.commitOnDefault(commit[1]!, commit[2]!).catch(() => null);
-    if (onDefault) return { checked: true, landed: true, url: commit[0], line: finishedLine(what, "landed", commit[0]), evidenceRefs: [commit[0], `github-commit-on-default:${commit[2]}`] };
+  const onDefault = commit ? await readers.commitOnDefault(commit[1]!, commit[2]!).catch(() => null) : null;
+  if (commit && onDefault) {
+    return { checked: true, landed: true, url: commit[0], line: finishedLine(what, "landed", commit[0]), evidenceRefs: [commit[0], `github-commit-on-default:${commit[2]}`] };
   }
   if (closed) return { checked: true, landed: false, url: closed.url, line: finishedLine(closed.title ? { title: closed.title } : what, "closed", closed.url), evidenceRefs: [closed.url] };
+  if (commit && onDefault === false) return { checked: true, landed: false, url: commit[0], line: finishedLine(what, "waiting", commit[0]), evidenceRefs: [commit[0]] };
   const url = pulls[0] ?? commit?.[0];
   return { checked: false, landed: false, ...(url ? { url } : {}), line: finishedLine(what, "unchecked", url), evidenceRefs: [] };
 }

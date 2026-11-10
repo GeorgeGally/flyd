@@ -30,6 +30,8 @@ export interface FirstmateChange {
   standing?: string;
   /** The tasks whose calls are open for him right now. */
   openCalls?: string[];
+  /** The label is George's own words (his request), not a task's title. */
+  labelFromGeorge?: boolean;
   /** The result still carries open questions or risks: it is decided as a reply, so nothing George must decide is lost. */
   unresolved?: boolean;
 }
@@ -233,8 +235,8 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
       proposal = { kind: "routine", summary: text(change.label, 160), evidenceRefs: change.evidenceRefs };
       finished = change.verification?.status === "verified"
         // A verified report leads with its own finding ("Lender B is cheaper over five years.").
-        ? { checked: true, landed: true, line: sayable(text(change.detail.split("\n")[0], 220)) || finishedLine({ request: plainLabel(text(change.label, 160)) }, "landed"), evidenceRefs: change.verification.evidenceRefs }
-        : await checkFinished({ label: text(change.label, 160), detail: change.detail, evidenceRefs: change.evidenceRefs },
+        ? { checked: true, landed: true, line: sayable(text(change.detail.split("\n")[0], 220)) || finishedLine(change.labelFromGeorge ? { request: text(change.label, 160) } : { title: plainLabel(text(change.label, 160)) }, "landed"), evidenceRefs: change.verification.evidenceRefs }
+        : await checkFinished({ label: text(change.label, 160), detail: change.detail, evidenceRefs: change.evidenceRefs, ...(change.labelFromGeorge ? { labelFromGeorge: true } : {}) },
           options.finishedReaders ?? (process.env.VITEST ? offlineReaders : githubReaders));
     } else {
       try { proposal = parseProposal(await options.complete(interpretationPrompt(change))); }
