@@ -196,6 +196,11 @@ describe("lists", () => {
     expect(lead.split("\n")).toEqual(["Three options:", "Keep the video.", "Use a still."]);
     expect(saidOnce("Pick one: 1. Keep it. 2. Drop it. 2. Drop it.")).toBe("Pick one: 1. Keep it. 2. Drop it.");
   });
+
+  it("still ends a sentence that ends in a number", () => {
+    expect(saidOnce("Merge it at 5. Merge it at 5.")).toBe("Merge it at 5.");
+    expect(leadLine("Your meetings are at 9, 11 and 3. Lunch with Ana moved to Friday because the venue closed early for the holidays and everyone agreed.")).toBe("Your meetings are at 9, 11 and 3.");
+  });
 });
 
 describe("deliveredPromptBlock", () => {

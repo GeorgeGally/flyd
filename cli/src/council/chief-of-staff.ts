@@ -318,7 +318,7 @@ const NOTICE_LEAD = /^(?:(?:sir|captain|george)\s*[,!:—-]\s*)?(?:(?:done|ok(?:
  * cut at a word when it runs long. Pure.
  */
 /** Where a sentence ends: after its stop, never after a list marker ("1."). */
-const SENTENCE_END = /(?<=[.!?])(?<!(?:^|\s)\d+\.)\s+/;
+const SENTENCE_END = /(?<=[.!?])(?<!(?:^|[:.!?]\s)\d+\.)\s+/;
 
 /** A text's sentences, line by line, each on one line: a list item is its own sentence, never split at its marker. Pure. */
 export function sentencesOf(text: string): string[] {
