@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { deliveredRecords, deliverOnce, deliverOwed, MAX_TRIES, seedOnce, UNFINISHED_CLAIM_MS, claimDelivery, type DeliveryReport } from "../delivered.js";
+import { DELIVERED_SOURCE, deliverOnce, deliverOwed, MAX_TRIES, seedOnce, UNFINISHED_CLAIM_MS, type DeliveredRecord, type DeliveryReport } from "../delivered.js";
 
 let dir: string | undefined;
 afterEach(() => {
@@ -14,6 +14,13 @@ afterEach(() => {
 function home(): string {
   dir = mkdtempSync(join(tmpdir(), "flyd-delivered-"));
   return join(dir, "intelligence.sqlite");
+}
+
+/** What became of each report, read from the persisted flyd.delivered events. */
+function deliveredRecords(store: IntelligenceEventStore): DeliveredRecord[] {
+  return store.readSource(DELIVERED_SOURCE)
+    .map((event) => event.payload?.delivered as DeliveredRecord | undefined)
+    .filter((record): record is DeliveredRecord => Boolean(record?.outcome) && record?.outcome !== "undelivered" && record?.key !== "seed:finished.v1");
 }
 
 const report = (key: string, line = `Done: ${key}.`): DeliveryReport => ({ key, line, work: key });
@@ -58,11 +65,18 @@ describe("flyd.delivered", () => {
   it("says a report cut off mid-send once more after the grace period, and never a third time", async () => {
     const store = new IntelligenceEventStore({ path: home() });
     const at = new Date("2026-11-10T10:00:00Z");
-    // Claimed, then the process died before any outcome was recorded.
-    expect(claimDelivery(store, report("work:c"), at)).toBe(0);
-    expect(claimDelivery(store, report("work:c"), new Date(at.getTime() + 60_000))).toBeUndefined();
+    const started: string[] = [];
+    // A send that never comes back: the process died before any outcome was recorded.
+    const cutOff = async (_t: string, message: string) => { started.push(message); return new Promise<never>(() => undefined); };
+    void deliverOnce([report("work:c")], { store, say: cutOff, now: () => at });
+    await Promise.resolve();
+    void deliverOnce([report("work:c")], { store, say: cutOff, now: () => new Date(at.getTime() + 60_000) });
+    await Promise.resolve();
+    expect(started).toHaveLength(1);
     const later = new Date(at.getTime() + UNFINISHED_CLAIM_MS + 1);
-    expect(claimDelivery(store, report("work:c"), later)).toBe(1);
+    void deliverOnce([report("work:c")], { store, say: cutOff, now: () => later });
+    await Promise.resolve();
+    expect(started).toHaveLength(2);
     // Cut off again: whether he heard it is unknown, so it is not said a third time.
     const said: string[] = [];
     const after = await deliverOnce([report("work:c")], { store, say: async (_t, message) => { said.push(message); }, now: () => new Date(later.getTime() + UNFINISHED_CLAIM_MS + 1) });

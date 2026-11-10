@@ -1,4 +1,5 @@
 import { verifyStaffOutcome } from "./verify-outcome.js";
+import { asksIn } from "../../conversation-view/executive.js";
 import { relayShortfalls } from "../../runtime/honesty-check.js";
 import { checkFinished, FINISHED_STATES, finishedLine, githubReaders, offlineReaders, plainLabel, type FinishedReaders } from "./finished-check.js";
 import { randomUUID, createHash } from "node:crypto";
@@ -49,9 +50,10 @@ export interface FirstmateDecisionOptions {
 /** Bumped when finished work is decided differently, so an old "unclear" record never stands in for the check. */
 const FINISHED_POLICY = "finished.v1";
 
-/** Whether a change reports finished work (not a decision about it). Pure. */
-function reportsFinished(change: Pick<FirstmateChange, "kind" | "state" | "unresolved">): boolean {
-  return change.kind !== "decision" && !change.unresolved && FINISHED_STATES.has(change.state);
+/** Whether a change reports finished work (not a decision about it, nor a fleet report still asking him something). Pure. */
+function reportsFinished(change: Pick<FirstmateChange, "kind" | "state" | "unresolved" | "detail">): boolean {
+  return change.kind !== "decision" && !change.unresolved && FINISHED_STATES.has(change.state)
+    && !(change.kind === "fleet_state" && asksIn(change.detail).length > 0);
 }
 
 export const STAFF_COORDINATION_POLICY = {

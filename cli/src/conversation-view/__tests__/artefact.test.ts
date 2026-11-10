@@ -109,6 +109,15 @@ describe("the decision-backed fleet projection", () => {
     expect(firstmateChangesFromFleet(fleet).find((change) => change.taskId === "t1")).toMatchObject({ kind: "fleet_state", detail: "finished and merged\nhttps://github.com/o/r/pull/9" });
   });
 
+  it("keeps a finished row's own label and detail, never the notification line or its link", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "t1", state: "done", name: "Island fix", doing: "finished and merged" }], recorded_prs: [{ id: "t1", url: "https://github.com/o/r/pull/9" }] });
+    const line = "Done: Keep the island quiet. https://github.com/o/r/pull/9";
+    const row = fleet.landed.find((item) => item.task === "t1")!;
+    const projected = projectFleetDecisions(fleet, [decision({ taskId: "t1", disposition: "handle_internally", summary: line, delivery: { line, checked: true, url: "https://github.com/o/r/pull/9" }, verification: { status: "verified", evidenceRefs: ["https://github.com/o/r/pull/9"] }, show: true, notify: true })]);
+    const shown = [...projected.ready, ...projected.landed].find((item) => item.task === "t1")!;
+    expect([shown.label, shown.detail, shown.status]).toEqual([row.label, row.detail, "verified"]);
+  });
+
   it("puts a George choice raised only by a work row's state in front of him", () => {
     const fleet = parseBearings({ in_flight: [{ id: "gnm-9", state: "unknown", name: "Release gate", doing: "ship it today, or hold it for review?" }] });
     const asked = projectFleetDecisions(fleet, [decision({ taskId: "gnm-9", disposition: "ask_george", question: "Ship it today, or hold it for review?", options: ["ship it today", "hold it for review"], recommendation: { option: "hold it for review", rationale: "It has not been reviewed." }, show: true, notify: true })]);

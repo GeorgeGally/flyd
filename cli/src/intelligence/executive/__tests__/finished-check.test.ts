@@ -96,6 +96,10 @@ describe("finished work, checked by Flyd", () => {
     const open = await processFirstmateChange({ ...change, eventId: "result:gnm-open", taskId: "gnm-open", label: "gnm-open", detail: "Shipped.\nShould the old hero stay for one release?", unresolved: true },
       { ...options, complete: async () => { interpreted++; return JSON.stringify({ kind: "unclear", summary: "unclear", evidenceRefs: [] }); } });
     expect([interpreted, open.delivery]).toEqual([1, undefined]);
+    // A fleet row has no question field: a done report that still asks him goes through the same path, never a finished line.
+    const asking = await processFirstmateChange({ ...change, eventId: "result:gnm-deploy", taskId: "gnm-deploy", label: "gnm-deploy", detail: "Done, but should I also deploy it to prod?" },
+      { ...options, complete: async () => { interpreted++; return JSON.stringify({ kind: "unclear", summary: "unclear", evidenceRefs: [] }); } });
+    expect([interpreted, asking.delivery]).toEqual([2, undefined]);
     // Read back from the store on a restart, the same record stands.
     expect(await processFirstmateChange(change, options)).toEqual(first);
     store.close();

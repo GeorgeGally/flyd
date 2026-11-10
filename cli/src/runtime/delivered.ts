@@ -113,7 +113,7 @@ function due(last: { n: number; at: number }, now: Date): boolean {
  * Claims a report for telling, returning its try number; undefined when it was told already or another
  * process is telling it now. A try with no outcome past the grace period is tried again (see retryable).
  */
-export function claimDelivery(store: IntelligenceEventStore, report: DeliveryReport, now = new Date()): number | undefined {
+function claimDelivery(store: IntelligenceEventStore, report: DeliveryReport, now = new Date()): number | undefined {
   return store.transaction(() => {
     const record: DeliveredRecord = {
       schema: DELIVERED_SCHEMA, key: report.key, line: report.line, surface: "notification", at: now.toISOString(),
@@ -139,13 +139,6 @@ export function recordOutcome(store: IntelligenceEventStore, report: DeliveryRep
     outcome === "undelivered" ? `undelivered:${report.key}:${attempt}` : `outcome:${report.key}`,
     report.evidenceRefs,
   ));
-}
-
-/** Every report told, oldest first. */
-export function deliveredRecords(store: IntelligenceEventStore): DeliveredRecord[] {
-  return store.readSource(DELIVERED_SOURCE)
-    .map((event) => event.payload?.delivered as DeliveredRecord | undefined)
-    .filter((record): record is DeliveredRecord => Boolean(record?.outcome) && record?.outcome !== "undelivered" && record?.key !== SEED_MARK);
 }
 
 export type Say = (title: string, message: string, kind?: GeorgeKind, work?: string) => Promise<DeliveryOutcome | void>;
