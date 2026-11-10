@@ -39,7 +39,7 @@ import { fillScreen } from "./screen/patterns.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
 import { answerLead, deliver, reportFromReply } from "../runtime/delivery.js";
-import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
+import { ASKS_HIM, condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
 import { liveActivityOf, type LiveActivity } from "./live-activity.js";
@@ -492,6 +492,14 @@ export class SnapshotDiffer {
     const voiced = inFlydsVoice(reading ?? message.text);
     const said = replyCard(staff ? plainSaid(voiced) : voiced);
     if (!said) return undefined;
+    // Flyd's own answer leads with its delivered lead line, and what it asks him is always on the card; the rest waits behind "more".
+    const own = !staff && !reading ? answerLead(voiced)?.split("\n").map((line) => line.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").trim()).filter(Boolean) : undefined;
+    if (own?.length) {
+      said.line = own[0]!;
+      const ask = own.slice(1).find((line) => ASKS_HIM.test(line));
+      if (ask) said.sub = ask;
+      else delete said.sub;
+    }
     // The card's words pass the same outgoing checks as any relay: a line that fails leaves no card, a sub that fails is dropped.
     if (staff) {
       if (this.heldRelay(said.line)) return undefined;
