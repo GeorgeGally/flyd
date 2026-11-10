@@ -88,6 +88,17 @@ describe("tell_work", () => {
     };
     await cosTick({ dispatch, send, store: new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") }) });
     expect([readObjective(footer)?.status, readObjective(footer)?.runs, sent.map((m) => [m.run, m.kind])]).toEqual(["cancelled", [`${footer}-r1`], [[`${footer}-r1`, "cancel"]]]);
+
+    const pricing = openObjective({ words: "Redo the pricing page", flydNotes: "", origin: { surface: "chat" } }).id;
+    mutateObjective(pricing, (current) => current && { ...current, brief: { team: "coding", outcome: "Redo the pricing page", doneWhen: ["done"], decisions: { comesBack: [], settledByPolicy: [] } } });
+    mutateObjective(footer, (current) => current && { ...current, status: "done" });
+    const said: unknown[] = [];
+    const refuse: Dispatch = async (objective) => {
+      await tellWork({ message: "never mind", kind: "cancel", objectiveId: objective.id }, send);
+      return { refused: "no team free" };
+    };
+    await cosTick({ dispatch: refuse, send, say: async (made) => { said.push(made); }, store: new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") }) });
+    expect([readObjective(pricing)?.status, said]).toEqual(["cancelled", []]);
   });
 });
 

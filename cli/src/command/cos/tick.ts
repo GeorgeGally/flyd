@@ -80,11 +80,12 @@ async function report(objective: Objective, made: CosReport, deps: CosTickDeps, 
   await tell();
   recordCosReport(made, store, deps.now?.());
   mutateObjective(objective.id, (current) => current && {
-    ...current, status, reportIds: current.reportIds.includes(made.id) ? current.reportIds : [...current.reportIds, made.id],
+    ...current, status: current.status === "cancelled" ? current.status : status, reportIds: current.reportIds.includes(made.id) ? current.reportIds : [...current.reportIds, made.id],
   });
 }
 
 async function blocked(objective: Objective, reason: string, deps: CosTickDeps, store: IntelligenceEventStore): Promise<void> {
+  if (readObjective(objective.id)?.status === "cancelled") return;
   // One plain sentence: what happened. The reason stays on the record.
   const made = { ...plainReport(objective, "blocked", `I couldn't get “${shortWords(objective.words)}” started; tell me a bit more and I'll set it going.`, "intake"), detail: reason };
   await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george");
