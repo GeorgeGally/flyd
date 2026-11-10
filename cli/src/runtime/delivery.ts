@@ -302,8 +302,9 @@ export function answerLead(answer: string): string | null {
   const firstLine = (shown.split("\n").find((line) => line.trim()) ?? "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").trim();
   if (fitsAtAGlance(shown) && firstLine.length <= LINE_CHARS) return null;
   const sentences = proseOf(shown);
+  if (!sentences.length) return null;
   // His own answer passed the turn's checks already: when no line fits, its first line still leads.
-  return deliver({ id: "answer", kind: "done", outcome: sentences[0] ?? shown, detail: sentences.slice(1).join("\n"), evidenceRefs: [], shape: "words", artefacts: [], urgency: "now" }, "window").text ?? leadLine(shown);
+  return deliver({ id: "answer", kind: "done", outcome: sentences[0]!, detail: sentences.slice(1).join("\n"), evidenceRefs: [], shape: "words", artefacts: [], urgency: "now" }, "window").text ?? (leadLine(shown) || null);
 }
 
 /** Finished work the next turn carries, newest first, and how far back it reaches. */

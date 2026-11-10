@@ -198,6 +198,14 @@ describe("reportFromReply", () => {
 });
 
 describe("answerLead", () => {
+  it("shows an answer that is all table or all code whole, never with a blank lead", () => {
+    const table = "| Day | Start | End |\n| --- | --- | --- |\n| Saturday 12 December | four in the afternoon | ten at night |\n| Sunday 13 December | noon | eight in the evening |";
+    expect(answerLead(table)).toBeNull();
+    const code = `\`\`\`ts\n${"const data = cache.get(key) ?? load(key);\n".repeat(12)}\`\`\``;
+    expect(code.length).toBeGreaterThan(360);
+    expect(answerLead(code)).toBeNull();
+  });
+
   it("keeps fenced code and table rows out of the lines he reads first", () => {
     const lead = answerLead(`${"The cache now loads each key once and keeps it for the session, so the second read never goes back to the disk. "}\n\`\`\`ts\nconst data = cache.get(key) ?? load(key);\nreturn data;\n\`\`\`\n| key | hits |\n| --- | --- |\n| a | 3 |\nRun the tests after.`)!;
     expect(lead.split("\n")).toEqual(["The cache now loads each key once and keeps it for the session, so the second read never goes back to the disk.", "Run the tests after."]);
