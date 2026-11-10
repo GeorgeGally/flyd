@@ -91,7 +91,7 @@ export function readFocus(signals: FocusSignals): Focus {
   };
 }
 
-const SECRET = String.raw`(?:login|log-in|password|passcode|api keys?|tokens?|credentials?|2fa|two[- ]factor(?: code)?|otp|one[- ]time (?:code|password)|verification code)`;
+const SECRET = String.raw`(?:login|log-in|password|passcode|api keys?|tokens?|credentials?|2fa(?: code)?|two[- ]factor(?: code)?|otp(?: code)?|one[- ]time (?:code|password)|verification code)`;
 const NOT_A_THING = String.raw`\b(?!\s+(?:page|screen|form|button|flow|field|parser|handler|module|path|logic|code|component|endpoint|route|view))`;
 /** Asks him for his own secret: "your password", "an API key from you", "log in to Stripe", "the 2FA code". */
 const ASKS_CREDENTIAL = new RegExp([
