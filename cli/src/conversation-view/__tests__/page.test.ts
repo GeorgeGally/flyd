@@ -1870,7 +1870,7 @@ describe("semantic main stage", () => {
 
 describe("header and artefact view", () => {
   it("keeps a recorded decision and shows an attachment warning", async () => {
-    sendResponse = { id: "resolved", followUp: "decision-1", warning: "The picture was not delivered: unavailable" };
+    sendResponse = { id: "resolved", followUp: "decision-1", warning: "The picture didn't go through; send it again", pictureFailed: true };
     load("");
     await settle();
     const stream = open("latest", []);
@@ -1900,6 +1900,31 @@ describe("header and artefact view", () => {
     expect(requests[1]).toMatchObject({ text: "Picture for my earlier answer.", about: { task: "visuals" }, images: [{ mediaType: "image/png", data }] });
     expect(requests[1]).not.toHaveProperty("decision");
     expect(requests[1]).not.toHaveProperty("decisionFollowUp");
+    expect(document.querySelectorAll(".scene-ask .art-chat-images img")).toHaveLength(0);
+  });
+
+  it("does not ask for a resend when a note and its picture were saved but not yet passed on", async () => {
+    sendResponse = { id: "saved", warning: "Saved, but Flyd could not pass it on yet." };
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick a design", why: "", task: "visuals", decision: { task: "visuals", decisionId: "decision-1", question: "Which design?", choices: ["Evergreen"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const input = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
+    const data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const png = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    const paste = new Event("paste", { cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", type: "image/png", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
+    input.dispatchEvent(paste);
+    for (let i = 0; i < 20 && !document.querySelector(".scene-ask .art-chat-images img"); i += 1) await settle();
+    input.value = "another round";
+    input.dispatchEvent(new Event("input"));
+    document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const receipt = document.querySelector(".scene-ask .art-chat-receipt")!.textContent;
+    expect(receipt).toContain("Saved; Flyd passes it on shortly");
+    expect(receipt).not.toContain("picture didn't go through");
     expect(document.querySelectorAll(".scene-ask .art-chat-images img")).toHaveLength(0);
   });
 

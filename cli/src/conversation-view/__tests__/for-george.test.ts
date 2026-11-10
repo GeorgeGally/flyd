@@ -71,6 +71,13 @@ describe("staffLine", () => {
     expect((said as { line: string }).line).toMatch(/hero images\. Which one should go live\?$/);
   });
 
+  it("keeps his decision's question but says it without the branch", () => {
+    const said = staffLine("Ready on branch fm/hero-swap: merge it?\n\n1. Merge it\n2. Hold it");
+    expect(said.kind).toBe("decision");
+    expect((said as { line: string }).line).not.toMatch(/branch|fm\//);
+    expect((said as { line: string }).line).toMatch(/^Ready: merge it\?/);
+  });
+
   it("turns a real blocker into one line and what happens next", () => {
     const said = staffLine(STAFF_BLOCKED);
     expect(said.kind).toBe("blocker");

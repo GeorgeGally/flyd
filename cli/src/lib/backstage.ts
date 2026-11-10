@@ -54,16 +54,20 @@ const STAFF_SAID: Array<[RegExp, string]> = [
   [/\b(?:the|this|that) (?:last )?run\b(?=\s*(?:[.,;:!?]|$)|\s+(?:failed|passed|stalled|stopped|finished|was cancelled|did not finish)\b)/gi, "the work"],
   [/\bhand-?offs\b(?!\s+(?:spec|doc|document|notes?|file|template|meeting)s?\b)/gi, "steps"],
   [/\bhand-?off\b(?!\s+(?:spec|doc|document|notes?|file|template|meeting)s?\b)/gi, "step"],
+  [/(?<=^|[.!?]\s+)PR\s*#?\d+\b(?=\s+(?:is|was|has|had|got)\b)/g, "it"],
+  [/\bPR\s*#?\d+\b/gi, "the pull request"],
+  [/\bPR branches\b/gi, "pull requests"],
+  [/\bPR branch\b/gi, "pull request"],
 ];
 
 /**
  * A line for his screen said without the machinery: how the staff ran the work
  * (who was on it, the branch, the run, a handoff) gives way to the work itself,
- * so "The worker finished: dark mode is merged." reads "Dark mode is merged.".
+ * so "The worker finished: dark mode is merged." reads "Dark mode is merged." and "PR #412 is merged" reads "It is merged".
  * Ordinary uses ("a service worker", "the worker pool", "the fleet of trucks", "the handoff spec") stay. Pure.
  */
 export function plainSaid(text: string): string {
-  const said = STAFF_SAID.reduce((line, [pattern, plain]) => line.replace(pattern, (found) => (/^[A-Z]/.test(found) ? plain.replace(/^[a-z]/, (first) => first.toUpperCase()) : plain)), text)
+  const said = STAFF_SAID.reduce((line, [pattern, plain]) => line.replace(pattern, (found: string, at: number, whole: string) => (/^[A-Z]/.test(found) && /(?:^|[.!?]\s+)$/.test(whole.slice(0, at)) ? plain.replace(/^[a-z]/, (first) => first.toUpperCase()) : plain)), text)
     .replace(/\bthe team and the team\b/gi, "the team")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\s+([.,;:!?])/g, "$1")

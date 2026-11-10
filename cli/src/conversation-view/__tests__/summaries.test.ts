@@ -69,9 +69,8 @@ describe("digestReply", () => {
 
   it("says a relay without the machinery, and never leaves it without a lead", () => {
     expect(digestReply("The worker finished: dark mode is merged.", { relay: true }).lead).toBe("Dark mode is merged.");
-    expect(digestReply("PR #412 is merged into main. Nothing else is open.", { relay: true }).lead).toBe("Nothing else is open.");
-    expect(digestReply("Merged PR #412.", { relay: true }).lead).not.toBe("");
-    expect(digestReply("Merged PR #412.", { relay: true }).lead).not.toContain("PR #412");
+    expect(digestReply("PR #412 is merged into main. Nothing else is open.", { relay: true }).lead).toBe("It is merged into main.");
+    expect(digestReply("Merged PR #412.", { relay: true }).lead).toBe("Merged the pull request.");
   });
 
   it("keeps all three outcomes of the captain's About report, in a fraction of the length", () => {

@@ -385,7 +385,7 @@ export function jobsFrom(input: {
       ...(lead.started ? { started: lead.started } : {}),
       next: shownLine(lead.next, lead.group),
       owner: lead.owner,
-      ask: lead.ask,
+      ask: lead.ask && plainSaid(lead.ask),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: bucket.shots.slice(0, 4),
@@ -405,11 +405,11 @@ export function jobsFrom(input: {
 /** What a card says when its own words would name the staff or how the work is run. */
 const QUIET_LINE: Record<Exclude<JobGroup, "needs">, string> = { working: "Under way", waiting: "Waiting", done: "Done" };
 
-/** A card's line as he may see it: the relay check holds back staff names, branches and ids. A decision keeps its question: the call is his. Pure. */
+/** A card's line as he may see it: the relay check holds back staff names, branches and ids. A decision keeps its question, said plainly: the call is his. Pure. */
 function shownLine(line: string, group: JobGroup): string {
-  if (group === "needs" || !line) return line;
+  if (!line) return line;
   const plain = plainSaid(line);
-  return namesBackstage(plain) ? QUIET_LINE[group] : plain;
+  return group !== "needs" && namesBackstage(plain) ? QUIET_LINE[group] : plain;
 }
 
 function labelOf(project: Project): string {

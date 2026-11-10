@@ -523,7 +523,7 @@ describe("composeArtefact", () => {
       ["call", "Review the Jev decision log: keep or remove it?"],
       ["live", "Artefact mode must always show something real"],
       ["ready", "Island filter"],
-      ["landed", "Finished"],
+      ["landed", "Refresh the pull requests"],
       ["landed", "Visual show mode"],
       ["next", "Add a subtle flat green light to the Flyd icon"],
       ["news", "George wants Bloom finished."],

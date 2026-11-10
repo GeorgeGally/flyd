@@ -13,6 +13,13 @@ describe("plainSaid", () => {
     expect(plainSaid("The Researchers pulled three sources.")).toBe("The team pulled three sources.");
   });
 
+  it("says what came of a pull request without its number", () => {
+    expect(plainSaid("PR #412 is merged into main.")).toBe("It is merged into main.");
+    expect(plainSaid("Tests pass. PR #9 has landed.")).toBe("Tests pass. It has landed.");
+    expect(plainSaid("Merged PR #412.")).toBe("Merged the pull request.");
+    expect(plainSaid("Refresh the PR branches")).toBe("Refresh the pull requests");
+  });
+
   it("keeps the number when it rewords a handoff", () => {
     expect(plainSaid("Two handoffs failed.")).toBe("Two steps failed.");
   });

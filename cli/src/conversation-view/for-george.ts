@@ -160,10 +160,10 @@ export function isPlumbing(line: string): boolean {
 export function staffLine(text: string, handled?: (text: string) => boolean): GeorgeLine {
   const said = lineOf(text, handled);
   // The staff's own words never reach him naming the staff or how the work runs (the relay check):
-  // a landing is told plainly, a stop is Flyd's to chase. His decision stays his, in its own words.
-  if (said.kind === "absorbed" || said.kind === "decision") return said;
+  // a landing is told plainly, a stop is Flyd's to chase. His decision stays his, its question said plainly.
+  if (said.kind === "absorbed") return said;
   const line = plainSaid(said.line);
-  if (!namesBackstage(line)) return { ...said, line };
+  if (said.kind === "decision" || !namesBackstage(line)) return { ...said, line };
   return said.kind === "landed" ? { kind: "landed", line: "That's done.", ...(said.url ? { url: said.url } : {}) } : { kind: "absorbed" };
 }
 

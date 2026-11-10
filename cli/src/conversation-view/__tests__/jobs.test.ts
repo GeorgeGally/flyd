@@ -60,12 +60,12 @@ describe("jobsFrom", () => {
     expect(board.jobs.length).toBeGreaterThan(0);
     for (const job of board.jobs) {
       expect(["you", "Flyd", ""]).toContain(job.owner);
-      if (job.group !== "needs") expect(`${job.next} ${job.ask}`).not.toMatch(/Design Mate|worker|handoff|branch|fm\/|Nothing has moved/i);
+      expect(`${job.next} ${job.ask}`).not.toMatch(/Design Mate|worker|handoff|branch|fm\/|Nothing has moved/i);
     }
     const stalled = jobsFrom({ runs: [run({ id: "stalled", status: "failed", project: "S", outcome: "The last handoff stalled." })], now: NOW });
     expect(stalled.jobs[0]!.next).toBe("The last step stalled.");
-    // The decision is his: its card keeps the question as asked.
-    expect(board.jobs.find((job) => job.group === "needs")).toMatchObject({ next: "Ready on branch fm/x: merge it?", ask: "Ready on branch fm/x: merge it?" });
+    // The decision is his: its card keeps the question, said without the branch.
+    expect(board.jobs.find((job) => job.group === "needs")).toMatchObject({ next: "Ready: merge it?", ask: "Ready: merge it?" });
   });
 
   it("does not count queued work or a run gone quiet as working", () => {

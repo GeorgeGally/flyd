@@ -1176,7 +1176,7 @@ export function gatedItem(item: ShowItem | undefined, about?: GeorgeKind): ShowI
   const { detail, ...shown } = item;
   const said = detail ? reachesGeorge({ kind, text: detail }, "panel") : undefined;
   // Staff names, branches, ids and handoffs never reach the screen: a headline says where the work stands instead, a detail is dropped.
-  const plain = item.kind === "call" ? headline.line : plainSaid(headline.line);
+  const plain = plainSaid(headline.line);
   const quiet = item.kind !== "call" && namesBackstage(plain);
   if (quiet && !QUIET_HEADLINE[item.kind]) return undefined;
   const line = quiet ? QUIET_HEADLINE[item.kind]! : plain;
@@ -1184,7 +1184,7 @@ export function gatedItem(item: ShowItem | undefined, about?: GeorgeKind): ShowI
   return { ...shown, headline: line, ...(told && !namesBackstage(told) ? { detail: told } : {}) };
 }
 
-/** Where a piece of work stands, when its own headline would name the machinery. A call keeps its question (the decision is his); anything else is Flyd's to keep. */
+/** Where a piece of work stands, when its own headline would name the machinery even said plainly. A call keeps its question (the decision is his); anything else is Flyd's to keep. */
 const QUIET_HEADLINE: Partial<Record<ShowKind, string>> = { live: "Under way", ready: "Ready to land", landed: "Finished", waiting: "Waiting", next: "Queued" };
 
 /** How many of each kind the fleet holds, before the artefact's limits: held work only as far as the gate shows it. Pure. */

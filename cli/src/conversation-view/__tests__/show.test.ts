@@ -62,7 +62,7 @@ describe("showOf", () => {
 
   it("treats work handed to him as his call", () => {
     const screen = showOf(snapshot([fleet("a1", `PR ${PR} is green and ready to merge.`, 15)]), { now: NOW });
-    expect(screen.items[0]).toMatchObject({ kind: "call", headline: "PR #74 is green and ready to merge." });
+    expect(screen.items[0]).toMatchObject({ kind: "call", headline: "It is green and ready to merge." });
   });
 
   it("does not call something landed that has not happened yet", () => {

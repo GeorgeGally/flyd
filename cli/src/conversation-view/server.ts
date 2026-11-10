@@ -1957,8 +1957,9 @@ export class ConversationViewServer {
   /** The question he answered has gone: Flyd deals with that, and his words reach the same job as a normal message. */
   private sendJobResult(res: ServerResponse, status: number, result: Record<string, unknown>, receipt?: Record<string, unknown>): void {
     if (!receipt) return sendJson(res, status, result);
-    const warning = status >= 400 ? "The picture didn't go through; send it again" : result.warning;
-    sendJson(res, 200, { ...receipt, ...(warning ? { warning } : {}) });
+    const pictureFailed = status >= 400;
+    const warning = pictureFailed ? "The picture didn't go through; send it again" : result.warning;
+    sendJson(res, 200, { ...receipt, ...(warning ? { warning } : {}), ...(pictureFailed ? { pictureFailed } : {}) });
   }
 
   private async sendToJob(res: ServerResponse, job: { title?: unknown; task?: unknown; question?: unknown }, text: string, images: ImageUpload[], session?: string, receipt?: Record<string, unknown>): Promise<void> {

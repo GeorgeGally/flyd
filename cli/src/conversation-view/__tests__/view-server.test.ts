@@ -789,7 +789,7 @@ describe("ConversationViewServer", () => {
       } });
       const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "another round", images: [{ mediaType: "image/png", data: PNG }] }), headers);
       expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toMatchObject({ id: "resolved", followUp: "decision-1", warning: expect.stringContaining("picture didn't go through") });
+      expect(JSON.parse(response.body)).toMatchObject({ id: "resolved", followUp: "decision-1", warning: expect.stringContaining("picture didn't go through"), pictureFailed: true });
       expect(resolutions).toBe(1);
     });
 
@@ -813,7 +813,7 @@ describe("ConversationViewServer", () => {
         expect(readDomainRun("changed")?.messages?.at(-1)).toMatchObject({ kind: "correction", body: expect.stringContaining("Case differs") });
         const failedPicture = await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Recorded once", images: [{ mediaType: "image/png", data: "" }] }), headers);
         expect(failedPicture.status).toBe(200);
-        expect(JSON.parse(failedPicture.body)).toMatchObject({ id: expect.stringContaining(":decision:"), warning: expect.stringContaining("picture didn't go through") });
+        expect(JSON.parse(failedPicture.body)).toMatchObject({ id: expect.stringContaining(":decision:"), warning: expect.stringContaining("picture didn't go through"), pictureFailed: true });
         expect(readDomainRun("changed")?.messages?.filter((message) => message.body === "Recorded once")).toHaveLength(1);
         expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local with picture", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
         const attached = readDomainRun("changed")?.messages?.slice(-2);
