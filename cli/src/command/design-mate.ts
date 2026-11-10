@@ -7,7 +7,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { query, type QueryOptions } from "../lib/llm.js";
 import { readTaste } from "../council/taste.js";
 import { designLabSkill, designTeamSkills } from "./design.js";
-import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
+import { createDomainRun, isDomainRunId, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
 import type { DomainRequest, DomainResult, DomainRun } from "./types.js";
 
 // The design team beside FirstMate. The Creative Director is its voice: it
@@ -243,6 +243,8 @@ export interface DesignMateDispatchInput {
   contextRefs?: string[];
   project?: { name?: string; root?: string };
   background?: boolean;
+  /** A stable id for this request: dispatching it again returns its run instead of making a second lab. */
+  requestId?: string;
   now?: Date;
   /** Make it for real in the project instead of a lab; `reference` is the picked lab version, if any. */
   build?: { reference?: Build["reference"] };
@@ -259,10 +261,14 @@ export interface LabContext {
 export function dispatchDesignMate(input: DesignMateDispatchInput, root = labsDir()): DomainRun {
   if (!input.doneWhen.length) throw new Error("A lab needs done_when before it starts");
   if (input.build && !input.project?.root) throw new Error("A build needs the project folder it changes");
+  // Replayed by request id, as FirstMate's inbox replays a note: the run on record, no second lab folder or team.
+  if (input.requestId !== undefined && !isDomainRunId(input.requestId)) throw new Error("Invalid request id");
+  const replayed = input.requestId ? readDomainRun(input.requestId) : null;
+  if (replayed) return replayed;
   const now = input.now ?? new Date();
   const skill = designLabSkill();
   const request: DomainRequest = {
-    id: `lab-${randomUUID()}`,
+    id: input.requestId ?? `lab-${randomUUID()}`,
     domain: "creative",
     originalMessage: input.originalMessage.trim() || input.intendedOutcome,
     intendedOutcome: input.intendedOutcome.trim(),
@@ -293,8 +299,7 @@ export function dispatchDesignMate(input: DesignMateDispatchInput, root = labsDi
     updatedAt: request.createdAt,
     transport: { kind: "native", requestId: request.id },
   };
-  saveDomainRun(run);
-  return run;
+  return createDomainRun(run).run;
 }
 
 function labPath(runId: string, root: string): string {
@@ -601,9 +606,7 @@ ${others}
 }
 
 function save(run: DomainRun, update: Partial<DomainRun>): DomainRun {
-  const next = { ...(readDomainRun(run.id) ?? run), ...update, updatedAt: new Date().toISOString() };
-  saveDomainRun(next);
-  return next;
+  return mutateDomainRun(run.id, (current) => ({ ...(current ?? run), ...update, updatedAt: new Date().toISOString() })) ?? run;
 }
 
 /** One step of a lab: brief, build, critique or hand over. Every step is saved, so a restart picks up where it stopped. */

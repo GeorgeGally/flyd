@@ -7,7 +7,7 @@ import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
 import { noticeKind } from "./notice.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
-import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
+import { listDomainRuns, mutateDomainRun, updateDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
 import { deliver, reportFromRun } from "../runtime/delivery.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
@@ -38,7 +38,8 @@ export async function deliverBossNote(
   const outcome = await send({ run, kind, body: action.text, from: "flyd" }).catch(() => null);
   if (!outcome?.delivered) return { status: "failed", evidenceRefs: [] };
   const receipt = outcome.run?.messages?.find((message) => message.kind === kind && message.body === action.text && message.deliveredAt);
-  if (receipt && outcome.run && run.status === "failed") saveDomainRun({ ...outcome.run, status: "working" });
+  const sent = outcome.run;
+  if (receipt && sent && run.status === "failed") mutateDomainRun(run.id, (current) => ({ ...(current ?? sent), status: "working" }));
   return { status: receipt ? "verified" : "unknown", evidenceRefs: receipt ? [`domain-message:${receipt.id}`] : [] };
 }
 
@@ -152,8 +153,10 @@ export async function notifyRun(
   if (quietRun(run, windowIsOpen)) {
     // Recorded as handled, so nothing tells it later either.
     if (run.status === "completed") markTold([finishedKey(run.id)]);
-    const { told: _told, ...current } = readDomainRun(run.id) ?? run;
-    saveDomainRun({ ...current, notified: true });
+    mutateDomainRun(run.id, (current) => {
+      const { told: _told, ...rest } = current ?? run;
+      return { ...rest, notified: true };
+    });
     return;
   }
   try {
@@ -188,8 +191,10 @@ export async function notifyRun(
     // A report not delivered yet is never marked told; the command tick's sweep says it again (deliverOwed).
     // One held for a break is told by the tick when his focus breaks (tellHeld), which records its line then.
     if (!owed) {
-      const { told: _told, ...current } = readDomainRun(run.id) ?? run;
-      saveDomainRun({ ...current, notified: true, ...(notice && !waiting ? { told: { line: notice, decisionId: decision.decisionId } } : {}) });
+      mutateDomainRun(run.id, (current) => {
+        const { told: _told, ...rest } = current ?? run;
+        return { ...rest, notified: true, ...(notice && !waiting ? { told: { line: notice, decisionId: decision.decisionId } } : {}) };
+      });
     }
   } catch {
     // The durable result remains in the command store; notification is best effort.
@@ -205,8 +210,7 @@ export async function tellHeld(attention: ReadAttention = readAttention, notify?
   const { told, owed } = await deliverOnce(due, { together: (claimed) => batch(due.filter((report) => claimed.some((said) => said.key === report.key))), ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) });
   for (const report of told.filter((said) => !owed.some((left) => left.key === said.key))) {
     const runId = held.find((entry) => entry.key === report.key)?.held.run;
-    const current = runId ? readDomainRun(runId) : null;
-    if (current) saveDomainRun({ ...current, told: { line: report.line, decisionId: held.find((entry) => entry.key === report.key)?.held.decisionId ?? "" } });
+    if (runId) updateDomainRun(runId, (current) => ({ ...current, told: { line: report.line, decisionId: held.find((entry) => entry.key === report.key)?.held.decisionId ?? "" } }));
   }
 }
 
