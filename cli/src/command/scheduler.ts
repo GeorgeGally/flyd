@@ -9,7 +9,6 @@ import { noticeKind } from "./notice.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
-import { relayShortfalls } from "../runtime/honesty-check.js";
 import { deliver, reportFromRun } from "../runtime/delivery.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
@@ -97,8 +96,7 @@ export async function decideRun(
 /** The notification a decision makes: the run's report, delivered as its lead line (runtime/delivery.ts); none when held. */
 function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord): string | null {
   if (!decision.show || !decision.notify) return null;
-  // Finished work is told in its own checked line, link and all.
-  if (decision.delivery) return relayShortfalls(decision.delivery.line).length === 0 ? decision.delivery.line : null;
+  // Finished work's checked line is the report's lead, its link kept whole (runtime/delivery.ts).
   return deliver(reportFromRun(run, decision), "notification").text;
 }
 

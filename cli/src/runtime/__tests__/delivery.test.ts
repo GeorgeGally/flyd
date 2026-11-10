@@ -171,6 +171,23 @@ describe("reportFromRun", () => {
   });
 });
 
+describe("finished work's checked line", () => {
+  it("leads with the review step's checked line and keeps its link whole on a notification", () => {
+    const url = "https://github.com/GeorgeGally/gnm/pull/123456";
+    const decision = {
+      schema: "flyd.executive-decision.v1", decisionId: "d", sourceId: "s", sourceEventId: "e", reason: "", createdAt: "", evidenceRefs: [url],
+      disposition: "handle_internally", show: true, notify: true, summary: "The checkout fix landed.",
+      delivery: { line: `The checkout button on the Good Neighbours market site now works on every phone and tablet: ${url}`, checked: true, url },
+      verification: { status: "verified", evidenceRefs: [url] },
+    } as ExecutiveDecisionRecord;
+    const made = reportFromRun(run({ result: result({ brief: "PR merged after review and checks." }) }), decision);
+    expect(made).toMatchObject({ kind: "done", outcome: "The checkout button on the Good Neighbours market site now works on every phone and tablet", link: url });
+    const said = deliver(made, "notification").text!;
+    expect(said.endsWith(` ${url}`)).toBe(true);
+    expect(said.slice(0, -url.length - 1).length).toBeLessThanOrEqual(120);
+  });
+});
+
 describe("saidOnce", () => {
   it("says a repeated sentence once", () => {
     expect(saidOnce("Pick a phase. Pick a phase. Pick a phase.")).toBe("Pick a phase.");

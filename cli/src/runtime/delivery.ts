@@ -40,6 +40,8 @@ export interface Report {
   steps?: string[];
   /** For landed work: the change itself. */
   link?: string;
+  /** The outcome is the review step's checked line for finished work: said as written when it fits, its link always with it. */
+  checked?: true;
   /** For a long report: the whole of it, behind the lead. */
   document?: string;
   /** The work, in his words, for batching and for a lead that cannot be used as written. */
@@ -181,15 +183,17 @@ export function deliver(report: Report, surface: DeliverySurface): Delivered {
     ...(shape === "steps" && report.steps ? { steps: report.steps } : {}),
     ...(report.link ? { link: report.link } : {}),
   };
-  const written = leadLine(report.outcome, surface);
+  const asWritten = report.outcome.replace(/\s+/g, " ").trim();
+  const written = report.checked && asWritten.length <= LINE_CHARS && !asWritten.includes("](") ? asWritten : leadLine(report.outcome, surface);
   const reasons = unfitForHim(written);
   // Finished work, or his call, whose own words are not fit to show is told by its name; a report that says nothing is held.
   const work = report.work?.replace(/[.\s]+$/, "") ?? "";
   const fallback = !written || !work ? "" : report.kind === "done" ? `Done: ${notificationLine(`${work}.`, LINE_CHARS - "Done: ".length)}` : report.kind === "decision" ? `Your call is needed: ${notificationLine(`${work}.`, LINE_CHARS - "Your call is needed: ".length)}` : "";
   const lead = reasons.length === 0 && written ? written : fallback && unfitForHim(fallback).length === 0 ? fallback : "";
   if (!lead) return { text: null, lead: null, shape, ...extras, held: reasons.length ? reasons : ["It says nothing."] };
-  if (surface === "notification") return { text: lead, lead, shape, ...extras };
   const link = report.link && !lead.includes(report.link) ? report.link : "";
+  // Finished work is told once with its link (the pull request or change), on a notification too.
+  if (surface === "notification") return { text: report.checked && link ? `${lead} ${link}` : lead, lead, shape, ...extras };
   const lines = detailLines(report, lead);
   const text = [shape === "landed" && link ? `${lead} ${link}` : lead, ...lines].join("\n");
   return { text, lead, shape, ...extras };
@@ -232,12 +236,15 @@ export function reportFromRun(run: DomainRun, decision?: ExecutiveDecisionRecord
     : result.recommendation ? [result.recommendation.action, result.recommendation.reasoning].filter(Boolean).join(": ") : undefined;
   const options = decision?.disposition === "ask_george" && decision.options.length ? decision.options : undefined;
   const brief = saidOnce(result.brief || run.failure || "");
-  // With the review step's decision, its reading is what he is told, never the staff's own brief.
-  const reading = decision ? decision.summary : brief;
+  // With the review step's decision, its reading is what he is told, never the staff's own brief; finished work's
+  // checked line (finished-check.ts) leads, its link kept apart so the lead line never cuts it.
+  const told = decision?.delivery;
+  const toldLine = told ? (told.url ? told.line.replace(told.url, "") : told.line).replace(/\s+/g, " ").replace(/[\s:—-]+$/, "").trim() : "";
+  const reading = decision ? toldLine || decision.summary : brief;
   const outcome = saidOnce(kind === "decision" ? question || reading : reading);
   const artefacts = [...new Set([...result.artifacts, ...result.specialistOutputs.flatMap((output) => output.artifacts ?? [])])];
   const linkFrom = [...artefacts, ...result.evidence, result.brief].join(" ");
-  const link = linkFrom.match(CHANGE_LINK)?.[0] || (kind === "done" ? linkFrom.match(ANY_LINK)?.[0] : undefined) || undefined;
+  const link = told?.url || linkFrom.match(CHANGE_LINK)?.[0] || (kind === "done" ? linkFrom.match(ANY_LINK)?.[0] : undefined) || undefined;
   const steps = listedItems(result.brief);
   const document = result.detailedReport.trim() && `${result.brief}\n\n${result.detailedReport}`.length > LINE_CHARS * MAX_LINES * 2 ? `${result.brief}\n\n${result.detailedReport}`.trim() : undefined;
   // The staff's brief adds to the lead only when no review step read it: its words are then all there is.
@@ -252,6 +259,7 @@ export function reportFromRun(run: DomainRun, decision?: ExecutiveDecisionRecord
     ...(options ? { options } : {}),
     evidenceRefs: [`domain-run:${run.id}`, ...(decision?.evidenceRefs ?? [])],
     shape,
+    ...(toldLine ? { checked: true as const } : {}),
     artefacts,
     ...(steps.length ? { steps } : {}),
     ...(link ? { link } : {}),
