@@ -821,8 +821,12 @@ describe("a firstmate answer to his note, told by Flyd", () => {
       // The model retells the reply word for word, as a leaky retelling would.
       const { told, shown } = await relay(reply, file);
       expect(told).toBeUndefined();
-      // Nothing of it is rendered: no summary, no body behind "more".
-      expect(shown).toEqual([undefined, undefined]);
+      // An answer to his note is never dropped: a plain line leads, the staff's words wait under "show original".
+      for (const message of shown) {
+        expect(plain(message!.summary!.html).trim()).toBe("There's an answer to this; it's under show original.");
+        expect(message!.summary!.source).toBe("flyd");
+        expect(plain(message!.html)).toContain(reply);
+      }
     }
     const verdicts = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "verdicts.jsonl"), "utf8")
       .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
@@ -858,7 +862,9 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     const reply = "Firstmate is still on the idle-row guard, nothing to report.";
     const messages = noteWithReply(reply);
     for (let reconnect = 0; reconnect < 3; reconnect += 1) {
-      expect(new SnapshotDiffer().next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)).toBeUndefined();
+      const shown = new SnapshotDiffer().next({ messages, working: false }).messages.find((message) => message.answers === `note:${NOTE}`)!;
+      expect(plain(shown.summary!.html).trim()).toBe("There's an answer to this; it's under show original.");
+      expect(plain(shown.html)).toContain(reply);
     }
     const held = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "verdicts.jsonl"), "utf8")
       .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; source?: string })
