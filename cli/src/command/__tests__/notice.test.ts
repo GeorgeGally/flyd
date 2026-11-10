@@ -303,6 +303,30 @@ describe("notifyRun", () => {
     }
   });
 
+  it("quotes only George's own words for a finished run, and says Flyd's stand-ins as the bare fact", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const base = run(JSON.stringify({ status: "completed", brief: "Finished." }));
+    const finished = (id: string, request: Partial<DomainRun["request"]>): DomainRun => ({
+      ...base, id, request: { ...base.request, id, ...request }, transport: { kind: "firstmate", requestId: id },
+    });
+    const decide = (item: DomainRun, deliver: Parameters<typeof decideRun>[1]) => decideRun(item, deliver, async () => "{}");
+    const closed = () => false;
+    // His /review from the window: Flyd wrote the outcome, so it is never quoted as his.
+    await notifyRun(finished("desk-review", { source: "view", session: "s", originalMessage: "/review", intendedOutcome: "Run /review as George typed it" }), notify, undefined, decide, closed);
+    // His own first line from the window, and his own chat message, are quoted as he said them.
+    await notifyRun(finished("desk-own", { source: "view", session: "s", originalMessage: "The footer link is broken", intendedOutcome: "The footer link is broken" }), notify, undefined, decide, closed);
+    await notifyRun(finished("chat-own", { source: "chat", originalMessage: "can you make the island quieter\nthanks", intendedOutcome: "Reduce island notifications" }), notify, undefined, decide, closed);
+    // An outcome the model wrote with no message of his: the bare fact.
+    await notifyRun(finished("chat-model", { source: "chat", originalMessage: "Reduce island notifications", intendedOutcome: "Reduce island notifications" }), notify, undefined, decide, closed);
+    expect(sent).toEqual([
+      "A piece of your work is finished; I haven't checked it yet.",
+      "Your request “The footer link is broken” is finished; I haven't checked it yet.",
+      "Your request “can you make the island quieter” is finished; I haven't checked it yet.",
+      "A piece of your work is finished; I haven't checked it yet.",
+    ]);
+  });
+
   it("announces each finished FirstMate run once under its own id, unless its reply already shows in the open conversation", async () => {
     const sent: string[] = [];
     const notify = async (_title: string, message: string) => { sent.push(message); };

@@ -16,6 +16,7 @@ import { standingPreferences } from "../intelligence/executive/standing-rules.js
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
 import { deliverOnce, deliverOwed, finishedKey, markTold, seedOnce } from "../runtime/delivered.js";
 import { windowOpen } from "../conversation-view/window-presence.js";
+import { deskWords } from "../conversation-view/firstmate-inbox.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -40,6 +41,15 @@ export async function deliverBossNote(
   return { status: receipt ? "verified" : "unknown", evidenceRefs: receipt ? [`domain-message:${receipt.id}`] : [] };
 }
 
+/** His own words for a run he asked for, or empty when its outcome was written by Flyd (a tool's brief, a follow-up, a stand-in). */
+function hisWords(request: DomainRun["request"]): string {
+  if (request.source === "view") return deskWords(request);
+  if (request.source === "chat" && request.originalMessage.trim() !== request.intendedOutcome.trim()) {
+    return request.originalMessage.split("\n").find((line) => line.trim())?.trim() ?? "";
+  }
+  return "";
+}
+
 export async function decideRun(
   run: DomainRun,
   send: typeof sendRunMessage,
@@ -58,7 +68,7 @@ export async function decideRun(
     kind: run.status === "needs_decision" ? "decision" : "reply",
     state: run.status,
     label: run.request.intendedOutcome,
-    labelFromGeorge: true,
+    request: hisWords(run.request),
     detail: [detail, ...(result?.evidence ?? [])].join("\n"),
     evidenceRefs: [`domain-run:${run.id}`],
     authority: authorityForStaffRun({

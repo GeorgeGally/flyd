@@ -143,11 +143,11 @@ export function finishedLine(what: { title: string } | { request: string }, outc
  * Reads at most two pull requests and one commit; a read that fails is simply not a check.
  */
 export async function checkFinished(
-  input: { label: string; detail: string; evidenceRefs?: string[]; labelFromGeorge?: boolean },
+  input: { label: string; detail: string; evidenceRefs?: string[]; request?: string },
   readers: FinishedReaders = githubReaders,
 ): Promise<FinishedCheck> {
   const text = [input.detail, ...(input.evidenceRefs ?? [])].join("\n");
-  const what = input.labelFromGeorge ? { request: input.label } : { title: plainLabel(input.label) };
+  const what = input.request !== undefined ? { request: input.request } : { title: plainLabel(input.label) };
   const pulls = [...new Set([...text.matchAll(PULL_URL)].map((match) => match[0]))].slice(0, 2);
   let open: { url: string; title?: string } | undefined;
   let closed: { url: string; title?: string } | undefined;

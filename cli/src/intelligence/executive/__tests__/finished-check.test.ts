@@ -63,9 +63,9 @@ describe("finished work, checked by Flyd", () => {
   it("never says his request itself is done when no title of the change was read", async () => {
     const commit = "https://github.com/GeorgeGally/gnm/commit/3ce3245";
     // His first line is a problem statement: the landed change is named by it, never said to have done it.
-    expect((await checkFinished({ label: "the GNM hero is too tall on phones", detail: commit, labelFromGeorge: true }, readers(null, true))).line)
+    expect((await checkFinished({ label: "the GNM hero is too tall on phones", detail: commit, request: "the GNM hero is too tall on phones" }, readers(null, true))).line)
       .toBe(`Your request “the GNM hero is too tall on phones” is done. ${commit}`);
-    expect((await checkFinished({ label: "the GNM hero is too tall on phones", detail: "ready", labelFromGeorge: true }, readers(null))).line)
+    expect((await checkFinished({ label: "the GNM hero is too tall on phones", detail: "ready", request: "the GNM hero is too tall on phones" }, readers(null))).line)
       .toBe("Your request “the GNM hero is too tall on phones” is finished; I haven't checked it yet.");
     // A title read from the change keeps its own capitals.
     expect((await checkFinished({ label: "gnm-hero", detail: PR }, readers({ merged: true, title: "GNM hero fits phones" }))).line)
