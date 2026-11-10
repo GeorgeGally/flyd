@@ -50,7 +50,7 @@ export interface FirstmateDecisionOptions {
 const FINISHED_POLICY = "finished.v1";
 
 /** Whether a change reports finished work (not a decision about it). Pure. */
-export function reportsFinished(change: Pick<FirstmateChange, "kind" | "state" | "unresolved">): boolean {
+function reportsFinished(change: Pick<FirstmateChange, "kind" | "state" | "unresolved">): boolean {
   return change.kind !== "decision" && !change.unresolved && FINISHED_STATES.has(change.state);
 }
 

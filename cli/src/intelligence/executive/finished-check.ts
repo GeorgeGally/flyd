@@ -115,7 +115,7 @@ function sayable(line: string): boolean {
 
 /**
  * One line George may be told, in the order: as written, in plain words, then the bare fact. Never empty. Pure.
- * A title (the change's own, else the task's) says what changed; his own words are only quoted as his request, never as the outcome.
+ * A title (the change's own, else the task's) says what changed; his own words are only quoted, unchanged, as his request, never as the outcome.
  */
 export function finishedLine(what: { title: string } | { request: string }, outcome: "landed" | "waiting" | "closed" | "unchecked", url?: string): string {
   const titled = "title" in what;
@@ -129,7 +129,7 @@ export function finishedLine(what: { title: string } | { request: string }, outc
     return url ? `${body} ${url}` : body;
   };
   const subject = ("title" in what ? what.title : what.request).trim();
-  for (const candidate of [subject, plainWords(subject)]) {
+  for (const candidate of titled ? [subject, plainWords(subject)] : plainWords(subject) === subject ? [subject] : []) {
     if (!candidate) continue;
     const line = lines(candidate);
     if (sayable(line)) return line;

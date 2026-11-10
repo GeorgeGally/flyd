@@ -94,17 +94,17 @@ function noticeForDecision(decision: ExecutiveDecisionRecord): string | null {
 }
 
 /** Work he started from the window, with the window open on that conversation: his reply shows under his message there. */
-export function shownInWindow(run: DomainRun, windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): boolean {
+function shownInWindow(run: DomainRun, windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): boolean {
   return run.request.source === "view" && run.request.session !== undefined && windowIsOpen(run.request.session);
 }
 
 /** Backstage: Flyd's own note to the staff, or its own fix. Its finished work is never George's to hear. */
-export function backstageRun(run: DomainRun): boolean {
+function backstageRun(run: DomainRun): boolean {
   return run.request.source === "flyd" || run.request.source === "self-improvement";
 }
 
 /** Finished work never told: Flyd's own, or shown under his message in the conversation it was asked from. */
-export function quietRun(run: DomainRun, windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): boolean {
+function quietRun(run: DomainRun, windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): boolean {
   return backstageRun(run) || shownInWindow(run, windowIsOpen);
 }
 

@@ -224,6 +224,9 @@ describe("agenda", () => {
       listening = 1;
       expect(await deliverNotification("Flyd", line)).toBe("shown");
       expect(await deliverNotification("Flyd", line)).toBe("repeat");
+      // Another finished run's report, already told once by its own key, is news of its own even when its line reads the same.
+      expect(await deliverNotification("Flyd", "A piece of your work is finished. https://github.com/o/r/pull/12", "deliverable", undefined, { once: true })).toBe("shown");
+      expect(await deliverNotification("Flyd", "A piece of your work is finished. https://github.com/o/r/pull/13", "deliverable", undefined, { once: true })).toBe("shown");
     } finally {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();

@@ -152,7 +152,7 @@ export type Say = (title: string, message: string, kind?: GeorgeKind, work?: str
 
 async function defaultSay(title: string, message: string, kind?: GeorgeKind, work?: string): Promise<DeliveryOutcome> {
   const { deliverNotification } = await import("./agenda.js");
-  return deliverNotification(title, message, kind, work);
+  return deliverNotification(title, message, kind, work, { once: true });
 }
 
 /** Claimed with no outcome yet, and still to be tried again: it is still to be told. */

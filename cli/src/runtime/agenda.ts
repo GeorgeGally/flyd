@@ -241,12 +241,12 @@ export function rangRecently(message: string, dir = process.env.FLYD_AGENDA_DIR?
 }
 
 /** `work` names what the notification is about, for the line he hears when a held decision or blocker still needs his call. */
-export async function deliverNotification(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string): Promise<NotificationOutcome> {
-  return (await deliverNotificationLine(title, message, kind, work)).outcome;
+export async function deliverNotification(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string, options: { once?: boolean } = {}): Promise<NotificationOutcome> {
+  return (await deliverNotificationLine(title, message, kind, work, options)).outcome;
 }
 
 /** As deliverNotification, with the line he was shown when it was. */
-export async function deliverNotificationLine(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string): Promise<{ outcome: NotificationOutcome; line?: string }> {
+export async function deliverNotificationLine(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string, options: { once?: boolean } = {}): Promise<{ outcome: NotificationOutcome; line?: string }> {
   // One line, outcome first: the rest of what was said is Flyd's to keep or show elsewhere.
   const { isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/chief-of-staff.js");
   // A coding session idle at its prompt is never George's to hear about.
@@ -286,8 +286,8 @@ export async function deliverNotificationLine(title: string, message: string, ki
     recordHeld({ surface: "notification", source: "notification", text: message }, placeholder);
     return { outcome: "placeholder" };
   }
-  // The same line twice in a day is noise: he heard it the first time.
-  if (rangRecently(message, undefined, undefined, false)) return { outcome: "repeat" };
+  // The same line twice in a day is noise: he heard it the first time. A report told once by its own key (flyd.delivered) is news of its own.
+  if (!options.once && rangRecently(message, undefined, undefined, false)) return { outcome: "repeat" };
   if (process.platform !== "darwin") return { outcome: "undelivered" };
   noteSaid({ surface: "notification", text: message });
   try {

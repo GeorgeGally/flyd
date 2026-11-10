@@ -55,8 +55,8 @@ describe("finished work, checked by Flyd", () => {
   it("still says it is done when nothing can be checked, and never says nothing", async () => {
     const check = await checkFinished({ label: "logan-make-transparent", detail: "ready in branch fm/logan-make-transparent" }, readers(null));
     expect(check).toMatchObject({ checked: false, landed: false, line: "Logan: make transparent is finished; I haven't checked it yet." });
-    // A name that is itself backstage is said in plain words, then as the bare fact.
-    expect(finishedLine({ request: "Set up a remote firstmate on the PC" }, "unchecked")).toBe("Your request “Set up a remote the team on the PC” is finished; I haven't checked it yet.");
+    // His words are quoted only as he said them: a request naming backstage is told as the bare fact, never misquoted.
+    expect(finishedLine({ request: "Set up a remote firstmate on the PC" }, "unchecked")).toBe("A piece of your work is finished; I haven't checked it yet.");
     expect(finishedLine({ request: "fm/pc-secondmate" }, "unchecked")).toBe("A piece of your work is finished; I haven't checked it yet.");
   });
 
