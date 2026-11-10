@@ -1,5 +1,7 @@
 import { choiceOf } from "./choices.js";
 import { stateOf } from "./executive.js";
+import { namesBackstage } from "../runtime/honesty-check.js";
+import { plainSaid } from "../lib/backstage.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { capitalise, clip, inline, isAcknowledgement, SALUTATION, sentences } from "./summaries.js";
 
@@ -156,6 +158,16 @@ export function isPlumbing(line: string): boolean {
  * findings, checks, internal calls, acks) is Flyd's to keep. Pure.
  */
 export function staffLine(text: string, handled?: (text: string) => boolean): GeorgeLine {
+  const said = lineOf(text, handled);
+  // The staff's own words never reach him naming the staff or how the work runs (the relay check):
+  // a landing is told plainly, a stop is Flyd's to chase. His decision stays his, its question said plainly.
+  if (said.kind === "absorbed") return said;
+  const line = plainSaid(said.line);
+  if (said.kind === "decision" || !namesBackstage(line)) return { ...said, line };
+  return said.kind === "landed" ? { kind: "landed", line: "That's done.", ...(said.url ? { url: said.url } : {}) } : { kind: "absorbed" };
+}
+
+function lineOf(text: string, handled?: (text: string) => boolean): GeorgeLine {
   const choice = choiceOf(text);
   if (choice) {
     // Several questions at once are put to him one at a time, the first still his named here.

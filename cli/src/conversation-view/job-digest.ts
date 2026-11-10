@@ -1,3 +1,5 @@
+import { namesBackstage } from "../runtime/honesty-check.js";
+import { plainSaid } from "../lib/backstage.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -77,9 +79,11 @@ export function digestFromModel(text: string, source: DigestSource, usage: { mod
   let parsed: unknown;
   try { parsed = JSON.parse(body); } catch { return null; }
   const record = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
-  const changed = clip(record.changed);
-  const means = clip(record.means);
-  const needed = clip(record.needed);
+  // A reading line that names the staff or how the work runs is left out (the relay check), as if the model had said nothing there.
+  const plain = (value: unknown) => { const line = plainSaid(clip(value)); return line && namesBackstage(line) ? "" : line; };
+  const changed = plain(record.changed);
+  const means = plain(record.means);
+  const needed = plain(record.needed);
   if (!changed && !means && !needed) return null;
   const rawLink = clip(record.link) || source.link || "";
   const link = /^https?:\/\//i.test(rawLink) ? rawLink : undefined;

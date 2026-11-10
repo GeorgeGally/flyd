@@ -77,7 +77,7 @@ function readingOf(text: string, handled?: (text: string) => boolean): { headlin
   if (decision) return { headline: fit(decision), asks: true };
   const said = withoutStubs(text);
   const own = authorSummary(said)?.summary;
-  const digest = own ? null : digestReply(said);
+  const digest = own ? null : digestReply(said, { relay: true });
   // A label that only quotes something (a notice's title) names nothing of his.
   const labels = digest?.points.map((point) => point.label).filter((label): label is string => Boolean(label) && !/^["“']/.test(label!)) ?? [];
   return { headline: fit(own ?? (labels.length >= 2 && labels.length === digest!.points.length ? labels.join(" · ") : digest!.lead)), asks: false };

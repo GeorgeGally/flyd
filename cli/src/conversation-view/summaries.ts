@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ClaudeUsage } from "../lib/claude-spend.js";
+import { namesBackstage } from "../runtime/honesty-check.js";
+import { plainSaid } from "../lib/backstage.js";
 
 // Plain-English summaries of the assistant's replies, so the captain can read
 // the outcome first and open the full reply only when he wants it.
@@ -291,16 +293,26 @@ function paragraphPoints(paragraphs: string[]): ReplyPoint[] {
  * A local summary of a reply, without a model: whether it is routine, its
  * lead sentence, and every numbered or bulleted point it reports.
  */
-export function digestReply(text: string): ReplyDigest {
+export function digestReply(text: string, options: { relay?: boolean } = {}): ReplyDigest {
   const body = bodyOf(text);
   const paragraphs = body.split(/\n\s*\n/).filter((block) => block.trim() && !/^\s*(?:\d+[.)]|[-*+]|#|\|)/.test(block));
   while (paragraphs.length > 1 && isAcknowledgement(paragraphs[0]!)) paragraphs.shift();
   const opening = sentences(inline(paragraphs[0] ?? ""));
   while (opening.length > 1 && ACK_LEAD.test(opening[0]!)) opening.shift();
-  const lead = capitalise(clip(opening[0] ?? firstSentence(body), 220));
-  const points = pointsOf(body);
-  return { routine: isRoutine(text), lead, points: points.length ? points : paragraphPoints(paragraphs) };
+  const listed = pointsOf(body);
+  const found = listed.length ? listed : paragraphPoints(paragraphs);
+  const first = opening[0] ?? firstSentence(body);
+  if (!options.relay) return { routine: isRoutine(text), lead: capitalise(clip(first, 220)), points: found };
+  // A relay is said without the machinery; what still names the staff or how the work runs is held back (the relay check).
+  const points = found
+    .map((point) => ({ ...point, text: plainSaid(point.text), ...(point.label ? { label: plainSaid(point.label) } : {}) }))
+    .filter((point) => !namesBackstage(`${point.label ?? ""} ${point.text}`));
+  const lead = (opening.length ? opening : [first]).map(plainSaid).find((sentence) => !namesBackstage(sentence)) ?? points[0]?.text ?? RELAY_LEAD;
+  return { routine: isRoutine(text), lead: capitalise(clip(lead, 220)), points };
 }
+
+/** What leads a relay whose every line names the machinery: the original stays one tap away. */
+const RELAY_LEAD = "There's news on this.";
 
 /** The digest as Markdown: the lead, then one line per point. */
 export function digestMarkdown(digest: ReplyDigest): string {

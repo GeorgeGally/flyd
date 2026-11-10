@@ -1,6 +1,8 @@
 import { basename } from "node:path";
 import { applyProjectOps, projectId, readProjects, type Project, type ProjectKind } from "../council/projects.js";
 import type { DomainRun } from "../command/types.js";
+import { namesBackstage } from "../runtime/honesty-check.js";
+import { plainSaid } from "../lib/backstage.js";
 import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import type { ShowItem, ShowScreen } from "./show.js";
 
@@ -169,14 +171,15 @@ function runSignal(run: JobRun, now: number): Signal | null {
     if (run.source === "flyd") return null;
     return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
-  if (run.status === "queued") return { group: "waiting", state: "Queued", at, next: run.outcome || "Queued", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is queued` };
+  // Who on the staff does the work is Flyd's business: the card says only whether it is his move or Flyd's.
+  if (run.status === "queued") return { group: "waiting", state: "Queued", at, next: run.outcome || "Queued", owner: "Flyd", ask: "", because: `Run ${run.id} is queued` };
   if (run.status === "accepted" || run.status === "working") {
     if (run.transport === "firstmate") return null;
-    if (now - Date.parse(at) > QUIET_RUN_MS) return { group: "waiting", at, next: run.outcome || "Nothing has moved this.", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} has gone quiet` };
-    return { group: "working", at, ...(run.started ? { started: run.started } : {}), next: run.outcome || "In progress", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
+    if (now - Date.parse(at) > QUIET_RUN_MS) return { group: "waiting", at, next: run.outcome || "Waiting", owner: "Flyd", ask: "", because: `Run ${run.id} has gone quiet` };
+    return { group: "working", at, ...(run.started ? { started: run.started } : {}), next: run.outcome || "Under way", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
   }
   if (run.status === "incomplete" || run.status === "failed") {
-    return { group: "waiting", at, next: run.outcome || "The last handoff did not finish", owner: run.owner || "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
+    return { group: "waiting", at, next: run.outcome || "Not finished yet", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
   }
   if (run.status === "completed") {
     return { group: "done", at, next: run.outcome || "Landed", owner: "", ask: "", because: `Run ${run.id} completed` };
@@ -315,8 +318,8 @@ export function jobsFrom(input: {
       group,
       ...(state ? { state } : {}),
       at: item.at || item.started || "",
-      // "A worker is on it" says nothing the Working group has not.
-      next: item.kind === "live" && /^a worker is on it\b/i.test(item.detail ?? "") ? "" : item.detail || item.headline,
+      // "Under way" says nothing the Working group has not.
+      next: item.kind === "live" && /^under way\.?$/i.test(item.detail ?? "") ? "" : item.detail || item.headline,
       owner: group === "needs" ? "you" : "Flyd",
       ask,
       because: `Fleet ${item.kind}: ${item.id}`,
@@ -380,9 +383,9 @@ export function jobsFrom(input: {
       project: bucket.project,
       at,
       ...(lead.started ? { started: lead.started } : {}),
-      next: lead.next,
+      next: shownLine(lead.next, lead.group),
       owner: lead.owner,
-      ask: lead.ask,
+      ask: lead.ask && plainSaid(lead.ask),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: bucket.shots.slice(0, 4),
@@ -397,6 +400,16 @@ export function jobsFrom(input: {
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));
   return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8) };
+}
+
+/** What a card says when its own words would name the staff or how the work is run. */
+const QUIET_LINE: Record<Exclude<JobGroup, "needs">, string> = { working: "Under way", waiting: "Waiting", done: "Done" };
+
+/** A card's line as he may see it: the relay check holds back staff names, branches and ids. A decision keeps its question, said plainly: the call is his. Pure. */
+function shownLine(line: string, group: JobGroup): string {
+  if (!line) return line;
+  const plain = plainSaid(line);
+  return group !== "needs" && namesBackstage(plain) ? QUIET_LINE[group] : plain;
 }
 
 function labelOf(project: Project): string {

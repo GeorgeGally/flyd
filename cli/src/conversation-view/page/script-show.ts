@@ -574,7 +574,7 @@ export const SHOW_SCRIPT = `
   function renderDoing() {
     if (!lastScreen) return;
     showDoing.classList.toggle("on", !!lastScreen.live);
-    showDoing.textContent = lastScreen.live ? lastScreen.doing || "" : "Standby" + (lastScreen.read ? ". Fleet read " + ago(lastScreen.read) : "");
+    showDoing.textContent = lastScreen.live ? lastScreen.doing || "" : "Nothing running right now";
   }
   function renderSemanticContext(screen) {
     var nav = document.getElementById("semantic-context");

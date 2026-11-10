@@ -70,7 +70,7 @@ function fromItem(item: ShowItem, state: LiveState): LiveItem {
     ...(item.at ? { at: item.at } : {}),
     ...(item.started ? { since: item.started } : {}),
     // "A worker is on it" says nothing the Running list has not.
-    ...(item.detail && !/^a worker is on it\b/i.test(item.detail) ? { step: item.detail } : {}),
+    ...(item.detail && !/^under way\.?$/i.test(item.detail) ? { step: item.detail } : {}),
     shots: item.shots ?? [],
     previews: item.previews ?? [],
     links: (item.links ?? []).filter((link) => !link.closed),

@@ -387,3 +387,8 @@ export function relayShortfalls(text: string): Shortfall[] {
   if (isPlaceholderStatus(said)) shortfalls.push({ requirement: "real_status", reason: "It only says work is happening, naming nothing concrete.", quote: said.slice(0, 240), by: "check" });
   return shortfalls;
 }
+
+/** Whether a line Flyd puts on his screen names the machinery behind the work, by the relay check (relayShortfalls). Pure. */
+export function namesBackstage(text: string): boolean {
+  return relayShortfalls(text).some((item) => item.requirement === "backstage_hidden");
+}

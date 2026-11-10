@@ -190,7 +190,7 @@ describe("SnapshotDiffer relays", () => {
   });
 
   it("never calls a reply that puts nothing to him his call, nor says a short one twice", () => {
-    const status = "The fleet is moving: three jobs are open and none is waiting on you right now.";
+    const status = "Work is moving: three jobs are open and none is waiting on you right now.";
     const [, shown] = new SnapshotDiffer().next({ messages: [
       { id: "u1", role: "user", text: "how is it going?" },
       { id: "t1", role: "assistant", text: status, aside: true },
@@ -201,13 +201,37 @@ describe("SnapshotDiffer relays", () => {
     expect(shown!.summary).toBeDefined();
   });
 
-  it("keeps the rules he has to paste open under the card that leads a relayed answer", () => {
+  it("never shows the staff's own words naming how the work runs, even in reply to him: they are told plainly, the original one tap away", () => {
+    const said = "The message fix is ready on branch fm/logan-codex-limit-msg. The worker pushed it and the Fact Checker signed off.";
+    const [, shown] = new SnapshotDiffer().next({ messages: [
+      { id: "u1", role: "user", text: "how is it going?" },
+      { id: "t1", role: "assistant", text: said, aside: true },
+    ], working: false }).messages;
+    expect(shown!.expanded).toBeUndefined();
+    expect(shown!.summary!.html).toContain("The message fix is ready");
+    expect(`${shown!.summary!.html} ${shown!.card?.line ?? ""} ${shown!.card?.sub ?? ""}`).not.toMatch(/branch|worker|Fact Checker|fm\//);
+    expect(shown!.html).toContain("fm/logan-codex-limit-msg");
+  });
+
+  it("never drops an answer to his note whose words name how the work runs: a plain line leads, the original one tap away", () => {
+    const said = "The message fix went in as PR #253 from fm/logan-codex-limit-msg and the Fact Checker signed off.";
+    const [, shown] = new SnapshotDiffer().next({ messages: [
+      { id: "note:1", role: "user", text: "is the message fix ready?" },
+      { id: "t1", role: "assistant", text: said, answers: "note:1" },
+    ], working: false }).messages;
+    expect(shown).toBeDefined();
+    expect(shown!.summary!.html).toContain("show original");
+    expect(shown!.summary!.html).not.toMatch(/PR #253|fm\/|Fact Checker/);
+    expect(shown!.html).toContain("fm/logan-codex-limit-msg");
+  });
+
+  it("keeps the rules he has to paste one tap away under the card that leads a relayed answer, never opened by default", () => {
     const [, shown] = new SnapshotDiffer().next({ messages: [
       { id: "note:1", role: "user", text: "what are the kinsta rules again" },
       { id: "t1", role: "assistant", text: KINSTA_RULES, answers: "note:1" },
     ], working: false }).messages;
     expect(shown!.card).toBeDefined();
-    expect(shown!.expanded).toBe(true);
+    expect(shown!.expanded).toBeUndefined();
     expect(shown!.html).toContain("https://capfive.com/$1");
   });
 
@@ -508,6 +532,18 @@ describe("SnapshotDiffer summaries", () => {
     expect(calls).toBe(2);
   });
 
+  it("keeps a staff update's own lead and a pending digest as they are, only said without the machinery", () => {
+    const body = `the worker added tests for it. ${long}`;
+    const asked = { id: "u1", role: "user" as const, text: "how is the menu going?" };
+    const [, authored] = new SnapshotDiffer().next({ messages: [asked, { ...message("a1", `» Still on the menu bar, about halfway.\n\n${body}`), aside: true }], working: false }).messages;
+    expect(authored!.summary).toMatchObject({ source: "author" });
+    expect(authored!.summary!.html).toBe("<p>Still on the menu bar, about halfway.</p>\n");
+    const model = withModel(() => new Promise(() => {}));
+    const [, pending] = new SnapshotDiffer(model).next({ messages: [asked, { ...message("p1", `Still on the menu, the worker pushed a first pass. ${long}`), aside: true }], working: false }).messages;
+    expect(pending!.summary).toMatchObject({ source: "digest", pending: true });
+    expect(pending!.summary!.html).not.toMatch(/worker/i);
+  });
+
   it("with always on, also asks the model about replies that carry their own summary, to compare", async () => {
     const model = withModel(async () => "Grok's take.");
     const differ = new SnapshotDiffer({ ...model, always: true });
@@ -753,7 +789,7 @@ describe("ConversationViewServer", () => {
       } });
       const response = await post(port, JSON.stringify({ decision: "decision-1", decisionTask: "visuals", questionText: "Which design?", text: "another round", images: [{ mediaType: "image/png", data: PNG }] }), headers);
       expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toMatchObject({ id: "resolved", followUp: "decision-1", warning: expect.stringContaining("picture was not delivered") });
+      expect(JSON.parse(response.body)).toMatchObject({ id: "resolved", followUp: "decision-1", warning: expect.stringContaining("picture didn't go through"), pictureFailed: true });
       expect(resolutions).toBe(1);
     });
 
@@ -777,7 +813,7 @@ describe("ConversationViewServer", () => {
         expect(readDomainRun("changed")?.messages?.at(-1)).toMatchObject({ kind: "correction", body: expect.stringContaining("Case differs") });
         const failedPicture = await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Recorded once", images: [{ mediaType: "image/png", data: "" }] }), headers);
         expect(failedPicture.status).toBe(200);
-        expect(JSON.parse(failedPicture.body)).toMatchObject({ id: expect.stringContaining(":decision:"), warning: expect.stringContaining("picture was not delivered") });
+        expect(JSON.parse(failedPicture.body)).toMatchObject({ id: expect.stringContaining(":decision:"), warning: expect.stringContaining("picture didn't go through"), pictureFailed: true });
         expect(readDomainRun("changed")?.messages?.filter((message) => message.body === "Recorded once")).toHaveLength(1);
         expect((await post(port, JSON.stringify({ domainRun: "changed", questionText: "Which charity?", text: "Local with picture", images: [{ mediaType: "image/png", data: PNG }] }), headers)).status).toBe(200);
         const attached = readDomainRun("changed")?.messages?.slice(-2);

@@ -173,6 +173,8 @@ interface LogEntry {
   kind: ActivityKind;
   title: string;
   line?: string;
+  /** Flyd keeping itself in order (reading back its answers, its memory, its own fixes): shown only when he asks how Flyd works. */
+  upkeep?: true;
 }
 
 /** One line of the agenda log, said plainly; the lines that only report upkeep are dropped. */
@@ -187,7 +189,7 @@ export function activityFromLogLine(raw: string): LogEntry | null {
     const short = Number(found[2]);
     if (!reviewed) return null;
     return {
-      at, group: "reviewed", kind: "reviewed", title: "Read back its own answers",
+      at, group: "reviewed", kind: "reviewed", title: "Read back its own answers", upkeep: true,
       line: short ? `${plural(reviewed, "recent answer")} checked; ${short} to do better on.` : `${plural(reviewed, "recent answer")} checked; all held up.`,
     };
   }
@@ -206,15 +208,15 @@ export function activityFromLogLine(raw: string): LogEntry | null {
     if (!turns && !notes && !thoughts) return null;
     const read = [turns ? plural(turns, "conversation") : "", notes ? plural(notes, "note") : ""].filter(Boolean).join(" and ");
     return {
-      at, group: "memory", kind: "memory", title: "Kept its memory of you up to date",
+      at, group: "memory", kind: "memory", title: "Kept its memory of you up to date", upkeep: true,
       line: `${read ? `Read ${read}` : "Read what was new"}${thoughts ? `; ${plural(thoughts, "thing")} worth your attention.` : "."}`,
     };
   }
   if (/^investigator: done/.test(text)) {
-    return { at, group: "gaps", kind: "memory", title: "Filled gaps in what it knows about you" };
+    return { at, group: "gaps", kind: "memory", title: "Filled gaps in what it knows about you", upkeep: true };
   }
   if (/^self-improve: dispatched/.test(text)) {
-    return { at, group: "improve", kind: "decided", title: "Started fixing something it noticed in itself" };
+    return { at, group: "improve", kind: "decided", title: "Started fixing something it noticed in itself", upkeep: true };
   }
   if ((found = /^(ok|failed|error) [0-9a-f]{8} (.+)$/.exec(text))) {
     const line = taskName(found[2]!);
@@ -381,6 +383,13 @@ export interface ActivityInputs {
   news?: NewsStories;
   /** Flyd's handed-off domain runs: finished design labs among them wait for his review. */
   runs?: DomainRun[];
+  /** He asked how Flyd works: its own upkeep shows too. Off by default, so his screen carries only his business. */
+  upkeep?: boolean;
+}
+
+/** Whether his words ask how Flyd works, the one time its own upkeep is his business. Pure. */
+export function asksHowFlydWorks(said: string): boolean {
+  return /\bhow (?:do|does) (?:you|flyd) work\b/i.test(said);
 }
 
 /** The stories a news card opens onto, each bound to the day it belongs to. */
@@ -473,7 +482,7 @@ export function composeActivity(inputs: ActivityInputs, now: number): ActivityPa
   };
   for (const raw of [...inputs.log].reverse()) {
     const entry = activityFromLogLine(raw);
-    if (!entry || seen.has(entry.group) || covered.has(`${entry.kind}|${entry.title}`)) continue;
+    if (!entry || (entry.upkeep && !inputs.upkeep) || seen.has(entry.group) || covered.has(`${entry.kind}|${entry.title}`)) continue;
     seen.add(entry.group);
     const stories = storiesOf(entry.group, entry.at);
     done.push({ id: `log:${entry.group}:${entry.at}`, kind: entry.kind, title: entry.title, ...(entry.line ? { line: entry.line } : {}), ...(stories.length ? { stories } : {}), at: entry.at });
@@ -544,7 +553,7 @@ export class ActivityReader {
   private readonly commandDir: string;
   private readonly pollMs: number;
   private readonly now: () => number;
-  private panel: ActivityPanel | null = null;
+  private panels: { plain: ActivityPanel; upkeep: ActivityPanel } | null = null;
   private signature = "";
   private readonly listeners = new Set<() => void>();
   private timer: NodeJS.Timeout | undefined;
@@ -584,7 +593,7 @@ export class ActivityReader {
     const day = localDay(new Date(now));
     const scout = join(this.dir, "scout");
     const editionFile = oneJson(join(scout, "edition-latest.json"));
-    const composed = composeActivity({
+    const inputs: ActivityInputs = {
       log: lines(join(this.dir, "logs", "agenda.log"), 600),
       jobs: this.jobs(),
       advice: jsonLines(join(this.dir, "council", "advisories.jsonl"), 4) as ActivityInputs["advice"],
@@ -594,24 +603,26 @@ export class ActivityReader {
         watch: flashStories(jsonLines(join(scout, "flash.jsonl"), 200), day),
       },
       runs: listDomainRuns(this.commandDir),
-    }, now);
-    const panel = applyStoryMedia(composed, this.dir);
+    };
+    const panel = applyStoryMedia(composeActivity(inputs, now), this.dir);
+    const upkeep = applyStoryMedia(composeActivity({ ...inputs, upkeep: true }, now), this.dir);
     const onStored = () => {
       if (this.refresh()) for (const each of this.listeners) each();
     };
     scheduleStoryMedia(storyUrls(panel), { dir: this.dir, onStored });
     scheduleStorySources(storySources(editionFile), { dir: this.dir, onStored });
     scheduleStoryClips(storyClips(editionFile), { dir: this.dir, onStored });
-    const signature = JSON.stringify(panel);
-    this.panel = panel;
+    const signature = JSON.stringify([panel, upkeep]);
+    this.panels = { plain: panel, upkeep };
     if (signature === this.signature) return false;
     this.signature = signature;
     return true;
   }
 
-  current(): ActivityPanel {
-    if (!this.panel) this.refresh();
-    return this.panel!;
+  /** The panel; with upkeep (he asked how Flyd works) Flyd's own upkeep shows too. */
+  current(upkeep = false): ActivityPanel {
+    if (!this.panels) this.refresh();
+    return upkeep ? this.panels!.upkeep : this.panels!.plain;
   }
 
   /** Calls back when the panel changes; polls only while someone listens. */

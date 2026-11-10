@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kindVisual } from "../cards.js";
-import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, LAB_REVIEW_WINDOW_MS, labReviews, MAX_RECENT, monitorsFromActivityRecords, recordActivity } from "../activity.js";
+import { ActivityReader, asksHowFlydWorks, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, LAB_REVIEW_WINDOW_MS, labReviews, MAX_RECENT, monitorsFromActivityRecords, recordActivity } from "../activity.js";
 import { needsGeorge } from "../semantic.js";
 import { saveDomainRun } from "../../command/store.js";
 import type { DomainRun } from "../../command/types.js";
@@ -136,10 +136,21 @@ describe("composeActivity", () => {
       jobs: [{ id: "a1", status: "running", startedAt: minutesAgo(3), updatedAt: minutesAgo(1), contract: { task: "Tidy the notes." } }],
       advice: [],
       records: [{ kind: "decided", title: "Answered your staff's question", at: "2026-10-17T11:00:00.000Z" }],
+      upkeep: true,
     }, NOW);
     expect(panel.now.map((item) => item.title)).toEqual(["Working on a job for you"]);
     expect(panel.recent.map((item) => item.title)).toEqual(["Answered your staff's question", "Watched the news for you", "Read back its own answers"]);
     expect(panel.recent[2]!.line).toBe("10 recent answers checked; all held up.");
+  });
+
+  it("keeps Flyd's own upkeep off his screen unless he asks how Flyd works", () => {
+    const log = [
+      "2026-10-17T03:58:43.648Z self-review: reviewed, 10 reviewed, 0 short",
+      "2026-10-17T04:00:00.000Z council: 3 turns, 1 captures, 0 advisories",
+      "2026-10-17T04:02:32.232Z scout: watch: 0 must-know",
+    ];
+    const panel = composeActivity({ log, jobs: [], advice: [], records: [] }, NOW);
+    expect(panel.recent.map((item) => item.title)).toEqual(["Watched the news for you"]);
   });
 
   it("lets a news record supersede the log line that repeats it, keeping its story links", () => {
@@ -299,6 +310,17 @@ describe("the record file and reader", () => {
     writeFileSync(join(dir, "jobs", "bad.json"), "{not json");
     const panel = new ActivityReader({ dir, now: () => NOW }).current();
     expect(panel.recent.map((item) => item.title)).toEqual(["Watched the news for you", "Finished a job for you"]);
+  });
+
+  it("shows Flyd's own upkeep only while his last words ask how Flyd works", () => {
+    mkdirSync(join(dir, "logs"), { recursive: true });
+    writeFileSync(join(dir, "logs", "agenda.log"), "2026-10-17T11:30:00.000Z self-review: reviewed, 10 reviewed, 0 short\n");
+    const reader = new ActivityReader({ dir, now: () => NOW });
+    expect(reader.current().recent).toEqual([]);
+    expect(asksHowFlydWorks("How does Flyd work these days?")).toBe(true);
+    expect(asksHowFlydWorks("how is the island work going?")).toBe(false);
+    expect(reader.current(true).recent.map((item) => item.title)).toEqual(["Read back its own answers"]);
+    expect(reader.current().recent).toEqual([]);
   });
 
   it("tells a listener when the panel changes, and polls only while someone listens", () => {

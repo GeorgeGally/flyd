@@ -15,7 +15,7 @@ describe("liveActivityOf", () => {
   it("counts exactly the workers the screen lists, with where each stands and when it started", () => {
     const live = liveActivityOf(screen({ underway: [
       item("live", "a", { detail: "Rebuilding the header", started: "2026-11-06T11:40:00.000Z", shots: [{ src: "/s.png", label: "s" }] }),
-      item("live", "b", { detail: "A worker is on it" }),
+      item("live", "b", { detail: "Under way" }),
     ] }), undefined, NOW);
     expect(live.counts.running).toBe(2);
     expect(live.running[0]).toMatchObject({ state: "running", step: "Rebuilding the header", since: "2026-11-06T11:40:00.000Z" });

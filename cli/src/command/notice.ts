@@ -1,4 +1,5 @@
 import { recordHeld } from "../council/reply-review.js";
+import { plainSaid } from "../lib/backstage.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { relayShortfalls, stripCommitIds, stripRetiredPhrases } from "../runtime/honesty-check.js";
 import type { DomainRun } from "./types.js";
@@ -69,9 +70,10 @@ export function captainNotice(run: DomainRun): string | null {
   // ruled-out phrase reaches George as nothing, a completion that only names
   // backstage machinery gives way to a neutral line naming the work, and what
   // was held is recorded so a reviewer can see it.
-  const held = relayShortfalls(brief);
-  if (!held.length) return brief;
-  recordHeld({ surface: "notification", source: `domain:${run.id}`, text: brief }, held);
+  const said = plainSaid(brief);
+  const held = relayShortfalls(said);
+  if (!held.length) return said;
+  recordHeld({ surface: "notification", source: `domain:${run.id}`, text: said }, held);
   if (held.some((shortfall) => shortfall.requirement !== "backstage_hidden")) return null;
   const named = namedOutcome(run);
   return named ? `There is news on ${named}. Ask Flyd for the details.` : null;

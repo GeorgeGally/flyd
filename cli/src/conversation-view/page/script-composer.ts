@@ -645,7 +645,8 @@ export const COMPOSER_SCRIPT = `
       }).catch(function (error) {
         sendsInFlight -= 1;
         el.classList.add("failed");
-        el.querySelector(".state").textContent = "not sent: " + error.message + " (click to dismiss)";
+        // The server's reason is Flyd's to read; he sees one plain line, and his words are back in the box to send again.
+        el.querySelector(".state").textContent = "Not sent. It's back in the box to try again (click to dismiss)";
         el.addEventListener("click", function () { el.remove(); });
         if (!input.value && !attachments.length) { input.value = text; attachments = sending; renderAttachments(); }
       });

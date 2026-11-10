@@ -11,6 +11,8 @@ import { firstmateHome } from "../lib/firstmate-home.js";
 import { syncFleetFollowups } from "../runtime/fleet-followups.js";
 import { readPlans, type Plan } from "../lib/plans.js";
 import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
+import { namesBackstage } from "../runtime/honesty-check.js";
+import { plainSaid } from "../lib/backstage.js";
 import { recordKept } from "../council/reply-review.js";
 import { adviceHeadline } from "../council/advisors.js";
 import type { ArtefactVoice, Said, VoiceItem } from "./artefact-voice.js";
@@ -278,12 +280,14 @@ export function plainStep(doing: string): string {
     .replace(/\s{2,}/g, " ")
     .trim();
   const said: Array<[RegExp, string]> = [
-    [/^harness busy\b.*$/i, "A worker is on it"],
-    [/^harness state unavailable\b.*$/i, "No word from the worker"],
-    [/^run passed: PR open\b.*$/i, "PR open; its checks passed"],
-    [/^run failed\b.*$/i, "The run failed"],
-    [/^run cancelled\b.*$/i, "The run was cancelled before a verdict"],
-    [/^ready in branch\b/i, "Ready on branch"],
+    // How the staff's work is run is Flyd's to watch: he hears where the work stands, in outcome words.
+    [/^harness busy\b.*$/i, "Under way"],
+    // No word from whoever is on it is Flyd's to chase quietly, never news for him.
+    [/^harness state unavailable\b.*$/i, "Under way"],
+    [/^run passed: PR open\b.*$/i, "Ready to land; its checks passed"],
+    [/^run failed\b.*$/i, "Hit a snag"],
+    [/^run cancelled\b.*$/i, "Stopped before it finished"],
+    [/^ready in branch\b.*$/i, "Ready to land"],
   ];
   for (const [pattern, plain] of said) {
     if (pattern.test(line)) {
@@ -461,7 +465,7 @@ function wholeLabel(label: string, full: string): string {
 
 /** A row's line that only says a worker exists, or is its raw status line: the worker's own note says it plainly. Pure. */
 function saysNoStep(detail: string): boolean {
-  return /^(?:a worker is on it\b|(?:paused|done)\s*\[|(?:parked|blocked)\s+at\b)/i.test(detail);
+  return /^(?:under way\.?$|(?:paused|done)\s*\[|(?:parked|blocked)\s+at\b)/i.test(detail);
 }
 
 export interface TaskExtra {
@@ -1171,8 +1175,17 @@ export function gatedItem(item: ShowItem | undefined, about?: GeorgeKind): ShowI
   if (!headline.reach) return undefined;
   const { detail, ...shown } = item;
   const said = detail ? reachesGeorge({ kind, text: detail }, "panel") : undefined;
-  return { ...shown, headline: headline.line, ...(said?.reach ? { detail: said.line } : {}) };
+  // Staff names, branches, ids and handoffs never reach the screen: a headline says where the work stands instead, a detail is dropped.
+  const plain = plainSaid(headline.line);
+  const quiet = item.kind !== "call" && namesBackstage(plain);
+  if (quiet && !QUIET_HEADLINE[item.kind]) return undefined;
+  const line = quiet ? QUIET_HEADLINE[item.kind]! : plain;
+  const told = said?.reach ? plainSaid(said.line) : "";
+  return { ...shown, headline: line, ...(told && !namesBackstage(told) ? { detail: told } : {}) };
 }
+
+/** Where a piece of work stands, when its own headline would name the machinery even said plainly. A call keeps its question (the decision is his); anything else is Flyd's to keep. */
+const QUIET_HEADLINE: Partial<Record<ShowKind, string>> = { live: "Under way", ready: "Ready to land", landed: "Finished", waiting: "Waiting", next: "Queued" };
 
 /** How many of each kind the fleet holds, before the artefact's limits: held work only as far as the gate shows it. Pure. */
 export function fleetCounts(fleet: FleetArtefact | undefined): Partial<Record<ShowKind, number>> {
