@@ -198,6 +198,17 @@ describe("reportFromReply", () => {
 });
 
 describe("answerLead", () => {
+  it("keeps fenced code and table rows out of the lines he reads first", () => {
+    const lead = answerLead(`${"The cache now loads each key once and keeps it for the session, so the second read never goes back to the disk. "}\n\`\`\`ts\nconst data = cache.get(key) ?? load(key);\nreturn data;\n\`\`\`\n| key | hits |\n| --- | --- |\n| a | 3 |\nRun the tests after.`)!;
+    expect(lead.split("\n")).toEqual(["The cache now loads each key once and keeps it for the session, so the second read never goes back to the disk.", "Run the tests after."]);
+  });
+
+  it("shows an ask longer than a line whole as the last line", () => {
+    const ask = "Whether we move the launch to the week after the holidays, when the venue and the caterers are both free again, is your call.";
+    const lead = answerLead(`The venue cancelled the launch night. Lemon costs more. Xendit is weak. ${ask}`)!;
+    expect(ask.length).toBeGreaterThan(120);
+    expect(lead.split("\n")).toEqual(["The venue cancelled the launch night.", "Lemon costs more.", ask]);
+  });
   it("never hides a line that asks him: it takes the last visible line", () => {
     expect(answerLead(STRIPE)!.split("\n")).toEqual(["I compared the four providers and Stripe is cheapest at your volume once tax is counted.", "Paddle handles tax.", "Want me to set up Stripe?"]);
   });

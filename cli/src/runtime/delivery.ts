@@ -1,7 +1,7 @@
 import { listDomainRuns } from "../command/store.js";
 import type { DomainResult, DomainRun } from "../command/types.js";
 import { notificationLine, sentencesOf } from "../council/chief-of-staff.js";
-import { ASKS_HIM, fitsAtAGlance, LINE_CHARS, MAX_LINES } from "../conversation-view/for-george.js";
+import { ASKS_HIM, fitsAtAGlance, LINE_CHARS, MAX_CHARS, MAX_LINES } from "../conversation-view/for-george.js";
 import { replyArtefact } from "../conversation-view/summaries.js";
 import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision-step.js";
 import { relayShortfalls } from "./honesty-check.js";
@@ -157,16 +157,12 @@ export function unfitForHim(line: string): string[] {
 function detailLines(report: Report, lead: string): string[] {
   // What the first line already says, the landed link included, is never said again (leadLine capitalises, so compare without case).
   const said = `${lead} ${report.link ?? ""}`.toLowerCase();
-  const fit = [
-    ...(report.recommendation ? [report.recommendation] : []),
-    ...sentencesOf(report.detail),
-  ]
-    .map((line) => leadLine(line))
-    .filter((line) => line && !said.includes(line.toLowerCase()) && unfitForHim(line).length === 0);
+  const candidates = [...(report.recommendation ? [report.recommendation] : []), ...proseOf(report.detail)];
+  const fit = (line: string) => line && !said.includes(line.toLowerCase()) && unfitForHim(line).length === 0;
   // A line that had to be cut is left for "more", never shown half-said.
-  const lines = [...new Set(fit.filter((line) => !line.endsWith("…")))].slice(0, MAX_LINES - 1);
-  // What waits on him takes the last line, as condense keeps it.
-  const ask = fit.find((line) => ASKS_HIM.test(line));
+  const lines = [...new Set(candidates.map((line) => leadLine(line)).filter((line) => fit(line) && !line.endsWith("…")))].slice(0, MAX_LINES - 1);
+  // What waits on him takes the last line whole, as condense keeps it, cut only past what the lead leaves of the glance.
+  const ask = candidates.map((line) => notificationLine(line, Math.max(80, MAX_CHARS - lead.length - 1), true)).find((line) => fit(line) && ASKS_HIM.test(line));
   if (ask && !lines.includes(ask)) lines.splice(Math.min(lines.length, MAX_LINES - 2), lines.length, ask);
   return lines;
 }
@@ -204,10 +200,15 @@ const EMPTY: DomainResult = {
   evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low",
 };
 
+/** A text's prose sentences: fenced code and table rows wait behind "more". Pure. */
+function proseOf(text: string): string[] {
+  return sentencesOf(text.replace(/```[\s\S]*?```/g, "\n").split("\n").filter((line) => !line.trim().startsWith("|")).join("\n"));
+}
+
 /** Lines said twice in one question (a staff question repeated seven times) said once. Pure. */
 export function saidOnce(text: string): string {
   const seen = new Set<string>();
-  return sentencesOf(text).filter((sentence) => {
+  return proseOf(text).filter((sentence) => {
     const key = sentence.trim().toLowerCase();
     if (!key || seen.has(key)) return false;
     seen.add(key);
@@ -271,7 +272,7 @@ export function reportFromReply(input: { id: string; reading: string; reply: str
   const link = input.reply.match(CHANGE_LINK)?.[0];
   const options = input.options?.length ? input.options : undefined;
   const kind: ReportKind = options ? "decision" : "done";
-  const sentences = sentencesOf(input.reading);
+  const sentences = proseOf(input.reading);
   // The reading's first sentence fit to show him leads; the rest wait behind it.
   const lead = Math.max(0, sentences.findIndex((sentence) => unfitForHim(leadLine(sentence)).length === 0));
   const outcome = sentences[lead] ?? "";
@@ -300,7 +301,7 @@ export function answerLead(answer: string): string | null {
   if (!shown) return null;
   const firstLine = (shown.split("\n").find((line) => line.trim()) ?? "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").trim();
   if (fitsAtAGlance(shown) && firstLine.length <= LINE_CHARS) return null;
-  const sentences = sentencesOf(shown);
+  const sentences = proseOf(shown);
   // His own answer passed the turn's checks already: when no line fits, its first line still leads.
   return deliver({ id: "answer", kind: "done", outcome: sentences[0] ?? shown, detail: sentences.slice(1).join("\n"), evidenceRefs: [], shape: "words", artefacts: [], urgency: "now" }, "window").text ?? leadLine(shown);
 }
