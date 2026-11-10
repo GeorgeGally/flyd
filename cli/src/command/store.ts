@@ -30,7 +30,8 @@ export const LOCK_STALE_MS = 10_000;
 const LOCK_WAIT_MS = 15_000;
 const pauseCell = new Int32Array(new SharedArrayBuffer(4));
 
-function withRunLock<T>(path: string, work: () => T): T {
+/** Runs `work` holding the exclusive lock for one JSON file in the command store (runs, objectives). */
+export function withFileLock<T>(path: string, work: () => T): T {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const lock = `${path}.lock`;
   const deadline = Date.now() + LOCK_WAIT_MS;
@@ -58,9 +59,10 @@ function withRunLock<T>(path: string, work: () => T): T {
   }
 }
 
-function writeRun(path: string, run: DomainRun): void {
+/** Replaces a JSON file whole (temp + rename); call it holding the file's lock. */
+export function writeJsonFile(path: string, value: unknown): void {
   const temporary = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(run, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   renameSync(temporary, path);
 }
 
@@ -71,13 +73,13 @@ function writeRun(path: string, run: DomainRun): void {
  */
 export function mutateDomainRun(id: string, change: (current: DomainRun | null) => DomainRun | null, dir = commandDir()): DomainRun | null {
   const path = runPath(id, dir);
-  return withRunLock(path, () => {
+  return withFileLock(path, () => {
     const current = readDomainRun(id, dir);
     const next = change(current);
     if (!next) return current;
     if (next.id !== id) throw new Error("A change cannot move a domain run to another id");
     const saved: DomainRun = { ...next, revision: (current?.revision ?? 0) + 1 };
-    writeRun(path, saved);
+    writeJsonFile(path, saved);
     return saved;
   });
 }

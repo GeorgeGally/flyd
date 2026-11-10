@@ -14,6 +14,7 @@ import {
 import { parseDomainResult } from "./result.js";
 import { commitDomainRun, createDomainRun, isDomainRunId, listDomainRuns, readDomainRun } from "./store.js";
 import type { DomainRequest, DomainRun, SpecialistOutput } from "./types.js";
+import { decisionsLines } from "./types.js";
 
 export interface KnowledgeDispatchInput {
   originalMessage: string;
@@ -24,6 +25,8 @@ export interface KnowledgeDispatchInput {
   background?: boolean;
   /** A stable id for this request: dispatching it again returns its run instead of starting the work twice. */
   requestId?: string;
+  objectiveId?: string;
+  decisions?: DomainRequest["decisions"];
   now?: Date;
 }
 
@@ -57,6 +60,8 @@ export function dispatchKnowledgeDomain(input: KnowledgeDispatchInput): DomainRu
     ...(input.contextRefs?.length ? { contextRefs: input.contextRefs } : {}),
     ...(input.parentRequestId ? { parentRequestId: input.parentRequestId } : {}),
     ...(input.background ? { background: true } : {}),
+    ...(input.objectiveId ? { objectiveId: input.objectiveId } : {}),
+    ...(input.decisions ? { decisions: input.decisions } : {}),
   };
 
   const retriever = startSpecialist(
@@ -115,6 +120,7 @@ async function synthesize(run: DomainRun, specialistOutputs: SpecialistOutput[])
     `Original request: ${run.request.originalMessage}`,
     `Intended outcome: ${run.request.intendedOutcome}`,
     `Done when: ${run.request.doneWhen.join("; ")}`,
+    ...decisionsLines(run.request.decisions),
     ...((run.messages ?? []).length ? ["Later instructions from George, newer than the original request:", ...(run.messages ?? []).map((message) => `${message.kind.toUpperCase()}: ${message.body}`)] : []),
     "",
     ...specialistOutputs.map((item) => `--- ${item.specialist} ---\n${item.raw ?? item.outcome}`),

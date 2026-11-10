@@ -81,6 +81,14 @@ const PASS_ON = ["pass_on_question"];
 // and the shell for the same thing.
 const HEARS_HIM = new Set(["work_model"]);
 
+/** Who takes which work: the delegate route's hand-offs below, and the Chief of Staff's intake (command/cos/intake.ts). */
+export const TEAMS = {
+  coding: "a change to code in one of his repos, or a question only reading the code answers",
+  knowledge: "substantial research, retrieval, fact-checking or synthesis",
+  creative: "a design lab, N versions or a redesign of a page, screen or component",
+  life: "other one-off work outside his repos: generate, draft, build or evaluate something",
+} as const;
+
 /**
  * The plan for a turn. `unattended` runs (background jobs, the agenda) are the
  * work itself, so they always act.
@@ -103,6 +111,13 @@ export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domai
         instruction: "What he wants isn't clear enough to act on. Ask one short question about what he means. Offer options only if the conversation points to them; never invent any. Don't research first.",
       };
     case "delegate":
+      // With the Chief of Staff on, Flyd hands the work over whole: the CoS chooses the team and writes the brief.
+      if (process.env.FLYD_COS === "1") {
+        return {
+          route, source, cover, allows: new Set(), handoffs: new Set(["hand_off"]), budget: { iterations: 3, toolCalls: 2 }, hidden: null,
+          instruction: "This is work to hand off now, not to do or research inline. Hand it to his Chief of Staff with hand_off in your first step: his exact words, and what you know that the brief needs (project, people, taste, urgency). Then tell him in a line what will happen and what he will get back.",
+        };
+      }
       // Reading the code is the crewmate's job, not the dispatcher's: given
       // repo tools, the model explores until its budget runs out and never
       // hands off. So the only tools here are the hand-offs, and one call.

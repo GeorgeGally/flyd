@@ -343,6 +343,35 @@ Build after coding + knowledge demonstrate that the common protocol is stable.
 
 Build only when there is enough recurring work to justify a manager rather than a skill bundle.
 
+### Chief of Staff — intake, dispatch and reports (behind `FLYD_COS=1`)
+
+This is split plan Phase 3 (`docs/plans/2026-10-30-flyd-chief-of-staff-split-plan.md`). It is off by default until Phase 5.
+
+**Handoff.** With `FLYD_COS=1`, a `delegate` turn shows Flyd one tool, `hand_off(words, notes, urgency?)`. The call records an `Objective` in `~/.flyd/command/objectives/<id>.json`, kept with George's exact words and Flyd's notes. It returns once the record is durable, without waiting for intake. Objectives are written only through the command store's lock, and every write bumps the objective's `revision`.
+
+**The CoS tick.** `command/cos/tick.ts` runs on every command tick, and `hand_off` also starts it at once.
+
+- **Intake** (`cos/intake.ts`) is one JSON query over his words, Flyd's notes, USER.md and the work model. It uses the delegate route's own team guide (`TEAMS` in `runtime/turn-plan.ts`). It returns:
+  - the team;
+  - the outcome and done-when;
+  - the project;
+  - the brief's decisions field: the calls that come back to George, and those his known policy settles.
+- **The decisions field** reaches each team in its brief: FirstMate's request body, the Creative Director's brief and the Librarian's synthesis. Every run records its `objectiveId`.
+- **Dispatch** (`cos/dispatch.ts`) sends the brief through each team's existing entry point, with the objective's own request id (`<objective>-r1`):
+  - coding goes to FirstMate, with the compatibility crew as fallback;
+  - knowledge goes to the Librarian;
+  - creative goes to Design Mate's lab;
+  - life goes to a background job.
+
+  `refuseLeakedLaunch` runs first. The brief is kept on the objective before dispatch, so a restart dispatches the same brief by the same id, and the team replays it rather than starting the work twice.
+- **Refusals.** An intake that fails or is refused becomes one `blocked` report ("I couldn't get … started"). It never fails silently.
+
+**Reports.** A run that serves an objective is never told on its own: `notifyRun` leaves it to the CoS. When the run settles, the CoS reviews it with the same executive review step. A send-back stays with its boss. Otherwise the CoS writes one `cos.report` event in the SQLite spine, and Flyd tells George through the shared delivery step (`tellRun` in `command/scheduler.ts`: lead line, focus timing, told once). The report kind follows the run's outcome:
+
+- a needs-decision run gives a `decision` report, and the objective waits on George;
+- a completed run gives a `done` report;
+- a failed run gives a `blocked` report.
+
 ## 13. Success criteria
 
 The architecture is working when:

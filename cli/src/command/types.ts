@@ -14,6 +14,21 @@ export type DomainRunStatus =
 
 export type InformationLossRisk = "low" | "medium" | "high";
 
+/** The calls a brief says come back to George, and those his known policy settles without him. */
+export interface BriefDecisions {
+  comesBack: string[];
+  settledByPolicy: string[];
+}
+
+/** The brief's decisions as its team reads them. Pure. */
+export function decisionsLines(decisions?: BriefDecisions): string[] {
+  if (!decisions) return [];
+  return [
+    ...(decisions.comesBack.length ? [`Bring these calls back to George through Flyd: ${decisions.comesBack.join("; ")}`] : []),
+    ...(decisions.settledByPolicy.length ? [`Settle these yourself by his known policy, without asking: ${decisions.settledByPolicy.join("; ")}`] : []),
+  ];
+}
+
 export interface DomainRequest {
   id: string;
   domain: DomainId;
@@ -32,6 +47,10 @@ export interface DomainRequest {
   project?: { name?: string; root?: string };
   contextRefs?: string[];
   parentRequestId?: string;
+  /** The Chief of Staff objective this run serves (command/cos/); its report is the objective's, never the run's own. */
+  objectiveId?: string;
+  /** The brief's decisions field: which calls come back to George, and which his known policy settles. */
+  decisions?: BriefDecisions;
   skill?: { name: string; body: string };
   /** Started by unattended work: its specialist jobs never open an app George has closed. */
   background?: boolean;
