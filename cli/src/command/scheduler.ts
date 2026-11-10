@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { bossMessageKind, FENCE_HELD, HELD_FOR_ATTENTION, notesSentToBoss, recommendationText } from "../intelligence/executive/decision-step.js";
+import { bossMessageKind, FENCE_HELD, HELD_FOR_ATTENTION, notesSentToBoss } from "../intelligence/executive/decision-step.js";
 import { recordHeld } from "../council/reply-review.js";
 import { syncFirstmateDomainRuns } from "./firstmate.js";
 import { syncDesignMateRuns } from "./design-mate.js";
@@ -9,8 +9,7 @@ import { noticeKind } from "./notice.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
-import { notificationLine } from "../council/chief-of-staff.js";
-import { relayShortfalls } from "../runtime/honesty-check.js";
+import { deliver, reportFromRun } from "../runtime/delivery.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
@@ -94,15 +93,11 @@ export async function decideRun(
   });
 }
 
-function noticeForDecision(decision: ExecutiveDecisionRecord): string | null {
+/** The notification a decision makes: the run's report, delivered as its lead line (runtime/delivery.ts); none when held. */
+function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord): string | null {
   if (!decision.show || !decision.notify) return null;
-  // Finished work is told in its own checked line, link and all.
-  if (decision.delivery) return relayShortfalls(decision.delivery.line).length === 0 ? decision.delivery.line : null;
-  const said = decision.question
-    ? `${decision.question}${decision.recommendation ? ` ${recommendationText(decision.recommendation)}` : ""}`
-    : decision.summary;
-  const line = notificationLine(said);
-  return line && relayShortfalls(line).length === 0 ? line : null;
+  // Finished work's checked line is the report's lead, its link kept whole (runtime/delivery.ts).
+  return deliver(reportFromRun(run, decision), "notification").text;
 }
 
 /** Work he started from the window, with the window open on that conversation: his reply shows under his message there. */
@@ -135,7 +130,8 @@ export async function notifyRun(
   if (quietRun(run, windowIsOpen)) {
     // Recorded as handled, so nothing tells it later either.
     if (run.status === "completed") markTold([finishedKey(run.id)]);
-    saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
+    const { told: _told, ...current } = readDomainRun(run.id) ?? run;
+    saveDomainRun({ ...current, notified: true });
     return;
   }
   try {
@@ -143,7 +139,7 @@ export async function notifyRun(
     // Work sent back to its boss stays open: the boss's next reply is decided afresh.
     if (decision.action && decision.verification.status === "verified") return;
     // Settled once George was told, or quietly when nothing is left for him or Flyd; otherwise Flyd holds it in view.
-    const notice = noticeForDecision(decision);
+    const notice = noticeForDecision(run, decision);
     const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
       || decision.action !== undefined || decision.reason === FENCE_HELD || decision.reason === HELD_FOR_ATTENTION;
     let owed = false;
@@ -156,7 +152,10 @@ export async function notifyRun(
       }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
     } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     // A report not delivered yet is never marked told; the command tick's sweep says it again (deliverOwed).
-    if (!owed) saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
+    if (!owed) {
+      const { told: _told, ...current } = readDomainRun(run.id) ?? run;
+      saveDomainRun({ ...current, notified: true, ...(notice ? { told: { line: notice, decisionId: decision.decisionId } } : {}) });
+    }
   } catch {
     // The durable result remains in the command store; notification is best effort.
   }

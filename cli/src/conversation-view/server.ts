@@ -38,7 +38,8 @@ import { activityObjectsFromShow, artifactObjectsFromShow, decisionObjectsFromSh
 import { fillScreen } from "./screen/patterns.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import { handledBy, renderBriefing, stateOf } from "./executive.js";
-import { condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
+import { answerLead, deliver, reportFromReply } from "../runtime/delivery.js";
+import { ASKS_HIM, condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
 import { liveActivityOf, type LiveActivity } from "./live-activity.js";
@@ -245,6 +246,12 @@ function glance(text: string, source: NonNullable<RenderedMessage["summary"]>["s
   return { html: renderMarkdown(condense(text, { keepAsk })), source, ...(pending ? { pending: true } : {}) };
 }
 
+/** Flyd's own answer: whole when it fits the lead-line rule, else its lead line and two more, the rest behind "more". */
+function ownAnswer(text: string): Pick<RenderedMessage, "summary" | "expanded"> & { body: string } {
+  const lead = answerLead(text);
+  return lead === null ? { body: text } : { body: text, summary: { html: renderMarkdown(lead), source: "flyd" }, ...(isActionable(text) ? { expanded: true } : {}) };
+}
+
 /** With no model reading coming, the reply itself, held to a glance; without its question when a card asks it. */
 function briefOf(text: string, keepAsk = true): NonNullable<RenderedMessage["summary"]> {
   return glance(text, "brief", false, keepAsk);
@@ -410,9 +417,16 @@ export class SnapshotDiffer {
     const cached = interpreter?.cached(message.text);
     const shown = plainSaid(stripCommitIds(message.text));
     if (cached) {
+      // Flyd's reading is the outcome; the reply decides its shape, and he reads its lead line first (runtime/delivery.ts).
       // Flyd's reading passes the same checks the staff's words do before it leads; one that fails gives way to a plain line.
       const reading = plainSaid(inFlydsVoice(cached));
-      return this.heldRelay(reading) ? heldAnswer(message) : { body: message.text, summary: glance(reading, "flyd") };
+      if (this.heldRelay(reading)) return heldAnswer(message);
+      const said = deliver(reportFromReply({
+        id: message.id, reading, reply: message.text,
+        options: choiceOf(message.text)?.options ?? [], shots: (message.shots ?? []).filter((shot) => shot.startsWith("/")),
+      }), "window");
+      // With no line of the reading fit to lead, the reading still stands, never the staff's own words.
+      return { body: message.text, summary: said.text ? { html: renderMarkdown(said.text), source: "flyd" } : glance(reading, "flyd") };
     }
     this.readAnswer(message, snapshot, newest);
     // An answer to his note is never dropped: staff words that fail the checks wait behind a plain line.
@@ -478,6 +492,14 @@ export class SnapshotDiffer {
     const voiced = inFlydsVoice(reading ?? message.text);
     const said = replyCard(staff ? plainSaid(voiced) : voiced);
     if (!said) return undefined;
+    // Flyd's own answer leads with its delivered lead line, and what it asks him is always on the card; the rest waits behind "more".
+    const own = !staff && !reading ? answerLead(voiced)?.split("\n").map((line) => line.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").trim()).filter(Boolean) : undefined;
+    if (own?.length) {
+      said.line = own[0]!;
+      const ask = own.slice(1).find((line) => ASKS_HIM.test(line));
+      if (ask) said.sub = ask;
+      else delete said.sub;
+    }
     // The card's words pass the same outgoing checks as any relay: a line that fails leaves no card, a sub that fails is dropped.
     if (staff) {
       if (this.heldRelay(said.line)) return undefined;
@@ -559,8 +581,7 @@ export class SnapshotDiffer {
           : relay && relay.kind !== "absorbed" ? { body: message.text, summary: { html: renderMarkdown(georgeMarkdown(relay)), source: "flyd" } }
             : !message.answers ? (message.aside ? this.relaySummary(message, fresh, toHim) : this.summarize(message, fresh))
               : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh)
-                : fitsAtAGlance(message.text) ? { body: message.text }
-                  : { body: message.text, summary: glance(message.text, "flyd"), ...(isActionable(message.text) ? { expanded: true } : {}) };
+                : ownAnswer(message.text);
       if (!parts) continue;
       // A question the staff put to him mid-reply is answerable where it stands too, until he has spoken since.
       const choice = open?.message === message ? { ...open.choice, replyTo: choiceTarget(message) }

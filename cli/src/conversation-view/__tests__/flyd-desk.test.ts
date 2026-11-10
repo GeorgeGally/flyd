@@ -926,6 +926,21 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     expect(plain(shown.html)).toContain("Sir, you're right.");
   });
 
+  it("cards Flyd's own long answer by its lead line, with what it asks him on the card", () => {
+    const long = "I compared the four payment providers for the Bloom shop and Stripe is the cheapest at your volume once Billing and tax are both counted.\nPaddle handles tax for you but costs more per sale.\nLemon Squeezy costs more again.\nXendit is weak on subscriptions and has no Billing portal yet.\nWant me to set up Stripe?";
+    const shown = new SnapshotDiffer().next({
+      messages: [
+        { id: "u1", role: "user", text: "Which payment provider should Bloom use?" },
+        { id: "a1", role: "assistant", text: long, answers: "u1" },
+      ],
+      working: false,
+    }).messages.find((message) => message.id === "a1")!;
+    // The Delivery standard: the line he reads first is at most 120 characters.
+    expect(shown.card?.line.length).toBeLessThanOrEqual(120);
+    expect(shown.card?.line).toMatch(/^I compared the four payment providers/);
+    expect(`${shown.card?.line} ${shown.card?.sub ?? ""}`).toContain("Want me to set up Stripe?");
+  });
+
   it("leads with the substance, not the acknowledgement, wherever it is cut short", () => {
     const voiced = inFlydsVoice(answer);
     expect(digestReply(voiced).lead).toMatch(/^The Flyd chat box sends every message to me/);

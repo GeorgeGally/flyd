@@ -104,7 +104,17 @@ authoritative path. This change does not rewrite historical private entries.
     that names backstage machinery (`relayShortfalls`) is not shown, and a
     title that does becomes "Flyd"; when its producer sent it as a decision
     or a blocker, he hears instead that his decision is needed on the named
-    work (`deliverNotification` in `cli/src/runtime/agenda.ts`).
+    work (`deliverNotification` in `cli/src/runtime/agenda.ts`). A domain
+    run's notice is its report's lead line alone (`deliver` in
+    `cli/src/runtime/delivery.ts`): at most 120 characters, no recommendation,
+    path, task id or staff words; one unfit to show falls back to "Done: <work>"
+    for completed work or "Your call is needed: <work>" for his call, else it
+    is held. Finished work's own line from the review step, checked or not,
+    is the exception: it keeps its outcome clause and its link, passes only
+    `relayShortfalls`, and a long one shortens or drops the request it quotes
+    instead of being cut; it never falls back to "Done:" (an unchecked one
+    unfit to show becomes "<work> is finished; I haven't checked it yet.").
+    The line sent is kept on the run (`told`) for the next chat turn.
   - A domain run that asks George for an implementation call goes back to its
     boss, marked as Flyd's own note (not George's wording, no new authority),
     to settle it and report the outcome. Only FirstMate, which replies, is

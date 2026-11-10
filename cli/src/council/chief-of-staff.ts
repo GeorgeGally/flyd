@@ -311,27 +311,65 @@ export const NOTIFICATION_CHARS = 140;
 /** Openings that only address or acknowledge him, or announce what follows. */
 const NOTICE_LEAD = /^(?:(?:sir|captain|george)\s*[,!:—-]\s*)?(?:(?:done|ok(?:ay)?|sure|right|noted|got it|all set|update)[.!,:]\s+)?(?:here(?:'s| is) (?:your|the) [^.:!?]{1,40}[.:]\s+)?/i;
 
+/** Where a sentence ends: after its stop, never after a list marker ("1."). */
+const SENTENCE_END = /(?<=[.!?])(?<!(?:^|[:.!?]\s)\d+\.)\s+/;
+
+/** A text's sentences, line by line, each on one line: a list item is its own sentence, never split at its marker. Pure. */
+export function sentencesOf(text: string): string[] {
+  return text.split(/\n+/).flatMap((line) => line.replace(/\s+/g, " ").trim().split(SENTENCE_END)).filter(Boolean);
+}
+
+const MARKDOWN_LINK = /\[([^\]]+)\]\([^)]*\)/g;
+
+/** How long a line reads: a Markdown link by its words alone. Pure. */
+function shownChars(text: string): number {
+  return text.replace(MARKDOWN_LINK, "$1").length;
+}
+
+/** The text up to `shown` characters as he reads them, each Markdown link kept whole or, when cut through, by its words alone. Pure. */
+function keptLinksUpTo(text: string, shown: number): string {
+  let out = "";
+  let read = 0;
+  let at = 0;
+  for (const link of text.matchAll(MARKDOWN_LINK)) {
+    const before = text.slice(at, link.index);
+    if (read + before.length >= shown) return out + before.slice(0, shown - read);
+    out += before;
+    read += before.length;
+    const label = link[1]!;
+    if (read + label.length > shown) return out + label.slice(0, shown - read);
+    out += link[0];
+    read += label.length;
+    at = link.index! + link[0].length;
+  }
+  return out + text.slice(at, at + shown - read);
+}
+
 /**
  * A notification as George reads it: one line, outcome first. Markdown,
  * lists, the opening address and sentences that say nothing go; the rest
  * stays whole when it fits, else its first sentence that says something,
- * cut at a word when it runs long. Pure.
+ * cut at a word when it runs long. With `keepLinks` (the window), Markdown
+ * links stay on their words unless the line is cut. Pure.
  */
-export function notificationLine(text: string): string {
-  const flat = text
+export function notificationLine(text: string, max = NOTIFICATION_CHARS, keepLinks = false): string {
+  const marked = text
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/^\s*(?:#{1,6}\s+|[-*+•]\s+|\d+[.)]\s+|>\s*)/gm, "")
     .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, "$1$2")
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/`([^`]*)`/g, "$1");
+  const flat = (keepLinks ? marked : marked.replace(MARKDOWN_LINK, "$1")).replace(/\s+/g, " ").trim();
   const opened = flat.replace(NOTICE_LEAD, "") || flat;
-  const said = opened.match(/.+?[.!?](?=\s|$)|.+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [opened];
+  const said = sentencesOf(opened);
   const kept = said.filter((sentence) => !isPlaceholder(sentence) && !isAcknowledgement(sentence));
   const whole = kept.join(" ");
-  const first = whole && whole.length <= NOTIFICATION_CHARS ? whole : kept[0] ?? said[0] ?? opened;
-  const line = first.length <= NOTIFICATION_CHARS ? first : `${first.slice(0, first.lastIndexOf(" ", NOTIFICATION_CHARS - 1) > 60 ? first.lastIndexOf(" ", NOTIFICATION_CHARS - 1) : NOTIFICATION_CHARS - 1).replace(/[\s,;:—-]+$/, "")}…`;
+  const first = whole && shownChars(whole) <= max ? whole : kept[0] ?? said[0] ?? opened;
+  if (shownChars(first) <= max) return first.charAt(0).toUpperCase() + first.slice(1);
+  const plain = first.replace(MARKDOWN_LINK, "$1");
+  const end = plain.lastIndexOf(" ", max - 1) > 60 ? plain.lastIndexOf(" ", max - 1) : max - 1;
+  // Cut by what he reads; where links are kept, a link wholly inside the cut keeps its address.
+  const cut = keepLinks ? keptLinksUpTo(first, end) : plain.slice(0, end);
+  const line = `${cut.replace(/[\s,;:—-]+$/, "")}…`;
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
 

@@ -112,4 +112,6 @@ export interface DomainRun {
   /** When Flyd last asked the staff for a clear status; at most one such ask is open until a reply is read. */
   statusAskedAt?: string;
   notified?: boolean;
+  /** The line George was actually sent for this run and the decision behind it; absent when it was settled quietly or held. */
+  told?: { line: string; decisionId: string };
 }
