@@ -155,13 +155,15 @@ export function unfitForHim(line: string): string[] {
 
 /** The lines after the lead: at most two, each a short line, only those that are fit to show. Pure. */
 function detailLines(report: Report, lead: string): string[] {
+  // What the first line already says, the landed link included, is never said again (leadLine capitalises, so compare without case).
+  const said = `${lead} ${report.link ?? ""}`.toLowerCase();
   const lines = [
     ...(report.recommendation ? [report.recommendation] : []),
     ...sentencesOf(report.detail),
   ]
     .map((line) => leadLine(line))
     // A line that had to be cut is left for "more", never shown half-said.
-    .filter((line) => line && !line.endsWith("…") && line !== lead && !lead.includes(line) && unfitForHim(line).length === 0);
+    .filter((line) => line && !line.endsWith("…") && !said.includes(line.toLowerCase()) && unfitForHim(line).length === 0);
   return [...new Set(lines)].slice(0, MAX_LINES - 1);
 }
 

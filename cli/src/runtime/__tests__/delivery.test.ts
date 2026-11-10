@@ -170,6 +170,15 @@ describe("reportFromReply", () => {
     const made = reportFromReply({ id: "m", reading: "The Pages plan is written in data/logan-pages-overhaul-plan/report.md. It has three phases.", reply: "Plan written: data/logan-pages-overhaul-plan/report.md" });
     expect(deliver(made, "window").text).toBe("It has three phases.");
   });
+
+  it("shows a landed change's link once when the reading ends with it", () => {
+    // A reading that ends with the PR address: the landed line already carries it, so no second line repeats it (capitalised or not).
+    const link = "https://github.com/o/gnm/pull/91";
+    const made = reportFromReply({ id: "m", reading: `Yes, the hero spacing fix is merged and live. ${link}`, reply: `Merged and deployed (${link}). CI green.` });
+    const text = deliver(made, "window").text ?? "";
+    expect(text).toBe(`Yes, the hero spacing fix is merged and live. ${link}`);
+    expect(text.toLowerCase().split(link.toLowerCase()).length - 1).toBe(1);
+  });
 });
 
 describe("answerLead", () => {
