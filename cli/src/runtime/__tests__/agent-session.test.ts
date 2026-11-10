@@ -77,6 +77,7 @@ describe("runAgentSession", () => {
   it("lets the Muse greet in prose and keeps the raw briefing for /brief", async () => {
     const ui = terminal(["/brief", "/exit"]);
     const composeGreeting = vi.fn(async () => "Sam's call is at five; the rest can wait.");
+    const markShown = vi.fn(async () => undefined);
 
     await runAgentSession({
       terminal: ui,
@@ -87,6 +88,7 @@ describe("runAgentSession", () => {
       loadSituation: vi.fn(async () => null),
       loadBriefing: vi.fn(async () => ["On my mind: Pick one spine for positioning."]),
       composeGreeting,
+      markShown,
     });
 
     const written = ui.write.mock.calls.map((call) => String(call[0]));
@@ -94,6 +96,8 @@ describe("runAgentSession", () => {
     expect(written[0]).not.toContain("Strategist");
     expect(written[1]).toContain("Sam's call is at five");
     expect(written.slice(2).join("")).toContain("On my mind: Pick one spine for positioning.");
+    // What counts as told is what was printed: the greeting's prose, then the /brief lines; never the unprinted briefing.
+    expect(markShown.mock.calls.map((call) => (call as unknown[])[0])).toEqual(["Sam's call is at five; the rest can wait.", "On my mind: Pick one spine for positioning."]);
   });
 
   it("keeps talking while earlier work finishes in the background", async () => {

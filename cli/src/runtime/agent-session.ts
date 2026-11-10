@@ -85,6 +85,8 @@ interface AgentSessionDependencies {
   rateStory?(n: number, verdict: "more" | "less"): Promise<string | null>;
   /** George's morning (session-briefing.ts composeMorning) for the intro, and again, unmarked, for /brief. */
   loadBriefing?(options?: { situation?: AgentSituation | null; peek?: boolean }): Promise<string[]>;
+  /** The text George was just shown (greeting, intro, /brief): what of the state of play it carried is now told. */
+  markShown?(printed: string): Promise<void>;
   /** The Muse turns the briefing into a few warm sentences; the raw lines move to /brief. */
   composeGreeting?(input: { briefing: string[]; hypothesis: string | null }): Promise<string>;
   /** Put text on the system clipboard (/copy). */
@@ -458,12 +460,16 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
     if (deps.composeGreeting) {
       deps.terminal.write(wrapDisplayText(`\n${ART}\n\n  ${greeting()}\n`));
       const note = deps.composeGreeting({ briefing: briefingLines, hypothesis: presentHypothesis })
-        .then((text) => deps.terminal.write(`${wrapDisplayText(`  ${text}`).split("\n").map((line) => (useColor() ? paintFlyd(line) : line)).join("\n")}\n\n`))
+        .then((text) => {
+          deps.terminal.write(`${wrapDisplayText(`  ${text}`).split("\n").map((line) => (useColor() ? paintFlyd(line) : line)).join("\n")}\n\n`);
+          void deps.markShown?.(text).catch(() => undefined);
+        })
         .catch(() => deps.terminal.write("\n"));
       // A full-screen host keeps taking input while the Muse writes; a plain terminal waits so lines don't interleave.
       if (!deps.terminal.tui) await note;
     } else {
       deps.terminal.write(introLine(situation, presentHypothesis, briefingLines));
+      void deps.markShown?.(briefingLines.join("\n")).catch(() => undefined);
     }
 
     while (true) {
@@ -584,6 +590,7 @@ export async function runAgentSession(deps: AgentSessionDependencies): Promise<A
         const lines = await morning({ situation, peek: true }).catch(() => briefingLines);
         const body = lines.length ? lines.map((line) => `  ${line}`).join("\n") : "  Nothing pressing right now.";
         deps.terminal.write(wrapDisplayText(`\n  Daily brief — ${new Date().toLocaleString()}\n${body}\n\n`));
+        await deps.markShown?.(lines.join("\n")).catch(() => undefined);
         continue;
       }
 

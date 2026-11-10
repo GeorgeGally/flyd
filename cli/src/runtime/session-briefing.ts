@@ -97,6 +97,16 @@ export async function markNewsTold(now = new Date()): Promise<void> {
   writeFileSync(newsMarkPath(scoutDir()), now.toISOString());
 }
 
+/** George has now read this text: each current state-of-play line it carries counts as told. */
+export async function markPlayShown(printed: string, file?: string, now = Date.now()): Promise<void> {
+  const { StateOfPlay } = await import("../lib/state-of-play.js");
+  const flat = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+  const said = flat(printed);
+  if (!said) return;
+  const play = new StateOfPlay(file);
+  play.markTold(play.untold(now).filter((item) => said.includes(flat(item.line))));
+}
+
 /** True when the composed morning carries news he has not heard yet. */
 export function carriesUntoldNews(lines: string[]): boolean {
   return lines.some((line) => line.trim() === UNTOLD_NEWS);
@@ -174,6 +184,7 @@ export async function composeMorning(deps: SessionBriefingDependencies = {}): Pr
   try {
     // firstmate's latest round-up per project (lib/state-of-play.ts), told once in Flyd's words;
     // a peek (/brief, the daily brief) is the morning as it stands, so it shows every current line.
+    // Building the morning never marks these told: the surface that prints them calls markPlayShown.
     if (!deps.paths) {
       const { StateOfPlay } = await import("../lib/state-of-play.js");
       const play = new StateOfPlay();
@@ -181,7 +192,6 @@ export async function composeMorning(deps: SessionBriefingDependencies = {}): Pr
       if (shown.length) {
         lines.push("Where your work stands:");
         for (const item of shown.slice(0, 6)) lines.push(`  • ${item.line}`);
-        if (!deps.peek) play.markTold(shown);
       }
     }
   } catch {

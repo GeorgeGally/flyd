@@ -165,3 +165,27 @@ describe("one voice", () => {
     expect(lines.join("\n")).not.toMatch(/Critic|Strategist|Muse|Scout|Crew|crewmate/);
   });
 });
+
+describe("markPlayShown", () => {
+  it("marks a state-of-play line told only once George was shown it", async () => {
+    const { StateOfPlay } = await import("../../lib/state-of-play.js");
+    const { markPlayShown } = await import("../session-briefing.js");
+    const dir = mkdtempSync(join(tmpdir(), "flyd-play-"));
+    try {
+      const file = join(dir, "state.json");
+      const play = new StateOfPlay(file);
+      const now = Date.parse("2026-11-10T02:00:00Z");
+      const report = "DIR\n- More videos: landed and pushed.\n- Previews: started.\n\nFlyd\n- Bug card: started.\n- Deep dive: started.";
+      play.record({ id: "m1", text: report, timestamp: "2026-11-10T01:30:00Z" }, [{ name: "DIR", aliases: [] }, { name: "Flyd", aliases: [] }], now);
+      const [dirLine, flydLine] = ["DIR", "Flyd"].map((name) => play.untold(now).find((item) => item.project === name)!.line);
+      // A greeting that only says "a few things are waiting in /brief" has told him nothing.
+      await markPlayShown("Good morning, George. A few other things are waiting in /brief.", file, now);
+      expect(play.untold(now)).toHaveLength(2);
+      // /brief printed the DIR line (wrapped across lines by the terminal): only that one is told.
+      await markPlayShown(`Where your work stands:\n  • ${dirLine.replace(" ", "\n ")}`, file, now);
+      expect(play.untold(now).map((item) => item.line)).toEqual([flydLine]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
