@@ -115,6 +115,10 @@ cancelled
 
 It records the owner and transport correlation, not every worker heartbeat inside the domain boss.
 
+Core's scheduler and `flyd view` write runs at once, so every write goes through one helper in `cli/src/command/store.ts`. `mutateDomainRun` takes the run's own lock file (a lock left by a dead process is taken over after 10 seconds), reads the run as it is now, applies the change, bumps `revision` and replaces the file (temp + rename). `createDomainRun` records a new run, or returns the one already on record. `updateDomainRun` changes a run on record. `commitDomainRun` saves a run edited from an earlier read by applying only the fields it changed; messages merge by id. As a result, no process's update is lost to another's. `saveDomainRun` (a whole replace) is kept for fixtures.
+
+Dispatch is idempotent by request id for every team. FirstMate replays through its inbox (`fm-inbox.sh note --request-id`). Librarian (`dispatchKnowledgeDomain`) and Design Mate (`dispatchDesignMate`) take an optional `requestId`. Dispatching an id already on record returns that run and starts no second set of specialists or lab.
+
 ### DomainResult
 
 ```text

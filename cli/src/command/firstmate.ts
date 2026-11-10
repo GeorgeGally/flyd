@@ -8,7 +8,7 @@ import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } from "../runtime/repeat-guard.js";
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
 import { checkDomainHandoff } from "../runtime/acceptance.js";
-import { commandDir, listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
+import { commandDir, commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -251,7 +251,8 @@ export class FirstmateDomainTransport {
       updatedAt: now,
       transport: { kind: "firstmate", requestId: request.id, externalId: receipt.id },
     };
-    saveDomainRun(run, this.dir);
+    // A run left on record without its inbox receipt keeps whatever was added to it since; it gains the receipt.
+    mutateDomainRun(run.id, (current) => current ? { ...current, ...run } : run, this.dir);
     if (!receipt.acknowledged) {
       const session = await this.startSession(run.id, readiness, (failure, terminal) => suspendFirstmateRun(run, failure, Date.now(), this.dir, terminal));
       if (session.failure) return { run: suspendFirstmateRun(run, session.failure, Date.now(), this.dir, session.terminal), replayed };
@@ -643,8 +644,7 @@ function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, n
   if (terminal) {
     const { launchRetry: _retry, ...rest } = current;
     const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, result: parseDomainResult(terminal.message).result, updatedAt: new Date(nowMs).toISOString() };
-    saveDomainRun(stopped);
-    return stopped;
+    return commitDomainRun(current, stopped, dir);
   }
   const attempts = (current.launchRetry?.attempts ?? 0) + 1;
   const delay = Math.min(LAUNCH_RETRY_BASE_MS * 2 ** (attempts - 1), LAUNCH_RETRY_MAX_MS);
@@ -654,8 +654,7 @@ function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, n
     launchRetry: { attempts, nextAt: new Date(nowMs + delay).toISOString() },
     updatedAt: new Date(nowMs).toISOString(),
   };
-  saveDomainRun(suspended, dir);
-  return suspended;
+  return commitDomainRun(current, suspended, dir);
 }
 
 interface FirstmateReply {
@@ -737,9 +736,7 @@ async function askForAClearStatus(run: DomainRun, cursor: string | undefined, tr
     transport,
   }).catch(() => ({ delivered: false, run: undefined }));
   if (!sent.delivered || !sent.run) return sent.run ?? run;
-  const asked: DomainRun = { ...sent.run, statusAskedAt: now.toISOString() };
-  saveDomainRun(asked);
-  return asked;
+  return commitDomainRun(sent.run, { ...sent.run, statusAskedAt: now.toISOString() });
 }
 
 export async function syncFirstmateDomainRuns(options: {
@@ -802,7 +799,7 @@ export async function syncFirstmateDomainRuns(options: {
         };
         const session = await transport.startSession(request, readiness, waitingRun ? (failure, terminal) => void suspend(waitingRun, failure, Date.now(), terminal).catch(() => undefined) : undefined).catch(() => ({ started: false, failure: undefined, terminal: undefined }));
         if (session.started && waitingRun?.launchRetry) {
-          saveDomainRun({ ...waitingRun, failure: undefined, updatedAt: new Date(nowMs).toISOString() });
+          commitDomainRun(waitingRun, { ...waitingRun, failure: undefined, updatedAt: new Date(nowMs).toISOString() });
         } else if (session.failure && waitingRun) {
           await suspend(waitingRun, session.failure, nowMs, session.terminal);
         }
@@ -899,7 +896,8 @@ export async function syncFirstmateDomainRuns(options: {
       }
     }
     if (JSON.stringify(next) === JSON.stringify(run)) continue;
-    saveDomainRun(next);
+    // Only what this sync changed is applied, so a message `flyd view` sent meanwhile survives.
+    next = commitDomainRun(run, next);
     // Flyd's own notes (check-ins, closes) settle from their reply, but are never chased for a clearer one.
     if (statusUnclear && !next.statusAskedAt && next.request.source !== "flyd") next = await askForAClearStatus(next, unclearFrom, transport, (options.now ?? (() => new Date()))());
     changed.push(next);

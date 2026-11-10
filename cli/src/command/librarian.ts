@@ -12,7 +12,7 @@ import {
   type JobRecord,
 } from "../runtime/background-jobs.js";
 import { parseDomainResult } from "./result.js";
-import { listDomainRuns, saveDomainRun } from "./store.js";
+import { commitDomainRun, createDomainRun, isDomainRunId, listDomainRuns, readDomainRun } from "./store.js";
 import type { DomainRequest, DomainRun, SpecialistOutput } from "./types.js";
 
 export interface KnowledgeDispatchInput {
@@ -22,6 +22,8 @@ export interface KnowledgeDispatchInput {
   contextRefs?: string[];
   parentRequestId?: string;
   background?: boolean;
+  /** A stable id for this request: dispatching it again returns its run instead of starting the work twice. */
+  requestId?: string;
   now?: Date;
 }
 
@@ -35,13 +37,17 @@ function startSpecialist(role: "Retriever" | "Researcher" | "Fact Checker", task
 }
 
 export function dispatchKnowledgeDomain(input: KnowledgeDispatchInput): DomainRun {
+  // Replayed by request id, as FirstMate's inbox replays a note: the run on record, no second set of specialists.
+  if (input.requestId !== undefined && !isDomainRunId(input.requestId)) throw new Error("Invalid request id");
+  const replayed = input.requestId ? readDomainRun(input.requestId) : null;
+  if (replayed) return replayed;
   const now = input.now ?? new Date();
   const available = MAX_RUNNING_JOBS - runningJobs().length;
   if (available < 2) {
     throw new Error(`Librarian needs two specialist slots to start safely; ${available} available`);
   }
   const request: DomainRequest = {
-    id: `domain-${randomUUID()}`,
+    id: input.requestId ?? `domain-${randomUUID()}`,
     domain: "knowledge",
     originalMessage: input.originalMessage.trim() || input.intendedOutcome,
     intendedOutcome: input.intendedOutcome.trim(),
@@ -87,8 +93,7 @@ export function dispatchKnowledgeDomain(input: KnowledgeDispatchInput): DomainRu
     updatedAt: request.createdAt,
     transport: { kind: "native", requestId: request.id },
   };
-  saveDomainRun(run);
-  return run;
+  return createDomainRun(run).run;
 }
 
 const terminal = (job?: JobRecord): boolean =>
@@ -130,8 +135,7 @@ async function synthesize(run: DomainRun, specialistOutputs: SpecialistOutput[])
     updatedAt: new Date().toISOString(),
     ...(status === "failed" ? { failure: result.brief } : {}),
   };
-  saveDomainRun(next);
-  return next;
+  return commitDomainRun(run, next);
 }
 
 export async function syncLibrarianDomainRuns(options: {
@@ -174,9 +178,9 @@ export async function syncLibrarianDomainRuns(options: {
         specialists: [...specialists, { role: "Fact Checker", jobId: checker }],
         updatedAt: new Date().toISOString(),
       };
-      saveDomainRun(next);
-      changed.push(next);
-      await options.onChanged?.(next);
+      const saved = commitDomainRun(run, next);
+      changed.push(saved);
+      await options.onChanged?.(saved);
       continue;
     }
 

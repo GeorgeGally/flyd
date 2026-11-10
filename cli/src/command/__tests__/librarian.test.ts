@@ -18,7 +18,10 @@ vi.mock("../../runtime/background-jobs.js", () => ({
   },
 }));
 vi.mock("../store.js", () => ({
-  saveDomainRun: (run: DomainRun) => { saved.push(run); },
+  createDomainRun: (run: DomainRun) => { saved.push(run); return { run, created: true }; },
+  commitDomainRun: (_before: DomainRun, after: DomainRun) => { saved.push(after); return after; },
+  readDomainRun: (id: string) => saved.find((run) => run.id === id) ?? null,
+  isDomainRunId: () => true,
   listDomainRuns: () => saved.slice(-1),
 }));
 
@@ -37,5 +40,12 @@ describe("Librarian specialists", () => {
     dispatchKnowledgeDomain({ originalMessage: "what changed", intendedOutcome: "what changed", doneWhen: ["answered"] });
     await syncLibrarianDomainRuns();
     expect(started.map((job) => job.background)).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("replays a request id it already has: the run on record, no second pair of specialists", () => {
+    const input = { originalMessage: "what changed", intendedOutcome: "what changed", doneWhen: ["answered"], requestId: "domain-replay-1" };
+    const first = dispatchKnowledgeDomain(input);
+    expect(dispatchKnowledgeDomain(input)).toEqual(first);
+    expect([first.id, started.length]).toEqual(["domain-replay-1", 2]);
   });
 });

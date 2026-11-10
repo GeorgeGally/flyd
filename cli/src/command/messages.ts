@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { FirstmateDomainTransport } from "./firstmate.js";
-import { listDomainRuns, saveDomainRun } from "./store.js";
+import { commitDomainRun, listDomainRuns } from "./store.js";
 import type { DomainId, DomainMessage, DomainMessageKind, DomainRun } from "./types.js";
 
 const ACTIVE = new Set(["queued", "accepted", "working", "needs_decision"]);
@@ -51,12 +51,13 @@ export async function sendRunMessage(input: {
   if (run.messages?.some((message) => message.id === id && message.deliveredAt)) return { delivered: true, run };
 
   const pending: DomainMessage = { id, kind: input.kind, body, at: new Date().toISOString(), ...(input.from ? { from: input.from } : {}) };
-  const withPending: DomainRun = {
+  // Each write applies only its own change to the run as it is now (command/store.ts), so a message another
+  // process added meanwhile survives.
+  const withPending = commitDomainRun(run, {
     ...run,
     messages: [...(run.messages ?? []).filter((message) => message.id !== id), pending],
     updatedAt: pending.at,
-  };
-  saveDomainRun(withPending);
+  });
 
   if (run.request.domain === "coding" && run.transport.kind === "firstmate") {
     try {
@@ -69,8 +70,7 @@ export async function sendRunMessage(input: {
         // George's cancel is the outcome; FirstMate has it, and the run stops being active.
         ...(input.kind === "cancel" ? { status: "cancelled" as const } : {}),
       };
-      saveDomainRun(next);
-      return { delivered: true, run: next };
+      return { delivered: true, run: commitDomainRun(withPending, next) };
     } catch (error) {
       return { delivered: false, run: withPending, reason: "delivery_failed", error: error instanceof Error ? error.message : String(error) };
     }
@@ -81,8 +81,7 @@ export async function sendRunMessage(input: {
   if (run.request.domain === "knowledge" && run.owner === "Librarian") {
     const delivered: DomainMessage = { ...pending, deliveredAt: new Date().toISOString() };
     const next = { ...withPending, messages: withPending.messages!.map((message) => message.id === id ? delivered : message), updatedAt: delivered.deliveredAt! };
-    saveDomainRun(next);
-    return { delivered: true, run: next };
+    return { delivered: true, run: commitDomainRun(withPending, next) };
   }
 
   return { delivered: false, run: withPending, reason: "unsupported_domain" };

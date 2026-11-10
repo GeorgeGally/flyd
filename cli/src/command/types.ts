@@ -114,4 +114,6 @@ export interface DomainRun {
   notified?: boolean;
   /** The line George was actually sent for this run and the decision behind it; absent when it was settled quietly or held. */
   told?: { line: string; decisionId: string };
+  /** Bumped by every write (command/store.ts `mutateDomainRun`); absent on runs written before it. */
+  revision?: number;
 }

@@ -68,6 +68,15 @@ describe("Design Mate", () => {
     expect(isDesignLabRun(run)).toBe(true);
   });
 
+  it("replays a request id it already has: the run on record, no second lab", () => {
+    const input = { originalMessage: "do a lab for the right column", intendedOutcome: "Right column lab", doneWhen: ["five versions"], requestId: "lab-replay-1" };
+    const first = dispatchDesignMate(input, labs);
+    const again = dispatchDesignMate({ ...input, intendedOutcome: "Something else" }, labs);
+    expect(again).toEqual(first);
+    expect(readdirSync(labs)).toEqual(["lab-replay-1"]);
+    expect(() => dispatchDesignMate({ ...input, requestId: "../escape" }, labs)).toThrow(/request id/);
+  });
+
   it("refuses to start without done_when", () => {
     expect(() => dispatchDesignMate({ originalMessage: "a lab", intendedOutcome: "a lab", doneWhen: [] }, labs)).toThrow(/done_when/);
   });
