@@ -23,6 +23,8 @@ const report = (overrides: Partial<Report>): Report => ({
   id: "r", kind: "done", outcome: "", detail: "", evidenceRefs: [], shape: "words", artefacts: [], urgency: "today", ...overrides,
 });
 
+const STRIPE = "I compared the four providers and Stripe is cheapest at your volume once tax is counted. Paddle handles tax. Lemon costs more. Xendit is weak. Want me to set up Stripe?";
+
 describe("chooseShape", () => {
   const base = { kind: "done" as const, outcome: "Done.", artefacts: [] as string[] };
 
@@ -81,7 +83,16 @@ describe("deliver", () => {
 
   it("never leaves his own call silent: a question not fit to show falls back to the work's name", () => {
     const staff = report({ kind: "decision", outcome: "Waiting on George's three calls recorded in cap5-dash-lab-r5-calls", shape: "decision", options: ["A", "B"], work: "The CapFive dashboard lab" });
-    expect(deliver(staff, "notification").text).toBe("Your call is needed on The CapFive dashboard lab.");
+    expect(deliver(staff, "notification").text).toBe("Your call is needed: The CapFive dashboard lab.");
+    expect(deliver(report({ kind: "decision", outcome: "parked at review", shape: "decision", options: ["A", "B"], work: "Fix the island" }), "notification").text).toBe("Your call is needed: Fix the island.");
+  });
+
+  it("keeps a link on its words in the window and drops it from a notification", () => {
+    const lab = report({ outcome: "Your [hero lab](http://127.0.0.1:4818/lab/hero) is ready to look at." });
+    expect(deliver(lab, "window").text).toBe("Your [hero lab](http://127.0.0.1:4818/lab/hero) is ready to look at.");
+    expect(deliver(lab, "notification").text).toBe("Your hero lab is ready to look at.");
+    const long = "The pricing comparison of every provider at your volume is in the [report](http://127.0.0.1:4818/lab/pricing-comparison-of-every-provider).";
+    expect(deliver(report({ outcome: long }), "window").text).toBe(long);
   });
 
   it("reads dates, phone numbers and model names as words, not task ids", () => {
@@ -160,6 +171,11 @@ describe("saidOnce", () => {
 });
 
 describe("reportFromReply", () => {
+  it("never hides a line that asks him: it takes the last visible line", () => {
+    const made = reportFromReply({ id: "m", reading: STRIPE, reply: "Compared Stripe, Paddle, Lemon and Xendit." });
+    expect(deliver(made, "window").text!.split("\n")).toEqual(["I compared the four providers and Stripe is cheapest at your volume once tax is counted.", "Paddle handles tax.", "Want me to set up Stripe?"]);
+  });
+
   it("leads with Flyd's reading and takes the shape from the reply", () => {
     const made = reportFromReply({ id: "m", reading: "Yes, the spacing fix is live. Nothing else needed.", reply: "Merged and deployed https://github.com/o/r/pull/91 after 14 checks." });
     expect(made).toMatchObject({ outcome: "Yes, the spacing fix is live.", link: "https://github.com/o/r/pull/91", shape: "landed" });
@@ -182,6 +198,10 @@ describe("reportFromReply", () => {
 });
 
 describe("answerLead", () => {
+  it("never hides a line that asks him: it takes the last visible line", () => {
+    expect(answerLead(STRIPE)!.split("\n")).toEqual(["I compared the four providers and Stripe is cheapest at your volume once tax is counted.", "Paddle handles tax.", "Want me to set up Stripe?"]);
+  });
+
   it("leaves an answer that already fits whole", () => {
     expect(answerLead("It opens Saturday at 4pm.")).toBeNull();
   });

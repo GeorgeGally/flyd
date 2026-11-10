@@ -1,7 +1,7 @@
 import { listDomainRuns } from "../command/store.js";
 import type { DomainResult, DomainRun } from "../command/types.js";
 import { notificationLine, sentencesOf } from "../council/chief-of-staff.js";
-import { fitsAtAGlance, LINE_CHARS, MAX_LINES } from "../conversation-view/for-george.js";
+import { ASKS_HIM, fitsAtAGlance, LINE_CHARS, MAX_LINES } from "../conversation-view/for-george.js";
 import { replyArtefact } from "../conversation-view/summaries.js";
 import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision-step.js";
 import { relayShortfalls } from "./honesty-check.js";
@@ -136,9 +136,9 @@ export function shownShape(report: Report): DeliveryShape {
   }
 }
 
-/** One line he reads first: at most 120 characters, outcome first, no address or preamble. Pure. */
-export function leadLine(text: string): string {
-  return text.trim() ? notificationLine(text, LINE_CHARS) : "";
+/** One line he reads first: at most 120 characters, outcome first, no address or preamble; the window keeps its links. Pure. */
+export function leadLine(text: string, surface: DeliverySurface = "window"): string {
+  return text.trim() ? notificationLine(text, LINE_CHARS, surface === "window") : "";
 }
 
 /** Why a line is not fit to show him, if it is not: backstage names, paths, ids, staff words, talk about him. Pure. */
@@ -153,18 +153,22 @@ export function unfitForHim(line: string): string[] {
   ];
 }
 
-/** The lines after the lead: at most two, each a short line, only those that are fit to show. Pure. */
+/** The lines after the lead: at most two, each a short line, only those that are fit to show; a line that asks him is never hidden. Pure. */
 function detailLines(report: Report, lead: string): string[] {
   // What the first line already says, the landed link included, is never said again (leadLine capitalises, so compare without case).
   const said = `${lead} ${report.link ?? ""}`.toLowerCase();
-  const lines = [
+  const fit = [
     ...(report.recommendation ? [report.recommendation] : []),
     ...sentencesOf(report.detail),
   ]
     .map((line) => leadLine(line))
-    // A line that had to be cut is left for "more", never shown half-said.
-    .filter((line) => line && !line.endsWith("…") && !said.includes(line.toLowerCase()) && unfitForHim(line).length === 0);
-  return [...new Set(lines)].slice(0, MAX_LINES - 1);
+    .filter((line) => line && !said.includes(line.toLowerCase()) && unfitForHim(line).length === 0);
+  // A line that had to be cut is left for "more", never shown half-said.
+  const lines = [...new Set(fit.filter((line) => !line.endsWith("…")))].slice(0, MAX_LINES - 1);
+  // What waits on him takes the last line, as condense keeps it.
+  const ask = fit.find((line) => ASKS_HIM.test(line));
+  if (ask && !lines.includes(ask)) lines.splice(Math.min(lines.length, MAX_LINES - 2), lines.length, ask);
+  return lines;
 }
 
 /**
@@ -181,11 +185,11 @@ export function deliver(report: Report, surface: DeliverySurface): Delivered {
     ...(shape === "steps" && report.steps ? { steps: report.steps } : {}),
     ...(report.link ? { link: report.link } : {}),
   };
-  const written = leadLine(report.outcome);
+  const written = leadLine(report.outcome, surface);
   const reasons = unfitForHim(written);
   // Finished work, or his call, whose own words are not fit to show is told by its name; a report that says nothing is held.
   const work = report.work?.replace(/[.\s]+$/, "") ?? "";
-  const fallback = !written || !work ? "" : report.kind === "done" ? `Done: ${notificationLine(`${work}.`, LINE_CHARS - "Done: ".length)}` : report.kind === "decision" ? leadLine(`Your call is needed on ${work}.`) : "";
+  const fallback = !written || !work ? "" : report.kind === "done" ? `Done: ${notificationLine(`${work}.`, LINE_CHARS - "Done: ".length)}` : report.kind === "decision" ? `Your call is needed: ${notificationLine(`${work}.`, LINE_CHARS - "Your call is needed: ".length)}` : "";
   const lead = reasons.length === 0 && written ? written : fallback && unfitForHim(fallback).length === 0 ? fallback : "";
   if (!lead) return { text: null, lead: null, shape, ...extras, held: reasons.length ? reasons : ["It says nothing."] };
   if (surface === "notification") return { text: lead, lead, shape, ...extras };

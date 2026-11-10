@@ -253,7 +253,7 @@ export function condense(text: string, options: { maxChars?: number; keepAsk?: b
 }
 
 /** A sentence that asks him something or waits on his word. */
-const ASKS_HIM = /\?["”')\]]*$|\b(?:decide|your (?:call|decision|word|go-ahead|ok|approval)|needs? (?:you|your)|waiting (?:on|for) you)\b/i;
+export const ASKS_HIM = /\?["”')\]]*$|\b(?:decide|your (?:call|decision|word|go-ahead|ok|approval)|needs? (?:you|your)|waiting (?:on|for) you)\b/i;
 
 /** A link reads as a short link, not its whole address. */
 const LINK_CHARS = 24;

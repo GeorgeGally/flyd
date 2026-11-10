@@ -319,27 +319,35 @@ export function sentencesOf(text: string): string[] {
   return text.split(/\n+/).flatMap((line) => line.replace(/\s+/g, " ").trim().split(SENTENCE_END)).filter(Boolean);
 }
 
+const MARKDOWN_LINK = /\[([^\]]+)\]\([^)]*\)/g;
+
+/** How long a line reads: a Markdown link by its words alone. Pure. */
+function shownChars(text: string): number {
+  return text.replace(MARKDOWN_LINK, "$1").length;
+}
+
 /**
  * A notification as George reads it: one line, outcome first. Markdown,
  * lists, the opening address and sentences that say nothing go; the rest
  * stays whole when it fits, else its first sentence that says something,
- * cut at a word when it runs long. Pure.
+ * cut at a word when it runs long. With `keepLinks` (the window), Markdown
+ * links stay on their words unless the line is cut. Pure.
  */
-export function notificationLine(text: string, max = NOTIFICATION_CHARS): string {
-  const flat = text
+export function notificationLine(text: string, max = NOTIFICATION_CHARS, keepLinks = false): string {
+  const marked = text
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/^\s*(?:#{1,6}\s+|[-*+•]\s+|\d+[.)]\s+|>\s*)/gm, "")
     .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, "$1$2")
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/`([^`]*)`/g, "$1");
+  const flat = (keepLinks ? marked : marked.replace(MARKDOWN_LINK, "$1")).replace(/\s+/g, " ").trim();
   const opened = flat.replace(NOTICE_LEAD, "") || flat;
   const said = sentencesOf(opened);
   const kept = said.filter((sentence) => !isPlaceholder(sentence) && !isAcknowledgement(sentence));
   const whole = kept.join(" ");
-  const first = whole && whole.length <= max ? whole : kept[0] ?? said[0] ?? opened;
-  const line = first.length <= max ? first : `${first.slice(0, first.lastIndexOf(" ", max - 1) > 60 ? first.lastIndexOf(" ", max - 1) : max - 1).replace(/[\s,;:—-]+$/, "")}…`;
+  const first = whole && shownChars(whole) <= max ? whole : kept[0] ?? said[0] ?? opened;
+  if (shownChars(first) <= max) return first.charAt(0).toUpperCase() + first.slice(1);
+  const plain = first.replace(MARKDOWN_LINK, "$1");
+  const line = `${plain.slice(0, plain.lastIndexOf(" ", max - 1) > 60 ? plain.lastIndexOf(" ", max - 1) : max - 1).replace(/[\s,;:—-]+$/, "")}…`;
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
