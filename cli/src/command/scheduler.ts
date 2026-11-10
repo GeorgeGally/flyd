@@ -115,7 +115,7 @@ async function whenToTell(run: DomainRun, decision: ExecutiveDecisionRecord, att
   if (!focus) return { timing: { when: "now" } };
   const project = projectOf(run);
   const report = reportFromRun(run, decision);
-  const kind = (decision.disposition === "ask_george" && callKind([report.outcome, decision.summary, run.request.intendedOutcome].join("\n"))) || report.kind;
+  const kind = (decision.disposition === "ask_george" && callKind([report.outcome, decision.summary].join("\n"))) || report.kind;
   // His call on the work he is on blocks it.
   const blocking = decision.disposition === "ask_george" && sameProject(project, focus.project);
   return { timing: timing({ ...(project ? { project } : {}), kind, blocking }, focus), focus };

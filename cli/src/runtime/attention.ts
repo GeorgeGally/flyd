@@ -91,12 +91,23 @@ export function readFocus(signals: FocusSignals): Focus {
   };
 }
 
-const CREDENTIAL = /\b(log ?in|sign ?in|passwords?|passcodes?|tokens?|api keys?|credentials?|2fa|two[- ]factor|otp|one[- ]time (?:code|password))\b/i;
+const SECRET = String.raw`(?:login|log-in|password|passcode|api keys?|tokens?|credentials?|2fa|two[- ]factor(?: code)?|otp|one[- ]time (?:code|password)|verification code)`;
+/** Asks him for his own secret: "your password", "an API key from you", "log in to Stripe", "the 2FA code". */
+const ASKS_CREDENTIAL = new RegExp([
+  String.raw`\byour\s+(?:[\w.-]+\s+){0,2}${SECRET}\b`,
+  String.raw`\b${SECRET}\s+from\s+you\b`,
+  String.raw`\b(?:log|sign)\s?in\s+(?:to|into)\s+\w`,
+  String.raw`\bthe\s+(?:2fa|two[- ]factor|one[- ]time|otp|verification)\s+code\b`,
+].join("|"), "i");
+const MONEY_OR_FINAL = /\b(pay|charge|refund|spend|buy|purchase|cancel|delete|deploy|publish|release|merge\s+(?:\w+\s+){0,3}(?:to|into)\s+(?:production|prod)|sign\s+(?:the|a|this)\s+contract)\b/i;
+const FINAL_VERBS = new Set(["send", "publish", "purchase", "delete"]);
 
-/** A call he is asked: "credential" or "irreversible" when its words say so, which never wait. Pure. */
-export function callKind(text: string): "credential" | "irreversible" | undefined {
-  if (CREDENTIAL.test(text)) return "credential";
-  return assessConsequence(text).class === "consequential" ? "irreversible" : undefined;
+/** A call he is asked: "credential" or "irreversible" when its own words say so, which never wait. Pure. */
+export function callKind(question: string): "credential" | "irreversible" | undefined {
+  if (ASKS_CREDENTIAL.test(question)) return "credential";
+  const consequence = assessConsequence(question);
+  const final = consequence.class === "consequential" && consequence.verbs.some((verb) => FINAL_VERBS.has(verb));
+  return final || MONEY_OR_FINAL.test(question) ? "irreversible" : undefined;
 }
 
 /** When a report arriving now is told. Pure. */

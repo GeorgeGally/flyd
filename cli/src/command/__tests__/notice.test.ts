@@ -333,24 +333,30 @@ describe("notifyRun", () => {
     expect(readDomainRun("domain-held-1")?.told?.line).toBe(line);
   });
 
-  it("tells an off-focus call to publish or for a key now, and holds an ordinary one", async () => {
+  it("tells an off-focus call to publish, pay or for his key now, and holds ordinary ones", async () => {
     const sent: string[] = [];
     const notify = async (_title: string, message: string) => { sent.push(message); };
     const ask = (id: string, question: string): [DomainRun, ExecutiveDecisionRecord] => {
       const base = run(JSON.stringify({ status: "needs_decision", brief: question }));
-      return [{ ...base, id, request: { ...base.request, id, project: { name: "cap5" } } }, {
+      const request = { ...base.request, id, project: { name: "cap5" }, originalMessage: "Make the cap5 pricing page", intendedOutcome: "Make the cap5 pricing page" };
+      return [{ ...base, id, request }, {
         schema: "flyd.executive-decision.v1", decisionId: `decision-${id}`, sourceId: "firstmate.change", sourceEventId: `event-${id}`,
         taskId: id, disposition: "ask_george", reason: "George owns the choice", summary: question, evidenceRefs: [id], question,
         options: ["Yes", "Not yet"], recommendation: { option: "Not yet", rationale: "It can wait for a look." }, verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
       }];
     };
     const onBloom = async () => ({ project: "Bloom", meetingEndsAt: Date.now() + 60_000 });
-    for (const [id, question] of [["domain-call-1", "Publish the cap5 website now?"], ["domain-call-2", "Which API key should cap5 use?"], ["domain-call-3", "Blue or green for the cap5 header?"]]) {
+    const calls = [
+      ["domain-call-1", "Publish the cap5 website now?"], ["domain-call-2", "Pay the cap5 hosting invoice now?"],
+      ["domain-call-3", "Can I have your Stripe API key?"], ["domain-call-4", "Blue or green for the header?"],
+      ["domain-call-5", "Should I fix the login page first?"],
+    ];
+    for (const [id, question] of calls) {
       const [asked, decided] = ask(id!, question!);
       await notifyRun(asked, notify, undefined, async () => decided, () => false, onBloom);
     }
-    expect(sent).toHaveLength(2);
-    expect(sent.join(" ")).not.toContain("Blue or green");
+    expect(sent).toHaveLength(3);
+    expect(sent.join(" ")).not.toMatch(/Blue or green|login page/);
   });
 
   it("quotes only George's own words for a finished run, and says Flyd's stand-ins as the bare fact", async () => {

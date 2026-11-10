@@ -118,7 +118,8 @@ authoritative path. This change does not rewrite historical private entries.
   - A domain run's notice follows his focus (`cli/src/runtime/attention.ts`),
     read from his recent commits, the foreground repo, his last chat turn and a
     meeting on his calendar: irreversible or credential reports (a call whose
-    words ask to publish, send, pay or delete, or for a login, password or key),
+    own words ask to publish, send, pay or delete, or ask him for his login,
+    password, key or code; his original request is not read for this),
     and his call on
     the work he is on, go now; in a meeting the rest wait for its end; about the
     project he is on, now as its lead line with its link (detail stays in the
