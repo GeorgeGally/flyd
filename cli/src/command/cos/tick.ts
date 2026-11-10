@@ -8,7 +8,7 @@ import { readDomainRun } from "../store.js";
 import type { DomainRun } from "../types.js";
 import { dispatchBrief, type Dispatch } from "./dispatch.js";
 import { intakeObjective, type Complete } from "./intake.js";
-import { cosEnabled, listObjectives, mutateObjective } from "./objectives.js";
+import { cosEnabled, listObjectives, mutateObjective, readObjective } from "./objectives.js";
 import type { CosReport, CosReportKind, Objective } from "./types.js";
 
 // The Chief of Staff's tick (split plan Phase 3, behind FLYD_COS=1). Called from the command tick, and kicked at
@@ -33,6 +33,8 @@ export interface CosTickDeps {
   tell?: (run: DomainRun, decision: ExecutiveDecisionRecord, key: string) => Promise<unknown>;
   /** Tells George a report with no run behind it: a refused intake, a background job's result. */
   say?: (report: CosReport) => Promise<unknown>;
+  /** Passes a message on to a run (messages.ts `sendRunMessage`). */
+  send?: typeof sendRunMessage;
   store?: IntelligenceEventStore;
   now?: () => Date;
 }
@@ -78,11 +80,12 @@ async function report(objective: Objective, made: CosReport, deps: CosTickDeps, 
   await tell();
   recordCosReport(made, store, deps.now?.());
   mutateObjective(objective.id, (current) => current && {
-    ...current, status, reportIds: current.reportIds.includes(made.id) ? current.reportIds : [...current.reportIds, made.id],
+    ...current, status: current.status === "cancelled" ? current.status : status, reportIds: current.reportIds.includes(made.id) ? current.reportIds : [...current.reportIds, made.id],
   });
 }
 
 async function blocked(objective: Objective, reason: string, deps: CosTickDeps, store: IntelligenceEventStore): Promise<void> {
+  if (readObjective(objective.id)?.status === "cancelled") return;
   // One plain sentence: what happened. The reason stays on the record.
   const made = { ...plainReport(objective, "blocked", `I couldn't get “${shortWords(objective.words)}” started; tell me a bit more and I'll set it going.`, "intake"), detail: reason };
   await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george");
@@ -104,13 +107,16 @@ async function intake(objective: Objective, deps: CosTickDeps, store: Intelligen
     // Kept before dispatch: a restart from here dispatches this same brief, by the same request id.
     mutateObjective(claimed.id, (current) => current && { ...current, brief: read });
   }
+  if (readObjective(claimed.id)?.status !== "intake") return;
   const dispatched = await (deps.dispatch ?? dispatchBrief)(claimed, brief).catch((error: unknown) => ({ refused: error instanceof Error ? error.message : String(error) }));
   if ("refused" in dispatched) return blocked(claimed, dispatched.refused, deps, store);
-  mutateObjective(claimed.id, (current) => {
+  const recorded = mutateObjective(claimed.id, (current) => {
     if (!current) return null;
     const { claim: _claim, ...rest } = current;
-    return { ...rest, status: "working", runs: rest.runs.includes(dispatched.ref) ? rest.runs : [...rest.runs, dispatched.ref] };
+    return { ...rest, status: rest.status === "intake" ? "working" : rest.status, runs: rest.runs.includes(dispatched.ref) ? rest.runs : [...rest.runs, dispatched.ref] };
   });
+  const run = recorded?.status === "cancelled" && !dispatched.ref.includes(":") ? readDomainRun(dispatched.ref) : null;
+  if (run) await (deps.send ?? sendRunMessage)({ run, kind: "cancel", body: "George cancelled this." }).catch(() => undefined);
 }
 
 const SETTLED_STATUS: Record<string, Objective["status"]> = { completed: "done", failed: "failed", needs_decision: "needs_george" };

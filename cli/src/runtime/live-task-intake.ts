@@ -250,3 +250,25 @@ export async function buildTaskPlanResponse(options: LiveTaskPlanOptions): Promi
     mode: outcome.planned ? "requires_task" : "requires_augment",
   };
 }
+
+/**
+ * With the Chief of Staff on (FLYD_COS=1), a LIVE or invoked task is handed off like any other work: one objective
+ * carrying his exact words, no separate AgentTask, and the same staff and delivery as chat.
+ */
+export async function handOffLiveTask(words: string, projectRoot: string | null | undefined, invocationId?: string): Promise<LiveTaskPlanResponse> {
+  const { openObjective } = await import("../command/cos/objectives.js");
+  const objective = openObjective({
+    words: words.trim(),
+    flydNotes: "Asked by voice or the command bar, while working.",
+    origin: { surface: "live", ...(invocationId ? { turnId: invocationId } : {}) },
+    ...(projectRoot ? { project: { root: projectRoot } } : {}),
+  });
+  if (!process.env.VITEST) void import("../command/cos/tick.js").then(({ cosTick }) => cosTick()).catch(() => undefined);
+  const said = objective.words.replace(/\s+/g, " ");
+  return {
+    augmentations: [{ kind: "explanation", content: `I've handed off “${said.length > 80 ? `${said.slice(0, 79)}…` : said}”; you'll hear back when it's done.`, placement: "cursor" }],
+    delegatedTask: null,
+    taskPlan: null,
+    mode: "requires_augment",
+  };
+}

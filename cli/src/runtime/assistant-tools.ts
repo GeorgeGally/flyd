@@ -71,6 +71,30 @@ export const assistantTools: AgentTool[] = [
     },
   },
   {
+    name: "tell_work",
+    description: "Pass George's correction, decision, change of priority or cancel to work he already handed off. The Chief of Staff finds which piece of work it is for and delivers it; if it could be for more than one, it returns the one question to ask him. Use it only when his message is about work under way.",
+    input_schema: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "His message about the work, in his words" },
+        kind: { type: "string", enum: ["correction", "decision", "priority_change", "cancel"], description: "What the message does to the work" },
+        objective_id: { type: "string", description: "The objective it is for, when work_status showed which" },
+        team: { type: "string", enum: ["coding", "knowledge", "creative", "life"], description: "Which kind of work it is about, when clear" },
+      },
+      required: ["message"],
+    },
+  },
+  {
+    name: "work_status",
+    description: "What the work George handed off is doing: every open piece of work and its stage, or, with objective_id, that work's retained result (the report, decisions, open questions, artefacts) to answer follow-up questions without starting anything. Read-only.",
+    input_schema: {
+      type: "object",
+      properties: {
+        objective_id: { type: "string", description: "One objective, for its retained result" },
+      },
+    },
+  },
+  {
     name: "start_coding_task",
     description: "Hand code work in one of George's repos to the crew, in the background. The crew can build the change on its own branch, install dependencies, run the repo's tests, and commit. It cannot push, deploy, publish, or merge: those happen only after George says /land, and only if he approves them now. So if what he asked for includes pushing or deploying, put those steps in after_land and he is asked right away; never promise them otherwise. Returns immediately.",
     input_schema: {
@@ -314,6 +338,29 @@ export async function runAssistantTool(
         // Intake starts now rather than on the next command tick (never from a test: intake asks a model).
         if (!process.env.VITEST) void import("../command/cos/tick.js").then(({ cosTick }) => cosTick()).catch(() => undefined);
         return `Handed off (${objective.id}): it is recorded and being set going now. Tell him in a line what will happen and what he will get back; no ids, and not who does it.`;
+      }
+      case "tell_work": {
+        const { cosEnabled } = await import("../command/cos/objectives.js");
+        if (!cosEnabled()) return "Error: tell_work is not available";
+        const kinds = ["correction", "decision", "priority_change", "cancel"];
+        const teams = ["coding", "knowledge", "creative", "life"];
+        const { tellWork } = await import("../command/cos/steer.js");
+        const outcome = await tellWork({
+          message: String(input.message ?? context.userMessage ?? ""),
+          ...(input.objective_id ? { objectiveId: String(input.objective_id) } : {}),
+          ...(kinds.includes(String(input.kind)) ? { kind: input.kind as "correction" } : {}),
+          ...(teams.includes(String(input.team)) ? { team: input.team as "coding" } : {}),
+        });
+        if (outcome.delivered) return "Delivered to the work it is for. Tell him in a line that it has it; don't send it again.";
+        if (outcome.reason === "ambiguous") return `It could be for more than one piece of work. Ask him, in one line: ${outcome.ask}`;
+        if (outcome.reason === "no_active_work") return "No work under way matches. Treat it as him talking to you; don't say it was passed on.";
+        return "It could not be delivered. Don't say it was passed on; tell him only if it matters.";
+      }
+      case "work_status": {
+        const { cosEnabled } = await import("../command/cos/objectives.js");
+        if (!cosEnabled()) return "Error: work_status is not available";
+        const { workStatus } = await import("../command/cos/steer.js");
+        return workStatus(input.objective_id ? String(input.objective_id) : undefined);
       }
       case "start_coding_task": {
         const outcome = String(input.outcome ?? "").replace(/\s+/g, " ").trim();

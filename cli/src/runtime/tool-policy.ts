@@ -204,6 +204,8 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     case "start_knowledge_task":
     case "start_design_task":
     case "pass_on_question":
+    case "hand_off":
+    case "tell_work":
       return "local";
     // Merging into George's branch or deleting a crew branch is his call, every time.
     case "crew": return input.action === "land" || input.action === "discard" ? "destructive" : "read";
