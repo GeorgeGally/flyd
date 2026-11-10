@@ -372,6 +372,22 @@ This is split plan Phase 3 (`docs/plans/2026-10-30-flyd-chief-of-staff-split-pla
 - a completed run gives a `done` report;
 - a failed run gives a `blocked` report.
 
+### Chief of Staff — steering and status (behind `FLYD_COS=1`)
+
+This is split plan Phase 4. With the flag on:
+
+- **Steering.** `tell_work(message, kind?, objective_id?, team?)` replaces the in-turn fast path that sent a correction straight to a domain run.
+  - The CoS (`command/cos/steer.ts`) resolves which open objective the message is for. The Jev domain reading arrives as a team hint that narrows the list.
+  - It delivers the message through `sendRunMessage` to that objective's open run.
+  - When two or more objectives match, it returns one question for Flyd to ask instead of guessing. It forwards nothing when no work is under way.
+  - A cancel closes the objective.
+- **Status.** `work_status(objective_id?)` is read-only. It lists his open and recent objectives and their stage, or returns one objective's retained result (report, decisions, open questions, artefacts), so a follow-up question never dispatches anything.
+- **Tool set.** On George's own turns, Flyd's tools no longer include the management tools (`start_*`, `pass_on_question`, `background_task`, `domain_work`, `crew`) or the code-writing ones (`edit_file`, `write_file`).
+  - A shell command that changes anything is refused with "hand it off".
+  - The answer and act routes hand work over with `hand_off` and steer it with `tell_work`.
+  - Unattended runs (background jobs, the agenda) are the work itself and keep their tools.
+- **LIVE.** A LIVE or command-bar `task_plan` becomes a `hand_off` objective (`handOffLiveTask` in `runtime/live-task-intake.ts`) instead of a separate `AgentTask`.
+
 ## 13. Success criteria
 
 The architecture is working when:

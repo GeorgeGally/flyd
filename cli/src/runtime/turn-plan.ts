@@ -94,6 +94,20 @@ export const TEAMS = {
  * work itself, so they always act.
  */
 export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domain"> | null, cover: string[] = [], options: { unattended?: boolean } = {}): TurnPlan | null {
+  const plan = basePlan(reading, cover, options);
+  if (!plan || process.env.FLYD_COS !== "1" || plan.route === "delegate") return plan;
+  // With the Chief of Staff on, the answer and act routes hand work over with hand_off, never manage it themselves.
+  return {
+    ...plan,
+    // tell_work passes his word on to work under way; it changes nothing of his, so an answer turn may use it.
+    handoffs: plan.handoffs.size ? new Set(["hand_off", "tell_work"]) : plan.handoffs,
+    instruction: plan.instruction
+      .replace("pass it on in this turn with pass_on_question", "hand it off in this turn with hand_off")
+      .replace("goes to start_coding_task or background_task instead", "goes to hand_off instead"),
+  };
+}
+
+function basePlan(reading: Pick<RouteReading, "route" | "source" | "domain"> | null, cover: string[], options: { unattended?: boolean }): TurnPlan | null {
   if (options.unattended || reading === null) return null;
   const { route, source } = reading;
   const domain = reading.domain ?? null;

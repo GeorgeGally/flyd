@@ -19,7 +19,7 @@ import { persistReceipt, persistLearnings, persistLearningReceipt } from "./memo
 import { resolve, routeIntent, shouldRunWorkIntelligence, ManifestRequest } from "./resolve.js";
 import { requestPurposeFromRoute } from "./router.js";
 import { isDelegationIntent, buildDelegationEnvelope, validateDelegationCompletion, type DelegationCompletion } from "./delegation.js";
-import { buildTaskPlanResponse, resolveLiveTaskIntent, runtimeTaskStore } from "./runtime/live-task-intake.js";
+import { buildTaskPlanResponse, handOffLiveTask, resolveLiveTaskIntent, runtimeTaskStore } from "./runtime/live-task-intake.js";
 import { buildIntelligenceState } from "./export-state.js";
 import type { Resolution, ResolutionOutcome } from "./resolve-types.js";
 import { validateResolution } from "./resolve-types.js";
@@ -432,7 +432,10 @@ async function handleManifest(req: IncomingMessage, res: ServerResponse) {
         );
         const projectRoot = repoInfo.root || process.cwd();
 
-        const response = await buildTaskPlanResponse({
+        // With the Chief of Staff on, the task is handed off like chat work rather than tracked as its own AgentTask.
+        const response = process.env.FLYD_COS === '1'
+          ? await handOffLiveTask(parsed.intent, projectRoot, parsed.invocation_id)
+          : await buildTaskPlanResponse({
           decision: taskDecision,
           // Terminal and browser captures do not always expose a document
           // path. We already chose Core's repository as the safe fallback for

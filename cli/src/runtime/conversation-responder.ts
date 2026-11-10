@@ -521,11 +521,26 @@ const conversationTools: AgentTool[] = [
   },
 ];
 
-/** The tools chat offers on a turn: what its plan leaves in sight, code tools only on code turns. */
-export function chatToolSet(plan: TurnPlan | null, codeTurn: boolean): AgentTool[] {
-  // hand_off exists only while the Chief of Staff runs delegated work (FLYD_COS=1).
+/** The Chief of Staff's tools: Flyd hands work over, steers it and asks how it is going (FLYD_COS=1). */
+const COS_TOOLS = new Set(["hand_off", "tell_work", "work_status"]);
+/** Management Flyd gives up to the Chief of Staff, and code changes Flyd never makes itself (split plan Phase 4). */
+const COS_OWNS = new Set(["start_coding_task", "start_knowledge_task", "start_design_task", "pass_on_question", "background_task", "domain_work", "crew", "edit_file", "write_file"]);
+
+/**
+ * The tools chat offers on a turn: what its plan leaves in sight, code tools only on code turns. With the Chief of
+ * Staff on, George's own turns hand work over instead of managing it or changing code; unattended runs are the work
+ * itself and keep their tools.
+ */
+export function chatToolSet(plan: TurnPlan | null, codeTurn: boolean, attended = true): AgentTool[] {
+  const cos = process.env.FLYD_COS === "1";
   return visibleTools([...conversationTools, ...personalTools, ...assistantTools], plan)
-    .filter((tool) => (codeTurn || !CODE_TOOLS.has(tool.name)) && (tool.name !== "hand_off" || process.env.FLYD_COS === "1"));
+    .filter((tool) => (codeTurn || !CODE_TOOLS.has(tool.name))
+      && (COS_TOOLS.has(tool.name) ? cos && attended : !(cos && attended && COS_OWNS.has(tool.name))));
+}
+
+/** A shell command Flyd may run on George's own turn with the Chief of Staff on: reading only, never changing. */
+export function flydMayRun(command: string, attended: boolean): boolean {
+  return !(process.env.FLYD_COS === "1" && attended) || isReadOnlyCommand(command);
 }
 
 export function isInstagramLoginWall(url: string, text: string): boolean {
@@ -1170,14 +1185,18 @@ export async function respondToConversation(
   // deliberately narrower than ordinary routing: if ownership is ambiguous,
   // Flyd keeps the message and resolves it instead of guessing.
   let domainDeliveryNote = "";
-  if (!mobile && !dependencies.readOnly && fast?.domain && fast.domain !== "general"
-    && fast.commandKind && ["correction", "decision", "priority_change", "cancel"].includes(fast.commandKind)) {
+  const steering = !mobile && !dependencies.readOnly && fast?.domain && fast.domain !== "general"
+    && fast.commandKind && ["correction", "decision", "priority_change", "cancel"].includes(fast.commandKind);
+  if (steering && process.env.FLYD_COS === "1") {
+    // With the Chief of Staff on, it resolves which work his message is for (tell_work); Flyd only passes it on.
+    domainDeliveryNote = `This looks like a ${fast!.commandKind} for ${fast!.domain} work under way. Pass it on with tell_work (kind ${fast!.commandKind}, team ${fast!.domain}) before you reply, then tell him in a line.`;
+  } else if (steering) {
     try {
       const { sendDomainMessage } = await import("../command/messages.js");
       input.signal?.throwIfAborted();
       const outcome = await sendDomainMessage({
-        domain: fast.domain,
-        kind: fast.commandKind as "correction" | "decision" | "priority_change" | "cancel",
+        domain: fast!.domain as "coding" | "knowledge" | "creative" | "life",
+        kind: fast!.commandKind as "correction" | "decision" | "priority_change" | "cancel",
         body: input.message,
       });
       domainDeliveryNote = outcome.delivered
@@ -1320,7 +1339,9 @@ export async function respondToConversation(
     // contract, then the retry limit. An article chat skips the route gate so
     // "remember this" is not refused as off an answer turn; confirmation still holds.
     const skip = (input.article ? null : (mobile && (!MOBILE_TOOLS.has(name) || (!input.mobileAccounts && CONNECTOR_TOOL_NAMES.has(name))) ? "Error: this capability requires a connected Mac; no desktop work was dispatched." : null) ?? offRoute(plan, name, toolInput) ?? offCode(codeTurn, name, toolInput, repoRoots))
-      ?? dependencies.toolProfile?.refuse?.(name, toolInput) ?? contractError(name, toolInput) ?? repeats.blocked(name, toolInput);
+      ?? dependencies.toolProfile?.refuse?.(name, toolInput) ?? contractError(name, toolInput) ?? repeats.blocked(name, toolInput)
+      // With the Chief of Staff on, Flyd never changes code or files from the shell on his turn: that is handed off.
+      ?? (name === "bash" && !flydMayRun(String(toolInput.command ?? ""), !unattended) ? "Error: you don't change files or code from the shell; hand the change off with hand_off" : null);
     if (skip) {
       toolCalls.push({ name, input: toolInput, succeeded: false, error: skip });
       return skip;
@@ -1354,7 +1375,7 @@ export async function respondToConversation(
   const maxIterations = budget.iterations;
   const offered = input.article
     ? personalTools.filter((tool) => tool.name === "remember")
-    : chatToolSet(plan, codeTurn).filter(tool => !mobile || (MOBILE_TOOLS.has(tool.name) && (input.mobileAccounts || !CONNECTOR_TOOL_NAMES.has(tool.name))));
+    : chatToolSet(plan, codeTurn, !unattended).filter(tool => !mobile || (MOBILE_TOOLS.has(tool.name) && (input.mobileAccounts || !CONNECTOR_TOOL_NAMES.has(tool.name))));
   const selectedTools = dependencies.toolProfile ? dependencies.toolProfile.offer(offered) : offered;
   if (!dependencies.readOnly) {
     try {

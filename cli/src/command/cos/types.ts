@@ -19,7 +19,7 @@ export interface Objective {
   revision: number;
   createdAt: string;
   updatedAt: string;
-  origin: { surface: "chat" | "view" | "agenda"; sessionId?: string; turnId?: string };
+  origin: { surface: "chat" | "view" | "agenda" | "live"; sessionId?: string; turnId?: string };
   /** George's exact words; never rewritten. */
   words: string;
   /** What Flyd knew and judged at handoff (project, people, taste, urgency). */
