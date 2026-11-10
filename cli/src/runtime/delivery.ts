@@ -1,6 +1,6 @@
 import { listDomainRuns } from "../command/store.js";
 import type { DomainResult, DomainRun } from "../command/types.js";
-import { notificationLine } from "../council/chief-of-staff.js";
+import { notificationLine, sentencesOf } from "../council/chief-of-staff.js";
 import { fitsAtAGlance, LINE_CHARS, MAX_LINES } from "../conversation-view/for-george.js";
 import { replyArtefact } from "../conversation-view/summaries.js";
 import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision-step.js";
@@ -48,7 +48,7 @@ export interface Report {
 }
 
 /** Where a report is said. */
-export type DeliverySurface = "notification" | "window" | "context";
+export type DeliverySurface = "notification" | "window";
 
 export interface Delivered {
   /** What he sees first on this surface; null when nothing fit to show is left (the report is held). */
@@ -157,7 +157,7 @@ export function unfitForHim(line: string): string[] {
 function detailLines(report: Report, lead: string): string[] {
   const lines = [
     ...(report.recommendation ? [report.recommendation] : []),
-    ...report.detail.split(/(?<=[.!?])\s+|\n+/),
+    ...sentencesOf(report.detail),
   ]
     .map((line) => leadLine(line))
     // A line that had to be cut is left for "more", never shown half-said.
@@ -168,7 +168,7 @@ function detailLines(report: Report, lead: string): string[] {
 /**
  * A report as one surface says it. A notification carries the lead line only;
  * the window the lead, at most two more lines and the artefact; the next
- * chat turn the lead and its link. A lead that is not fit to show him falls
+ * chat turn carries the line he was sent. A lead that is not fit to show him falls
  * back to the work's own name, and with neither the report is held. Pure.
  */
 export function deliver(report: Report, surface: DeliverySurface): Delivered {
@@ -189,8 +189,6 @@ export function deliver(report: Report, surface: DeliverySurface): Delivered {
   if (surface === "notification") return { text: lead, lead, shape, ...extras };
   const link = report.link && !lead.includes(report.link) ? report.link : "";
   const lines = detailLines(report, lead);
-  // The next turn keeps what was said, so "what did it say?" needs no tool call.
-  if (surface === "context") return { text: [lead, ...lines].join(" ") + (link ? ` (${link})` : ""), lead, shape, ...extras };
   const text = [shape === "landed" && link ? `${lead} ${link}` : lead, ...lines].join("\n");
   return { text, lead, shape, ...extras };
 }
@@ -200,15 +198,10 @@ const EMPTY: DomainResult = {
   evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low",
 };
 
-/** Text on one line. */
-function flat(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
-
 /** Lines said twice in one question (a staff question repeated seven times) said once. Pure. */
 export function saidOnce(text: string): string {
   const seen = new Set<string>();
-  return text.split(/(?<=[.!?])\s+/).filter((sentence) => {
+  return sentencesOf(text).filter((sentence) => {
     const key = sentence.trim().toLowerCase();
     if (!key || seen.has(key)) return false;
     seen.add(key);
@@ -231,10 +224,10 @@ export function reportFromRun(run: DomainRun, decision?: ExecutiveDecisionRecord
     ? (decision.recommendation.option ? `I'd go with ${decision.recommendation.option}: ${decision.recommendation.rationale}` : decision.recommendation.rationale)
     : result.recommendation ? [result.recommendation.action, result.recommendation.reasoning].filter(Boolean).join(": ") : undefined;
   const options = decision?.disposition === "ask_george" && decision.options.length ? decision.options : undefined;
-  const brief = saidOnce(flat(result.brief || run.failure || ""));
+  const brief = saidOnce(result.brief || run.failure || "");
   // With the review step's decision, its reading is what he is told, never the staff's own brief.
   const reading = decision ? decision.summary : brief;
-  const outcome = saidOnce(flat(kind === "decision" ? question || reading : reading));
+  const outcome = saidOnce(kind === "decision" ? question || reading : reading);
   const artefacts = [...new Set([...result.artifacts, ...result.specialistOutputs.flatMap((output) => output.artifacts ?? [])])];
   const linkFrom = [...artefacts, ...result.evidence, result.brief].join(" ");
   const link = linkFrom.match(CHANGE_LINK)?.[0] || (kind === "done" ? linkFrom.match(ANY_LINK)?.[0] : undefined) || undefined;
@@ -256,7 +249,8 @@ export function reportFromRun(run: DomainRun, decision?: ExecutiveDecisionRecord
     ...(steps.length ? { steps } : {}),
     ...(link ? { link } : {}),
     ...(document ? { document } : {}),
-    work: run.request.intendedOutcome,
+    // Only finished work may be told by its name as done; anything else unfit to show is held.
+    ...(kind !== "done" || run.status === "completed" ? { work: run.request.intendedOutcome } : {}),
     urgency: kind === "decision" ? "now" : "today",
   };
 }
@@ -271,7 +265,7 @@ export function reportFromReply(input: { id: string; reading: string; reply: str
   const link = input.reply.match(CHANGE_LINK)?.[0];
   const options = input.options?.length ? input.options : undefined;
   const kind: ReportKind = options ? "decision" : "done";
-  const sentences = input.reading.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/);
+  const sentences = sentencesOf(input.reading);
   // The reading's first sentence fit to show him leads; the rest wait behind it.
   const lead = Math.max(0, sentences.findIndex((sentence) => unfitForHim(leadLine(sentence)).length === 0));
   const outcome = sentences[lead] ?? "";
@@ -282,7 +276,7 @@ export function reportFromReply(input: { id: string; reading: string; reply: str
     id: input.id,
     kind,
     outcome,
-    detail: sentences.filter((_, at) => at !== lead).join(" "),
+    detail: sentences.filter((_, at) => at !== lead).join("\n"),
     ...(options ? { options } : {}),
     evidenceRefs: [],
     shape,
@@ -300,9 +294,9 @@ export function answerLead(answer: string): string | null {
   if (!shown) return null;
   const firstLine = (shown.split("\n").find((line) => line.trim()) ?? "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").trim();
   if (fitsAtAGlance(shown) && firstLine.length <= LINE_CHARS) return null;
-  const sentences = shown.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/);
+  const sentences = sentencesOf(shown);
   // His own answer passed the turn's checks already: when no line fits, its first line still leads.
-  return deliver({ id: "answer", kind: "done", outcome: sentences[0] ?? shown, detail: sentences.slice(1).join(" "), evidenceRefs: [], shape: "words", artefacts: [], urgency: "now" }, "window").text ?? leadLine(shown);
+  return deliver({ id: "answer", kind: "done", outcome: sentences[0] ?? shown, detail: sentences.slice(1).join("\n"), evidenceRefs: [], shape: "words", artefacts: [], urgency: "now" }, "window").text ?? leadLine(shown);
 }
 
 /** Finished work the next turn carries, newest first, and how far back it reaches. */
@@ -310,7 +304,7 @@ export const CONTEXT_REPORTS = 5;
 export const CONTEXT_HOURS = 48;
 
 /**
- * Work that came back lately, each report as the context surface says it, for
+ * Work that came back lately, each as the line he was actually sent, for
  * the next chat turn: so "what did it say?" is answered without a tool call.
  * Only work he was actually told about is in it: Flyd's own notes to the staff,
  * its own fixes, and runs settled quietly or held are backstage.
@@ -318,14 +312,11 @@ export const CONTEXT_HOURS = 48;
 export function deliveredPromptBlock(now = new Date(), runs: DomainRun[] = listDomainRuns()): string {
   const since = now.getTime() - CONTEXT_HOURS * 3_600_000;
   const lines = runs
-    .filter((run) => run.notified && run.told && run.result && ["completed", "failed", "needs_decision"].includes(run.status)
+    .filter((run) => run.notified && run.told?.line && ["completed", "failed", "needs_decision"].includes(run.status)
       && run.request.source !== "flyd" && run.request.source !== "self-improvement" && Date.parse(run.updatedAt) >= since)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, CONTEXT_REPORTS)
-    .flatMap((run) => {
-      const said = deliver(reportFromRun(run), "context").text;
-      return said ? [`- ${said}`] : [];
-    });
+    .map((run) => `- ${run.told!.line}`);
   if (!lines.length) return "";
   return ["", "## Work that came back lately (newest first)", ...lines, "When he asks what came back or what it said, answer from this. The full report is in domain_work.", ""].join("\n");
 }

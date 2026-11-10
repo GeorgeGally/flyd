@@ -317,6 +317,14 @@ const NOTICE_LEAD = /^(?:(?:sir|captain|george)\s*[,!:—-]\s*)?(?:(?:done|ok(?:
  * stays whole when it fits, else its first sentence that says something,
  * cut at a word when it runs long. Pure.
  */
+/** Where a sentence ends: after its stop, never after a list marker ("1."). */
+const SENTENCE_END = /(?<=[.!?])(?<!(?:^|\s)\d+\.)\s+/;
+
+/** A text's sentences, line by line, each on one line: a list item is its own sentence, never split at its marker. Pure. */
+export function sentencesOf(text: string): string[] {
+  return text.split(/\n+/).flatMap((line) => line.replace(/\s+/g, " ").trim().split(SENTENCE_END)).filter(Boolean);
+}
+
 export function notificationLine(text: string, max = NOTIFICATION_CHARS): string {
   const flat = text
     .replace(/```[\s\S]*?```/g, " ")
@@ -327,7 +335,7 @@ export function notificationLine(text: string, max = NOTIFICATION_CHARS): string
     .replace(/\s+/g, " ")
     .trim();
   const opened = flat.replace(NOTICE_LEAD, "") || flat;
-  const said = opened.match(/.+?[.!?](?=\s|$)|.+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [opened];
+  const said = sentencesOf(opened);
   const kept = said.filter((sentence) => !isPlaceholder(sentence) && !isAcknowledgement(sentence));
   const whole = kept.join(" ");
   const first = whole && whole.length <= max ? whole : kept[0] ?? said[0] ?? opened;

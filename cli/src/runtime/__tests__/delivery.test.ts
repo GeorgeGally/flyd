@@ -71,10 +71,6 @@ describe("deliver", () => {
     expect(text.split("\n")).toEqual(["Stripe is the pick.", "Lemon Squeezy costs more."]);
   });
 
-  it("carries the lead, its two lines and its link into the next turn", () => {
-    expect(deliver(long, "context").text).toBe("The pricing comparison is done: Stripe is cheapest. Paddle handles tax for you. Lemon Squeezy costs more. (https://example.com/report)");
-  });
-
   it("never shows a line in the staff's words; finished work falls back to its own name", () => {
     const staff = report({ kind: "decision", outcome: "Waiting on George's three calls recorded in cap5-dash-lab-r5-calls", shape: "decision", options: ["A", "B"] });
     expect(deliver(staff, "notification")).toMatchObject({ text: null, held: expect.arrayContaining(["It shows a task id.", "It talks about him, not to him."]) });
@@ -144,6 +140,11 @@ describe("reportFromRun", () => {
     expect(made).toMatchObject({ kind: "blocked", shape: "words", detail: "" });
   });
 
+  it("never calls unfinished work done when its settled summary is not fit to show", () => {
+    const decision = { disposition: "handle_internally", show: true, notify: true, summary: "I picked Buttondown for George's signups.", evidenceRefs: [], verification: { status: "verified", evidenceRefs: [] } } as unknown as ExecutiveDecisionRecord;
+    expect(deliver(reportFromRun(run({ status: "needs_decision", result: result({}) }), decision), "notification").text).toBeNull();
+  });
+
   it("tells a call the review step settled by its summary, never the staff's question", () => {
     const decision = { disposition: "handle_internally", show: true, notify: true, summary: "I picked Buttondown for the signups.", evidenceRefs: [], verification: { status: "verified", evidenceRefs: [] } } as unknown as ExecutiveDecisionRecord;
     const made = reportFromRun(run({ status: "needs_decision", result: result({ unresolvedQuestions: ["Which list should signups go to?"] }) }), decision);
@@ -189,9 +190,17 @@ describe("answerLead", () => {
   });
 });
 
+describe("lists", () => {
+  it("never ends a sentence at a list marker", () => {
+    const lead = answerLead("Three options:\n1. Keep the video.\n2. Use a still.\n3. Drop it.")!;
+    expect(lead.split("\n")).toEqual(["Three options:", "Keep the video.", "Use a still."]);
+    expect(saidOnce("Pick one: 1. Keep it. 2. Drop it. 2. Drop it.")).toBe("Pick one: 1. Keep it. 2. Drop it.");
+  });
+});
+
 describe("deliveredPromptBlock", () => {
   const now = new Date("2026-11-10T12:00:00Z");
-  const finished = (id: string, overrides: Partial<DomainRun>) => run({ id, notified: true, told: true, updatedAt: "2026-11-10T10:00:00Z", result: result({ brief: `Report ${id} is in.` }), ...overrides });
+  const finished = (id: string, overrides: Partial<DomainRun>) => run({ id, notified: true, told: { line: `Report ${id} is in.`, decisionId: `d-${id}` }, updatedAt: "2026-11-10T10:00:00Z", result: result({ brief: `Report ${id} is in.` }), ...overrides });
 
   it("carries recent finished work he was told into the next turn, newest first", () => {
     const block = deliveredPromptBlock(now, [
@@ -199,10 +208,15 @@ describe("deliveredPromptBlock", () => {
       finished("newer", {}),
       finished("stale", { updatedAt: "2026-11-07T09:00:00Z" }),
       finished("unsaid", { notified: false }),
-      finished("held", { told: false }),
+      finished("held", { told: undefined }),
       finished("note", { request: { ...run({ result: result({}) }).request, source: "flyd" } }),
     ]);
     expect(block.split("\n").filter((line) => line.startsWith("- "))).toEqual(["- Report newer is in.", "- Report older is in."]);
+  });
+
+  it("carries the line he was told, not the staff's question, for a call already settled", () => {
+    const settled = finished("settled", { status: "needs_decision", result: result({ unresolvedQuestions: ["Which list should signups go to?"] }), told: { line: "I picked Buttondown for the signups.", decisionId: "d" } });
+    expect(deliveredPromptBlock(now, [settled]).split("\n").filter((line) => line.startsWith("- "))).toEqual(["- I picked Buttondown for the signups."]);
   });
 
   it("is empty with nothing to carry", () => {

@@ -132,7 +132,8 @@ export async function notifyRun(
   if (quietRun(run, windowIsOpen)) {
     // Recorded as handled, so nothing tells it later either.
     if (run.status === "completed") markTold([finishedKey(run.id)]);
-    saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true, told: false });
+    const { told: _told, ...current } = readDomainRun(run.id) ?? run;
+    saveDomainRun({ ...current, notified: true });
     return;
   }
   try {
@@ -153,7 +154,10 @@ export async function notifyRun(
       }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
     } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     // A report not delivered yet is never marked told; the command tick's sweep says it again (deliverOwed).
-    if (!owed) saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true, told: Boolean(notice) });
+    if (!owed) {
+      const { told: _told, ...current } = readDomainRun(run.id) ?? run;
+      saveDomainRun({ ...current, notified: true, ...(notice ? { told: { line: notice, decisionId: decision.decisionId } } : {}) });
+    }
   } catch {
     // The durable result remains in the command store; notification is best effort.
   }
