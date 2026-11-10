@@ -123,6 +123,14 @@ interface ConversationResponderDependencies {
   capture?: PersonalToolDependencies["capture"];
   /** Flyd's own live setup, for questions about itself; defaults to resolving it from the running configuration. */
   flydSetup?: () => Promise<string>;
+  /** Evaluation runs compare tool sets: which tools a turn is offered, and calls the set refuses. Defaults to every tool. */
+  toolProfile?: ToolProfile;
+}
+
+/** A tool set to evaluate against today's: what it offers, and the calls it refuses (a bash that writes is still bash). */
+export interface ToolProfile {
+  offer(tools: AgentTool[]): AgentTool[];
+  refuse?(name: string, input: Record<string, unknown>): string | null;
 }
 
 const PROJECT_EVIDENCE_QUESTION = /\b(?:flyd|repo|repository|project|codebase|source code|runtime|branch|commit|test suite|architecture)\b/i;
@@ -1307,7 +1315,7 @@ export async function respondToConversation(
     // contract, then the retry limit. An article chat skips the route gate so
     // "remember this" is not refused as off an answer turn; confirmation still holds.
     const skip = (input.article ? null : (mobile && (!MOBILE_TOOLS.has(name) || (!input.mobileAccounts && CONNECTOR_TOOL_NAMES.has(name))) ? "Error: this capability requires a connected Mac; no desktop work was dispatched." : null) ?? offRoute(plan, name, toolInput) ?? offCode(codeTurn, name, toolInput, repoRoots))
-      ?? contractError(name, toolInput) ?? repeats.blocked(name, toolInput);
+      ?? dependencies.toolProfile?.refuse?.(name, toolInput) ?? contractError(name, toolInput) ?? repeats.blocked(name, toolInput);
     if (skip) {
       toolCalls.push({ name, input: toolInput, succeeded: false, error: skip });
       return skip;
@@ -1339,9 +1347,10 @@ export async function respondToConversation(
   const codingIntent = interpretAgentInput(input.message).kind;
   const budget = planBudget(turnBudget(input.message, codingIntent, input.sessionId), plan);
   const maxIterations = budget.iterations;
-  const selectedTools = input.article
+  const offered = input.article
     ? personalTools.filter((tool) => tool.name === "remember")
     : chatToolSet(plan, codeTurn).filter(tool => !mobile || (MOBILE_TOOLS.has(tool.name) && (input.mobileAccounts || !CONNECTOR_TOOL_NAMES.has(tool.name))));
+  const selectedTools = dependencies.toolProfile ? dependencies.toolProfile.offer(offered) : offered;
   if (!dependencies.readOnly) {
     try {
       const sent = `${system}\n${prompt}`;

@@ -5,13 +5,15 @@
 //   npm run evals:chat                 all cases
 //   npm run evals:chat -- --only weather,math-percent
 //   npm run evals:chat -- --model commandcode:claude-sonnet-5
+//   npm run evals:chat -- --suite delivery    how finished work reaches George (sandboxed)
+//   npm run evals:chat -- --tools split --soul path/to/SOUL.md   (split-plan Phase 0: compare tool sets and voices)
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  buildJudgePrompt, evalJudgeModel, median, parseJudgeVerdict, scoreChatEval,
+  buildJudgePrompt, evalJudgeModel, median, parseJudgeVerdict, percentile, scoreChatEval,
   type ChatEvalCase, type ChatEvalObservation, type Placeholders,
 } from "./scoring.js";
 
@@ -82,7 +84,7 @@ async function main(): Promise<void> {
   const judgeModel = evalJudgeModel();
   const only = argValue("--only")?.split(",").map((id) => id.trim()).filter(Boolean);
   const suite = argValue("--suite") ?? "chat";
-  if (!["chat", "decisions", "decisions-heldout"].includes(suite)) throw new Error(`Unknown eval suite: ${suite}`);
+  if (!["chat", "decisions", "decisions-heldout", "delivery"].includes(suite)) throw new Error(`Unknown eval suite: ${suite}`);
   const outputRoot = resolve(argValue("--output-dir") ?? join(process.cwd(), ".flyd", "evals", "chat"));
   let decisionSandbox: string | undefined;
   // Fictional decision cases must not inherit or alter George's personal
@@ -95,19 +97,26 @@ async function main(): Promise<void> {
     for (const key of ["FLYD_MEMORY_DIR", "FLYD_JOURNAL_DIR", "FLYD_COUNCIL_DIR", "FLYD_AGENDA_DIR", "FLYD_SCOUT_DIR", "FLYD_CREW_DIR", "FLYD_CREW_WORKTREES", "FLYD_SELF_IMPROVE_DIR", "FLYD_INVESTIGATOR_DIR", "FLYD_SKILLS_DIR", "FLYD_BACKGROUND_JOBS_DIR", "FLYD_CLAUDE_PROJECTS", "FLYD_CONNECTOR_DIR", "FLYD_FIRSTMATE_HOME"]) process.env[key] = join(sandbox, key);
     for (const key of ["FLYD_USER_PROFILE", "FLYD_SOUL_PATH", "FLYD_TASTE_FILE", "FLYD_TASTE_STATE", "FLYD_ADVISORIES_PATH", "FLYD_LIBRARIAN_STATE", "FLYD_MORNING_PATH", "FLYD_PROJECTS_PATH"]) process.env[key] = join(sandbox, `${key}.json`);
     for (const key of ["FLYD_INVESTIGATOR", "FLYD_SELF_IMPROVE", "FLYD_PROFILE_AUTOLEARN", "FLYD_ROUTING_LEARNING", "FLYD_TASTE_LEARNING"]) process.env[key] = "0";
-    process.stdout.write(`Isolated decision evaluation: ${sandbox}\n`);
+    process.stdout.write(`Isolated evaluation: ${sandbox}\n`);
     process.chdir(sandbox);
   }
+  // A voice under test replaces Flyd's, sandbox or not; set before any module reads it.
+  const soul = argValue("--soul");
+  if (soul) process.env.FLYD_SOUL_PATH = resolve(soul);
   const { FLYD_DIR } = await import("../../lib/config.js");
   if (decisionSandbox) {
     const { useWorkIndexPath } = await import("../../work/database.js");
     useWorkIndexPath(join(decisionSandbox, "work-index.sqlite"));
   }
 
+  if (suite === "delivery") return runDeliverySuite({ only, judgeModel, sandbox: decisionSandbox!, directory: join(outputRoot, "delivery") });
+
   const { respondToConversation } = await import("../../runtime/conversation-responder.js");
   const { retrieveAgentMemory, loadAgentSituation } = await import("../../commands/code.js");
   const { refreshRepoRegistry } = await import("../../runtime/repo-registry.js");
   const { interpretAgentInput } = await import("../../runtime/input-interpreter.js");
+  const { toolProfile } = await import("./tool-profiles.js");
+  const tools = toolProfile(argValue("--tools") ?? "current");
 
   const caseFile = suite === "chat" ? "cases.json" : `${suite}.json`;
   const cases = JSON.parse(readFileSync(fileURLToPath(new URL(`./${caseFile}`, import.meta.url)), "utf8")) as ChatEvalCase[];
@@ -146,6 +155,7 @@ async function main(): Promise<void> {
           signal: AbortSignal.timeout(Math.max(60, (testCase.expect.maxSeconds ?? 60) * 3) * 1000),
         }, {
           readOnly: true,
+          toolProfile: tools,
           persistReceipt: async (receipt) => {
             actualModel = receipt.model;
             providerIdentity = receipt.providerIdentity;
@@ -208,18 +218,88 @@ async function main(): Promise<void> {
   const medianSeconds = median(results.map((row) => row.seconds));
   const lines = [
     "",
-    `Model: ${process.env.FLYD_CHAT_MODEL ?? "(configured)"} · judge: ${judgeModel}${judgedMean !== null ? ` · judged quality ${judgedMean.toFixed(1)}/10 over ${judged.length}` : ""}`,
+    `Model: ${process.env.FLYD_CHAT_MODEL ?? "(configured)"} · tools: ${argValue("--tools") ?? "current"}${soul ? ` · soul: ${soul}` : ""} · judge: ${judgeModel}${judgedMean !== null ? ` · judged quality ${judgedMean.toFixed(1)}/10 over ${judged.length}` : ""}`,
     `Chat evals: ${passed}/${results.length} passed (${Math.round((passed / results.length) * 100)}%) · median ${medianSeconds.toFixed(1)}s · ${results.reduce((sum, row) => sum + row.toolCalls, 0)} tool calls`,
   ];
   const byCategory = new Map<string, CaseResult[]>();
   for (const row of results) byCategory.set(row.category, [...(byCategory.get(row.category) ?? []), row]);
   lines.push(`By category: ${[...byCategory].map(([category, rows]) => `${category} ${rows.filter((row) => row.passed).length}/${rows.length}`).join(" · ")}`);
+  const delegated = (byCategory.get("delegate") ?? []).map((row) => row.seconds);
+  if (delegated.length) lines.push(`Delegate turns: p50 ${percentile(delegated, 50).toFixed(1)}s · p95 ${percentile(delegated, 95).toFixed(1)}s`);
   if (previous) {
     const changed = results.filter((row) => previous.has(row.id) && previous.get(row.id)!.passed !== row.passed);
     if (changed.length) lines.push(`Changed since last run: ${changed.map((row) => `${row.id} ${row.passed ? "now passes" : "REGRESSED"}`).join(", ")}`);
   }
   lines.push(`Results: ${join(directory, `${stamp}.jsonl`)}`);
   process.stdout.write(`${lines.join("\n")}\n`);
+  process.exit(passed === results.length ? 0 : 1);
+}
+
+interface DeliveryResult {
+  id: string;
+  origin: string;
+  surface: string;
+  passed: boolean;
+  failures: string[];
+  seconds: number;
+  shape: string;
+  judgeScore?: number;
+  judgeReason?: string;
+  text: string | null;
+}
+
+/** How finished work reaches George, through today's paths in the sandbox (split-plan Phase 0). */
+async function runDeliverySuite(options: { only?: string[]; judgeModel: string; sandbox: string; directory: string }): Promise<void> {
+  const [{ produceDelivery }, { buildDeliveryJudgePrompt, scoreDelivery }, { query, quickQuery }] = await Promise.all([
+    import("./delivery-run.js"), import("./delivery-scoring.js"), import("../../lib/llm.js"),
+  ]);
+  type Case = import("./delivery-scoring.js").DeliveryCase;
+  const cases = JSON.parse(readFileSync(fileURLToPath(new URL("./delivery.json", import.meta.url)), "utf8")) as Case[];
+  const selected = options.only ? cases.filter((item) => options.only!.includes(item.id)) : cases;
+  if (selected.length === 0) throw new Error(`No delivery cases match ${options.only?.join(",")}`);
+  const results: DeliveryResult[] = [];
+  for (const testCase of selected) {
+    const started = Date.now();
+    const observed: import("./delivery-scoring.js").DeliveryObservation = { text: null, shape: "words", seconds: 0 };
+    try {
+      Object.assign(observed, await produceDelivery(testCase, (prompt) => quickQuery(prompt), options.sandbox));
+    } catch (error) {
+      observed.error = error instanceof Error ? error.message : String(error);
+    }
+    observed.seconds = (Date.now() - started) / 1000;
+    if (testCase.expect.judge && observed.text) {
+      try {
+        const verdict = parseJudgeVerdict(await query(buildDeliveryJudgePrompt(testCase, observed.text), options.judgeModel));
+        if (verdict) { observed.judgeScore = verdict.score; observed.judgeReason = verdict.reason; }
+      } catch (error) {
+        observed.judgeReason = `judge failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    const score = scoreDelivery(testCase, observed);
+    const result: DeliveryResult = {
+      id: testCase.id, origin: testCase.origin, surface: testCase.surface, passed: score.passed, failures: score.failures,
+      seconds: Number(observed.seconds.toFixed(1)), shape: observed.shape, text: observed.text,
+      ...(observed.judgeScore !== undefined ? { judgeScore: observed.judgeScore } : {}),
+      ...(observed.judgeReason ? { judgeReason: observed.judgeReason } : {}),
+    };
+    results.push(result);
+    process.stdout.write(`${result.passed ? "PASS" : "FAIL"}  ${testCase.id.padEnd(30)} ${result.shape.padEnd(9)}${result.judgeScore !== undefined ? `  judge=${result.judgeScore}/10` : ""}${result.passed ? "" : `\n      ${result.failures.join("\n      ")}`}\n`);
+  }
+  mkdirSync(options.directory, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = join(options.directory, `${stamp}.jsonl`);
+  writeFileSync(file, `${results.map((row) => JSON.stringify(row)).join("\n")}\n`);
+  const passed = results.filter((row) => row.passed).length;
+  const real = results.filter((row) => row.origin === "real");
+  const judged = results.filter((row) => row.judgeScore !== undefined);
+  const clarity = judged.length ? judged.reduce((sum, row) => sum + (row.judgeScore ?? 0), 0) / judged.length : null;
+  process.stdout.write([
+    "",
+    `Judge: ${options.judgeModel}`,
+    `Delivery: ${passed}/${results.length} passed (${Math.round((passed / results.length) * 100)}%) · real examples ${real.filter((row) => row.passed).length}/${real.length}${clarity !== null ? ` · judged clarity ${clarity.toFixed(1)}/10 over ${judged.length}` : ""}`,
+    `Results: ${file}`,
+    "",
+  ].join("\n"));
   process.exit(passed === results.length ? 0 : 1);
 }
 

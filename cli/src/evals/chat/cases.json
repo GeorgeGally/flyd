@@ -26,7 +26,7 @@
   {
     "id": "math-tip-split",
     "category": "reasoning",
-    "ask": "15% tip on 840,000 rupiah, split 3 ways \u2014 how much each?",
+    "ask": "15% tip on 840,000 rupiah, split 3 ways — how much each?",
     "expect": {
       "answer": [
         "322[,.]?000|42[,.]?000"
@@ -83,7 +83,7 @@
         "read_url"
       ],
       "answer": [
-        "\u00b0|degrees"
+        "°|degrees"
       ],
       "maxSeconds": 90
     }
@@ -204,7 +204,7 @@
       },
       {
         "role": "assistant",
-        "content": "Hi [Name], I wanted to let you know that this month's rent will be about three days late. I'll send the full amount by Tuesday 29 September. Sorry for the short notice, and thank you for understanding \u2014 I really appreciate your flexibility."
+        "content": "Hi [Name], I wanted to let you know that this month's rent will be about three days late. I'll send the full amount by Tuesday 29 September. Sorry for the short notice, and thank you for understanding — I really appreciate your flexibility."
       }
     ],
     "ask": "make it shorter",
@@ -351,7 +351,7 @@
   {
     "id": "iq-prioritize",
     "category": "intelligence",
-    "ask": "I have 3 hours tonight. Fix the flyd CI, write the CleanX launch post, or reply to 20 emails \u2014 which one?",
+    "ask": "I have 3 hours tonight. Fix the flyd CI, write the CleanX launch post, or reply to 20 emails — which one?",
     "expect": {
       "judge": "Picks one decisively with a reason tied to George's actual situation (deadlines, what unblocks what), says what to do with the other two, and is short. Penalise fence-sitting.",
       "maxSeconds": 60
@@ -571,6 +571,166 @@
         "lantern-77"
       ],
       "maxSeconds": 20
+    }
+  },
+  {
+    "id": "vent-gallery-silence",
+    "category": "companion",
+    "ask": "three weeks and the gallery still hasn't said anything about the show. starting to think they hate the work",
+    "expect": {
+      "noSuccessfulMutation": true,
+      "maxChars": 600,
+      "maxSeconds": 30,
+      "judge": "Attentiveness: picks up what George actually meant, uses relevant personal context without decorating, keeps machinery out of sight, and sounds like a friend who knows him, not a project manager. Penalise turning it into a task list, stock empathy, or an offer to draft an email unprompted."
+    }
+  },
+  {
+    "id": "vent-long-day",
+    "category": "companion",
+    "ask": "ugh. long day. clients all wanted everything yesterday",
+    "expect": {
+      "noSuccessfulMutation": true,
+      "maxChars": 400,
+      "maxSeconds": 20,
+      "judge": "Attentiveness: picks up what George actually meant, uses relevant personal context without decorating, keeps machinery out of sight, and sounds like a friend who knows him, not a project manager. Penalise a to-do list, a schedule, or more than three sentences."
+    }
+  },
+  {
+    "id": "vent-code-frustration",
+    "category": "companion",
+    "ask": "I'm so sick of fighting this Logan editor. every fix breaks something else",
+    "expect": {
+      "noSuccessfulMutation": true,
+      "maxChars": 600,
+      "maxSeconds": 30,
+      "judge": "Attentiveness: picks up what George actually meant, uses relevant personal context without decorating, keeps machinery out of sight, and sounds like a friend who knows him, not a project manager. Penalise jumping straight into a debugging plan, or reading the repo before acknowledging how he feels."
+    }
+  },
+  {
+    "id": "vent-money-worry",
+    "category": "companion",
+    "ask": "GNM still hasn't paid and rent is due friday. this is stressing me out",
+    "expect": {
+      "noSuccessfulMutation": true,
+      "maxChars": 600,
+      "maxSeconds": 30,
+      "judge": "Attentiveness: picks up what George actually meant, uses relevant personal context without decorating, keeps machinery out of sight, and sounds like a friend who knows him, not a project manager. Good replies take the worry seriously and offer the one smallest useful step (a firm follow-up) without lecturing."
+    }
+  },
+  {
+    "id": "think-pricing-idea",
+    "category": "companion",
+    "ask": "thinking out loud: what if Bloom had a pay-what-you-want tier for students",
+    "expect": {
+      "noSuccessfulMutation": true,
+      "maxChars": 700,
+      "maxSeconds": 40,
+      "judge": "Attentiveness: picks up what George actually meant, uses relevant personal context without decorating, keeps machinery out of sight, and sounds like a friend who knows him, not a project manager. Good replies engage with the idea honestly (a real opinion, one tradeoff) rather than starting research or a plan."
+    }
+  },
+  {
+    "id": "think-side-project",
+    "category": "companion",
+    "ask": "I keep wanting to make a little generative art piece every day in december. dumb idea?",
+    "expect": {
+      "noSuccessfulMutation": true,
+      "maxChars": 600,
+      "maxSeconds": 30,
+      "judge": "Attentiveness: picks up what George actually meant, uses relevant personal context without decorating, keeps machinery out of sight, and sounds like a friend who knows him, not a project manager. Good replies give a real opinion, specific to him, and don't schedule anything."
+    }
+  },
+  {
+    "id": "think-hiring",
+    "category": "companion",
+    "ask": "been wondering if I should hire someone part-time to handle the CapFive client stuff",
+    "expect": {
+      "noSuccessfulMutation": true,
+      "maxChars": 700,
+      "maxSeconds": 40,
+      "judge": "Attentiveness: picks up what George actually meant, uses relevant personal context without decorating, keeps machinery out of sight, and sounds like a friend who knows him, not a project manager. Good replies think it through with him (what it frees up, the real cost) and land on a view, without a generic pros/cons list."
+    }
+  },
+  {
+    "id": "think-move",
+    "category": "companion",
+    "ask": "sometimes I think about leaving Bali for a year. no idea where",
+    "expect": {
+      "noSuccessfulMutation": true,
+      "maxChars": 600,
+      "maxSeconds": 30,
+      "judge": "Attentiveness: picks up what George actually meant, uses relevant personal context without decorating, keeps machinery out of sight, and sounds like a friend who knows him, not a project manager. Good replies are curious and personal, not a travel listicle."
+    }
+  },
+  {
+    "id": "decide-weekend",
+    "category": "companion",
+    "ask": "should I finish the Logan pages work this weekend or actually take the weekend off?",
+    "expect": {
+      "noSuccessfulMutation": true,
+      "maxChars": 500,
+      "maxSeconds": 30,
+      "judge": "Attentiveness: picks up what George actually meant, uses relevant personal context without decorating, keeps machinery out of sight, and sounds like a friend who knows him, not a project manager. Must choose one, with a reason tied to his situation. Penalise listing both sides without a pick."
+    }
+  },
+  {
+    "id": "decide-laptop",
+    "category": "companion",
+    "ask": "do I really need a new laptop or am I just procrastinating",
+    "expect": {
+      "noSuccessfulMutation": true,
+      "maxChars": 500,
+      "maxSeconds": 30,
+      "judge": "Attentiveness: picks up what George actually meant, uses relevant personal context without decorating, keeps machinery out of sight, and sounds like a friend who knows him, not a project manager. Must give an honest call. Penalise hedging."
+    }
+  },
+  {
+    "id": "delegate-code-fix",
+    "category": "delegate",
+    "ask": "fix the checkout button on the good neighbours market site, it does nothing on mobile",
+    "expect": {
+      "anyTool": [
+        "start_coding_task"
+      ],
+      "notTools": [
+        "edit_file",
+        "write_file"
+      ],
+      "maxSeconds": 45
+    }
+  },
+  {
+    "id": "delegate-research",
+    "category": "delegate",
+    "ask": "research which payment provider is best for Bloom at our volume and come back with a pick",
+    "expect": {
+      "anyTool": [
+        "start_knowledge_task"
+      ],
+      "maxSeconds": 45
+    }
+  },
+  {
+    "id": "delegate-design-lab",
+    "category": "delegate",
+    "ask": "make me three versions of the Bloom pricing page hero",
+    "expect": {
+      "anyTool": [
+        "start_design_task"
+      ],
+      "maxSeconds": 45
+    }
+  },
+  {
+    "id": "delegate-background",
+    "category": "delegate",
+    "ask": "find me three good coworking spaces near Canggu with day passes and send me the list later",
+    "expect": {
+      "anyTool": [
+        "background_task",
+        "start_knowledge_task",
+        "schedule"
+      ],
+      "maxSeconds": 45
     }
   }
 ]

@@ -1,0 +1,341 @@
+[
+  {
+    "id": "lab-three-versions",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "notification",
+    "run": {
+      "domain": "creative",
+      "status": "completed",
+      "words": "make me three versions of the Bloom pricing page hero",
+      "outcome": "Three directions for the Bloom pricing hero, reviewed, with a pick",
+      "result": {
+        "brief": "Three hero directions for the Bloom pricing page are ready. The Creative Director picked version B (big type, one plan highlighted) as the strongest; A and C are kept as alternatives.",
+        "recommendation": { "action": "Build version B", "reasoning": "Clearest plan comparison at a glance; matches the calm UI he prefers.", "confidence": 0.8 },
+        "detailedReport": "Version A: photographic hero with a soft gradient. Version B: oversized type, plan cards with the Studio plan highlighted. Version C: illustrated hero with a comparison table. Critic scores: A 6/10, B 8/10, C 7/10. B wins on hierarchy and calm.",
+        "artifacts": ["lab/bloom-pricing/shots/a.png", "lab/bloom-pricing/shots/b.png", "lab/bloom-pricing/shots/c.png"],
+        "specialistOutputs": [{ "specialist": "creative-director", "outcome": "Picked B", "artifacts": ["lab/bloom-pricing/shots/b.png"] }]
+      }
+    },
+    "expect": { "shape": "picture", "judge": "Says the three versions are ready and which one Flyd recommends, in one line, and invites a look at the pick. Penalise describing every version in words or naming who reviewed it." }
+  },
+  {
+    "id": "research-long-report",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "notification",
+    "run": {
+      "domain": "knowledge",
+      "status": "completed",
+      "words": "research the best payment provider for Bloom at our volume",
+      "outcome": "A sourced comparison of payment providers for Bloom's volume, with a pick",
+      "result": {
+        "brief": "Stripe is the best fit for Bloom at about 400 sales a month: lowest effective fee once Billing is counted, best Indonesian bank payouts, and the cleanest subscription API.",
+        "recommendation": { "action": "Use Stripe with Billing", "confidence": 0.85 },
+        "detailedReport": "Compared Stripe, Paddle, Lemon Squeezy and Xendit on fees at 400 sales/month of $29, payout support to Indonesian banks, tax handling, subscription features and API quality. Stripe: 2.9% + 30c plus 0.5% Billing; payouts to BCA supported; tax via Stripe Tax at 0.5%. Paddle: 5% + 50c, merchant of record so tax is handled; payouts by wire only. Lemon Squeezy: 5% + 50c, merchant of record, payouts via PayPal or bank. Xendit: strong local methods (QRIS, e-wallets) but weak subscription tooling. At this volume Stripe's effective rate is 4.4% against Paddle's 6.7%. Paddle wins only if he wants to stop handling sales tax himself. Sources: each provider's pricing page, Stripe Tax docs, Paddle MoR terms, three founder write-ups comparing the switch.",
+        "evidence": ["https://stripe.com/pricing", "https://www.paddle.com/pricing", "https://www.lemonsqueezy.com/pricing", "https://www.xendit.co/en/pricing/"]
+      }
+    },
+    "expect": { "shape": "document", "judge": "Leads with the pick and the one reason that matters to him, and leaves the comparison for the report. Penalise reciting fees for every provider in the notification." }
+  },
+  {
+    "id": "code-landed",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "notification",
+    "run": {
+      "domain": "coding",
+      "status": "completed",
+      "words": "fix the checkout button on the market site, it does nothing on mobile",
+      "outcome": "The market site checkout button works on mobile",
+      "result": {
+        "brief": "Merged: the checkout button now works on mobile Safari and Chrome. https://github.com/GeorgeGally/gnm/pull/88",
+        "detailedReport": "The tap handler was attached to an overlay hidden on narrow screens. Moved it to the button, added a mobile e2e test, merged after CI passed.",
+        "evidence": ["https://github.com/GeorgeGally/gnm/pull/88"],
+        "artifacts": ["https://github.com/GeorgeGally/gnm/pull/88"]
+      }
+    },
+    "expect": { "shape": "landed", "judge": "One line saying the checkout button works on mobile now, with the link. Penalise check counts, test details or how it was fixed." }
+  },
+  {
+    "id": "decision-three-options",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "notification",
+    "run": {
+      "domain": "coding",
+      "status": "needs_decision",
+      "words": "put the Logan newsletter signup on the homepage",
+      "outcome": "A newsletter signup on the Logan homepage",
+      "sentToBoss": true,
+      "result": {
+        "brief": "The signup needs a mailing list to send to. Logan has none yet.",
+        "unresolvedQuestions": ["Which list should signups go to: a new Buttondown list ($9/month), the existing Mailchimp account from CapFive (free, but shared), or just collect emails in the site's database for now?"],
+        "recommendation": { "action": "Start a Buttondown list", "reasoning": "Keeps Logan's subscribers separate and costs $9 a month.", "confidence": 0.7 }
+      }
+    },
+    "expect": { "shape": "decision", "judge": "Puts one clear question to him with the three options and Flyd's recommendation. Penalise talking about him in the third person or explaining why the work stopped." }
+  },
+  {
+    "id": "failure-plain-sentence",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "notification",
+    "run": {
+      "domain": "coding",
+      "status": "failed",
+      "words": "deploy the new CapFive dashboard to Kinsta",
+      "outcome": "The new CapFive dashboard is live on Kinsta",
+      "result": {
+        "brief": "The deploy failed: Kinsta rejected the SSH key (Permission denied (publickey)). The dashboard is not live.",
+        "detailedReport": "Built cleanly. rsync to Kinsta failed with 'Permission denied (publickey)' on three attempts. The key in the deploy config was rotated on 2026-11-06. Needs the new key added in MyKinsta, or a deploy from his machine.",
+        "risks": ["The old dashboard stays live until this is fixed."]
+      }
+    },
+    "expect": { "shape": "words", "judge": "One plain sentence: the dashboard isn't live yet because Kinsta needs the new key, and what Flyd is doing about it (or the one thing it needs from him). Penalise error text, the expected/observed/cause form, or more than two lines." }
+  },
+  {
+    "id": "seven-item-status",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "notification",
+    "run": {
+      "domain": "coding",
+      "status": "completed",
+      "words": "tidy up the Bloom onboarding flow",
+      "outcome": "Bloom onboarding is tidied",
+      "result": {
+        "brief": "Bloom onboarding tidy-up is done. Seven changes: 1) one welcome screen instead of three, 2) the plan picker remembers his choice, 3) Google sign-in moved above email, 4) the progress bar is accurate, 5) skip works on every step, 6) the final screen links to the dashboard, 7) copy shortened throughout.",
+        "detailedReport": "Seven separate commits, merged together. Before/after screenshots attached.",
+        "artifacts": ["https://github.com/GeorgeGally/bloom/pull/112"]
+      }
+    },
+    "expect": { "shape": "steps", "judge": "Leads with the onboarding tidy-up being done, and leaves the seven changes as a list to open rather than a paragraph. Penalise cramming all seven into the lead." }
+  },
+  {
+    "id": "short-answer",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "notification",
+    "run": {
+      "domain": "knowledge",
+      "status": "completed",
+      "words": "find out when the Nuanu Christmas market starts",
+      "outcome": "The Nuanu Christmas market's opening date and hours",
+      "result": {
+        "brief": "The Nuanu Christmas market opens on Saturday 12 December, 4pm to 10pm, and runs every weekend until the 27th.",
+        "evidence": ["https://nuanu.com/events/christmas-market"]
+      }
+    },
+    "expect": { "shape": "words", "judge": "Gives the date and hours in one line. Penalise anything beyond that." }
+  },
+  {
+    "id": "ui-change-picture",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "notification",
+    "run": {
+      "domain": "coding",
+      "status": "completed",
+      "words": "the good neighbours market hero is too tall",
+      "outcome": "A shorter hero on the Good Neighbours market site",
+      "result": {
+        "brief": "The hero on the Good Neighbours market site is about a third shorter, so the vendor list now shows above the fold on a laptop. Live: https://goodneighbours.market",
+        "artifacts": ["shots/gnm-hero-before.png", "shots/gnm-hero-after.png", "https://goodneighbours.market"],
+        "specialistOutputs": [{ "specialist": "designer", "outcome": "Hero reduced from 92vh to 60vh", "artifacts": ["shots/gnm-hero-after.png"] }]
+      }
+    },
+    "expect": { "shape": "picture", "judge": "Says the hero is shorter and the vendors now show up top, and shows the after shot rather than describing it. Penalise measurements like vh." }
+  },
+  {
+    "id": "background-booking",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "notification",
+    "run": {
+      "domain": "life",
+      "status": "completed",
+      "words": "book us a table at Locavore NXT for Friday",
+      "outcome": "A table at Locavore NXT on Friday",
+      "result": {
+        "brief": "Booked: Locavore NXT, Friday 13 November at 7pm for two. Confirmation is in your email.",
+        "evidence": ["email:locavore-confirmation"]
+      }
+    },
+    "expect": { "shape": "words", "judge": "One line confirming the booking with day, time and party size. Penalise anything else." }
+  },
+  {
+    "id": "window-landed",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "window",
+    "reply": {
+      "question": "is the hero spacing fix in yet?",
+      "text": "Yes. Merged and deployed: the hero spacing fix is live on goodneighbours.market (https://github.com/GeorgeGally/gnm/pull/91). CI was green on all 14 checks; review found no issues; worktree cleaned up."
+    },
+    "expect": { "shape": "landed", "judge": "Says yes, the spacing fix is live, with the link. Penalise check counts, review or cleanup details." }
+  },
+  {
+    "id": "window-decision",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "window",
+    "reply": {
+      "question": "set up payments for Bloom",
+      "text": "Before I wire this up I need one call: Stripe (lower fees, we handle sales tax) or Paddle (higher fees, they handle tax as merchant of record)? I recommend Stripe; at Bloom's volume it saves about $270 a year and Stripe Tax covers the filing."
+    },
+    "expect": { "shape": "decision", "judge": "Puts the Stripe or Paddle choice to him with the recommendation and its reason in a line or two." }
+  },
+  {
+    "id": "window-routine-chatter",
+    "category": "delivery",
+    "origin": "fixture",
+    "surface": "window",
+    "reply": {
+      "question": "how's the onboarding work going?",
+      "text": "Still on it: rebased onto main, tests running, review pass next. Nothing needed from you."
+    },
+    "expect": { "delivered": false }
+  },
+  {
+    "id": "real-parked-at-review",
+    "category": "delivery",
+    "origin": "real",
+    "surface": "notification",
+    "seen": "parked at review: 1 finding(s) · ask-user: authority decision",
+    "source": "deep dive 2026-11-10, problem 2; executive_decision.question 1-10 Nov",
+    "run": {
+      "domain": "coding",
+      "status": "needs_decision",
+      "words": "make the Flyd window show finished work",
+      "outcome": "Finished work shows in the Flyd window",
+      "sentToBoss": true,
+      "result": {
+        "brief": "parked at review: 1 finding(s) · ask-user: authority decision",
+        "unresolvedQuestions": ["parked at review: 1 finding(s) · ask-user: authority decision"]
+      }
+    },
+    "expect": { "judge": "Either settles it without bothering him, or asks him one plain question about the actual choice. Penalise review, finding or authority wording, or a question he could not answer from the line alone." }
+  },
+  {
+    "id": "real-pages-phases-repeated",
+    "category": "delivery",
+    "origin": "real",
+    "surface": "notification",
+    "seen": "Pick which Pages overhaul phases to start (plan: data/logan-pages-overhaul-plan/report.md; …), repeated 7 times in one question",
+    "source": "deep dive 2026-11-10, problem 2",
+    "run": {
+      "domain": "coding",
+      "status": "needs_decision",
+      "words": "overhaul the Logan pages editor",
+      "outcome": "An overhauled Logan pages editor",
+      "sentToBoss": true,
+      "result": {
+        "brief": "The overhaul plan is ready with five phases. Phase 0+1 (data model and drag performance) is recommended first.",
+        "recommendation": { "action": "Start phase 0+1 first", "confidence": 0.8 },
+        "unresolvedQuestions": ["Pick which Pages overhaul phases to start (plan: data/logan-pages-overhaul-plan/report.md; recommended: phase 0+1 first). Pick which Pages overhaul phases to start (plan: data/logan-pages-overhaul-plan/report.md; recommended: phase 0+1 first). Pick which Pages overhaul phases to start (plan: data/logan-pages-overhaul-plan/report.md; recommended: phase 0+1 first). Pick which Pages overhaul phases to start (plan: data/logan-pages-overhaul-plan/report.md; recommended: phase 0+1 first). Pick which Pages overhaul phases to start (plan: data/logan-pages-overhaul-plan/report.md; recommended: phase 0+1 first). Pick which Pages overhaul phases to start (plan: data/logan-pages-overhaul-plan/report.md; recommended: phase 0+1 first). Pick which Pages overhaul phases to start (plan: data/logan-pages-overhaul-plan/report.md; recommended: phase 0+1 first)."]
+      }
+    },
+    "expect": { "judge": "Takes the recommended first phase itself and says so in a line, or asks once, plainly, with the recommendation. Penalise a path, a repeated sentence, or the staff's wording." }
+  },
+  {
+    "id": "real-waiting-on-georges-calls",
+    "category": "delivery",
+    "origin": "real",
+    "surface": "notification",
+    "seen": "Waiting on George's three calls recorded in cap5-dash-lab-r5-calls",
+    "source": "deep dive 2026-11-10, problem 2 and finding C",
+    "run": {
+      "domain": "creative",
+      "status": "needs_decision",
+      "words": "do another round on the CapFive dashboard lab",
+      "outcome": "Round five of the CapFive dashboard lab, with his three calls settled",
+      "sentToBoss": true,
+      "result": {
+        "brief": "Waiting on George's three calls recorded in cap5-dash-lab-r5-calls",
+        "unresolvedQuestions": ["Waiting on George's three calls recorded in cap5-dash-lab-r5-calls"]
+      }
+    },
+    "expect": { "judge": "Asks him the actual calls, to him (not about him), or says plainly that the lab needs three choices from him and offers them. Penalise a task id, third person, or a question he cannot answer without opening something." }
+  },
+  {
+    "id": "real-do-first-six-mornings",
+    "category": "delivery",
+    "origin": "real",
+    "surface": "recorded",
+    "seen": "Do first: CapFive's cookie consent.",
+    "source": "~/.flyd/self-review/said.jsonl, notifications on 2, 3, 4, 5, 6 and 9 November",
+    "previous": ["Do first: CapFive's cookie consent.", "Do first: CapFive's cookie consent.", "Do first: CapFive's cookie consent.", "Do first: CapFive's cookie consent.", "Do first today: CapFive's cookie consent."],
+    "expect": { "judge": "A morning line that does not repeat a pick he has ignored for days: it drops it, or asks once whether it still matters. Penalise the same line again." }
+  },
+  {
+    "id": "real-desk-raw-error",
+    "category": "delivery",
+    "origin": "real",
+    "surface": "desk-error",
+    "seen": "Flyd couldn't answer this: <exception>",
+    "source": "conversation-view/flyd-desk.ts waiting line; deep dive finding A4",
+    "error": "Flyd refused an ungrounded project answer because no evidence tool succeeded",
+    "run": { "domain": "coding", "status": "failed", "words": "why is the Logan editor so slow?", "result": {} },
+    "expect": { "judge": "One plain line that the answer didn't come through and what happens next (Flyd retries, or he can send it again). Penalise any error text." }
+  },
+  {
+    "id": "real-diagnosis-card",
+    "category": "delivery",
+    "origin": "real",
+    "surface": "answer",
+    "seen": "Diagnosis / Expected / Observed / Cause / Evidence / Next card",
+    "source": "George rejected it on 2026-11-10; fixed by PR #252",
+    "answer": {
+      "lead": "Dragging pages in Logan is slow and unreliable.",
+      "form": "diagnosis",
+      "parts": [
+        { "label": "Expected", "text": "Dragging pages should be smooth." },
+        { "label": "Observed", "text": "Moving pages is very slow." },
+        { "label": "Cause", "text": "The previews and canvas may redraw twice on every move." },
+        { "label": "Evidence", "text": "The drag handler re-renders the page list and the canvas together." },
+        { "label": "Next", "text": "I'm fixing it now and will tell you when it's in." }
+      ]
+    },
+    "expect": { "judge": "A PA's short reply: what Flyd found and what it is doing, with no labelled sections and no evidence." }
+  },
+  {
+    "id": "real-relay-ready-on-branch",
+    "category": "delivery",
+    "origin": "real",
+    "surface": "window",
+    "seen": "The message fix is ready on branch fm/logan-codex-limit-msg",
+    "source": "~/.flyd/self-review/verdicts.jsonl, surface=relay",
+    "reply": {
+      "question": "the Logan usage-limit message is confusing, fix it",
+      "text": "The message fix is ready on branch fm/logan-codex-limit-msg. PR is open and checks are running; I'll merge when green."
+    },
+    "expect": { "judge": "Tells him the usage-limit message is fixed (or about to land) in plain words, with no branch, PR or check talk." }
+  },
+  {
+    "id": "real-relay-remote-codex",
+    "category": "delivery",
+    "origin": "real",
+    "surface": "window",
+    "seen": "I've set up a remote firstmate on the PC using Codex",
+    "source": "~/.flyd/self-review/verdicts.jsonl, surface=relay",
+    "reply": {
+      "question": "can you get the PC working on jobs too?",
+      "text": "I've set up a remote firstmate on the PC using Codex. It can now take coding tasks in parallel with this Mac."
+    },
+    "expect": { "judge": "Tells him the PC can take work now, in plain words, without naming staff, agents or models." }
+  },
+  {
+    "id": "real-relay-pr-checks",
+    "category": "delivery",
+    "origin": "real",
+    "surface": "window",
+    "seen": "PR #250 has passed its checks",
+    "source": "~/.flyd/self-review/verdicts.jsonl, surface=relay",
+    "reply": {
+      "question": "is the Codex sessions fix done?",
+      "text": "PR #250 has passed its checks."
+    },
+    "expect": { "judge": "Tells him the fix is ready or done in plain words, never a PR number or check status." }
+  }
+]

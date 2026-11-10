@@ -131,6 +131,13 @@ export function median(values: number[]): number {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+/** The nearest-rank percentile (p in 0-100) of the values; 0 for none. */
+export function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1))];
+}
+
 /** The chat-eval judge: FLYD_EVAL_JUDGE_MODEL, else the fixed default, so model comparisons stay apples to apples. */
 export function evalJudgeModel(): string {
   return process.env.FLYD_EVAL_JUDGE_MODEL?.trim() || "openai:gpt-5.6-sol";
