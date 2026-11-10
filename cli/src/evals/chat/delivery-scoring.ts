@@ -29,8 +29,8 @@ export interface DeliveryRunFixture {
   words: string;
   outcome?: string;
   result: Partial<DomainResult>;
-  /** Notes Flyd already sent the boss about it, so the review step's one send-back is spent. */
-  sentToBoss?: string[];
+  /** Flyd's one send-back already spent: the boss already has his notes, so the review step decides for George now. */
+  sentToBoss?: boolean;
 }
 
 export interface DeliveryExpect {

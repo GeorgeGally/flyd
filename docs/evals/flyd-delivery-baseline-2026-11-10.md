@@ -1,12 +1,12 @@
 # Delivery and companion baseline (2026-11-10)
 
-Split-plan Phase 0 (`docs/plans/2026-10-30-flyd-chief-of-staff-split-plan.md`). This is today's Flyd at `main` = `92f522ee`, before any delivery or Chief of Staff work. Phase 1 and every later phase rerun the same commands and compare against these numbers.
+Split-plan Phase 0 (`docs/plans/2026-10-30-flyd-chief-of-staff-split-plan.md`). This is today's Flyd at `main` = `db74c25a`, before any delivery or Chief of Staff work (the companion and delegate numbers were recorded one commit earlier, at `92f522ee`). Phase 1 and every later phase rerun the same commands and compare against these numbers.
 
 ## The four numbers
 
 | Measure | Baseline | Phase 1 target |
 |---|---|---|
-| Delivery pass rate | **1/21 (5%)**; real examples 1/9; judged clarity 5.8/10 over the 11 that said anything | ≥ 90% of fixtures, every real example, clarity ≥ 8 |
+| Delivery pass rate | **2/21 (10%)**; real examples 2/9; judged clarity 6.4/10 over the 10 that said anything | ≥ 90% of fixtures, every real example, clarity ≥ 8 |
 | Companion mean judge score | **6.4/10** over 10 cases (5/10 pass) | +0.5 by Phase 5 |
 | Delegate-case pass rate | **4/4 (100%)** | at or above baseline |
 | Delegate-turn latency | **p50 10.9 s · p95 13.6 s** | at or below baseline |
@@ -24,7 +24,7 @@ FLYD_CLAUDE=0 FLYD_MODEL=openai:gpt-5.6-luna npm run evals:chat -- --model opena
 Add `--tools split` to measure Flyd without its code-writing tools, and `--soul <path>` to try another voice.
 
 - **Pinned models.** Chat and one-shot jobs: `openai:gpt-5.6-luna` (the documented fallback). Judge: `openai:gpt-5.6-sol`. On the day, the configured `opencode-go` chain answered 402, and `FLYD_CLAUDE=0` keeps the metered Claude chain out of eval runs.
-- **Variance.** Three delivery runs on the same code gave 1 to 2 passes out of 21. Single judged scores moved by up to 3 points between runs. Compare means and pass counts, not single scores.
+- **Variance.** Delivery runs on the same code gave 1 to 2 passes out of 21, and a relay case can flip between passing and reaching him with nothing. Single judged scores moved by up to 3 points between runs. Compare means and pass counts, not single scores.
 
 ## What the delivery suite does
 
@@ -47,22 +47,22 @@ Each case goes through today's code for its surface (`delivery-run.ts`): a finis
 ## What the baseline shows
 
 - **Most finished work never reaches him.** 9 of the 12 notification-path runs reached him with nothing. On a finished answer the review step decides "routine operational state stays backstage", which is problem 3 of the deep dive. Split-plan build 2 (tell George when work is done) and Phase 1 fix it.
-- **Nothing has a shape.** Every delivery is words. Lab picks, landed code, decisions and long reports all come out as prose or not at all.
-- **Staff words still pass through.** "Waiting on George's three calls recorded in cap5-dash-lab-r5-calls" reaches him as written, twice over in one line.
+- **Almost nothing has a shape.** Only the two staff questions the review step puts to him come out as decisions. Lab picks, landed code, Flyd's own decisions and long reports all come out as prose or not at all.
+- **Staff questions reach him without their substance.** "Waiting on George's three calls" becomes "Waiting on your three calls I recommend clarifying the alternatives before acting." It never says what the calls are (judged 3/10), and the parked-at-review question gets the same empty recommendation (judged 5/10).
 - **Raw errors and repeated mornings fail outright** (judged 2/10).
-- **What already works.** The diagnosis card now reaches him as a short PA reply (PR #252), and the window's reading of a staff reply is clear (judged 8 to 10). It still runs past one 120-character line, still reports routine progress, and never chooses a decision card or a landed line.
+- **What already works.** The diagnosis card now reaches him as a short PA reply (PR #252), and the window's reading of a staff reply is clear (judged 7 to 10). It still runs past one 120-character line, still reports routine progress, and never chooses a decision card or a landed line.
 - **Companion turns** pass half the time. The usual failure is turning a feeling or an idea into a plan or a roadmap.
 
 ## Per case
 
-### Delivery (results `2026-11-10T05-47-43`)
+### Delivery (results `2026-11-10T06-46-12`)
 
 | Case | Origin | Surface | Result | Judge | Why it failed |
 |---|---|---|---|---|---|
 | `lab-three-versions` | fixture | notification | fail | – | nothing reached him |
 | `research-long-report` | fixture | notification | fail | 9 | delivered as words, expected document; lead line 136 chars > 120 |
 | `code-landed` | fixture | notification | fail | – | nothing reached him |
-| `decision-three-options` | fixture | notification | fail | 3 | lead line 139 chars > 120; judge 3/10 |
+| `decision-three-options` | fixture | notification | fail | – | nothing reached him |
 | `failure-plain-sentence` | fixture | notification | fail | – | nothing reached him |
 | `seven-item-status` | fixture | notification | fail | – | nothing reached him |
 | `short-answer` | fixture | notification | fail | – | nothing reached him |
@@ -70,16 +70,16 @@ Each case goes through today's code for its surface (`delivery-run.ts`): a finis
 | `background-booking` | fixture | notification | fail | – | nothing reached him |
 | `window-landed` | fixture | window | fail | 10 | delivered as words, expected landed |
 | `window-decision` | fixture | window | fail | 8 | delivered as words, expected decision |
-| `window-routine-chatter` | fixture | window | fail | – | told him about routine progress Flyd should keep |
-| `real-parked-at-review` | real | notification | fail | – | nothing reached him |
+| `window-routine-chatter` | fixture | window | fail | – | told him about work Flyd should keep |
+| `real-parked-at-review` | real | notification | fail | 5 | judge 5/10: an empty recommendation, nothing to act on |
 | `real-pages-phases-repeated` | real | notification | fail | – | nothing reached him |
-| `real-waiting-on-georges-calls` | real | notification | fail | 2 | lead 136 chars; task id; talks about him, not to him |
+| `real-waiting-on-georges-calls` | real | notification | fail | 3 | judge 3/10: never says what the three calls are |
 | `real-do-first-six-mornings` | real | recorded | fail | 2 | tells him what he was already told |
 | `real-desk-raw-error` | real | desk-error | fail | 2 | shows him the error |
-| `real-diagnosis-card` | real | answer | fail | 6 | judge 6/10 (9/10 on an earlier run) |
-| `real-relay-ready-on-branch` | real | window | fail | 5 | judge 5/10 |
-| `real-relay-remote-codex` | real | window | fail | 9 | lead line 131 chars > 120 |
-| `real-relay-pr-checks` | real | window | pass | 8 | |
+| `real-diagnosis-card` | real | answer | pass | 8 | (6/10 on an earlier run) |
+| `real-relay-ready-on-branch` | real | window | pass | 7 | |
+| `real-relay-remote-codex` | real | window | fail | 10 | lead line 129 chars > 120 |
+| `real-relay-pr-checks` | real | window | fail | – | nothing reached him (passed, judged 8, on an earlier run) |
 
 ### Companion and delegate (results `2026-11-10T05-43-29`)
 

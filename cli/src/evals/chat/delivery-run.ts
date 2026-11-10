@@ -24,7 +24,7 @@ export async function runFor(testCase: DeliveryCase, now = new Date()): Promise<
   const id = `domain-eval-${testCase.id}`;
   const { HANDLE_IT_YOURSELF, RECOVER_IT_YOURSELF, RESTATE_FOR_GEORGE } = await import("../../intelligence/executive/decision-step.js");
   // Flyd's one send-back already spent, as on the real runs: the review step decides for George now.
-  const messages: DomainMessage[] = fixture.sentToBoss?.length
+  const messages: DomainMessage[] = fixture.sentToBoss
     ? [HANDLE_IT_YOURSELF, RECOVER_IT_YOURSELF, RESTATE_FOR_GEORGE].map((body, index) => ({ id: `${id}-note-${index}`, kind: "question", body, from: "flyd", at, deliveredAt: at }))
     : [];
   return {
