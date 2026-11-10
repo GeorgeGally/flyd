@@ -15,7 +15,8 @@ import { transcriptionPurpose } from "../dictation/request.js";
 import { learnLiveUtterance, liveIntent } from "../realtime-session.js";
 import { FlydDesk } from "../conversation-view/flyd-desk.js";
 import { correctNames, correctVoiceNames, nameCorrection } from "../dictation/names.js";
-import { dictationScope, learnedNameRules } from "../dictation/corrections.js";
+import { dictationScope, learnedNameRules, reviewedVocabulary } from "../dictation/corrections.js";
+import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { learningRequest } from "../cognition/learning-service.js";
 import { projectNames } from "../dictation/vocabulary.js";
 import type { Project } from "../council/projects.js";
@@ -145,6 +146,23 @@ describe("his corrections teach Flyd", () => {
     expect(correctVoiceNames("is fonso live")).toBe("is Fonzo live");
     const listed = (await learningRequest("/learning", "GET")).body as { corrections: Array<{ to: string; status: string; activation?: string }> };
     expect(listed.corrections.find(c => c.to === "Fonzo")).toMatchObject({ status: "active", activation: "automatic" });
+  });
+
+  it("a name rejected in chat stays off when a dictation edit repeats it", async () => {
+    await learning("enable");
+    learnLiveUtterance("it's Fonzo not fonso", "anything");
+    const lesson = ((await learningRequest("/learning", "GET")).body as { corrections: Array<{ sequence: number; to: string }> })
+      .corrections.find(c => c.to === "Fonzo")!;
+    await learningRequest("/dictation/review", "POST", { sequence: lesson.sequence, approved: false });
+
+    const scope = dictationScope("com.apple.Notes", "Notes");
+    const edit = await learningRequest("/dictation/correction", "POST",
+      { before: "how is fonso doing", after: "how is Fonzo doing", invocationId: "d1", bundleId: "com.apple.Notes", scope });
+    expect(edit.body).toMatchObject({ status: "disabled", promoted: false });
+    expect(learnedNameRules()).toEqual([]);
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is fonso doing");
+    const store = new IntelligenceEventStore();
+    try { expect(reviewedVocabulary(store, "com.apple.Notes", "Notes").rules).toEqual([]); } finally { store.close(); }
   });
 
   it("withholds heard words taught two different names", async () => {

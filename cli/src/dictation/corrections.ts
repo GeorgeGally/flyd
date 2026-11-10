@@ -166,9 +166,13 @@ export function correctionCandidates(store: IntelligenceEventStore): CorrectionC
       values.add(normalize(group[0].to)); spellings.set(key, values);
     }
   }
+  const pairKey = (c: ReplacementRule) => normalize(c.from) + "\u0000" + normalize(c.to);
+  // A name spelling he rejected anywhere is off everywhere, unless he approves it again.
+  const rejectedNames = new Set(candidates.filter(c => summaries.get(c.ruleId!)!.disabled).map(pairKey));
   return candidates.map(c => {
     const group = groups.get(c.ruleId!)!, summary = summaries.get(c.ruleId!)!;
-    const { manual, disabled } = summary;
+    const manual = summary.manual;
+    const disabled = summary.disabled || !manual && c.name === true && rejectedNames.has(pairKey(c));
     const conflict = (spellings.get(scopeKey(c))?.size ?? 0) > 1;
     const safe = summary.eligible.has(c.sequence);
     const named = c.name === true && !disabled && !conflict;
@@ -255,18 +259,16 @@ export function recordNameLesson(pair: ReplacementRule, learnedFrom: string): nu
 }
 
 /**
- * His active name corrections, for every voice path. A spelling he rejected
- * anywhere stays off everywhere; heard words taught two spellings are withheld.
+ * His active name corrections, for every voice path; heard words taught two
+ * spellings are withheld.
  */
 export function learnedNameRules(): ReplacementRule[] {
   if (learningRegistry().status(CORRECTION_SOURCE) !== "enabled") return [];
   const store = new IntelligenceEventStore();
   try {
     const candidates = correctionCandidates(store);
-    const pairKey = (c: ReplacementRule) => normalize(c.from) + "\u0000" + normalize(c.to);
-    const rejected = new Set(candidates.filter(c => c.status === "disabled").map(pairKey));
     const rules = new Map<string, ReplacementRule | null>();
-    for (const c of candidates) if (c.name && c.status === "active" && !rejected.has(pairKey(c))) {
+    for (const c of candidates) if (c.name && c.status === "active") {
       const known = rules.get(normalize(c.from));
       rules.set(normalize(c.from), known === undefined || known !== null && normalize(known.to) === normalize(c.to) ? { from: c.from, to: c.to } : null);
     }
