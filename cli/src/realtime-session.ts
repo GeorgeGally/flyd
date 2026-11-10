@@ -243,9 +243,9 @@ export function learnLiveUtterance(transcript: string, previous: string | undefi
   return transcript;
 }
 
-/** The realtime model heard the same audio as every other path: his names get the same spelling pass. */
+/** The realtime model heard the same audio as every other path: its intent gets his spellings, not word joining. */
 export function liveIntent(intent: unknown): string {
-  return typeof intent === "string" ? correctVoiceNames(intent) : "";
+  return typeof intent === "string" ? correctVoiceNames(intent, false) : "";
 }
 
 export interface ResolveToolOutput {

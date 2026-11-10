@@ -280,7 +280,7 @@ async function completeDictation(
   vocabulary: string[],
 ): Promise<void> {
   // His names first, so cleanup and its fidelity guard see the spelling he means.
-  const result = await finishDictation(correctVoiceNames(transcript, loadVocabulary(purpose.target.windowTitle)), {
+  const result = await finishDictation(correctVoiceNames(transcript), {
     target: purpose.target,
     audioSeconds,
     rules: dictationRules(purpose.target),

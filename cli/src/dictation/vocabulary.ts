@@ -100,6 +100,12 @@ export function transcriptionPrompt(terms: string[]): string {
 
 /** People's names from the People section, and distinctive ALLCAPS/CamelCase names anywhere. */
 function profileNames(profileText: string): string[] {
+  const distinctive = profileText.match(/\b(?:[A-Z]{3,}[A-Za-z0-9]*|[A-Z][a-z]+[A-Z][A-Za-z0-9]*)\b/g) ?? [];
+  return [...peopleNames(profileText), ...distinctive];
+}
+
+/** People's names from the profile's People section. */
+function peopleNames(profileText: string): string[] {
   const names: string[] = [];
   let inPeople = false;
   for (const line of profileText.split("\n")) {
@@ -111,8 +117,7 @@ function profileNames(profileText: string): string[] {
     const name = line.match(/^\s*-\s+((?:[A-Z][\p{L}'’-]+)(?:\s+[A-Z][\p{L}'’-]+){0,2})/u)?.[1];
     if (name) names.push(name);
   }
-  const distinctive = profileText.match(/\b(?:[A-Z]{3,}[A-Za-z0-9]*|[A-Z][a-z]+[A-Z][A-Za-z0-9]*)\b/g) ?? [];
-  return [...names, ...distinctive];
+  return names;
 }
 
 function mtime(path: string): number {
@@ -157,6 +162,15 @@ const cachedRules = cachedByMtime(
 export function loadVocabulary(windowTitle?: string): string[] {
   const { profileText, projects } = cachedSources();
   return vocabularyTerms(profileText, projects, windowTitle);
+}
+
+/** Only his project and people names: what a spaced-out spelling ("clean x") may be joined into. */
+export function loadSpokenNames(): string[] {
+  const { profileText, projects } = cachedSources();
+  return [...new Set([
+    ...projects.flatMap((project) => [...projectNames(project), ...project.people]),
+    ...(profileText ? peopleNames(profileText) : []),
+  ])];
 }
 
 export function loadReplacementRules(): ReplacementRule[] {

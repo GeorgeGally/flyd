@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,7 +14,9 @@ import { transcribeBufferedAudio } from "../transcription.js";
 import { transcriptionPurpose } from "../dictation/request.js";
 import { learnLiveUtterance, liveIntent } from "../realtime-session.js";
 import { FlydDesk } from "../conversation-view/flyd-desk.js";
-import { correctNames, correctVoiceNames, learnNameEdit, loadNameRules, nameCorrection } from "../dictation/names.js";
+import { correctNames, correctVoiceNames, nameCorrection } from "../dictation/names.js";
+import { dictationScope, learnedNameRules } from "../dictation/corrections.js";
+import { learningRequest } from "../cognition/learning-service.js";
 import { projectNames } from "../dictation/vocabulary.js";
 import type { Project } from "../council/projects.js";
 
@@ -27,13 +29,15 @@ beforeEach(() => {
   vi.stubEnv("FLYD_PROJECTS_PATH", join(dir, "projects.json"));
   vi.stubEnv("FLYD_USER_PROFILE", join(dir, "USER.md"));
   vi.stubEnv("FLYD_DICTATION_RULES", join(dir, "dictation-rules.json"));
-  vi.stubEnv("FLYD_VOICE_NAME_RULES", join(dir, "voice-name-rules.json"));
   vi.stubEnv("FLYD_DICTATE_MODEL", "");
   vi.stubEnv("OPENAI_API_KEY", "test-key");
   writeFileSync(join(dir, "projects.json"), JSON.stringify({ projects: [
-    project("CleanX"), project("Posttraction"), project("Logan"), project("Pierre"),
+    project("CleanX"), project("Posttraction"), project("Logan"), project("Pierre"), project("Tastemaker"), project("Fonzo"),
   ] }));
+  writeFileSync(join(dir, "USER.md"), "# George\n\nWatches YouTube and TikTok, collects CryptoArt.\n");
 });
+
+const learning = (action: string) => learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });
 
 async function heard(spoken: string, purpose: Record<string, unknown>): Promise<string> {
@@ -60,44 +64,85 @@ describe("every voice path spells his names", () => {
   it("knows the sound-alikes, keeps the band and never rewrites a name he has", () => {
     const terms = ["Flyd", "CleanX", "Tastemaker"];
     expect(correctNames("Kleenex, Kleenx and clean x. Floyd, ask Pink Floyd", terms)).toBe("CleanX, CleanX and CleanX. Flyd, ask Pink Floyd");
-    expect(correctNames("the taste maker build", terms)).toBe("the Tastemaker build");
+    expect(correctNames("the taste maker build", terms, [], ["Tastemaker"])).toBe("the Tastemaker build");
     expect(correctNames("I need the clinics data and a Kleenex", ["Flyd"])).toBe("I need the clinics data and a Kleenex");
     expect(correctNames("Reply to Floyd", ["Flyd", "Floyd"])).toBe("Reply to Floyd");
+  });
+
+  it("joins only his project and people names, never profile terms or the LIVE intent", () => {
+    expect(correctVoiceNames("tick tock, you tube and crypto art for the taste maker launch"))
+      .toBe("tick tock, you tube and crypto art for the Tastemaker launch");
+    expect(liveIntent("open the taste maker board")).toBe("open the taste maker board");
   });
 });
 
 describe("his corrections teach Flyd", () => {
-  it("a chat correction creates the rule the first time and it survives a restart", async () => {
+  it("a chat correction creates the rule the first time, on every path", async () => {
+    await learning("enable");
     const desk = new FlydDesk({ dir: join(dir, "asks"), answer: async () => "Done." });
     desk.ask("Did Kleenex ship yet?", [], "session");
     desk.ask("I meant CleanX", [], "session");
-    expect(JSON.parse(readFileSync(join(dir, "voice-name-rules.json"), "utf8"))).toMatchObject([{ from: "Kleenex", to: "CleanX", source: "chat" }]);
+    expect(learnedNameRules()).toEqual([{ from: "Kleenex", to: "CleanX" }]);
 
-    expect(correctVoiceNames("how is post action doing")).toBe("how is post action doing");
-    desk.ask("it's Posttraction not Post action", [], "session");
-    expect(correctVoiceNames("how is post action doing")).toBe("how is Posttraction doing");
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is fonso doing");
+    desk.ask("it's Fonzo not Fonso", [], "session");
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is Fonzo doing");
+    expect(liveIntent("how is fonso doing")).toBe("how is Fonzo doing");
   });
 
-  it("learns the stated form and refuses a choice between two of his names", () => {
+  it("learns nothing while correction learning is off", () => {
+    const desk = new FlydDesk({ dir: join(dir, "asks"), answer: async () => "Done." });
+    desk.ask("it's Fonzo not Fonso", [], "session");
+    expect(learnedNameRules()).toEqual([]);
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is fonso doing");
+  });
+
+  it("rejection turns a name off everywhere and a repeat does not revive it; erasure removes it", async () => {
+    await learning("enable");
+    const previous = learnLiveUtterance("how is fonso doing", undefined);
+    learnLiveUtterance("I meant Fonzo", previous);
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is Fonzo doing");
+    const listed = (await learningRequest("/learning", "GET")).body as { corrections: Array<{ sequence: number; from: string; to: string }> };
+    const lesson = listed.corrections.find(c => c.to === "Fonzo")!;
+    expect(lesson).toMatchObject({ from: "fonso" });
+
+    await learningRequest("/dictation/review", "POST", { sequence: lesson.sequence, approved: false });
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is fonso doing");
+    learnLiveUtterance("it's Fonzo not fonso", "anything");
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is fonso doing");
+
+    learnLiveUtterance("Fonzo, not Fonsso", "anything");
+    expect(learnedNameRules()).toEqual([{ from: "Fonsso", to: "Fonzo" }]);
+    await learning("erase");
+    expect(learnedNameRules()).toEqual([]);
+    expect(correctVoiceNames("how is fonsso doing")).toBe("how is fonsso doing");
+  });
+
+  it("learns the stated form and refuses a choice between two of his names, a prefix or an inflection", () => {
     const terms = ["CleanX", "Logan", "Pierre"];
     expect(nameCorrection("No, it's CleanX not Kleenex", undefined, terms)).toEqual({ from: "Kleenex", to: "CleanX" });
     expect(nameCorrection("not kleenex, CleanX", undefined, terms)).toEqual({ from: "kleenex", to: "CleanX" });
     expect(nameCorrection("Logan, not Pierre", undefined, terms)).toBeNull();
+    expect(nameCorrection("CleanX, not Clean", undefined, terms)).toBeNull();
+    expect(nameCorrection("Logan, not Logan's", undefined, terms)).toBeNull();
     expect(nameCorrection("I meant CleanX", "clean up the page", terms)).toBeNull();
   });
 
-  it("a LIVE correction teaches every path", () => {
+  it("a LIVE correction of an inflection teaches nothing", async () => {
+    await learning("enable");
     const previous = learnLiveUtterance("What's new on Logan's room?", undefined);
     learnLiveUtterance("I meant Logan", previous);
-    expect(existsSync(join(dir, "voice-name-rules.json"))).toBe(false);
-
-    learnLiveUtterance("it's Posttraction not Post action", "anything");
-    expect(loadNameRules()).toMatchObject([{ from: "Post action", to: "Posttraction", source: "live" }]);
+    expect(learnedNameRules()).toEqual([]);
   });
 
-  it("a dictation edit of a known name teaches at once; other words wait for three", () => {
-    expect(learnNameEdit({ from: "Kleenex", to: "CleanX" })).toMatchObject({ from: "Kleenex", to: "CleanX", source: "dictation" });
-    expect(learnNameEdit({ from: "flight", to: "fight" })).toBeNull();
+  it("a dictation edit of a known name teaches every path at once; other words wait for three", async () => {
+    await learning("enable");
+    const edit = (before: string, after: string, invocationId: string) => learningRequest("/dictation/correction", "POST",
+      { before, after, invocationId, bundleId: "com.apple.Notes", scope: dictationScope("com.apple.Notes", "Notes") });
+    await edit("how is fonso doing", "how is Fonzo doing", "d1");
+    await edit("book a flight today", "book a fight today", "d2");
+    expect(learnedNameRules()).toEqual([{ from: "fonso", to: "Fonzo" }]);
+    expect(correctVoiceNames("is fonso live")).toBe("is Fonzo live");
   });
 });
 
