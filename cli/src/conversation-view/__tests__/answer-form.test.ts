@@ -57,6 +57,24 @@ describe("answerHtml", () => {
     expect(html).not.toContain("Cause & fix");
   });
 
+  it("shows Flyd's working diagnosis as a short reply, never its labelled sections", () => {
+    const body = answerBody({
+      lead: "Dragging pages in Logan is slow and unreliable.",
+      form: "diagnosis",
+      parts: [
+        { label: "Expected", text: "Dragging pages should be smooth." },
+        { label: "Observed", text: "Moving pages is very slow." },
+        { label: "Cause", text: "The previews and canvas may redraw twice." },
+        { label: "Evidence", text: "George mentioned it earlier." },
+        { label: "Next", text: "I'm fixing it now and will tell you when it's in." },
+      ],
+    });
+    const html = answerHtml(body);
+    expect(html).toBe(renderMarkdown("Dragging pages in Logan is slow and unreliable.\n\nI'm fixing it now and will tell you when it's in."));
+    expect(html).not.toMatch(/Expected|Observed|Cause|Evidence|<dt>/);
+    expect(plainAnswer(body)).toContain("The previews and canvas may redraw twice.");
+  });
+
   it("draws a comparison as one table, options across and criteria down", () => {
     const html = answerHtml(answerBody({
       lead: "Pink for reading, blue for counting.",
