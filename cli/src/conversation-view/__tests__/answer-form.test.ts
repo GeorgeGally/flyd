@@ -75,6 +75,23 @@ describe("answerHtml", () => {
     expect(plainAnswer(body)).toContain("The previews and canvas may redraw twice.");
   });
 
+  it("adds the cause in one plain sentence when he asked why", () => {
+    const html = answerHtml(answerBody({
+      lead: "The router fell back.",
+      form: "diagnosis",
+      askedWhy: true,
+      parts: [
+        { label: "Expected", text: "Every route went through Jev." },
+        { label: "Observed", text: "It fell back." },
+        { label: "Cause", text: "Jev returned not ok. It timed out at 2s." },
+        { label: "Evidence", text: "The router log." },
+        { label: "Next", text: "I'll raise the timeout." },
+      ],
+    }));
+    expect(html).toBe(renderMarkdown("The router fell back. Jev returned not ok.\n\nI'll raise the timeout."));
+    expect(html).not.toMatch(/Evidence|router log|timed out/);
+  });
+
   it("draws a comparison as one table, options across and criteria down", () => {
     const html = answerHtml(answerBody({
       lead: "Pink for reading, blue for counting.",

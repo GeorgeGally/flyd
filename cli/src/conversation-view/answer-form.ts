@@ -39,7 +39,7 @@ export function answerBody(value: unknown): AnswerBody {
   if (record.form === "diagnosis") {
     const parts = partsFrom(record.parts);
     const evidence = evidenceFrom(record.evidence);
-    if (parts.length) return { lead, form: "diagnosis", parts, ...(evidence.length ? { evidence } : {}), ...(next ? { next } : {}) };
+    if (parts.length) return { lead, form: "diagnosis", parts, ...(evidence.length ? { evidence } : {}), ...(next ? { next } : {}), ...(record.askedWhy === true ? { askedWhy: true } : {}) };
   }
   if (record.form === "comparison") {
     const criteria = Array.isArray(record.criteria) ? record.criteria.map(said) : [];
@@ -89,8 +89,11 @@ const WORKING_LABELS = new Set(["expected", "observed", "cause", "evidence", "ne
  */
 export function workingReply(body: AnswerBody): string | null {
   if (body.form !== "diagnosis" || !body.parts.every((part) => WORKING_LABELS.has(part.label.trim().toLowerCase()))) return null;
-  const next = body.next || body.parts.find((part) => part.label.trim().toLowerCase() === "next")?.text || "";
-  return [body.lead, next].map((line) => line.trim()).filter(Boolean).join("\n\n");
+  const part = (label: string): string => body.parts.find((entry) => entry.label.trim().toLowerCase() === label)?.text ?? "";
+  const next = body.next || part("next");
+  // He asked why, so the cause is his answer: its first sentence, plainly, without the evidence behind it.
+  const cause = body.askedWhy ? (/^[\s\S]*?[.!?](?=\s|$)/.exec(part("cause").trim())?.[0] ?? part("cause")) : "";
+  return [[body.lead, cause].map((line) => line.trim()).filter(Boolean).join(" "), next].map((line) => line.trim()).filter(Boolean).join("\n\n");
 }
 
 /** The body as the page shows it; prose is exactly the markdown it has always been. */

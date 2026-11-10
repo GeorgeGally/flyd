@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { diagnosisFromText } from "../conversation-view/answer-form.js";
+import { diagnosisFromText, type AnswerBody } from "../conversation-view/answer-form.js";
 import { answerForm, reshapeAnswer } from "../conversation-view/answer-shape.js";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
 import { artefactJudgeFromEnv } from "../conversation-view/artefact-judge.js";
@@ -71,7 +71,7 @@ async function listenNear(server: ConversationViewServer, port: number, explicit
  * The shape Flyd's own answers may take in the view, said to the model on
  * these turns only; one it does not choose is prose.
  */
-const DIAGNOSIS_PROMPT = "This answer is in the Flyd conversation view. When it explains why something did or did not work, it MUST use the diagnosis form, even though your usual style is connected prose: open with `**Diagnosis: <the outcome in one line>**`, then exactly one line each for `**Expected:**`, `**Observed:**`, `**Cause:**`, `**Evidence:**` and `**Next:**` (Evidence names the mechanism, spec or source — a file, a log, or the documented behaviour — and need not be something you read this turn). The labelled lines are your own working notes; George reads only the Diagnosis line and Next, so write those as his PA would say them: the Diagnosis line a plain acknowledgement of what is wrong or what you found, and Next in the first person, saying what you will do and when he will hear (e.g. `I'm fixing it now and will tell you when it's in.`). Every other answer is prose. Never force the shape onto an answer that is not explaining a cause.";
+const DIAGNOSIS_PROMPT = "This answer is in the Flyd conversation view. When it explains why something did or did not work, it MUST use the diagnosis form, even though your usual style is connected prose: open with `**Diagnosis: <the outcome in one line>**`, then exactly one line each for `**Expected:**`, `**Observed:**`, `**Cause:**`, `**Evidence:**` and `**Next:**` (Evidence names the mechanism, spec or source — a file, a log, or the documented behaviour — and need not be something you read this turn). The labelled lines are your own working notes; George reads only the Diagnosis line and Next (plus the first sentence of Cause when he asked why), so write those as his PA would say them: the Diagnosis line a plain acknowledgement of what is wrong or what you found, and Next in the first person, saying what you will do and when he will hear (e.g. `I'm fixing it now and will tell you when it's in.`). Every other answer is prose. Never force the shape onto an answer that is not explaining a cause.";
 
 /**
  * Flyd's own assistant turn, as agenda items and background jobs run one: nobody is there to approve actions.
@@ -88,12 +88,23 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   const article = turn ? await articleForTurn(turn.source.sessionId, question) : undefined;
   const text = await respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: DIAGNOSIS_PROMPT });
   const declared = diagnosisFromText(text);
-  if (declared) return declared;
+  if (declared) return withAskedWhy(declared, question);
   const form = await answerForm(question, text);
   if (!form) return text;
   const { quickQuery } = await import("../lib/llm.js");
-  return (await reshapeAnswer(question, text, form, (prompt) => quickQuery(prompt, { json: true }))) ?? text;
+  const shaped = await reshapeAnswer(question, text, form, (prompt) => quickQuery(prompt, { json: true }));
+  return shaped ? withAskedWhy(shaped, question) : text;
 };
+
+/** A diagnosis answering his "why" carries its cause into the short reply he reads. */
+function withAskedWhy(body: AnswerBody, question: string): AnswerBody {
+  return body.form === "diagnosis" && asksWhy(question) ? { ...body, askedWhy: true } : body;
+}
+
+/** Whether George asked why something failed, rather than reporting it. */
+export function asksWhy(question: string): boolean {
+  return /\bwhy\b|\bhow come\b|\bwhat (?:went wrong|happened|caused)\b|\bwhat'?s (?:the )?cause\b/i.test(question);
+}
 
 /** The article this turn is grounded in; none for an off-topic question or an unreadable page, so the turn takes the ordinary path with its tools. */
 async function articleForTurn(sessionId: string, question: string): Promise<{ title: string; url: string; text: string } | undefined> {
