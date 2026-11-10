@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { ReplacementRule } from "./vocabulary.js";
 
 /** Lexical guard: reject altered protected slots, including number words.
@@ -111,4 +112,67 @@ export function preservesWords(input: string, output: string, spellings: string[
   const terms = new Set(spellings.flatMap(words));
   const approved = new Set(rules.map(rule => `${rule.from.toLowerCase()}\u0000${rule.to.toLowerCase()}`));
   return before.every((word, index) => word === after[index] || isSanctionedSpelling(word, after[index], terms, approved));
+}
+
+/** Letters only, lowercased: "Clean X" and "CleanX" are the same spoken name. */
+export const squashName = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
+/** A spelling closer to how a word sounds, so edit distance compares sounds, not letters. */
+function phonetic(word: string): string {
+  return word.toLowerCase().replace(/[^a-z]/g, "")
+    .replace(/ph/g, "f").replace(/ck/g, "k").replace(/c(?=[eiy])/g, "s").replace(/c/g, "k").replace(/q/g, "k")
+    .replace(/x/g, "ks").replace(/z/g, "s").replace(/(?:ee|ea|ie)/g, "Y").replace(/(?:oo|ou)/g, "U")
+    .replace(/(.)\1+/g, "$1").replace(/(?<=.)e$/, "");
+}
+
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+/** How far apart two spellings sound, 0 (same) to 1. */
+export function soundDistance(a: string, b: string): number {
+  const pa = phonetic(a), pb = phonetic(b);
+  return editDistance(pa, pb) / Math.max(pa.length, pb.length, 1);
+}
+
+/**
+ * Whether a heard word or phrase is a plausible mishearing of a name: same sound
+ * key (at least three sounds), similar length, and close when spelled by sound.
+ * A prefix or inflection of the name ("Clean", "Logan's") is not a mishearing.
+ */
+export function soundsLikeName(heard: string, name: string): boolean {
+  const a = squashName(heard), b = squashName(name);
+  if (!a || !b || a === b || /\d/.test(a) || a.startsWith(b) || b.startsWith(a)) return false;
+  const ratio = a.length / b.length;
+  if (ratio < 0.6 || ratio > 1.6) return false;
+  const key = soundKey(a);
+  return key.length >= 3 && key === soundKey(b) && soundDistance(a, b) <= 0.25;
+}
+
+let dictionary: { path: string; words: Set<string> | null } | undefined;
+/** Common words from the system word list (macOS `/usr/share/dict/words`); its capitalized proper names are not. */
+function dictionaryWords(): Set<string> | null {
+  const path = process.env.FLYD_DICTIONARY_WORDS?.trim() || "/usr/share/dict/words";
+  if (dictionary?.path !== path) {
+    let words: Set<string> | null = null;
+    try {
+      words = new Set(readFileSync(path, "utf8").split("\n").map(word => word.trim()).filter(word => /^\p{Ll}/u.test(word)));
+    } catch { /* no word list: every heard word counts as ordinary */ }
+    dictionary = { path, words };
+  }
+  return dictionary.words;
+}
+
+/** Ordinary English ("login", "post action"), or unknown because there is no word list to check. */
+export function ordinaryWords(heard: string): boolean {
+  const words = dictionaryWords();
+  return !words || heard.toLowerCase().split(/\s+/).every(word => words.has(word));
 }

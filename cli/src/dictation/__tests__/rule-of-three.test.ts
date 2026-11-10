@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { learningRequest } from "../../cognition/learning-service.js";
@@ -13,6 +13,8 @@ let dir: string;
 const app = "terminal", title = "Flyd";
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "flyd-three-")); vi.stubEnv("FLYD_DIR", dir);
+  vi.stubEnv("FLYD_DICTIONARY_WORDS", join(dir, "words"));
+  writeFileSync(join(dir, "words"), ["ask", "about", "it", "flight", "whisper"].join("\n"));
   await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "enable" });
 });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });
@@ -30,35 +32,39 @@ function vocabulary(window = title, bundleId = app) {
 }
 
 describe("persistent voice rule of three", () => {
+  const kit = (id: string, before = "Ask whisperkit about it", window = title) => correct(id, before, "Ask WhisperKit about it", window);
   it("hints immediately, promotes exactly at three, and applies without a polish model", async () => {
-    expect((await correct("s1")).status).toBe("tentative");
-    expect(vocabulary().terms).toContain("Flyd");
+    expect((await kit("s1")).status).toBe("tentative");
+    expect(vocabulary().terms).toContain("WhisperKit");
     expect(vocabulary().rules).toEqual([]);
-    expect((await correct("s2")).promoted).toBe(false);
-    const third = await correct("s3");
+    expect((await kit("s2")).promoted).toBe(false);
+    const third = await kit("s3");
     expect(third).toMatchObject({ status: "active", promoted: true, evidenceCount: 3 });
-    expect((await correct("s3")).promoted).toBe(false);
+    expect((await kit("s3")).promoted).toBe(false);
     const learned = vocabulary(); // Fresh store models a restart: no in-memory promotion state.
-    const result = await finishDictation("Ask Floyd about it", { target: { bundleId: app, windowTitle: title },
+    const result = await finishDictation("Ask whisperkit about it", { target: { bundleId: app, windowTitle: title },
       audioSeconds: 5, ...{ rules: learned.rules, vocabulary: learned.terms }, model: "" });
-    expect(result.text).toBe("Ask Flyd about it");
+    expect(result.text).toBe("Ask WhisperKit about it");
+  });
+  it("a correction of one of his names is active at once", async () => {
+    expect(await correct("s1")).toMatchObject({ status: "active", promoted: true });
   });
   it("counts one session once, even if a retry has a different pair", async () => {
-    const first = await correct("s1");
-    expect(await correct("s1")).toMatchObject({ sequence: first.sequence, evidenceCount: 1 });
-    expect(await correct("s1", "Ask flight about it")).toMatchObject({ sequence: first.sequence, evidenceCount: 1 });
-    expect((await correct("s2")).evidenceCount).toBe(2);
+    const first = await kit("s1");
+    expect(await kit("s1")).toMatchObject({ sequence: first.sequence, evidenceCount: 1 });
+    expect(await kit("s1", "Ask whisper about it")).toMatchObject({ sequence: first.sequence, evidenceCount: 1 });
+    expect((await kit("s2")).evidenceCount).toBe(2);
     expect(vocabulary().rules).toEqual([]);
   });
   it("does not pool different scopes or error patterns", async () => {
-    await correct("s1"); await correct("s2");
-    await correct("s3", undefined, undefined, "Other");
-    await correct("s4", "Ask flight about it");
+    await kit("s1"); await kit("s2");
+    await kit("s3", undefined, "Other");
+    await kit("s4", "Ask whisper about it");
     expect(vocabulary().rules).toEqual([]);
-    await correct("s5");
+    await kit("s5");
     expect(vocabulary().rules).toHaveLength(1);
     expect(vocabulary("Other").rules).toEqual([]);
-    expect(vocabulary(title, "mail").terms).not.toContain("Flyd");
+    expect(vocabulary(title, "mail").terms).not.toContain("WhisperKit");
   });
   it("matches neighbouring evidence, not Pink Floyd, quoted text or another app", async () => {
     for (const id of ["s1", "s2", "s3"]) await correct(id);
@@ -83,7 +89,7 @@ describe("persistent voice rule of three", () => {
       expect((await correct(id + "n", "Charge 105", "Charge 115")).status).toBe("ignored");
       expect((await correct(id + "x", "Don't commit", "Commit")).status).toBe("ignored");
       expect((await correct(id + "m", "Meet Sunday", "Meet Monday")).status).toBe("blocked");
-      expect((await correct(id + "c", "Floyd", "Flyd")).status).toBe("blocked");
+      expect((await correct(id + "c", "whisperkit", "WhisperKit")).status).toBe("blocked");
     }
     expect(vocabulary()).toEqual({ rules: [], terms: [] });
   });

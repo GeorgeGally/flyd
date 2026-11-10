@@ -1,10 +1,10 @@
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
-import { preservesProtectedTokens, soundKey } from "./fidelity.js";
+import { ordinaryWords, preservesProtectedTokens, soundKey, soundsLikeName, squashName } from "./fidelity.js";
 import type { ReplacementRule } from "./vocabulary.js";
 import { loadVocabulary } from "./vocabulary.js";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 export function dictationScope(bundleId: string, windowTitle = ""): string {
   return createHash("sha256").update(bundleId + "\n" + windowTitle.trim().toLowerCase()).digest("hex");
@@ -15,7 +15,7 @@ export const IMPORT_SOURCE = "conversation.import";
 export function learningRegistry(): SourceContractRegistry {
   const registry = new SourceContractRegistry();
   for (const [sourceId, purpose] of [
-    [CORRECTION_SOURCE, "Learn scoped vocabulary from edits to inserted dictation; retain changed terms and up to two neighbouring words per side. Three eligible independent corrections activate a contextual rule; recurrence reports remain local."],
+    [CORRECTION_SOURCE, "Learn scoped vocabulary from edits to inserted dictation; retain changed terms and up to two neighbouring words per side. Three eligible independent corrections activate a contextual rule; recurrence reports remain local. A correction of one of his project or people names, from a dictation edit, chat or LIVE, retains only the misheard and corrected spelling and applies on every voice path at once."],
     [IMPORT_SOURCE, "Learn project state from explicitly imported conversations; local history and derived claims share one erasable source."],
   ]) {
     const egressDestinations = sourceId === IMPORT_SOURCE
@@ -49,9 +49,13 @@ export interface CorrectionCandidate extends ReplacementRule {
   eligible?: boolean;
   capturedAt?: string;
   reviewSequence?: number;
+  /** A correction of one of his names: until rejected, it applies on every voice path. */
+  name?: boolean;
 }
 
 export const CORRECTION_PROMOTION_THRESHOLD = 3;
+/** Where name corrections George states in chat or LIVE are kept; no app's dictation uses it. */
+const NAME_LESSONS = "flyd.voice-names";
 const normalize = (s: string) => s.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 const tokens = (s: string) => s.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
 
@@ -115,7 +119,7 @@ export function recordCorrection(input: { before: string; after: string; invocat
       if (existing) return existing.sequence;
       const context = correctionContext(input.before, input.after);
       return curator.recordObservation({ correction: pair, invocationId: input.invocationId, bundleId: input.bundleId, scope: input.scope,
-        context, eligible: eligibleSpelling(pair), policyVersion: "voice-three-v1" },
+        context, eligible: eligibleSpelling(pair), name: isNameCorrection(pair, loadVocabulary()), policyVersion: "voice-three-v1" },
         CORRECTION_SOURCE, { correlationId: input.invocationId });
     });
   } finally { store.close(); }
@@ -137,7 +141,8 @@ export function correctionCandidates(store: IntelligenceEventStore): CorrectionC
     return [{ ...pair, sequence: event.sequence, invocationId: String(p.invocationId), bundleId: String(p.bundleId),
       scope: String(p.scope), approved: approvals.get(event.sequence)?.approved === true, reviewed: approvals.has(event.sequence),
       reviewSequence: approvals.get(event.sequence)?.sequence,
-      context: p.context as CorrectionCandidate["context"], eligible: p.eligible === true, capturedAt: event.capturedAt }];
+      context: p.context as CorrectionCandidate["context"], eligible: p.eligible === true, capturedAt: event.capturedAt,
+      ...(p.name === true ? { name: true } : {}) }];
   });
   const groups = new Map<string, CorrectionCandidate[]>();
   for (const c of candidates) {
@@ -146,6 +151,9 @@ export function correctionCandidates(store: IntelligenceEventStore): CorrectionC
     group.push(c); groups.set(c.ruleId, group);
   }
   const summaries = new Map<string, { manual: boolean; disabled: boolean; eligible: Set<number>; count: number; recurrences: number }>();
+  const pairKey = (c: ReplacementRule) => normalize(c.from) + "\u0000" + normalize(c.to);
+  // His latest decision on a name spelling, wherever he made it, holds on every path.
+  const nameDecisions = new Map<string, CorrectionCandidate>();
   const spellings = new Map<string, Set<string>>();
   const scopeKey = (c: CorrectionCandidate) => JSON.stringify([c.bundleId, c.scope, normalize(c.from)]);
   for (const [id, group] of groups) {
@@ -153,6 +161,8 @@ export function correctionCandidates(store: IntelligenceEventStore): CorrectionC
       e.reviewed && (e.reviewSequence ?? 0) > (latest?.reviewSequence ?? 0) ? e : latest, undefined);
     const manual = decision?.approved === true;
     const disabled = decision?.approved === false;
+    const latest = nameDecisions.get(pairKey(group[0]));
+    if (decision && (decision.reviewSequence ?? 0) > (latest?.reviewSequence ?? 0)) nameDecisions.set(pairKey(group[0]), decision);
     const eligible = group.filter(e => e.eligible && e.context && e.context.left.length + e.context.right.length > 0);
     summaries.set(id, { manual, disabled, eligible: new Set(eligible.map(e => e.sequence)), count: eligible.length,
       recurrences: Math.max(0, eligible.length - CORRECTION_PROMOTION_THRESHOLD) });
@@ -163,14 +173,18 @@ export function correctionCandidates(store: IntelligenceEventStore): CorrectionC
   }
   return candidates.map(c => {
     const group = groups.get(c.ruleId!)!, summary = summaries.get(c.ruleId!)!;
-    const { manual, disabled } = summary;
+    const decision = c.name ? nameDecisions.get(pairKey(c)) : undefined;
+    const manual = decision ? decision.approved : summary.manual;
+    const disabled = decision ? !decision.approved : summary.disabled;
     const conflict = (spellings.get(scopeKey(c))?.size ?? 0) > 1;
     const safe = summary.eligible.has(c.sequence);
-    const active = !disabled && !conflict && safe && summary.count >= CORRECTION_PROMOTION_THRESHOLD;
+    const named = c.name === true && !disabled && !conflict;
+    const active = !disabled && (named || !conflict && safe && summary.count >= CORRECTION_PROMOTION_THRESHOLD);
     return { ...c, approved: manual, reviewed: manual || disabled, evidenceCount: safe ? summary.count : group.length,
-      status: manual ? "active" : disabled ? "disabled" : conflict || !safe ? "blocked" : active ? "active" : "tentative",
+      status: manual ? "active" : disabled ? "disabled" : named ? "active" : conflict || !safe ? "blocked" : active ? "active" : "tentative",
       activation: manual ? "manual" : active ? "automatic" : undefined,
       reason: manual ? "Explicit approval" : disabled ? "Rejected evidence; explicit approval required" :
+        named ? "Correction of one of his names" :
         conflict ? "Conflicting spelling in this scope" : !safe ? "Needs review: spelling or context is ambiguous" :
         active ? "Three independent spelling corrections" : "Tentative spelling hint",
       recurrences: active ? summary.recurrences : 0,
@@ -225,6 +239,48 @@ export function reviewedVocabulary(store: IntelligenceEventStore, bundleId: stri
     rules: [...rules.values()].filter((rule): rule is ReplacementRule => rule !== null),
     terms: [...new Set([...approved.reverse(), ...hinted.reverse()].map(c => c.to))],
   };
+}
+
+/**
+ * Whether a dictation edit fixed one of his names misheard: `to` is his name,
+ * `from` sounds like it and is neither his name nor ordinary English ("login"
+ * keeps the scoped rule of three).
+ */
+export function isNameCorrection(pair: ReplacementRule, terms: string[]): boolean {
+  const known = (name: string) => terms.some(term => squashName(term) === squashName(name));
+  return known(pair.to) && !known(pair.from) && !ordinaryWords(pair.from) && soundsLikeName(pair.from, pair.to);
+}
+
+/**
+ * Records a name correction George made in chat or LIVE as evidence of this
+ * source, so `flyd learning` lists, rejects and erases it like any dictation edit.
+ */
+export function recordNameLesson(pair: ReplacementRule, learnedFrom: string): number | null {
+  if (learningRegistry().status(CORRECTION_SOURCE) !== "enabled") return null;
+  const store = new IntelligenceEventStore();
+  try {
+    return new CognitiveCurator(store).recordObservation({ correction: { from: pair.from, to: pair.to }, invocationId: randomUUID(),
+      bundleId: NAME_LESSONS, scope: dictationScope(NAME_LESSONS), context: { left: [], right: [] }, eligible: false, name: true,
+      learnedFrom, policyVersion: "voice-names-v1" }, CORRECTION_SOURCE);
+  } finally { store.close(); }
+}
+
+/**
+ * His active name corrections, for every voice path; heard words taught two
+ * spellings are withheld.
+ */
+export function learnedNameRules(): ReplacementRule[] {
+  if (learningRegistry().status(CORRECTION_SOURCE) !== "enabled") return [];
+  const store = new IntelligenceEventStore();
+  try {
+    const candidates = correctionCandidates(store);
+    const rules = new Map<string, ReplacementRule | null>();
+    for (const c of candidates) if (c.name && c.status === "active") {
+      const known = rules.get(normalize(c.from));
+      rules.set(normalize(c.from), known === undefined || known !== null && normalize(known.to) === normalize(c.to) ? { from: c.from, to: c.to } : null);
+    }
+    return [...rules.values()].filter((rule): rule is ReplacementRule => rule !== null);
+  } finally { store.close(); }
 }
 
 export function reviewedRules(bundleId: string, windowTitle = ""): ReplacementRule[] {

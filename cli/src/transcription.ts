@@ -8,7 +8,8 @@ import { conversationVocabulary, currentProjectVocabulary } from "./dictation/co
 import { reviewedVocabulary, type ReviewedVocabulary } from "./dictation/corrections.js";
 import { IntelligenceEventStore } from "./intelligence/event-store.js";
 import type { DictationTarget } from "./dictation/profile.js";
-import { finishDictation, flydNameBackstop } from "./dictation/cleanup.js";
+import { finishDictation } from "./dictation/cleanup.js";
+import { correctVoiceNames } from "./dictation/names.js";
 import { dictationFetch, warmDictationHosts } from "./dictation/http.js";
 import { transcriptionPurpose, type TranscriptionPurpose } from "./dictation/request.js";
 export { transcriptionPurpose } from "./dictation/request.js";
@@ -278,7 +279,8 @@ async function completeDictation(
   purpose: Extract<TranscriptionPurpose, { kind: "dictation" }>,
   vocabulary: string[],
 ): Promise<void> {
-  const result = await finishDictation(transcript, {
+  // His names first, so cleanup and its fidelity guard see the spelling he means.
+  const result = await finishDictation(correctVoiceNames(transcript), {
     target: purpose.target,
     audioSeconds,
     rules: dictationRules(purpose.target),
@@ -326,7 +328,7 @@ export async function transcribeBufferedAudio(chunks: Buffer[], clientWs: Pick<W
         await completeDictation(clientWs, body.text || "", pcm.length / PCM_BYTES_PER_SECOND, purpose, vocabulary);
         return;
       }
-      sendJson(clientWs, { type: "complete", text: flydNameBackstop(body.text || "") });
+      sendJson(clientWs, { type: "complete", text: correctVoiceNames(body.text || "") });
       return;
     }
 
