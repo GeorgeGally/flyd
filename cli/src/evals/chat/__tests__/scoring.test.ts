@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildJudgePrompt, fillPlaceholders, median, parseJudgeVerdict, scoreChatEval, type ChatEvalCase, type ChatEvalObservation,
+  buildJudgePrompt, fillPlaceholders, median, parseJudgeVerdict, percentile, scoreChatEval, type ChatEvalCase, type ChatEvalObservation,
 } from "../scoring.js";
 
 const base: ChatEvalObservation = { route: "conversation", answer: "", seconds: 1, toolCalls: [] };
@@ -113,5 +113,13 @@ describe("the chief-of-staff brevity case", () => {
     const rambling = "Let me work that out. I checked today's date against the calendar: it's 17 October, so there are 14 days left in October, 30 in November and 25 in December, which comes to 69 days. I can set a reminder for your Christmas shopping if you like, or draft a gift list?";
     expect(run(rambling).failures).toEqual([expect.stringMatching(/checked/), expect.stringMatching(/let me/)]);
     expect(run(`69 days. ${"Christmas falls on a Friday this year, so the long weekend runs into Monday. ".repeat(4)}`).failures).toEqual([expect.stringMatching(/chars > 280/)]);
+  });
+});
+
+describe("percentile", () => {
+  it("takes the nearest rank", () => {
+    expect(percentile([], 95)).toBe(0);
+    expect(percentile([4, 1, 3, 2], 50)).toBe(2);
+    expect(percentile([4, 1, 3, 2], 95)).toBe(4);
   });
 });

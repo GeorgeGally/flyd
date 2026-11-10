@@ -96,7 +96,7 @@ interface CosReport {
   detail: string;                // L1: what matters and why
   recommendation?: string; options?: string[];
   evidenceRefs: string[];        // L2: DomainResult, artefacts, screenshots
-  shape: "words" | "picture" | "decision" | "comparison" | "diagnosis" | "steps" | "document" | "landed";
+  shape: "words" | "picture" | "decision" | "comparison" | "steps" | "document" | "landed";
   artefacts: string[];           // refs to screenshots, lab pages, dossiers, diffs the shape needs
   urgency: "now" | "today" | "whenever";
 }
@@ -121,7 +121,7 @@ Choosing the artefact, deterministic rules first, in this order:
 | Visual work: a design lab, a build, a UI change | Picture card: the pick large, alternatives as thumbnails, one line on why | Design Mate lab shots, `reply-shots.ts`, `cards.ts` |
 | A choice only George can make | Decision card: the question, options as buttons, the recommendation marked | decision cards (`choices.ts`; answers via `commands/view.ts` `resolveDecision`) |
 | Alternatives weighed on criteria | Comparison form | `ManifestationPlan` `comparison` (`semantic.ts`, `answer-form.ts`) |
-| A failure, or why something happened | Diagnosis form: expected / observed / cause / evidence / next | `ManifestationPlan` `diagnosis` |
+| A failure, or why something happened | One plain sentence: what happened and what Flyd is doing about it. Evidence stays behind "more". The diagnosis form (expected / observed / cause / evidence / next) is Flyd's own working notes and is never shown to George | `ManifestationPlan` `diagnosis` kept on the record; George reads `workingReply` (`conversation-view/answer-form.ts`) |
 | Steps, or a list of more than 3 items | Steps/options artefact | `replyArtefact` (`summaries.ts` L225) |
 | A report longer than the lead plus two lines (`MAX_CHARS` = 360) | Document page: summary on top, evidence and sources below | Compose dossier surface (`evidence/compose-surface.ts`) |
 | Code landed | One line plus a link to the change | landed-line rule in `for-george.ts` |
@@ -173,7 +173,7 @@ Everything after Phase 1 runs behind `FLYD_COS=1` until Phase 5. With the flag o
 - Add about 12 companion cases to `cases.json`, all judged: vent (4), think-out-loud (4), decide-personal (2), and "how's my work going?" with seeded objectives (2).
 - Add a judge rubric for attentiveness: does it pick up what George actually meant, use relevant personal context without decorating, and keep machinery out of sight.
 - Delivery cases: about 15 fixtures of finished work, built from real `DomainResult` shapes: a design lab with three versions and a pick, a long research report, code landed, a decision with three options, a failure, a comparison, a seven-item status. Each case asserts the shape the Delivery standard table requires, a lead line of at most 120 characters, visible text no longer than the lead plus two lines, no staff names, and a judged clarity score.
-- **Real examples:** George supplies 5–10 recent deliveries he found poor (screenshots or pasted text). Each becomes a case. They are the real test; the fixtures only cover the rules.
+- **Real examples:** seeded from the 2026-11-10 PA deep dive: the decision questions passed through in staff words, the six-morning "Do first" line, "Flyd couldn't answer this: …", the diagnosis card and the relay lines the reply checks caught. George can add more (screenshots or pasted text); each becomes a case. They are the real test; the fixtures only cover the rules.
 - Record a baseline on the pinned chat model: delivery pass rate, companion mean judge score, delegate-case pass rate, p50/p95 delegate-turn latency.
 
 **Exit:** a baseline file committed under `docs/evals/` with the four numbers, reproducible with one command.
@@ -298,7 +298,11 @@ If companion quality doesn't improve, ship the split for its correctness gains, 
 
 ## Still needed from George
 
-- **Your worst deliveries.** Send 5–10 recent deliveries that annoyed you (screenshots or paste). They become the Phase 0 test cases and decide whether Phase 1 actually fixed it.
+- **More of your worst deliveries.** Nine real ones are already cases (`cli/src/evals/chat/delivery.json`, baseline in `docs/evals/flyd-delivery-baseline-2026-11-10.md`). Any others you send (screenshots or paste) become cases too and decide whether Phase 1 actually fixed it.
+
+## Amended 2026-11-10
+
+- **Failures reach George as one plain sentence**, never the diagnosis card he rejected on 2026-11-10. The Delivery standard's failure row is rewritten and `diagnosis` is no longer a report shape. This matches PR #252: `DIAGNOSIS_PROMPT` (`commands/view.ts`) treats the labelled lines as Flyd's working notes, and the view shows only the finding and what happens next (plus the cause's first sentence when he asked why).
 
 ## Corrections to v6
 
