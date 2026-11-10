@@ -38,6 +38,7 @@ import { morningPromptBlock } from "../council/morning.js";
 import { projectNamed, projectsPromptBlock } from "../council/projects.js";
 import type { Skill } from "./skills.js";
 import { CODE_TOOLS, offCode, offRoute, planBudget, planTurn, visibleTools, type TurnPlan } from "./turn-plan.js";
+import { deliveredPromptBlock } from "./delivery.js";
 import { defaultRouteTurn, finishInFlydsVoice, gatherTurnKnowledge, groundingProblems, hedgeUngroundedAnswer, readRoomStage, turnBriefParts, turnExtras, ungroundedSpans, type FastRouteReading, type ReadRoom, type RouteTurn } from "./turn-stages.js";
 import { contractError } from "./tool-contracts.js";
 import { flydSetupReport, isFlydSetupQuestion } from "./flyd-setup.js";
@@ -284,6 +285,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   let projects = "";
   try { projects = projectsPromptBlock(); } catch { projects = ""; }
   try { agenda += morningPromptBlock(input.now?.() ?? new Date()); } catch { /* no morning note */ }
+  try { agenda += deliveredPromptBlock(input.now?.() ?? new Date()); } catch { /* no finished work to carry */ }
   try { agenda += stateOfPlayBlock(); } catch { /* no state of play */ }
 
   const soul = readSoul();
@@ -383,7 +385,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
       "Never describe his files, builds, prototypes, or plans as existing unless you read or made them this turn. Before saying you can't find one of his documents, search with bash mdfind (Spotlight) and look in ~/Library/CloudStorage and ~/Library/Mobile Documents. When he catches a mistake: one sentence owning it, then the fix, no self-analysis.",
       "Never say you did, saved, noted, or changed something unless a tool call in this turn actually did it. If George tells you something that changes his to-dos, work picture, profile, or schedule, call the matching tool.",
       "For substantial coding work, call start_coding_task early with a crisp, verifiable outcome and done_when; the coding boss owns project/worker routing and verification while you remain George's point of contact. For substantial research/retrieval/fact-checking/synthesis, use start_knowledge_task so the Librarian manages specialists and retains the detailed report. Do not spend a delegate turn doing the specialist work first.",
-      "Length: lead with the decision or answer, then only what George needs to act — aim for under ~250 words. When he asks for a plan, brief, prep, or draft, make it complete but tight. Offer more depth in one line ('want the full breakdown?') rather than including everything you found.",
+      "Length: your first line is the answer or outcome, on its own, in under 120 characters; he reads that first and anything else waits behind \"more\". At most two more short lines, and only what changes what he does next. When he asks for a plan, brief, prep, or draft, make it complete but tight, still led by that one line.",
       "Research in proportion: gather enough to answer well, then answer. Do not audit everything you could read.",
       "Lead with the answer. Then only the detail that helps. No preamble, no restating the question, no offers of further help.",
       "The prompt below may include PROJECT EVIDENCE — pre-gathered server-side (git log, changed files, dir listing). Use it. It is the truth about this project. Do not answer from training data when PROJECT EVIDENCE is present.",

@@ -292,7 +292,8 @@ describe("before display", () => {
     };
     const run = decisionRun("The page has choices.");
     await notifyRun(run, async (_title, message) => { shown.push(message); }, undefined, async () => decision);
-    expect(shown).toEqual(["Publish the page or hold it? I recommend \"Hold\". The live effect needs your approval."]);
+    // A notification carries the lead line only; the recommendation waits in the window (runtime/delivery.ts).
+    expect(shown).toEqual(["Publish the page or hold it?"]);
   });
 
   it("holds back a whole notification that names backstage and records it", async () => {

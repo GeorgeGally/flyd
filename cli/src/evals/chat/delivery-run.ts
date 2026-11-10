@@ -47,7 +47,9 @@ async function notification(testCase: DeliveryCase): Promise<Pick<DeliveryObserv
   const run = await runFor(testCase);
   const { saveDomainRun } = await import("../../command/store.js");
   saveDomainRun(run);
+  const { deliver, reportFromRun } = await import("../../runtime/delivery.js");
   let said: { text: string; kind?: string } | null = null;
+  let decided: Awaited<ReturnType<typeof decideRun>> | null = null;
   await notifyRun(
     run,
     async (_title, message, kind) => { said = { text: message, ...(kind ? { kind } : {}) }; },
@@ -55,10 +57,11 @@ async function notification(testCase: DeliveryCase): Promise<Pick<DeliveryObserv
       const at = new Date().toISOString();
       return { delivered: true, run: { ...target, messages: [...(target.messages ?? []), { id: `${target.id}-${(target.messages?.length ?? 0) + 1}`, kind, body, ...(from ? { from } : {}), at, deliveredAt: at }] } };
     },
-    (target, send) => decideRun(target, send, (prompt) => quickQuery(prompt, { json: true })),
+    async (target, send) => (decided = await decideRun(target, send, (prompt) => quickQuery(prompt, { json: true }))),
   );
   const told = said as { text: string; kind?: string } | null;
-  return { text: told?.text ?? null, shape: told?.kind === "decision" ? "decision" : "words" };
+  // The notification is the lead line; the shape is what tapping it opens.
+  return { text: told?.text ?? null, shape: told ? deliver(reportFromRun(run, decided), "notification").shape : "words" };
 }
 
 /** A staff reply under his message: Flyd's reading of it, or today's fallback when the reading is refused. */
@@ -71,7 +74,12 @@ async function window(testCase: DeliveryCase, complete: Complete, sandbox: strin
   ]);
   const interpreter = new AnswerInterpreter({ complete, cacheFile: join(sandbox, "view", `interpretations-${testCase.id}.json`) });
   const reading = await interpreter.request({ question: reply.question, answer: reply.text, recent: [] });
-  if (reading) return { text: inFlydsVoice(reading), shape: "words" };
+  if (reading) {
+    // As the window says it (conversation-view/server.ts): Flyd's reading, shaped by the reply, its lead line first.
+    const [{ deliver, reportFromReply }, { choiceOf }] = await Promise.all([import("../../runtime/delivery.js"), import("../../conversation-view/choices.js")]);
+    const said = deliver(reportFromReply({ id: testCase.id, reading: inFlydsVoice(reading), reply: reply.text, options: choiceOf(reply.text)?.options ?? [] }), "window");
+    if (said.text) return { text: said.text, shape: said.shape };
+  }
   const held = !screenOutgoing({ surface: "relay", source: "relay:staff", text: inFlydsVoice(reply.text) }).send;
   return { text: held ? null : condense(stripCommitIds(reply.text)), shape: "words" };
 }

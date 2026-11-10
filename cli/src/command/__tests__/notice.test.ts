@@ -387,7 +387,7 @@ describe("notifyRun", () => {
     };
     await notifyRun(decision, notify, undefined, async () => decided);
     await notifyRun({ ...decision, notified: true }, notify, undefined, async () => decided);
-    expect(sent).toEqual(["Merge the sidebar change or hold it? I recommend \"Hold it\". The request still has an open requirement."]);
+    expect(sent).toEqual(["Merge the sidebar change or hold it?"]);
   });
 
   it("shows only decisions and notable verified outcomes selected by the executive record", async () => {
@@ -433,7 +433,7 @@ describe("notifyRun", () => {
     }));
 
     expect(sent).toEqual([
-      "Keep the current review or add the missing tools? I recommend \"Add the missing tools\". They remain required by the task.",
+      "Keep the current review or add the missing tools?",
       "The requested release is verified.",
     ]);
   });
@@ -465,7 +465,7 @@ describe("notifyRun", () => {
     };
     await notifyRun({ ...reopened, status: "failed" }, notify, send, async () => blocked);
     expect(asked).toHaveLength(1);
-    expect(sent).toEqual([{ message: "Try the island fix another way or drop it? I recommend \"Try another way\". The fix is still wanted.", kind: "decision" }]);
+    expect(sent).toEqual([{ message: "Try the island fix another way or drop it?", kind: "decision" }]);
     expect(readDomainRun("domain-notice-1")?.notified).toBe(true);
   });
 });

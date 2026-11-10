@@ -317,7 +317,7 @@ const NOTICE_LEAD = /^(?:(?:sir|captain|george)\s*[,!:—-]\s*)?(?:(?:done|ok(?:
  * stays whole when it fits, else its first sentence that says something,
  * cut at a word when it runs long. Pure.
  */
-export function notificationLine(text: string): string {
+export function notificationLine(text: string, max = NOTIFICATION_CHARS): string {
   const flat = text
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/^\s*(?:#{1,6}\s+|[-*+•]\s+|\d+[.)]\s+|>\s*)/gm, "")
@@ -330,8 +330,8 @@ export function notificationLine(text: string): string {
   const said = opened.match(/.+?[.!?](?=\s|$)|.+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [opened];
   const kept = said.filter((sentence) => !isPlaceholder(sentence) && !isAcknowledgement(sentence));
   const whole = kept.join(" ");
-  const first = whole && whole.length <= NOTIFICATION_CHARS ? whole : kept[0] ?? said[0] ?? opened;
-  const line = first.length <= NOTIFICATION_CHARS ? first : `${first.slice(0, first.lastIndexOf(" ", NOTIFICATION_CHARS - 1) > 60 ? first.lastIndexOf(" ", NOTIFICATION_CHARS - 1) : NOTIFICATION_CHARS - 1).replace(/[\s,;:—-]+$/, "")}…`;
+  const first = whole && whole.length <= max ? whole : kept[0] ?? said[0] ?? opened;
+  const line = first.length <= max ? first : `${first.slice(0, first.lastIndexOf(" ", max - 1) > 60 ? first.lastIndexOf(" ", max - 1) : max - 1).replace(/[\s,;:—-]+$/, "")}…`;
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
