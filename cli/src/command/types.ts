@@ -112,4 +112,6 @@ export interface DomainRun {
   /** When Flyd last asked the staff for a clear status; at most one such ask is open until a reply is read. */
   statusAskedAt?: string;
   notified?: boolean;
+  /** Whether that notice was actually sent to George; a run settled quietly or held was never told. */
+  told?: boolean;
 }

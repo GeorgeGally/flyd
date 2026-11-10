@@ -79,7 +79,21 @@ describe("deliver", () => {
     const staff = report({ kind: "decision", outcome: "Waiting on George's three calls recorded in cap5-dash-lab-r5-calls", shape: "decision", options: ["A", "B"] });
     expect(deliver(staff, "notification")).toMatchObject({ text: null, held: expect.arrayContaining(["It shows a task id.", "It talks about him, not to him."]) });
     const done = report({ outcome: "parked at review: 1 finding(s)", work: "The Logan editor drag fix" });
-    expect(deliver(done, "notification").text).toBe("The Logan editor drag fix is done.");
+    expect(deliver(done, "notification").text).toBe("Done: The Logan editor drag fix.");
+    expect(deliver(report({ outcome: "parked at review", work: "Fix the island" }), "notification").text).toBe("Done: Fix the island.");
+  });
+
+  it("never leaves his own call silent: a question not fit to show falls back to the work's name", () => {
+    const staff = report({ kind: "decision", outcome: "Waiting on George's three calls recorded in cap5-dash-lab-r5-calls", shape: "decision", options: ["A", "B"], work: "The CapFive dashboard lab" });
+    expect(deliver(staff, "notification").text).toBe("Your call is needed on The CapFive dashboard lab.");
+  });
+
+  it("reads dates, phone numbers and model names as words, not task ids", () => {
+    const flight = report({ kind: "decision", outcome: "Book the flight for 2026-11-14 or 2026-11-15?", shape: "decision", options: ["14th", "15th"] });
+    expect(deliver(flight, "notification").text).toBe("Book the flight for 2026-11-14 or 2026-11-15?");
+    expect(deliver(report({ outcome: "Call them on 555-123-4567." }), "notification").text).toBe("Call them on 555-123-4567.");
+    expect(deliver(report({ outcome: "It now runs on gpt-4o-mini." }), "notification").text).toBe("It now runs on gpt-4o-mini.");
+    expect(deliver(report({ outcome: "The calls are in cap5-dash-lab-r5-calls." }), "notification")).toMatchObject({ text: null, held: ["It shows a task id."] });
   });
 
   it("falls back to words when the shape's artefact is missing", () => {
@@ -130,9 +144,11 @@ describe("reportFromRun", () => {
     expect(made).toMatchObject({ kind: "blocked", shape: "words", detail: "" });
   });
 
-  it("uses the review step's checked line for finished work when there is one", () => {
-    const decision = { disposition: "handle_internally", show: true, notify: true, summary: "", evidenceRefs: [], delivery: { line: "The checkout fix is live.", url: "https://github.com/o/r/pull/9" } } as unknown as ExecutiveDecisionRecord;
-    expect(reportFromRun(run({ result: result({ brief: "PR merged after checks." }) }), decision)).toMatchObject({ outcome: "The checkout fix is live.", link: "https://github.com/o/r/pull/9" });
+  it("tells a call the review step settled by its summary, never the staff's question", () => {
+    const decision = { disposition: "handle_internally", show: true, notify: true, summary: "I picked Buttondown for the signups.", evidenceRefs: [], verification: { status: "verified", evidenceRefs: [] } } as unknown as ExecutiveDecisionRecord;
+    const made = reportFromRun(run({ status: "needs_decision", result: result({ unresolvedQuestions: ["Which list should signups go to?"] }) }), decision);
+    expect(made).toMatchObject({ kind: "done", outcome: "I picked Buttondown for the signups." });
+    expect(deliver(made, "notification").text).toBe("I picked Buttondown for the signups.");
   });
 });
 
@@ -147,6 +163,11 @@ describe("reportFromReply", () => {
     const made = reportFromReply({ id: "m", reading: "Yes, the spacing fix is live. Nothing else needed.", reply: "Merged and deployed https://github.com/o/r/pull/91 after 14 checks." });
     expect(made).toMatchObject({ outcome: "Yes, the spacing fix is live.", link: "https://github.com/o/r/pull/91", shape: "landed" });
     expect(reportFromReply({ id: "m", reading: "Stripe or Paddle? I recommend Stripe.", reply: "Stripe or Paddle?", options: ["Stripe", "Paddle"] }).shape).toBe("decision");
+  });
+
+  it("leads with the reading's next fit sentence when its first shows a path", () => {
+    const made = reportFromReply({ id: "m", reading: "The Pages plan is written in data/logan-pages-overhaul-plan/report.md. It has three phases.", reply: "Plan written: data/logan-pages-overhaul-plan/report.md" });
+    expect(deliver(made, "window").text).toBe("It has three phases.");
   });
 });
 
@@ -170,7 +191,7 @@ describe("answerLead", () => {
 
 describe("deliveredPromptBlock", () => {
   const now = new Date("2026-11-10T12:00:00Z");
-  const finished = (id: string, overrides: Partial<DomainRun>) => run({ id, notified: true, updatedAt: "2026-11-10T10:00:00Z", result: result({ brief: `Report ${id} is in.` }), ...overrides });
+  const finished = (id: string, overrides: Partial<DomainRun>) => run({ id, notified: true, told: true, updatedAt: "2026-11-10T10:00:00Z", result: result({ brief: `Report ${id} is in.` }), ...overrides });
 
   it("carries recent finished work he was told into the next turn, newest first", () => {
     const block = deliveredPromptBlock(now, [
@@ -178,6 +199,7 @@ describe("deliveredPromptBlock", () => {
       finished("newer", {}),
       finished("stale", { updatedAt: "2026-11-07T09:00:00Z" }),
       finished("unsaid", { notified: false }),
+      finished("held", { told: false }),
       finished("note", { request: { ...run({ result: result({}) }).request, source: "flyd" } }),
     ]);
     expect(block.split("\n").filter((line) => line.startsWith("- "))).toEqual(["- Report newer is in.", "- Report older is in."]);

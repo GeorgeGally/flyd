@@ -78,7 +78,7 @@ async function window(testCase: DeliveryCase, complete: Complete, sandbox: strin
     // As the window says it (conversation-view/server.ts): Flyd's reading, shaped by the reply, its lead line first.
     const [{ deliver, reportFromReply }, { choiceOf }] = await Promise.all([import("../../runtime/delivery.js"), import("../../conversation-view/choices.js")]);
     const said = deliver(reportFromReply({ id: testCase.id, reading: inFlydsVoice(reading), reply: reply.text, options: choiceOf(reply.text)?.options ?? [] }), "window");
-    if (said.text) return { text: said.text, shape: said.shape };
+    return said.text ? { text: said.text, shape: said.shape } : { text: condense(inFlydsVoice(reading), { keepAsk: true }), shape: "words" };
   }
   const held = !screenOutgoing({ surface: "relay", source: "relay:staff", text: inFlydsVoice(reply.text) }).send;
   return { text: held ? null : condense(stripCommitIds(reply.text)), shape: "words" };

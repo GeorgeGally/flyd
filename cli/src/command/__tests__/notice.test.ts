@@ -226,10 +226,11 @@ describe("notifyRun", () => {
 
     await notifyRun(run("Captain, shipshape."), notify, undefined, async () => decision("No result to share.", false));
     expect(sent).toEqual([]);
-    expect(readDomainRun("domain-notice-1")?.notified).toBe(true);
+    expect(readDomainRun("domain-notice-1")).toMatchObject({ notified: true, told: false });
 
     const outcome = run("Captain, dark mode is merged.");
     await notifyRun(outcome, notify, undefined, async () => decision("Dark mode is merged.", true));
+    expect(readDomainRun("domain-notice-1")?.told).toBe(true);
     await notifyRun({ ...outcome, notified: true }, notify, undefined, async () => decision("Dark mode is merged.", true));
     expect(sent).toEqual(["Dark mode is merged."]);
   });

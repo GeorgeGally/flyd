@@ -74,12 +74,17 @@ const LANDED = /\b(?:merged|landed|shipped|is (?:now )?live|now live|went live|d
 const NOT_YET = /\b(?:will|once|when|after|until|unless|not|isn['’]?t|hasn['’]?t|yet|ready to|waiting)\b/i;
 /** A file path shown as text, an address aside. */
 const PATH = /(?:^|[\s(:;])(?:~|\.{1,2})?\/?[\w.-]+\/[\w./-]*[\w-]\.(?:md|tsx?|jsx?|json|html?|txt|log|ya?ml|sh|swift|sqlite)\b/i;
-/** A task or run slug: lowercase, hyphenated, with a digit. */
-const SLUG = /\b(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+){2,}\b/;
+/** Lowercase hyphenated words: a task or run slug when it carries a digit and is mostly words. */
+const HYPHENATED = /\b[a-z0-9]+(?:-[a-z0-9]+){2,}\b/g;
 /** Talking about him rather than to him. */
 const ABOUT_HIM = /\bGeorge(?:['’]s)?\b/;
 /** The review and fleet words the staff use among themselves. */
 const STAFF_WORDS = /\b(?:ask-user|parked at|review gate|no-mistakes|worker|handoff|fleet)\b|\bfinding\(s\)/i;
+
+/** A task or run slug ("cap5-dash-lab-r5-calls"), never a date, a phone number or a model name. Pure. */
+function showsTaskId(text: string): boolean {
+  return (text.match(HYPHENATED) ?? []).some((token) => /\d/.test(token) && token.split("-").filter((part) => /^[a-z]+$/.test(part)).length >= 3);
+}
 
 /** The images among a run's artefacts. */
 function imagesOf(artefacts: string[]): string[] {
@@ -142,7 +147,7 @@ export function unfitForHim(line: string): string[] {
   return [
     ...relayShortfalls(line).map((shortfall) => shortfall.reason),
     ...(PATH.test(bare) ? ["It shows a path."] : []),
-    ...(SLUG.test(bare) ? ["It shows a task id."] : []),
+    ...(showsTaskId(bare) ? ["It shows a task id."] : []),
     ...(STAFF_WORDS.test(bare) ? ["It uses the staff's words."] : []),
     ...(ABOUT_HIM.test(bare) ? ["It talks about him, not to him."] : []),
   ];
@@ -176,8 +181,9 @@ export function deliver(report: Report, surface: DeliverySurface): Delivered {
   };
   const written = leadLine(report.outcome);
   const reasons = unfitForHim(written);
-  // Finished work whose own words are not fit to show is told by its name; a report that says nothing is held.
-  const fallback = written && report.work && report.kind === "done" ? leadLine(`${report.work.replace(/[.\s]+$/, "")} is done.`) : "";
+  // Finished work, or his call, whose own words are not fit to show is told by its name; a report that says nothing is held.
+  const work = report.work?.replace(/[.\s]+$/, "") ?? "";
+  const fallback = !written || !work ? "" : report.kind === "done" ? `Done: ${notificationLine(`${work}.`, LINE_CHARS - "Done: ".length)}` : report.kind === "decision" ? leadLine(`Your call is needed on ${work}.`) : "";
   const lead = reasons.length === 0 && written ? written : fallback && unfitForHim(fallback).length === 0 ? fallback : "";
   if (!lead) return { text: null, lead: null, shape, ...extras, held: reasons.length ? reasons : ["It says nothing."] };
   if (surface === "notification") return { text: lead, lead, shape, ...extras };
@@ -217,24 +223,21 @@ export function saidOnce(text: string): string {
  */
 export function reportFromRun(run: DomainRun, decision?: ExecutiveDecisionRecord | null): Report {
   const result = run.result ?? EMPTY;
-  // The checked line for finished work, when the review step wrote one (tell George when work is done).
-  const told = (decision as { delivery?: { line?: unknown; url?: unknown } } | null | undefined)?.delivery;
-  const toldLine = typeof told?.line === "string" ? told.line : "";
-  const toldUrl = typeof told?.url === "string" ? told.url : "";
-  const asks = run.status === "needs_decision" || decision?.disposition === "ask_george";
+  // With the review step's decision, its disposition says whether the call is still his; a settled call is told as settled.
+  const asks = decision ? decision.disposition === "ask_george" : run.status === "needs_decision";
   const kind: ReportKind = asks ? "decision" : run.status === "failed" ? "blocked" : "done";
-  const question = decision?.disposition === "ask_george" ? decision.question : result.unresolvedQuestions[0] ?? "";
+  const question = decision ? (decision.disposition === "ask_george" ? decision.question : "") : result.unresolvedQuestions[0] ?? "";
   const recommendation = decision?.disposition === "ask_george" && decision.recommendation
     ? (decision.recommendation.option ? `I'd go with ${decision.recommendation.option}: ${decision.recommendation.rationale}` : decision.recommendation.rationale)
     : result.recommendation ? [result.recommendation.action, result.recommendation.reasoning].filter(Boolean).join(": ") : undefined;
   const options = decision?.disposition === "ask_george" && decision.options.length ? decision.options : undefined;
   const brief = saidOnce(flat(result.brief || run.failure || ""));
   // With the review step's decision, its reading is what he is told, never the staff's own brief.
-  const reading = decision ? toldLine || decision.summary : brief;
+  const reading = decision ? decision.summary : brief;
   const outcome = saidOnce(flat(kind === "decision" ? question || reading : reading));
   const artefacts = [...new Set([...result.artifacts, ...result.specialistOutputs.flatMap((output) => output.artifacts ?? [])])];
-  const linkFrom = [toldUrl, ...artefacts, ...result.evidence, result.brief].join(" ");
-  const link = toldUrl || linkFrom.match(CHANGE_LINK)?.[0] || (kind === "done" ? linkFrom.match(ANY_LINK)?.[0] : undefined) || undefined;
+  const linkFrom = [...artefacts, ...result.evidence, result.brief].join(" ");
+  const link = linkFrom.match(CHANGE_LINK)?.[0] || (kind === "done" ? linkFrom.match(ANY_LINK)?.[0] : undefined) || undefined;
   const steps = listedItems(result.brief);
   const document = result.detailedReport.trim() && `${result.brief}\n\n${result.detailedReport}`.length > LINE_CHARS * MAX_LINES * 2 ? `${result.brief}\n\n${result.detailedReport}`.trim() : undefined;
   // The staff's brief adds to the lead only when no review step read it: its words are then all there is.
@@ -269,7 +272,9 @@ export function reportFromReply(input: { id: string; reading: string; reply: str
   const options = input.options?.length ? input.options : undefined;
   const kind: ReportKind = options ? "decision" : "done";
   const sentences = input.reading.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/);
-  const outcome = sentences[0] ?? "";
+  // The reading's first sentence fit to show him leads; the rest wait behind it.
+  const lead = Math.max(0, sentences.findIndex((sentence) => unfitForHim(leadLine(sentence)).length === 0));
+  const outcome = sentences[lead] ?? "";
   const artefacts = [...(input.shots ?? [])];
   const document = input.reply.length > LINE_CHARS * MAX_LINES * 3 ? input.reply : undefined;
   const shape = chooseShape({ kind, outcome: input.reading, ...(options ? { options } : {}), artefacts, steps, ...(link ? { link } : {}), ...(document ? { document } : {}) });
@@ -277,7 +282,7 @@ export function reportFromReply(input: { id: string; reading: string; reply: str
     id: input.id,
     kind,
     outcome,
-    detail: sentences.slice(1).join(" "),
+    detail: sentences.filter((_, at) => at !== lead).join(" "),
     ...(options ? { options } : {}),
     evidenceRefs: [],
     shape,
@@ -307,12 +312,13 @@ export const CONTEXT_HOURS = 48;
 /**
  * Work that came back lately, each report as the context surface says it, for
  * the next chat turn: so "what did it say?" is answered without a tool call.
- * Flyd's own notes to the staff and its own fixes are backstage and never in it.
+ * Only work he was actually told about is in it: Flyd's own notes to the staff,
+ * its own fixes, and runs settled quietly or held are backstage.
  */
 export function deliveredPromptBlock(now = new Date(), runs: DomainRun[] = listDomainRuns()): string {
   const since = now.getTime() - CONTEXT_HOURS * 3_600_000;
   const lines = runs
-    .filter((run) => run.notified && run.result && ["completed", "failed", "needs_decision"].includes(run.status)
+    .filter((run) => run.notified && run.told && run.result && ["completed", "failed", "needs_decision"].includes(run.status)
       && run.request.source !== "flyd" && run.request.source !== "self-improvement" && Date.parse(run.updatedAt) >= since)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, CONTEXT_REPORTS)
