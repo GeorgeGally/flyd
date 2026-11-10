@@ -1,5 +1,6 @@
 import { statSync } from "node:fs";
 import { basename, join } from "node:path";
+import { assessConsequence } from "../consequence.js";
 
 // When to tell George, and how much (split plan, "When to tell George").
 //
@@ -88,6 +89,14 @@ export function readFocus(signals: FocusSignals): Focus {
     ...(signals.lastTurnAt !== undefined ? { lastTurnAt: signals.lastTurnAt } : {}),
     ...(signals.meetingEndsAt !== undefined && signals.meetingEndsAt > signals.now ? { meetingEndsAt: signals.meetingEndsAt } : {}),
   };
+}
+
+const CREDENTIAL = /\b(log ?in|sign ?in|passwords?|passcodes?|tokens?|api keys?|credentials?|2fa|two[- ]factor|otp|one[- ]time (?:code|password))\b/i;
+
+/** A call he is asked: "credential" or "irreversible" when its words say so, which never wait. Pure. */
+export function callKind(text: string): "credential" | "irreversible" | undefined {
+  if (CREDENTIAL.test(text)) return "credential";
+  return assessConsequence(text).class === "consequential" ? "irreversible" : undefined;
 }
 
 /** When a report arriving now is told. Pure. */

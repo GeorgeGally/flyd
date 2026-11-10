@@ -14,7 +14,7 @@ import { authorityForStaffRun, processFirstmateChange } from "../intelligence/ex
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
 import { deliverOnce, deliverOwed, finishedKey, heldReports, holdReport, markTold, seedOnce, type DeliveryReport } from "../runtime/delivered.js";
-import { batch, readFocus, readSignals, released, sameProject, timing, type Focus, type Timing } from "../runtime/attention.js";
+import { batch, callKind, readFocus, readSignals, released, sameProject, timing, type Focus, type Timing } from "../runtime/attention.js";
 import { windowOpen } from "../conversation-view/window-presence.js";
 import { deskWords } from "../conversation-view/firstmate-inbox.js";
 import { plainNote } from "../conversation-view/rail.js";
@@ -114,7 +114,8 @@ async function whenToTell(run: DomainRun, decision: ExecutiveDecisionRecord, att
   const focus = await attention().catch(() => undefined);
   if (!focus) return { timing: { when: "now" } };
   const project = projectOf(run);
-  const kind = reportFromRun(run, decision).kind;
+  const report = reportFromRun(run, decision);
+  const kind = (decision.disposition === "ask_george" && callKind([report.outcome, decision.summary, run.request.intendedOutcome].join("\n"))) || report.kind;
   // His call on the work he is on blocks it.
   const blocking = decision.disposition === "ask_george" && sameProject(project, focus.project);
   return { timing: timing({ ...(project ? { project } : {}), kind, blocking }, focus), focus };
@@ -201,8 +202,8 @@ export async function tellHeld(attention: ReadAttention = readAttention, notify?
   if (!held.length) return;
   const due = released(held.map((report) => ({ ...report, heldAt: Date.parse(report.at), until: report.held.until, ...(report.held.focus ? { focus: report.held.focus } : {}), ...(report.held.finished ? { finished: true } : {}) })), await attention());
   if (!due.length) return;
-  const { told } = await deliverOnce(due, { together: (claimed) => batch(due.filter((report) => claimed.some((said) => said.key === report.key))), ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) });
-  for (const report of told) {
+  const { told, owed } = await deliverOnce(due, { together: (claimed) => batch(due.filter((report) => claimed.some((said) => said.key === report.key))), ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) });
+  for (const report of told.filter((said) => !owed.some((left) => left.key === said.key))) {
     const runId = held.find((entry) => entry.key === report.key)?.held.run;
     const current = runId ? readDomainRun(runId) : null;
     if (current) saveDomainRun({ ...current, told: { line: report.line, decisionId: held.find((entry) => entry.key === report.key)?.held.decisionId ?? "" } });

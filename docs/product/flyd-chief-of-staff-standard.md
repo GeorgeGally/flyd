@@ -117,7 +117,9 @@ authoritative path. This change does not rewrite historical private entries.
     The line sent is kept on the run (`told`) for the next chat turn.
   - A domain run's notice follows his focus (`cli/src/runtime/attention.ts`),
     read from his recent commits, the foreground repo, his last chat turn and a
-    meeting on his calendar: irreversible or credential reports, and his call on
+    meeting on his calendar: irreversible or credential reports (a call whose
+    words ask to publish, send, pay or delete, or for a login, password or key),
+    and his call on
     the work he is on, go now; in a meeting the rest wait for its end; about the
     project he is on, now as its lead line with its link (detail stays in the
     window); about another project, held until his focus breaks (he switches
