@@ -311,12 +311,6 @@ export const NOTIFICATION_CHARS = 140;
 /** Openings that only address or acknowledge him, or announce what follows. */
 const NOTICE_LEAD = /^(?:(?:sir|captain|george)\s*[,!:—-]\s*)?(?:(?:done|ok(?:ay)?|sure|right|noted|got it|all set|update)[.!,:]\s+)?(?:here(?:'s| is) (?:your|the) [^.:!?]{1,40}[.:]\s+)?/i;
 
-/**
- * A notification as George reads it: one line, outcome first. Markdown,
- * lists, the opening address and sentences that say nothing go; the rest
- * stays whole when it fits, else its first sentence that says something,
- * cut at a word when it runs long. Pure.
- */
 /** Where a sentence ends: after its stop, never after a list marker ("1."). */
 const SENTENCE_END = /(?<=[.!?])(?<!(?:^|[:.!?]\s)\d+\.)\s+/;
 
@@ -325,6 +319,12 @@ export function sentencesOf(text: string): string[] {
   return text.split(/\n+/).flatMap((line) => line.replace(/\s+/g, " ").trim().split(SENTENCE_END)).filter(Boolean);
 }
 
+/**
+ * A notification as George reads it: one line, outcome first. Markdown,
+ * lists, the opening address and sentences that say nothing go; the rest
+ * stays whole when it fits, else its first sentence that says something,
+ * cut at a word when it runs long. Pure.
+ */
 export function notificationLine(text: string, max = NOTIFICATION_CHARS): string {
   const flat = text
     .replace(/```[\s\S]*?```/g, " ")

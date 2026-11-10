@@ -51,8 +51,8 @@ Reference for the calm conversation view. Product authority: [personal-intellige
 
 ## Answers under a question
 
-- A question's answer under it is only its own: Flyd's (shown whole when it fits a glance, else led by its first few lines), or firstmate's `fm-inbox.sh reply` from `state/inbox/.replies`.
-- firstmate's reply is retold to George by Flyd's own model (`interpret.ts`): his question, the answer, the recent conversation and USER.md in; his question answered first in at most three short lines — the outcome, a decision only he can make, and links — in Flyd's voice. Cached in `~/.flyd/view/interpretations.json` (newest 20 kept), two model calls at a time. firstmate's narration under the busy dots is voiced too.
+- A question's answer under it is only its own: Flyd's (shown whole when it fits a glance and its first line is at most 120 characters, else led by one such line and at most two more, the rest behind "more"; `answerLead` in `cli/src/runtime/delivery.ts`), or firstmate's `fm-inbox.sh reply` from `state/inbox/.replies`.
+- firstmate's reply is retold to George by Flyd's own model (`interpret.ts`): his question, the answer, the recent conversation and USER.md in; his question answered first in at most three short lines — the outcome, a decision only he can make, and links — in Flyd's voice. Shown through `deliver` (`cli/src/runtime/delivery.ts`): its first sentence fit to show leads, then at most two more lines, shaped by the reply (link, list, options). Cached in `~/.flyd/view/interpretations.json` (newest 20 kept), two model calls at a time. firstmate's narration under the busy dots is voiced too.
 - firstmate's words sit behind "more"; the local digest leads until the interpretation lands; Flyd's whole briefing when none is coming. Otherwise it says it is waiting.
 
 ## Long-reply summaries (`summaries.ts`)
