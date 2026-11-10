@@ -39,7 +39,7 @@ export function answerBody(value: unknown): AnswerBody {
   if (record.form === "diagnosis") {
     const parts = partsFrom(record.parts);
     const evidence = evidenceFrom(record.evidence);
-    if (parts.length) return { lead, form: "diagnosis", parts, ...(evidence.length ? { evidence } : {}), ...(next ? { next } : {}) };
+    if (parts.length) return { lead, form: "diagnosis", parts, ...(evidence.length ? { evidence } : {}), ...(next ? { next } : {}), ...(record.askedWhy === true ? { askedWhy: true } : {}) };
   }
   if (record.form === "comparison") {
     const criteria = Array.isArray(record.criteria) ? record.criteria.map(said) : [];
@@ -79,9 +79,31 @@ export function plainAnswer(body: AnswerBody): string {
   ].filter(Boolean).join("\n\n");
 }
 
+/** The sections of Flyd's own working diagnosis: what drives its work and its handoffs, never what George reads. */
+const WORKING_LABELS = new Set(["expected", "observed", "cause", "evidence", "next"]);
+
+/** A sentence's end, but not the stop inside an abbreviation such as "e.g." or "i.e.". */
+const FIRST_SENTENCE = /^[\s\S]*?(?<!\b(?:e\.g|i\.e|vs|cf|approx|incl))[.!?](?=\s|$)/i;
+
+/**
+ * What George reads of a diagnosis Flyd wrote for itself: one line on what it
+ * found and one on what happens next, as a PA would say it. The labelled
+ * sections stay on the record for Flyd's history and handoffs.
+ */
+export function workingReply(body: AnswerBody): string | null {
+  if (body.form !== "diagnosis" || !body.parts.every((part) => WORKING_LABELS.has(part.label.trim().toLowerCase()))) return null;
+  const part = (label: string): string => body.parts.find((entry) => entry.label.trim().toLowerCase() === label)?.text ?? "";
+  const next = body.next || part("next");
+  // He asked why, so the cause is his answer: its first sentence, plainly, without the evidence behind it.
+  const cause = body.askedWhy ? (FIRST_SENTENCE.exec(part("cause").trim())?.[0] ?? part("cause")) : "";
+  return [[body.lead, cause].map((line) => line.trim()).filter(Boolean).join(" "), next].map((line) => line.trim()).filter(Boolean).join("\n\n");
+}
+
 /** The body as the page shows it; prose is exactly the markdown it has always been. */
 export function answerHtml(body: AnswerBody): string {
   if (body.form === "prose") return renderMarkdown(body.lead);
+  const reply = workingReply(body);
+  if (reply !== null) return renderMarkdown(reply);
   if (body.form === "comparison") {
     const head = body.alternatives.map((alternative) => `<th scope="col">${escapeHtml(alternative.name)}</th>`).join("");
     const rows = body.criteria.map((criterion, index) => [

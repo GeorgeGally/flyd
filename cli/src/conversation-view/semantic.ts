@@ -45,7 +45,7 @@ export interface ManifestationEvidence {
 /** The shape an answer takes when Flyd chooses one; prose is the shape it always had. */
 export type ManifestationPlan =
   | { form: "prose"; lead: string }
-  | { form: "diagnosis"; lead: string; parts: ManifestationPart[]; evidence?: ManifestationEvidence[]; next?: string }
+  | { form: "diagnosis"; lead: string; parts: ManifestationPart[]; evidence?: ManifestationEvidence[]; next?: string; askedWhy?: boolean }
   | {
     form: "comparison";
     lead: string;

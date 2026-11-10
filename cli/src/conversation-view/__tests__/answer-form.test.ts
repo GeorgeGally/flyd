@@ -57,6 +57,54 @@ describe("answerHtml", () => {
     expect(html).not.toContain("Cause & fix");
   });
 
+  it("shows Flyd's working diagnosis as a short reply, never its labelled sections", () => {
+    const body = answerBody({
+      lead: "Dragging pages in Logan is slow and unreliable.",
+      form: "diagnosis",
+      parts: [
+        { label: "Expected", text: "Dragging pages should be smooth." },
+        { label: "Observed", text: "Moving pages is very slow." },
+        { label: "Cause", text: "The previews and canvas may redraw twice." },
+        { label: "Evidence", text: "George mentioned it earlier." },
+        { label: "Next", text: "I'm fixing it now and will tell you when it's in." },
+      ],
+    });
+    const html = answerHtml(body);
+    expect(html).toBe(renderMarkdown("Dragging pages in Logan is slow and unreliable.\n\nI'm fixing it now and will tell you when it's in."));
+    expect(html).not.toMatch(/Expected|Observed|Cause|Evidence|<dt>/);
+    expect(plainAnswer(body)).toContain("The previews and canvas may redraw twice.");
+  });
+
+  it("adds the cause in one plain sentence when he asked why", () => {
+    const html = answerHtml(answerBody({
+      lead: "The router fell back.",
+      form: "diagnosis",
+      askedWhy: true,
+      parts: [
+        { label: "Expected", text: "Every route went through Jev." },
+        { label: "Observed", text: "It fell back." },
+        { label: "Cause", text: "Jev returned not ok. It timed out at 2s." },
+        { label: "Evidence", text: "The router log." },
+        { label: "Next", text: "I'll raise the timeout." },
+      ],
+    }));
+    expect(html).toBe(renderMarkdown("The router fell back. Jev returned not ok.\n\nI'll raise the timeout."));
+    expect(html).not.toMatch(/Evidence|router log|timed out/);
+  });
+
+  it("keeps an abbreviation inside the one cause sentence it adds", () => {
+    const html = answerHtml(answerBody({
+      lead: "Dragging is slow.",
+      form: "diagnosis",
+      askedWhy: true,
+      parts: [
+        { label: "Cause", text: "Both views redraw, e.g. the previews and the canvas, i.e. twice per move. The log shows it." },
+        { label: "Next", text: "I'll fix it." },
+      ],
+    }));
+    expect(html).toBe(renderMarkdown("Dragging is slow. Both views redraw, e.g. the previews and the canvas, i.e. twice per move.\n\nI'll fix it."));
+  });
+
   it("draws a comparison as one table, options across and criteria down", () => {
     const html = answerHtml(answerBody({
       lead: "Pink for reading, blue for counting.",

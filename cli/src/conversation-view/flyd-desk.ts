@@ -9,7 +9,7 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { shortConversationTitle } from "./session-title.js";
 import { clipKeepingLinks } from "./line-links.js";
 import { plainNote } from "./rail.js";
-import { answerBody, plainAnswer, type AnswerBody } from "./answer-form.js";
+import { answerBody, plainAnswer, workingReply, type AnswerBody } from "./answer-form.js";
 import { answeringLine } from "./living.js";
 import { checkDocuments, MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
 import { documentText } from "./document-text.js";
@@ -585,9 +585,11 @@ export class FlydDesk {
           ? `\n\n### Prepared draft\n\n${preparation.content}\n\n[Review or stop preparation](/preparation?session=${encodeURIComponent(record.sessionId ?? "conversation")})` : "";
         const failure = preparation?.status === "failed" || preparation?.status === "unknown"
           ? "\n\nI could not finish checking the draft. Nothing was sent." : preparation?.status === "cancelled" ? "\n\nThis preparation was stopped." : "";
+        // Flyd's working diagnosis reads as its short reply everywhere George sees the answer: the window, a draft's note and the rail.
+        const said = record.form ? workingReply(record.form) ?? record.answer : record.answer;
         return {
           question,
-          answer: { id: `answer:${record.id}`, role: "assistant", text: inFlydsVoice(record.answer) + prepared + failure, timestamp: record.answeredAt ?? record.at, answers: question.id, ...(record.artefact ? { artefact: record.artefact } : {}), ...(record.form && !prepared && !failure ? { form: record.form } : {}) },
+          answer: { id: `answer:${record.id}`, role: "assistant", text: inFlydsVoice(said) + prepared + failure, timestamp: record.answeredAt ?? record.at, answers: question.id, ...(record.artefact ? { artefact: record.artefact } : {}), ...(record.form && !prepared && !failure ? { form: record.form } : {}) },
           waiting: "",
         };
       }
