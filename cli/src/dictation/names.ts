@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
 import { applyRules, flydNameBackstop } from "./cleanup.js";
 import { recordNameLesson, learnedNameRules } from "./corrections.js";
-import { soundDistance, soundsLikeName, squashName as squash } from "./fidelity.js";
+import { ordinaryWords, soundDistance, soundsLikeName, squashName as squash } from "./fidelity.js";
 import { loadSpokenNames, loadVocabulary, type ReplacementRule } from "./vocabulary.js";
 
 // Transcribers hear George's project and people names as the real words they
@@ -75,25 +74,6 @@ const MEANT = String.raw`(?:i\s+meant|i\s+mean|i\s+said|meant)`;
 // Only an explicit correction implies one: "I meant CleanX", "no, CleanX". "It's Logan" just names it.
 const IMPLIED = new RegExp(String.raw`^\s*(?:(?:no|nope|sorry|oops)[,.!]?\s*(?:${LEAD}\s+)?|${MEANT}\s+)${NAME}[\s.!]*$`, "iu");
 
-let dictionary: { path: string; words: Set<string> | null } | undefined;
-/** The system word list (macOS `/usr/share/dict/words`), lowercased; null when there is none. */
-function dictionaryWords(): Set<string> | null {
-  const path = process.env.FLYD_DICTIONARY_WORDS?.trim() || "/usr/share/dict/words";
-  if (dictionary?.path !== path) {
-    let words: Set<string> | null = null;
-    try {
-      words = new Set(readFileSync(path, "utf8").split("\n").map(word => word.trim().toLowerCase()).filter(Boolean));
-    } catch { /* no word list: implied corrections teach nothing */ }
-    dictionary = { path, words };
-  }
-  return dictionary.words;
-}
-
-/** Ordinary English ("login", "post action"), or unknown because there is no word list to check. */
-function ordinaryWords(heard: string, words: Set<string> | null): boolean {
-  return !words || heard.toLowerCase().split(/\s+/).every(word => words.has(word));
-}
-
 const trimWord = (s: string) => s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
 
 /**
@@ -116,10 +96,9 @@ export function nameCorrection(message: string, previous: string | undefined, te
   const to = implied ? knownName(trimWord(implied[1]), terms) : undefined;
   if (!to || !previous) return null;
   // Unstated, the heard words must pass the strict sound match and not be ordinary English; the closest wins.
-  const words = dictionaryWords();
   const said = [...previous.matchAll(/[\p{L}][\p{L}\p{N}]*/gu)].map(m => m[0]);
   const heard = said.flatMap((word, i) => i + 1 < said.length ? [word, `${word} ${said[i + 1]}`] : [word])
-    .filter(candidate => !knownName(candidate, terms) && !ordinaryWords(candidate, words) && soundsLikeName(candidate, to))
+    .filter(candidate => !knownName(candidate, terms) && !ordinaryWords(candidate) && soundsLikeName(candidate, to))
     .sort((x, y) => soundDistance(x, to) - soundDistance(y, to))[0];
   return heard ? { from: heard, to } : null;
 }

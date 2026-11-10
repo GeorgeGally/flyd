@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { learningRequest } from "../../cognition/learning-service.js";
@@ -13,6 +13,8 @@ let dir: string;
 const app = "terminal", title = "Flyd";
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "flyd-three-")); vi.stubEnv("FLYD_DIR", dir);
+  vi.stubEnv("FLYD_DICTIONARY_WORDS", join(dir, "words"));
+  writeFileSync(join(dir, "words"), ["ask", "about", "it", "flight", "whisper"].join("\n"));
   await learningRequest("/learning/source", "POST", { sourceId: "dictation.corrections", action: "enable" });
 });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });

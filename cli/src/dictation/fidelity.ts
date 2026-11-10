@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { ReplacementRule } from "./vocabulary.js";
 
 /** Lexical guard: reject altered protected slots, including number words.
@@ -154,4 +155,24 @@ export function soundsLikeName(heard: string, name: string): boolean {
   if (ratio < 0.6 || ratio > 1.6) return false;
   const key = soundKey(a);
   return key.length >= 3 && key === soundKey(b) && soundDistance(a, b) <= 0.25;
+}
+
+let dictionary: { path: string; words: Set<string> | null } | undefined;
+/** Common words from the system word list (macOS `/usr/share/dict/words`); its capitalized proper names are not. */
+function dictionaryWords(): Set<string> | null {
+  const path = process.env.FLYD_DICTIONARY_WORDS?.trim() || "/usr/share/dict/words";
+  if (dictionary?.path !== path) {
+    let words: Set<string> | null = null;
+    try {
+      words = new Set(readFileSync(path, "utf8").split("\n").map(word => word.trim()).filter(word => /^\p{Ll}/u.test(word)));
+    } catch { /* no word list: every heard word counts as ordinary */ }
+    dictionary = { path, words };
+  }
+  return dictionary.words;
+}
+
+/** Ordinary English ("login", "post action"), or unknown because there is no word list to check. */
+export function ordinaryWords(heard: string): boolean {
+  const words = dictionaryWords();
+  return !words || heard.toLowerCase().split(/\s+/).every(word => words.has(word));
 }

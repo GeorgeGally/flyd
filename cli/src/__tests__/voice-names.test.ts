@@ -203,6 +203,17 @@ describe("his corrections teach Flyd", () => {
     expect(correctVoiceNames("how is fonso doing")).toBe("how is Fonzo doing");
   });
 
+  it("a dictation edit of an ordinary word keeps the scoped rule of three", async () => {
+    await learning("enable");
+    vi.stubEnv("FLYD_DICTIONARY_WORDS", join(dir, "words-with-fonso"));
+    writeFileSync(join(dir, "words-with-fonso"), ["how", "is", "doing", "fonso"].join("\n"));
+    const edit = await learningRequest("/dictation/correction", "POST", { before: "how is fonso doing", after: "how is Fonzo doing",
+      invocationId: "d1", bundleId: "com.apple.Notes", scope: dictationScope("com.apple.Notes", "Notes") });
+    expect(edit.body).toMatchObject({ status: "tentative", promoted: false });
+    expect(learnedNameRules()).toEqual([]);
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is fonso doing");
+  });
+
   it("withholds heard words taught two different names", async () => {
     await learning("enable");
     learnLiveUtterance("it's Fonzo not Fonso", "anything");

@@ -1,7 +1,7 @@
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
-import { preservesProtectedTokens, soundKey, soundsLikeName, squashName } from "./fidelity.js";
+import { ordinaryWords, preservesProtectedTokens, soundKey, soundsLikeName, squashName } from "./fidelity.js";
 import type { ReplacementRule } from "./vocabulary.js";
 import { loadVocabulary } from "./vocabulary.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -241,10 +241,14 @@ export function reviewedVocabulary(store: IntelligenceEventStore, bundleId: stri
   };
 }
 
-/** Whether a heard word was one of his names misheard: `to` is his name, `from` sounds like it and is not one. */
+/**
+ * Whether a dictation edit fixed one of his names misheard: `to` is his name,
+ * `from` sounds like it and is neither his name nor ordinary English ("login"
+ * keeps the scoped rule of three).
+ */
 export function isNameCorrection(pair: ReplacementRule, terms: string[]): boolean {
   const known = (name: string) => terms.some(term => squashName(term) === squashName(name));
-  return known(pair.to) && !known(pair.from) && soundsLikeName(pair.from, pair.to);
+  return known(pair.to) && !known(pair.from) && !ordinaryWords(pair.from) && soundsLikeName(pair.from, pair.to);
 }
 
 /**
