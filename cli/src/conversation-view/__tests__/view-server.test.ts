@@ -213,6 +213,18 @@ describe("SnapshotDiffer relays", () => {
     expect(shown!.html).toContain("fm/logan-codex-limit-msg");
   });
 
+  it("never drops an answer to his note whose words name how the work runs: a plain line leads, the original one tap away", () => {
+    const said = "The message fix is ready on branch fm/logan-codex-limit-msg and the Fact Checker signed off.";
+    const [, shown] = new SnapshotDiffer().next({ messages: [
+      { id: "note:1", role: "user", text: "is the message fix ready?" },
+      { id: "t1", role: "assistant", text: said, answers: "note:1" },
+    ], working: false }).messages;
+    expect(shown).toBeDefined();
+    expect(shown!.summary!.html).toContain("show original");
+    expect(shown!.summary!.html).not.toMatch(/branch|Fact Checker/);
+    expect(shown!.html).toContain("fm/logan-codex-limit-msg");
+  });
+
   it("keeps the rules he has to paste one tap away under the card that leads a relayed answer, never opened by default", () => {
     const [, shown] = new SnapshotDiffer().next({ messages: [
       { id: "note:1", role: "user", text: "what are the kinsta rules again" },

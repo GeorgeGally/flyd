@@ -300,7 +300,8 @@ export function digestReply(text: string): ReplyDigest {
   while (opening.length > 1 && ACK_LEAD.test(opening[0]!)) opening.shift();
   // The relay check holds back sentences that name the staff or how the work runs: the lead is the first that does not, when one does not.
   const lead = capitalise(clip(opening.find((sentence) => !namesBackstage(sentence)) ?? opening[0] ?? firstSentence(body), 220));
-  const points = (pointsOf(body).length ? pointsOf(body) : paragraphPoints(paragraphs)).filter((point) => !namesBackstage(`${point.label ?? ""} ${point.text}`));
+  const listed = pointsOf(body);
+  const points = (listed.length ? listed : paragraphPoints(paragraphs)).filter((point) => !namesBackstage(`${point.label ?? ""} ${point.text}`));
   return { routine: isRoutine(text), lead, points };
 }
 

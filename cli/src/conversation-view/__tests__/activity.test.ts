@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kindVisual } from "../cards.js";
-import { ActivityReader, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, LAB_REVIEW_WINDOW_MS, labReviews, MAX_RECENT, monitorsFromActivityRecords, recordActivity } from "../activity.js";
+import { ActivityReader, asksHowFlydWorks, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, LAB_REVIEW_WINDOW_MS, labReviews, MAX_RECENT, monitorsFromActivityRecords, recordActivity } from "../activity.js";
 import { needsGeorge } from "../semantic.js";
 import { saveDomainRun } from "../../command/store.js";
 import type { DomainRun } from "../../command/types.js";
@@ -310,6 +310,17 @@ describe("the record file and reader", () => {
     writeFileSync(join(dir, "jobs", "bad.json"), "{not json");
     const panel = new ActivityReader({ dir, now: () => NOW }).current();
     expect(panel.recent.map((item) => item.title)).toEqual(["Watched the news for you", "Finished a job for you"]);
+  });
+
+  it("shows Flyd's own upkeep only while his last words ask how Flyd works", () => {
+    mkdirSync(join(dir, "logs"), { recursive: true });
+    writeFileSync(join(dir, "logs", "agenda.log"), "2026-10-17T11:30:00.000Z self-review: reviewed, 10 reviewed, 0 short\n");
+    const reader = new ActivityReader({ dir, now: () => NOW });
+    expect(reader.current().recent).toEqual([]);
+    expect(asksHowFlydWorks("How does Flyd work these days?")).toBe(true);
+    expect(asksHowFlydWorks("how is the island work going?")).toBe(false);
+    expect(reader.current(true).recent.map((item) => item.title)).toEqual(["Read back its own answers"]);
+    expect(reader.current().recent).toEqual([]);
   });
 
   it("tells a listener when the panel changes, and polls only while someone listens", () => {

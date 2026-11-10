@@ -60,8 +60,10 @@ describe("jobsFrom", () => {
     expect(board.jobs.length).toBeGreaterThan(0);
     for (const job of board.jobs) {
       expect(["you", "Flyd", ""]).toContain(job.owner);
-      expect(`${job.next} ${job.ask}`).not.toMatch(/Design Mate|worker|handoff|branch|fm\/|Nothing has moved/i);
+      if (job.group !== "needs") expect(`${job.next} ${job.ask}`).not.toMatch(/Design Mate|worker|handoff|branch|fm\/|Nothing has moved/i);
     }
+    // The decision is his: its card keeps the question as asked.
+    expect(board.jobs.find((job) => job.group === "needs")).toMatchObject({ next: "Ready on branch fm/x: merge it?", ask: "Ready on branch fm/x: merge it?" });
   });
 
   it("does not count queued work or a run gone quiet as working", () => {

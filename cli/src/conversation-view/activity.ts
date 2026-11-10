@@ -387,6 +387,11 @@ export interface ActivityInputs {
   upkeep?: boolean;
 }
 
+/** Whether his words ask how Flyd works, the one time its own upkeep is his business. Pure. */
+export function asksHowFlydWorks(said: string): boolean {
+  return /\bhow (?:do|does) (?:you|flyd) work\b/i.test(said);
+}
+
 /** The stories a news card opens onto, each bound to the day it belongs to. */
 export interface NewsStories {
   edition?: { day: string; stories: ActivityStory[] };
@@ -549,6 +554,7 @@ export class ActivityReader {
   private readonly pollMs: number;
   private readonly now: () => number;
   private panel: ActivityPanel | null = null;
+  private upkeep = false;
   private signature = "";
   private readonly listeners = new Set<() => void>();
   private timer: NodeJS.Timeout | undefined;
@@ -598,6 +604,7 @@ export class ActivityReader {
         watch: flashStories(jsonLines(join(scout, "flash.jsonl"), 200), day),
       },
       runs: listDomainRuns(this.commandDir),
+      upkeep: this.upkeep,
     }, now);
     const panel = applyStoryMedia(composed, this.dir);
     const onStored = () => {
@@ -613,7 +620,12 @@ export class ActivityReader {
     return true;
   }
 
-  current(): ActivityPanel {
+  /** The panel; with upkeep (he asked how Flyd works) Flyd's own upkeep shows too. */
+  current(upkeep = false): ActivityPanel {
+    if (upkeep !== this.upkeep) {
+      this.upkeep = upkeep;
+      this.panel = null;
+    }
     if (!this.panel) this.refresh();
     return this.panel!;
   }

@@ -48,7 +48,7 @@ import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } fro
 import type { Rail, RailState } from "./rail.js";
 import { composeRail, conversationPreviews, loopbackPage, normalizeLoopback, PHONE_VIEWPORT, outcomeFirst, phoneCommentNote, phoneWork, RAIL_CARD_TITLES, railImageSrc, railServer, spoken, type RailArtefact, type RailNotice, type RailPreview, plainNote } from "./rail.js";
 import { Workshop } from "./workshop.js";
-import type { ActivityPanel, ActivityReader } from "./activity.js";
+import { asksHowFlydWorks, type ActivityPanel, type ActivityReader } from "./activity.js";
 import { openArticleChat } from "./article-chat.js";
 import { storyAsset, toggleSavedStory } from "./story-media.js";
 import { composeMemory, type MemoryReader } from "./memory.js";
@@ -189,7 +189,7 @@ export interface ShowOptions {
   /** Flyd's right column: his conversations, their answers and the artefacts beside them. */
   rail?: (snapshot: ConversationSnapshot) => Rail;
   /** Flyd's left column: what it is doing now and has done lately. */
-  leftColumn?: () => ActivityPanel;
+  leftColumn?: (snapshot: ConversationSnapshot) => ActivityPanel;
   /** Whether a page on this machine answers, so a link to one that closed is said in words. */
   live?: (url: string) => string;
   /**
@@ -334,6 +334,11 @@ const heldRelays = new Set<string>();
 /** What leads an answer to him whose own words may not be shown: the original stays one tap away. */
 const HELD_ANSWER = "There's an answer to this; it's under show original.";
 
+/** An answer to him whose own words may not lead: the plain line leads, the original one tap away. */
+function heldAnswer(message: ConversationMessage): Pick<RenderedMessage, "summary"> & { body: string } {
+  return { body: message.text, summary: { html: renderMarkdown(HELD_ANSWER), source: "flyd" } };
+}
+
 export class SnapshotDiffer {
   private readonly sent = new Map<string, string>();
   private semantic: SemanticObject[] = [];
@@ -398,18 +403,18 @@ export class SnapshotDiffer {
    * leads, firstmate's own words wait behind "more". Until it lands the lead
    * is the answer's local digest; with none coming, Flyd's whole briefing of it.
    */
-  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): (Pick<RenderedMessage, "summary"> & { body: string }) | null {
+  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
     const shown = stripCommitIds(message.text);
     if (cached) {
-      // Flyd's reading passes the same checks the staff's words do before it leads; one that fails is Flyd's to keep.
+      // Flyd's reading passes the same checks the staff's words do before it leads; one that fails gives way to a plain line.
       const reading = inFlydsVoice(cached);
-      return this.heldRelay(reading) ? null : { body: message.text, summary: glance(reading, "flyd") };
+      return this.heldRelay(reading) ? heldAnswer(message) : { body: message.text, summary: glance(reading, "flyd") };
     }
     this.readAnswer(message, snapshot, newest);
-    // With no reading of Flyd's to lead, staff words that fail the checks are not shown at all: Flyd handles them.
-    if (this.heldRelay(message.text)) return null;
+    // An answer to his note is never dropped: staff words that fail the checks wait behind a plain line.
+    if (this.heldRelay(message.text)) return heldAnswer(message);
     const pending = interpreter?.pending(message.text) ?? false;
     return { body: message.text, summary: pending ? glance(shown, "digest", true) : briefOf(shown) };
   }
@@ -425,9 +430,8 @@ export class SnapshotDiffer {
     const parts = this.summarize(message, newest);
     const model = this.summaries?.summarizer?.cached(message.text);
     const lead = model && parts.summary?.source === "model" ? inFlydsVoice(model) : message.text;
-    if (this.heldRelay(lead)) return toHim ? { body: message.text, summary: { html: renderMarkdown(HELD_ANSWER), source: "flyd" } } : null;
-    const { expanded: _expanded, ...closed } = parts;
-    return closed;
+    if (this.heldRelay(lead)) return toHim ? heldAnswer(message) : null;
+    return parts;
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
@@ -660,7 +664,7 @@ export class SnapshotDiffer {
     // so the native manifestation never resurrects a dead decision link.
     if (show.calls) show.calls = show.calls.map((call) => (call.links ? { ...call, links: closedLinks(call.links, live) } : call));
     const visibleSemantic = show.semantic ?? semanticObjectsFromShow(show.items);
-    const left = this.show?.leftColumn?.();
+    const left = this.show?.leftColumn?.(snapshot);
     // A finished design lab is work waiting for his look, beside the fleet's own.
     show.activities = [...activityObjectsFromShow(show), ...(left?.reviews ?? [])];
     show.decisions = decisionObjectsFromShow(show);
@@ -2355,7 +2359,7 @@ export class ConversationViewServer {
         artefact: () => this.artefactInputs(),
         readings: () => ({ plan: this.plan?.current() ?? null, weather: this.weather?.current() ?? null }),
         rail: (snapshot) => this.rail(snapshot),
-        ...(this.activity ? { leftColumn: () => this.activity!.current() } : {}),
+        ...(this.activity ? { leftColumn: (snapshot) => this.activity!.current(asksHowFlydWorks([...snapshot.messages].reverse().find((message) => message.role === "user")?.text ?? "")) } : {}),
         live: (url) => this.previews.state(url),
         jobs: (shot, screen) => this.jobBoard(shot, screen),
         todos: (jobs) => this.todoList(jobs),

@@ -4,10 +4,8 @@ const MACHINERY = /\b(?:worktrees?|system-1|jev)\b/i;
 const COUNCIL_NAMED = /\b(?:the (?:Librarian|Critic|Strategist|Muse|Council)|Scouts?)\b/;
 /** The command layer's bosses and specialists, by the names nobody else uses. */
 const STAFF_UNMISTAKABLE = /\b(?:Design Mates?|Fact Checkers?|coding boss(?:es)?)\b/i;
-/** Staff titles that are also ordinary job titles ("the creative director at the agency"): held back where Flyd reports its own work, not in chat. */
-const STAFF_TITLES = /\b(?:Creative Directors?|Librarians?|Retrievers?|Researchers?)\b/;
-/** How the staff's work is run, never what it came to: who is on it, the fleet, a handoff between them. */
-const STAFF_MACHINERY = /\b(?:workers?|fleets?|hand-?offs?)\b/i;
+/** Staff titles that are also ordinary job titles ("the creative director at the agency"): held back only as the staff's names, where Flyd reports its own work, not in chat. */
+const STAFF_TITLES = /\bthe (?:Creative Directors?|Retrievers?|Researchers?)\b/;
 
 const COMMIT_ID = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/i;
 const FM_BRANCH = /\bfm\/[\w.-]+/i;
@@ -44,7 +42,7 @@ export const CHAT_ANSWER_BACKSTAGE: RegExp[] = [
 ];
 
 /** Everything relays, notices, status cards and agenda lines may not show. */
-export const BACKSTAGE_DENYLIST: RegExp[] = [...CHAT_ANSWER_BACKSTAGE, STAFF_TITLES, STAFF_MACHINERY, PR_NUMBER, JOB_ID, DOMAIN_RUN_ID];
+export const BACKSTAGE_DENYLIST: RegExp[] = [...CHAT_ANSWER_BACKSTAGE, STAFF_TITLES, PR_NUMBER, JOB_ID, DOMAIN_RUN_ID];
 
 /** A commit id inside a link is part of the address, not news: masked before the denylist reads the text. Pure. */
 export function withoutLinkIds(text: string): string {

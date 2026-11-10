@@ -42,7 +42,7 @@ describe("parseBearings", () => {
       { label: "Refresh the PR branches", task: "c", detail: "#76 merged green", repo: "flyd", url: "https://github.com/GeorgeGally/flyd/pull/76", status: "merged" },
       { label: "Flyd: visual show mode", task: "flyd-show-mode", repo: "flyd", url: "https://github.com/GeorgeGally/flyd/pull/79", status: "landed" },
     ]);
-    expect(fleet.held).toEqual([{ label: "Admin redesign", task: "d", detail: "Hit a snag; Flyd is sorting it out", repo: "gnm", status: "failed" }]);
+    expect(fleet.held).toEqual([{ label: "Admin redesign", task: "d", detail: "Hit a snag", repo: "gnm", status: "failed" }]);
     expect(fleet.next).toEqual([{ label: "Add a subtle flat green light to the Flyd icon", task: "flyd-icon-led", status: "queued" }]);
     // The failed job is the staff's to repair (Flyd chases it), never a count on his screen.
     expect(fleetCounts(fleet)).toEqual({ call: 1, live: 1, ready: 1, landed: 2, waiting: 0, next: 1 });

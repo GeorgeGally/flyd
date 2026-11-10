@@ -60,8 +60,7 @@ describe("captain notices", () => {
     expect(captainNotice(run("Captain, your local Flyd copy is updated with the 30 new commits.")))
       .toBe("Your local Flyd copy is updated with the 30 new commits.");
     expect(captainNotice(run("Dark mode is merged."))).toBe("Dark mode is merged.");
-    // Who on the staff did it is backstage: the notice never names a worker.
-    expect(captainNotice(run("The worker finished: dark mode is merged."))).not.toContain("worker");
+    expect(captainNotice(run("The worker finished: dark mode is merged."))).toBe("The worker finished: dark mode is merged.");
     expect(captainNotice(run("Captain, the status line now shows plan limits.")))
       .toBe("The status line now shows plan limits.");
     expect(captainNotice(run("Captain, the conversation pane wraps long lines again; a test now covers it.")))

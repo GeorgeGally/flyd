@@ -284,7 +284,7 @@ export function plainStep(doing: string): string {
     // No word from whoever is on it is Flyd's to chase quietly, never news for him.
     [/^harness state unavailable\b.*$/i, "Under way"],
     [/^run passed: PR open\b.*$/i, "Ready to land; its checks passed"],
-    [/^run failed\b.*$/i, "Hit a snag; Flyd is sorting it out"],
+    [/^run failed\b.*$/i, "Hit a snag"],
     [/^run cancelled\b.*$/i, "Stopped before it finished"],
     [/^ready in branch\b.*$/i, "Ready to land"],
   ];
