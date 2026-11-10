@@ -213,9 +213,11 @@ export const FRONT_SCRIPT = `
     // New: Flyd first saw it after he last looked at Done (the same record the Done list keeps).
     var doneSeen = cardRead("flyd-done-seen");
     landed.forEach(function (item) {
-      add({ id: item.id, group: "done", state: "Landed", title: frontHeading(item.headline, frontProject(item.project)), project: frontProject(item.project), at: item.at,
+      // A call Flyd answered for him by one of his rules: one quiet line, and his own answer takes it back.
+      var handled = item.status === "handled" && item.executiveDecisionId ? { decisionId: item.executiveDecisionId, task: item.task || "" } : null;
+      add({ id: item.id, group: "done", state: handled ? "Handled for you" : "Landed", title: frontHeading(item.headline, frontProject(item.project)), project: frontProject(item.project), at: item.at,
         shots: frontShots(item.shots), previews: frontPreviews(item.previews), detail: frontText(item.detail || item.why), links: item.links || [], decision: null, task: item.task || "",
-        fresh: isNew(item, doneSeen) });
+        handled: handled, fresh: isNew(item, doneSeen) });
     });
     return jobs;
   }
@@ -482,6 +484,8 @@ export const FRONT_SCRIPT = `
     if (VIEW_TOKEN) {
       if (job.domainRun) {
         parts.push(artefactChat("flyd-domain:" + job.domainRun, { domainRun: job.domainRun, jobTitle: job.title, questionText: job.questionIdentity }, "Your answer…").form);
+      } else if (job.handled) {
+        parts.push(artefactChat("flyd-handled:" + job.handled.decisionId, { decisionFollowUp: job.handled.decisionId, decisionTask: job.handled.task, jobTitle: job.title }, "Your own answer takes this back…").form);
       } else if (job.decision) {
         parts.push(sceneAsk({ title: job.title, decision: job.decision }, "flyd-decision:" + (job.decision.decisionId || job.decision.task)));
       } else {

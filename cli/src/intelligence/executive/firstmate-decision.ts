@@ -5,7 +5,8 @@ import { familyEgress, predicateDefinition, questionFor } from "../../cognition/
 import type { JevOptions } from "../../cognition/system-one/types.js";
 import { IntelligenceEventStore } from "../event-store.js";
 import { redactSensitiveText } from "../../runtime/context-redactor.js";
-import { decideExecutiveStep, persistExecutiveDecision, parseExecutiveDecision, type ExecutiveAuthorityGrant, type ExecutiveDecisionRecord, type ExecutiveProposal, type ExecutiveJudgment } from "./decision-step.js";
+import { hasStandingRules, STANDING_RULES_POLICY } from "./standing-rules.js";
+import { decideExecutiveStep, persistExecutiveDecision, parseExecutiveDecision, tookBackOn, type ExecutiveAuthorityGrant, type ExecutiveDecisionRecord, type ExecutiveProposal, type ExecutiveJudgment } from "./decision-step.js";
 
 export interface FirstmateChange {
   sourceId?: string;
@@ -23,6 +24,8 @@ export interface FirstmateChange {
   authority?: ExecutiveAuthorityGrant[];
   /** Flyd's hand-back notes already delivered to this task's boss. */
   sentToBoss?: string[];
+  /** His recorded preferences, when a standing-rules grant lets Flyd answer by them. */
+  standing?: string;
 }
 
 export interface FirstmateDecisionOptions {
@@ -45,9 +48,15 @@ export function authorityForStaffRun(input: {
   firstmate: boolean;
   active: boolean;
   autonomy: "full" | "trusted" | "ask";
+  /** His recorded preferences: with a line Flyd may answer by, the review step may settle this run's routine calls for him. */
+  standing?: string;
 }): ExecutiveAuthorityGrant[] {
   if (!input.firstmate || !input.active || input.autonomy === "ask") return [];
-  return [{ grantId: STAFF_COORDINATION_POLICY.id, capability: STAFF_COORDINATION_POLICY.capability, target: input.runId }];
+  return [
+    { grantId: STAFF_COORDINATION_POLICY.id, capability: STAFF_COORDINATION_POLICY.capability, target: input.runId },
+    ...(input.standing !== undefined && hasStandingRules(input.standing)
+      ? [{ grantId: STANDING_RULES_POLICY.id, capability: STANDING_RULES_POLICY.capability, target: input.runId }] : []),
+  ];
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -167,6 +176,13 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
   if (existing?.payload?.decision && typeof existing.payload.decision === "object") {
     const previous = parseExecutiveDecision(existing.payload.decision);
     if (!previous) { if (ownsStore) store.close(); throw new Error("Invalid stored executive decision"); }
+    const takenBack = store.findByIdempotencyKey("executive.cycle", `step:${decisionId}:takeback`);
+    if (takenBack?.payload?.decision && typeof takenBack.payload.decision === "object") {
+      if (ownsStore) store.close();
+      const parsed = parseExecutiveDecision(takenBack.payload.decision);
+      if (!parsed) throw new Error("Invalid stored executive take-back");
+      return parsed;
+    }
     const verified = store.findByIdempotencyKey("executive.cycle", `step:${decisionId}:verification`);
     if (verified?.payload?.decision && typeof verified.payload.decision === "object") {
       if (ownsStore) store.close();
@@ -216,6 +232,8 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
       ...(change.sentToBoss?.length ? { sentToBoss: change.sentToBoss } : {}),
       ...(change.requested ? { requested: true } : {}),
       ...(change.state === "failed" ? { sourceFailed: true } : {}),
+      ...(change.label ? { label: text(change.label, 160) } : {}),
+      ...(change.standing !== undefined ? { standing: change.standing, ...(change.taskId && tookBackOn(store, change.taskId) ? { takenBack: true } : {}) } : {}),
     }, options.now?.() ?? new Date());
     const canonical = store.transaction(() => {
       const existing = store.findByIdempotencyKey("executive.cycle", `step:${decisionId}`);

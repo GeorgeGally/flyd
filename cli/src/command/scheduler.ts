@@ -11,6 +11,7 @@ import type { DomainRun } from "./types.js";
 import { notificationLine } from "../council/chief-of-staff.js";
 import { relayShortfalls } from "../runtime/honesty-check.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
+import { standingPreferences } from "../intelligence/executive/standing-rules.js";
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -44,6 +45,8 @@ export async function decideRun(
   const detail = [result?.brief, ...(result?.unresolvedQuestions ?? []), ...(result?.risks ?? [])].filter(Boolean).join("\n").slice(0, 2_000);
   const active = ["queued", "accepted", "working", "needs_decision", "incomplete", "failed"].includes(run.status);
   const report = run.request.domain === "knowledge" && run.status === "completed" && Boolean(result?.detailedReport.trim());
+  // His recorded words: the routine calls they settle are answered for him (FLYD_STANDING_RULES=0 off; never under test).
+  const standing = process.env.FLYD_STANDING_RULES === "0" || process.env.VITEST ? undefined : standingPreferences();
   return processFirstmateChange({
     sourceId: run.transport.kind === "firstmate" ? "firstmate.change" : `domain.${run.request.domain}`,
     eventId: `domain-run:${run.id}:${run.status}`,
@@ -58,8 +61,10 @@ export async function decideRun(
       firstmate: run.transport.kind === "firstmate" && run.request.domain === "coding",
       active,
       autonomy: (await import("../runtime/tool-policy.js")).autonomyLevel(),
+      ...(standing !== undefined ? { standing } : {}),
     }),
     sentToBoss: notesSentToBoss(run.messages),
+    ...(standing !== undefined ? { standing } : {}),
     ...(report ? { requested: true, verification: { status: "verified" as const, evidenceRefs: [`domain-report:${run.id}`] } } : {}),
   }, {
     complete,
