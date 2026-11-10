@@ -4,6 +4,7 @@ import { SourceContractRegistry } from "../intelligence/sensors/source-contracts
 import { preservesProtectedTokens, soundKey } from "./fidelity.js";
 import type { ReplacementRule } from "./vocabulary.js";
 import { loadVocabulary } from "./vocabulary.js";
+import { learnNameEdit } from "./names.js";
 import { createHash } from "node:crypto";
 
 export function dictationScope(bundleId: string, windowTitle = ""): string {
@@ -107,6 +108,8 @@ export function recordCorrection(input: { before: string; after: string; invocat
   }
   const pair = correctionPair(input.before, input.after);
   if (!pair || !input.invocationId || !input.bundleId || !/^[a-f0-9]{64}$/.test(input.scope)) return null;
+  // Fixing one of his own names teaches every voice path at once; other words keep the rule of three.
+  learnNameEdit(pair);
   const store = new IntelligenceEventStore();
   const curator = new CognitiveCurator(store);
   try {

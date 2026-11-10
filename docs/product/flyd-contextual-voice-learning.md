@@ -38,6 +38,14 @@ The latest explicit approval/rejection applies to the entire matching rule ident
 
 A repeated correction after automatic promotion retains the original rule identity and increments its recurrence count instead of starting from zero. The review screen flags it for investigation. These reports remain local; this release does not automatically send personal correction fragments to First Mate or the coding crew, nor claim a failure stage without evidence. Promotion may show a quiet “Learned spelling” notice when dictation is idle. Native next-start delivery does not interrupt ongoing recording with a notice.
 
+## His names on every voice path
+
+Transcribers prefer real words to George's names ("Kleenex" for CleanX, "Floyd" for Flyd) whatever the prompt says, so every voice path (dictation, conversation voice and the LIVE `flyd_resolve_intent` intent) ends with one deterministic pass in `cli/src/dictation/names.ts`. It applies, in order: spellings George taught, known sound-alikes (Kleenex/Kleenx/Clean X → CleanX while CleanX is one of his projects; Floyd → Flyd except "Pink Floyd"), then a sound-alike match against his project and people vocabulary (same sound key, close phonetic spelling; one or two heard words). A heard word that is itself one of his names is never rewritten, and a common word only replaces a CamelCase-style name, never a plain one ("bloom" stays).
+
+George teaches a spelling by correcting it once. In chat or conversation voice ("I meant CleanX" after a misheard "Kleenex", "it's CleanX not Kleenex", "not Kleenex, CleanX") and in LIVE, the first clear correction of one of his project or people names creates a rule. Naming one of his names over another ("Logan, not Pierre") teaches nothing. With "Learn From My Dictation Edits" on, an in-place dictation edit to one of his names also teaches at once. Other words keep the rule of three above. Rules persist in `~/.flyd/voice-name-rules.json` (`FLYD_VOICE_NAME_RULES` overrides the path); delete an entry to unlearn it.
+
+The vocabulary skips decision titles that were filed as projects without people ("CapFive is missing GDPR cookie consent…"), uses a project's spoken name ("Guido", not "Guido (browser ruler tool)") and ranks projects with people first, so his real names fit the 40-term, 800-character prompt.
+
 ## Conversation-content learning
 
 Existing Flyd conversation events feed a separate background content pass. It extracts reported decisions, constraints, problems, blockers, dependencies, goals, rejected approaches, facts and unverified outcomes. Lessons remain inferred, source-linked evidence; they do not become global preferences or execution authority.

@@ -20,6 +20,7 @@ import type { RouteReading } from "../runtime/turn-plan.js";
 import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
 import { projectNamed } from "../council/projects.js";
 import { isArticleSession } from "./article-chat.js";
+import { learnNameCorrection } from "../dictation/names.js";
 
 function isIterationAnswer(answer: string): boolean {
   return /\b(another round|one more round|try again|more options?|more versions?|not quite|not there yet|different direction|iterate|redo)\b/i.test(answer);
@@ -427,6 +428,8 @@ export class FlydDesk {
     const filed = this.keepFiles(id, documents);
     let record: AskRecord = { id, sessionId, at: new Date().toISOString(), text: text.trim(), ...(kept.length ? { images: kept } : {}), ...(filed.length ? { files: filed.map((file) => file.name) } : {}) };
     const conversation = conversationOf(record);
+    // "I meant CleanX" after a misheard "Kleenex": typed or spoken, Flyd learns his spelling.
+    learnNameCorrection(record.text, this.recordsForSession(conversation).at(-1)?.text, "chat");
     const earlierAnswered = this.recordsForSession(conversation)
       .filter((earlier) => earlier.answer)
       .slice(-HISTORY_EXCHANGES);

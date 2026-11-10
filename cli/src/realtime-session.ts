@@ -11,6 +11,7 @@ import { compileContext } from "./cognition/context-compiler.js";
 import { formatCompiledContext } from "./cognition/context-format.js";
 import { decisionPolicyBlock } from "./lib/decision-policy.js";
 import { loadVocabulary, transcriptionPrompt } from "./dictation/vocabulary.js";
+import { correctVoiceNames, learnNameCorrection } from "./dictation/names.js";
 import { readSoul } from "./lib/soul.js";
 import { presenceEnabled, presenceInstructions } from "./runtime/conversation-presence.js";
 
@@ -160,6 +161,7 @@ async function connectRealtime(
     cognitiveContext = "";
   }
   const sessionInstructions = buildRealtimeInstructions(cognitiveContext);
+  let previousUtterance: string | undefined;
 
   return new Promise((resolvePromise, reject) => {
     const ws = new WebSocket(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`, {
@@ -212,6 +214,9 @@ async function connectRealtime(
         if (ev.type === "response.audio_transcript.delta") {
           adapterWs.send(JSON.stringify({ type: "transcript_delta", text: ev.delta }));
         }
+        if (ev.type === "conversation.item.input_audio_transcription.completed" && typeof ev.transcript === "string") {
+          previousUtterance = learnLiveUtterance(ev.transcript, previousUtterance);
+        }
         if (ev.type === "response.done") {
           handleToolCalls(adapterWs, ws, ev as Record<string, unknown>, observationResolvers, sessionId);
         }
@@ -226,6 +231,21 @@ async function connectRealtime(
       reject(err);
     });
   });
+}
+
+/**
+ * One thing George said in LIVE: if it corrects how Flyd heard one of his names
+ * ("I meant CleanX"), Flyd learns the spelling. Returns what to remember as the
+ * previous utterance.
+ */
+export function learnLiveUtterance(transcript: string, previous: string | undefined): string {
+  learnNameCorrection(transcript, previous, "live");
+  return transcript;
+}
+
+/** The realtime model heard the same audio as every other path: his names get the same spelling pass. */
+export function liveIntent(intent: unknown): string {
+  return typeof intent === "string" ? correctVoiceNames(intent) : "";
 }
 
 export interface ResolveToolOutput {
@@ -321,7 +341,7 @@ async function handleToolCalls(
 
     const args = JSON.parse((item as Record<string, unknown>).arguments as string || "{}");
     const callId = (item as Record<string, unknown>).call_id as string;
-    const { intent } = args;
+    const intent = liveIntent(args.intent);
 
     try {
       const requestId = randomUUID();

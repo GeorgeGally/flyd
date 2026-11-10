@@ -47,8 +47,8 @@ export function applyRules(text: string, rules: ReplacementRule[]): string {
   }, text);
 }
 
-// Transcribers still hear "Floyd" now and then. Push-to-talk, where Flyd is the
-// one addressed, ends with this fix, sparing the band; dictation never does.
+// Transcribers still hear "Floyd" now and then. Every voice path ends with this
+// fix (through names.ts), sparing the band.
 const FLOYD = /(?<![\p{L}\p{N}_])(?<!\bpink\s+)floyd(?![\p{L}\p{N}_])/giu;
 
 /** Whole-word, case-insensitive Floyd → Flyd, except "Pink Floyd". */
