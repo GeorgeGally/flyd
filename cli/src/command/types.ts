@@ -27,6 +27,8 @@ export interface DomainRequest {
    * George, never chased as a handoff of its own, and never a candidate for his live corrections.
    */
   source?: "chat" | "self-improvement" | "system" | "view" | "flyd";
+  /** The conversation-window session a "view" request was sent from. */
+  session?: string;
   project?: { name?: string; root?: string };
   contextRefs?: string[];
   parentRequestId?: string;

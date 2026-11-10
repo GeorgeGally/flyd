@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { bossMessageKind, FENCE_HELD, HELD_FOR_ATTENTION, notesSentToBoss, recommendationText } from "../intelligence/executive/decision-step.js";
 import { recordHeld } from "../council/reply-review.js";
 import { syncFirstmateDomainRuns } from "./firstmate.js";
@@ -6,16 +7,21 @@ import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
 import { noticeKind } from "./notice.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
-import { readDomainRun, saveDomainRun } from "./store.js";
+import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
 import { notificationLine } from "../council/chief-of-staff.js";
 import { relayShortfalls } from "../runtime/honesty-check.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
+import { deliverOnce, deliverOwed, finishedKey, markTold, seedOnce } from "../runtime/delivered.js";
+import { windowOpen } from "../conversation-view/window-presence.js";
+import { deskWords } from "../conversation-view/firstmate-inbox.js";
+import { plainNote } from "../conversation-view/rail.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+let seeded = false;
 
 type Notify = (title: string, message: string, kind?: GeorgeKind) => Promise<void>;
 
@@ -36,6 +42,16 @@ export async function deliverBossNote(
   return { status: receipt ? "verified" : "unknown", evidenceRefs: receipt ? [`domain-message:${receipt.id}`] : [] };
 }
 
+/** His own words for a run he asked for, or empty when its outcome was written by Flyd (a tool's brief, a follow-up, a stand-in). */
+function hisWords(request: DomainRun["request"]): string {
+  // The window's addressing lines ("About the artefact …", "Answer to pending decision …") are plumbing he never typed.
+  const typed = plainNote(request.originalMessage);
+  const first = typed.words.split("\n").find((line) => line.trim())?.trim() ?? "";
+  if (request.source === "view") return deskWords(request) && (typed.words !== request.originalMessage ? first : deskWords(request));
+  if (request.source === "chat" && request.originalMessage.trim() !== request.intendedOutcome.trim()) return first;
+  return "";
+}
+
 export async function decideRun(
   run: DomainRun,
   send: typeof sendRunMessage,
@@ -54,6 +70,7 @@ export async function decideRun(
     kind: run.status === "needs_decision" ? "decision" : "reply",
     state: run.status,
     label: run.request.intendedOutcome,
+    request: hisWords(run.request),
     detail: [detail, ...(result?.evidence ?? [])].join("\n"),
     evidenceRefs: [`domain-run:${run.id}`],
     authority: authorityForStaffRun({
@@ -65,6 +82,7 @@ export async function decideRun(
     }),
     sentToBoss: notesSentToBoss(run.messages),
     ...(standing !== undefined ? { standing } : {}),
+    ...(result?.unresolvedQuestions?.length || result?.risks?.length ? { unresolved: true } : {}),
     ...(report ? { requested: true, verification: { status: "verified" as const, evidenceRefs: [`domain-report:${run.id}`] } } : {}),
   }, {
     complete,
@@ -78,6 +96,8 @@ export async function decideRun(
 
 function noticeForDecision(decision: ExecutiveDecisionRecord): string | null {
   if (!decision.show || !decision.notify) return null;
+  // Finished work is told in its own checked line, link and all.
+  if (decision.delivery) return relayShortfalls(decision.delivery.line).length === 0 ? decision.delivery.line : null;
   const said = decision.question
     ? `${decision.question}${decision.recommendation ? ` ${recommendationText(decision.recommendation)}` : ""}`
     : decision.summary;
@@ -85,17 +105,36 @@ function noticeForDecision(decision: ExecutiveDecisionRecord): string | null {
   return line && relayShortfalls(line).length === 0 ? line : null;
 }
 
-/** Tells George only what the executive record says needs his attention. */
+/** Work he started from the window, with the window open on that conversation: his reply shows under his message there. */
+function shownInWindow(run: DomainRun, windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): boolean {
+  return run.request.source === "view" && run.request.session !== undefined && windowIsOpen(run.request.session);
+}
+
+/** Backstage: Flyd's own note to the staff, or its own fix. Its finished work is never George's to hear. */
+function backstageRun(run: DomainRun): boolean {
+  return run.request.source === "flyd" || run.request.source === "self-improvement";
+}
+
+/** Finished work never told: Flyd's own, or shown under his message in the conversation it was asked from. */
+function quietRun(run: DomainRun, windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): boolean {
+  return backstageRun(run) || shownInWindow(run, windowIsOpen);
+}
+
+/** Tells George only what the executive record says needs his attention, each report once (runtime/delivered.ts). */
 export async function notifyRun(
   run: DomainRun,
   notify?: Notify,
   send: typeof sendRunMessage = sendRunMessage,
   decide: RunDecisionStep = decideRun,
+  windowIsOpen: (session: string) => boolean = (session) => windowOpen(session),
 ): Promise<void> {
   if (!run.result || run.notified || !["completed", "failed", "needs_decision"].includes(run.status)) return;
-  // His own message from the conversation window: the reply is shown under it there, so a notice would say it twice.
+  // His own message from the conversation window: with the window open on that conversation the reply shows under it
+  // there, so a notice would say it twice; otherwise he hears it like any other result.
   // Flyd's own note to the staff, and its own fixes, are backstage: their replies settle them and are never his to hear.
-  if (run.request.source === "view" || run.request.source === "flyd" || run.request.source === "self-improvement") {
+  if (quietRun(run, windowIsOpen)) {
+    // Recorded as handled, so nothing tells it later either.
+    if (run.status === "completed") markTold([finishedKey(run.id)]);
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
     return;
   }
@@ -107,9 +146,17 @@ export async function notifyRun(
     const notice = noticeForDecision(decision);
     const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
       || decision.action !== undefined || decision.reason === FENCE_HELD || decision.reason === HELD_FOR_ATTENTION;
-    if (notice) await (notify ?? (await import("../runtime/agenda.js")).notifyMac)("Flyd", notice, decision.disposition === "ask_george" ? "decision" : noticeKind(run));
-    else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
-    saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
+    let owed = false;
+    if (notice) {
+      const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
+      // A run's finished work is one report, whatever its domain; anything else is one per decision. A restart never says either twice.
+      owed = (await deliverOnce([{
+        key: decision.delivery ? finishedKey(run.id) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`,
+        line: notice, kind, work: run.request.intendedOutcome, evidenceRefs: decision.evidenceRefs,
+      }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
+    } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
+    // A report not delivered yet is never marked told; the command tick's sweep says it again (deliverOwed).
+    if (!owed) saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
   } catch {
     // The durable result remains in the command store; notification is best effort.
   }
@@ -119,11 +166,22 @@ export async function commandTick(): Promise<void> {
   if (running) return;
   running = true;
   try {
+    // Once ever, before anything is told: runs already finished when this shipped are recorded as told without ringing.
+    if (!seeded) {
+      try {
+        seedOnce(listDomainRuns().filter((run) => run.status === "completed").map((run) => finishedKey(run.id)));
+        seeded = true;
+      } catch {
+        // Tried again next tick.
+      }
+    }
     await Promise.all([
       syncFirstmateDomainRuns({ onChanged: notifyRun }),
       syncLibrarianDomainRuns({ onChanged: notifyRun }),
       syncDesignMateRuns({ onChanged: notifyRun }),
     ]);
+    // Every report still owed (left undelivered, or cut off mid-send) is said again, from the first tick at Core start on.
+    await deliverOwed().catch(() => undefined);
   } finally {
     running = false;
   }

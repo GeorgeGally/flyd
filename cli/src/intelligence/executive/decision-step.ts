@@ -63,6 +63,15 @@ export interface ExecutiveDecisionInput {
   label?: string;
   /** The tasks whose calls are open for him right now. */
   openCalls?: readonly string[];
+  /** The work reported finished, and what Flyd's own check of it found (finished-check.ts). */
+  finished?: { line: string; checked: boolean; landed: boolean; evidenceRefs: string[]; url?: string };
+}
+
+/** The one line finished work is told as, and whether Flyd checked the outcome itself. */
+export interface ExecutiveDelivery {
+  line: string;
+  checked: boolean;
+  url?: string;
 }
 
 export interface ExecutiveVerification {
@@ -94,6 +103,8 @@ interface ExecutiveDecisionBase {
   createdAt: string;
   /** A call his standing rules settled for him: on a held record or on the note that carried the answer. */
   settled?: ExecutiveSettlement;
+  /** Finished work: the line George is told, said whether or not Flyd could check it. */
+  delivery?: ExecutiveDelivery;
 }
 export interface ExecutiveInternalAction {
   capability: "firstmate.message";
@@ -111,6 +122,7 @@ export type ExecutiveDecisionRecord = ExecutiveDecisionBase & (
   | { disposition: "handle_internally"; question?: never; options?: never; recommendation?: never; resolution?: never } & (
       | { action: ExecutiveInternalAction; show: false; notify: false; verification: ExecutiveVerification }
       | { action?: never; show: true; notify: boolean; verification: { status: "verified"; evidenceRefs: string[] } }
+      | { action?: never; show: true; notify: boolean; delivery: ExecutiveDelivery; verification: { status: "unknown"; evidenceRefs: string[] } }
     )
 );
 
@@ -231,6 +243,17 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
     createdAt: now.toISOString(),
   };
 
+  // Finished work is always told, in one line: checked when Flyd could read the outcome, honestly unchecked when not.
+  if (input.finished && proposal.kind !== "question") {
+    const { line, checked, landed, url } = input.finished;
+    const delivery: ExecutiveDelivery = { line, checked, ...(url ? { url } : {}) };
+    const refs = [...new Set(input.finished.evidenceRefs)];
+    const reason = landed ? "finished work, checked: its change is in" : checked ? "finished work, checked: its change is not in yet" : "finished work; its outcome could not be checked";
+    return landed && refs.length
+      ? { ...decision, disposition: "handle_internally", reason, summary: line, delivery, evidenceRefs: [...new Set([...evidenceRefs, ...refs])], verification: { status: "verified", evidenceRefs: refs }, show: true, notify: true }
+      : { ...decision, disposition: "handle_internally", reason, summary: line, delivery, evidenceRefs: [...new Set([...evidenceRefs, ...refs])], verification: { status: "unknown", evidenceRefs: refs }, show: true, notify: true };
+  }
+
   if (proposal.kind === "question") {
     const options = [...new Set(proposal.options.map((option) => option.trim()).filter(Boolean))];
     const grounded = containsEvidence(input.sourceText, proposal.questionEvidence);
@@ -315,7 +338,8 @@ function fenced(decision: ExecutiveDecisionRecord): boolean {
     || decision.disposition === "ask_george" && showsMachinery(displayed, decision.taskId);
 }
 
-function plainWords(text: string): string {
+/** Backstage names said as "the team", branches as changes. Pure. */
+export function plainWords(text: string): string {
   return BACKSTAGE_ROLES.reduce((said, name) => said.replace(new RegExp(`(?:\\bthe\\s+)?(?:${name.source})`, `${name.flags.replace("g", "")}g`), "the team"), text)
     .replace(/\bbranch(?:es)?\b/gi, "changes")
     .replace(/\s+/g, " ").trim();
@@ -398,10 +422,16 @@ export function parseExecutiveDecision(value: unknown): ExecutiveDecisionRecord 
   const status = check?.status;
   if (!refs || !checkRefs || status !== "pending" && status !== "unknown" && status !== "failed" && status !== "verified") return null;
   const verification: ExecutiveVerification = { status, evidenceRefs: checkRefs };
+  const told = object(item.delivery);
+  if (item.delivery !== undefined && (!told || typeof told.line !== "string" || typeof told.checked !== "boolean"
+    || told.url !== undefined && typeof told.url !== "string")) return null;
+  const delivery: ExecutiveDelivery | undefined = told && typeof told.line === "string" && typeof told.checked === "boolean"
+    ? { line: told.line, checked: told.checked, ...(typeof told.url === "string" ? { url: told.url } : {}) } : undefined;
   const base: ExecutiveDecisionBase = {
     schema: EXECUTIVE_DECISION_VERSION, decisionId: item.decisionId, sourceId: item.sourceId, sourceEventId: item.sourceEventId,
     reason: item.reason, summary: item.summary, createdAt: item.createdAt, evidenceRefs: refs,
     ...(typeof item.taskId === "string" ? { taskId: item.taskId } : {}),
+    ...(delivery ? { delivery } : {}),
   };
   if (item.disposition === "ask_george") {
     const options = stringList(item.options);
@@ -433,6 +463,9 @@ export function parseExecutiveDecision(value: unknown): ExecutiveDecisionRecord 
   if (settled) return null;
   if (item.action === undefined && status === "verified" && checkRefs.length && item.show === true && typeof item.notify === "boolean") {
     return { ...base, disposition: "handle_internally", verification: { status, evidenceRefs: checkRefs }, show: true, notify: item.notify };
+  }
+  if (item.action === undefined && status === "unknown" && delivery && item.show === true && typeof item.notify === "boolean") {
+    return { ...base, disposition: "handle_internally", delivery, verification: { status, evidenceRefs: checkRefs }, show: true, notify: item.notify };
   }
   return null;
 }

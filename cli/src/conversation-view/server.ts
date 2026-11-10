@@ -1,3 +1,4 @@
+import { markWindowClosed, markWindowOpen } from "./window-presence.js";
 import { recommendationText } from "../intelligence/executive/decision-step.js";
 import { PreparationStore } from "../runtime/preparation-store.js";
 import { renderPreparationPage } from "./preparation-page.js";
@@ -6,7 +7,7 @@ import { appendConfirmedTodos } from "../work/work-hypothesis/confirmed-todos.js
 import { MAX_TODO_CHARS, readTodos, tickTodo, type TodoRow } from "./todos.js";
 import { renderRoutinesPage } from "./routines-page.js";
 import { renderWhatsAppPage } from "./whatsapp-page.js";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
@@ -2409,9 +2410,13 @@ export class ConversationViewServer {
     const wakeJobs = () => { if (!closed && latest) emitUpdate(latest); };
     this.jobWake.add(wakeJobs);
     emitStaff();
+    // Core reads this before announcing work he started here: an open window shows the reply itself.
+    const presence = randomUUID();
+    markWindowOpen(presence, session.id);
     const heartbeat = setInterval(() => {
       res.write(": keep-alive\n\n");
       emitStaff();
+      markWindowOpen(presence, session.id);
     }, HEARTBEAT_MS);
     heartbeat.unref?.();
     // On the live session (not one he chose): another session taking the lock ends this stream, and the page
@@ -2432,6 +2437,7 @@ export class ConversationViewServer {
     req.on("close", () => {
       closed = true;
       clearInterval(heartbeat);
+      markWindowClosed(presence);
       if (moved) clearInterval(moved);
       stopFeed();
       stopPreviews();

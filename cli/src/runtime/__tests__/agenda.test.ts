@@ -206,6 +206,37 @@ describe("agenda", () => {
     expect(seen).toEqual([{ message: "\"Draft the reply\" is blocked: it stopped partway, so I didn't run it twice. Tell me whether to try another way or drop it.", kind: "blocker" }]);
   });
 
+  it("counts a line as heard only once it was delivered, so one no adapter took can be said again", async () => {
+    const home = mkdtempSync(join(tmpdir(), "flyd-agenda-home-"));
+    const rung = mkdtempSync(join(tmpdir(), "flyd-rang-"));
+    mkdirSync(join(home, ".flyd", "overlay"), { recursive: true });
+    writeFileSync(join(home, ".flyd", "overlay", "auth-token"), "token\n");
+    const previousHome = process.env.HOME;
+    const previousPlatform = process.platform;
+    process.env.HOME = home;
+    vi.stubEnv("FLYD_AGENDA_DIR", rung);
+    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+    let listening = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ delivered: listening }) })));
+    try {
+      const line = "Done: Keep the island quiet.";
+      expect(await deliverNotification("Flyd", line)).toBe("undelivered");
+      listening = 1;
+      expect(await deliverNotification("Flyd", line)).toBe("shown");
+      expect(await deliverNotification("Flyd", line)).toBe("repeat");
+      // Another finished run's report, already told once by its own key, is news of its own even when its line reads the same.
+      expect(await deliverNotification("Flyd", "A piece of your work is finished. https://github.com/o/r/pull/12", "deliverable", undefined, { once: true })).toBe("shown");
+      expect(await deliverNotification("Flyd", "A piece of your work is finished. https://github.com/o/r/pull/13", "deliverable", undefined, { once: true })).toBe("shown");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+      Object.defineProperty(process, "platform", { value: previousPlatform, configurable: true });
+      process.env.HOME = previousHome;
+      rmSync(home, { recursive: true, force: true });
+      rmSync(rung, { recursive: true, force: true });
+    }
+  });
+
   it("rings the same line once a day, counts aside", () => {
     const dir = mkdtempSync(join(tmpdir(), "flyd-rang-"));
     try {

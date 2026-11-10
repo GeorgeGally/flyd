@@ -726,8 +726,8 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
       // When the work finished: its own report time, else when Flyd verified it had landed (never invented).
       ...(!row.at && decision.createdAt ? { at: decision.createdAt } : {}),
       executiveDecisionId: decision.decisionId,
-      label: decision.summary,
-      detail: undefined,
+      // Finished work keeps its own row: the notification line is only what he is told.
+      ...(decision.delivery ? {} : { label: decision.summary, detail: undefined }),
       status: "verified",
       ...(decision.notify ? { notable: true } : {}),
     }];
