@@ -5081,7 +5081,10 @@ describe("the Machines tab", () => {
   });
 
   it("shows the models, Claude's spend and the usage left under the machines, a used-up plan in words", async () => {
-    const soon = new Date(Date.now() + 26 * 60 * 60_000).toISOString();
+    const noonTomorrow = new Date();
+    noonTomorrow.setDate(noonTomorrow.getDate() + 1);
+    noonTomorrow.setHours(12, 0, 0, 0);
+    const soon = noonTomorrow.toISOString();
     serve(() => ({ machines: [ONLINE], setup: {
       models: [{ role: "Chat", model: "claude-sonnet-5-5" }, { role: "Coding crews", model: "gpt-6-luna" }],
       spend: { usd: 1.789, cap: 100, calls: 1036, capped: false },
