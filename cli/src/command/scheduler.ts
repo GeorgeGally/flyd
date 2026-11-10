@@ -9,6 +9,7 @@ import { noticeKind } from "./notice.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { listDomainRuns, mutateDomainRun, updateDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
+import { cosEnabled, readObjective } from "./cos/objectives.js";
 import { deliver, reportFromRun } from "../runtime/delivery.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
@@ -148,7 +149,7 @@ export async function notifyRun(
 ): Promise<void> {
   if (!run.result || run.notified || !["completed", "failed", "needs_decision"].includes(run.status)) return;
   // Work done for a Chief of Staff objective is the objective's to report (command/cos/tick.ts), never told on its own.
-  if (run.request.objectiveId) return;
+  if (run.request.objectiveId && cosEnabled() && readObjective(run.request.objectiveId)?.runs.includes(run.id)) return;
   // His own message from the conversation window: with the window open on that conversation the reply shows under it
   // there, so a notice would say it twice; otherwise he hears it like any other result.
   // Flyd's own note to the staff, and its own fixes, are backstage: their replies settle them and are never his to hear.

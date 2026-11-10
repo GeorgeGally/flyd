@@ -48,7 +48,7 @@ export function parseIntake(raw: string, objective: Pick<Objective, "project">, 
     return { refused: "intake did not return a brief" };
   }
   const team = String(parsed.team ?? "") as DomainId;
-  if (!(team in TEAMS)) return { refused: `intake named no team it can hand this to (${String(parsed.team ?? "none")})` };
+  if (!Object.hasOwn(TEAMS, team)) return { refused: `intake named no team it can hand this to (${String(parsed.team ?? "none")})` };
   const outcome = String(parsed.outcome ?? "").replace(/\s+/g, " ").trim();
   const doneWhen = strings(parsed.done_when);
   if (!outcome || !doneWhen.length) return { refused: "intake wrote no outcome or done_when" };

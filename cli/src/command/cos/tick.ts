@@ -1,7 +1,8 @@
 import { validateEnvelope } from "../../intelligence/context-envelope.js";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
-import { reportFromRun } from "../../runtime/delivery.js";
+import { reportFromRun, unfitForHim } from "../../runtime/delivery.js";
+import { plainLine } from "../../lib/reaches-george.js";
 import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
 import type { DomainRun } from "../types.js";
@@ -73,7 +74,9 @@ function shortWords(words: string): string {
 
 /** One report, recorded on the objective and told; nothing when it was told already. */
 async function report(objective: Objective, made: CosReport, deps: CosTickDeps, store: IntelligenceEventStore, tell: () => Promise<unknown>, status: Objective["status"]): Promise<void> {
-  if (recordCosReport(made, store, deps.now?.())) await tell();
+  if (objective.reportIds.includes(made.id)) return;
+  await tell();
+  recordCosReport(made, store, deps.now?.());
   mutateObjective(objective.id, (current) => current && {
     ...current, status, reportIds: current.reportIds.includes(made.id) ? current.reportIds : [...current.reportIds, made.id],
   });
@@ -120,8 +123,11 @@ async function follow(objective: Objective, deps: CosTickDeps, store: Intelligen
       const job = listJobs().find((record) => record.id === ref.slice(4));
       if (!job || ["queued", "running", "verifying"].includes(job.status)) continue;
       const ok = job.status === "ok";
+      const work = shortWords(objective.brief?.outcome ?? objective.words);
+      const why = plainLine((job.result ?? "").split("\n").find((line) => line.trim()) ?? "");
+      const short = why && !unfitForHim(why).length ? `${work} didn't finish: ${why}` : `${work} didn't finish.`;
       const made = {
-        ...plainReport(objective, ok ? "done" : "blocked", ok ? `${shortWords(objective.brief?.outcome ?? objective.words)} is done.` : `${shortWords(objective.brief?.outcome ?? objective.words)} didn't finish; I'm looking at why.`, `job:${job.status}`),
+        ...plainReport(objective, ok ? "done" : "blocked", ok ? `${work} is done.` : short, `job:${job.status}`),
         detail: job.result ?? job.lastError ?? "", evidenceRefs: [`job:${job.id}`],
       };
       await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), ok ? "done" : "failed");
@@ -137,7 +143,12 @@ async function follow(objective: Objective, deps: CosTickDeps, store: Intelligen
       continue;
     }
     const id = `${objective.id}:${run.id}:${run.status}:${run.updatedAt}`;
-    if (objective.reportIds.includes(id) || run.notified) continue;
+    if (objective.reportIds.includes(id)) continue;
+    // Told already (before a restart could record it): the objective just takes the run's settled status.
+    if (run.notified) {
+      if (objective.status !== status) mutateObjective(objective.id, (current) => current && { ...current, status });
+      continue;
+    }
     const decision = await (deps.decide ?? defaultDecide)(run);
     // Sent back to its boss: it stays working, and the boss's next reply is reviewed afresh.
     if (decision.action && decision.verification.status === "verified") continue;

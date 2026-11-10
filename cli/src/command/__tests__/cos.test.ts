@@ -14,6 +14,7 @@ import { cosReports, cosTick } from "../cos/tick.js";
 import type { CosReport } from "../cos/types.js";
 import { createDomainRun, readDomainRun, updateDomainRun } from "../store.js";
 import { firstmateRequestBody } from "../firstmate.js";
+import { notifyRun } from "../scheduler.js";
 import type { DomainRun } from "../types.js";
 
 let home: string;
@@ -46,6 +47,7 @@ describe("Chief of Staff intake", () => {
     });
     expect(parseIntake(JSON.stringify({ team: "coding", outcome: "Fix it", done_when: ["fixed"] }), {}, () => false)).toEqual({ refused: "code work needs a project folder that exists" });
     expect(parseIntake("not json", {})).toEqual({ refused: "intake did not return a brief" });
+    expect(parseIntake(JSON.stringify({ team: "constructor", outcome: "x", done_when: ["y"] }), {})).toEqual({ refused: "intake named no team it can hand this to (constructor)" });
     // The decisions reach the team in its brief.
     const body = firstmateRequestBody({ id: "r", domain: "coding", originalMessage: "fix it", intendedOutcome: "Fix it", doneWhen: ["fixed"], createdAt: "", decisions: { comesBack: ["going live"], settledByPolicy: ["naming"] } });
     expect(body).toContain("Bring these calls back to George through Flyd: going live");
@@ -107,6 +109,34 @@ describe("Chief of Staff tick", () => {
     expect([h.dispatched.length, h.said.map((report) => report.kind), readObjective(objective.id)?.status]).toEqual([0, ["blocked"], "needs_george"]);
     expect(h.said[0]?.outcome).toBe("I couldn't get “do the thing” started; tell me a bit more and I'll set it going.");
     h.store.close();
+  });
+});
+
+describe("Chief of Staff reports", () => {
+  it("tells a report again when the tell failed, and records it only once told", async () => {
+    const store = new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") });
+    const objective = openObjective({ words: "do the thing", flydNotes: "", origin: { surface: "chat" } });
+    let calls = 0;
+    const deps = { store, dispatch: (async () => ({ refused: "no" })) as Dispatch, complete: async () => "{}", say: async () => { calls += 1; if (calls === 1) throw new Error("store busy"); } };
+    await cosTick(deps);
+    expect([cosReports(objective.id, store).length, readObjective(objective.id)?.reportIds.length]).toEqual([0, 0]);
+    await cosTick(deps);
+    await cosTick(deps);
+    expect([calls, cosReports(objective.id, store).length, readObjective(objective.id)?.status]).toEqual([2, 1, "needs_george"]);
+    store.close();
+  });
+
+  it("leaves a run its objective is not following to the ordinary notice", async () => {
+    const at = new Date().toISOString();
+    const run: DomainRun = {
+      id: "obj-lost-r1", owner: "Librarian", status: "completed", createdAt: at, updatedAt: at, transport: { kind: "native", requestId: "obj-lost-r1" },
+      request: { id: "obj-lost-r1", domain: "knowledge", originalMessage: "x", intendedOutcome: "x", doneWhen: ["y"], createdAt: at, objectiveId: "obj-lost" },
+      result: { format: "structured", brief: "Done.", detailedReport: "", decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low" },
+    };
+    process.env.FLYD_COS = "1";
+    let decided = 0;
+    await notifyRun(run, undefined, undefined, async () => { decided += 1; throw new Error("stop"); }, () => false);
+    expect(decided).toBe(1);
   });
 });
 

@@ -33,7 +33,7 @@ export const dispatchBrief: Dispatch = async (objective, brief) => {
         const { dispatchCodingDomain } = await import("../coding.js");
         const dispatched = await dispatchCodingDomain({ ...common, source: "chat", ...(brief.project ? { project: brief.project } : {}), transport: firstmate });
         if (dispatched.status === "refused") return { refused: dispatched.reason };
-        return dispatched.run.failure ? { refused: dispatched.run.failure } : { ref: dispatched.run.id };
+        return { ref: dispatched.run.id };
       }
       // FirstMate not installed: the compatibility crew, which tells George itself when the work is ready.
       const { dispatchCrewTask } = await import("../../crew/crew.js");
@@ -53,7 +53,7 @@ export const dispatchBrief: Dispatch = async (objective, brief) => {
       const jobs = await import("../../runtime/background-jobs.js");
       const { decisionsLines } = await import("../types.js");
       const task = [brief.outcome, ...decisionsLines(brief.decisions)].join("\n");
-      return { ref: `job:${jobs.startBackgroundJob({ task, doneWhen: brief.doneWhen }, { run: jobs.runJobTurn, verify: jobs.verifyJobTurn })}` };
+      return { ref: `job:${jobs.startBackgroundJob({ task, doneWhen: brief.doneWhen, objectiveId: objective.id }, { run: jobs.runJobTurn, verify: jobs.verifyJobTurn })}` };
     }
   }
 };
