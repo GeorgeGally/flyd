@@ -6,7 +6,10 @@ import { chatToolSet, flydMayRun } from "../../runtime/conversation-responder.js
 import { handOffLiveTask } from "../../runtime/live-task-intake.js";
 import { planTurn } from "../../runtime/turn-plan.js";
 import { listObjectives, mutateObjective, openObjective, readObjective } from "../cos/objectives.js";
+import type { Dispatch } from "../cos/dispatch.js";
 import { tellWork, workStatus } from "../cos/steer.js";
+import { cosTick } from "../cos/tick.js";
+import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import type { sendRunMessage } from "../messages.js";
 import { createDomainRun } from "../store.js";
 import type { DomainId, DomainRun } from "../types.js";
@@ -64,6 +67,27 @@ describe("tell_work", () => {
     expect(await tellWork({ message: "never mind", kind: "cancel", objectiveId: pricing }, send)).toEqual({ delivered: true, objectiveId: pricing });
     expect(readObjective(pricing)?.status).toBe("cancelled");
     expect(sent).toHaveLength(2);
+  });
+
+  it("never reports a cancel for work it cannot stop, and stops a run dispatched while he cancelled", async () => {
+    const { sent, send } = recorder();
+    const job = openObjective({ words: "Draft the newsletter", flydNotes: "", origin: { surface: "chat" } }).id;
+    mutateObjective(job, (current) => current && { ...current, status: "working", runs: ["job:j1"] });
+    expect(await tellWork({ message: "cancel that", kind: "cancel", objectiveId: job }, send)).toEqual({ delivered: false, objectiveId: job, reason: "not_steerable" });
+    expect(readObjective(job)?.status).toBe("working");
+
+    const footer = openObjective({ words: "Fix the cap5 footer", flydNotes: "", origin: { surface: "chat" } }).id;
+    mutateObjective(footer, (current) => current && { ...current, brief: { team: "coding", outcome: "Fix the footer", doneWhen: ["done"], decisions: { comesBack: [], settledByPolicy: [] } } });
+    mutateObjective(job, (current) => current && { ...current, status: "done" });
+    const dispatch: Dispatch = async (objective) => {
+      await tellWork({ message: "never mind", kind: "cancel", objectiveId: objective.id }, send);
+      const at = new Date().toISOString();
+      const id = `${objective.id}-r1`;
+      createDomainRun({ id, owner: "FirstMate", status: "queued", createdAt: at, updatedAt: at, transport: { kind: "firstmate", requestId: id }, request: { id, domain: "coding", originalMessage: objective.words, intendedOutcome: objective.words, doneWhen: ["done"], createdAt: at, objectiveId: objective.id } });
+      return { ref: id };
+    };
+    await cosTick({ dispatch, send, store: new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") }) });
+    expect([readObjective(footer)?.status, readObjective(footer)?.runs, sent.map((m) => [m.run, m.kind])]).toEqual(["cancelled", [`${footer}-r1`], [[`${footer}-r1`, "cancel"]]]);
   });
 });
 

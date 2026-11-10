@@ -33,6 +33,8 @@ export interface CosTickDeps {
   tell?: (run: DomainRun, decision: ExecutiveDecisionRecord, key: string) => Promise<unknown>;
   /** Tells George a report with no run behind it: a refused intake, a background job's result. */
   say?: (report: CosReport) => Promise<unknown>;
+  /** Passes a message on to a run (messages.ts `sendRunMessage`). */
+  send?: typeof sendRunMessage;
   store?: IntelligenceEventStore;
   now?: () => Date;
 }
@@ -107,11 +109,13 @@ async function intake(objective: Objective, deps: CosTickDeps, store: Intelligen
   if (readObjective(claimed.id)?.status !== "intake") return;
   const dispatched = await (deps.dispatch ?? dispatchBrief)(claimed, brief).catch((error: unknown) => ({ refused: error instanceof Error ? error.message : String(error) }));
   if ("refused" in dispatched) return blocked(claimed, dispatched.refused, deps, store);
-  mutateObjective(claimed.id, (current) => {
+  const recorded = mutateObjective(claimed.id, (current) => {
     if (!current) return null;
     const { claim: _claim, ...rest } = current;
     return { ...rest, status: rest.status === "intake" ? "working" : rest.status, runs: rest.runs.includes(dispatched.ref) ? rest.runs : [...rest.runs, dispatched.ref] };
   });
+  const run = recorded?.status === "cancelled" && !dispatched.ref.includes(":") ? readDomainRun(dispatched.ref) : null;
+  if (run) await (deps.send ?? sendRunMessage)({ run, kind: "cancel", body: "George cancelled this." }).catch(() => undefined);
 }
 
 const SETTLED_STATUS: Record<string, Objective["status"]> = { completed: "done", failed: "failed", needs_decision: "needs_george" };

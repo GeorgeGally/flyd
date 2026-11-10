@@ -58,9 +58,10 @@ export async function tellWork(
   const objective = candidates[0]!;
   const run = steerableRun(objective);
   if (!run) {
-    if (kind === "cancel") {
-      mutateObjective(objective.id, (current) => current && OPEN.has(current.status) ? { ...current, status: "cancelled" } : null);
-      return { delivered: true, objectiveId: objective.id };
+    if (kind === "cancel" && objective.runs.length === 0) {
+      const closed = mutateObjective(objective.id, (current) => current && OPEN.has(current.status) && current.runs.length === 0 ? { ...current, status: "cancelled" } : null);
+      if (closed?.status === "cancelled") return { delivered: true, objectiveId: objective.id };
+      return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };
     }
     // Still being briefed: intake reads it with his words. Otherwise there is nothing left that can take it.
     if (objective.status !== "intake") return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };
