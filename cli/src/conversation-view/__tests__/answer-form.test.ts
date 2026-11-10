@@ -206,6 +206,7 @@ describe("the obvious next step of his own ask", () => {
       "The report is in. Want me to open a follow-up task?",
       "The crash is a missing null check; the fix is one line. Should I fix it?",
       "I haven't looked at the logs. Want me to look at them?",
+      "The nightly job will run the tests at 2am. Want me to run the tests?",
     ]) expect(withoutObviousAsk(text)).toBe(text);
   });
 });

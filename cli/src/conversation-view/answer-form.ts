@@ -47,7 +47,8 @@ export function doingNotAsking(question: string, answer: string): string {
   const step = LEAVE_TO.exec(question.trim())?.[1];
   const verb = step ? /^[a-z]+/i.exec(step)?.[0] : undefined;
   if (!step || !verb || /\bor\b/i.test(step) || NEVER.test(step) || OUTWARD.test(step) || HIS_TASTE.test(step) || speaksForHim(step)) return question;
-  return new RegExp(`\\b(?:I['’]ll|I will|(?:I['’]m|I am) going to|will)\\s+(?:also\\s+|then\\s+)?${verb}\\b`, "i").test(answer) ? `I'll ${step}.` : question;
+  const then = `\\s+(?:also\\s+|then\\s+)?${verb}\\b`;
+  return new RegExp(`\\b(?:(?:I|we)['’]ll|(?:I|we) will|(?:I['’]m|we['’]re|I am|we are) going to)${then}|\\b(?:I|we)\\b[^.!?;\\n]*?\\band will${then}`, "i").test(answer) ? `I'll ${step}.` : question;
 }
 
 /** An answer whose closing question only asks leave for the obvious next step, ending on that step instead. Pure. */
