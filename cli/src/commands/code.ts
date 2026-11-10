@@ -175,6 +175,7 @@ export async function runAgent(): Promise<void> {
       loadSituation: () => loadAgentSituation({ pool }),
       loadCrossRepo: (foregroundPath) => refreshRepoRegistry(foregroundPath),
       loadBriefing: async (options) => (await import("../runtime/session-briefing.js")).composeMorning(options),
+      markShown: async (printed) => (await import("../runtime/session-briefing.js")).markPlayShown(printed),
       composeGreeting: async ({ briefing, hypothesis }) => {
         // Prepared before he was up: say it at once instead of waiting on a model.
         const prepared = (await import("../council/morning.js")).readMorning();

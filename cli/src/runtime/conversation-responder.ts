@@ -28,6 +28,7 @@ import { ASSISTANT_TOOL_NAMES, assistantTools, runAssistantTool, type AssistantT
 import { fetchPublicUrl } from "./url-guard.js";
 import { withSecurityAudit } from "./code-audit.js";
 import { agendaPromptBlock } from "./session-briefing.js";
+import { stateOfPlayBlock } from "../lib/state-of-play.js";
 import { coordinatePreparation, type InitiativeDependencies } from "./conversational-initiative.js";
 import { PreparationStore } from "./preparation-store.js";
 import type { ConversationTurnSource } from "./conversation-turn.js";
@@ -275,6 +276,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   let projects = "";
   try { projects = projectsPromptBlock(); } catch { projects = ""; }
   try { agenda += morningPromptBlock(input.now?.() ?? new Date()); } catch { /* no morning note */ }
+  try { agenda += stateOfPlayBlock(); } catch { /* no state of play */ }
 
   const soul = readSoul();
   // What this turn shows the model as fact, without earlier turns: a name or

@@ -410,7 +410,8 @@ export async function runAssistantTool(
             const snapshot = await new staff.StaffMonitor().read();
             return { snapshot, concerns: staff.assessStaff(snapshot, undefined, Date.now()) };
           })();
-          return `${staff.describeStaff(view)}\nTell George in plain words; never name the staff's tools, ids, branches or the people behind Flyd.`;
+          const { stateOfPlayBlock } = await import("../lib/state-of-play.js");
+          return `${staff.describeStaff(view)}${stateOfPlayBlock()}\nTell George in plain words; never name the staff's tools, ids, branches or the people behind Flyd.`;
         }
         const { listDomainRuns, readDomainRun } = await import("../command/store.js");
         const [{ syncFirstmateDomainRuns }, { syncLibrarianDomainRuns }] = await Promise.all([
