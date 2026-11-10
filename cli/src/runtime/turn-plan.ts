@@ -95,12 +95,12 @@ export const TEAMS = {
  */
 export function planTurn(reading: Pick<RouteReading, "route" | "source" | "domain"> | null, cover: string[] = [], options: { unattended?: boolean } = {}): TurnPlan | null {
   const plan = basePlan(reading, cover, options);
-  if (!plan || process.env.FLYD_COS !== "1" || plan.route === "delegate") return plan;
-  // With the Chief of Staff on, the answer and act routes hand work over with hand_off, never manage it themselves.
+  if (!plan || process.env.FLYD_COS !== "1") return plan;
+  // With the Chief of Staff on, every route hands work over with hand_off, never managing it itself.
   return {
     ...plan,
-    // tell_work passes his word on to work under way; it changes nothing of his, so an answer turn may use it.
-    handoffs: plan.handoffs.size ? new Set(["hand_off", "tell_work"]) : plan.handoffs,
+    // tell_work passes his word on to work under way; it changes nothing of his, so every route may use it.
+    handoffs: new Set([...(plan.handoffs.size ? ["hand_off"] : []), "tell_work"]),
     instruction: plan.instruction
       .replace("pass it on in this turn with pass_on_question", "hand it off in this turn with hand_off")
       .replace("goes to start_coding_task or background_task instead", "goes to hand_off instead"),
@@ -129,7 +129,7 @@ function basePlan(reading: Pick<RouteReading, "route" | "source" | "domain"> | n
       if (process.env.FLYD_COS === "1") {
         return {
           route, source, cover, allows: new Set(), handoffs: new Set(["hand_off"]), budget: { iterations: 3, toolCalls: 2 }, hidden: null,
-          instruction: "This is work to hand off now, not to do or research inline. Hand it to his Chief of Staff with hand_off in your first step: his exact words, and what you know that the brief needs (project, people, taste, urgency). Then tell him in a line what will happen and what he will get back.",
+          instruction: "This is work to hand off now, not to do or research inline. Hand it to his Chief of Staff with hand_off in your first step: his exact words, and what you know that the brief needs (project, people, taste, urgency). Then tell him in a line what will happen and what he will get back. A message about work already under way goes to tell_work instead.",
         };
       }
       // Reading the code is the crewmate's job, not the dispatcher's: given

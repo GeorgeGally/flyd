@@ -58,6 +58,10 @@ export async function tellWork(
   const objective = candidates[0]!;
   const run = steerableRun(objective);
   if (!run) {
+    if (kind === "cancel") {
+      mutateObjective(objective.id, (current) => current && OPEN.has(current.status) ? { ...current, status: "cancelled" } : null);
+      return { delivered: true, objectiveId: objective.id };
+    }
     // Still being briefed: intake reads it with his words. Otherwise there is nothing left that can take it.
     if (objective.status !== "intake") return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };
     mutateObjective(objective.id, (current) => current && { ...current, flydNotes: [current.flydNotes, `Later from George (${kind}): ${message}`].filter(Boolean).join("\n") });

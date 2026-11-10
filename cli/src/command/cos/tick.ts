@@ -8,7 +8,7 @@ import { readDomainRun } from "../store.js";
 import type { DomainRun } from "../types.js";
 import { dispatchBrief, type Dispatch } from "./dispatch.js";
 import { intakeObjective, type Complete } from "./intake.js";
-import { cosEnabled, listObjectives, mutateObjective } from "./objectives.js";
+import { cosEnabled, listObjectives, mutateObjective, readObjective } from "./objectives.js";
 import type { CosReport, CosReportKind, Objective } from "./types.js";
 
 // The Chief of Staff's tick (split plan Phase 3, behind FLYD_COS=1). Called from the command tick, and kicked at
@@ -104,12 +104,13 @@ async function intake(objective: Objective, deps: CosTickDeps, store: Intelligen
     // Kept before dispatch: a restart from here dispatches this same brief, by the same request id.
     mutateObjective(claimed.id, (current) => current && { ...current, brief: read });
   }
+  if (readObjective(claimed.id)?.status !== "intake") return;
   const dispatched = await (deps.dispatch ?? dispatchBrief)(claimed, brief).catch((error: unknown) => ({ refused: error instanceof Error ? error.message : String(error) }));
   if ("refused" in dispatched) return blocked(claimed, dispatched.refused, deps, store);
   mutateObjective(claimed.id, (current) => {
     if (!current) return null;
     const { claim: _claim, ...rest } = current;
-    return { ...rest, status: "working", runs: rest.runs.includes(dispatched.ref) ? rest.runs : [...rest.runs, dispatched.ref] };
+    return { ...rest, status: rest.status === "intake" ? "working" : rest.status, runs: rest.runs.includes(dispatched.ref) ? rest.runs : [...rest.runs, dispatched.ref] };
   });
 }
 

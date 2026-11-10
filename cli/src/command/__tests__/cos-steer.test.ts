@@ -59,6 +59,11 @@ describe("tell_work", () => {
       { run: `${footer}-r1`, kind: "correction", body: "make it blue, not grey" },
       { run: `${research}-r1`, kind: "cancel", body: "stop that" },
     ]);
+    // A cancel while the work is still being briefed closes it before anything is dispatched.
+    const pricing = openObjective({ words: "Redo the pricing page", flydNotes: "", origin: { surface: "chat" } }).id;
+    expect(await tellWork({ message: "never mind", kind: "cancel", objectiveId: pricing }, send)).toEqual({ delivered: true, objectiveId: pricing });
+    expect(readObjective(pricing)?.status).toBe("cancelled");
+    expect(sent).toHaveLength(2);
   });
 });
 
@@ -84,6 +89,8 @@ describe("Flyd with the Chief of Staff on", () => {
     expect([flydMayRun("git status", true), flydMayRun("rm -rf dist", true), flydMayRun("echo hi > notes.txt", true), flydMayRun("rm -rf dist", false)]).toEqual([true, false, false, true]);
     const answer = planTurn({ route: "answer", source: "jev", domain: null })!;
     expect([[...answer.handoffs], answer.instruction.includes("hand it off in this turn with hand_off")]).toEqual([["hand_off", "tell_work"], true]);
+    expect([...planTurn({ route: "delegate", source: "jev", domain: "coding" })!.handoffs]).toEqual(["hand_off", "tell_work"]);
+    expect([...planTurn({ route: "clarify", source: "jev", domain: null })!.handoffs]).toEqual(["tell_work"]);
   });
 
   it("hands a LIVE task off as an objective, not a separate task", async () => {
