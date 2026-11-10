@@ -411,7 +411,7 @@ cd cli
 npx vitest run src/runtime/__tests__/read-the-room.test.ts src/runtime/__tests__/turn-plan.test.ts src/runtime/__tests__/conversation-responder.test.ts
 npx vitest run src/runtime/__tests__/background-jobs.test.ts src/runtime/__tests__/acceptance.test.ts src/command/__tests__/messages.test.ts src/command/__tests__/firstmate.test.ts
 npx vitest run src/__tests__/realtime-session.test.ts src/conversation-view/__tests__/flyd-desk.test.ts src/conversation-view/__tests__/routines.test.ts src/conversation-view/__tests__/routines-api.test.ts
-npx vitest run src/council/__tests__/chief-of-staff.test.ts src/intelligence/__tests__/context-envelope.test.ts src/intelligence/__tests__/event-store.test.ts
+npx vitest run src/council/__tests__/standard.test.ts src/intelligence/__tests__/context-envelope.test.ts src/intelligence/__tests__/event-store.test.ts
 npm run test:routing-learning
 npm run lint
 npm run build
