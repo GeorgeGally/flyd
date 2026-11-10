@@ -317,13 +317,13 @@ describe("notifyRun", () => {
     const base = run(JSON.stringify({ status: "completed", brief: "Merged." }));
     const desk = (id: string, session: string, brief: string): DomainRun => ({
       ...base, id, request: { ...base.request, id, source: "view", session }, transport: { kind: "firstmate", requestId: id },
-      result: { ...base.result!, brief },
+      result: { ...base.result!, brief }, underWay: true,
     });
     // Two desk runs from the window: their reply shows the PR link in conversation A (open) and B (closed).
     const onA = desk("desk-a", "session-a", `Opened ${pr(1)} for the hero height.`);
     const onB = desk("desk-b", "session-b", `Opened ${pr(2)} for the footer.`);
     const openOnA = (session: string) => session === "session-a";
-    // Core answers FirstMate's finished runs but never rings for them: the fleet row is the one announcer.
+    // Core answers FirstMate's finished runs it said were under way but never rings for them: the fleet row is the one announcer.
     for (const item of [onA, onB]) await notifyRun(item, async (_t, message) => { sent.push(message); }, undefined, async () => finished(item.id, pr(1)), openOnA);
     expect(sent).toEqual([]);
     // The fleet rows carry FirstMate's own task ids, unrelated to the run ids.
@@ -331,6 +331,29 @@ describe("notifyRun", () => {
     await tellFinishedWork(tasks, [onA, onB], (task) => task, { windowIsOpen: openOnA, say });
     await tellFinishedWork(tasks, [onA, onB], (task) => task, { windowIsOpen: () => false, say });
     expect(sent).toEqual([line("gnm-footer", pr(2)), line("logan-drag")]);
+  });
+
+  it("announces a FirstMate reply that was itself the outcome, and stays quiet on one a fleet task carries", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const line = (id: string) => `Done: ${id}. https://github.com/GeorgeGally/flyd/commit/abc1234`;
+    const finished = (taskId: string): ExecutiveDecisionRecord => ({
+      schema: "flyd.executive-decision.v1", decisionId: `decision-${taskId}`, sourceId: "firstmate.change", sourceEventId: `event-${taskId}`,
+      taskId, disposition: "handle_internally", reason: "finished work", summary: line(taskId),
+      delivery: { line: line(taskId), checked: true }, evidenceRefs: [], verification: { status: "verified", evidenceRefs: [] },
+      show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
+    });
+    const base = run(JSON.stringify({ status: "completed", brief: "Already fixed in abc1234." }));
+    const chat = (id: string, underWay?: boolean): DomainRun => ({
+      ...base, id, request: { ...base.request, id, source: "chat" }, transport: { kind: "firstmate", requestId: id }, ...(underWay ? { underWay } : {}),
+    });
+    // Answered straight from the inbox, no task spawned: no fleet row will ever tell it, so Core does, once.
+    await notifyRun(chat("domain-direct"), notify, undefined, async () => finished("domain-direct"));
+    await notifyRun(chat("domain-direct"), notify, undefined, async () => finished("domain-direct"));
+    // Said to be under way first: its fleet row announces the finish, Core only answers it.
+    await notifyRun(chat("domain-spawned", true), notify, undefined, async () => finished("domain-spawned"));
+    expect(sent).toEqual([line("domain-direct")]);
+    expect([readDomainRun("domain-direct")?.notified, readDomainRun("domain-spawned")?.notified]).toEqual([true, true]);
   });
 
   it("reaches George once with a decision, and says nothing for a quiet run", async () => {

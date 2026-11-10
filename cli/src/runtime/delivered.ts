@@ -6,8 +6,8 @@ import type { GeorgeKind } from "../lib/reaches-george.js";
 //
 // The seed of the split plan's Phase 1 delivery log. A report is claimed before
 // it is said and marked with what became of it after, inside the event store's
-// own write lock, so Core and the conversation window never both say it and a
-// restart never says it twice. A report that could not be delivered (no Mac
+// own write lock, so no two processes both say it and a restart never says it
+// twice. A report that could not be delivered (no Mac
 // adapter listening) is said again on later sweeps, each wait twice the last,
 // up to MAX_TRIES tries; one left without any outcome (the process died
 // mid-send) is said once more. Whatever is not told stays on its Jobs row.
@@ -31,8 +31,6 @@ export interface DeliveryReport {
   /** Names the work, for the notification gate. */
   work?: string;
   evidenceRefs?: string[];
-  /** Other names the same news goes by (its link): told under any of them, it is not told again. */
-  aliases?: string[];
 }
 
 export type DeliveryOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered" | "seeded";
@@ -46,8 +44,6 @@ export interface DeliveredRecord {
   outcome?: DeliveryOutcome;
   kind?: GeorgeKind;
   work?: string;
-  /** Set on a claim held under another name (its link) for the report keyed here. */
-  aliasOf?: string;
 }
 
 function envelope(record: DeliveredRecord, idempotencyKey: string, evidenceRefs: string[] = []): ContextEnvelope {
@@ -84,9 +80,9 @@ function atOf(event: ReturnType<IntelligenceEventStore["findByIdempotencyKey"]>)
 
 /**
  * The latest try at a report (the claim is try 0), or nothing when it was never claimed. At most MAX_TRIES
- * lookups. `alias` when the key was claimed as another report's other name: that report tells it.
+ * lookups.
  */
-function lastTry(store: IntelligenceEventStore, key: string): { n: number; at: number; alias: boolean } | undefined {
+function lastTry(store: IntelligenceEventStore, key: string): { n: number; at: number } | undefined {
   const claim = store.findByIdempotencyKey(DELIVERED_SOURCE, `claim:${key}`);
   if (!claim) return undefined;
   let event = claim;
@@ -97,15 +93,15 @@ function lastTry(store: IntelligenceEventStore, key: string): { n: number; at: n
     event = next;
     n += 1;
   }
-  return { n, at: atOf(event), alias: Boolean((claim.payload?.delivered as DeliveredRecord | undefined)?.aliasOf) };
+  return { n, at: atOf(event) };
 }
 
 /**
  * Whether a claimed report with no outcome may still be tried: under the cap, and either its last try was
  * undelivered or none was yet cut off mid-send (that is said once more only).
  */
-function retryable(store: IntelligenceEventStore, key: string, last: { n: number; alias: boolean }): boolean {
-  return !last.alias && last.n < MAX_TRIES && (found(store, `undelivered:${key}:${last.n}`) || !found(store, `reclaim:${key}`));
+function retryable(store: IntelligenceEventStore, key: string, last: { n: number }): boolean {
+  return last.n < MAX_TRIES && (found(store, `undelivered:${key}:${last.n}`) || !found(store, `reclaim:${key}`));
 }
 
 /** When the next try may go: the wait doubles with each try. */
@@ -124,11 +120,8 @@ export function claimDelivery(store: IntelligenceEventStore, report: DeliveryRep
       ...(report.kind ? { kind: report.kind } : {}), ...(report.work ? { work: report.work } : {}),
     };
     const last = lastTry(store, report.key);
-    const aliases = [...new Set(report.aliases ?? [])].filter((alias) => alias !== report.key);
     if (!last) {
-      if (aliases.some((alias) => found(store, `claim:${alias}`))) return undefined;
       append(store, envelope(record, `claim:${report.key}`, report.evidenceRefs));
-      for (const alias of aliases) append(store, envelope({ ...record, key: alias, aliasOf: report.key }, `claim:${alias}`, report.evidenceRefs));
       return 0;
     }
     if (found(store, `outcome:${report.key}`)) return undefined;
@@ -162,7 +155,7 @@ async function defaultSay(title: string, message: string, kind?: GeorgeKind, wor
   return deliverNotification(title, message, kind, work);
 }
 
-/** Claimed under its own name with no outcome yet, and still to be tried again: it is still to be told. */
+/** Claimed with no outcome yet, and still to be tried again: it is still to be told. */
 function owed(store: IntelligenceEventStore, key: string): boolean {
   const last = lastTry(store, key);
   return Boolean(last) && !found(store, `outcome:${key}`) && retryable(store, key, last!);
@@ -209,7 +202,7 @@ export async function deliverOwed(options: { store?: IntelligenceEventStore; say
     const open = new Map<string, DeliveryReport>();
     for (const event of store.readSourcePage(DELIVERED_SOURCE, { after: new Date(Date.now() - OWED_WINDOW_MS).toISOString(), limit: 5_000 })) {
       const record = event.payload?.delivered as DeliveredRecord | undefined;
-      if (!record || record.outcome || record.aliasOf || open.has(record.key) || !owed(store, record.key)) continue;
+      if (!record || record.outcome || open.has(record.key) || !owed(store, record.key)) continue;
       open.set(record.key, { key: record.key, line: record.line, ...(record.kind ? { kind: record.kind } : {}), ...(record.work ? { work: record.work } : {}), evidenceRefs: event.evidenceRefs ?? [] });
     }
     return open.size ? await deliverOnce([...open.values()], { ...options, store }) : { told: [], owed: [] };
@@ -259,7 +252,7 @@ export function seedOnce(keys: string[], options: { store?: IntelligenceEventSto
   }
 }
 
-/** The news finished work makes, keyed by the work so either path tells it once. Pure. */
+/** The news FirstMate's finished fleet rows make, each keyed by its own task id. Pure. */
 export function finishedReports(decisions: ReadonlyArray<{
   taskId?: string;
   show: boolean;
@@ -275,12 +268,11 @@ export function finishedReports(decisions: ReadonlyArray<{
     kind: "deliverable" as const,
     work: work(decision.taskId),
     evidenceRefs: decision.evidenceRefs,
-    ...(decision.delivery.url ? { aliases: [`link:${decision.delivery.url}`] } : {}),
     }] : [];
   });
 }
 
-/** One key per piece of finished work, whichever path reports it (a run, or a staff task of the run's own id). */
+/** One key per piece of finished work: a fleet row's task id, or the id of a run Core announces. */
 export function finishedKey(id: string): string {
   return `work:${id}`;
 }

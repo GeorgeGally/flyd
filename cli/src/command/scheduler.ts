@@ -156,8 +156,9 @@ export async function notifyRun(
     // Work sent back to its boss stays open: the boss's next reply is decided afresh.
     if (decision.action && decision.verification.status === "verified") return;
     // Settled once George was told, or quietly when nothing is left for him or Flyd; otherwise Flyd holds it in view.
-    // FirstMate's finished work is announced once, by its fleet row (tellFinishedWork); here it is only answered.
-    if (decision.delivery && run.transport.kind === "firstmate") {
+    // FirstMate work it said was under way is announced once, by its fleet row (tellFinishedWork); here it is only
+    // answered. A reply that was itself the outcome (answered, already fixed) has no row to carry it: Core tells it.
+    if (decision.delivery && run.transport.kind === "firstmate" && run.underWay) {
       saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
       return;
     }
@@ -168,11 +169,9 @@ export async function notifyRun(
     if (notice) {
       const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
       // A run's finished work is one report; anything else is one per decision. A restart never says either twice.
-      const url = decision.delivery?.url;
       owed = (await deliverOnce([{
         key: decision.delivery ? finishedKey(run.id) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`,
         line: notice, kind, work: run.request.intendedOutcome, evidenceRefs: decision.evidenceRefs,
-        ...(url ? { aliases: [`link:${url}`] } : {}),
       }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
     } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     // A report not delivered yet is never marked told; the command tick's sweep says it again (deliverOwed).

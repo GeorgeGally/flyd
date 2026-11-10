@@ -45,13 +45,13 @@ describe("flyd.delivered", () => {
     store.close();
   });
 
-  it("does not tell the same news twice under another name (its link)", async () => {
+  it("tells two pieces of work that share a PR link each under its own key", async () => {
     const store = new IntelligenceEventStore({ path: home() });
     const said: string[] = [];
     const say = async (_t: string, message: string) => { said.push(message); };
-    await deliverOnce([{ ...report("work:run-1"), aliases: ["link:https://x/pull/1"] }], { store, say });
-    await deliverOnce([{ ...report("work:task-1"), aliases: ["link:https://x/pull/1"] }], { store, say });
-    expect(said).toEqual(["Done: work:run-1."]);
+    await deliverOnce([report("work:task-1", "Done: one. https://x/pull/1")], { store, say });
+    await deliverOnce([report("work:task-2", "Done: two. https://x/pull/1")], { store, say });
+    expect(said).toEqual(["Done: one. https://x/pull/1", "Done: two. https://x/pull/1"]);
     store.close();
   });
 
@@ -92,16 +92,6 @@ describe("flyd.delivered", () => {
     store.close();
   });
 
-  it("does not sweep the other name (link) a report was claimed under", async () => {
-    const store = new IntelligenceEventStore({ path: home() });
-    const at = new Date("2026-11-10T10:00:00Z");
-    await deliverOnce([{ ...report("work:e"), aliases: ["link:https://x/pull/5"] }], { store, say: async () => "undelivered", now: () => at });
-    const said: string[] = [];
-    await deliverOwed({ store, say: async (_t, message) => { said.push(message); return "shown"; }, now: () => new Date(at.getTime() + UNFINISHED_CLAIM_MS + 1) });
-    expect(said).toEqual(["Done: work:e."]);
-    store.close();
-  });
-
   it("waits twice as long before each try, and gives up after the cap", async () => {
     const store = new IntelligenceEventStore({ path: home() });
     const at = new Date("2026-11-10T10:00:00Z");
@@ -119,17 +109,6 @@ describe("flyd.delivered", () => {
     // Given up: no longer owed, never tried again.
     expect(await deliverOwed({ store, say, now: () => new Date(at.getTime() + 2 * 24 * 60 * 60_000) })).toEqual({ told: [], owed: [] });
     expect(tries).toBe(7);
-    store.close();
-  });
-
-  it("never tells under a key that was claimed as another report's other name", async () => {
-    const store = new IntelligenceEventStore({ path: home() });
-    const at = new Date("2026-11-10T10:00:00Z");
-    const said: string[] = [];
-    const say = async (_t: string, message: string) => { said.push(message); return "shown" as const; };
-    await deliverOnce([{ ...report("work:desk-1"), aliases: ["work:flyd-task"] }], { store, say, now: () => at });
-    await deliverOnce([report("work:flyd-task", "Done: flyd task.")], { store, say, now: () => new Date(at.getTime() + 24 * 60 * 60_000) });
-    expect(said).toEqual(["Done: work:desk-1."]);
     store.close();
   });
 
@@ -156,7 +135,7 @@ describe("flyd.delivered", () => {
       { taskId: "flyd-b", show: false, notify: false, evidenceRefs: [] },
       { show: true, notify: true, evidenceRefs: [], delivery: { line: "no task" } },
     ], (task) => `named ${task}`)).toEqual([
-      { key: "work:flyd-a", line: "Done: a. https://x/pull/2", kind: "deliverable", work: "named flyd-a", evidenceRefs: ["r"], aliases: ["link:https://x/pull/2"] },
+      { key: "work:flyd-a", line: "Done: a. https://x/pull/2", kind: "deliverable", work: "named flyd-a", evidenceRefs: ["r"] },
     ]);
     // Keyed by the run the task is his work for; a task its owner keeps quiet makes no report.
     const done = (taskId: string) => ({ taskId, show: true, notify: true, evidenceRefs: [], delivery: { line: `Done: ${taskId}.` } });

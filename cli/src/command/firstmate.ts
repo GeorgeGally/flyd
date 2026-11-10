@@ -864,6 +864,7 @@ export async function syncFirstmateDomainRuns(options: {
         ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
         ...(strict.fragment ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
         ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
+        ...(outcome === "working" ? { underWay: true } : {}),
       };
       if (outcome === "unclear") {
         statusUnclear = true;

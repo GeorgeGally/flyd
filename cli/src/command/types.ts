@@ -111,5 +111,7 @@ export interface DomainRun {
   incompleteReason?: string;
   /** When Flyd last asked the staff for a clear status; at most one such ask is open until a reply is read. */
   statusAskedAt?: string;
+  /** FirstMate's reply said the work is under way (status working): a fleet task carries it and announces its finish. */
+  underWay?: boolean;
   notified?: boolean;
 }
