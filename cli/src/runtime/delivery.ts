@@ -40,7 +40,7 @@ export interface Report {
   steps?: string[];
   /** For landed work: the change itself. */
   link?: string;
-  /** The outcome is the review step's checked line for finished work: said as written when it fits, its link always with it. */
+  /** The outcome is the review step's checked line for finished work: said whole as written, never cut or told by its name, its link always with it. */
   checked?: true;
   /** For a long report: the whole of it, behind the lead. */
   document?: string;
@@ -183,12 +183,11 @@ export function deliver(report: Report, surface: DeliverySurface): Delivered {
     ...(shape === "steps" && report.steps ? { steps: report.steps } : {}),
     ...(report.link ? { link: report.link } : {}),
   };
-  const asWritten = report.outcome.replace(/\s+/g, " ").trim();
-  const written = report.checked && asWritten.length <= LINE_CHARS && !asWritten.includes("](") ? asWritten : leadLine(report.outcome, surface);
-  const reasons = unfitForHim(written);
-  // Finished work, or his call, whose own words are not fit to show is told by its name; a report that says nothing is held.
+  const written = report.checked ? report.outcome.replace(/\s+/g, " ").trim() : leadLine(report.outcome, surface);
+  const reasons = report.checked ? relayShortfalls(written).map((shortfall) => shortfall.reason) : unfitForHim(written);
+  // Finished work, or his call, whose own words are not fit to show is told by its name; a checked line is said whole or held; a report that says nothing is held.
   const work = report.work?.replace(/[.\s]+$/, "") ?? "";
-  const fallback = !written || !work ? "" : report.kind === "done" ? `Done: ${notificationLine(`${work}.`, LINE_CHARS - "Done: ".length)}` : report.kind === "decision" ? `Your call is needed: ${notificationLine(`${work}.`, LINE_CHARS - "Your call is needed: ".length)}` : "";
+  const fallback = report.checked || !written || !work ? "" : report.kind === "done" ? `Done: ${notificationLine(`${work}.`, LINE_CHARS - "Done: ".length)}` : report.kind === "decision" ? `Your call is needed: ${notificationLine(`${work}.`, LINE_CHARS - "Your call is needed: ".length)}` : "";
   const lead = reasons.length === 0 && written ? written : fallback && unfitForHim(fallback).length === 0 ? fallback : "";
   if (!lead) return { text: null, lead: null, shape, ...extras, held: reasons.length ? reasons : ["It says nothing."] };
   const link = report.link && !lead.includes(report.link) ? report.link : "";
@@ -259,7 +258,7 @@ export function reportFromRun(run: DomainRun, decision?: ExecutiveDecisionRecord
     ...(options ? { options } : {}),
     evidenceRefs: [`domain-run:${run.id}`, ...(decision?.evidenceRefs ?? [])],
     shape,
-    ...(toldLine ? { checked: true as const } : {}),
+    ...(told?.checked && toldLine ? { checked: true as const } : {}),
     artefacts,
     ...(steps.length ? { steps } : {}),
     ...(link ? { link } : {}),

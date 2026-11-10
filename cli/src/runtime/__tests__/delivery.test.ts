@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DomainResult, DomainRun } from "../../command/types.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
+import { finishedLine } from "../../intelligence/executive/finished-check.js";
 import { answerLead, chooseShape, deliver, deliveredPromptBlock, leadLine, reportFromReply, reportFromRun, saidOnce, type Report } from "../delivery.js";
 
 // The oracle is the split plan's Delivery standard: the shape table, the
@@ -185,6 +186,35 @@ describe("finished work's checked line", () => {
     const said = deliver(made, "notification").text!;
     expect(said.endsWith(` ${url}`)).toBe(true);
     expect(said.slice(0, -url.length - 1).length).toBeLessThanOrEqual(120);
+  });
+});
+
+describe("finished work's checked line, whole", () => {
+  const url = "https://github.com/GeorgeGally/gnm/pull/42";
+  const told = (line: string, checked = true) => ({
+    schema: "flyd.executive-decision.v1", decisionId: "d", sourceId: "s", sourceEventId: "e", reason: "", createdAt: "", evidenceRefs: [url],
+    disposition: "handle_internally", show: true, notify: true, summary: line,
+    delivery: { line, checked, url }, verification: { status: "unknown", evidenceRefs: [url] },
+  }) as ExecutiveDecisionRecord;
+  const request = "Make the checkout button on the Good Neighbours market site work on every phone, tablet and older laptop browser";
+
+  for (const [outcome, clause] of [["waiting", "is finished and waiting to go in."], ["closed", "is finished, but its change was closed without going in."]] as const) {
+    it(`says a ${outcome} line over 120 characters whole, never cut and never "Done:"`, () => {
+      const line = finishedLine({ request }, outcome, url);
+      expect(line.length).toBeGreaterThan(120 + url.length);
+      const said = deliver(reportFromRun(run({ result: result({}) }), told(line)), "notification").text!;
+      expect(said).toBe(line);
+      expect(said).toContain(clause);
+      expect(said).not.toContain("Done:");
+      expect(said).not.toContain("…");
+    });
+  }
+
+  it("says a line that shows only a path as written, never \"Done:\"", () => {
+    const line = finishedLine({ title: "Fix src/checkout.ts crash" }, "waiting", url);
+    const said = deliver(reportFromRun(run({ result: result({}) }), told(line)), "notification").text;
+    expect(said).toBe(line);
+    expect(said).not.toContain("Done:");
   });
 });
 
