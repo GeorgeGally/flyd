@@ -124,7 +124,7 @@ async function follow(objective: Objective, deps: CosTickDeps, store: Intelligen
       if (!job || ["queued", "running", "verifying"].includes(job.status)) continue;
       const ok = job.status === "ok";
       const work = shortWords(objective.brief?.outcome ?? objective.words);
-      const why = plainLine((job.result ?? "").split("\n").find((line) => line.trim()) ?? "");
+      const why = job.status === "short" || job.status === "blocked" ? plainLine(job.unresolved?.[0] ?? /(?:short on|blocked on): (.+?)\.?\s*$/.exec(job.result ?? "")?.[1] ?? "") : "";
       const short = why && !unfitForHim(why).length ? `${work} didn't finish: ${why}` : `${work} didn't finish.`;
       const made = {
         ...plainReport(objective, ok ? "done" : "blocked", ok ? `${work} is done.` : short, `job:${job.status}`),
@@ -144,9 +144,11 @@ async function follow(objective: Objective, deps: CosTickDeps, store: Intelligen
     }
     const id = `${objective.id}:${run.id}:${run.status}:${run.updatedAt}`;
     if (objective.reportIds.includes(id)) continue;
-    // Told already (before a restart could record it): the objective just takes the run's settled status.
-    if (run.notified) {
-      if (objective.status !== status) mutateObjective(objective.id, (current) => current && { ...current, status });
+    // Told already (before a restart could record it): recorded as told, never said again.
+    if (run.notified && run.told) {
+      const kind = run.status === "completed" ? "done" : run.status === "failed" ? "blocked" : "decision";
+      const made = { ...plainReport(objective, kind, run.told.line, ""), id, evidenceRefs: [`domain-run:${run.id}`] };
+      await report(objective, made, deps, store, async () => undefined, status);
       continue;
     }
     const decision = await (deps.decide ?? defaultDecide)(run);

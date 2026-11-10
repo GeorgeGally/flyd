@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -123,6 +123,25 @@ describe("Chief of Staff reports", () => {
     await cosTick(deps);
     await cosTick(deps);
     expect([calls, cosReports(objective.id, store).length, readObjective(objective.id)?.status]).toEqual([2, 1, "needs_george"]);
+    store.close();
+  });
+
+  it("tells a short job by what it is short on, and a failed one without its error text", async () => {
+    const store = new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") });
+    process.env.FLYD_BACKGROUND_JOBS_DIR = join(home, "jobs");
+    mkdirSync(join(home, "jobs"));
+    const at = new Date().toISOString();
+    const job = (id: string, status: string, result: string, unresolved?: string[]) => writeFileSync(join(home, "jobs", `${id}.json`), JSON.stringify({ id, contract: { task: "t", doneWhen: ["d"] }, prompt: "", status, pid: 1, startedAt: at, updatedAt: at, progress: "", attempts: 1, checks: [], result, ...(unresolved ? { unresolved } : {}) }));
+    job("short1", "short", "Imported the deck as design DAGk3x9QbZ1.\n\nI checked it against what you wanted and it's still short on: the deck is editable.", ["the deck is editable"]);
+    job("fail1", "failed", "Couldn't finish: provider returned 402 Payment Required");
+    const said: CosReport[] = [];
+    for (const [words, ref] of [["import the deck", "job:short1"], ["book the table", "job:fail1"]]) {
+      const objective = openObjective({ words, flydNotes: "", origin: { surface: "chat" } });
+      mutateObjective(objective.id, (current) => current && { ...current, status: "working", runs: [ref] });
+    }
+    await cosTick({ store, dispatch: (async () => ({ refused: "no" })) as Dispatch, say: async (report: CosReport) => { said.push(report); } });
+    delete process.env.FLYD_BACKGROUND_JOBS_DIR;
+    expect(said.map((report) => report.outcome).sort()).toEqual(["book the table didn't finish.", "import the deck didn't finish: the deck is editable"]);
     store.close();
   });
 
