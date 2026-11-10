@@ -1,12 +1,12 @@
 # Delivery and companion baseline (2026-11-10)
 
-Split-plan Phase 0 (`docs/plans/2026-10-30-flyd-chief-of-staff-split-plan.md`). This is today's Flyd at `main` = `db74c25a`, before any delivery or Chief of Staff work (the companion and delegate numbers were recorded one commit earlier, at `92f522ee`). Phase 1 and every later phase rerun the same commands and compare against these numbers.
+Split-plan Phase 0 (`docs/plans/2026-10-30-flyd-chief-of-staff-split-plan.md`). This is today's Flyd at `main` = `db74c25a`, before any delivery or Chief of Staff work (the companion and delegate numbers were recorded at `92f522ee`). Phase 1 and every later phase rerun the same commands and compare against these numbers.
 
 ## The four numbers
 
 | Measure | Baseline | Phase 1 target |
 |---|---|---|
-| Delivery pass rate | **2/21 (10%)**; real examples 2/9; judged clarity 6.4/10 over the 10 that said anything | ≥ 90% of fixtures, every real example, clarity ≥ 8 |
+| Delivery pass rate | **2/21 (10%)**; real examples 2/9; judged clarity 6.4/10 over the 10 that were judged | ≥ 90% of fixtures, every real example, clarity ≥ 8 |
 | Companion mean judge score | **6.4/10** over 10 cases (5/10 pass) | +0.5 by Phase 5 |
 | Delegate-case pass rate | **4/4 (100%)** | at or above baseline |
 | Delegate-turn latency | **p50 10.9 s · p95 13.6 s** | at or below baseline |
