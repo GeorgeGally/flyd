@@ -383,7 +383,7 @@ export function showOf(snapshot: ConversationSnapshot, inputs: ShowInputs = {}):
   if (call) {
     // A question with options is answerable on screen: the question leads, what it is about under it.
     const choice = open?.choice ?? choiceOf(call.text);
-    const about = choice ? tidy(digestReply(withoutStubs(readingOf(call))).lead) : "";
+    const about = choice ? tidy(digestReply(withoutStubs(readingOf(call)), { relay: true }).lead) : "";
     add("call", call, choice
       ? {
         headline: choice.question,

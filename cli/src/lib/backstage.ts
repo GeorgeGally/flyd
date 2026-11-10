@@ -47,18 +47,20 @@ export const BACKSTAGE_DENYLIST: RegExp[] = [...CHAT_ANSWER_BACKSTAGE, STAFF_TIT
 const STAFF_SAID: Array<[RegExp, string]> = [
   [/^(?:the |a )?(?:workers?|crew ?mates?|firstmate|team)\s+(?:has |have )?(?:finished|is done|are done|reports?|reported|says|said)\s*[:;,\u2014-]\s*/i, ""],
   [/\s*,?\s+(?:on|in) (?:the |a )?branch\b(?:\s+`?fm\/[\w-]+(?:\.[\w-]+)*`?)?/gi, ""],
-  [/\b(?:[Tt]he |[Aa] )?(?:Creative Directors?|Retrievers?|Researchers?|Fact Checkers?|Design Mates?|coding boss(?:es)?)\b/g, "the team"],
-  [/\b(?:the|a|one) workers?\b|\bworkers\b(?=\s+(?:is|are|has|have|pushed|finished|added|opened)\b)/gi, "the team"],
-  [/\bthe fleet\b/gi, "the work"],
-  [/\b(?:the|this|that) (?:last )?run\b(?!\s+(?:of|button|command|script)\b)/gi, "the work"],
-  [/\bhand-?offs?\b(?!\s+(?:spec|doc|document|notes?|file|template|meeting)s?\b)/gi, "step"],
+  [/\b(?:[Tt]he |[Aa] )?(?:Fact Checkers?|Design Mates?|coding boss(?:es)?)\b/g, "the team"],
+  [/\b[Tt]he (?:Creative Directors?|Retrievers?|Researchers?)\b(?!\s+(?:at|of|from|for|in|on)\b)/g, "the team"],
+  [/\bthe worker\b(?=\s+(?:pushed|finished|added|opened|merged|fixed|reported|said|says|stalled|stopped|landed|wrote|made|ran|is done|was done|has finished|signed off)\b)/gi, "the team"],
+  [/\bthe fleet\b(?=\s*(?:[.,;:!?]|$)|\s+(?:is|are|was|were|has|had|moved|stalled)\b)/gi, "the work"],
+  [/\b(?:the|this|that) (?:last )?run\b(?=\s*(?:[.,;:!?]|$)|\s+(?:failed|passed|stalled|stopped|finished|was cancelled|did not finish)\b)/gi, "the work"],
+  [/\bhand-?offs\b(?!\s+(?:spec|doc|document|notes?|file|template|meeting)s?\b)/gi, "steps"],
+  [/\bhand-?off\b(?!\s+(?:spec|doc|document|notes?|file|template|meeting)s?\b)/gi, "step"],
 ];
 
 /**
  * A line for his screen said without the machinery: how the staff ran the work
  * (who was on it, the branch, the run, a handoff) gives way to the work itself,
  * so "The worker finished: dark mode is merged." reads "Dark mode is merged.".
- * Ordinary uses ("a service worker", "a vehicle fleet", "the handoff spec") stay. Pure.
+ * Ordinary uses ("a service worker", "the worker pool", "the fleet of trucks", "the handoff spec") stay. Pure.
  */
 export function plainSaid(text: string): string {
   const said = STAFF_SAID.reduce((line, [pattern, plain]) => line.replace(pattern, (found) => (/^[A-Z]/.test(found) ? plain.replace(/^[a-z]/, (first) => first.toUpperCase()) : plain)), text)

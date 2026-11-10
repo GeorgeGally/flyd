@@ -62,6 +62,18 @@ describe("firstSentence", () => {
 });
 
 describe("digestReply", () => {
+  it("leaves Flyd's own answer as written, a PR number he asked about included", () => {
+    expect(digestReply("Merged PR #412.").lead).toBe("Merged PR #412.");
+    expect(digestReply("PR #412 is merged into main. Nothing else is open.").lead).toBe("PR #412 is merged into main.");
+  });
+
+  it("says a relay without the machinery, and never leaves it without a lead", () => {
+    expect(digestReply("The worker finished: dark mode is merged.", { relay: true }).lead).toBe("Dark mode is merged.");
+    expect(digestReply("PR #412 is merged into main. Nothing else is open.", { relay: true }).lead).toBe("Nothing else is open.");
+    expect(digestReply("Merged PR #412.", { relay: true }).lead).not.toBe("");
+    expect(digestReply("Merged PR #412.", { relay: true }).lead).not.toContain("PR #412");
+  });
+
   it("keeps all three outcomes of the captain's About report, in a fraction of the length", () => {
     const digest = digestReply(ABOUT_FIXES);
     expect(digest.routine).toBe(false);

@@ -464,7 +464,7 @@ export class SnapshotDiffer {
     const actionable = isActionable(message.text);
     const model = modelFor(message.text);
     // The model found no outcome, decision or ask: one muted line.
-    if (model.text && isRoutineAnswer(model.text) && !actionable) return { body: message.text, routine: true, summary: { html: renderMarkdown(digestReply(message.text).lead), source: "model" } };
+    if (model.text && isRoutineAnswer(model.text) && !actionable) return { body: message.text, routine: true, summary: { html: renderMarkdown(digestReply(message.text, { relay: message.aside === true }).lead), source: "model" } };
     const summary: NonNullable<RenderedMessage["summary"]> = model.text && !isRoutineAnswer(model.text)
       ? glance(model.text, "model")
       : model.pending ? glance(message.text, "digest", true) : briefOf(message.text);

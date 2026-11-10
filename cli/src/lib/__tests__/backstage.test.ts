@@ -8,10 +8,30 @@ describe("plainSaid", () => {
     expect(plainSaid("The message fix is ready on branch fm/logan-codex-limit-msg. The worker pushed it and the Fact Checker signed off."))
       .toBe("The message fix is ready. The team pushed it and the team signed off.");
     expect(plainSaid("The run failed")).toBe("The work failed");
+    expect(plainSaid("The fleet is moving.")).toBe("The work is moving.");
+    expect(plainSaid("The Researchers pulled three sources.")).toBe("The team pulled three sources.");
+  });
+
+  it("keeps the number when it rewords a handoff", () => {
+    expect(plainSaid("Two handoffs failed.")).toBe("Two steps failed.");
   });
 
   it("leaves the same words alone where they mean what they ordinarily mean", () => {
-    for (const said of ["Added offline support via a service worker.", "The vehicle fleet page is done.", "Wrote the handoff spec.", "Please run the tests."]) {
+    for (const said of [
+      "Added offline support via a service worker.",
+      "Service workers are cached offline now.",
+      "Moved parsing to a worker thread.",
+      "The worker pool has 4 workers.",
+      "make this run faster",
+      "the run loop",
+      "the fleet manager",
+      "The fleet of trucks is booked.",
+      "The vehicle fleet page is done.",
+      "Researchers find a new battery chemistry.",
+      "The Creative Director at the agency loved it.",
+      "Wrote the handoff spec.",
+      "Please run the tests.",
+    ]) {
       expect(plainSaid(said)).toBe(said);
     }
   });
