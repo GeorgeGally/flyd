@@ -72,6 +72,15 @@ const HIS_WORD = /\b(?:george|captain)(?:'s|’s)?\s+(?:own\s+)?(?:ok|okay|go-?a
 const ASKED_ELSEWHERE = /\b(?:recorded|asked|listed|kept|open|pending)\s+(?:in|under|on)\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b/i;
 /** What the staff recommend: "recommended phase 0+1 first", "recommendation: B". */
 const RECOMMENDED = /\brecommend(?:ed|s|ation)?(?:\s+is)?\s*:?\s+([^;.()\n]{2,80})/i;
+/** "do not recommend X", "recommend against X": advice not to take it. */
+const ADVISED_AGAINST = /(?:\bnot|\bnever|n['’]t)\s+(?:\w+\s+)?$/i;
+
+/** The option the staff's own words recommend, never one they advise against. */
+function recommendedIn(text: string): string | undefined {
+  const found = RECOMMENDED.exec(text);
+  if (!found || ADVISED_AGAINST.test(text.slice(0, found.index)) || /^against\b/i.test(found[1]!)) return undefined;
+  return found[1];
+}
 /** A choice among options of the work's own (which phases, which order, which step). */
 const PICKS = /\b(?:pick|choose|which|start|begin|order|phase|step|option|approach|go with)\b/i;
 /** A recurring routine that has come due. */
@@ -117,7 +126,7 @@ export function settleCall(call: CallToSettle, preferences: string): StandingSet
   if (yes) return settled(yes.rule, `${yes.answer}.`, yes.because, question, `Said yes for you: ${question.replace(/[?.\s]+$/, "")}.`);
 
   // The staff recommend one of the work's own options and nothing in it is irreversible or costs money: take it.
-  const recommended = (call.recommendation?.trim() || RECOMMENDED.exec(question)?.[1] || RECOMMENDED.exec(call.sourceText)?.[1] || "").replace(/[\s,;:]+$/, "").trim();
+  const recommended = (call.recommendation?.trim() || recommendedIn(question) || recommendedIn(call.sourceText) || "").replace(/[\s,;:]+$/, "").trim();
   if (recommended && PICKS.test(question) && !NEVER.test(recommended)) {
     const because = firstLine(preferences, TAKE_CONTROL);
     if (because) return settled("staff-recommendation", `Go with your recommendation: ${recommended}.`, because, question, `Went with the team's recommendation: ${recommended}.`);

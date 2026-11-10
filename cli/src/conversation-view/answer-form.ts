@@ -38,8 +38,8 @@ const OUTWARD = /\b(?:merg|land|push|ship|commit)/i;
 
 /**
  * The obvious next step of his own ask said as what Flyd is doing, not asked:
- * a question the rest of the answer already says Flyd is taking ("I'll send
- * you the link… Should I send the link?"). A real choice stays a question:
+ * a question the rest of the answer already commits Flyd to ("…and will send
+ * you the link. Should I send the link?"). A real choice stays a question:
  * either/or, destructive, costly, public, outward, a taste call, or a step
  * the answer never said it was taking. Pure.
  */
@@ -47,7 +47,7 @@ export function doingNotAsking(question: string, answer: string): string {
   const step = LEAVE_TO.exec(question.trim())?.[1];
   const verb = step ? /^[a-z]+/i.exec(step)?.[0] : undefined;
   if (!step || !verb || /\bor\b/i.test(step) || NEVER.test(step) || OUTWARD.test(step) || HIS_TASTE.test(step) || speaksForHim(step)) return question;
-  return new RegExp(`\\b${verb}\\b`, "i").test(answer) ? `I'll ${step}.` : question;
+  return new RegExp(`\\b(?:I['’]ll|I will|(?:I['’]m|I am) going to|will)\\s+(?:also\\s+|then\\s+)?${verb}\\b`, "i").test(answer) ? `I'll ${step}.` : question;
 }
 
 /** An answer whose closing question only asks leave for the obvious next step, ending on that step instead. Pure. */

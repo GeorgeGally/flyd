@@ -25,6 +25,12 @@ describe("George's standing rules in the review step", () => {
     expect(bossMessageKind(settled!.note!)).toBe("decision");
   });
 
+  it("never takes an option the staff advise against", () => {
+    const against = (question: string, sourceText: string) => settleCall({ taskId: "logan-pages-plan", label: "Logan", question, sourceText }, PREFERENCES);
+    expect(against("Which phase should we start?", "We do not recommend phase 2 yet; which phase should we start?")).toBeNull();
+    expect(against("Which option should we go with?", "We recommend against option B. Which option should we go with?")).toBeNull();
+  });
+
   it("never settles a review gate, even on Flyd's own work: review findings stay with the staff", () => {
     expect(settleCall(call("parked at review: 4 finding(s) · ask-user: authority decision", "flyd-today-build", "Flyd today"), PREFERENCES)).toBeNull();
     expect(settleCall(call("parked at review: 1 finding(s) · ask-user: authority decision", "logan-chat", "Logan chat"), PREFERENCES)).toBeNull();

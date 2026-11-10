@@ -204,6 +204,8 @@ describe("the obvious next step of his own ask", () => {
       "Two layouts work. Should I keep the grid or the list?",
       "I'll tweak it. Should I change the colours?",
       "The report is in. Want me to open a follow-up task?",
+      "The crash is a missing null check; the fix is one line. Should I fix it?",
+      "I haven't looked at the logs. Want me to look at them?",
     ]) expect(withoutObviousAsk(text)).toBe(text);
   });
 });

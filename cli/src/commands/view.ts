@@ -322,7 +322,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         firstmate: run.transport.kind === "firstmate" && run.request.domain === "coding",
         active: activeStatuses.has(run.status),
         autonomy: autonomyLevel(),
-        standing,
+        ...(change.kind === "decision" ? { standing } : {}),
       }) : change.taskId && change.kind === "fleet_state" && ["working", "paused", "unknown", "failed"].includes(change.state)
         ? authorityForStaffRun({ runId: change.taskId, firstmate: inbox.available(), active: true, autonomy: autonomyLevel() })
         // A call firstmate holds with no run of Flyd's behind it: only his standing rules may answer it.
@@ -331,7 +331,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
             .filter((grant) => grant.grantId === STANDING_RULES_POLICY.id)
           : [];
       const sentToBoss = notesSentToBoss(run?.messages);
-      return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), ...(standing !== undefined ? { standing } : {}), ...(openCalls.length ? { openCalls } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
+      return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), ...(standing !== undefined && change.kind === "decision" ? { standing } : {}), ...(openCalls.length ? { openCalls } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
     });
     return processFirstmateChanges(prepared, {
       complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
