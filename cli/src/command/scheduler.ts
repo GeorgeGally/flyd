@@ -101,12 +101,6 @@ function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord): s
   return deliver(reportFromRun(run, decision), "notification").text;
 }
 
-/** About the project he is on: the lead and its detail, not just the lead (runtime/attention.ts). */
-function fuller(run: DomainRun, decision: ExecutiveDecisionRecord, notice: string): string {
-  const detail = deliver(reportFromRun(run, decision), "window").text?.split("\n").slice(1) ?? [];
-  return [notice, ...detail].join("\n");
-}
-
 /** The project a run is about, by name or folder. */
 function projectOf(run: DomainRun): string | undefined {
   return run.request.project?.name || run.request.project?.root || undefined;
@@ -178,18 +172,16 @@ export async function notifyRun(
         key: decision.delivery ? finishedKey(run.id) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`,
         line: notice, kind, work: run.request.intendedOutcome, evidenceRefs: decision.evidenceRefs,
       };
-      // When, and how much, follows what he is focused on: held for a natural break, or now (fuller when it is his focus).
+      // When follows what he is focused on: held for a natural break, or now as the notice (its lead line and link).
       const { timing: when, focus } = await whenToTell(run, decision, attention);
-      const project = projectOf(run);
       if (when.when === "held") {
         holdReport(report, {
-          until: when.until, ...(focus?.project ? { focus: focus.project } : {}), ...(project ? { project } : {}),
+          until: when.until, ...(focus?.project ? { focus: focus.project } : {}),
           finished: kind === "deliverable", run: run.id, decisionId: decision.decisionId,
         });
         waiting = true;
       } else {
-        const line = when.depth === "full" ? fuller(run, decision, notice) : notice;
-        owed = (await deliverOnce([{ ...report, line }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
+        owed = (await deliverOnce([report], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
       }
     } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     // A report not delivered yet is never marked told; the command tick's sweep says it again (deliverOwed).

@@ -40,7 +40,6 @@ export interface HeldFor {
   until: "break" | "meeting";
   /** What he was on when it was held. */
   focus?: string;
-  project?: string;
   finished?: boolean;
   /** The run it reports on, whose told line is recorded when it is said. */
   run?: string;
@@ -191,9 +190,9 @@ export async function deliverOnce(
       return attempt === undefined ? [] : [{ report, attempt }];
     });
     if (options.together && claimed.length > 1) {
-      // Held reports come out together: one delivery, each its own line (runtime/attention.ts).
-      const first = claimed[0]!.report;
-      const outcome = await say("Flyd", options.together(claimed.map(({ report }) => report)), first.kind ?? "deliverable", first.work).catch(() => "undelivered" as const);
+      // Held reports come out together as one line (runtime/attention.ts); a call among them keeps a decision's gate.
+      const lead = claimed.find(({ report }) => report.kind === "decision")?.report ?? claimed[0]!.report;
+      const outcome = await say("Flyd", options.together(claimed.map(({ report }) => report)), lead.kind ?? "deliverable", lead.work).catch(() => "undelivered" as const);
       for (const { report, attempt } of claimed) recordOutcome(store, report, outcome ?? "shown", attempt, now());
     } else {
       for (const { report, attempt } of claimed) {

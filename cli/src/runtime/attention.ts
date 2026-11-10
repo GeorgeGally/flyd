@@ -12,13 +12,13 @@ import { basename, join } from "node:path";
 // | The report…                                   | Delivered                                   |
 // | irreversible, credential, or blocks him now   | now, whatever he is doing                   |
 // | arrives while he is in a meeting              | held to the meeting's end                   |
-// | is about the project he is focused on         | now, fuller: the lead plus its detail       |
+// | is about the project he is focused on         | now, fuller: the lead line with its link    |
 // | is about another project while he is focused  | held until focus breaks, then batched       |
 // | arrives while he has no particular focus      | now, as a lead line                         |
 //
 // Focus breaks when he switches project, goes quiet for about 20 minutes, or
-// starts a chat turn. Held reports come out together as one delivery; those
-// that never found a break go into the morning brief.
+// starts a chat turn. Held reports come out together as one notification line
+// naming each; those that never found a break go into the morning brief.
 
 /** Quiet this long and he has no particular focus. */
 export const QUIET_MS = 20 * 60_000;
@@ -64,9 +64,10 @@ export interface Held {
   until: "break" | "meeting";
   /** What he was on when it was held. */
   focus?: string;
-  project?: string;
   /** Finished work, rather than a call or a blocker. */
   finished?: boolean;
+  /** Names the work, for the batch line. */
+  work?: string;
 }
 
 /** A project by its name or its folder, compared loosely. Pure. */
@@ -112,21 +113,41 @@ export function released<T extends Held>(held: T[], focus: Focus): T[] {
 }
 
 const COUNT = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
-/** Lines a batch shows; the rest are a count he can ask about (each is in Flyd's next-turn context). */
-export const BATCH_LINES = 2;
+/** A notification is one line of at most this many characters (council/chief-of-staff.ts notificationLine). */
+const BATCH_MAX = 140;
+const NAME_MAX = 48;
 
-/** Held reports told together, as one delivery: each its own line, never a stream. Pure. */
+function countWord(n: number): string {
+  return COUNT[n] ?? String(n);
+}
+
+/** A held report's work, named short. */
+function nameOf(report: Held): string {
+  const words = (report.work?.trim() || report.line.split(/(?<=[.!?])\s/)[0] || "").replace(/\s+/g, " ").replace(/[.!?]+$/, "").trim();
+  if (words.length <= NAME_MAX) return words;
+  const cut = words.slice(0, NAME_MAX - 1);
+  return `${cut.slice(0, cut.lastIndexOf(" ") > 0 ? cut.lastIndexOf(" ") : cut.length)}…`;
+}
+
+function listed(names: string[], rest: number): string {
+  if (rest > 0) return `${names.join(", ")} and ${countWord(rest).toLowerCase()} more`;
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0] ?? "";
+}
+
+/** Held reports told together, as one notification line naming each that fits. Pure. */
 export function batch(held: Held[]): string {
   if (held.length <= 1) return held[0]?.line ?? "";
-  const count = COUNT[held.length] ?? String(held.length);
   const what = held.every((report) => report.finished) ? "finished" : "came in";
   const on = held.find((report) => report.focus)?.focus;
   const lead = held.every((report) => report.until === "meeting")
-    ? `${count} things ${what} while you were in your meeting.`
-    : on ? `${count} things ${what} while you were on ${basename(on)}.` : `${count} things ${what} while you were busy.`;
-  const shown = held.slice(0, BATCH_LINES).map((report) => report.line);
-  const rest = held.length - shown.length;
-  return [lead, ...shown, ...(rest > 0 ? [`And ${(COUNT[rest] ?? String(rest)).toLowerCase()} more; ask me for ${rest === 1 ? "it" : "them"}.`] : [])].join("\n");
+    ? `${countWord(held.length)} things ${what} while you were in your meeting`
+    : on ? `${countWord(held.length)} things ${what} while you were on ${basename(on)}` : `${countWord(held.length)} things ${what} while you were busy`;
+  const names = held.map(nameOf);
+  for (let shown = names.length; shown > 0; shown -= 1) {
+    const line = `${lead}: ${listed(names.slice(0, shown), names.length - shown)}.`;
+    if (line.length <= BATCH_MAX) return line;
+  }
+  return `${lead}.`;
 }
 
 /** The morning brief's lines for reports that never found a break. Pure. */
@@ -140,7 +161,11 @@ export function morningLines(held: Held[]): string[] {
 const CALENDAR_CACHE_MS = 5 * 60_000;
 let meeting: { readAt: number; endsAt?: number } | null = null;
 
-/** Seconds until the end of each timed event on now, from every calendar. */
+/**
+ * Seconds until the end of each timed event on now, from every calendar. Recurring meetings are not yet seen:
+ * Calendar's AppleScript gives a series' first occurrence. Reading the calendar through the Mac adapter
+ * (EventKit) is the follow-up.
+ */
 const MEETING_NOW = `
 on run argv
   set nowDate to current date

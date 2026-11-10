@@ -47,15 +47,19 @@ describe("when to tell George", () => {
     for (const focus of [switched, quiet, chatted]) expect(released(held, focus).map((report) => report.key)).toEqual(["work:a", "work:b"]);
   });
 
-  it("batches held reports into one delivery, each its own line", () => {
-    const one: Held = { key: "work:a", line: "The cap5 export is finished.", heldAt: NOW, until: "break", focus: "Bloom", finished: true };
+  it("batches held reports into one notification line naming each that fits", () => {
+    const one: Held = { key: "work:a", line: "The cap5 export is finished.", work: "the cap5 export", heldAt: NOW, until: "break", focus: "Bloom", finished: true };
     expect(batch([one])).toBe("The cap5 export is finished.");
-    const two = batch([one, { ...one, key: "work:b", line: "Cap5's footer change landed." }]);
-    expect(two).toBe("Two things finished while you were on Bloom.\nThe cap5 export is finished.\nCap5's footer change landed.");
-    const four = batch([one, { ...one, key: "b", finished: false }, { ...one, key: "c" }, { ...one, key: "d" }]).split("\n");
-    expect(four[0]).toBe("Four things came in while you were on Bloom.");
-    expect(four).toHaveLength(4);
-    expect(four[3]).toBe("And two more; ask me for them.");
+    expect(batch([one, { ...one, key: "work:b", work: "the cap5 footer" }])).toBe("Two things finished while you were on Bloom: the cap5 export and the cap5 footer.");
+    // No work name: a short form of its line.
+    expect(batch([one, { ...one, key: "work:b", work: undefined, line: "Cap5's footer change landed. Checks passed." }]))
+      .toBe("Two things finished while you were on Bloom: the cap5 export and Cap5's footer change landed.");
+    const long = "a very long name for a piece of work that will not fit";
+    const many = batch([one, { ...one, key: "b", finished: false, work: long }, { ...one, key: "c", work: long }, { ...one, key: "d", work: long }]);
+    expect(many.startsWith("Four things came in while you were on Bloom: the cap5 export, ")).toBe(true);
+    expect(many.endsWith(" more.")).toBe(true);
+    expect(many.includes("\n")).toBe(false);
+    expect(many.length).toBeLessThanOrEqual(140);
     expect(morningLines([one])).toEqual(["Held for you (1):", "  • The cap5 export is finished."]);
   });
 });
@@ -73,13 +77,13 @@ describe("held reports", () => {
     const now = () => new Date(NOW);
     const said: string[] = [];
     const say = async (_title: string, message: string) => { said.push(message); return "shown" as const; };
-    for (const key of ["work:a", "work:b", "work:c"]) holdReport({ key, line: `${key} is finished.` }, { until: "break", focus: "Bloom", finished: true }, { store, now });
+    for (const key of ["work:a", "work:b", "work:c"]) holdReport({ key, line: `${key} is finished.`, work: key.slice(5) }, { until: "break", focus: "Bloom", finished: true }, { store, now });
     holdReport({ key: "work:a", line: "said twice" }, { until: "break" }, { store, now });
     expect(heldReports({ store, now }).map((report) => report.line)).toEqual(["work:a is finished.", "work:b is finished.", "work:c is finished."]);
 
     const due = heldReports({ store, now }).slice(0, 2);
     await deliverOnce(due, { store, say, now, together: (claimed) => batch(claimed.map((report) => ({ ...report, heldAt: NOW, until: "break", focus: "Bloom", finished: true }))) });
-    expect(said).toEqual(["Two things finished while you were on Bloom.\nwork:a is finished.\nwork:b is finished."]);
+    expect(said).toEqual(["Two things finished while you were on Bloom: a and b."]);
     expect(heldReports({ store, now }).map((report) => report.key)).toEqual(["work:c"]);
 
     markBriefed(["work:c"], { store, now });
