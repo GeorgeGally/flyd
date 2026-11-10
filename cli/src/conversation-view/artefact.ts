@@ -684,6 +684,7 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
       ...(row?.repo ? { repo: row.repo } : {}),
     });
   }
+  const tasks = candidates.flatMap(({ row }) => row.task ? [row.task] : []);
   const calls = candidates.flatMap(({ row, firstmate }) => {
     if (row.ledgerOnly) return [row];
     if (row.task && settledTasks.has(row.task)) return [];
@@ -694,9 +695,11 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     // him in plain words by fixed rules, or waits while its boss restates it.
     if (!asked) {
       if (!firstmate) return [];
-      const plain = plainQuestionFor(row.question ?? row.label, row.task);
-      const detail = row.detail ? plainQuestionFor(row.detail, row.task) : null;
-      return plain ? [{ ...row, label: plain, ...(row.question ? { question: plain } : {}), detail: detail ?? undefined }] : [];
+      const plain = plainQuestionFor(row.question ?? row.label, tasks);
+      const detail = row.detail ? plainQuestionFor(row.detail, tasks) : null;
+      if (plain) return [{ ...row, label: plain, ...(row.question ? { question: plain } : {}), detail: detail ?? undefined }];
+      const { question: _question, detail: _detail, choices: _choices, ...held } = row;
+      return [{ ...held, label: `A call on ${row.repo ?? "your work"} is waiting; Flyd is getting it restated.` }];
     }
     return [{
       ...row,

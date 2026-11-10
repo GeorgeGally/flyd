@@ -9,7 +9,7 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { shortConversationTitle } from "./session-title.js";
 import { clipKeepingLinks } from "./line-links.js";
 import { plainNote } from "./rail.js";
-import { answerBody, plainAnswer, workingReply, type AnswerBody } from "./answer-form.js";
+import { answerBody, plainAnswer, withoutObviousAsk, workingReply, type AnswerBody } from "./answer-form.js";
 import { answeringLine } from "./living.js";
 import { checkDocuments, MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
 import { documentText } from "./document-text.js";
@@ -495,7 +495,7 @@ export class FlydDesk {
     void answering
       .then((answer) => {
         const body = typeof answer === "string" ? null : answerBody(answer);
-        const text = (typeof answer === "string" ? answer : plainAnswer(body!)).trim();
+        const text = (typeof answer === "string" ? withoutObviousAsk(answer) : plainAnswer(body!)).trim();
         if (!text) throw new Error("no answer came back");
         this.write({ ...record, answer: text, ...(body ? { form: body } : {}), answeredAt: new Date().toISOString() });
         void Promise.resolve(this.afterTurn?.({ sessionId, user: record.text, assistant: text })).catch(() => undefined);

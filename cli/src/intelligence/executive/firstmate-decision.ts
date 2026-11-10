@@ -26,6 +26,8 @@ export interface FirstmateChange {
   sentToBoss?: string[];
   /** His recorded preferences, when a standing-rules grant lets Flyd answer by them. */
   standing?: string;
+  /** The tasks whose calls are open for him right now. */
+  openCalls?: string[];
 }
 
 export interface FirstmateDecisionOptions {
@@ -233,6 +235,7 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
       ...(change.requested ? { requested: true } : {}),
       ...(change.state === "failed" ? { sourceFailed: true } : {}),
       ...(change.label ? { label: text(change.label, 160) } : {}),
+      ...(change.openCalls?.length ? { openCalls: change.openCalls } : {}),
       ...(change.standing !== undefined ? { standing: change.standing, ...(change.taskId && tookBackOn(store, change.taskId) ? { takenBack: true } : {}) } : {}),
     }, options.now?.() ?? new Date());
     const canonical = store.transaction(() => {

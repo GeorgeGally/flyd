@@ -61,6 +61,8 @@ export interface ExecutiveDecisionInput {
   takenBack?: boolean;
   /** The work it is about, in a few words. */
   label?: string;
+  /** The tasks whose calls are open for him right now. */
+  openCalls?: readonly string[];
 }
 
 export interface ExecutiveVerification {
@@ -171,6 +173,7 @@ function settledByRule(input: ExecutiveDecisionInput, held: HeldDecision, questi
   if (!grant) return null;
   const settlement: StandingSettlement | null = settleCall({
     taskId: input.taskId, label: input.label ?? "", question, sourceText: input.sourceText, ...(recommendation ? { recommendation } : {}),
+    ...(input.openCalls ? { openCalls: input.openCalls } : {}),
   }, input.standing);
   if (!settlement) return null;
   const settled: ExecutiveSettlement = {
@@ -254,7 +257,7 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
       ...decision,
       disposition: "ask_george",
       reason: "a source-grounded choice remains George's",
-      question: plainQuestionFor(asked, input.taskId) ?? asked,
+      question: plainQuestionFor(asked, [...(input.taskId ? [input.taskId] : []), ...(input.openCalls ?? [])]) ?? asked,
       options: alternativesGrounded ? options : [],
       recommendation: alternativesGrounded ? recommendation : { rationale: "I recommend clarifying the alternatives before acting." },
       verification: { status: "unknown", evidenceRefs: [] },

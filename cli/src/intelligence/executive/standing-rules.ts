@@ -1,6 +1,4 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { firstmateHome } from "../../lib/firstmate-home.js";
 import { userProfilePath } from "../../lib/user-profile.js";
 import { HIS_TASTE, NEVER, recordedLine, speaksForHim, standingAnswer, TAKE_CONTROL, WANTS_HIM } from "../../conversation-view/auto-answers.js";
 
@@ -8,8 +6,8 @@ import { HIS_TASTE, NEVER, recordedLine, speaksForHim, standingAnswer, TAKE_CONT
 // staff question that would go to him is one his recorded words already
 // settle, Flyd answers it for him through the note path his own answer takes,
 // and he sees one quiet "handled" line he can take back. Each answer stands on
-// a line he wrote (USER.md, or the standing memos he gave firstmate): delete
-// the line and Flyd stops answering by it. Never settled here: anything
+// a line he wrote in USER.md: delete the line and Flyd stops answering by it.
+// Never settled here: anything
 // destructive or irreversible, anything that costs money, touches security or
 // access, goes public or speaks for him, a taste call, or anything the staff
 // say needs his own word.
@@ -17,23 +15,21 @@ import { HIS_TASTE, NEVER, recordedLine, speaksForHim, standingAnswer, TAKE_CONT
 export const STANDING_RULES_POLICY = {
   id: "flyd.standing-rules.v1",
   capability: "firstmate.answer",
-  provenance: "George's own recorded preferences (USER.md and his standing memos to firstmate)",
+  provenance: "George's own recorded preferences (USER.md)",
   effect: "Answer a routine staff question the way his recorded words already settle it; grant no new scope and nothing destructive, costly, public or security-related.",
 } as const;
 
 /** How every answer Flyd gives for him opens, so the staff and Flyd's own record can tell it from his. */
 export const STANDING_ANSWER_MARK = "George's answer, given by Flyd,";
 
-/** His recorded preferences Flyd may answer by: his profile, then the standing memos he gave firstmate. */
+/** His recorded preferences Flyd may answer by: his own profile, USER.md. */
 export function standingPreferences(): string {
-  const read = (path: string): string => {
-    try {
-      return existsSync(path) ? readFileSync(path, "utf8") : "";
-    } catch {
-      return "";
-    }
-  };
-  return [read(userProfilePath()), read(join(firstmateHome(), "data", "captain.md"))].join("\n");
+  const path = userProfilePath();
+  try {
+    return existsSync(path) ? readFileSync(path, "utf8") : "";
+  } catch {
+    return "";
+  }
 }
 
 /** Whether any of his recorded lines lets Flyd settle routine calls for him. */
@@ -64,14 +60,14 @@ export interface CallToSettle {
   sourceText: string;
   /** The option the staff recommend, when the interpretation grounded one. */
   recommendation?: string;
+  /** The tasks whose calls are open for him right now. */
+  openCalls?: readonly string[];
 }
 
 const MERGE_GREEN_FLYD = [/merge green flyd (?:prs|pull requests|changes) without asking/i];
 const NO_EXTRA_DECISIONS = [/does not want to be given extra work or decisions/i, ...TAKE_CONTROL];
 /** The staff want his own word ("awaiting George's go-ahead", "needs George's OK"). */
 const HIS_WORD = /\b(?:george|captain)(?:'s|’s)?\s+(?:own\s+)?(?:ok|okay|go-?ahead|approval|yes|sign-?off|word|permission)\b/i;
-/** A review gate in the work pipeline that a finding stopped. */
-const REVIEW_GATE = /\bparked at [\w-]+:\s*\d+\s+finding|\bask-user\b/i;
 /** The question points at the same calls already put to him under another task. */
 const ASKED_ELSEWHERE = /\b(?:recorded|asked|listed|kept|open|pending)\s+(?:in|under|on)\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b/i;
 /** What the staff recommend: "recommended phase 0+1 first", "recommendation: B". */
@@ -98,8 +94,6 @@ function note(question: string, answer: string, because: string): string {
   ].join("\n");
 }
 
-const REVIEW_GATE_ANSWER = "Settle these review findings yourself: take each recommended fix that is reversible and costs nothing, and carry the work on.";
-
 /**
  * How his standing rules settle a call the staff put to him, or null when it
  * stays his. Pure: the same call and the same recorded words settle the same way.
@@ -109,19 +103,13 @@ export function settleCall(call: CallToSettle, preferences: string): StandingSet
   if (!question) return null;
   const said = `${question}\n${call.label}`;
 
-  // The same calls already put to him under another task: asking him twice is extra work, and nothing needs saying.
-  const elsewhere = ASKED_ELSEWHERE.exec(question)?.[1];
-  if (elsewhere && elsewhere !== call.taskId) {
-    const because = firstLine(preferences, NO_EXTRA_DECISIONS);
-    if (because) return { rule: "asked-elsewhere", answer: "Already with him under its own call.", because, question };
-  }
-
   if (NEVER.test(said) || NEVER.test(call.sourceText) || HIS_TASTE.test(said) || WANTS_HIM.test(call.sourceText) || HIS_WORD.test(call.sourceText) || speaksForHim(question)) return null;
 
-  // A review gate on Flyd's own work: he asked for its green work to land without asking, and for problems to be solved, not handed back.
-  if (REVIEW_GATE.test(question) && (/^flyd-/i.test(call.taskId ?? "") || /\bflyd\b/i.test(call.label))) {
-    const because = firstLine(preferences, [...MERGE_GREEN_FLYD, ...TAKE_CONTROL]);
-    if (because) return settled("flyd-review-gate", REVIEW_GATE_ANSWER, because, question, "The team is settling its own review findings on this, by your rule.");
+  // The same calls already open for him under another task: asking him twice is extra work, and nothing needs saying.
+  const elsewhere = ASKED_ELSEWHERE.exec(question)?.[1]?.toLowerCase();
+  if (elsewhere && elsewhere !== call.taskId?.toLowerCase() && call.openCalls?.some((task) => task.toLowerCase() === elsewhere)) {
+    const because = firstLine(preferences, NO_EXTRA_DECISIONS);
+    if (because) return { rule: "asked-elsewhere", answer: "Already with him under its own call.", because, question };
   }
 
   // A yes stands only on a plain yes-or-no ask to go on: never an either/or, a pick, or an ask to stop something.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerBody, answerHtml, diagnosisFromText, plainAnswer } from "../answer-form.js";
+import { answerBody, answerHtml, diagnosisFromText, plainAnswer, withoutObviousAsk } from "../answer-form.js";
 import { renderMarkdown } from "../markdown.js";
 
 describe("answerBody", () => {
@@ -172,5 +172,38 @@ describe("diagnosisFromText", () => {
       "**Evidence:** d.",
       "**Evidence:** again.",
     ].join("\n"))).toBeNull();
+  });
+});
+
+describe("the obvious next step of his own ask", () => {
+  // George, 2026-11-10, after "open logan again pls": "i mean obviously. this is noise".
+  it("is said as what Flyd is doing, never asked", () => {
+    const body = answerBody({
+      lead: "Logan isn't a standalone app, so I'm locating the local web address it runs on and will send you the link.",
+      form: "diagnosis",
+      parts: [
+        { label: "Expected", text: "Opening Logan directly from George's request." },
+        { label: "Observed", text: "Logan could not be opened directly because it is not an installed app." },
+        { label: "Cause", text: "Logan runs as a local web page rather than as an application." },
+        { label: "Evidence", text: "Logan is served on a local address, which is currently being searched for." },
+        { label: "Next", text: "Finish finding the local address and send George the link." },
+      ],
+      next: "Should I send the link as soon as it's found?",
+    });
+    expect(body).toMatchObject({ form: "diagnosis", next: "I'll send the link as soon as it's found." });
+    expect(plainAnswer(body)).not.toContain("?");
+    expect(withoutObviousAsk("I'm finding where Logan runs and will send you the link. Should I send the link as soon as it's found?"))
+      .toBe("I'm finding where Logan runs and will send you the link. I'll send the link as soon as it's found.");
+  });
+
+  it("keeps a real choice a question", () => {
+    for (const text of [
+      "I'll tidy the branch. Should I delete the old branch?",
+      "The fix is ready. Want me to merge it?",
+      "I'll send it over. Should I send it to the team?",
+      "Two layouts work. Should I keep the grid or the list?",
+      "I'll tweak it. Should I change the colours?",
+      "The report is in. Want me to open a follow-up task?",
+    ]) expect(withoutObviousAsk(text)).toBe(text);
   });
 });

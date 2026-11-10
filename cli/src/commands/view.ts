@@ -314,6 +314,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     const activeStatuses = new Set(["queued", "accepted", "working", "needs_decision", "incomplete", "failed"]);
     // His recorded words, read once: the routine calls they settle are answered for him (FLYD_STANDING_RULES=0 off).
     const standing = process.env.FLYD_STANDING_RULES === "0" ? undefined : standingPreferences();
+    const openCalls = [...new Set(changes.flatMap((change) => change.kind === "decision" && change.taskId ? [change.taskId] : []))];
     const prepared = changes.map((change) => {
       const run = change.taskId ? runs.find((item) => item.id === change.taskId) : undefined;
       const authority = run ? authorityForStaffRun({
@@ -330,7 +331,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
             .filter((grant) => grant.grantId === STANDING_RULES_POLICY.id)
           : [];
       const sentToBoss = notesSentToBoss(run?.messages);
-      return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), ...(standing !== undefined ? { standing } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
+      return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), ...(standing !== undefined ? { standing } : {}), ...(openCalls.length ? { openCalls } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
     });
     return processFirstmateChanges(prepared, {
       complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),

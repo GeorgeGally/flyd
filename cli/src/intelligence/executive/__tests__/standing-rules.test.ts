@@ -25,16 +25,21 @@ describe("George's standing rules in the review step", () => {
     expect(bossMessageKind(settled!.note!)).toBe("decision");
   });
 
-  it("settles a review gate on Flyd's own work, and leaves other projects' gates alone", () => {
-    expect(settleCall(call("parked at review: 4 finding(s) · ask-user: authority decision", "flyd-today-build", "Flyd today"), PREFERENCES)).toMatchObject({ rule: "flyd-review-gate" });
+  it("never settles a review gate, even on Flyd's own work: review findings stay with the staff", () => {
+    expect(settleCall(call("parked at review: 4 finding(s) · ask-user: authority decision", "flyd-today-build", "Flyd today"), PREFERENCES)).toBeNull();
     expect(settleCall(call("parked at review: 1 finding(s) · ask-user: authority decision", "logan-chat", "Logan chat"), PREFERENCES)).toBeNull();
   });
 
-  it("does not ask twice what is already put to him under another call, and says nothing", () => {
-    const settled = settleCall(call("Waiting on George's three calls recorded in cap5-dash-lab-r5-calls.", "cap5-dash-lab-r5"), PREFERENCES);
+  it("does not ask twice what is already open for him under another call, and says nothing", () => {
+    const settled = settleCall({ ...call("Waiting on George's three calls recorded in cap5-dash-lab-r5-calls.", "cap5-dash-lab-r5"), openCalls: ["cap5-dash-lab-r5-calls"] }, PREFERENCES);
     expect(settled).toMatchObject({ rule: "asked-elsewhere" });
     expect(settled!.note).toBeUndefined();
     expect(settled!.line).toBeUndefined();
+  });
+
+  it("holds nothing as asked elsewhere unless that call is open, nor anything destructive", () => {
+    expect(settleCall(call("Waiting on George's three calls recorded in cap5-dash-lab-r5-calls.", "cap5-dash-lab-r5"), PREFERENCES)).toBeNull();
+    expect(settleCall({ ...call("Pending on fix-login-flow: should I delete the old branch?", "logan-chat"), openCalls: ["fix-login-flow"] }, PREFERENCES)).toBeNull();
   });
 
   it("never settles what is destructive, costs money, a taste call, his own word, or a stop", () => {
@@ -68,6 +73,18 @@ describe("a staff question in George's words", () => {
     expect(plainQuestionFor("parked at review: 1 finding(s) · ask-user: authority decision")).toBeNull();
     expect(plainQuestionFor("needs-decision [at=1794019232]: still waiting on server window (wip/logan-pages-p2 a6bc66c…")).toBeNull();
     expect(showsMachinery("Review data/cap5/report.md")).toBe(true);
+  });
+
+  it("leaves plain words alone: hyphenated words, common words and possessives read as he would say them", () => {
+    expect(plainQuestionFor("Is the end-to-end test suite up-to-date?")).toBe("Is the end-to-end test suite up-to-date?");
+    expect(plainQuestionFor("Should the data pipeline run nightly?")).toBe("Should the data pipeline run nightly?");
+    expect(showsMachinery("Is the scout backlog deadbeef or 1234567 long?")).toBe(false);
+    expect(plainQuestionFor("Is George's call needed on the merge?")).toBe("Is your call needed on the merge?");
+    expect(plainQuestionFor("Has George's review finished?")).toBe("Has your review finished?");
+  });
+
+  it("strips the fleet's own task ids, even ones without a digit", () => {
+    expect(plainQuestionFor("Same calls as recorded in logan-pages-plan: which phase first?", ["logan-chat", "logan-pages-plan"])).toBe("Same calls as: which phase first?");
   });
 });
 
@@ -134,13 +151,15 @@ describe("standing answers through the decision step", () => {
     }
   });
 
-  it("rewrites a raw call that has no George decision yet, and holds one with nothing plain left", () => {
+  it("rewrites a raw call that has no George decision yet, and keeps one with nothing plain left as a held line", () => {
     const fleet = parseBearings({ decisions_open: [
       { id: "cap5-front", summary: "Still open: his picks for the five sections (board http://127.0.0.1:4387/session/abc)" },
       { id: "flyd-ship", summary: "parked at test: 2 finding(s) · ask-user: authority decision" },
     ] });
-    const labels = projectFleetDecisions(fleet, []).calls.map((row) => row.label);
-    expect(labels).toEqual(["Still open: your picks for the five sections"]);
+    const calls = projectFleetDecisions(fleet, []).calls;
+    expect(calls.map((row) => row.label)).toEqual(["Still open: your picks for the five sections", "A call on your work is waiting; Flyd is getting it restated."]);
+    expect(calls[1]).toMatchObject({ task: "flyd-ship" });
+    expect(calls[1]!.question).toBeUndefined();
   });
 });
 
@@ -150,7 +169,7 @@ it("keeps a settled record valid at the event-store boundary", () => {
   try {
     const decided = decideExecutiveStep({ sourceId: "s", sourceEventId: "e", taskId: "x-y", sourceText: "Waiting on the calls recorded in other-task-calls.", label: "x",
       proposal: { kind: "question", summary: "x", question: "Waiting on the calls recorded in other-task-calls.", questionEvidence: "Waiting on the calls recorded in other-task-calls.", options: [], evidenceRefs: [] },
-      authority: authorityForStaffRun({ runId: "x-y", firstmate: true, active: true, autonomy: "trusted", standing: PREFERENCES }), standing: PREFERENCES });
+      authority: authorityForStaffRun({ runId: "x-y", firstmate: true, active: true, autonomy: "trusted", standing: PREFERENCES }), standing: PREFERENCES, openCalls: ["other-task-calls"] });
     persistExecutiveDecision(store, decided);
     expect(readExecutiveDecision(store, decided.decisionId)).toMatchObject({ disposition: "backstage", settled: { rule: "asked-elsewhere" } });
   } finally {
