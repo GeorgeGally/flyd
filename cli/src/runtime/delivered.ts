@@ -22,7 +22,7 @@ export const MAX_TRIES = 6;
 const OWED_WINDOW_MS = 24 * 60 * 60_000;
 
 export interface DeliveryReport {
-  /** What the report is about, stable across restarts: "task:flyd-hide-whatsapp-card", "run:domain-…". */
+  /** What the report is about, stable across restarts: "work:domain-…" (finishedKey), "run:domain-…:<hash>". */
   key: string;
   /** The one line George is told. */
   line: string;
