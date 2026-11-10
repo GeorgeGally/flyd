@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { bossMessageKind, FENCE_HELD, HELD_FOR_ATTENTION, notesSentToBoss, recommendationText } from "../intelligence/executive/decision-step.js";
 import { recordHeld } from "../council/reply-review.js";
 import { syncFirstmateDomainRuns } from "./firstmate.js";
@@ -13,6 +14,8 @@ import { relayShortfalls } from "../runtime/honesty-check.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
+import { deliverOnce, finishedKey } from "../runtime/delivered.js";
+import { windowOpen } from "../conversation-view/window-presence.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -78,6 +81,8 @@ export async function decideRun(
 
 function noticeForDecision(decision: ExecutiveDecisionRecord): string | null {
   if (!decision.show || !decision.notify) return null;
+  // Finished work is told in its own checked line, link and all.
+  if (decision.delivery) return relayShortfalls(decision.delivery.line).length === 0 ? decision.delivery.line : null;
   const said = decision.question
     ? `${decision.question}${decision.recommendation ? ` ${recommendationText(decision.recommendation)}` : ""}`
     : decision.summary;
@@ -85,17 +90,19 @@ function noticeForDecision(decision: ExecutiveDecisionRecord): string | null {
   return line && relayShortfalls(line).length === 0 ? line : null;
 }
 
-/** Tells George only what the executive record says needs his attention. */
+/** Tells George only what the executive record says needs his attention, each report once (runtime/delivered.ts). */
 export async function notifyRun(
   run: DomainRun,
   notify?: Notify,
   send: typeof sendRunMessage = sendRunMessage,
   decide: RunDecisionStep = decideRun,
+  windowIsOpen: () => boolean = () => windowOpen(),
 ): Promise<void> {
   if (!run.result || run.notified || !["completed", "failed", "needs_decision"].includes(run.status)) return;
-  // His own message from the conversation window: the reply is shown under it there, so a notice would say it twice.
+  // His own message from the conversation window: with the window open the reply shows under it there, so a notice
+  // would say it twice; with it closed he hears it like any other result.
   // Flyd's own note to the staff, and its own fixes, are backstage: their replies settle them and are never his to hear.
-  if (run.request.source === "view" || run.request.source === "flyd" || run.request.source === "self-improvement") {
+  if (run.request.source === "view" && windowIsOpen() || run.request.source === "flyd" || run.request.source === "self-improvement") {
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
     return;
   }
@@ -107,8 +114,16 @@ export async function notifyRun(
     const notice = noticeForDecision(decision);
     const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
       || decision.action !== undefined || decision.reason === FENCE_HELD || decision.reason === HELD_FOR_ATTENTION;
-    if (notice) await (notify ?? (await import("../runtime/agenda.js")).notifyMac)("Flyd", notice, decision.disposition === "ask_george" ? "decision" : noticeKind(run));
-    else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
+    if (notice) {
+      const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
+      // A run's finished work is one report; anything else is one per decision. A restart never says either twice.
+      const url = decision.delivery?.url;
+      await deliverOnce([{
+        key: decision.delivery ? finishedKey(run.id) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`,
+        line: notice, kind, work: run.request.intendedOutcome, evidenceRefs: decision.evidenceRefs,
+        ...(url ? { aliases: [`link:${url}`] } : {}),
+      }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) });
+    } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
   } catch {
     // The durable result remains in the command store; notification is best effort.

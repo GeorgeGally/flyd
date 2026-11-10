@@ -229,6 +229,35 @@ describe("notifyRun", () => {
     expect(sent).toEqual(["Dark mode is merged."]);
   });
 
+  it("announces work he started from the window only when the window is not open, once, in its checked line", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const finished: ExecutiveDecisionRecord = {
+      schema: "flyd.executive-decision.v1",
+      decisionId: "decision-window",
+      sourceId: "firstmate.change",
+      sourceEventId: "event-window",
+      taskId: "domain-notice-1",
+      disposition: "handle_internally",
+      reason: "finished work; its outcome could not be checked",
+      summary: "Fix the island is finished; I haven't checked it yet.",
+      delivery: { line: "Fix the island is finished; I haven't checked it yet.", checked: false },
+      evidenceRefs: ["domain-notice-1"],
+      verification: { status: "unknown", evidenceRefs: [] },
+      show: true,
+      notify: true,
+      createdAt: "2026-10-21T00:00:00.000Z",
+    };
+    const fromWindow = (): DomainRun => ({ ...run("Captain, done."), request: { ...run("Captain, done.").request, source: "view" } });
+    let decided = 0;
+    const decide = async () => { decided++; return finished; };
+    await notifyRun(fromWindow(), notify, undefined, decide, () => true);
+    expect([sent, decided, readDomainRun("domain-notice-1")?.notified]).toEqual([[], 0, true]);
+    await notifyRun(fromWindow(), notify, undefined, decide, () => false);
+    await notifyRun(fromWindow(), notify, undefined, decide, () => false);
+    expect(sent).toEqual(["Fix the island is finished; I haven't checked it yet."]);
+  });
+
   it("reaches George once with a decision, and says nothing for a quiet run", async () => {
     const sent: string[] = [];
     const notify = async (_title: string, message: string) => { sent.push(message); };

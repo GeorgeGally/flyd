@@ -1,4 +1,6 @@
 import { verifyStaffOutcome } from "./verify-outcome.js";
+import { relayShortfalls } from "../../runtime/honesty-check.js";
+import { checkFinished, FINISHED_STATES, finishedLine, githubReaders, offlineReaders, plainLabel, type FinishedReaders } from "./finished-check.js";
 import { randomUUID, createHash } from "node:crypto";
 import { evaluatePredicates, JEV_PINNED_MODEL, projectJevState } from "../../cognition/system-one/jev.js";
 import { familyEgress, predicateDefinition, questionFor } from "../../cognition/system-one/registry.js";
@@ -36,6 +38,16 @@ export interface FirstmateDecisionOptions {
   jev?: JevOptions;
   now?: () => Date;
   executeInternalAction?: (action: NonNullable<ExecutiveDecisionRecord["action"]>) => Promise<{ status: "verified" | "failed" | "unknown"; evidenceRefs: string[] }>;
+  /** How finished work is checked; GitHub through gh by default, nothing under tests. */
+  finishedReaders?: FinishedReaders;
+}
+
+/** Bumped when finished work is decided differently, so an old "unclear" record never stands in for the check. */
+const FINISHED_POLICY = "finished.v1";
+
+/** Whether a change reports finished work (not a decision about it). Pure. */
+export function reportsFinished(change: Pick<FirstmateChange, "kind" | "state">): boolean {
+  return change.kind !== "decision" && FINISHED_STATES.has(change.state);
 }
 
 export const STAFF_COORDINATION_POLICY = {
@@ -59,6 +71,11 @@ export function authorityForStaffRun(input: {
     ...(input.standing !== undefined && hasStandingRules(input.standing)
       ? [{ grantId: STANDING_RULES_POLICY.id, capability: STANDING_RULES_POLICY.capability, target: input.runId }] : []),
   ];
+}
+
+/** The line as written when it may be shown to George, else nothing. Pure. */
+function sayable(line: string): string {
+  return line && relayShortfalls(line).length === 0 ? line : "";
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -172,7 +189,8 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
   const store = options.store ?? new IntelligenceEventStore();
   const ownsStore = options.store === undefined;
   const sourceId = change.sourceId ?? "firstmate.change";
-  const sourceEventId = createHash("sha256").update(`${change.eventId}\0${change.kind}\0${change.state}\0${change.label}\0${change.detail}\0${JSON.stringify([...change.evidenceRefs].sort())}${change.sentToBoss?.length ? `\0${[...change.sentToBoss].sort().join("\0")}` : ""}`).digest("hex");
+  const finishedWork = reportsFinished(change);
+  const sourceEventId = createHash("sha256").update(`${change.eventId}\0${change.kind}\0${change.state}\0${change.label}\0${change.detail}\0${JSON.stringify([...change.evidenceRefs].sort())}${change.sentToBoss?.length ? `\0${[...change.sentToBoss].sort().join("\0")}` : ""}${finishedWork ? `\0${FINISHED_POLICY}` : ""}`).digest("hex");
   const decisionId = createHash("sha256").update(`${sourceId}\0${sourceEventId}`).digest("hex").slice(0, 32);
   const existing = store.findByIdempotencyKey("executive.cycle", `step:${decisionId}`);
   if (existing?.payload?.decision && typeof existing.payload.decision === "object") {
@@ -206,8 +224,17 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
     const observed = { ...change, sourceText: [text(change.label, 160), text(change.detail, 1_200)].filter(Boolean).join(" — ") };
     const lowLevel = change.kind === "fleet_state" && ["working", "paused", "queued"].includes(change.state);
     let proposal: ExecutiveProposal;
+    let finished: Awaited<ReturnType<typeof checkFinished>> | undefined;
     if (lowLevel) proposal = { kind: "routine", summary: "Routine employee lifecycle state stays backstage.", evidenceRefs: change.evidenceRefs };
-    else {
+    else if (finishedWork) {
+      // Finished work is checked by Flyd itself, not interpreted: what the report says is done is told, checked or not.
+      proposal = { kind: "routine", summary: text(change.label, 160), evidenceRefs: change.evidenceRefs };
+      finished = change.verification?.status === "verified"
+        // A verified report leads with its own finding ("Lender B is cheaper over five years.").
+        ? { checked: true, landed: true, line: sayable(text(change.detail.split("\n")[0], 220)) || finishedLine(plainLabel(text(change.label, 160)), "landed"), evidenceRefs: change.verification.evidenceRefs }
+        : await checkFinished({ label: text(change.label, 160), detail: change.detail, evidenceRefs: change.evidenceRefs },
+          options.finishedReaders ?? (process.env.VITEST ? offlineReaders : githubReaders));
+    } else {
       try { proposal = parseProposal(await options.complete(interpretationPrompt(change))); }
       catch { proposal = { kind: "unclear", summary: "The change could not be interpreted.", evidenceRefs: change.evidenceRefs }; }
     }
@@ -219,8 +246,8 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
     if (change.requested && change.verification?.status === "verified" && (proposal.kind === "routine" || proposal.kind === "unclear")) {
       proposal = { kind: "verified_result", summary: text(change.detail.split("\n")[0]), evidenceRefs: change.evidenceRefs };
     }
-    const judgment = lowLevel ? undefined : await judgeProposal(change, proposal, options.jev).catch(() => undefined);
-    const verification = proposal.kind === "verified_result" && !change.verification
+    const judgment = lowLevel || finished ? undefined : await judgeProposal(change, proposal, options.jev).catch(() => undefined);
+    const verification = finished ? undefined : proposal.kind === "verified_result" && !change.verification
       ? await verifyStaffOutcome([change.detail, ...change.evidenceRefs]) : change.verification;
     const decision = decideExecutiveStep({
       sourceId,
@@ -237,6 +264,7 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
       ...(change.label ? { label: text(change.label, 160) } : {}),
       ...(change.openCalls?.length ? { openCalls: change.openCalls } : {}),
       ...(change.standing !== undefined ? { standing: change.standing, ...(change.taskId && tookBackOn(store, change.taskId) ? { takenBack: true } : {}) } : {}),
+      ...(finished ? { finished } : {}),
     }, options.now?.() ?? new Date());
     const canonical = store.transaction(() => {
       const existing = store.findByIdempotencyKey("executive.cycle", `step:${decisionId}`);

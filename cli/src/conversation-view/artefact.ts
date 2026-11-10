@@ -640,6 +640,11 @@ export function heldForAttention(): ArtefactRow[] {
   return [...rows.values()];
 }
 
+/** A delivery line as a row label: its link is the row's own. Pure. */
+function lineWithoutLink(line: string, url?: string): string {
+  return url ? line.replace(url, "").trim() : line;
+}
+
 export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly ExecutiveDecisionRecord[], attention: readonly ArtefactRow[] = []): FleetArtefact {
   const byTask = new Map<string, ExecutiveDecisionRecord>();
   for (const decision of decisions) {
@@ -737,15 +742,22 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
   const open = attention.filter((row) => row.status !== "landed");
   const current = (rows: ArtefactRow[]) => rows.filter((row) => !row.ledgerOnly);
   const verifiedTasks = new Set(verified.map((row) => row.task));
+  // Finished work Flyd could not check keeps its place, said in Flyd's own honest line.
+  const told = (rows: ArtefactRow[]) => rows.map((row) => {
+    const decision = row.task ? byTask.get(row.task) : undefined;
+    return decision?.disposition === "handle_internally" && decision.show && decision.delivery && decision.verification.status !== "verified"
+      ? { ...row, executiveDecisionId: decision.decisionId, label: lineWithoutLink(decision.delivery.line, decision.delivery.url), detail: undefined }
+      : row;
+  });
   return {
     ...emptyFleet(),
     ...(fleet.generated ? { generated: fleet.generated } : {}),
     ...(fleet.unavailable ? { unavailable: fleet.unavailable } : {}),
     calls,
     live: current(fleet.live),
-    ready: current(fleet.ready).filter((row) => !verifiedTasks.has(row.task)),
+    ready: told(current(fleet.ready).filter((row) => !verifiedTasks.has(row.task))),
     next: current(fleet.next),
-    landed: [...handled, ...verified, ...current(fleet.landed).filter((row) => !verifiedTasks.has(row.task)), ...finished],
+    landed: [...handled, ...verified, ...told(current(fleet.landed).filter((row) => !verifiedTasks.has(row.task))), ...finished],
     held: [...failed, ...paused, ...open],
   };
 }

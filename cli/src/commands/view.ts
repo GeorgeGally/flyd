@@ -42,6 +42,8 @@ import { LiveStaffSession, readStaffView } from "../command/fleet-monitor.js";
 import { listDomainRuns } from "../command/store.js";
 import { sendRunMessage } from "../command/messages.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
+import { plainLabel } from "../intelligence/executive/finished-check.js";
+import { deliverOnce, finishedReports } from "../runtime/delivered.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
 import { STANDING_RULES_POLICY, standingPreferences } from "../intelligence/executive/standing-rules.js";
@@ -359,7 +361,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       const sentToBoss = notesSentToBoss(run?.messages);
       return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), ...(standing !== undefined && change.kind === "decision" ? { standing } : {}), ...(openCalls.length ? { openCalls } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
     });
-    return processFirstmateChanges(prepared, {
+    const decisions = await processFirstmateChanges(prepared, {
       complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
       jev: { ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) },
       executeInternalAction: async (action) => {
@@ -378,6 +380,11 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         return deliverBossNote(run, action);
       },
     });
+    // Finished work is told once, in its checked line, however often the fleet is read (runtime/delivered.ts).
+    const labels = new Map(prepared.flatMap((change) => change.taskId ? [[change.taskId, plainLabel(change.label)] as const] : []));
+    const reports = finishedReports(decisions, (task) => labels.get(task) ?? plainLabel(task));
+    if (reports.length) void deliverOnce(reports).catch(() => undefined);
+    return decisions;
   };
   const feed = new ArtefactFeed({
     voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }),
