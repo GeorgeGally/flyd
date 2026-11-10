@@ -8,6 +8,7 @@ describe("plainSaid", () => {
     expect(plainSaid("The message fix is ready on branch fm/logan-codex-limit-msg. The worker pushed it and the Fact Checker signed off."))
       .toBe("The message fix is ready. The team pushed it and the team signed off.");
     expect(plainSaid("The run failed")).toBe("The work failed");
+    expect(plainSaid("Ready on branch fm/x.")).toBe("Ready.");
     expect(plainSaid("The fleet is moving.")).toBe("The work is moving.");
     expect(plainSaid("The Researchers pulled three sources.")).toBe("The team pulled three sources.");
   });
@@ -30,6 +31,8 @@ describe("plainSaid", () => {
       "Researchers find a new battery chemistry.",
       "The Creative Director at the agency loved it.",
       "Wrote the handoff spec.",
+      "Fixed a crash in the branch selector.",
+      "Tuned it in the branch predictor",
       "Please run the tests.",
     ]) {
       expect(plainSaid(said)).toBe(said);

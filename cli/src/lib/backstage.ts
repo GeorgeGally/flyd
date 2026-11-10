@@ -46,7 +46,7 @@ export const BACKSTAGE_DENYLIST: RegExp[] = [...CHAT_ANSWER_BACKSTAGE, STAFF_TIT
 
 const STAFF_SAID: Array<[RegExp, string]> = [
   [/^(?:the |a )?(?:workers?|crew ?mates?|firstmate|team)\s+(?:has |have )?(?:finished|is done|are done|reports?|reported|says|said)\s*[:;,\u2014-]\s*/i, ""],
-  [/\s*,?\s+(?:on|in) (?:the |a )?branch\b(?:\s+`?fm\/[\w-]+(?:\.[\w-]+)*`?)?/gi, ""],
+  [/\s*,?\s+(?:on|in) (?:the |a )?branch\s+`?[\w-]+(?:\/[\w-]+(?:\.[\w-]+)*)+`?/gi, ""],
   [/\b(?:[Tt]he |[Aa] )?(?:Fact Checkers?|Design Mates?|coding boss(?:es)?)\b/g, "the team"],
   [/\b[Tt]he (?:Creative Directors?|Retrievers?|Researchers?)\b(?!\s+(?:at|of|from|for|in|on)\b)/g, "the team"],
   [/\bthe worker\b(?=\s+(?:pushed|finished|added|opened|merged|fixed|reported|said|says|stalled|stopped|landed|wrote|made|ran|is done|was done|has finished|signed off)\b)/gi, "the team"],
