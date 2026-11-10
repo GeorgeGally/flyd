@@ -112,6 +112,4 @@ export interface DomainRun {
   /** When Flyd last asked the staff for a clear status; at most one such ask is open until a reply is read. */
   statusAskedAt?: string;
   notified?: boolean;
-  /** FirstMate's own task ids for this run, as its replies named them ("task: <id>"): its fleet rows are this run's work. */
-  firstmateTasks?: string[];
 }

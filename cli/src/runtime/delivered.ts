@@ -218,6 +218,25 @@ export async function deliverOwed(options: { store?: IntelligenceEventStore; say
   }
 }
 
+function recordTold(store: IntelligenceEventStore, key: string, at: string, outcome: DeliveryOutcome): void {
+  if (found(store, `claim:${key}`)) return;
+  const record: DeliveredRecord = { schema: DELIVERED_SCHEMA, key, line: "", surface: "notification", at };
+  append(store, envelope(record, `claim:${key}`));
+  append(store, envelope({ ...record, outcome }, `outcome:${key}`));
+}
+
+/** Records reports as handled without telling them (seen where he asked, or Flyd's own): nothing tells them later. */
+export function markTold(keys: string[], options: { store?: IntelligenceEventStore; now?: () => Date } = {}): void {
+  if (!keys.length) return;
+  const store = openStore(options.store);
+  try {
+    const at = (options.now?.() ?? new Date()).toISOString();
+    store.transaction(() => { for (const key of new Set(keys)) recordTold(store, key, at, "kept"); });
+  } finally {
+    if (options.store === undefined) store.close();
+  }
+}
+
 /** Marks that finished work on record when this shipped was seeded; later finished work is told. */
 const SEED_MARK = "seed:finished.v1";
 
@@ -231,12 +250,7 @@ export function seedOnce(keys: string[], options: { store?: IntelligenceEventSto
     return store.transaction(() => {
       if (found(store, SEED_MARK)) return false;
       const at = (options.now?.() ?? new Date()).toISOString();
-      for (const key of new Set(keys)) {
-        if (found(store, `claim:${key}`)) continue;
-        const record: DeliveredRecord = { schema: DELIVERED_SCHEMA, key, line: "", surface: "notification", at };
-        append(store, envelope(record, `claim:${key}`));
-        append(store, envelope({ ...record, outcome: "seeded" }, `outcome:${key}`));
-      }
+      for (const key of new Set(keys)) recordTold(store, key, at, "seeded");
       append(store, envelope({ schema: DELIVERED_SCHEMA, key: SEED_MARK, line: "", surface: "notification", at, outcome: "seeded" }, SEED_MARK));
       return true;
     });
@@ -266,7 +280,7 @@ export function finishedReports(decisions: ReadonlyArray<{
   });
 }
 
-/** One key per piece of finished work, whichever path reports it (a run, or a staff task recorded on it). */
+/** One key per piece of finished work, whichever path reports it (a run, or a staff task of the run's own id). */
 export function finishedKey(id: string): string {
   return `work:${id}`;
 }

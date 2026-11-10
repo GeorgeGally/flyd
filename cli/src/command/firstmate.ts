@@ -6,7 +6,7 @@ import { firstmateHome, firstmateInboxScript } from "../lib/firstmate-home.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } from "../runtime/repeat-guard.js";
-import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, reportedTasks, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
+import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
 import { checkDomainHandoff } from "../runtime/acceptance.js";
 import { commandDir, listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
@@ -705,7 +705,7 @@ export function firstmateRequestBody(request: DomainRequest): string {
     "When this request reaches a stable outcome or needs a real decision, publish a durable reply to this inbox note using fm-inbox.sh reply.",
     "Flyd decides routine calls with George's delegated authority: merging finished, reviewed, green work, syncing or pushing it, the obvious follow-up build, wording and formatting. Do those and report completed; do not hand them back as questions.",
     "If implementation is verified but a step that needs George's own word remains (publication, deployment or going live, anything destructive, irreversible, costly or security-sensitive, or a genuine taste or strategy call), return status=needs_decision rather than completed.",
-    "Return JSON when practical with: status (completed|needs_decision|failed), brief, recommendation {action,reasoning,confidence}, detailed_report, decisions_made, unresolved_questions, risks, evidence, artifacts, specialist_outputs, information_loss_risk, and tasks (the ids of any tasks of your own you handed it to, in every reply) so Flyd tells George its finished work once.",
+    "Return JSON when practical with: status (completed|needs_decision|failed), brief, recommendation {action,reasoning,confidence}, detailed_report, decisions_made, unresolved_questions, risks, evidence, artifacts, specialist_outputs, information_loss_risk.",
     "The detailed_report should retain material technical detail. Do not collapse specialist findings into only a short summary. Evidence/artifact pointers should survive so Flyd can inspect or ask follow-ups.",
   ].filter(Boolean).join("\n");
 }
@@ -852,11 +852,9 @@ export async function syncFirstmateDomainRuns(options: {
       const status: DomainRunStatus = outcome === "unclear" ? "working" : predates && outcome === "needs_decision" ? "cancelled" : outcome;
       const { notified, failure, incompleteReason: _previous, launchRetry: _retry, statusAskedAt, ...rest } = next;
       const news = !predates && (status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result));
-      const tasks = [...new Set([...(run.firstmateTasks ?? []), ...reportedTasks(reply.body!)])];
       next = {
         ...rest,
         status,
-        ...(tasks.length ? { firstmateTasks: tasks } : {}),
         result: parsed.result,
         updatedAt: reply.at ?? (options.now ?? (() => new Date()))().toISOString(),
         transport: { ...next.transport, replyCursor: reply.cursor },

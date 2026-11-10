@@ -43,11 +43,11 @@ import { listDomainRuns } from "../command/store.js";
 import { sendRunMessage } from "../command/messages.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
 import { plainLabel } from "../intelligence/executive/finished-check.js";
-import { deliverOnce, finishedKey, finishedReports, seedOnce } from "../runtime/delivered.js";
+import { finishedKey, seedOnce } from "../runtime/delivered.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
 import { STANDING_RULES_POLICY, standingPreferences } from "../intelligence/executive/standing-rules.js";
-import { backstageRun, deliverBossNote, runOfTask, shownInWindow } from "../command/scheduler.js";
+import { deliverBossNote, tellFinishedWork } from "../command/scheduler.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { runCuratorSweep } from "../cognition/curator/reconcile.js";
 import { autonomyLevel } from "../runtime/tool-policy.js";
@@ -382,16 +382,12 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     });
     // Finished work is told once, in its checked line, however often the fleet is read (runtime/delivered.ts).
     const labels = new Map(prepared.flatMap((change) => change.taskId ? [[change.taskId, plainLabel(change.label)] as const] : []));
-    // A task its run recorded is told under the key Core shares with it; quiet when backstage or that conversation is open.
-    const reports = finishedReports(decisions, (task) => labels.get(task) ?? plainLabel(task), (task) => {
-      const run = runOfTask(runs, task);
-      return run && (backstageRun(run) || shownInWindow(run)) ? undefined : task;
-    });
     // The first read after this shipped records what is already finished as told, without ringing (once ever).
-    const finishedRuns = runs.filter((run) => run.status === "completed").flatMap((run) => [run.id, ...(run.firstmateTasks ?? [])]);
+    const finishedRuns = runs.filter((run) => run.status === "completed").map((run) => finishedKey(run.id));
+    const finishedTasks = decisions.flatMap((decision) => decision.taskId && decision.delivery ? [finishedKey(decision.taskId)] : []);
     let seeded: boolean;
-    try { seeded = seedOnce([...reports.map((report) => report.key), ...finishedRuns.map(finishedKey)]); } catch { seeded = true; }
-    if (reports.length && !seeded) void deliverOnce(reports).catch(() => undefined);
+    try { seeded = seedOnce([...finishedTasks, ...finishedRuns]); } catch { seeded = true; }
+    if (!seeded) void tellFinishedWork(decisions, runs, (task) => labels.get(task) ?? plainLabel(task)).catch(() => undefined);
     return decisions;
   };
   const feed = new ArtefactFeed({

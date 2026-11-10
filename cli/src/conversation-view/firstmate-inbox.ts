@@ -104,7 +104,6 @@ export function contractBlock(request: DomainRequest): string {
     "DONE WHEN:",
     ...request.doneWhen.map((point, index) => `${index + 1}. ${point}`),
     "When this reaches a stable outcome or needs his decision, reply to this note (fm-inbox.sh reply). Plain prose is fine: say plainly whether it is done (and what changed), needs his decision (with your recommendation), failed (and why), or still under way (and what is next). Flyd shows your reply under his message and settles the request from it.",
-    "If you hand it to a task of your own, name the task id on a line of its own in every reply: task: <task-id> (several: task: <id>, <id>). Flyd tells George its finished work once, under this request.",
     ...(request.parentRequestId ? [`Follow-up to prior Flyd domain run: ${request.parentRequestId}`] : []),
     "--- end of Flyd's return contract ---",
   ].join("\n");

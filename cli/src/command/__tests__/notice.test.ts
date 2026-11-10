@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
-import { backstageRun, decideRun, notifyRun, runOfTask } from "../scheduler.js";
-import { deliverOnce, deliverOwed, finishedReports } from "../../runtime/delivered.js";
+import { decideRun, notifyRun, tellFinishedWork } from "../scheduler.js";
+import { deliverOwed } from "../../runtime/delivered.js";
 import { readDomainRun } from "../store.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -249,14 +249,20 @@ describe("notifyRun", () => {
       notify: true,
       createdAt: "2026-10-21T00:00:00.000Z",
     };
-    const fromWindow = (): DomainRun => ({ ...run("Captain, done."), request: { ...run("Captain, done.").request, source: "view", session: "session-a" } });
+    const fromWindow = (id: string): DomainRun => {
+      const base = run("Captain, done.");
+      return { ...base, id, request: { ...base.request, id, source: "view", session: "session-a" } };
+    };
     let decided = 0;
     const decide = async () => { decided++; return finished; };
-    await notifyRun(fromWindow(), notify, undefined, decide, (session) => session === "session-a");
-    expect([sent, decided, readDomainRun("domain-notice-1")?.notified]).toEqual([[], 0, true]);
-    // Another conversation (or the News tab) open does not show his reply under his message.
-    await notifyRun(fromWindow(), notify, undefined, decide, (session) => session === "session-b");
-    await notifyRun(fromWindow(), notify, undefined, decide, (session) => session === "session-b");
+    // Open on that conversation: the reply shows under his message, and it is never told later, even once he moves on.
+    await notifyRun(fromWindow("desk-seen-1"), notify, undefined, decide, (session) => session === "session-a");
+    expect([sent, decided, readDomainRun("desk-seen-1")?.notified]).toEqual([[], 0, true]);
+    await notifyRun(fromWindow("desk-seen-1"), notify, undefined, decide, (session) => session === "session-b");
+    expect(sent).toEqual([]);
+    // Another conversation (or the News tab) open does not show his reply under his message: told, once.
+    await notifyRun(fromWindow("domain-notice-1"), notify, undefined, decide, (session) => session === "session-b");
+    await notifyRun(fromWindow("domain-notice-1"), notify, undefined, decide, (session) => session === "session-b");
     expect(sent).toEqual(["The work on “Fix the island” is finished; I haven't checked it yet."]);
   });
 
@@ -296,30 +302,31 @@ describe("notifyRun", () => {
     }
   });
 
-  it("tells a finished task once between Core and the window, by the task its run recorded, never by a task it only mentions", async () => {
+  it("tells each finished task once between Core and the window, never backstage work or work seen where he asked it", async () => {
     const sent: string[] = [];
-    const notify = async (_title: string, message: string) => { sent.push(message); };
-    const base = run(JSON.stringify({ status: "completed", brief: "Merged; unblocked by logan-drag.", tasks: ["flyd-pa-tell-done"] }));
-    const linked: DomainRun = { ...base, id: "desk-linked", request: { ...base.request, id: "desk-linked" }, firstmateTasks: ["flyd-pa-tell-done"] };
-    const line = "Flyd: pa tell done is finished; I haven't checked it yet.";
-    const finished: ExecutiveDecisionRecord = {
-      schema: "flyd.executive-decision.v1", decisionId: "decision-linked", sourceId: "firstmate.change", sourceEventId: "event-linked",
-      taskId: "desk-linked", disposition: "handle_internally", reason: "finished work; its outcome could not be checked", summary: line,
-      delivery: { line, checked: false }, evidenceRefs: [], verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true,
+    const say = async (_title: string, message: string) => { sent.push(message); return "shown" as const; };
+    const line = (task: string) => `${task} is finished; I haven't checked it yet.`;
+    const finished = (taskId: string): ExecutiveDecisionRecord => ({
+      schema: "flyd.executive-decision.v1", decisionId: `decision-${taskId}`, sourceId: "firstmate.change", sourceEventId: `event-${taskId}`,
+      taskId, disposition: "handle_internally", reason: "finished work; its outcome could not be checked", summary: line(taskId),
+      delivery: { line: line(taskId), checked: false }, evidenceRefs: [], verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true,
       createdAt: "2026-11-10T10:00:00.000Z",
-    };
-    await notifyRun(linked, notify, undefined, async () => finished);
-    // The window reads the same task's fleet row as done, and another task the run's report only mentions.
-    const backstage: DomainRun = { ...base, id: "flyd-note-1", request: { ...base.request, id: "flyd-note-1", source: "flyd" }, firstmateTasks: ["cap5-note"] };
-    const runs = [linked, backstage];
-    const row = (taskId: string) => ({ ...finished, taskId, delivery: { line: `${taskId} is finished; I haven't checked it yet.`, checked: false } });
-    const reports = finishedReports([row("flyd-pa-tell-done"), row("logan-drag"), row("cap5-note")], (task) => task, (task) => {
-      const owner = runOfTask(runs, task);
-      return owner && backstageRun(owner) ? undefined : task;
     });
-    await deliverOnce(reports, { say: async (_t, message) => { sent.push(message); return "shown"; } });
-    expect(sent).toEqual([line, "logan-drag is finished; I haven't checked it yet."]);
-    expect(runOfTask(runs, "logan-drag")).toBeUndefined();
+    const base = run(JSON.stringify({ status: "completed", brief: "Merged." }));
+    const make = (id: string, request: Partial<DomainRun["request"]>): DomainRun => ({ ...base, id, request: { ...base.request, id, ...request }, transport: { kind: "firstmate", requestId: id } });
+    const told = make("desk-told", { source: "view", session: "session-b" });
+    const seen = make("desk-seen", { source: "view", session: "session-a" });
+    const backstage = make("flyd-note-1", { source: "flyd" });
+    const openOnA = (session: string) => session === "session-a";
+    // Core tells its run, and keeps quiet about the one shown in the open conversation.
+    await notifyRun(told, async (_t, message) => { sent.push(message); }, undefined, async () => finished("desk-told"), openOnA);
+    await notifyRun(seen, async (_t, message) => { sent.push(message); }, undefined, async () => finished("desk-seen"), openOnA);
+    // The window reads all of them as done later, after he has moved to another conversation.
+    const runs = [told, seen, backstage];
+    const tasks = ["desk-told", "desk-seen", "flyd-note-1", "logan-drag"].map(finished);
+    await tellFinishedWork(tasks, runs, (task) => task, { windowIsOpen: () => false, say });
+    await tellFinishedWork(tasks, runs, (task) => task, { windowIsOpen: () => false, say });
+    expect(sent).toEqual([line("desk-told"), line("logan-drag")]);
   });
 
   it("reaches George once with a decision, and says nothing for a quiet run", async () => {

@@ -14,7 +14,7 @@ import { relayShortfalls } from "../runtime/honesty-check.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
-import { deliverOnce, deliverOwed, finishedKey } from "../runtime/delivered.js";
+import { deliverOnce, deliverOwed, finishedKey, finishedReports, markTold, type Say } from "../runtime/delivered.js";
 import { windowOpen } from "../conversation-view/window-presence.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -102,9 +102,31 @@ export function backstageRun(run: DomainRun): boolean {
   return run.request.source === "flyd" || run.request.source === "self-improvement";
 }
 
-/** The run whose recorded FirstMate tasks include this one (or the run of that id). Pure. */
-export function runOfTask(runs: readonly DomainRun[], task: string): DomainRun | undefined {
-  return runs.find((run) => run.id === task || run.firstmateTasks?.includes(task));
+/** Finished work never told: Flyd's own, or shown under his message in the conversation it was asked from. */
+export function quietRun(run: DomainRun, windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): boolean {
+  return backstageRun(run) || shownInWindow(run, windowIsOpen);
+}
+
+/**
+ * The window's telling of finished work its fleet read decided: each task once, under its run's key when the task is a
+ * run of its own (by its recorded request id), so Core and the window tell it once between them. A quiet run's task is
+ * recorded as handled, never told later.
+ */
+export async function tellFinishedWork(
+  decisions: Parameters<typeof finishedReports>[0],
+  runs: readonly DomainRun[],
+  work: (taskId: string) => string,
+  options: { windowIsOpen?: (session: string) => boolean; say?: Say } = {},
+): Promise<void> {
+  const runOf = (task: string) => runs.find((run) => run.id === task || run.transport.requestId === task);
+  const quiet = (task: string) => {
+    const run = runOf(task);
+    return run !== undefined && quietRun(run, options.windowIsOpen);
+  };
+  const keyOf = (task: string) => runOf(task)?.id ?? task;
+  markTold(decisions.flatMap((decision) => decision.taskId && decision.delivery && quiet(decision.taskId) ? [finishedKey(keyOf(decision.taskId))] : []));
+  const reports = finishedReports(decisions, work, (task) => (quiet(task) ? undefined : keyOf(task)));
+  if (reports.length) await deliverOnce(reports, { ...(options.say ? { say: options.say } : {}) });
 }
 
 /** Tells George only what the executive record says needs his attention, each report once (runtime/delivered.ts). */
@@ -119,7 +141,9 @@ export async function notifyRun(
   // His own message from the conversation window: with the window open on that conversation the reply shows under it
   // there, so a notice would say it twice; otherwise he hears it like any other result.
   // Flyd's own note to the staff, and its own fixes, are backstage: their replies settle them and are never his to hear.
-  if (shownInWindow(run, windowIsOpen) || backstageRun(run)) {
+  if (quietRun(run, windowIsOpen)) {
+    // Recorded as handled, so the window's fleet read never tells it later either.
+    if (run.status === "completed") markTold([finishedKey(run.id)]);
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
     return;
   }
@@ -136,12 +160,10 @@ export async function notifyRun(
       const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
       // A run's finished work is one report; anything else is one per decision. A restart never says either twice.
       const url = decision.delivery?.url;
-      // Its FirstMate tasks are the same finished work: told under any of them, it is not told again.
-      const aliases = [...(decision.delivery ? (run.firstmateTasks ?? []).map(finishedKey) : []), ...(url ? [`link:${url}`] : [])];
       owed = (await deliverOnce([{
         key: decision.delivery ? finishedKey(run.id) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`,
         line: notice, kind, work: run.request.intendedOutcome, evidenceRefs: decision.evidenceRefs,
-        ...(aliases.length ? { aliases } : {}),
+        ...(url ? { aliases: [`link:${url}`] } : {}),
       }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
     } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     // A report not delivered yet is never marked told; the command tick's sweep says it again (deliverOwed).
