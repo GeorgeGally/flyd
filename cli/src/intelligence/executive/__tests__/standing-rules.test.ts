@@ -73,6 +73,11 @@ describe("a staff question in George's words", () => {
     expect(withoutRepeats("Pick a phase. Pick a phase. Then build it.")).toBe("Pick a phase. Then build it.");
   });
 
+  it("keeps one copy when only the first copy carries the status file's prefix", () => {
+    const once = "Should the grid or the list lead the page? ";
+    expect(plainQuestionFor(`needs-decision [at=2026-11-09]: ${once.repeat(7)}`)).toBe("Should the grid or the list lead the page?");
+  });
+
   it("strips paths, task ids and pipeline words, and speaks to him", () => {
     expect(plainQuestionFor("Waiting on George's picks for items 2 and 4 (board http://127.0.0.1:4387/session/dedc9b5c4dff0b4d).", "cleanx-redo")).toBe("Waiting on your picks for items 2 and 4.");
     expect(plainQuestionFor("Is George done looking, so it can be stopped?")).toBe("Are you done looking, so it can be stopped?");

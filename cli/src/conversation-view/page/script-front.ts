@@ -548,6 +548,7 @@ export const FRONT_SCRIPT = `
       at: job.at || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", questionIdentity: job.questionIdentity || "", because: job.because || "",
       digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
       threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.domainRun || "",
+      handled: job.handled && job.handled.decisionId ? { decisionId: job.handled.decisionId, task: job.handled.task || "" } : null,
     };
   }
   function frontPostJob(body) {

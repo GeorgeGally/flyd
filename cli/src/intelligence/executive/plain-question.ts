@@ -61,10 +61,10 @@ function toHim(text: string): string {
  * once the machinery is gone: then it is held, and its boss restates it. Pure.
  */
 export function plainQuestionFor(text: string, tasks?: string | readonly string[]): string | null {
-  let said = withoutRepeats(text.replace(/\s+/g, " ").trim())
-    // "needs-decision [at=…] [key=…]:" is the status file talking.
+  // "needs-decision [at=…] [key=…]:" is the status file talking; gone first, so the copies after it match the first.
+  let said = withoutRepeats(text.replace(/\s+/g, " ").trim()
     .replace(/^\s*(?:needs-decision|blocked|paused|working|done)\s*(?:\[[^\]]*\]\s*)*:\s*/i, "")
-    .replace(/\s*\[(?:at|key)=[^\]]*\]/gi, "");
+    .replace(/\s*\[(?:at|key)=[^\]]*\]/gi, ""));
   for (const task of idsOf(tasks)) said = said.replace(new RegExp(`\\s*\\b(?:recorded |listed |kept )?(?:in|under|on|for|from|see)?\\s*${escaped(task)}\\b`, "gi"), "");
   said = said
     .replace(new RegExp(`\\s*\\b(?:recorded |listed |kept )?(?:in|under|on|see)\\s+${TASK_ID.source}`, "g"), "")
