@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
-import { decideRun, notifyRun, tellFinishedWork } from "../scheduler.js";
+import { decideRun, notifyRun } from "../scheduler.js";
 import { deliverOwed } from "../../runtime/delivered.js";
 import { readDomainRun } from "../store.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
@@ -303,59 +303,32 @@ describe("notifyRun", () => {
     }
   });
 
-  it("tells FirstMate's finished work once, by its fleet row only, and keeps quiet where its link already shows", async () => {
-    const sent: string[] = [];
-    const say = async (_title: string, message: string) => { sent.push(message); return "shown" as const; };
-    const pr = (n: number) => `https://github.com/GeorgeGally/flyd/pull/${n}`;
-    const line = (task: string, url?: string) => `${task} is finished and waiting to go in.${url ? ` ${url}` : ""}`;
-    const finished = (taskId: string, url?: string): ExecutiveDecisionRecord => ({
-      schema: "flyd.executive-decision.v1", decisionId: `decision-${taskId}`, sourceId: "firstmate.change", sourceEventId: `event-${taskId}`,
-      taskId, disposition: "handle_internally", reason: "finished work", summary: line(taskId, url),
-      delivery: { line: line(taskId, url), checked: Boolean(url), ...(url ? { url } : {}) }, evidenceRefs: [], verification: { status: "unknown", evidenceRefs: [] },
-      show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
-    });
-    const base = run(JSON.stringify({ status: "completed", brief: "Merged." }));
-    const desk = (id: string, session: string, brief: string): DomainRun => ({
-      ...base, id, request: { ...base.request, id, source: "view", session }, transport: { kind: "firstmate", requestId: id },
-      result: { ...base.result!, brief }, underWay: true,
-    });
-    // Two desk runs from the window: their reply shows the PR link in conversation A (open) and B (closed).
-    const onA = desk("desk-a", "session-a", `Opened ${pr(1)} for the hero height.`);
-    const onB = desk("desk-b", "session-b", `Opened ${pr(2)} for the footer.`);
-    const openOnA = (session: string) => session === "session-a";
-    // Core answers FirstMate's finished runs it said were under way but never rings for them: the fleet row is the one announcer.
-    for (const item of [onA, onB]) await notifyRun(item, async (_t, message) => { sent.push(message); }, undefined, async () => finished(item.id, pr(1)), openOnA);
-    expect(sent).toEqual([]);
-    // The fleet rows carry FirstMate's own task ids, unrelated to the run ids.
-    const tasks = [finished("gnm-hero-height", pr(1)), finished("gnm-footer", pr(2)), finished("logan-drag")];
-    await tellFinishedWork(tasks, [onA, onB], (task) => task, { windowIsOpen: openOnA, say });
-    await tellFinishedWork(tasks, [onA, onB], (task) => task, { windowIsOpen: () => false, say });
-    expect(sent).toEqual([line("gnm-footer", pr(2)), line("logan-drag")]);
-  });
-
-  it("announces a FirstMate reply that was itself the outcome, and stays quiet on one a fleet task carries", async () => {
+  it("announces each finished FirstMate run once under its own id, unless its reply already shows in the open conversation", async () => {
     const sent: string[] = [];
     const notify = async (_title: string, message: string) => { sent.push(message); };
-    const line = (id: string) => `Done: ${id}. https://github.com/GeorgeGally/flyd/commit/abc1234`;
+    const line = (id: string) => `Done: ${id}. https://github.com/GeorgeGally/flyd/pull/7`;
     const finished = (taskId: string): ExecutiveDecisionRecord => ({
       schema: "flyd.executive-decision.v1", decisionId: `decision-${taskId}`, sourceId: "firstmate.change", sourceEventId: `event-${taskId}`,
       taskId, disposition: "handle_internally", reason: "finished work", summary: line(taskId),
-      delivery: { line: line(taskId), checked: true }, evidenceRefs: [], verification: { status: "verified", evidenceRefs: [] },
+      delivery: { line: line(taskId), checked: true, url: "https://github.com/GeorgeGally/flyd/pull/7" }, evidenceRefs: [], verification: { status: "verified", evidenceRefs: [] },
       show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
     });
-    const base = run(JSON.stringify({ status: "completed", brief: "Already fixed in abc1234." }));
-    const chat = (id: string, underWay?: boolean): DomainRun => ({
-      ...base, id, request: { ...base.request, id, source: "chat" }, transport: { kind: "firstmate", requestId: id }, ...(underWay ? { underWay } : {}),
+    const base = run(JSON.stringify({ status: "completed", brief: "Merged in https://github.com/GeorgeGally/flyd/pull/7." }));
+    const firstmate = (id: string, source: "chat" | "view", session?: string): DomainRun => ({
+      ...base, id, request: { ...base.request, id, source, ...(session ? { session } : {}) }, transport: { kind: "firstmate", requestId: id },
     });
-    // Answered straight from the inbox, no task spawned: no fleet row will ever tell it, so Core does, once.
-    await notifyRun(chat("domain-direct"), notify, undefined, async () => finished("domain-direct"));
-    await notifyRun(chat("domain-direct"), notify, undefined, async () => finished("domain-direct"));
-    // Said to be under way first: its fleet row announces the finish, Core only answers it.
-    await notifyRun(chat("domain-spawned", true), notify, undefined, async () => finished("domain-spawned"));
-    expect(sent).toEqual([line("domain-direct")]);
-    expect([readDomainRun("domain-direct")?.notified, readDomainRun("domain-spawned")?.notified]).toEqual([true, true]);
+    const openOnA = (session: string) => session === "session-a";
+    // From chat, and from a window conversation that is not open: each told once, however often it is seen.
+    for (const item of [firstmate("domain-chat", "chat"), firstmate("domain-desk-b", "view", "session-b")]) {
+      await notifyRun(item, notify, undefined, async () => finished(item.id), openOnA);
+      await notifyRun(item, notify, undefined, async () => finished(item.id), openOnA);
+    }
+    // Its reply already showing under his message in the open conversation: never rung, even once he moves on.
+    await notifyRun(firstmate("domain-desk-a", "view", "session-a"), notify, undefined, async () => finished("domain-desk-a"), openOnA);
+    await notifyRun(firstmate("domain-desk-a", "view", "session-a"), notify, undefined, async () => finished("domain-desk-a"), () => false);
+    expect(sent).toEqual([line("domain-chat"), line("domain-desk-b")]);
+    expect(["domain-chat", "domain-desk-b", "domain-desk-a"].map((id) => readDomainRun(id)?.notified)).toEqual([true, true, true]);
   });
-
   it("reaches George once with a decision, and says nothing for a quiet run", async () => {
     const sent: string[] = [];
     const notify = async (_title: string, message: string) => { sent.push(message); };

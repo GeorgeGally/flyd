@@ -42,12 +42,10 @@ import { LiveStaffSession, readStaffView } from "../command/fleet-monitor.js";
 import { listDomainRuns } from "../command/store.js";
 import { sendRunMessage } from "../command/messages.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
-import { plainLabel } from "../intelligence/executive/finished-check.js";
-import { finishedKey, seedOnce } from "../runtime/delivered.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
 import { STANDING_RULES_POLICY, standingPreferences } from "../intelligence/executive/standing-rules.js";
-import { deliverBossNote, tellFinishedWork } from "../command/scheduler.js";
+import { deliverBossNote } from "../command/scheduler.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { runCuratorSweep } from "../cognition/curator/reconcile.js";
 import { autonomyLevel } from "../runtime/tool-policy.js";
@@ -361,7 +359,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       const sentToBoss = notesSentToBoss(run?.messages);
       return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), ...(standing !== undefined && change.kind === "decision" ? { standing } : {}), ...(openCalls.length ? { openCalls } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
     });
-    const decisions = await processFirstmateChanges(prepared, {
+    return processFirstmateChanges(prepared, {
       complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
       jev: { ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) },
       executeInternalAction: async (action) => {
@@ -380,15 +378,6 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         return deliverBossNote(run, action);
       },
     });
-    // Finished work is told once, in its checked line, however often the fleet is read (runtime/delivered.ts).
-    const labels = new Map(prepared.flatMap((change) => change.taskId ? [[change.taskId, plainLabel(change.label)] as const] : []));
-    // The first read after this shipped records what is already finished as told, without ringing (once ever).
-    const finishedRuns = runs.filter((run) => run.status === "completed").map((run) => finishedKey(run.id));
-    const finishedTasks = decisions.flatMap((decision) => decision.taskId && decision.delivery ? [finishedKey(decision.taskId)] : []);
-    let seeded: boolean;
-    try { seeded = seedOnce([...finishedTasks, ...finishedRuns]); } catch { seeded = true; }
-    if (!seeded) void tellFinishedWork(decisions, runs, (task) => labels.get(task) ?? plainLabel(task)).catch(() => undefined);
-    return decisions;
   };
   const feed = new ArtefactFeed({
     voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }),

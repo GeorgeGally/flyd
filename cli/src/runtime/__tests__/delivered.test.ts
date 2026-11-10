@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { deliveredRecords, deliverOnce, deliverOwed, MAX_TRIES, seedOnce, finishedReports, UNFINISHED_CLAIM_MS, claimDelivery, type DeliveryReport } from "../delivered.js";
+import { deliveredRecords, deliverOnce, deliverOwed, MAX_TRIES, seedOnce, UNFINISHED_CLAIM_MS, claimDelivery, type DeliveryReport } from "../delivered.js";
 
 let dir: string | undefined;
 afterEach(() => {
@@ -127,19 +127,5 @@ describe("flyd.delivered", () => {
     expect(said).toEqual(["Done: work:new-1."]);
     expect(await deliverOwed({ store, say, now: () => new Date(Date.now() + 24 * 60 * 60_000) })).toEqual({ told: [], owed: [] });
     store.close();
-  });
-
-  it("makes one report per finished decision Flyd shows and notifies", () => {
-    expect(finishedReports([
-      { taskId: "flyd-a", show: true, notify: true, evidenceRefs: ["r"], delivery: { line: "Done: a. https://x/pull/2", url: "https://x/pull/2" } },
-      { taskId: "flyd-b", show: false, notify: false, evidenceRefs: [] },
-      { show: true, notify: true, evidenceRefs: [], delivery: { line: "no task" } },
-    ], (task) => `named ${task}`)).toEqual([
-      { key: "work:flyd-a", line: "Done: a. https://x/pull/2", kind: "deliverable", work: "named flyd-a", evidenceRefs: ["r"] },
-    ]);
-    // Keyed by the run the task is his work for; a task its owner keeps quiet makes no report.
-    const done = (taskId: string) => ({ taskId, show: true, notify: true, evidenceRefs: [], delivery: { line: `Done: ${taskId}.` } });
-    expect(finishedReports([done("flyd-c"), done("flyd-d")], (task) => task, (task) => (task === "flyd-c" ? "desk-1" : undefined)).map((item) => item.key))
-      .toEqual(["work:desk-1"]);
   });
 });

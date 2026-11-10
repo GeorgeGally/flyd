@@ -252,27 +252,7 @@ export function seedOnce(keys: string[], options: { store?: IntelligenceEventSto
   }
 }
 
-/** The news FirstMate's finished fleet rows make, each keyed by its own task id. Pure. */
-export function finishedReports(decisions: ReadonlyArray<{
-  taskId?: string;
-  show: boolean;
-  notify: boolean;
-  evidenceRefs: string[];
-  delivery?: { line: string; url?: string };
-}>, work: (taskId: string) => string = (taskId) => taskId, owner: (taskId: string) => string | undefined = (taskId) => taskId): DeliveryReport[] {
-  return decisions.flatMap((decision) => {
-    const owned = decision.taskId ? owner(decision.taskId) : undefined;
-    return decision.delivery && decision.taskId && owned && decision.show && decision.notify ? [{
-    key: finishedKey(owned),
-    line: decision.delivery.line,
-    kind: "deliverable" as const,
-    work: work(decision.taskId),
-    evidenceRefs: decision.evidenceRefs,
-    }] : [];
-  });
-}
-
-/** One key per piece of finished work: a fleet row's task id, or the id of a run Core announces. */
+/** One key per piece of finished work: the id of the run Core announces it for. */
 export function finishedKey(id: string): string {
   return `work:${id}`;
 }

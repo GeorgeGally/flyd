@@ -7,18 +7,19 @@ import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
 import { noticeKind } from "./notice.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
-import { readDomainRun, saveDomainRun } from "./store.js";
+import { listDomainRuns, readDomainRun, saveDomainRun } from "./store.js";
 import type { DomainRun } from "./types.js";
 import { notificationLine } from "../council/chief-of-staff.js";
 import { relayShortfalls } from "../runtime/honesty-check.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
-import { deliverOnce, deliverOwed, finishedKey, finishedReports, markTold, type Say } from "../runtime/delivered.js";
+import { deliverOnce, deliverOwed, finishedKey, markTold, seedOnce } from "../runtime/delivered.js";
 import { windowOpen } from "../conversation-view/window-presence.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+let seeded = false;
 
 type Notify = (title: string, message: string, kind?: GeorgeKind) => Promise<void>;
 
@@ -107,32 +108,6 @@ export function quietRun(run: DomainRun, windowIsOpen: (session: string) => bool
   return backstageRun(run) || shownInWindow(run, windowIsOpen);
 }
 
-const LINK = /https:\/\/github\.com\/[^\s)"'<>]+\/(?:pull\/\d+|commit\/[0-9a-f]{7,40})/gi;
-
-/** The PR and commit links in replies already showing under his messages in a conversation the window has open. */
-export function linksShownInWindow(runs: readonly DomainRun[], windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): Set<string> {
-  const shown = runs.filter((run) => run.result && run.request.source === "view" && run.request.session !== undefined && windowIsOpen(run.request.session));
-  return new Set(shown.flatMap((run) => [run.result!.brief, run.result!.detailedReport, ...(run.result!.evidence ?? [])]
-    .flatMap((text) => [...(text ?? "").matchAll(LINK)].map((match) => match[0]))));
-}
-
-/**
- * The one announcer of FirstMate's finished work: its fleet rows, each under its own task id. A row whose link is already
- * showing in a reply in the open conversation is recorded as handled instead of rung.
- */
-export async function tellFinishedWork(
-  decisions: Parameters<typeof finishedReports>[0],
-  runs: readonly DomainRun[],
-  work: (taskId: string) => string,
-  options: { windowIsOpen?: (session: string) => boolean; say?: Say } = {},
-): Promise<void> {
-  const shown = linksShownInWindow(runs, options.windowIsOpen);
-  const quiet = new Set(decisions.flatMap((decision) => decision.taskId && decision.delivery?.url && shown.has(decision.delivery.url) ? [decision.taskId] : []));
-  markTold([...quiet].map(finishedKey));
-  const reports = finishedReports(decisions, work, (task) => (quiet.has(task) ? undefined : task));
-  if (reports.length) await deliverOnce(reports, { ...(options.say ? { say: options.say } : {}) });
-}
-
 /** Tells George only what the executive record says needs his attention, each report once (runtime/delivered.ts). */
 export async function notifyRun(
   run: DomainRun,
@@ -146,7 +121,7 @@ export async function notifyRun(
   // there, so a notice would say it twice; otherwise he hears it like any other result.
   // Flyd's own note to the staff, and its own fixes, are backstage: their replies settle them and are never his to hear.
   if (quietRun(run, windowIsOpen)) {
-    // Recorded as handled, so the window's fleet read never tells it later either.
+    // Recorded as handled, so nothing tells it later either.
     if (run.status === "completed") markTold([finishedKey(run.id)]);
     saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
     return;
@@ -156,19 +131,13 @@ export async function notifyRun(
     // Work sent back to its boss stays open: the boss's next reply is decided afresh.
     if (decision.action && decision.verification.status === "verified") return;
     // Settled once George was told, or quietly when nothing is left for him or Flyd; otherwise Flyd holds it in view.
-    // FirstMate work it said was under way is announced once, by its fleet row (tellFinishedWork); here it is only
-    // answered. A reply that was itself the outcome (answered, already fixed) has no row to carry it: Core tells it.
-    if (decision.delivery && run.transport.kind === "firstmate" && run.underWay) {
-      saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
-      return;
-    }
     const notice = noticeForDecision(decision);
     const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
       || decision.action !== undefined || decision.reason === FENCE_HELD || decision.reason === HELD_FOR_ATTENTION;
     let owed = false;
     if (notice) {
       const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
-      // A run's finished work is one report; anything else is one per decision. A restart never says either twice.
+      // A run's finished work is one report, whatever its domain; anything else is one per decision. A restart never says either twice.
       owed = (await deliverOnce([{
         key: decision.delivery ? finishedKey(run.id) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`,
         line: notice, kind, work: run.request.intendedOutcome, evidenceRefs: decision.evidenceRefs,
@@ -185,6 +154,15 @@ export async function commandTick(): Promise<void> {
   if (running) return;
   running = true;
   try {
+    // Once ever, before anything is told: runs already finished when this shipped are recorded as told without ringing.
+    if (!seeded) {
+      try {
+        seedOnce(listDomainRuns().filter((run) => run.status === "completed").map((run) => finishedKey(run.id)));
+        seeded = true;
+      } catch {
+        // Tried again next tick.
+      }
+    }
     await Promise.all([
       syncFirstmateDomainRuns({ onChanged: notifyRun }),
       syncLibrarianDomainRuns({ onChanged: notifyRun }),

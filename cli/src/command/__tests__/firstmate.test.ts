@@ -436,32 +436,6 @@ describe("FirstMate domain transport", () => {
     expect(notes).toHaveLength(2);
   });
 
-  it("records that FirstMate said the work is under way, from its structured status, and keeps it once it finishes", async () => {
-    const save = (id: string) => saveDomainRun({
-      id, request: { ...request(), id }, owner: "FirstMate", status: "accepted",
-      createdAt: request().createdAt, updatedAt: request().createdAt,
-      transport: { kind: "firstmate", requestId: id, externalId: `note-${id}` },
-    });
-    save("domain-spawned");
-    save("domain-answered");
-    let replies: Record<string, { body: string; cursor: string }> = {
-      "domain-spawned": { body: JSON.stringify({ status: "working", brief: "Filed it as gnm-hero-height; a crewmate is on it." }), cursor: "1" },
-      "domain-answered": { body: JSON.stringify({ status: "completed", brief: "Already fixed in abc1234 on main." }), cursor: "1" },
-    };
-    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({
-      pending: [],
-      handled: Object.entries(replies).map(([id, reply]) => ({ id: `note-${id}`, request_id: id, acknowledged: true, reply: { id: `note-${id}`, ...reply } })),
-    }), stderr: "" });
-    const sync = () => syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }), judge: async () => null });
-    const read = (id: string) => listDomainRuns().find((run) => run.id === id)!;
-
-    await sync();
-    expect([read("domain-spawned").underWay, read("domain-answered").underWay, read("domain-answered").status]).toEqual([true, undefined, "completed"]);
-    replies = { ...replies, "domain-spawned": { body: JSON.stringify({ status: "completed", brief: "Merged." }), cursor: "2" } };
-    await sync();
-    expect([read("domain-spawned").status, read("domain-spawned").underWay]).toEqual(["completed", true]);
-  });
-
   it("records a structured handoff with no evidence as done, noting the missing layer", async () => {
     saveDomainRun({
       id: "domain-test-1", request: request(), owner: "FirstMate", status: "accepted",
