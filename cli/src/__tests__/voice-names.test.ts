@@ -31,6 +31,8 @@ beforeEach(() => {
   vi.stubEnv("FLYD_USER_PROFILE", join(dir, "USER.md"));
   vi.stubEnv("FLYD_DICTATION_RULES", join(dir, "dictation-rules.json"));
   vi.stubEnv("FLYD_DICTATE_MODEL", "");
+  vi.stubEnv("FLYD_DICTIONARY_WORDS", join(dir, "words"));
+  writeFileSync(join(dir, "words"), ["the", "login", "page", "is", "broken", "again", "clean", "up", "how", "doing", "did", "ship", "yet"].join("\n"));
   vi.stubEnv("OPENAI_API_KEY", "test-key");
   writeFileSync(join(dir, "projects.json"), JSON.stringify({ projects: [
     project("CleanX"), project("Posttraction"), project("Logan"), project("Pierre"), project("Tastemaker"), project("Fonzo"), project("Fonzi"),
@@ -127,6 +129,23 @@ describe("his corrections teach Flyd", () => {
     expect(nameCorrection("CleanX, not Clean", undefined, terms)).toBeNull();
     expect(nameCorrection("Logan, not Logan's", undefined, terms)).toBeNull();
     expect(nameCorrection("I meant CleanX", "clean up the page", terms)).toBeNull();
+    expect(nameCorrection("It's Fonzo.", "how is fonso doing", ["Fonzo"])).toBeNull();
+    expect(nameCorrection("I meant Fonzo", "how is fonso doing", ["Fonzo"])).toEqual({ from: "fonso", to: "Fonzo" });
+  });
+
+  it("never infers an ordinary word was a misheard name, unless he names both", () => {
+    vi.stubEnv("FLYD_DICTIONARY_WORDS", join(dir, "words-with-fonso"));
+    writeFileSync(join(dir, "words-with-fonso"), ["how", "is", "doing", "fonso"].join("\n"));
+    const terms = ["Fonzo"];
+    expect(nameCorrection("I meant Fonzo", "how is fonso doing", terms)).toBeNull();
+    expect(nameCorrection("No, Fonzo", "how is fonso doing", terms)).toBeNull();
+    expect(nameCorrection("not fonso, Fonzo", undefined, terms)).toEqual({ from: "fonso", to: "Fonzo" });
+  });
+
+  it("with no word list to check, an implied correction teaches nothing", () => {
+    vi.stubEnv("FLYD_DICTIONARY_WORDS", join(dir, "missing"));
+    expect(nameCorrection("I meant Fonzo", "how is fonso doing", ["Fonzo"])).toBeNull();
+    expect(nameCorrection("not fonso, Fonzo", undefined, ["Fonzo"])).toEqual({ from: "fonso", to: "Fonzo" });
   });
 
   it("a LIVE correction of an inflection teaches nothing", async () => {
@@ -163,6 +182,25 @@ describe("his corrections teach Flyd", () => {
     expect(correctVoiceNames("how is fonso doing")).toBe("how is fonso doing");
     const store = new IntelligenceEventStore();
     try { expect(reviewedVocabulary(store, "com.apple.Notes", "Notes").rules).toEqual([]); } finally { store.close(); }
+  });
+
+  it("his latest decision on a name wins on every path, even over an earlier approval", async () => {
+    await learning("enable");
+    learnLiveUtterance("it's Fonzo not fonso", "anything");
+    const listed = async () => ((await learningRequest("/learning", "GET")).body as { corrections: Array<{ sequence: number; bundleId: string; to: string }> }).corrections;
+    const lesson = (await listed()).find(c => c.to === "Fonzo")!;
+    await learningRequest("/dictation/review", "POST", { sequence: lesson.sequence, approved: true });
+    await learningRequest("/dictation/correction", "POST", { before: "how is fonso doing", after: "how is Fonzo doing",
+      invocationId: "d1", bundleId: "com.apple.Notes", scope: dictationScope("com.apple.Notes", "Notes") });
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is Fonzo doing");
+
+    const edit = (await listed()).find(c => c.bundleId === "com.apple.Notes")!;
+    await learningRequest("/dictation/review", "POST", { sequence: edit.sequence, approved: false });
+    expect(learnedNameRules()).toEqual([]);
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is fonso doing");
+
+    await learningRequest("/dictation/review", "POST", { sequence: lesson.sequence, approved: true });
+    expect(correctVoiceNames("how is fonso doing")).toBe("how is Fonzo doing");
   });
 
   it("withholds heard words taught two different names", async () => {

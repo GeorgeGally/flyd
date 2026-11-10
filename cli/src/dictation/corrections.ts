@@ -151,6 +151,9 @@ export function correctionCandidates(store: IntelligenceEventStore): CorrectionC
     group.push(c); groups.set(c.ruleId, group);
   }
   const summaries = new Map<string, { manual: boolean; disabled: boolean; eligible: Set<number>; count: number; recurrences: number }>();
+  const pairKey = (c: ReplacementRule) => normalize(c.from) + "\u0000" + normalize(c.to);
+  // His latest decision on a name spelling, wherever he made it, holds on every path.
+  const nameDecisions = new Map<string, CorrectionCandidate>();
   const spellings = new Map<string, Set<string>>();
   const scopeKey = (c: CorrectionCandidate) => JSON.stringify([c.bundleId, c.scope, normalize(c.from)]);
   for (const [id, group] of groups) {
@@ -158,6 +161,8 @@ export function correctionCandidates(store: IntelligenceEventStore): CorrectionC
       e.reviewed && (e.reviewSequence ?? 0) > (latest?.reviewSequence ?? 0) ? e : latest, undefined);
     const manual = decision?.approved === true;
     const disabled = decision?.approved === false;
+    const latest = nameDecisions.get(pairKey(group[0]));
+    if (decision && (decision.reviewSequence ?? 0) > (latest?.reviewSequence ?? 0)) nameDecisions.set(pairKey(group[0]), decision);
     const eligible = group.filter(e => e.eligible && e.context && e.context.left.length + e.context.right.length > 0);
     summaries.set(id, { manual, disabled, eligible: new Set(eligible.map(e => e.sequence)), count: eligible.length,
       recurrences: Math.max(0, eligible.length - CORRECTION_PROMOTION_THRESHOLD) });
@@ -166,13 +171,11 @@ export function correctionCandidates(store: IntelligenceEventStore): CorrectionC
       values.add(normalize(group[0].to)); spellings.set(key, values);
     }
   }
-  const pairKey = (c: ReplacementRule) => normalize(c.from) + "\u0000" + normalize(c.to);
-  // A name spelling he rejected anywhere is off everywhere, unless he approves it again.
-  const rejectedNames = new Set(candidates.filter(c => summaries.get(c.ruleId!)!.disabled).map(pairKey));
   return candidates.map(c => {
     const group = groups.get(c.ruleId!)!, summary = summaries.get(c.ruleId!)!;
-    const manual = summary.manual;
-    const disabled = summary.disabled || !manual && c.name === true && rejectedNames.has(pairKey(c));
+    const decision = c.name ? nameDecisions.get(pairKey(c)) : undefined;
+    const manual = decision ? decision.approved : summary.manual;
+    const disabled = decision ? !decision.approved : summary.disabled;
     const conflict = (spellings.get(scopeKey(c))?.size ?? 0) > 1;
     const safe = summary.eligible.has(c.sequence);
     const named = c.name === true && !disabled && !conflict;
