@@ -189,7 +189,7 @@ describe("finished work's checked line", () => {
   });
 });
 
-describe("finished work's checked line, whole", () => {
+describe("finished work's line, its outcome clause whole", () => {
   const url = "https://github.com/GeorgeGally/gnm/pull/42";
   const told = (line: string, checked = true) => ({
     schema: "flyd.executive-decision.v1", decisionId: "d", sourceId: "s", sourceEventId: "e", reason: "", createdAt: "", evidenceRefs: [url],
@@ -197,24 +197,33 @@ describe("finished work's checked line, whole", () => {
     delivery: { line, checked, url }, verification: { status: "unknown", evidenceRefs: [url] },
   }) as ExecutiveDecisionRecord;
   const request = "Make the checkout button on the Good Neighbours market site work on every phone, tablet and older laptop browser";
+  const notice = (line: string, checked = true) => deliver(reportFromRun(run({ result: result({}) }), told(line, checked)), "notification").text!;
 
-  for (const [outcome, clause] of [["waiting", "is finished and waiting to go in."], ["closed", "is finished, but its change was closed without going in."]] as const) {
-    it(`says a ${outcome} line over 120 characters whole, never cut and never "Done:"`, () => {
+  for (const [outcome, clause, checked] of [
+    ["waiting", "is finished and waiting to go in.", true],
+    ["closed", "is finished, but its change was closed without going in.", true],
+    ["unchecked", "is finished; I haven't checked it yet.", false],
+  ] as const) {
+    it(`shortens the quoted request of a long ${outcome} line, never its outcome clause, and never says "Done:"`, () => {
       const line = finishedLine({ request }, outcome, url);
       expect(line.length).toBeGreaterThan(120 + url.length);
-      const said = deliver(reportFromRun(run({ result: result({}) }), told(line)), "notification").text!;
-      expect(said).toBe(line);
-      expect(said).toContain(clause);
+      const said = notice(line, checked);
+      expect(said.endsWith(`${clause} ${url}`)).toBe(true);
+      expect(said.startsWith("Your request “Make the checkout button")).toBe(true);
+      expect(said.slice(0, -url.length - 1).length).toBeLessThanOrEqual(120);
       expect(said).not.toContain("Done:");
-      expect(said).not.toContain("…");
     });
   }
 
-  it("says a line that shows only a path as written, never \"Done:\"", () => {
-    const line = finishedLine({ title: "Fix src/checkout.ts crash" }, "waiting", url);
-    const said = deliver(reportFromRun(run({ result: result({}) }), told(line)), "notification").text;
-    expect(said).toBe(line);
-    expect(said).not.toContain("Done:");
+  for (const checked of [true, false]) {
+    it(`says a ${checked ? "checked" : "unchecked"} line that shows only a path as written, never "Done:"`, () => {
+      const line = finishedLine({ title: "Fix src/checkout.ts crash" }, checked ? "waiting" : "unchecked", url);
+      expect(notice(line, checked)).toBe(line);
+    });
+  }
+
+  it("tells an unchecked line unfit to show by its work, still unchecked, never \"Done:\"", () => {
+    expect(notice("The firstmate session is finished; I haven't checked it yet.", false)).toBe(`The checkout button works on mobile is finished; I haven't checked it yet. ${url}`);
   });
 });
 

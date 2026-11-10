@@ -40,8 +40,8 @@ export interface Report {
   steps?: string[];
   /** For landed work: the change itself. */
   link?: string;
-  /** The outcome is the review step's checked line for finished work: said whole as written, never cut or told by its name, its link always with it. */
-  checked?: true;
+  /** The outcome is finished work's line from the review step, checked or honestly unchecked: its outcome clause is never cut nor told as "Done:", its link always with it. */
+  checked?: boolean;
   /** For a long report: the whole of it, behind the lead. */
   document?: string;
   /** The work, in his words, for batching and for a lead that cannot be used as written. */
@@ -169,6 +169,16 @@ function detailLines(report: Report, lead: string): string[] {
   return lines;
 }
 
+const UNCHECKED = " is finished; I haven't checked it yet.";
+
+/** A finished line over the lead line's length shortens the request it quotes, or drops the quote, never its outcome clause. Pure. */
+function shortQuote(line: string): string {
+  const quoted = line.match(/“([^”]*)”/);
+  if (line.length <= LINE_CHARS || !quoted) return line;
+  const kept = quoted[1]!.slice(0, Math.max(0, LINE_CHARS - (line.length - quoted[1]!.length) - 1)).replace(/\s+\S*$/, "");
+  return kept.length >= 12 ? line.replace(quoted[0], `“${kept}…”`) : line.replace(` ${quoted[0]}`, "");
+}
+
 /**
  * A report as one surface says it. A notification carries the lead line only;
  * the window the lead, at most two more lines and the artefact; the next
@@ -183,16 +193,17 @@ export function deliver(report: Report, surface: DeliverySurface): Delivered {
     ...(shape === "steps" && report.steps ? { steps: report.steps } : {}),
     ...(report.link ? { link: report.link } : {}),
   };
-  const written = report.checked ? report.outcome.replace(/\s+/g, " ").trim() : leadLine(report.outcome, surface);
-  const reasons = report.checked ? relayShortfalls(written).map((shortfall) => shortfall.reason) : unfitForHim(written);
-  // Finished work, or his call, whose own words are not fit to show is told by its name; a checked line is said whole or held; a report that says nothing is held.
+  const finished = report.checked !== undefined;
+  const written = finished ? shortQuote(report.outcome.replace(/\s+/g, " ").trim()) : leadLine(report.outcome, surface);
+  const reasons = finished ? relayShortfalls(written).map((shortfall) => shortfall.reason) : unfitForHim(written);
+  // Finished work, or his call, whose own words are not fit to show is told by its name; a finished line keeps its outcome clause; a report that says nothing is held.
   const work = report.work?.replace(/[.\s]+$/, "") ?? "";
-  const fallback = report.checked || !written || !work ? "" : report.kind === "done" ? `Done: ${notificationLine(`${work}.`, LINE_CHARS - "Done: ".length)}` : report.kind === "decision" ? `Your call is needed: ${notificationLine(`${work}.`, LINE_CHARS - "Your call is needed: ".length)}` : "";
+  const fallback = report.checked || !written || !work ? "" : report.checked === false ? `${notificationLine(work, LINE_CHARS - UNCHECKED.length).replace(/[.\s]+$/, "")}${UNCHECKED}` : report.kind === "done" ? `Done: ${notificationLine(`${work}.`, LINE_CHARS - "Done: ".length)}` : report.kind === "decision" ? `Your call is needed: ${notificationLine(`${work}.`, LINE_CHARS - "Your call is needed: ".length)}` : "";
   const lead = reasons.length === 0 && written ? written : fallback && unfitForHim(fallback).length === 0 ? fallback : "";
   if (!lead) return { text: null, lead: null, shape, ...extras, held: reasons.length ? reasons : ["It says nothing."] };
   const link = report.link && !lead.includes(report.link) ? report.link : "";
   // Finished work is told once with its link (the pull request or change), on a notification too.
-  if (surface === "notification") return { text: report.checked && link ? `${lead} ${link}` : lead, lead, shape, ...extras };
+  if (surface === "notification") return { text: finished && link ? `${lead} ${link}` : lead, lead, shape, ...extras };
   const lines = detailLines(report, lead);
   const text = [shape === "landed" && link ? `${lead} ${link}` : lead, ...lines].join("\n");
   return { text, lead, shape, ...extras };
@@ -236,7 +247,7 @@ export function reportFromRun(run: DomainRun, decision?: ExecutiveDecisionRecord
   const options = decision?.disposition === "ask_george" && decision.options.length ? decision.options : undefined;
   const brief = saidOnce(result.brief || run.failure || "");
   // With the review step's decision, its reading is what he is told, never the staff's own brief; finished work's
-  // checked line (finished-check.ts) leads, its link kept apart so the lead line never cuts it.
+  // line (finished-check.ts), checked or not, leads, its link kept apart so the lead line never cuts it.
   const told = decision?.delivery;
   const toldLine = told ? (told.url ? told.line.replace(told.url, "") : told.line).replace(/\s+/g, " ").replace(/[\s:—-]+$/, "").trim() : "";
   const reading = decision ? toldLine || decision.summary : brief;
@@ -258,7 +269,7 @@ export function reportFromRun(run: DomainRun, decision?: ExecutiveDecisionRecord
     ...(options ? { options } : {}),
     evidenceRefs: [`domain-run:${run.id}`, ...(decision?.evidenceRefs ?? [])],
     shape,
-    ...(told?.checked && toldLine ? { checked: true as const } : {}),
+    ...(told && toldLine ? { checked: told.checked } : {}),
     artefacts,
     ...(steps.length ? { steps } : {}),
     ...(link ? { link } : {}),
