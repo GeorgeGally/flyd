@@ -3204,7 +3204,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     const cards = [...document.querySelectorAll(".outcomes .card")];
     // What needs him says so inside the sentence; the rest is the dot's colour.
     expect(document.querySelector(".outcomes .card-meta")).toBeNull();
-    expect(cards.map((card) => card.querySelector(".card-line")!.textContent)).toEqual(["Stuck: flyd decides itself", "Chief-of-staff voice", "Activity artefacts"]);
+    expect(cards.map((card) => card.querySelector(".card-line")!.textContent)).toEqual(["Stuck: Flyd decides itself", "Chief-of-staff voice", "Activity artefacts"]);
     expect(cards[1]!.querySelector<HTMLAnchorElement>(".card-link")!.href).toBe("https://github.com/GeorgeGally/flyd/pull/170");
     expect(document.querySelector(".outcomes-lead")!.textContent).toBe("Here's where the three Flyd fixes stand:");
   });

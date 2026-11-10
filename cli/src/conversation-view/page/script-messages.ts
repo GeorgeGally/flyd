@@ -164,7 +164,7 @@ export const MESSAGES_SCRIPT = `
     var lead = STATE_LEADS[state];
     line = String(line || "");
     if (!lead || line.toLowerCase().indexOf(lead.toLowerCase()) === 0) return line;
-    return lead + ": " + line.charAt(0).toLowerCase() + line.slice(1);
+    return lead + ": " + line;
   }
   function linkWord(url) {
     return /\\/pull\\/\\d+/.test(url) ? "Open the change ↗" : url.replace(/^https?:\\/\\/(www\\.)?/, "").replace(/\\/$/, "") + " ↗";
