@@ -428,16 +428,15 @@ export class SnapshotDiffer {
    * is never dropped: a plain line leads, the original one tap away.
    */
   private relaySummary(message: ConversationMessage, newest: boolean, toHim = false): (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null {
-    const parts = this.summarize(message, newest);
+    const parts = this.summarize(message, newest, plainSaid);
     const model = this.summaries?.summarizer?.cached(message.text);
     const said = model && parts.summary?.source === "model" ? inFlydsVoice(model) : message.text;
-    const lead = plainSaid(said);
-    if (this.heldRelay(lead)) return toHim ? heldAnswer(message) : null;
-    return lead === said ? parts : { ...parts, summary: glance(lead, parts.summary?.source ?? "brief") };
+    if (this.heldRelay(plainSaid(said))) return toHim ? heldAnswer(message) : null;
+    return parts;
   }
 
   /** The summary parts of an assistant reply. Never waits for a model. */
-  private summarize(message: ConversationMessage, newest: boolean): Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } {
+  private summarize(message: ConversationMessage, newest: boolean, say: (text: string) => string = (text) => text): Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string } {
     const author = authorSummary(message.text);
     const summarizer = this.summaries?.summarizer;
     const modelFor = (text: string): { text?: string; pending: boolean } => {
@@ -450,7 +449,7 @@ export class SnapshotDiffer {
     if (author) {
       const parts: Pick<RenderedMessage, "summary" | "compare" | "expanded"> & { body: string } = {
         body: author.rest,
-        summary: glance(author.summary, "author"),
+        summary: glance(say(author.summary), "author"),
         ...(isActionable(author.rest) ? { expanded: true } : {}),
       };
       if (this.summaries?.always && author.rest.length >= SUMMARY_MIN_CHARS) {
@@ -466,8 +465,8 @@ export class SnapshotDiffer {
     // The model found no outcome, decision or ask: one muted line.
     if (model.text && isRoutineAnswer(model.text) && !actionable) return { body: message.text, routine: true, summary: { html: renderMarkdown(digestReply(message.text, { relay: message.aside === true }).lead), source: "model" } };
     const summary: NonNullable<RenderedMessage["summary"]> = model.text && !isRoutineAnswer(model.text)
-      ? glance(model.text, "model")
-      : model.pending ? glance(message.text, "digest", true) : briefOf(message.text);
+      ? glance(say(model.text), "model")
+      : model.pending ? glance(say(message.text), "digest", true) : briefOf(say(message.text));
     return { body: message.text, summary, ...(actionable ? { expanded: true } : {}) };
   }
 
@@ -579,10 +578,10 @@ export class SnapshotDiffer {
         ? { kind: relay.kind, line: inFlydsVoice(relay.line).replace(/[:;,]$/, ""), ...(relay.kind === "landed" && relay.url ? { url: relay.url } : {}) }
         : message.role === "assistant" && !message.form && !routine && !message.answers?.startsWith("ask:") && (message.aside || message.answers) ? this.answerCard(message) : undefined;
       // The card is his glance: the reply as written waits behind it, never shown twice.
-      if (card && !parts.summary) parts.summary = briefOf(message.text);
+      const staffWords = message.aside === true || message.answers?.startsWith("note:") === true;
+      if (card && !parts.summary) parts.summary = briefOf(staffWords ? plainSaid(message.text) : message.text);
       // What he has to act on stays open under the card, never folded behind "as written".
       // The staff's own words are never opened by default: Flyd's line leads, the original one tap away.
-      const staffWords = message.aside === true || message.answers?.startsWith("note:") === true;
       const expanded = !staffWords && (parts.expanded === true || (card !== undefined && !artifact && isActionable(message.text)));
       // Several pieces of work read as a card each, not as paragraphs; Flyd's own answers stay as written.
       const outcomes = message.role === "assistant" && !message.form && !routine && !message.answers?.startsWith("ask:") ? outcomesOf(message.text, handled) ?? undefined : undefined;

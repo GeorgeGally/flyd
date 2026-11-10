@@ -532,6 +532,18 @@ describe("SnapshotDiffer summaries", () => {
     expect(calls).toBe(2);
   });
 
+  it("keeps a staff update's own lead and a pending digest as they are, only said without the machinery", () => {
+    const body = `the worker added tests for it. ${long}`;
+    const asked = { id: "u1", role: "user" as const, text: "how is the menu going?" };
+    const [, authored] = new SnapshotDiffer().next({ messages: [asked, { ...message("a1", `» Still on the menu bar, about halfway.\n\n${body}`), aside: true }], working: false }).messages;
+    expect(authored!.summary).toMatchObject({ source: "author" });
+    expect(authored!.summary!.html).toBe("<p>Still on the menu bar, about halfway.</p>\n");
+    const model = withModel(() => new Promise(() => {}));
+    const [, pending] = new SnapshotDiffer(model).next({ messages: [asked, { ...message("p1", `Still on the menu, the worker pushed a first pass. ${long}`), aside: true }], working: false }).messages;
+    expect(pending!.summary).toMatchObject({ source: "digest", pending: true });
+    expect(pending!.summary!.html).not.toMatch(/worker/i);
+  });
+
   it("with always on, also asks the model about replies that carry their own summary, to compare", async () => {
     const model = withModel(async () => "Grok's take.");
     const differ = new SnapshotDiffer({ ...model, always: true });
