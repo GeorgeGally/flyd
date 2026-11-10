@@ -171,6 +171,22 @@ export async function composeMorning(deps: SessionBriefingDependencies = {}): Pr
     // Crew state is optional here.
   }
 
+  try {
+    // firstmate's latest round-up per project (lib/state-of-play.ts), told once in Flyd's words.
+    if (!deps.paths) {
+      const { StateOfPlay } = await import("../lib/state-of-play.js");
+      const play = new StateOfPlay();
+      const untold = play.untold(now.getTime());
+      if (untold.length) {
+        lines.push("Where your work stands:");
+        for (const item of untold.slice(0, 6)) lines.push(`  • ${item.line}`);
+        if (!deps.peek) play.markTold(untold);
+      }
+    }
+  } catch {
+    // The state of play is optional here.
+  }
+
   const inbox = unreadInbox(paths);
   if (inbox.length) {
     lines.push(`While you were away (${inbox.length} update${inbox.length === 1 ? "" : "s"}):`);

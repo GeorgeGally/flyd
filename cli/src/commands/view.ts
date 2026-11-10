@@ -19,6 +19,8 @@ import { defaultProjectTagFile, ProjectAsker } from "../conversation-view/projec
 import { threadCatalogue } from "../conversation-view/project-tags.js";
 import { ProjectThreads, withProjectThreads, type ThreadFeed } from "../conversation-view/project-threads.js";
 import { QuestionGone, type ConversationMessage, type ConversationSource } from "../conversation-view/types.js";
+import { playKind, StateOfPlay } from "../lib/state-of-play.js";
+import { notifyMac } from "../runtime/agenda.js";
 import { inFlydsVoice } from "../conversation-view/flyd-voice.js";
 import { AnswerInterpreter, defaultInterpretationCache } from "../conversation-view/interpret.js";
 import { memoryLookup } from "../conversation-view/living.js";
@@ -153,7 +155,11 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, i
     ...(transcript ? [] : [{ volatile: true, sessions: () => flyd.listSessions(), read: (id: string) => flyd.read(id), image: (session: string, id: string) => flyd.image(session, id) }]),
     ...(firstmate ? [{
       sessions: () => firstmate.listSessions(),
-      read: (id: string) => firstmate.readHistory(id),
+      read: async (id: string) => {
+        const snapshot = await firstmate.readHistory(id);
+        notePlay(snapshot.messages);
+        return snapshot;
+      },
       image: (session: string, id: string) => firstmate.image(session, id),
       // A reply to what he said is never kept back; a wake's report passes the check every relay passes.
       shows: (message: ConversationMessage) => !message.wake || relayMayShow(inFlydsVoice(message.text)),
@@ -163,6 +169,22 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, i
   let registry = "";
   try { registry = readFileSync(join(firstmateHome(), "data", "projects.md"), "utf8"); } catch { /* No firstmate here: Flyd's own list is enough. */ }
   const projects = threadCatalogue(registry, readProjects());
+  // firstmate's round-ups are the state of his work: Flyd keeps each project's newest
+  // and tells him in its own short words (lib/state-of-play.ts), never the raw report.
+  const play = new StateOfPlay();
+  const read = new Set<string>();
+  const notePlay = (messages: ConversationMessage[]) => {
+    for (const message of messages) {
+      if (message.role !== "assistant" || read.has(message.id)) continue;
+      read.add(message.id);
+      try {
+        const news = play.record(message, projects);
+        const kind = playKind(news);
+        // What landed or needs him rings once; the rest waits for his next briefing.
+        if (kind && !process.env.VITEST) void notifyMac("Flyd", news.map((item) => item.line).join(" "), kind, news[0]!.project).catch(() => undefined);
+      } catch { /* The state of play is Flyd's own notebook; the threads go on without it. */ }
+    }
+  };
   // What names no project is firstmate's to place.
   const asker = inbox.available()
     ? new ProjectAsker({
