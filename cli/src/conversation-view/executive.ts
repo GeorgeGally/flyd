@@ -444,7 +444,8 @@ function safeHref(url: string): string | null {
 
 /**
  * The status card: the work grouped by what it asks of him (needs you, under
- * way, landed), each piece one plain line with a coloured light. The line
+ * way, landed), in that order, each group a rule of its own colour beside its
+ * plain lines, never a label above them. The line
  * opens the work; when one line stands for several, each extra light opens
  * the next. The project shows only when the work spans more than one.
  */
@@ -467,8 +468,8 @@ export function statusCardHtml(items: StatusItem[], titles: Partial<Record<WorkS
       const ask = state === "needs" ? ` data-ask="${escapeHtml(item.ask ? `${item.text}: ${clip(item.ask, DETAIL_CHARS)}` : item.text)}"` : "";
       return `<li class="sc-row" style="--i:${index++}"${ask}><span class="sc-led" aria-hidden="true"></span><span class="sc-what">${label}${lights}${project}${detail}</span></li>`;
     });
-    const count = mine.reduce((sum, item) => sum + Math.max(1, item.urls.length), 0);
-    return [`<section class="sc-group ${GROUP[state].kind}"><h4 class="sc-kicker">${escapeHtml(titles[state] ?? GROUP[state].title)}<span class="sc-count">${count}</span></h4><ul>${rows.join("")}</ul></section>`];
+    // No title above the group: its order and its colour say where it stands; the name is for a screen reader.
+    return [`<section class="sc-group ${GROUP[state].kind}" aria-label="${escapeHtml(titles[state] ?? GROUP[state].title)}"><ul>${rows.join("")}</ul></section>`];
   });
   return `<div class="status-card" role="group" aria-label="Where the work stands">${groups.join("")}</div>`;
 }

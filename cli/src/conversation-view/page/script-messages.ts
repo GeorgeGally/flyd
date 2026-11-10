@@ -156,22 +156,20 @@ export const MESSAGES_SCRIPT = `
     }
     el.classList.toggle("answer", !!message.answers);
     el.classList.toggle("aside", !!message.aside);
-    var label = el.querySelector(":scope > .aside-label");
-    if (label) label.remove();
-    if (message.aside) {
-      label = document.createElement("span");
-      label.className = "aside-label";
-      label.textContent = "update";
-      el.insertBefore(label, el.querySelector(".body"));
-    }
   }
-  // A relayed staff update is a compact card: a dot for what kind of news it is, one line, its link, its picture.
-  var CARD_WORDS = { landed: "Done", decision: "Your call", blocker: "Stuck", underway: "Under way", note: "" };
+  // A relayed staff update is a compact card: a coloured dot for what kind of news it is, one line, its link, its picture.
+  // No label sits above the line: what needs him says so inside the sentence, the rest is the dot's colour.
+  var STATE_LEADS = { decision: "Needs your choice", needs: "Needs your choice", blocker: "Stuck", stuck: "Stuck" };
+  function stateLine(state, line) {
+    var lead = STATE_LEADS[state];
+    line = String(line || "");
+    if (!lead || line.toLowerCase().indexOf(lead.toLowerCase()) === 0) return line;
+    return lead + ": " + line.charAt(0).toLowerCase() + line.slice(1);
+  }
   function linkWord(url) {
     return /\\/pull\\/\\d+/.test(url) ? "Open the change ↗" : url.replace(/^https?:\\/\\/(www\\.)?/, "").replace(/\\/$/, "") + " ↗";
   }
   // Several pieces of work in one reply: its opening line, then a compact card each, never paragraphs.
-  var OUTCOME_WORDS = { landed: "Done", underway: "Under way", needs: "Your call", stuck: "Stuck", note: "", handled: "Handled" };
   function outcomeCards(outcomes) {
     var box = document.createElement("div");
     box.className = "outcomes";
@@ -181,8 +179,7 @@ export const MESSAGES_SCRIPT = `
       card.className = "card card-compact card-" + item.state;
       var text = document.createElement("div");
       text.className = "card-text";
-      if (OUTCOME_WORDS[item.state]) text.appendChild(Object.assign(document.createElement("span"), { className: "card-meta", textContent: OUTCOME_WORDS[item.state] }));
-      text.appendChild(Object.assign(document.createElement("p"), { className: "card-line", textContent: item.title }));
+      text.appendChild(Object.assign(document.createElement("p"), { className: "card-line", textContent: stateLine(item.state, item.title) }));
       if (item.line) text.appendChild(Object.assign(document.createElement("p"), { className: "card-sub", textContent: item.line }));
       if (item.url) text.appendChild(Object.assign(document.createElement("a"), { className: "card-link", href: item.url, target: "_blank", rel: "noopener noreferrer", textContent: linkWord(item.url) }));
       card.appendChild(text);
@@ -204,8 +201,7 @@ export const MESSAGES_SCRIPT = `
     box.className = "card card-" + message.card.kind;
     var text = document.createElement("div");
     text.className = "card-text";
-    if (CARD_WORDS[message.card.kind]) text.appendChild(Object.assign(document.createElement("span"), { className: "card-meta", textContent: CARD_WORDS[message.card.kind] }));
-    text.appendChild(Object.assign(document.createElement("p"), { className: "card-line", textContent: message.card.line }));
+    text.appendChild(Object.assign(document.createElement("p"), { className: "card-line", textContent: stateLine(message.card.kind, message.card.line) }));
     if (message.card.sub) text.appendChild(Object.assign(document.createElement("p"), { className: "card-sub", textContent: message.card.sub }));
     if (message.card.url) {
       var link = Object.assign(document.createElement("a"), { className: "card-link", href: message.card.url, target: "_blank", rel: "noopener noreferrer", textContent: linkWord(message.card.url) });

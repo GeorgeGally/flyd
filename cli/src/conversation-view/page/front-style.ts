@@ -115,6 +115,10 @@ export const FRONT_STYLE = `
 .crumb { display: flex; align-items: center; gap: 8px; margin: 0; font: 400 13px/1.4 var(--sans); color: var(--mute); white-space: nowrap; overflow: hidden; }
 .crumb .s { color: var(--ink); }
 :root[data-layout="front"]:not([data-job]) .crumb { display: none; }
+.crumb:empty { display: none; }
+/* Under the title, in plain words: where the job stands, where and when. */
+.stage-sub { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; font: 400 14px/1.4 var(--sans); color: var(--mute); overflow-wrap: anywhere; }
+.stage-sub:empty, :root[data-layout="front"]:not([data-job]) .stage-sub { display: none; }
 .stage-back {
   float: right; margin: -4px 0 0 16px; padding: 4px 0; border: 0; background: none; cursor: pointer;
   font: 400 13px/1.4 var(--sans); color: var(--mute);
@@ -146,9 +150,6 @@ export const FRONT_STYLE = `
 /* The decision the conversation carries: the same quiet well as the message box, a hairline of the dot's colour. */
 :root[data-layout="front"] .inline-card { border: 0; border-left: 2px solid var(--line); background: var(--well); }
 :root[data-layout="front"] .inline-card.k-call { border-left-color: var(--hot); }
-:root[data-layout="front"] .inline-kind { letter-spacing: .04em; }
-/* A card's kind in plain case: a quiet word, not a shouted label. */
-:root[data-layout="front"] .msg .card-meta { font: 400 13px/1.4 var(--sans); letter-spacing: 0; text-transform: none; }
 :root[data-layout="front"] .empty { margin-top: 18vh; }
 :root[data-layout="front"] .composer {
   left: var(--c-left); right: var(--c-right); bottom: 0; z-index: 4;
@@ -207,7 +208,6 @@ button.jv-thread { cursor: pointer; }
 .jv-phone img { display: block; width: 100%; height: auto; border-radius: 4px; box-shadow: 0 2px 14px rgba(0, 0, 0, .12); }
 .jv-plain { padding: 24px 28px; border-radius: 12px; background: var(--well); }
 .jv-plain .big { margin: 0; font: 500 21px/1.3 var(--sans); letter-spacing: -0.01em; max-width: 34ch; overflow-wrap: anywhere; }
-.jv-plain .sub { margin: 6px 0 0; font-size: 15px; color: var(--mute); }
 .jv-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .fbtn {
   display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: none;

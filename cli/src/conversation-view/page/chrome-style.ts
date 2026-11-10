@@ -173,7 +173,7 @@ header #prefs-open[aria-expanded="true"] { color: var(--strong); }
 .msg { position: relative; overflow-wrap: anywhere; }
 .msg[data-day]::before {
   content: attr(data-day); display: block; margin: 2.4em 0 0.4em;
-  font: 500 13px/1 var(--mono); letter-spacing: 0.02em; color: var(--muted);
+  font: 400 14px/1 var(--sans); color: var(--muted);
 }
 .msg.user { margin-top: 2em; }
 `;

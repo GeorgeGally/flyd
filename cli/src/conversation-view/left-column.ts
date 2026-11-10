@@ -210,7 +210,7 @@ export const LEFT_SCRIPT = `
       onHide: drawActivity,
       chat: true,
     }, chatOpts({ key: key, kind: visual, title: activity.subject, when: when, line: activity.summary || "", detail: activity.decision && phase === "needs_you" ? activity.decision.question : activity.detail || "", evidence: activity.evidence, detailWhen: at ? dayOf(at) + ", " + clock(at) : "" })));
-    card.querySelectorAll(".card-icon, .card-meta").forEach(function (node) { node.remove(); });
+    card.querySelectorAll(".card-icon, .card-when").forEach(function (node) { node.remove(); });
     // A decision or a result carries its picture beside the words when it has one.
     var picture = (activity.evidence || []).find(function (object) { return object.kind === "image" && !object.closed; });
     if (picture) {

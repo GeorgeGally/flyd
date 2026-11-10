@@ -18,6 +18,7 @@ export const FRONT_SCRIPT = `
   var stageHead = document.getElementById("stage-head");
   var stageCrumb = document.getElementById("stage-crumb");
   var stageTitle = document.getElementById("stage-title");
+  var stageSub = document.getElementById("stage-sub");
   var frontDate = document.getElementById("front-date");
   var frontJobs = new Map();
   var frontActive = "talk";
@@ -251,7 +252,7 @@ export const FRONT_SCRIPT = `
     if (list.length > 1) return list.filter(function (one) { return one && one.done; }).length + " of " + list.length + " decided";
     return decision.recommended ? "Go with " + frontText(decision.recommended) : "";
   }
-  // A job card: the project and when along the top, the picture (work under way is words only), what it says, and its next step.
+  // A job card: the picture (work under way is words only), what it says, its next step, then the project and when in plain words; no label above it.
   function frontJobCard(job) {
     var moving = job.group === "working";
     var pic = !moving && job.shots && job.shots.length
@@ -262,9 +263,9 @@ export const FRONT_SCRIPT = `
     var tag = job.project || frontGlance(job.title, 32);
     return '<button type="button" class="job ' + job.group + (pic ? "" : " text") + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
       + (job.id === frontActive ? ' aria-current="true"' : "") + '>'
-      + '<div class="jtop"><span class="jtag">' + frontEsc(tag) + (moving ? '<i class="fdot pulse" aria-hidden="true"></i>' : "") + '</span>'
-      + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></div>'
-      + pic + reading + (action ? '<span class="act"><i class="fdot" aria-hidden="true"></i>' + frontEsc(action) + '</span>' : "") + '</button>';
+      + pic + reading + (action ? '<span class="act"><i class="fdot" aria-hidden="true"></i>' + frontEsc(action) + '</span>' : "")
+      + '<span class="jfoot"><span class="jproject">' + frontEsc(tag) + '</span>' + (moving ? '<i class="fdot pulse" aria-hidden="true"></i>' : "")
+      + '<span class="w">' + (job.fresh ? '<span class="fnew">New</span> ' : "") + frontEsc(frontWhen(job.at)) + '</span></span></button>';
   }
   function frontGroup(label, count, body, extra) {
     return '<section class="fgroup"><h2 class="fhead"><span>' + frontEsc(label) + '</span><span>' + (count === "" ? "" : count) + '</span></h2>'
@@ -297,12 +298,12 @@ export const FRONT_SCRIPT = `
     jobsList.innerHTML = html;
   }
 
-  // The open job's heading: what the open job is, its state, where and when.
+  // The open job's heading: what the open job is, then its state, where and when said as one plain line under it; nothing above the title.
   function frontHead(job, closable) {
+    stageCrumb.textContent = "";
+    var where = (job.state || "") + (job.project ? (job.state ? " in " : "In ") + job.project : "") + (job.at ? (job.state || job.project ? ", " : "") + frontWhen(job.at) : "");
     var dot = job.group === "needs" ? '<span class="fdot" aria-hidden="true"></span>' : "";
-    stageCrumb.innerHTML = dot + '<span class="s">' + frontEsc(job.state) + '</span>'
-      + (job.project ? '<span aria-hidden="true">·</span><span class="p">' + frontEsc(job.project) + '</span>' : "")
-      + (job.at ? '<span aria-hidden="true">·</span><span>' + frontEsc(frontWhen(job.at)) + '</span>' : "");
+    stageSub.innerHTML = where ? dot + '<span>' + frontEsc(where) + '</span>' : "";
     // A job on the board closes from its heading: one quiet action, never a row in its timeline.
     if (closable) {
       var close = el("button", "crumb-close", "Close");
@@ -318,8 +319,6 @@ export const FRONT_SCRIPT = `
     if (!shots.length) {
       var plain = el("div", "jv-plain");
       plain.appendChild(el("p", "big", sentence(job.state)));
-      var sub = [job.project, frontWhen(job.at)].filter(Boolean).join(" · ");
-      if (sub) plain.appendChild(el("p", "sub", sub));
       return plain;
     }
     var at = Math.min(frontVersion[job.id] || 0, shots.length - 1);

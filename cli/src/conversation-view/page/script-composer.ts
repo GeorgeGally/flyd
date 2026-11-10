@@ -546,7 +546,6 @@ export const COMPOSER_SCRIPT = `
       var v = kindOf(info.kind);
       box.className = "about tone-" + v.tone;
       head.appendChild(cardIcon(info.kind));
-      if (v.word) head.appendChild(el("span", "about-chip", v.word));
       if (info.when) head.appendChild(el("span", "about-when", info.when));
       if (info.body) body.appendChild(info.body);
       box.scrollTop = 0;

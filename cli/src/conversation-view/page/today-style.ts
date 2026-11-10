@@ -85,7 +85,7 @@ button.ev:hover { background: var(--sheet); }
 }
 .wxcard { margin: 0 0 16px; padding: 16px 22px 24px; border-radius: 12px; background: var(--card); color: var(--ink); }
 .wxcard .wx-top { display: flex; justify-content: space-between; align-items: center; margin: 0 0 18px; }
-.wxcard .wx-tag { font: 600 13px/1.3 var(--sans); letter-spacing: .04em; text-transform: uppercase; }
+.wxcard .wx-place { font: 500 15px/1.3 var(--sans); }
 .wxcard .wx-top time { font: 400 14px/1.3 var(--sans); color: var(--mute); font-variant-numeric: tabular-nums; }
 .wxcard .wx-now { display: flex; align-items: center; gap: 14px; margin: 0 0 22px; }
 .wxcard .wx-deg { font: 500 96px/1 var(--sans); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
@@ -107,24 +107,21 @@ button.ev:hover { background: var(--sheet); }
 .wxcard .wx-hours time { font-size: 14px; color: var(--mute); }
 .wxcard .wx-hours span { font-size: 14px; color: #3f7dbd; }
 
-/* Job cards: the project and when along the top, the picture flush with the words, the next step last. */
+/* Job cards: the picture flush with the words, the next step, then the project and when in plain words at the foot. */
 :root[data-layout="front"] .job { padding: 0; border-radius: 12px; overflow: hidden; }
 .fhead { padding: 0 22px 20px; font: 400 14px/1.3 var(--sans); }
-.jtop { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 22px 14px; }
-.jtag { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px/1.3 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
-.jtag .fdot { margin-left: 9px; vertical-align: 1px; }
-.jtop .w { flex: none; font: 400 14px/1.3 var(--sans); color: var(--mute); font-variant-numeric: tabular-nums; }
-:root[data-layout="front"] .job .frame { height: 258px; margin: 0 22px; padding: 0; border-radius: 0; background: none; aspect-ratio: auto; }
+.jfoot { display: flex; align-items: center; gap: 9px; padding: 0 22px 18px; font: 400 14px/1.3 var(--sans); color: var(--mute); }
+.jproject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jfoot .w { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
+:root[data-layout="front"] .job .frame { height: 258px; margin: 22px 22px 0; padding: 0; border-radius: 0; background: none; aspect-ratio: auto; }
 :root[data-layout="front"] .job .frame img { object-position: left top; border-radius: 0; }
 :root[data-layout="front"] .job .next {
-  margin: 0; padding: 20px 22px 22px; font: 400 17px/1.42 var(--sans); color: var(--text);
+  margin: 0; padding: 20px 22px 14px; font: 400 17px/1.42 var(--sans); color: var(--text);
   white-space: normal; overflow: visible; display: block; -webkit-line-clamp: none; text-overflow: clip; text-wrap: pretty; overflow-wrap: anywhere;
 }
-:root[data-layout="front"] .job.text .next { padding-top: 0; }
 :root[data-layout="front"] .job .next:has(+ .act) { padding-bottom: 0; }
-.job .act { display: block; padding: 14px 22px 22px; font: 600 15px/1.35 var(--sans); color: var(--ink); }
+.job .act { display: block; padding: 14px 22px 14px; font: 600 15px/1.35 var(--sans); color: var(--ink); }
 .job .act .fdot { margin-right: 9px; vertical-align: 2px; }
-.job.done .jtag { color: var(--ink2); }
 
 /* Machines: under the machines, the models and how much use is left. */
 .machine-setup { display: grid; gap: 8px; margin: 8px 0 0; }

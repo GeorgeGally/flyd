@@ -541,7 +541,7 @@ export const REPLIES_SCRIPT = `
       controls = [];
       var at = Math.min(state.at || 0, steps.length);
       if (at === steps.length) {
-        wrap.appendChild(el("p", "step-count", state.sent ? "Your answers" : "Your answers, ready to send"));
+        wrap.appendChild(el("p", "step-lead", state.sent ? "Your answers." : "Your answers, ready to send."));
         var list = el("ol", "step-review");
         steps.forEach(function (step, index) {
           var item = el("li");
@@ -564,7 +564,6 @@ export const REPLIES_SCRIPT = `
         return;
       }
       var step = steps[at];
-      wrap.appendChild(el("p", "step-count", "Question " + (at + 1) + " of " + steps.length));
       wrap.appendChild(el("p", "step-q", step.question));
       var given = answerFor(at);
       if (step.options.length) {
