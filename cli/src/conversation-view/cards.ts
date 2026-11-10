@@ -1,6 +1,6 @@
 // The visual card system: one look for every artefact Flyd shows. An icon tile
-// for what kind of thing it is, a status chip, one line for the title, a line
-// under it, and a picture where the artefact has one. Shared by the left
+// whose colour says what kind of thing it is, one line for the title, a line
+// under it, the time, and a picture where the artefact has one. Shared by the left
 // Activity column and the right Artefacts panel so the two never drift. The
 // class names are the card vocabulary the conversation cards already use.
 
@@ -73,9 +73,9 @@ export function kindVisual(kind: string | undefined): KindVisual {
   return (kind && KIND_VISUALS[kind]) || QUIET;
 }
 
-// One card look for the whole product. The chip is the only uppercase in the
-// interface: a small status label, at the letter-spacing ceiling. Everything
-// else stays sentence case, generously spaced, and fades in place (nothing
+// One card look for the whole product. No label sits above the line: the icon
+// tile's colour carries what kind of thing it is, the time follows the words in
+// sentence case, everything is generously spaced and fades in place (nothing
 // moves). Charts and bars sit straight on the column, never in a box of their own.
 export const CARD_STYLE = `
 /* A card: an icon tile, its words, a quiet cross to put it away. */
@@ -89,19 +89,8 @@ export const CARD_STYLE = `
 .card.tone-ready .card-icon { color: var(--k-ready); }
 .card.tone-memory .card-icon { color: var(--accent); }
 .card-text { flex: 1; min-width: 0; }
-/* The chip: a dot and a word for what kind of thing this is, the one small-caps label in the interface. */
-.card-meta { display: flex; align-items: center; gap: 8px; font: 500 12px/1.4 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-.card-meta::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.card.tone-call .card-meta { color: var(--k-call); }
-.card.tone-live .card-meta { color: var(--k-live); }
-.card.tone-done .card-meta { color: var(--k-landed); }
-.card.tone-held .card-meta { color: var(--k-waiting); }
-.card.tone-ready .card-meta { color: var(--k-ready); }
-.card.tone-memory .card-meta { color: var(--accent); }
-.card.tone-quiet .card-meta::before { background: var(--muted); }
-.card-when { margin-left: auto; font: 500 12px/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); text-transform: none; font-variant-numeric: tabular-nums; }
-.card-line { margin: 8px 0 0; font: 500 16px/1.4 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
-.card-meta + .card-line { margin-top: 7px; }
+.card-when { display: block; margin: 6px 0 0; font: 400 13px/1.4 var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
+.card-line { margin: 5px 0 0; font: 500 16px/1.4 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
 .card-sub { margin: 6px 0 0; font: 400 15px/1.45 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; }
 .card-link { display: inline-block; margin-top: 10px; font: 500 15px/1.4 var(--sans); color: var(--link); text-decoration: none; transition: color 140ms ease; }
 .card-link:hover { color: var(--strong); }
@@ -114,16 +103,16 @@ export const CARD_STYLE = `
 .card.is-expandable:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .card-detail { margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--faint); }
 .card-detail[hidden] { display: none; }
-.card-detail-when { margin: 0; font: 500 12px/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.card-detail-when { margin: 0; font: 500 12px/1.4 var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
 .card-detail-text { margin: 6px 0 0; font: 400 14px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; white-space: pre-line; overflow-wrap: break-word; }
 /* The actual stories behind a news card, each with its gist and where it came from. */
 .card-stories { margin: 8px 0 0; padding: 0; list-style: none; }
 .card-stories li + li { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--faint); }
-.card-story-mark { margin: 0 0 4px; font: 500 12px/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); }
+.card-story-mark { margin: 0 0 4px; font: 500 12px/1.4 var(--sans); color: var(--muted); }
 .card-story-head { margin: 0; font: 500 15px/1.4 var(--sans); color: var(--link); text-decoration: none; text-wrap: pretty; }
 .card-story-head:hover { color: var(--strong); }
 .card-story-line { margin: 5px 0 0; font: 400 14px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }
-.card-story-src { margin: 5px 0 0; font: 500 12px/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); }
+.card-story-src { margin: 5px 0 0; font: 500 12px/1.4 var(--sans); color: var(--muted); }
 /* Putting a card away: a quiet cross that shows on hover, a colour tween, nothing moves. */
 .card-dismiss { position: absolute; top: 11px; right: 11px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; background: none; cursor: pointer; font: 400 16px/24px var(--sans); color: var(--muted); opacity: 0; transition: opacity 140ms ease, color 140ms ease; }
 .card .card-dismiss { right: 11px; }
@@ -162,7 +151,7 @@ export const CARD_SCRIPT = `
     keys.forEach(function (k) { kept[k] = gone[k]; });
     store("flyd-dismissed", JSON.stringify(kept));
   }
-  // A card: an icon tile, a status chip with the time on its right, one line, a line under it, a picture, a link, and — where it has more to say — a detail that unfolds in place.
+  // A card: an icon tile, one line, a line under it, the time, a picture, a link, and — where it has more to say — a detail that unfolds in place.
   function visualCard(item, opts) {
     opts = opts || {};
     var kind = item.kind || opts.kind || "clear";
@@ -172,10 +161,7 @@ export const CARD_SCRIPT = `
     card.dataset.key = opts.key;
     card.appendChild(cardIcon(kind));
     var text = el("div", "card-text");
-    var chip = el("span", "card-meta", v.word || opts.chip || "");
     var when = opts.when !== undefined ? opts.when : item.at || "";
-    if (when) chip.appendChild(el("span", "card-when" + (opts.whenClass ? " " + opts.whenClass : ""), when));
-    if (v.word || opts.chip || when) text.appendChild(chip);
     var title = el("p", "card-line", item.title || item.headline || "");
     if (opts.titleClass) title.className += " " + opts.titleClass;
     text.appendChild(title);
@@ -185,6 +171,8 @@ export const CARD_SCRIPT = `
       if (opts.lineClass) p.className += " " + opts.lineClass;
       text.appendChild(p);
     }
+    // The time follows the words, never a label above them.
+    if (when) text.appendChild(el("p", "card-when" + (opts.whenClass ? " " + opts.whenClass : ""), when));
     if (item.url) {
       var a = el("a", "card-link", (opts.linkLabel || "Open") + " ↗");
       a.href = item.url;

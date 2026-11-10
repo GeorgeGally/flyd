@@ -49,7 +49,7 @@ header {
   font: 500 14px/1 var(--sans); color: var(--muted);
 }
 .who { color: var(--accent); white-space: nowrap; }
-.project-badge { flex: none; max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12px/1.2 var(--mono); letter-spacing: 0.03em; color: var(--muted); }
+.project-badge { flex: none; max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12px/1.2 var(--mono); color: var(--muted); }
 .project-badge[hidden] { display: none; }
 .project-badge.shown { animation: scene-fade 240ms ease both; }
 .when { white-space: nowrap; font-variant-numeric: tabular-nums; }

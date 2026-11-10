@@ -163,7 +163,6 @@ export const SHOW_SCRIPT = `
           var item = el("li", "");
           item.appendChild(el("h4", "", finding.heading));
           if (finding.summary) item.appendChild(el("p", "", finding.summary));
-          if (finding.confidence) item.appendChild(el("span", "screen-confidence", finding.confidence + " confidence"));
           list.appendChild(item);
         });
         if (list.childNodes.length) wrap.appendChild(list);
@@ -719,7 +718,6 @@ export const SHOW_SCRIPT = `
   // where he reads, with its own visual beside the words when one exists.
   var inlineEl = document.getElementById("inline-screen");
   var inlineDrawn = "";
-  var INLINE_KIND = { decision: "Needs you", ask: "Needs you", artefact: "Landed", result: "Result", status: "Under way", comparison: "Comparison", briefing: "Briefing", answer: "Answer" };
   function renderInlineScreen(show) {
     var object = show && show.focus;
     var box = object ? semanticBox(object) : null;
@@ -731,7 +729,6 @@ export const SHOW_SCRIPT = `
     inlineEl.hidden = false;
     inlineEl.textContent = "";
     var card = el("div", "inline-card k-" + (box.tone || "news"));
-    card.appendChild(el("p", "inline-kind", INLINE_KIND[box.screen.meaning] || "Flyd"));
     var head = el("h2", "inline-head", box.title);
     var main = el("div", "inline-main");
     var text = el("div", "inline-text");

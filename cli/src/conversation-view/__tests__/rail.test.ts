@@ -133,7 +133,7 @@ describe("outcomeFirst", () => {
 
   it("never shows the internal word \"Landed\" in the column's status card", () => {
     const html = renderBriefing("Both are in.\n\n- The hat merged\n- The scarf landed", RAIL_CARD_TITLES);
-    expect(html).toContain('<h4 class="sc-kicker">Done<span');
+    expect(html).toContain('aria-label="Done"');
     expect(html).not.toMatch(/>Landed</i);
   });
 });

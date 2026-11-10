@@ -37,14 +37,12 @@ export const MESSAGE_STYLE = `
 @media (prefers-reduced-motion: reduce) { .queued::before, .queued.swap { animation: none; } }
 /* Whether firstmate has read a note: "sent", then "read by firstmate"; late when left unread too long.
    Once firstmate has said the outcome, the outcome takes this line, in the same quiet face. */
-.receipt { display: block; margin-top: 0.45em; font: 500 13px/1.3 var(--mono); letter-spacing: 0.02em; color: var(--muted); }
+.receipt { display: block; margin-top: 0.45em; font: 500 13px/1.3 var(--mono); color: var(--muted); }
 .receipt.late { color: var(--k-waiting); }
 .receipt.outcome { overflow-wrap: anywhere; }
 .receipt a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 /* Updates relayed from firstmate's own session: set apart, never read as an answer. */
 .msg.aside { color: var(--muted); }
-.aside-label { display: block; margin-bottom: 0.2em; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-.msg.aside:not(.aside-first) .aside-label { display: none; }
 .time {
   position: absolute; right: calc(100% + 2em); top: 0.55em; white-space: nowrap;
   font: 13px/1 var(--mono); color: var(--muted); opacity: 0; transition: opacity 140ms ease;
@@ -54,19 +52,21 @@ export const MESSAGE_STYLE = `
 .msg.fresh { animation: rise 320ms cubic-bezier(.2,.7,.2,1); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-/* A shaped answer: the lead, then each labelled part, what backs it, and what comes next. */
+/* A shaped answer: the lead, then each part with its name run into its sentence, what backs it, and what comes next. */
 .answer-form { display: block; }
 .answer-form .answer-lead { margin: 0 0 0.9em; font: 500 1.08em/1.55 var(--sans); color: var(--strong); }
 .answer-form .answer-parts { display: grid; gap: 0.85em; margin: 0; }
-.answer-form dt { margin: 0 0 0.2em; font: 600 11px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.answer-form dd { margin: 0; }
+.answer-form dt { display: inline; margin: 0; font-weight: 600; color: var(--strong); }
+.answer-form dt::after { content: ": "; }
+.answer-form dd { display: inline; margin: 0; }
+.answer-form dd > :first-child { display: inline; }
 .answer-form .answer-evidence { margin: 0.9em 0 0; padding-left: 1.1em; color: var(--muted); }
 .answer-form .answer-evidence a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 .answer-form .answer-next { margin: 0.9em 0 0; font-weight: 600; color: var(--strong); }
 .answer-form .answer-compare { width: 100%; border-collapse: collapse; font: 0.95em/1.5 var(--sans); }
 .answer-form .answer-compare th, .answer-form .answer-compare td { padding: 0.5em 0.7em 0.5em 0; text-align: left; vertical-align: top; border-top: 1px solid var(--faint); }
 .answer-form .answer-compare th { font-weight: 600; color: var(--strong); }
-.answer-form .answer-compare thead th, .answer-form .answer-compare thead td { border-top: 0; font: 600 11px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.answer-form .answer-compare thead th, .answer-form .answer-compare thead td { border-top: 0; font-weight: 600; color: var(--muted); }
 .body > :first-child { margin-top: 0; }
 .body > :last-child { margin-bottom: 0; }
 .body p { margin: 0 0 0.85em; }
@@ -84,20 +84,18 @@ export const MESSAGE_STYLE = `
 .body blockquote { margin: 0 0 1em; padding: 0; color: var(--muted); }
 .body hr { border: 0; border-top: 1px solid var(--faint); margin: 1.6em 0; }
 .body table { border-collapse: collapse; width: 100%; margin: 0.4em 0 1.1em; font-size: 0.8em; display: block; overflow-x: auto; }
-.body th { text-align: left; font: 500 0.82em var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.body th { text-align: left; font-weight: 600; color: var(--muted); }
 .body th, .body td { padding: 0.45em 0.8em 0.45em 0; border-bottom: 1px solid var(--faint); vertical-align: top; }
 /* A reply on several pieces of work, as Flyd shows it: grouped by what each
    asks of him, a coloured light per piece, the line itself opens the work.
    Flat, the artefact's colours; nothing framed. */
 .status-card { margin: 1.5em 0 1.6em; display: flex; flex-direction: column; gap: 1.7em; }
 .status-card:last-child { margin-bottom: 0; }
-/* A rail: the state on the left, its work on the right, like a title card. */
-.sc-group { --k: var(--k-news); display: grid; grid-template-columns: 7.2em minmax(0, 1fr); column-gap: 1.2em; align-items: baseline; }
+/* A group: a rule of the state's colour beside its work, in the order it asks of him; no label above it. */
+.sc-group { --k: var(--k-news); padding-left: 1em; border-left: 2px solid var(--k); }
 .sc-group.k-call { --k: var(--k-call); }
 .sc-group.k-live { --k: var(--k-live); }
 .sc-group.k-landed { --k: var(--k-landed); }
-.sc-kicker { margin: 0; padding-top: 0.15em; display: flex; gap: 0.7em; font: 600 11.5px/1.5 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--k); }
-.sc-count { color: var(--muted); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .sc-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55em; }
 .sc-row {
   display: flex; align-items: baseline; gap: 0.75em; margin: 0; padding: 0; line-height: 1.4;
@@ -112,7 +110,7 @@ export const MESSAGE_STYLE = `
 a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .sc-group.k-landed .sc-text { color: var(--fg); }
 .sc-detail { flex-basis: 100%; margin-top: 0.1em; font-size: 0.86em; line-height: 1.4; color: var(--muted); }
-.sc-project { margin-left: auto; font: 500 11px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.sc-project { margin-left: auto; font: 400 0.86em/1.4 var(--sans); color: var(--muted); }
 /* Answering a "needs you" line right where it stands. */
 /* His reply to one answer: quiet until he looks for it, then a box under the answer. */
 .reply { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 0.4em; }
@@ -172,16 +170,17 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 /* A question a reply put to him: the question, one tap per option, or his own
    words. Said to him, so never muted as an update; it fades in, nothing moves. */
 .msg.aside.asks { color: var(--fg); }
-/* A relayed staff update: a compact card, never a paragraph. A dot and a word for the kind of news, one line, its link. */
+/* A relayed staff update: a compact card, never a paragraph. A coloured dot for the kind of news inside its one line, its link; never a label above it. */
 .msg.carded { color: var(--fg); }
-.msg.carded > .summary, .msg.carded > .aside-label, .msg.carded-decision .choice-q { display: none; }
+.msg.carded > .summary, .msg.carded-decision .choice-q { display: none; }
 .msg .card { display: flex; gap: 18px; align-items: flex-start; padding: 16px 20px 17px; border-radius: 14px; background: var(--tint); animation: choice-in 380ms ease both; }
 .msg .card-text { flex: 1; min-width: 0; }
-.msg .card-meta { display: flex; align-items: center; gap: 8px; font: 500 12px/1.4 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-.msg .card-meta::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.msg .card-landed .card-meta::before { background: #7ec699; }
-.msg .card-decision .card-meta::before { background: var(--accent); }
-.msg .card-blocker .card-meta::before { background: #d0574c; }
+.msg .card-text > .card-line:first-child::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 10px; border-radius: 50%; vertical-align: 0.12em; background: var(--muted); }
+.msg .card-note .card-text > .card-line:first-child::before { display: none; }
+.msg .card-landed .card-text > .card-line:first-child::before { background: #7ec699; }
+.msg .card-decision .card-text > .card-line:first-child::before, .msg .card-needs .card-text > .card-line:first-child::before { background: var(--k-call); }
+.msg .card-blocker .card-text > .card-line:first-child::before, .msg .card-stuck .card-text > .card-line:first-child::before { background: #d0574c; }
+.msg .card-underway .card-text > .card-line:first-child::before { background: var(--k-live); }
 .msg .card-line { margin: 8px 0 0; font: 500 19px/1.45 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
 .msg .card-link { display: inline-block; margin-top: 10px; font: 500 15px/1.4 var(--sans); color: var(--link); text-decoration: none; transition: color 140ms ease; }
 .msg .card-link:hover { color: var(--strong); }
@@ -191,12 +190,8 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 .outcomes-lead { margin: 0 0 4px; font: 400 17px/1.5 var(--sans); color: var(--fg); text-wrap: pretty; }
 .msg .card-compact { padding: 14px 18px 15px; }
 .msg .card-compact .card-line { margin-top: 6px; font-size: 17px; }
-.msg .card-compact .card-meta + .card-line { margin-top: 6px; }
 .msg .card-compact .card-text > .card-line:first-child { margin-top: 0; }
 .msg .card-sub { margin: 4px 0 0; font: 400 15px/1.45 var(--sans); color: var(--muted); text-wrap: pretty; overflow-wrap: anywhere; }
-.msg .card-underway .card-meta::before { background: var(--k-live); }
-.msg .card-needs .card-meta::before { background: var(--accent); }
-.msg .card-stuck .card-meta::before { background: #d0574c; }
 .msg .card-thumb .shot img { width: 104px; height: 68px; object-fit: cover; border-radius: 8px; }
 .msg.carded > .more { margin-top: 8px; }
 .msg.carded .choice { margin-top: 10px; }
@@ -216,7 +211,7 @@ a.sc-text:hover, a.sc-text:focus-visible { color: var(--k); outline: 0; }
 /* Several questions, one at a time: where he is, the question, its answers; his answers listed before they go. */
 .choice-q.choice-lead { margin-bottom: 0.4em; font-weight: 500; font-size: 0.95em; color: var(--muted); }
 .stepper { display: grid; gap: 10px; line-height: 1.4; }
-.step-count { margin: 0; font: 500 12px/1.3 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.step-lead { margin: 0; font: 400 0.95em/1.4 var(--sans); color: var(--muted); }
 .step-q { margin: 0; font: 600 1.05em/1.35 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
 .step-options { display: flex; flex-wrap: wrap; gap: 8px; }
 .scene-ask .step-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); }
@@ -279,11 +274,10 @@ body.can-send .jump { bottom: calc(110px + max(72px, 9vh)); font-size: 14px; }
 .summary p { margin: 0 0 0.5em; }
 .summary.pending::after, .compare.pending::after { content: "summarising…"; display: block; margin-top: 0.2em; font: 13px/1.3 var(--mono); color: var(--muted); }
 .compare { margin-top: 0.5em; padding-left: 0.8em; color: var(--muted); font-size: 0.86em; }
-.compare::before { content: "model"; display: block; font: 500 12px/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
 .compare p { margin: 0; }
 .more {
   display: inline-block; margin: 0.35em 0 0; padding: 2px 0; border: 0; background: none; cursor: pointer;
-  font: 500 13px/1.4 var(--mono); color: var(--muted); letter-spacing: 0.02em;
+  font: 500 13px/1.4 var(--mono); color: var(--muted);
 }
 .more:hover { color: var(--fg); }
 .msg.has-summary > .body { margin-top: 0.7em; }

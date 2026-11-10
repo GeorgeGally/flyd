@@ -186,6 +186,18 @@ describe("conversation page", () => {
     expect(badge.textContent).toBe("");
   });
 
+  it("puts no small uppercase or letter-spaced label above a line: only buttons may shout", () => {
+    const html = renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) });
+    const css = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((match) => match[1]!).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({ selector: match[1]!.trim(), body: match[2]! }));
+    const shouting = rules.filter((rule) => /text-transform:\s*uppercase|letter-spacing:\s*0?\.\d+em/.test(rule.body));
+    const buttons = /send|button|#send/;
+    expect(shouting.filter((rule) => !buttons.test(rule.selector)).map((rule) => rule.selector)).toEqual([]);
+    for (const gone of ["card-meta", "sc-kicker", "aside-label", "inline-kind", "jtag", "wx-tag", "step-count", "screen-confidence", "about-chip"]) {
+      expect(html).not.toContain(gone);
+    }
+  });
+
   it("fades the project badge in at a restrained size with no movement or hover rule", async () => {
     const html = renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) });
     const style = document.createElement("style");
@@ -1259,7 +1271,7 @@ describe("conversation page", () => {
     expect(question.querySelector(".queued")!.textContent).toBe("passed to firstmate");
     const relays = Array.from(document.querySelectorAll(".msg.aside"));
     expect(relays.map((el) => el.classList.contains("aside-first"))).toEqual([true, false]);
-    expect(relays[0]!.querySelector(".aside-label")!.textContent).toBe("update");
+    expect(relays[0]!.querySelector(".aside-label")).toBeNull();
 
     stream.emit("update", {
       order: ["note:1", "note-reply:1", "t1", "t2"],
@@ -1947,7 +1959,7 @@ describe("header and artefact view", () => {
     expect(sends()).toEqual([{ session: "latest", replyTo: "reply:b#4", questionText: "Still waiting on you", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No" }]);
     expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to Flyd");
     expect(ask.querySelector(".step-send")).toBeNull();
-    expect(ask.querySelector(".step-count")!.textContent).toBe("Your answers");
+    expect(ask.querySelector(".step-lead")!.textContent).toBe("Your answers.");
   });
 
   it("answers a decision in one tap or in his own words, keeps Tab and typing in its chat box, and says where the answer is in plain words", async () => {
@@ -2655,13 +2667,12 @@ describe("header and artefact view", () => {
     const sends = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
     const tap = (label: string) => [...card.querySelectorAll<HTMLButtonElement>(".stepper .choice-option")].find((button) => button.textContent === label)!.click();
     expect(card.querySelector(".choice-q")!.textContent).toBe("Still waiting on you");
-    expect(card.querySelector(".step-count")!.textContent).toBe("Question 1 of 2");
+    expect(card.querySelector(".step-count")).toBeNull();
     expect(card.querySelector(".step-q")!.textContent).toBe("Discard the old CapFive experiment branches?");
     // A tap answers this question and shows the next; nothing has gone anywhere.
     tap("Yes");
     await settle();
     expect(sends()).toEqual([]);
-    expect(card.querySelector(".step-count")!.textContent).toBe("Question 2 of 2");
     expect(card.querySelector(".step-q")!.textContent).toBe("Should Flyd's sidebar show newest at the top again?");
     // Back keeps what he picked; his own words answer as well as a tap.
     card.querySelector<HTMLButtonElement>(".step-back")!.click();
@@ -3159,7 +3170,7 @@ describe("the side column's type", () => {
 });
 
 describe("what Flyd shows of its staff, at a glance", () => {
-  it("draws a relayed update as a compact card: a dot and a word, one line, its link", async () => {
+  it("draws a relayed update as a compact card: a dot, one line, its link, no label above it", async () => {
     load("");
     await settle();
     open("latest", [{
@@ -3170,7 +3181,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     await settle();
     const card = document.querySelector(".msg .card")!;
     expect(card.classList.contains("card-landed")).toBe(true);
-    expect(card.querySelector(".card-meta")!.textContent).toBe("Done");
+    expect(card.querySelector(".card-meta")).toBeNull();
     expect(card.querySelector(".card-line")!.textContent).toBe("The island text fix is merged");
     expect(card.querySelector<HTMLAnchorElement>(".card-link")!.href).toBe("https://github.com/GeorgeGally/flyd/pull/162");
     expect(card.querySelector(".card-link")!.textContent).toBe("Open the change ↗");
@@ -3191,8 +3202,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
     } as never]);
     await settle();
     const cards = [...document.querySelectorAll(".outcomes .card")];
-    expect(cards.map((card) => card.querySelector(".card-meta")!.textContent)).toEqual(["Stuck", "Done", "Under way"]);
-    expect(cards.map((card) => card.querySelector(".card-line")!.textContent)).toEqual(["Flyd decides itself", "Chief-of-staff voice", "Activity artefacts"]);
+    // What needs him says so inside the sentence; the rest is the dot's colour.
+    expect(document.querySelector(".outcomes .card-meta")).toBeNull();
+    expect(cards.map((card) => card.querySelector(".card-line")!.textContent)).toEqual(["Stuck: Flyd decides itself", "Chief-of-staff voice", "Activity artefacts"]);
     expect(cards[1]!.querySelector<HTMLAnchorElement>(".card-link")!.href).toBe("https://github.com/GeorgeGally/flyd/pull/170");
     expect(document.querySelector(".outcomes-lead")!.textContent).toBe("Here's where the three Flyd fixes stand:");
   });
@@ -4475,7 +4487,7 @@ describe("the front page", () => {
     document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
     await settle();
     const card = () => document.querySelector<HTMLElement>("#news-side .wxcard")!;
-    expect(card().querySelector(".wx-tag")!.textContent).toBe("Canggu");
+    expect(card().querySelector(".wx-place")!.textContent).toBe("Canggu");
     expect(card().querySelector(".wx-top time")!.textContent).toBe("13:00");
     expect(card().querySelector(".wx-deg")!.textContent).toBe("29°");
     expect([...card().querySelectorAll(".wx-days button")].map((day) => day.querySelector("time")!.textContent)).toEqual(["Today", expect.any(String)]);
@@ -4531,8 +4543,9 @@ describe("the front page", () => {
     expect(needs.querySelector(".frame img")).not.toBeNull();
     // Under "Needs you" the dot says it; the card names the project.
     expect(needs.querySelector(".s")).toBeNull();
-    expect(needs.querySelector(".jtag")!.textContent).toBe("CopyCopy");
-    expect(document.getElementById("stage-crumb")!.textContent).toContain("With firstmate");
+    expect(needs.querySelector(".jproject")!.textContent).toBe("CopyCopy");
+    expect(document.getElementById("stage-crumb")!.textContent).not.toContain("With firstmate");
+    expect(document.getElementById("stage-sub")!.textContent).toContain("With firstmate");
   });
 
   it("opens one job on the sheet, with its pictures, its choices and its own box, and Escape brings the conversation back", async () => {
@@ -4608,9 +4621,9 @@ describe("the front page", () => {
     });
     const answer = document.querySelector<HTMLElement>('.job[data-job="live:answer"]')!;
     expect(answer.getAttribute("aria-label")).toBeNull();
-    expect(answer.querySelector(".jtag")!.textContent).toBe("flyd");
+    expect(answer.querySelector(".jproject")!.textContent).toBe("flyd");
     expect(answer.querySelector(".w")!.textContent).toBeTruthy();
-    expect(answer.querySelector(".jtag .fdot.pulse")).not.toBeNull();
+    expect(answer.querySelector(".jfoot .fdot.pulse")).not.toBeNull();
     expect(answer.querySelector(".next")!.textContent).toBe("Building V5 with a framed hero. Then the editorial image goes in.");
     expect(answer.textContent).not.toMatch(/George|answer to:/);
     expect(answer.textContent).toContain("flyd");
@@ -4635,7 +4648,7 @@ describe("the front page", () => {
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, focus, needs: [lab] }, leftColumn: { now: [], recent: [], week: [], monitors: [], semantic: [lab] } });
     expect(Array.from(document.querySelectorAll("#jobs-list .job.needs")).map((card) => card.getAttribute("data-job"))).toEqual(["call:pick", "lab:run-7"]);
     const card = document.querySelector<HTMLElement>('.job[data-job="lab:run-7"]')!;
-    expect(card.querySelector(".jtag")!.textContent).toBe("capfive");
+    expect(card.querySelector(".jproject")!.textContent).toBe("capfive");
     expect(card.querySelector(".frame img")!.getAttribute("src")).toContain("/api/rail-image?path=");
     after(() => card.click());
     expect(document.querySelector<HTMLAnchorElement>(".job-view .fbtn")!.href).toBe("https://example.test/lab.html");
@@ -4665,7 +4678,7 @@ describe("the front page", () => {
     expect(card.querySelectorAll("p")).toHaveLength(1);
     // Two or three lines read well: the whole step he needs to take, not a line cut at 52 characters.
     expect(card.querySelector(".next")!.textContent).toBe(needed);
-    expect(card.querySelector(".jtag")!.textContent).toBe("Product");
+    expect(card.querySelector(".jproject")!.textContent).toBe("Product");
     expect(card.textContent).not.toContain("PostTraction");
     expect(document.querySelector('.job[data-job="landed"] .next')!.textContent).toBe("Pages are live.");
     after(() => card.click());

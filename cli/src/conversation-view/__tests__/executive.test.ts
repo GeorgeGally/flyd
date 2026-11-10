@@ -148,7 +148,8 @@ describe("needs you: only real questions, each answerable", () => {
 
   it("marks each Needs you row with the question, so the page can answer it in place", () => {
     const html = statusCardHtml(brief(REPLY).items);
-    expect(html).toContain('<section class="sc-group k-call"><h4 class="sc-kicker">Needs you<span class="sc-count">3</span>');
+    expect(html).toContain('<section class="sc-group k-call" aria-label="Needs you"><ul>');
+    expect(html).not.toContain("sc-kicker");
     expect(html).toContain('data-ask="Sepia tint: Keep it on both, or brands only?"');
     expect(html).toContain('data-ask="Photo rights: Are you OK publishing it?"');
     expect(html).not.toContain('data-ask="Flyd artefacts: the fix is built"');

@@ -440,7 +440,7 @@ export const TODAY_SCRIPT = `
     var hourDate = hour && hour.at.slice(0, 10);
     var todayDate = days[0] ? days[0].date : weather.hours && weather.hours[0] ? weather.hours[0].at.slice(0, 10) : "";
     var label = hour ? wxDayName(hourDate, hourDate === todayDate ? 0 : 1, true) + " " + hour.at.slice(11, 16) : current ? (weather.localTime || clock(weather.read)) : wxDayName(day.date, dayIndex, true);
-    var html = '<div class="wx-top"><span class="wx-tag">' + frontEsc(weather.place || "Here") + '</span><time>' + frontEsc(label) + '</time></div>'
+    var html = '<div class="wx-top"><span class="wx-place">' + frontEsc(weather.place || "Here") + '</span><time>' + frontEsc(label) + '</time></div>'
       + '<div class="wx-now">' + wxIcon(nowCode, true) + '<div class="wx-deg">' + wxDeg(nowDeg) + '</div></div>';
     if (days.length) {
       html += '<div class="wx-days" role="group" aria-label="The week">' + days.map(function (one, index) {

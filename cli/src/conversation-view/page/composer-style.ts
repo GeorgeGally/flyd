@@ -6,14 +6,13 @@ export const COMPOSER_STYLE = `
 .composer .about-head { display: flex; align-items: center; gap: 0.6em; padding-right: 2em; }
 .composer .about .card-icon { width: 1.9em; height: 1.9em; }
 .composer .about .card-icon svg { width: 1.1em; height: 1.1em; }
-.composer .about-chip { font: 500 0.72em/1.4 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-.composer .about-when { font: 500 0.72em/1.4 var(--sans); letter-spacing: 0.02em; color: var(--muted); font-variant-numeric: tabular-nums; }
-.composer .about.tone-call .card-icon, .composer .about.tone-call .about-chip { color: var(--k-call); }
-.composer .about.tone-live .card-icon, .composer .about.tone-live .about-chip { color: var(--k-live); }
-.composer .about.tone-done .card-icon, .composer .about.tone-done .about-chip { color: var(--k-landed); }
-.composer .about.tone-held .card-icon, .composer .about.tone-held .about-chip { color: var(--k-waiting); }
-.composer .about.tone-ready .card-icon, .composer .about.tone-ready .about-chip { color: var(--k-ready); }
-.composer .about.tone-memory .card-icon, .composer .about.tone-memory .about-chip { color: var(--accent); }
+.composer .about-when { font: 500 0.72em/1.4 var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
+.composer .about.tone-call .card-icon { color: var(--k-call); }
+.composer .about.tone-live .card-icon { color: var(--k-live); }
+.composer .about.tone-done .card-icon { color: var(--k-landed); }
+.composer .about.tone-held .card-icon { color: var(--k-waiting); }
+.composer .about.tone-ready .card-icon { color: var(--k-ready); }
+.composer .about.tone-memory .card-icon { color: var(--accent); }
 .composer .about-title { margin: 0.7em 0 0; font: 600 1.1em/1.3 var(--sans); color: var(--strong); text-wrap: pretty; overflow-wrap: anywhere; }
 .composer .about-text { margin: 0.5em 0 0; font: 400 0.95em/1.5 var(--sans); color: var(--fg); text-wrap: pretty; overflow-wrap: anywhere; white-space: pre-line; }
 .composer .about-at { margin: 0.8em 0 0; font: 500 0.75em/1.4 var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
