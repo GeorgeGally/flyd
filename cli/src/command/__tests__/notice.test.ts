@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
-import { decideRun, notifyRun } from "../scheduler.js";
+import { decideRun, notifyRun, tellHeld } from "../scheduler.js";
 import { deliverOwed } from "../../runtime/delivered.js";
 import { readDomainRun } from "../store.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
@@ -307,6 +307,57 @@ describe("notifyRun", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("holds another project's finished work while he is focused, and tells it once his focus breaks", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const line = "Done: keep the island quiet. https://github.com/GeorgeGally/flyd/pull/9";
+    const finished: ExecutiveDecisionRecord = {
+      schema: "flyd.executive-decision.v1", decisionId: "decision-held", sourceId: "firstmate.change", sourceEventId: "event-held",
+      taskId: "domain-held-1", disposition: "handle_internally", reason: "finished work, checked: its change is in", summary: line,
+      delivery: { line, checked: true, url: "https://github.com/GeorgeGally/flyd/pull/9" }, evidenceRefs: ["domain-held-1"],
+      verification: { status: "verified", evidenceRefs: ["https://github.com/GeorgeGally/flyd/pull/9"] }, show: true, notify: true,
+      createdAt: "2026-11-10T10:00:00.000Z",
+    };
+    const held: DomainRun = { ...run("Captain, done."), id: "domain-held-1", request: { ...run("Captain, done.").request, id: "domain-held-1", project: { name: "flyd" } } };
+    // On Bloom: the flyd change waits for a natural break.
+    await notifyRun(held, notify, undefined, async () => finished, () => false, async () => ({ project: "Bloom" }));
+    expect([sent, readDomainRun("domain-held-1")?.notified, readDomainRun("domain-held-1")?.told]).toEqual([[], true, undefined]);
+    await tellHeld(async () => ({ project: "Bloom" }), notify);
+    expect(sent).toEqual([]);
+    // He moves to flyd: told now, once, and recorded as told.
+    await tellHeld(async () => ({ project: "flyd" }), notify);
+    await tellHeld(async () => ({}), notify);
+    expect(sent).toEqual([line]);
+    expect(readDomainRun("domain-held-1")?.told?.line).toBe(line);
+  });
+
+  it("tells an off-focus call to publish, pay or for his key now, and holds ordinary ones", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const ask = (id: string, question: string): [DomainRun, ExecutiveDecisionRecord] => {
+      const base = run(JSON.stringify({ status: "needs_decision", brief: question }));
+      const request = { ...base.request, id, project: { name: "cap5" }, originalMessage: "Make the cap5 pricing page", intendedOutcome: "Make the cap5 pricing page" };
+      return [{ ...base, id, request }, {
+        schema: "flyd.executive-decision.v1", decisionId: `decision-${id}`, sourceId: "firstmate.change", sourceEventId: `event-${id}`,
+        taskId: id, disposition: "ask_george", reason: "George owns the choice", summary: question, evidenceRefs: [id], question,
+        options: ["Yes", "Not yet"], recommendation: { option: "Not yet", rationale: "It can wait for a look." }, verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
+      }];
+    };
+    const onBloom = async () => ({ project: "Bloom", meetingEndsAt: Date.now() + 60_000 });
+    const calls = [
+      ["domain-call-1", "Publish the cap5 website now?"], ["domain-call-2", "Pay the cap5 hosting invoice now?"],
+      ["domain-call-3", "Can I have your Stripe API key?"], ["domain-call-9", "Can you send me your 2FA code?"], ["domain-call-4", "Blue or green for the header?"],
+      ["domain-call-5", "Should I redesign your login page?"], ["domain-call-6", "Keep your token parser or swap it?"],
+      ["domain-call-7", "Refactor the 2FA code module first?"], ["domain-call-8", "Should users sign in to the dashboard with Google?"],
+    ];
+    for (const [id, question] of calls) {
+      const [asked, decided] = ask(id!, question!);
+      await notifyRun(asked, notify, undefined, async () => decided, () => false, onBloom);
+    }
+    expect(sent).toHaveLength(4);
+    expect(sent.join(" ")).not.toMatch(/Blue or green|login page|token parser|2FA code module|sign in to the dashboard/);
   });
 
   it("quotes only George's own words for a finished run, and says Flyd's stand-ins as the bare fact", async () => {

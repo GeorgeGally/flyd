@@ -13,7 +13,8 @@ import { deliver, reportFromRun } from "../runtime/delivery.js";
 import { authorityForStaffRun, processFirstmateChange } from "../intelligence/executive/firstmate-decision.js";
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
-import { deliverOnce, deliverOwed, finishedKey, markTold, seedOnce } from "../runtime/delivered.js";
+import { deliverOnce, deliverOwed, finishedKey, heldReports, holdReport, markTold, seedOnce, type DeliveryReport } from "../runtime/delivered.js";
+import { batch, callKind, readFocus, readSignals, released, sameProject, timing, type Focus, type Timing } from "../runtime/attention.js";
 import { windowOpen } from "../conversation-view/window-presence.js";
 import { deskWords } from "../conversation-view/firstmate-inbox.js";
 import { plainNote } from "../conversation-view/rail.js";
@@ -100,6 +101,26 @@ function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord): s
   return deliver(reportFromRun(run, decision), "notification").text;
 }
 
+/** The project a run is about, by name or folder. */
+function projectOf(run: DomainRun): string | undefined {
+  return run.request.project?.name || run.request.project?.root || undefined;
+}
+
+export type ReadAttention = () => Promise<Focus>;
+const readAttention: ReadAttention = async () => readFocus(await readSignals());
+
+/** When a run's report is told, from what George is focused on; told now when focus cannot be read. */
+async function whenToTell(run: DomainRun, decision: ExecutiveDecisionRecord, attention: ReadAttention): Promise<{ timing: Timing; focus?: Focus }> {
+  const focus = await attention().catch(() => undefined);
+  if (!focus) return { timing: { when: "now" } };
+  const project = projectOf(run);
+  const report = reportFromRun(run, decision);
+  const kind = (decision.disposition === "ask_george" && callKind([report.outcome, decision.summary].join("\n"))) || report.kind;
+  // His call on the work he is on blocks it.
+  const blocking = decision.disposition === "ask_george" && sameProject(project, focus.project);
+  return { timing: timing({ ...(project ? { project } : {}), kind, blocking }, focus), focus };
+}
+
 /** Work he started from the window, with the window open on that conversation: his reply shows under his message there. */
 function shownInWindow(run: DomainRun, windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): boolean {
   return run.request.source === "view" && run.request.session !== undefined && windowIsOpen(run.request.session);
@@ -122,6 +143,7 @@ export async function notifyRun(
   send: typeof sendRunMessage = sendRunMessage,
   decide: RunDecisionStep = decideRun,
   windowIsOpen: (session: string) => boolean = (session) => windowOpen(session),
+  attention: ReadAttention = readAttention,
 ): Promise<void> {
   if (!run.result || run.notified || !["completed", "failed", "needs_decision"].includes(run.status)) return;
   // His own message from the conversation window: with the window open on that conversation the reply shows under it
@@ -143,21 +165,48 @@ export async function notifyRun(
     const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
       || decision.action !== undefined || decision.reason === FENCE_HELD || decision.reason === HELD_FOR_ATTENTION;
     let owed = false;
+    let waiting = false;
     if (notice) {
       const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
       // A run's finished work is one report, whatever its domain; anything else is one per decision. A restart never says either twice.
-      owed = (await deliverOnce([{
+      const report: DeliveryReport = {
         key: decision.delivery ? finishedKey(run.id) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`,
         line: notice, kind, work: run.request.intendedOutcome, evidenceRefs: decision.evidenceRefs,
-      }], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
+      };
+      // When follows what he is focused on: held for a natural break, or now as the notice (its lead line and link).
+      const { timing: when, focus } = await whenToTell(run, decision, attention);
+      if (when.when === "held") {
+        holdReport(report, {
+          until: when.until, ...(focus?.project ? { focus: focus.project } : {}),
+          finished: kind === "deliverable", run: run.id, decisionId: decision.decisionId,
+        });
+        waiting = true;
+      } else {
+        owed = (await deliverOnce([report], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) })).owed.length > 0;
+      }
     } else if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     // A report not delivered yet is never marked told; the command tick's sweep says it again (deliverOwed).
+    // One held for a break is told by the tick when his focus breaks (tellHeld), which records its line then.
     if (!owed) {
       const { told: _told, ...current } = readDomainRun(run.id) ?? run;
-      saveDomainRun({ ...current, notified: true, ...(notice ? { told: { line: notice, decisionId: decision.decisionId } } : {}) });
+      saveDomainRun({ ...current, notified: true, ...(notice && !waiting ? { told: { line: notice, decisionId: decision.decisionId } } : {}) });
     }
   } catch {
     // The durable result remains in the command store; notification is best effort.
+  }
+}
+
+/** Tells held reports whose wait is over, together as one delivery, and records each run's told line. */
+export async function tellHeld(attention: ReadAttention = readAttention, notify?: Notify): Promise<void> {
+  const held = heldReports();
+  if (!held.length) return;
+  const due = released(held.map((report) => ({ ...report, heldAt: Date.parse(report.at), until: report.held.until, ...(report.held.focus ? { focus: report.held.focus } : {}), ...(report.held.finished ? { finished: true } : {}) })), await attention());
+  if (!due.length) return;
+  const { told, owed } = await deliverOnce(due, { together: (claimed) => batch(due.filter((report) => claimed.some((said) => said.key === report.key))), ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) });
+  for (const report of told.filter((said) => !owed.some((left) => left.key === said.key))) {
+    const runId = held.find((entry) => entry.key === report.key)?.held.run;
+    const current = runId ? readDomainRun(runId) : null;
+    if (current) saveDomainRun({ ...current, told: { line: report.line, decisionId: held.find((entry) => entry.key === report.key)?.held.decisionId ?? "" } });
   }
 }
 
@@ -181,6 +230,8 @@ export async function commandTick(): Promise<void> {
     ]);
     // Every report still owed (left undelivered, or cut off mid-send) is said again, from the first tick at Core start on.
     await deliverOwed().catch(() => undefined);
+    // Reports held for a natural break are told once his focus breaks, together.
+    await tellHeld().catch(() => undefined);
   } finally {
     running = false;
   }

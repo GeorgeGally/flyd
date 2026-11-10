@@ -209,6 +209,16 @@ export async function composeMorning(deps: SessionBriefingDependencies = {}): Pr
   }
 
   try {
+    // Reports held for a natural break that never came (runtime/attention.ts) are told here, once.
+    const [{ heldReports, markBriefed }, { morningLines }] = await Promise.all([import("./delivered.js"), import("./attention.js")]);
+    const held = heldReports();
+    lines.push(...morningLines(held.map((report) => ({ ...report, heldAt: Date.parse(report.at), until: report.held.until }))));
+    if (!deps.peek) markBriefed(held.map((report) => report.key), { now: () => now });
+  } catch {
+    // The delivery log is optional here.
+  }
+
+  try {
     const real = async () => {
       if (process.env.VITEST) return [];
       const { appRunning, calendarToday } = await import("./personal-tools.js");
