@@ -251,7 +251,8 @@ describe("notifyRun", () => {
     };
     const fromWindow = (id: string): DomainRun => {
       const base = run("Captain, done.");
-      return { ...base, id, request: { ...base.request, id, source: "view", session: "session-a" } };
+      // A Librarian run: Core announces non-FirstMate work itself.
+      return { ...base, id, owner: "Librarian", transport: { kind: "native", requestId: id }, request: { ...base.request, id, domain: "knowledge", source: "view", session: "session-a" } };
     };
     let decided = 0;
     const decide = async () => { decided++; return finished; };
@@ -284,7 +285,7 @@ describe("notifyRun", () => {
         verification: { status: "verified", evidenceRefs: ["https://github.com/GeorgeGally/flyd/pull/9"] }, show: true, notify: true,
         createdAt: "2026-11-10T10:00:00.000Z",
       };
-      const owedRun = (): DomainRun => ({ ...run("Captain, done."), id: "domain-owed-1", request: { ...run("Captain, done.").request, id: "domain-owed-1" } });
+      const owedRun = (): DomainRun => ({ ...run("Captain, done."), id: "domain-owed-1", owner: "Librarian", transport: { kind: "native", requestId: "domain-owed-1" }, request: { ...run("Captain, done.").request, id: "domain-owed-1", domain: "knowledge" } });
       await notifyRun(owedRun(), notify, undefined, async () => finished);
       expect([sent, readDomainRun("domain-owed-1")?.notified]).toEqual([[], undefined]);
       // The sync loops never come back to a finished run: the sweep every command tick runs is what says it again.
@@ -302,31 +303,34 @@ describe("notifyRun", () => {
     }
   });
 
-  it("tells each finished task once between Core and the window, never backstage work or work seen where he asked it", async () => {
+  it("tells FirstMate's finished work once, by its fleet row only, and keeps quiet where its link already shows", async () => {
     const sent: string[] = [];
     const say = async (_title: string, message: string) => { sent.push(message); return "shown" as const; };
-    const line = (task: string) => `${task} is finished; I haven't checked it yet.`;
-    const finished = (taskId: string): ExecutiveDecisionRecord => ({
+    const pr = (n: number) => `https://github.com/GeorgeGally/flyd/pull/${n}`;
+    const line = (task: string, url?: string) => `${task} is finished and waiting to go in.${url ? ` ${url}` : ""}`;
+    const finished = (taskId: string, url?: string): ExecutiveDecisionRecord => ({
       schema: "flyd.executive-decision.v1", decisionId: `decision-${taskId}`, sourceId: "firstmate.change", sourceEventId: `event-${taskId}`,
-      taskId, disposition: "handle_internally", reason: "finished work; its outcome could not be checked", summary: line(taskId),
-      delivery: { line: line(taskId), checked: false }, evidenceRefs: [], verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true,
-      createdAt: "2026-11-10T10:00:00.000Z",
+      taskId, disposition: "handle_internally", reason: "finished work", summary: line(taskId, url),
+      delivery: { line: line(taskId, url), checked: Boolean(url), ...(url ? { url } : {}) }, evidenceRefs: [], verification: { status: "unknown", evidenceRefs: [] },
+      show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
     });
     const base = run(JSON.stringify({ status: "completed", brief: "Merged." }));
-    const make = (id: string, request: Partial<DomainRun["request"]>): DomainRun => ({ ...base, id, request: { ...base.request, id, ...request }, transport: { kind: "firstmate", requestId: id } });
-    const told = make("desk-told", { source: "view", session: "session-b" });
-    const seen = make("desk-seen", { source: "view", session: "session-a" });
-    const backstage = make("flyd-note-1", { source: "flyd" });
+    const desk = (id: string, session: string, brief: string): DomainRun => ({
+      ...base, id, request: { ...base.request, id, source: "view", session }, transport: { kind: "firstmate", requestId: id },
+      result: { ...base.result!, brief },
+    });
+    // Two desk runs from the window: their reply shows the PR link in conversation A (open) and B (closed).
+    const onA = desk("desk-a", "session-a", `Opened ${pr(1)} for the hero height.`);
+    const onB = desk("desk-b", "session-b", `Opened ${pr(2)} for the footer.`);
     const openOnA = (session: string) => session === "session-a";
-    // Core tells its run, and keeps quiet about the one shown in the open conversation.
-    await notifyRun(told, async (_t, message) => { sent.push(message); }, undefined, async () => finished("desk-told"), openOnA);
-    await notifyRun(seen, async (_t, message) => { sent.push(message); }, undefined, async () => finished("desk-seen"), openOnA);
-    // The window reads all of them as done later, after he has moved to another conversation.
-    const runs = [told, seen, backstage];
-    const tasks = ["desk-told", "desk-seen", "flyd-note-1", "logan-drag"].map(finished);
-    await tellFinishedWork(tasks, runs, (task) => task, { windowIsOpen: () => false, say });
-    await tellFinishedWork(tasks, runs, (task) => task, { windowIsOpen: () => false, say });
-    expect(sent).toEqual([line("desk-told"), line("logan-drag")]);
+    // Core answers FirstMate's finished runs but never rings for them: the fleet row is the one announcer.
+    for (const item of [onA, onB]) await notifyRun(item, async (_t, message) => { sent.push(message); }, undefined, async () => finished(item.id, pr(1)), openOnA);
+    expect(sent).toEqual([]);
+    // The fleet rows carry FirstMate's own task ids, unrelated to the run ids.
+    const tasks = [finished("gnm-hero-height", pr(1)), finished("gnm-footer", pr(2)), finished("logan-drag")];
+    await tellFinishedWork(tasks, [onA, onB], (task) => task, { windowIsOpen: openOnA, say });
+    await tellFinishedWork(tasks, [onA, onB], (task) => task, { windowIsOpen: () => false, say });
+    expect(sent).toEqual([line("gnm-footer", pr(2)), line("logan-drag")]);
   });
 
   it("reaches George once with a decision, and says nothing for a quiet run", async () => {

@@ -107,10 +107,18 @@ export function quietRun(run: DomainRun, windowIsOpen: (session: string) => bool
   return backstageRun(run) || shownInWindow(run, windowIsOpen);
 }
 
+const LINK = /https:\/\/github\.com\/[^\s)"'<>]+\/(?:pull\/\d+|commit\/[0-9a-f]{7,40})/gi;
+
+/** The PR and commit links in replies already showing under his messages in a conversation the window has open. */
+export function linksShownInWindow(runs: readonly DomainRun[], windowIsOpen: (session: string) => boolean = (session) => windowOpen(session)): Set<string> {
+  const shown = runs.filter((run) => run.result && run.request.source === "view" && run.request.session !== undefined && windowIsOpen(run.request.session));
+  return new Set(shown.flatMap((run) => [run.result!.brief, run.result!.detailedReport, ...(run.result!.evidence ?? [])]
+    .flatMap((text) => [...(text ?? "").matchAll(LINK)].map((match) => match[0]))));
+}
+
 /**
- * The window's telling of finished work its fleet read decided: each task once, under its run's key when the task is a
- * run of its own (by its recorded request id), so Core and the window tell it once between them. A quiet run's task is
- * recorded as handled, never told later.
+ * The one announcer of FirstMate's finished work: its fleet rows, each under its own task id. A row whose link is already
+ * showing in a reply in the open conversation is recorded as handled instead of rung.
  */
 export async function tellFinishedWork(
   decisions: Parameters<typeof finishedReports>[0],
@@ -118,14 +126,10 @@ export async function tellFinishedWork(
   work: (taskId: string) => string,
   options: { windowIsOpen?: (session: string) => boolean; say?: Say } = {},
 ): Promise<void> {
-  const runOf = (task: string) => runs.find((run) => run.id === task || run.transport.requestId === task);
-  const quiet = (task: string) => {
-    const run = runOf(task);
-    return run !== undefined && quietRun(run, options.windowIsOpen);
-  };
-  const keyOf = (task: string) => runOf(task)?.id ?? task;
-  markTold(decisions.flatMap((decision) => decision.taskId && decision.delivery && quiet(decision.taskId) ? [finishedKey(keyOf(decision.taskId))] : []));
-  const reports = finishedReports(decisions, work, (task) => (quiet(task) ? undefined : keyOf(task)));
+  const shown = linksShownInWindow(runs, options.windowIsOpen);
+  const quiet = new Set(decisions.flatMap((decision) => decision.taskId && decision.delivery?.url && shown.has(decision.delivery.url) ? [decision.taskId] : []));
+  markTold([...quiet].map(finishedKey));
+  const reports = finishedReports(decisions, work, (task) => (quiet.has(task) ? undefined : task));
   if (reports.length) await deliverOnce(reports, { ...(options.say ? { say: options.say } : {}) });
 }
 
@@ -152,6 +156,11 @@ export async function notifyRun(
     // Work sent back to its boss stays open: the boss's next reply is decided afresh.
     if (decision.action && decision.verification.status === "verified") return;
     // Settled once George was told, or quietly when nothing is left for him or Flyd; otherwise Flyd holds it in view.
+    // FirstMate's finished work is announced once, by its fleet row (tellFinishedWork); here it is only answered.
+    if (decision.delivery && run.transport.kind === "firstmate") {
+      saveDomainRun({ ...(readDomainRun(run.id) ?? run), notified: true });
+      return;
+    }
     const notice = noticeForDecision(decision);
     const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
       || decision.action !== undefined || decision.reason === FENCE_HELD || decision.reason === HELD_FOR_ATTENTION;
