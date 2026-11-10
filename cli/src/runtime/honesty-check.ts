@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import type { Shortfall } from "../council/chief-of-staff.js";
+import type { Shortfall } from "../council/standard.js";
 import { CHAT_ANSWER_BACKSTAGE, firstBackstage, firstMatch, withoutLinkIds } from "../lib/backstage.js";
 import { isPlaceholderStatus } from "../conversation-view/status-text.js";
 
@@ -277,7 +277,7 @@ export function styleProblems(answer: string): string[] {
 
 // Phrases George has ruled out of Flyd's voice (USER.md / SOUL.md, the
 // "His voice" rule). One source of truth: the send-path check below and the
-// His voice rule in council/chief-of-staff.ts both read this list, so what is
+// His voice rule in council/standard.ts both read this list, so what is
 // enforced before an answer is spoken can never drift from what is reviewed
 // after. "Captain" is here because he goes by "sir".
 export const RETIRED_PHRASES = ["Captain", "one moment please sir", "passing this to Firstmate"] as const;

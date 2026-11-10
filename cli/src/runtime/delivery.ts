@@ -1,6 +1,6 @@
 import { listDomainRuns } from "../command/store.js";
 import type { DomainResult, DomainRun } from "../command/types.js";
-import { notificationLine, sentencesOf } from "../council/chief-of-staff.js";
+import { notificationLine, sentencesOf } from "../council/standard.js";
 import { ASKS_HIM, fitsAtAGlance, LINE_CHARS, MAX_CHARS, MAX_LINES } from "../conversation-view/for-george.js";
 import { replyArtefact } from "../conversation-view/summaries.js";
 import type { ExecutiveDecisionRecord } from "../intelligence/executive/decision-step.js";

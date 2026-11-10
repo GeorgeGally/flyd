@@ -19,6 +19,7 @@ export interface IntakeContext {
 export function intakePrompt(objective: Objective, context: IntakeContext = {}): string {
   return [
     "You are Flyd's Chief of Staff. Flyd handed you this piece of George's work. Choose the team, and write the team a brief they can finish unattended.",
+    "Work like a brilliant chief of staff: reason from George's profile, goals and constraints, not generic advice, and settle what his known policy settles rather than bringing it back to him.",
     "Teams:",
     ...Object.entries(TEAMS).map(([team, takes]) => `- ${team}: ${takes}`),
     "",

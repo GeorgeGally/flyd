@@ -248,7 +248,7 @@ export async function deliverNotification(title: string, message: string, kind: 
 /** As deliverNotification, with the line he was shown when it was. */
 export async function deliverNotificationLine(title: string, message: string, kind: GeorgeKind = "deliverable", work?: string, options: { once?: boolean } = {}): Promise<{ outcome: NotificationOutcome; line?: string }> {
   // One line, outcome first: the rest of what was said is Flyd's to keep or show elsewhere.
-  const { isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/chief-of-staff.js");
+  const { isIdleNotice, notificationLine, screenBeforeDisplay } = await import("../council/standard.js");
   // A coding session idle at its prompt is never George's to hear about.
   if (isIdleNotice(title, message)) return { outcome: "idle" };
   const { noteSaid, recordHeld, recordKept } = await import("../council/reply-review.js");

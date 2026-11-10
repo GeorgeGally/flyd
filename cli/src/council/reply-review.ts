@@ -5,12 +5,12 @@ import { FLYD_DIR } from "../lib/config.js";
 import type { GeorgeKind, Handling } from "../lib/reaches-george.js";
 import type { Evidence } from "../crew/self-improve.js";
 import { journalDir, readJournalSince } from "./journal.js";
-import { requirement, reviewSaid, screenBeforeDisplay, voiceRules, type RequirementId, type Said, type Shortfall, type Surface, type VoiceRules } from "./chief-of-staff.js";
+import { requirement, reviewSaid, screenBeforeDisplay, voiceRules, type RequirementId, type Said, type Shortfall, type Surface, type VoiceRules } from "./standard.js";
 import { isInteractionClass } from "../runtime/conversation-presence.js";
 import { relayShortfalls } from "../runtime/honesty-check.js";
 
 // Flyd reading its own words back against the chief-of-staff standard
-// (council/chief-of-staff.ts). Everything George was shown — chat answers,
+// (council/standard.ts). Everything George was shown — chat answers,
 // the window's answers and relayed updates, agenda results, status lines and
 // notifications — is reviewed once; each shortfall is kept as a verdict with
 // the offending words and the requirement it broke. The daily improver reads
@@ -264,7 +264,7 @@ export interface ReviewDependencies {
   flydDir?: string;
   dir?: string;
   now?: () => Date;
-  /** Test seam; defaults to the checks plus Jev (council/chief-of-staff.ts reviewSaid). */
+  /** Test seam; defaults to the checks plus Jev (council/standard.ts reviewSaid). */
   review?: (said: Said, rules: VoiceRules) => Promise<Shortfall[]>;
   rules?: VoiceRules;
   limit?: number;

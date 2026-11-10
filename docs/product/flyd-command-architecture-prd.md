@@ -7,21 +7,34 @@
 
 ## 1. Objective
 
-Flyd is the command layer between George and specialist organizations.
+Flyd is George's personal intelligence and companion, and the only voice he hears. Delegated work runs through a Chief of Staff (CoS) that sits between Flyd and the domain bosses (split plan, `docs/plans/2026-10-30-flyd-chief-of-staff-split-plan.md`).
 
-George talks to Flyd. Flyd decides who should own the work, gives that domain the right context and authority, supervises at the outcome/decision level, and keeps George at the highest useful altitude.
+George talks to Flyd. Flyd hands bigger work over in one step (`hand_off`, with his exact words and what Flyd knows). The CoS owns everything after that:
+
+- choosing the team;
+- writing the brief;
+- dispatching, chasing and reviewing the work;
+- applying his corrections;
+- deciding when the work is done;
+- handing Flyd one report per objective.
+
+Flyd decides when and how George hears it and keeps him at the highest useful altitude.
 
 ```text
 George
   ↕
-Flyd
+Flyd                 companion: conversation, memory, quick personal tools, delivery
+  ↕
+Chief of Staff       intake, dispatch, review, steering, one report per objective
   ├── FirstMate      coding boss
   ├── Librarian      knowledge boss
-  ├── Art Director   creative boss
-  └── Life/Ops       personal-operations boss
+  ├── Design Mate    creative boss (with the Creative Director)
+  └── Life/Ops       background jobs
         ↓
      specialists
 ```
+
+While the cutover is pending, the CoS runs behind `FLYD_COS=1`. With it off, Flyd hands work to each domain itself through the `start_*` tools, as before.
 
 Domain bosses are managers, not default workers. Specialists execute bounded work.
 
@@ -192,7 +205,7 @@ Jev also returns a domain ownership hint:
 coding | knowledge | creative | life | general
 ```
 
-For a confidently delegated coding turn, the harness exposes only the coding handoff. This prevents the model from choosing a generic background job when FirstMate should own the work.
+Routing to a team happens at CoS intake (`command/cos/intake.ts`), using the same team guide (`TEAMS` in `runtime/turn-plan.ts`). Flyd's own route for delegated work is just "hand off": with `FLYD_COS=1`, a delegate turn shows only `hand_off`. With the flag off, a confidently delegated turn shows only its domain's handoff, for example the coding handoff for coding. This prevents the model from choosing a generic background job when FirstMate should own the work.
 
 Other domain bosses are introduced only after their manager contract exists.
 
@@ -333,7 +346,7 @@ Flyd can inspect the retained L0/L1/L2/L3 result with `domain_work show` and cre
 
 ### Cross-domain command graph
 
-One George objective may create several DomainRuns with dependencies. Flyd owns only this organizational DAG.
+One George objective may create several DomainRuns with dependencies. The CoS owns this organizational DAG on the `Objective` (`runs`, `after`); Flyd sees only the objective's reports.
 
 ### Creative boss
 

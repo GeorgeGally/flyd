@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkSaid, isIdleNotice, isPlaceholder, judgeSaid, NOTIFICATION_CHARS, notificationLine, reviewSaid, screenBeforeDisplay, voiceRules } from "../chief-of-staff.js";
+import { checkSaid, isIdleNotice, isPlaceholder, judgeSaid, NOTIFICATION_CHARS, notificationLine, reviewSaid, screenBeforeDisplay, voiceRules } from "../standard.js";
 import { collectSaid, noteSaid, readVerdicts, reviewEvidence, runReplyReview, scorecard, screenOutgoing } from "../reply-review.js";
 import { gatherEvidence } from "../../crew/self-improve.js";
 import { deliverNotification } from "../../runtime/agenda.js";
