@@ -364,9 +364,9 @@ This is split plan Phase 3 (`docs/plans/2026-10-30-flyd-chief-of-staff-split-pla
   - life goes to a background job.
 
   `refuseLeakedLaunch` runs first. The brief is kept on the objective before dispatch, so a restart dispatches the same brief by the same id, and the team replays it rather than starting the work twice.
-- **Refusals.** An intake that fails or is refused becomes one `blocked` report ("I couldn't get … started"). It never fails silently.
+- **Refusals.** An intake or dispatch that fails or is refused becomes one `blocked` report ("I couldn't get … started"). It never fails silently.
 
-**Reports.** A run that serves an objective is never told on its own: `notifyRun` leaves it to the CoS. When the run settles, the CoS reviews it with the same executive review step. A send-back stays with its boss. Otherwise the CoS writes one `cos.report` event in the SQLite spine, and Flyd tells George through the shared delivery step (`tellRun` in `command/scheduler.ts`: lead line, focus timing, told once). The report kind follows the run's outcome:
+**Reports.** A run that serves an objective is never told on its own: while `FLYD_COS=1` and the objective lists the run, `notifyRun` leaves it to the CoS. A life job started for an objective never delivers itself, even when resumed after a restart; its result becomes the objective's one `done` or `blocked` report. The compatibility crew still tells George itself; the objective only follows it. When the run settles, the CoS reviews it with the same executive review step. A send-back stays with its boss. Otherwise the CoS writes one `cos.report` event in the SQLite spine, and Flyd tells George through the shared delivery step (`tellRun` in `command/scheduler.ts`: lead line, focus timing, told once). The report kind follows the run's outcome:
 
 - a needs-decision run gives a `decision` report, and the objective waits on George;
 - a completed run gives a `done` report;
