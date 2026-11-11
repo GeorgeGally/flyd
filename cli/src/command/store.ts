@@ -1,6 +1,7 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
+import { withWorkState } from "../lib/work-state.js";
 import { canMove } from "./run-state.js";
 import type { DomainMessage, DomainRun } from "./types.js";
 
@@ -90,7 +91,10 @@ export function mutateDomainRun(id: string, change: (current: DomainRun | null) 
         // The log is evidence, never a reason to lose the write.
       }
     }
-    const saved: DomainRun = { ...next, revision: (current?.revision ?? 0) + 1 };
+    const sameReply = current?.result?.brief === next.result?.brief && current?.result?.detailedReport === next.result?.detailedReport;
+    const kept = sameReply && from === next.status ? current?.result?.workState : undefined;
+    const stated = kept && next.result ? { ...next, result: { ...next.result, workState: kept } } : withWorkState(next, !sameReply || from === next.status);
+    const saved: DomainRun = { ...stated, revision: (current?.revision ?? 0) + 1 };
     writeJsonFile(path, saved);
     return saved;
   });

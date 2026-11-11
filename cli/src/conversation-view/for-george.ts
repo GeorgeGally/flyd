@@ -1,5 +1,5 @@
 import { choiceOf } from "./choices.js";
-import { stateOf } from "./executive.js";
+import { happened, NOT_LANDED, readWork, type ReadState } from "../lib/work-state.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
 import { plainSaid } from "../lib/backstage.js";
 import { inFlydsVoice } from "./flyd-voice.js";
@@ -36,8 +36,6 @@ const PULL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\b/;
 /** Quoted words are someone else's ("Merged deployed." was a garble it quoted), never the reply's own news. */
 const QUOTED = /"[^"\n]*"|“[^”\n]*”/g;
 const LANDED = /\b(?:merged|landed|shipped|(?:is|are) (?:now )?live|now live|went live|released|deployed|in main|on main)\b/i;
-/** Landing that has not happened: ahead, conditional, negated, or waiting. */
-const NOT_LANDED = /\b(?:ll|no|nothing|wrongly|marked|recorded|said|will|would|should|could|shall|going to|once|when|after|before|until|unless|if|ready to|waiting to|wait(?:ing)? for|to be|not|never|isn['’]?t|hasn['’]?t|wasn['’]?t|haven['’]?t|didn['’]?t|unmerged|yet|can|needs? to|about to|plan)\b/i;
 /**
  * Work that stopped and stays stopped, said as such: "the deploy is blocked:",
  * "I'm stuck", "it blocked me", "I can't get past the login", "the deploy
@@ -70,30 +68,6 @@ const OPEN_ASK = /^(?:which|what|how|where|when|who)\b/i;
 const SAY = /^(?:just )?say\s*(?:"([^"]+)"|“([^”]+)”)/i;
 /** A sentence that says what happens next. */
 const NEXT_STEP = /^(?:(?:so |and )?(?:i['’]?ll|i will|we['’]?ll|we will|next|instead|i['’]?m (?:now )?(?:retrying|trying|switching|moving)|the plan is|plan:))/i;
-
-/** Where a clause turns: punctuation, or a word that opens the next one ("…after the review passed"). */
-const CLAUSE = /[;—–]|\b(?:but|once|when|after|before|until|unless|if|because|while)\b/gi;
-/** A pull request or commit named by its link: a landing verb beside it is news, whatever surrounds it. */
-const WORK_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:pull\/\d+|commit\/[0-9a-f]{7,})/i;
-/** "Everything that has landed", "what landed earlier": a landing that names a subject, not news. */
-const SUBJECT = /\b(?:(?:everything|anything|all (?:of )?the \w+)\s+that|what(?:ever)?)\s+(?:(?:has|have|had)\s+)?(?:been\s+)?$/i;
-/** The verb that subject goes on to take ("…is already running"), before any colon. */
-const LATER_VERB = /\b(?:is|are|was|were|has|have|had|needs?|needed|stays?|stayed|runs?|ran|keeps?|kept)\b/i;
-
-/** Whether some match of `verb` says it happened, read in its own clause only. */
-function happened(sentence: string, verb: RegExp): boolean {
-  for (const match of sentence.matchAll(new RegExp(verb.source, "gi"))) {
-    if (!WORK_LINK.test(sentence) && SUBJECT.test(sentence.slice(0, match.index)) && LATER_VERB.test(sentence.slice(match.index! + match[0].length).split(":")[0]!)) continue;
-    let start = 0;
-    let end = sentence.length;
-    for (const turn of sentence.matchAll(CLAUSE)) {
-      if (turn.index! <= match.index!) start = /\w/.test(turn[0]) ? turn.index! : turn.index! + 1;
-      else if (turn.index! >= match.index! + match[0].length) { end = turn.index!; break; }
-    }
-    if (!NOT_LANDED.test(sentence.slice(start, end))) return true;
-  }
-  return false;
-}
 
 /** A sentence that reports work stopped, read without its negated forms. */
 function stops(sentence: string): boolean {
@@ -292,28 +266,19 @@ export interface Outcomes {
 }
 
 const ITEM = /^(?:\d+[.)]|[-*+])\s+(.+)$/;
-/** Finished, as a card's chip reads it: fixed, done, added, live, gone. */
-const DONE = /\b(?:fixed|done|added|finished|completed|works now|now works|live|(?:is|are) gone|removed|replaced)\b/i;
 /** No more cards than this at once: the rest of the reply waits behind "more". */
 const MAX_CARDS = 6;
 /** Few enough words before a colon to be a name, not a sentence. */
 const NAMED = /^([^:.!?]{2,60}?):\s+(.+)$/;
 const TITLE_CHARS = 70;
 
-/** Where one piece of work stands, from its own words. */
+/** A card's state for each work state the words can say: stopped work is stuck, finished work waiting on him is his. */
+export const OUTCOME_STATE: Record<ReadState, OutcomeState> = { needs_you: "needs", ready: "needs", blocked: "stuck", moving: "underway", landed: "landed" };
+
+/** Where one piece of work stands, from its own words, read by the one work reader (lib/work-state.ts). */
 export function stateOfItem(words: string): OutcomeState {
-  // "None is waiting on you" puts nothing to him.
-  const said = words.replace(QUOTED, " ").replace(new RegExp(PUT_TO_HIM.source, "gi"), (ask, at: number, all: string) => NEGATED.test(all.slice(0, at)) ? " " : ask);
-  if (/\?["”')\]]*$/.test(said.trim()) || PUT_TO_HIM.test(said)) return "needs";
-  // On a card a piece of work that is stuck says so, whatever it is stuck on.
-  const stuck = /\b(?:stuck|blocked|failed|failing)\b/i.exec(said);
-  if (stuck && !NEGATED.test(said.slice(0, stuck.index)) && !BEING_FIXED.test(said)) return "stuck";
-  if (happened(said, DONE)) return "landed";
-  const state = stateOf(said);
-  if (state === "landed" && !NOT_LANDED.test(said)) return "landed";
-  if (state === "needs") return "needs";
-  if (state === "underway") return "underway";
-  return happened(said, LANDED) ? "landed" : "note";
+  const reading = readWork(words);
+  return reading ? OUTCOME_STATE[reading] : "note";
 }
 
 /**

@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "./config.js";
+import { readWork, type ReadState } from "./work-state.js";
 
 // The state of play, project by project, as firstmate last reported it.
 //
@@ -53,12 +54,6 @@ const MAX_HEADER_CHARS = 40;
 const MAX_LINE_CHARS = 160;
 
 const BULLET = /^(\s*)(?:[-*•+]|\d+[.)])\s+(.*)$/;
-const LANDED = /\b(?:landed|merged|pushed|shipped|released|deployed|(?:is|are|now|went) live|in main|on main|done)\b/i;
-const NOT_YET = /\b(?:not|no|never|yet|will|once|until|waiting|now deploying|deploying|about to|ready to)\b/i;
-const NEEDS_YOU = /\b(?:needs? (?:you|your)|your (?:call|decision|answer|ok|go-ahead)|waiting (?:on|for) you|over to you|you (?:need|have) to|(?:you|george) (?:to |must |should )?decide)\b/i;
-const STUCK = /\b(?:blocked|stuck|failed|failing|can(?:no|['’])t (?:reach|get|finish|proceed)|gave up)\b/i;
-const MOVING = /\b(?:started|starting|under way|underway|in progress|working|deploying|building|running|fixing|queued|next)\b/i;
-
 export function defaultStateOfPlayFile(): string {
   return join(FLYD_DIR, "view", "state-of-play.json");
 }
@@ -81,13 +76,13 @@ function headerOf(line: string, names: PlayProject[]): { project?: string } | un
   return project ? { project: project.name } : {};
 }
 
-/** The state one status clause states, checked strongest first. */
-function stateOf(clause: string): PlayState | undefined {
-  if (STUCK.test(clause) && !/\bno longer\b|\bunblocked\b/i.test(clause)) return "stuck";
-  if (NEEDS_YOU.test(clause)) return "needs_you";
-  if (LANDED.test(clause) && !NOT_YET.test(clause.replace(/\(.*?\)/g, ""))) return "landed";
-  if (MOVING.test(clause)) return "moving";
-  return undefined;
+/** The state of play's word for each work state: finished work waiting on him is his, stopped work is stuck. */
+export const PLAY_STATE: Record<ReadState, PlayState> = { needs_you: "needs_you", ready: "needs_you", blocked: "stuck", moving: "moving", landed: "landed" };
+
+/** The state one status clause states, read by the one work reader (lib/work-state.ts). */
+export function playStateOf(clause: string): PlayState | undefined {
+  const reading = readWork(clause);
+  return reading ? PLAY_STATE[reading] : undefined;
 }
 
 /** "Still in progress: the slow start, the fix (now deploying), the previews, and the request page" names four. */
@@ -104,7 +99,7 @@ function itemOf(text: string): PlayItem | undefined {
   const label = colon > 0 && colon <= 60 ? clean.slice(0, colon).trim() : (clean.split(/[.;]/)[0] ?? clean).trim();
   const rest = colon > 0 && colon <= 60 ? clean.slice(colon + 1).trim() : "";
   // The status is what follows the label ("Fix for the failing previews: landed"); a label that is itself a status ("Still in progress: a, b") speaks when that says none.
-  const state = stateOf((rest || label).split(/[.;]/)[0] ?? "") ?? (rest ? stateOf(label) : undefined);
+  const state = playStateOf((rest || label).split(/[.;]/)[0] ?? "") ?? (rest ? playStateOf(label) : undefined);
   if (!state) return undefined;
   return { label, state, count: countOf(label, rest), text: clean };
 }

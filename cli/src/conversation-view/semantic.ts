@@ -1,3 +1,4 @@
+import { needsGeorge as needsGeorgeState } from "../lib/work-state.js";
 import type { HoldDecision } from "./artefact.js";
 import type { ShowItem } from "./show.js";
 
@@ -529,7 +530,6 @@ export function needsGeorge(object: SemanticObject): boolean {
   // A paused worker is waiting on its own clock, not on him.
   if (object.lifecycle === "interrupted" && object.status !== "paused") return true;
   if (object.monitor?.phase === "changed") return true;
-  const phase = object.activity?.phase;
-  return phase === "needs_you" || phase === "ready";
+  return needsGeorgeState(object.activity?.phase);
 }
 

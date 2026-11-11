@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { commitDomainRun, createDomainRun, readDomainRun, saveDomainRun } from "../store.js";
-import type { DomainRun } from "../types.js";
+import type { DomainResult, DomainRun } from "../types.js";
 
 let dir: string | undefined;
 afterEach(() => {
@@ -22,7 +22,31 @@ const run = (id = "domain-store-1"): DomainRun => ({
 
 const message = (id: string) => ({ id, kind: "question" as const, body: id, at: "2026-11-11T00:00:00.000Z" });
 
+const result = (brief: string): DomainResult => ({
+  format: "structured", brief, detailedReport: brief, decisionsMade: [], unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: [], informationLossRisk: "low",
+} as DomainResult);
+
 describe("command store", () => {
+  it("keeps a run's stored work state in step with its status on every write", () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-store-"));
+    saveDomainRun({ ...run(), status: "needs_decision", result: result("Which pricing tier should launch first?") }, dir);
+    expect(readDomainRun("domain-store-1", dir)!.result?.workState).toBe("needs_you");
+    // He cancels it: the result is untouched, but the work no longer waits on him.
+    const asked = readDomainRun("domain-store-1", dir)!;
+    expect(commitDomainRun(asked, { ...asked, status: "cancelled" }, dir).result?.workState).toBe("handled");
+    saveDomainRun({ ...run("domain-store-2"), status: "failed", result: result("Deploy failed on the Stripe key.") }, dir);
+    expect(readDomainRun("domain-store-2", dir)!.result?.workState).toBe("blocked");
+    // Retried: the same result, but the run is working again.
+    const failed = readDomainRun("domain-store-2", dir)!;
+    const retried = commitDomainRun(failed, { ...failed, status: "working" }, dir);
+    expect(retried.result?.workState).toBe("moving");
+    // A later write while it is still working (a message he sent) keeps it moving: the old reply is not read again.
+    expect(commitDomainRun(retried, { ...retried, messages: [message("from-view")], updatedAt: "2026-11-11T01:00:00.000Z" }, dir).result?.workState).toBe("moving");
+    // A new reply is read afresh.
+    const later = readDomainRun("domain-store-2", dir)!;
+    expect(commitDomainRun(later, { ...later, result: result("Blocked on the Stripe key again.") }, dir).result?.workState).toBe("blocked");
+  });
+
   it("applies a change made from an earlier read onto the run as it is now", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-store-"));
     saveDomainRun(run(), dir);

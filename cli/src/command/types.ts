@@ -1,4 +1,5 @@
 import type { GeorgeKind } from "../lib/reaches-george.js";
+import type { WorkState } from "../lib/work-state.js";
 
 export const DOMAIN_IDS = ["coding", "knowledge", "creative", "life"] as const;
 export type DomainId = typeof DOMAIN_IDS[number];
@@ -86,6 +87,8 @@ export interface DomainResult {
   specialistOutputs: SpecialistOutput[];
   raw: string[];
   informationLossRisk: InformationLossRisk;
+  /** Where the work stands, read from the reply once when it was judged (lib/work-state.ts); every surface reads this. */
+  workState?: WorkState;
 }
 
 export interface DomainTransport {

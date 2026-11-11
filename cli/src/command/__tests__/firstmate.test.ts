@@ -550,6 +550,12 @@ describe("FirstMate domain transport", () => {
     expect(byId["domain-decided"]!.status).toBe("needs_decision");
     expect(byId["domain-broke"]!.status).toBe("failed");
     expect(byId["domain-done"]!.status).toBe("completed");
+    // Where the work stands is read once, as the reply is judged, and stored with its result.
+    expect(listDomainRuns().map((run) => [run.id, run.result?.workState]).sort()).toEqual([
+      ["domain-broke", "blocked"],
+      ["domain-decided", "needs_you"],
+      ["domain-done", "landed"],
+    ]);
     expect(sent.some((message) => message.includes("the copy change is ready"))).toBe(true);
     expect(sent.some((message) => message.includes("is blocked"))).toBe(true);
     expect(sent.some((message) => message.includes("footer link"))).toBe(false);

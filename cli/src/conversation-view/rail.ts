@@ -1,7 +1,8 @@
 import type { ReplyChoice } from "./choices.js";
 import type { PortServer } from "./port-server.js";
 import type { ServedBy } from "./preview-probe.js";
-import type { WorkState } from "./executive.js";
+import type { CardState } from "./executive.js";
+import { readWork, type ReadState } from "../lib/work-state.js";
 import type { RailMemories } from "./memory.js";
 import { capitalise, inline, SALUTATION, sentences } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
@@ -274,30 +275,27 @@ export function plainNote(text: string): { words: string; about?: { title: strin
   return { words: text };
 }
 
-/**
- * An answer that hands something back to him: it ends on a question, or asks
- * him outright. Words that only talk about asks ("tagged done, under way or
- * needs you") are not one.
- */
-const ASKS_HIM = /\?\s*$|\b(?:your (?:call|decision|go-ahead|approval)|do you want|would you like|should i\b|shall i\b|want me to|say the word)\b/i;
-
-/** A lead sentence saying the work it reports on is still going, not a fact that merely has an -ing word in it. */
-const STILL_GOING = /\b(?:under ?way|in progress|still (?:going|running|working|in (?:its )?(?:checks|review))|working on (?:it|this|that)|queued|in flight|(?:is|are) (?:now )?in (?:its |their )?(?:checks|review))\b/i;
+/** The rail's word for each work state: blocked and ready work wait on him, like his calls. */
+export const RAIL_STATE: Record<ReadState, RailState> = { needs_you: "needs", blocked: "needs", ready: "needs", moving: "underway", landed: "done" };
 
 /**
- * Where an exchange stands: an answer that asks him something needs him; a
- * report on work whose lead says it is still going is under way; any other
- * answer is done (Flyd's own answers are answers, never work); else it is
- * under way. Pure.
+ * Where an exchange stands, read by the one work reader (lib/work-state.ts):
+ * an answer that asks him anywhere, or whose lead says the work is stopped or
+ * waits on him, needs him; a report whose lead says it is still moving is under way; any
+ * other answer is done (Flyd's own answers are answers, never work); else it
+ * is under way. Pure.
  */
 export function railState(exchange: { answer?: ConversationMessage; answered?: boolean; state?: RailState }): RailState {
   if (exchange.state) return exchange.state;
   const answer = exchange.answer?.text.trim();
   if (answer) {
-    const plain = answer.replace(/```[\s\S]*?```/g, "");
-    if (ASKS_HIM.test(plain)) return "needs";
+    const plain = inline(answer.replace(/```[\s\S]*?```/g, ""));
+    if (readWork(plain) === "needs_you") return "needs";
+    // Only the lead says where the work stands: a later "failed" or "-ing" word is a fact, not news.
+    const lead = readWork(sentences(plain)[0] ?? "");
+    if (lead && RAIL_STATE[lead] === "needs") return "needs";
     if (exchange.answer!.answers?.startsWith("ask:")) return "done";
-    return STILL_GOING.test(sentences(inline(plain))[0] ?? "") ? "underway" : "done";
+    return lead === "moving" ? "underway" : "done";
   }
   return exchange.answered ? "done" : "underway";
 }
@@ -405,7 +403,7 @@ export function spoken(text: string): string {
 }
 
 /** The column's status card says what happened in his words: work that landed is "Done". */
-export const RAIL_CARD_TITLES: Partial<Record<WorkState, string>> = { landed: "Done" };
+export const RAIL_CARD_TITLES: Partial<Record<CardState, string>> = { landed: "Done" };
 
 /** A lead that only acknowledges, or says where ("Done on Visit → Hours:"), not what changed. */
 const HOLLOW_LEAD = /^(?:(?:yes|ok(?:ay)?|right),?\s+)?(?:agreed|aye(?: aye)?|yes|ok(?:ay)?|sure|right|noted|understood|got it|on it|will do|shipshape|(?:all |that's |it's )?(?:done|finished|sorted|fixed))(?:\s+(?:on|in|at|for|to|with)\s+[^.!?:]{1,60})?\s*[.!:]?$/i;

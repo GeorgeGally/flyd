@@ -1,6 +1,7 @@
 import { inFlydsVoice } from "./flyd-voice.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
 import { quoted } from "./replies.js";
+import { readPassage, readSentence, readWork, type ReadState } from "../lib/work-state.js";
 import { authorSummary, capitalise, clip, inline, SALUTATION, sentences } from "./summaries.js";
 
 // Flyd talks to him like an executive briefing: outcomes, what they lead to
@@ -160,12 +161,18 @@ function shownLine(line: string): string {
 
 // ── Status card ────────────────────────────────────────────────────────────
 
-/** Needs him, under way, landed, or a question of his Flyd already answered under his standing rules. */
-export type WorkState = "needs" | "underway" | "landed" | "handled";
+/**
+ * How the status card groups work: needs him, under way, landed, or a question of his Flyd already answered under his
+ * standing rules. A view of the one work state (lib/work-state.ts): blocked and ready work wait on him, so they group with his calls.
+ */
+export type CardState = "needs" | "underway" | "landed" | "handled";
+
+/** The card group for each work state the words can say. */
+export const CARD_STATE: Record<ReadState, CardState> = { needs_you: "needs", blocked: "needs", ready: "needs", moving: "underway", landed: "landed" };
 
 export interface StatusItem {
   text: string;
-  state: WorkState;
+  state: CardState;
   urls: string[];
   /** The project the work belongs to, when its link names one. */
   project?: string;
@@ -177,56 +184,21 @@ export interface StatusItem {
   raw?: string;
 }
 
-/** His word asked for, as NEEDS and ASKS both read it. */
+/** His word asked for, as the ask of an item reads it. */
 const YOUR_CALL = "your (?:call|decision|word|ok|go-ahead|approval)";
 /** "Approve the page" or "you decide" asks him; "I'll approve it" does not. */
 const DECIDE = "(?:^|[.!?:;]\\s+|\\b(?:you|please)\\s+)(?:approve|decide)\\b";
-const NEEDS = new RegExp(`\\b(?:waiting (?:on|for) (?:you|your)|needs? (?:you|your)|${YOUR_CALL}|blocked|ready (?:for (?:your )?review|to merge)|for your (?:review|ok))\\b|${DECIDE}`, "i");
-/** "Say "X" to keep it" is an ask, but only when it leads the line, not mid-sentence quoted text. */
-const SAY_ASK = /(?:^|[:;.]\s+)say\s*["“']/i;
-/** A sentence put to him as a question, by its mood rather than its words: it ends asking, or opens with what asks. */
-const QUESTION = /\?["”')\]]*$|^(?:so,?\s+|and\s+)?(?:shall|should|may|can|could|would|will|do|does|did|is|are|want) (?:i|we|you|it|they|firstmate|flyd)\b/i;
-const UNDERWAY = /\b(?:being|under ?way|in progress|working on|bringing|updating|will (?:be |get )?(?:merged?|land(?:ed)?|ship(?:ped)?)|still going|going through (?:its )?checks|merges itself|in (?:its )?(?:checks|review)|queued|started|running|in flight|final review)\b/i;
-/** What is still to be done: the future or a plan, which is never landed. */
-const PLAN = /\b(?:will|['’]ll|going to|plan(?:s|ned)? to|next,? (?:i|we)|to be)\b/i;
-const LANDED = /\b(?:merged|landed|shipped|is live|went live|released|deployed|done|finished|complete)\b/i;
-/** "Will be merged", "going to be deployed": landing still to come. */
-const WILL_LAND = /\b(?:will|['’]ll|going to|to)\s+(?:be\s+|get\s+)?(?:merged|landed|shipped|live|released|deployed|done|finished|complete)\b/i;
-const NOT_YET = /\b(?:never|not|isn't|wasn't|hasn't|unmerged|until|before)\b/i;
 
-/** What one sentence says of the work: it asks him, it is moving, it is only planned, it has landed, or nothing. */
-type Meaning = WorkState | "plan";
-
-/** Quoted words are someone's example ("like "Merged deployed.""), never the state of the work. */
-function unquoted(text: string): string {
-  return text.replace(/"[^"\n]*"|“[^”\n]*”/g, "…");
+/** What a passage says of the work as the card groups it, or "plan" for intent only; read by the one work reader. */
+function readingOfText(text: string): CardState | "plan" | null {
+  const reading = readPassage(text);
+  return reading === "plan" || reading === null ? reading : CARD_STATE[reading];
 }
 
-function meaningOf(sentence: string): Meaning | null {
-  const said = unquoted(sentence).trim();
-  if (!said) return null;
-  if (QUESTION.test(said) || NEEDS.test(said) || SAY_ASK.test(said)) return "needs";
-  if (UNDERWAY.test(said)) return "underway";
-  if (LANDED.test(said) && !WILL_LAND.test(said)) return NOT_YET.test(said) ? "underway" : "landed";
-  if (PLAN.test(said)) return "plan";
-  return null;
-}
-
-/**
- * What a passage says of the work, read sentence by sentence for its meaning
- * rather than its keywords: any sentence that asks him makes it his, though
- * another clause says "the running Flyd"; else any that says it is moving;
- * else any that says it landed, quoted words aside; else a plan, which is not
- * landed, not under way, and not a state for the card.
- */
-function readingOfText(text: string): Meaning | null {
-  const meanings = new Set(sentences(unquoted(text)).map(meaningOf));
-  return (["needs", "underway", "landed", "plan"] as const).find((meaning) => meanings.has(meaning)) ?? null;
-}
-
-export function stateOf(text: string): WorkState | null {
-  const meaning = readingOfText(text);
-  return meaning === "plan" ? null : meaning;
+/** Where the work a passage reports stands, as the status card groups it; null when it says none. Pure. */
+export function stateOf(text: string): CardState | null {
+  const reading = readWork(text);
+  return reading ? CARD_STATE[reading] : null;
 }
 
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+(.*)$/;
@@ -245,7 +217,7 @@ function projectOf(url: string | undefined): string | undefined {
 }
 
 /** The Markdown links of an item, then its text with them flattened. */
-function itemOf(shown: string, state: WorkState, listed: string): StatusItem {
+function itemOf(shown: string, state: CardState, listed: string): StatusItem {
   const urls = [...shown.matchAll(LINK)].map((match) => match[2]!);
   const said = sentences(inline(shown));
   const first = clip(inline(said[0] ?? inline(shown)).replace(/[,;:.]+$/, ""), 140);
@@ -289,7 +261,7 @@ export interface Briefing {
   items: StatusItem[];
 }
 
-const ORDER: Record<WorkState, number> = { needs: 0, underway: 1, landed: 2, handled: 3 };
+const ORDER: Record<CardState, number> = { needs: 0, underway: 1, landed: 2, handled: 3 };
 
 /** An item that is a question of its own: "whether to …", "if …", or one whose question leads it. */
 const ITEM_ASKS = /^(?:whether|if)\b|\?["”')\]]*$/i;
@@ -431,7 +403,7 @@ function scan(text: string, lift: boolean): Briefing {
   return { prose: out.join("").trim(), items };
 }
 
-const GROUP: Record<WorkState, { title: string; kind: string }> = {
+const GROUP: Record<CardState, { title: string; kind: string }> = {
   needs: { title: "Needs you", kind: "k-call" },
   underway: { title: "Under way", kind: "k-live" },
   landed: { title: "Landed", kind: "k-landed" },
@@ -449,11 +421,11 @@ function safeHref(url: string): string | null {
  * opens the work; when one line stands for several, each extra light opens
  * the next. The project shows only when the work spans more than one.
  */
-export function statusCardHtml(items: StatusItem[], titles: Partial<Record<WorkState, string>> = {}): string {
+export function statusCardHtml(items: StatusItem[], titles: Partial<Record<CardState, string>> = {}): string {
   const projects = new Set(items.map((item) => item.project ?? ""));
   const named = projects.size > 1;
   let index = 0;
-  const groups = (Object.keys(GROUP) as WorkState[]).flatMap((state) => {
+  const groups = (Object.keys(GROUP) as CardState[]).flatMap((state) => {
     const mine = items.filter((item) => item.state === state);
     if (mine.length === 0) return [];
     const rows = mine.map((item) => {
@@ -480,7 +452,7 @@ export function brief(text: string, handled?: (text: string) => boolean): Briefi
 }
 
 /** A reply rendered for his window: stubs gone, lists as prose, a multi-item status as a card under its lead. */
-export function renderBriefing(text: string, titles: Partial<Record<WorkState, string>> = {}, handled?: (text: string) => boolean): string {
+export function renderBriefing(text: string, titles: Partial<Record<CardState, string>> = {}, handled?: (text: string) => boolean): string {
   const { prose, items } = brief(text, handled);
   if (items.length === 0) return renderMarkdown(prose);
   const [lead, ...rest] = prose.split(/\n\s*\n/);
@@ -492,7 +464,8 @@ const ASKS = new RegExp(`\\?|\\b(?:say ["“']|do you want|would you like|should
 
 /** A sentence in a work item that asks him for something, as the item's state reads it. */
 function asksOfItem(sentence: string): boolean {
-  return NEEDS.test(sentence) || SAY_ASK.test(sentence) || ASKS.test(sentence);
+  const reading = readSentence(sentence);
+  return (reading !== null && reading !== "plan" && CARD_STATE[reading] === "needs") || ASKS.test(sentence);
 }
 
 /** The sentences of a paragraph that ask him something, without a question it answers itself ("…? Yes, …"). */
