@@ -105,7 +105,11 @@ export class WhatsAppClient {
     this.state = "connecting";
     this.ready = new Promise<void>((resolve, reject) => {
       const fail = (reason: string) => { if (!this.stopped) this.failure = reason; reject(new Error(reason)); };
-      const timer = setTimeout(() => { this.socket?.end(new Error("Connection timeout")); fail(onQR ? "The code was not scanned in time. A fresh one is on its way." : "WhatsApp did not answer in time. Check this Mac's internet connection or VPN."); }, onQR ? 120_000 : 25_000);
+      let timedOut: string | undefined;
+      const timer = setTimeout(() => {
+        timedOut = onQR ? "The code was not scanned in time. A fresh one is on its way." : "WhatsApp did not answer in time. Check this Mac's internet connection or VPN.";
+        this.socket?.end(new Error("Connection timeout")); fail(timedOut);
+      }, onQR ? 120_000 : 25_000);
       void this.version().catch(() => undefined).then(version => {
         if (this.stopped) { clearTimeout(timer); fail("Linking was stopped."); return; }
         const socket = this.socketFactory({ auth: state, logger: silent, markOnlineOnConnect: false, syncFullHistory: false, getMessage: async () => undefined, ...(version ? { version } : {}) });
@@ -139,7 +143,7 @@ export class WhatsAppClient {
             if (!this.stopped && code === DisconnectReason.restartRequired && this.retries++ < 5) {
               this.ready = undefined; void this.connect(onQR).then(resolve, reject); return;
             }
-            fail(this.stopped ? "Linking was stopped." : whatsappFailureReason(code, error?.message));
+            fail(this.stopped ? "Linking was stopped." : timedOut ?? whatsappFailureReason(code, error?.message));
             if (!this.stopped && code !== DisconnectReason.loggedOut && !onQR && !this.retry && this.retries++ < 5) this.retry = setTimeout(() => {
               this.retry = undefined; this.ready = undefined; void this.connect(onQR).catch(() => undefined);
             }, 3000);

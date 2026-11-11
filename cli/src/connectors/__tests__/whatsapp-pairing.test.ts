@@ -35,6 +35,18 @@ describe("the pairing session", () => {
     expect(pairing.state()).toEqual({ paired: false });
   });
 
+  it("does not carry the stopped run's ending into the next Link WhatsApp", async () => {
+    let reject: (error: Error) => void = () => {};
+    connect.mockReturnValue(new Promise<void>((_, no) => { reject = no; }));
+    stop.mockImplementation(() => reject(new Error("Linking was stopped.")));
+    const pairing = new WhatsAppPairing();
+    pairing.start(); await flush();
+    pairing.stop(); await flush();
+    connect.mockReturnValue(new Promise(() => {}));
+    pairing.start(); await flush();
+    expect(pairing.state()).toEqual({ paired: false });
+  });
+
   it("keeps the socket after a link so the first history can land", async () => {
     connect.mockResolvedValue(undefined);
     const pairing = new WhatsAppPairing();

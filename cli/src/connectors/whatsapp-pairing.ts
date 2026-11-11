@@ -46,6 +46,7 @@ export class WhatsAppPairing {
   /** Why the last try did not link, in plain words; kept until a link or until the offer is dismissed. */
   private failure: string | undefined;
   private running: Promise<void> | undefined;
+  private generation = 0;
   private release?: NodeJS.Timeout;
   private readonly listeners = new Set<() => void>();
   /** Built on first use; the view reads state() on every update, so its store is created the moment the conversation view opens. */
@@ -62,8 +63,10 @@ export class WhatsAppPairing {
     const client = this.whatsapp();
     if (this.running || client.paired()) return;
     this.code = undefined;
+    const run = this.generation;
     this.running = client.connect((code) => { this.code = code; this.emit(); })
       .then(() => {
+        if (run !== this.generation) return;
         this.linked = true;
         this.code = undefined;
         this.failure = undefined;
@@ -74,12 +77,13 @@ export class WhatsAppPairing {
         this.release = setTimeout(() => this.stop(), PAIRING_SYNC_MS);
         this.release.unref?.();
       })
-      .catch((error: unknown) => { this.drop(); this.failure = error instanceof Error ? error.message : "Linking did not finish."; this.emit(); })
+      .catch((error: unknown) => { if (run !== this.generation) return; this.drop(); this.failure = error instanceof Error ? error.message : "Linking did not finish."; this.emit(); })
       .finally(() => { this.running = undefined; });
   }
 
   /** Drop the pairing socket and any code: the offer is not being shown any more. */
   stop(): void {
+    this.generation += 1;
     this.drop();
     this.failure = undefined;
     this.emit();

@@ -136,6 +136,24 @@ describe("linking against WhatsApp's current build", () => {
     } finally { client.stop(); client.store.close(); if (previous === undefined) delete process.env.FLYD_CONNECTOR_DIR; else process.env.FLYD_CONNECTOR_DIR = previous; }
   });
 
+  it("says the code was not scanned, not that WhatsApp was unreachable, when nobody scans in time", async () => {
+    const { WhatsAppClient } = await import("../whatsapp.js");
+    const previous = process.env.FLYD_CONNECTOR_DIR; process.env.FLYD_CONNECTOR_DIR = directory;
+    const factory = () => {
+      const handlers = new Map<string, (value: unknown) => void>();
+      return { ev: { on: (name: string, handler: (value: unknown) => void) => handlers.set(name, handler) }, end: (error?: Error) => handlers.get("connection.update")?.({ connection: "close", lastDisconnect: { error } }) };
+    };
+    vi.useFakeTimers();
+    const client = new WhatsAppClient(factory as never, async () => [2, 3000, 1]);
+    try {
+      const linking = client.connect(() => {});
+      const outcome = expect(linking).rejects.toThrow(/not scanned in time/);
+      await vi.advanceTimersByTimeAsync(120_000);
+      await outcome;
+      expect(client.status()).toMatchObject({ lastError: expect.stringMatching(/not scanned in time/) });
+    } finally { vi.useRealTimers(); client.stop(); client.store.close(); if (previous === undefined) delete process.env.FLYD_CONNECTOR_DIR; else process.env.FLYD_CONNECTOR_DIR = previous; }
+  });
+
   it("names an expired code and an unreachable WhatsApp in George's words", async () => {
     const { whatsappFailureReason } = await import("../whatsapp.js");
     expect(whatsappFailureReason(408, "QR refs attempts ended")).toMatch(/ran out before it was scanned/);
