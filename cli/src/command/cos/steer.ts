@@ -22,6 +22,8 @@ export interface SteerOutcome {
   objectiveId?: string;
   /** The one question to ask him when the message could be for more than one piece of work. */
   ask?: string;
+  /** The option that runs it again when he says yes to the ask. */
+  again?: string;
   /** When a snoozed wait comes back. */
   until?: string;
   reason?: "no_active_work" | "ambiguous" | "not_steerable" | "delivery_failed" | "invalid_time";
@@ -212,8 +214,11 @@ async function resume(objective: Objective, message: string, choice: string | un
   // Tried again with his words, or dropped when he says so: what didn't make it, or the result that fell short.
   const drop = waiting.kind === "retry" && option === "Drop it";
   // A one-off job may have booked, sent or paid: only an explicit option runs it again, never his words alone.
-  const ran = !option && (waiting.kind === "accept" ? sinks(objective) : planOf(objective).filter((run) => run.state === "failed")).find(isJob);
-  if (ran) return { delivered: false, objectiveId: objective.id, reason: "not_steerable", ask: `“${short(ran.outcome, 40)}” already ran; run it again with this?` };
+  const ran = !option && (waiting.kind === "accept" ? sinks(objective) : planOf(objective).filter((run) => run.state === "failed")).find((run) => isJob(run) && Boolean(run.ref || run.prior?.length));
+  if (ran) {
+    const again = waiting.options?.find((offered) => offered !== "Drop it" && offered !== "Take it as it is");
+    return { delivered: false, objectiveId: objective.id, reason: "not_steerable", ask: `“${short(ran.outcome, 40)}” already ran; run it again with this?`, ...(again ? { again } : {}) };
+  }
   mutateObjective(objective.id, (current) => {
     if (!current) return null;
     const plan = planOf(current).map((run) => ({ ...run }));

@@ -359,7 +359,7 @@ export async function runAssistantTool(
         if (outcome.delivered) return "Delivered to the work it is for. Tell him in a line that it has it; don't send it again.";
         if (outcome.reason === "invalid_time") return "That isn't a time still to come. Ask him when he wants it back.";
         if (outcome.reason === "ambiguous") return `It could be for more than one piece of work. Ask him, in one line: ${outcome.ask}`;
-        if (outcome.reason === "not_steerable" && outcome.ask) return `Nothing changed yet. Ask him, in one line: ${outcome.ask}`;
+        if (outcome.reason === "not_steerable" && outcome.ask) return `Nothing changed yet. Ask him, in one line: ${outcome.ask}${outcome.again ? ` If he says yes, call tell_work again with choice "${outcome.again}" and message set to his earlier words, not his yes.` : ""}`;
         if (outcome.reason === "no_active_work") return "No work under way matches. Treat it as him talking to you; don't say it was passed on.";
         return "It could not be delivered. Don't say it was passed on; tell him only if it matters.";
       }

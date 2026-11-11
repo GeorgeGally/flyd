@@ -412,6 +412,8 @@ This is v8 Phase 7. Each objective records what it waits on George for (`waiting
   - work that couldn't start goes back to intake with his answer added;
   - a result that fell short is delivered when he takes it as it is;
   - otherwise what didn't make it is tried again with his words, or dropped (with what waits on it) when he says to drop it.
+  - an option counts only when `choice` names it, or when his words name exactly one offered option; an unclear stuck reply, or one naming two options, asks again and changes nothing;
+  - his words alone never re-run a one-off job that already ran: he is asked first, and only an explicit option runs it again. A job whose dispatch was refused never ran, so his words re-queue it as for any retry ("Try again" / "Drop it").
 - **Stuck work is mostly Flyd's to settle.** An objective with no progress for a day (`STUCK_MS`: no run sent or settled, no word from its teams, no earlier triage) is settled from what it waits on:
   - a FirstMate run is chased by the fleet monitor (recorded as a nudge);
   - a Librarian run gets a note asking where it stands;

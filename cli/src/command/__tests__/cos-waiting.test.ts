@@ -179,8 +179,22 @@ describe("a one-off job's retry", () => {
     });
     const before = readObjective(id);
     expect(await tellWork({ message: "try the other restaurant", kind: "decision" }, h.deps.send, h.clock()))
-      .toEqual({ delivered: false, objectiveId: id, reason: "not_steerable", ask: "“Book the table for Friday” already ran; run it again with this?" });
+      .toEqual({ delivered: false, objectiveId: id, reason: "not_steerable", ask: "“Book the table for Friday” already ran; run it again with this?", again: "Try another way" });
     expect(readObjective(id)).toEqual(before);
+    h.store.close();
+  });
+
+  it("re-queues with his words when its dispatch was refused, since it never ran", async () => {
+    const h = harness("{}");
+    const id = openObjective({ words: "book the table", flydNotes: "", origin: { surface: "chat" } }).id;
+    const plan: PlannedRun[] = [{ key: "r1", team: "life", outcome: "Book the table for Friday", doneWhen: ["booked"], state: "failed", attempt: 1, validFor: 0, failure: "refused" }];
+    mutateObjective(id, (current) => current && {
+      ...current, status: "needs_george", runs: [], plan,
+      waitingOn: { reportId: `${id}:dispatch:r1:1`, kind: "retry", question: "I couldn't get it started.", options: ["Try again", "Drop it"], at: new Date().toISOString() },
+    });
+    expect(await tellWork({ message: "it's at Nando's, 7pm", kind: "decision" }, h.deps.send, h.clock())).toEqual({ delivered: true, objectiveId: id });
+    const run = planOf(readObjective(id)!)[0]!;
+    expect([readObjective(id)?.status, run.state, run.failure]).toEqual(["working", "queued", "refused. George said: it's at Nando's, 7pm"]);
     h.store.close();
   });
 });

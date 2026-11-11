@@ -108,7 +108,7 @@ async function report(objective: Objective, made: CosReport, deps: CosTickDeps, 
 async function blocked(objective: Objective, reason: string, deps: CosTickDeps, store: IntelligenceEventStore, kind: "intake" | "retry", key: string): Promise<void> {
   if (readObjective(objective.id)?.status === "cancelled") return;
   // One plain sentence: what happened. The reason stays on the record.
-  const made = { ...plainReport(objective, "blocked", `I couldn't get “${shortWords(objective.words)}” started; tell me a bit more and I'll set it going.`, key), detail: reason };
+  const made = { ...plainReport(objective, "blocked", `I couldn't get “${shortWords(objective.words)}” started; tell me a bit more and I'll set it going.`, key), detail: reason, ...(kind === "retry" ? { options: ["Try again", "Drop it"] } : {}) };
   await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind });
 }
 
