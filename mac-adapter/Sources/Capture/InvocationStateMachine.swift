@@ -19,7 +19,7 @@ final class InvocationStateMachine {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    fileprivate var shortcutRoutingState = ShortcutRoutingState()
+    var shortcutRoutingState = ShortcutRoutingState()
     fileprivate var keyEventFilter = KeyEventFilter()
     fileprivate(set) var isVoiceInvocation = false
 
@@ -66,7 +66,8 @@ final class InvocationStateMachine {
     var onShortcutPressed: (() -> Void)?
     var onShortcutReleased: (() -> Void)?
     var onShortcutHoldDetected: (() -> Void)?
-    var onDictationStart: (() -> Void)?
+    /// Returns false when dictation was refused.
+    var onDictationStart: (() -> Bool)?
     var onDictationStop: (() -> Void)?
     var onDictationCancel: (() -> Void)?
     var onScrawlToggle: (() -> Bool)?
@@ -249,6 +250,14 @@ final class InvocationStateMachine {
         ShortcutRouter.endDictation(state: &shortcutRoutingState)
     }
 
+    /// A refused start is forgotten by the router, or the next fn tap would be eaten
+    /// as a stop for a dictation that never began.
+    func startDictationGesture() {
+        if onDictationStart?() == false {
+            endDictationGesture()
+        }
+    }
+
     func nextTranscriptionSessionId() -> Int {
         transcriptionSessionId += 1
         return transcriptionSessionId
@@ -394,7 +403,7 @@ private extension InvocationStateMachine {
             isVoiceInvocation = true
             DispatchQueue.main.async { self.onShortcutReleased?() }
         case .dictationStart:
-            DispatchQueue.main.async { self.onDictationStart?() }
+            DispatchQueue.main.async { self.startDictationGesture() }
         case .dictationStop:
             DispatchQueue.main.async { self.onDictationStop?() }
         case .dictationCancel:

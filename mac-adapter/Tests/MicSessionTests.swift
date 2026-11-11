@@ -62,14 +62,15 @@ final class MicSessionTests: XCTestCase {
     /// An fn tap that dictation refused: the router is told, so the next tap starts a
     /// dictation instead of being swallowed as "stop".
     func testRefusedDictationTapIsNotEatenByTheNextTap() {
-        var state = ShortcutRoutingState()
+        let machine = InvocationStateMachine()
+        machine.onDictationStart = { false }
         let fn: CGEventFlags = [.maskSecondaryFn]
         func edge(_ flags: CGEventFlags, at time: TimeInterval) -> [ShortcutRouteEvent] {
-            ShortcutRouter.route(eventType: .flagsChanged, flags: flags, state: &state, now: time)
+            ShortcutRouter.route(eventType: .flagsChanged, flags: flags, state: &machine.shortcutRoutingState, now: time)
         }
 
         XCTAssertEqual(edge(fn, at: 0.0), [.dictationStart])
-        ShortcutRouter.endDictation(state: &state) // start refused
+        machine.startDictationGesture()
         XCTAssertEqual(edge([], at: 0.05), [])
         XCTAssertEqual(edge(fn, at: 3.0), [.dictationStart])
     }
@@ -77,15 +78,42 @@ final class MicSessionTests: XCTestCase {
     /// The refusal can land after the tap's release (the start runs on the next main-queue
     /// turn); the next tap still starts fresh.
     func testRefusalArrivingAfterReleaseStillFreesTheNextTap() {
-        var state = ShortcutRoutingState()
+        let machine = InvocationStateMachine()
+        machine.onDictationStart = { false }
         let fn: CGEventFlags = [.maskSecondaryFn]
         func edge(_ flags: CGEventFlags, at time: TimeInterval) -> [ShortcutRouteEvent] {
-            ShortcutRouter.route(eventType: .flagsChanged, flags: flags, state: &state, now: time)
+            ShortcutRouter.route(eventType: .flagsChanged, flags: flags, state: &machine.shortcutRoutingState, now: time)
         }
 
         XCTAssertEqual(edge(fn, at: 0.0), [.dictationStart])
         XCTAssertEqual(edge([], at: 0.05), [])
-        ShortcutRouter.endDictation(state: &state) // start refused
+        machine.startDictationGesture()
         XCTAssertEqual(edge(fn, at: 3.0), [.dictationStart])
+    }
+
+    /// A started dictation keeps the gesture, so the next tap stops it.
+    func testStartedDictationTapIsStoppedByTheNextTap() {
+        let machine = InvocationStateMachine()
+        machine.onDictationStart = { true }
+        let fn: CGEventFlags = [.maskSecondaryFn]
+        func edge(_ flags: CGEventFlags, at time: TimeInterval) -> [ShortcutRouteEvent] {
+            ShortcutRouter.route(eventType: .flagsChanged, flags: flags, state: &machine.shortcutRoutingState, now: time)
+        }
+
+        XCTAssertEqual(edge(fn, at: 0.0), [.dictationStart])
+        machine.startDictationGesture()
+        XCTAssertEqual(edge([], at: 0.05), [])
+        XCTAssertEqual(edge(fn, at: 3.0) + edge([], at: 3.05), [.dictationStop])
+    }
+
+    /// A dropped LIVE bridge ends the session (turning the mic off); a live or
+    /// in-progress connection does not.
+    func testADroppedLiveBridgeEndsTheSession() {
+        XCTAssertTrue(LiveSessionController.endsSession(on: .failed))
+        XCTAssertTrue(LiveSessionController.endsSession(on: .disconnected))
+        XCTAssertFalse(LiveSessionController.endsSession(on: .connecting))
+        XCTAssertFalse(LiveSessionController.endsSession(on: .ready))
+        XCTAssertFalse(LiveSessionController.endsSession(on: .active))
+        XCTAssertFalse(LiveSessionController.endsSession(on: .closing))
     }
 }

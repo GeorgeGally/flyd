@@ -35,7 +35,10 @@ final class LiveSessionController {
 
     private func start() {
         guard state == .disconnected || state == .failed else { return }
-        guard let token = MicSession.shared.begin(.live) else { return }
+        guard let token = MicSession.shared.begin(.live) else {
+            DictationPill.shared.show(.failed("Microphone is busy"))
+            return
+        }
         micToken = token
         sessionId = UUID().uuidString
         startedAt = Date()
@@ -47,15 +50,13 @@ final class LiveSessionController {
         state = .connecting
         bridge.onStateChange = { [weak self] bridgeState in
             DispatchQueue.main.async {
-                // Only this session's own events may move it; a late event from an
-                // earlier session must not end the current one.
+                // Events delivered after this session ended are ignored.
                 guard let self, self.micToken == token else { return }
-                switch bridgeState {
-                case .active: self.state = .active
-                case .failed, .disconnected:
+                if bridgeState == .active {
+                    self.state = .active
+                } else if Self.endsSession(on: bridgeState) {
                     print("[Flyd] LIVE connection dropped; ending the session")
                     self.end(as: .failed)
-                case .connecting, .ready, .closing: break
                 }
             }
         }
@@ -83,6 +84,14 @@ final class LiveSessionController {
             return
         }
         bridge.connect()
+    }
+
+    /// A bridge that failed or disconnected ends the session, which turns the mic off.
+    static func endsSession(on bridgeState: LiveAudioBridge.ConnectionState) -> Bool {
+        switch bridgeState {
+        case .failed, .disconnected: return true
+        case .connecting, .ready, .active, .closing: return false
+        }
     }
 
     func stop() {

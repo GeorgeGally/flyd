@@ -248,11 +248,7 @@ func startFlyd(closeSetup: Bool = true) {
         handleVoiceInvocation()
     }
     stateMachine.onDictationStart = {
-        // A refused start must reach the router, or it keeps "recording" and eats the
-        // next fn tap as a stop for a dictation that never began.
-        if !startDictation() {
-            stateMachine.endDictationGesture()
-        }
+        startDictation()
     }
     stateMachine.onDictationStop = {
         dictation.stop()
