@@ -76,7 +76,9 @@ export interface CrewTask {
   attemptStartedAt?: string;
   /** Steps beyond the crew that George approved at dispatch, run when he lands it. */
   afterLand?: AfterLandStep[];
-  afterLandResults?: Array<{ step: AfterLandStep; ok: boolean; detail: string }>;
+  afterLandResults?: Array<{ step: AfterLandStep; ok: boolean; detail: string; uncertain?: boolean }>;
+  /** While landing: the after-land step started but not yet recorded. */
+  afterLandStarted?: AfterLandStep;
   /** The model the crewmate runs on ("provider/model"; "cursor/…" runs Cursor's agent); unset means the crew default. */
   model?: string;
   /** Models this task already ran on before its provider refused and it moved to a backup. */
@@ -1018,6 +1020,8 @@ async function superviseSettled(changed: CrewTask[], deps: SuperviseDependencies
       if (at >= 0) changed[at] = landed; else changed.push(landed);
     } catch (error) {
       console.warn("[crew] could not resume a landing:", error instanceof Error ? error.message : error);
+      const handedBack = readTask(stranded.id, dir);
+      if (handedBack?.status === "ready" && !changed.some((item) => item.id === handedBack.id)) changed.push({ ...handedBack, notified: false });
     }
   }
   // A review that couldn't run (a slow or refused model) is tried again on a later
@@ -1080,8 +1084,13 @@ async function superviseSettled(changed: CrewTask[], deps: SuperviseDependencies
   }
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
     if (task.status === "landed") {
-      const merged = `${plainOutcome(task)} is merged into main: its tests pass and it does everything you asked.`;
-      if (task.source !== "self-improvement") await deps.notify!("Flyd", merged, "deliverable").catch(() => undefined);
+      const uncertain = (task.afterLandResults ?? []).filter((result) => result.uncertain).map((result) => result.step);
+      if (uncertain.length) {
+        const question = `${plainOutcome(task)} is merged into main, but I can't tell whether its ${uncertain.join(" and ")} went through: it was running when I stopped, and I won't run it again on my own. Can you check whether it happened?`;
+        await deps.notify!("Flyd", question, "blocker").catch(() => undefined);
+      } else if (task.source !== "self-improvement") {
+        await deps.notify!("Flyd", `${plainOutcome(task)} is merged into main: its tests pass and it does everything you asked.`, "deliverable").catch(() => undefined);
+      }
       saveFrom({ ...task, notified: true }, ["landed"], dir);
       continue;
     }
@@ -1130,7 +1139,16 @@ export async function landCrewTask(id: string, dir = crewDir(), run: (command: s
   }
   // Until the branch is merged, a moved or dirty checkout stops the landing before it is claimed.
   if (task.status === "ready" || task.landingStep === "claimed") {
-    if (!await branchMerged(task)) await checkLandable(task);
+    if (!await branchMerged(task)) {
+      try {
+        await checkLandable(task);
+      } catch (error) {
+        if (task.status === "landing") {
+          transitionTask(id, ["landing"], (current) => current.landingStep === "claimed" && strandedBy(id, current.landerPid, activeLandings) ? handBack(current) : null, dir);
+        }
+        throw error;
+      }
+    }
   }
   const claimed = transitionTask(id, ["ready", "landing"], (current) => {
     if (current.status === "landing" && !strandedBy(id, current.landerPid, activeLandings)) return null;
@@ -1155,10 +1173,7 @@ export async function landCrewTask(id: string, dir = crewDir(), run: (command: s
           } catch (error) {
             // Nothing landed: leave the checkout as it was and hand the task back as ready.
             await git(landing.repo, ["merge", "--abort"]).catch(() => undefined);
-            transitionTask(id, ["landing"], (current) => {
-              const { landingStep, landerPid, ...rest } = current;
-              return { ...rest, status: "ready" };
-            }, dir);
+            transitionTask(id, ["landing"], handBack, dir);
             throw error;
           }
         }
@@ -1171,16 +1186,22 @@ export async function landCrewTask(id: string, dir = crewDir(), run: (command: s
       const results = [...(landing.afterLandResults ?? [])];
       for (const afterStep of (landing.afterLand ?? []).slice(results.length)) {
         if (results.some((result) => !result.ok)) break;
-        const result = await runAfterLandStep(landing, afterStep, run);
+        let result: NonNullable<CrewTask["afterLandResults"]>[number];
+        if (landing.afterLandStarted === afterStep && afterStep !== "push") {
+          result = { step: afterStep, ok: false, uncertain: true, detail: `${afterStep} was running when the landing stopped; it may or may not have run, so it was not run again` };
+        } else {
+          landing = step({ afterLandStarted: afterStep });
+          result = await runAfterLandStep(landing, afterStep, run);
+        }
         results.push(result);
-        landing = step({ afterLandResults: results });
+        landing = step({ afterLandResults: results, afterLandStarted: undefined });
         if (!result.ok) break;
       }
       landing = step({ landingStep: "deployed" });
     }
     const landed = transitionTask(id, ["landing"], (current) => {
       if (current.landerPid !== process.pid) return null;
-      const { landingStep, landerPid, ...rest } = current;
+      const { landingStep, landerPid, afterLandStarted, ...rest } = current;
       return { ...rest, status: "landed", finishedAt: new Date().toISOString() };
     }, dir);
     if (!landed) throw new Error(`Task ${id} was taken over while landing`);
@@ -1188,6 +1209,12 @@ export async function landCrewTask(id: string, dir = crewDir(), run: (command: s
   } finally {
     activeLandings.delete(id);
   }
+}
+
+/** A landing that merged nothing goes back to ready. */
+function handBack(current: CrewTask): CrewTask {
+  const { landingStep, landerPid, afterLandStarted, ...rest } = current;
+  return { ...rest, status: "ready" };
 }
 
 /** True once the task's branch is already part of its base branch. */
@@ -1352,7 +1379,7 @@ export function describeTask(task: CrewTask): string {
   const verification = task.verification?.length ? ` · checks ${task.verification.every((step) => step.ok) ? "pass" : "FAIL"}` : "";
   const review = task.review?.length ? ` · review ${task.review.filter((check) => check.met).length}/${task.review.length}` : "";
   const after = task.afterLandResults?.length
-    ? ` · ${task.afterLandResults.map((result) => `${result.step} ${result.ok ? "done" : "FAILED"}`).join(", ")}`
+    ? ` · ${task.afterLandResults.map((result) => `${result.step} ${result.ok ? "done" : result.uncertain ? "UNCERTAIN" : "FAILED"}`).join(", ")}`
     : task.afterLand?.length ? ` · then ${task.afterLand.join(", ")} on /land` : "";
   return `[${task.id}] ${task.status}${task.landingStep ? ` (${task.landingStep})` : ""}${task.diffStat ? ` · ${task.diffStat}` : ""}${verification}${review}${after} — ${task.outcome.slice(0, 90)}${task.failure ? ` (${task.failure})` : ""}`;
 }

@@ -711,6 +711,48 @@ describe("crew landing and the task state machine", () => {
     expect(landed.afterLandResults?.map((result) => result.step)).toEqual(["push", "deploy"]);
   });
 
+  it("never runs a deploy again that was in flight when the lander died, and asks George about it", async () => {
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { deploy: "vercel --prod" } }));
+    git(repo, "add", "."); git(repo, "commit", "-qm", "add deploy script");
+    const task = await readyTask(["push", "deploy"]);
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    saveTask({ ...task, status: "landing", landingStep: "merged", landerPid: DEAD, afterLandResults: [{ step: "push", ok: true, detail: "pushed" }], afterLandStarted: "deploy" });
+    const runCommand = vi.fn(async () => ({ ok: true, output: "done" }));
+    const notify = vi.fn(async () => {});
+    const changed = await superviseCrew({ alive: () => false, runCommand, notify });
+    expect(runCommand).not.toHaveBeenCalledWith("npm run deploy", expect.anything());
+    const landed = changed.find((item) => item.id === task.id)!;
+    expect(landed.status).toBe("landed");
+    expect(landed.afterLandStarted).toBeUndefined();
+    expect(landed.afterLandResults?.[1]).toMatchObject({ step: "deploy", ok: false, uncertain: true, detail: expect.stringContaining("may or may not have run") });
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("can't tell whether its deploy went through"), "blocker");
+  });
+
+  it("runs a push again that was in flight when the lander died: pushing twice is harmless", async () => {
+    const task = await readyTask(["push"]);
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    saveTask({ ...task, status: "landing", landingStep: "merged", landerPid: DEAD, afterLandStarted: "push" });
+    const ran: string[] = [];
+    const landed = await landCrewTask(task.id, undefined, async (command) => { ran.push(command); return { ok: true, output: "done" }; });
+    expect(ran).toEqual(["git push origin main"]);
+    expect(landed.afterLandResults).toEqual([{ step: "push", ok: true, detail: expect.any(String) }]);
+  });
+
+  it("hands a stranded, unmerged landing back as ready when the checkout moved, so it can still be told, landed or discarded", async () => {
+    const task = await readyTask();
+    saveTask({ ...task, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    git(repo, "checkout", "-qb", "elsewhere");
+    const notify = vi.fn(async () => {});
+    const changed = await superviseCrew({ alive: () => false, runCommand: passing, notify });
+    expect(readTask(task.id)).toMatchObject({ status: "ready" });
+    expect(readTask(task.id)?.landingStep).toBeUndefined();
+    expect(readTask(task.id)?.landerPid).toBeUndefined();
+    expect(changed.find((item) => item.id === task.id)?.status).toBe("ready");
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("Say /land"), "deliverable");
+    git(repo, "checkout", "-q", "main");
+    expect((await discardCrewTask(task.id)).status).toBe("discarded");
+  });
+
   it("resumes a claimed landing: merges once, and skips the merge when the crash came just after it", async () => {
     const first = await readyTask();
     saveTask({ ...first, status: "landing", landingStep: "claimed", landerPid: DEAD });
