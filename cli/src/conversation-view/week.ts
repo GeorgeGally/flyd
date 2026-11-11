@@ -44,12 +44,13 @@ export interface WeekDay {
 export interface WeekHistory {
   /** Oldest first, today last. */
   days: WeekDay[];
-  /** The week's three busiest projects, in the order they take the week's colours (Flyd first when it is one). */
+  /** The three projects that take the week's own colours, in order; every other project shares the neutral. */
   lead: string[];
   read: string;
 }
 
 const DAYS = 8;
+const LEAD = ["Flyd", "Logan", "DIR"];
 const REFRESH_MS = 10 * 60 * 1000;
 const UNIT = "\x1f";
 
@@ -126,7 +127,6 @@ export function buildWeek(changes: WeekChange[], now: number): WeekHistory {
     days.push({ day: localDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, 12).getTime()), hours: {}, changes: 0, head: "", lines: [] });
   }
   const byDay = new Map<string, WeekChange[]>();
-  const totals = new Map<string, number>();
   // The same change can sit on two branches (a rebase, a copy): it is counted once.
   const seen = new Set<string>();
   for (const change of changes) {
@@ -138,8 +138,9 @@ export function buildWeek(changes: WeekChange[], now: number): WeekHistory {
     if (!day) continue;
     (day.hours[change.project] ??= Array.from({ length: 24 }, () => 0))[new Date(change.at).getHours()]! += 1;
     day.changes += 1;
-    totals.set(change.project, (totals.get(change.project) ?? 0) + 1);
-    byDay.set(day.day, [...(byDay.get(day.day) ?? []), change]);
+    let list = byDay.get(day.day);
+    if (!list) byDay.set(day.day, (list = []));
+    list.push(change);
   }
   for (const day of days) {
     const list = byDay.get(day.day) ?? [];
@@ -153,16 +154,14 @@ export function buildWeek(changes: WeekChange[], now: number): WeekHistory {
       .map(({ project, changes: those }) => { const said = telling(those); return said ? `${project}: ${said}${/[.!?…]$/.test(said) ? "" : "."}` : ""; })
       .filter(Boolean);
   }
-  const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name]) => name).slice(0, 3);
-  const lead = ranked.includes("Flyd") ? ["Flyd", ...ranked.filter((name) => name !== "Flyd")] : ranked;
-  return { days, lead, read: new Date(now).toISOString() };
+  return { days, lead: [...LEAD], read: new Date(now).toISOString() };
 }
 
 /** Reads one live copy's changes since a moment, every branch. */
 export type WeekLogRunner = (dir: string, since: number) => Promise<string>;
 
 const gitLog: WeekLogRunner = (dir, since) => new Promise((resolve) => {
-  execFile("git", ["-C", dir, "log", "--all", "--no-merges", `--since=${new Date(since - 86_400_000).toISOString()}`, `--format=%H${UNIT}%at${UNIT}%s`], {
+  execFile("git", ["-C", dir, "log", "--branches", "--tags", "--remotes", "--no-merges", `--since=${new Date(since - 86_400_000).toISOString()}`, `--format=%H${UNIT}%at${UNIT}%s`], {
     encoding: "utf8", timeout: 8_000, maxBuffer: 8 * 1024 * 1024,
   }, (error, stdout) => resolve(error ? "" : stdout));
 });

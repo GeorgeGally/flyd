@@ -49,11 +49,12 @@ describe("week", () => {
     expect(week.days[0]!.hours.DIR![0]).toBe(1);
     expect(week.days[7]!.changes).toBe(1);
     expect(week.days[1]).toMatchObject({ changes: 0, head: "", lines: [] });
-    expect(week.lead).toEqual(["Flyd", "Bloom", "DIR"]);
+    expect(week.lead).toEqual(["Flyd", "Logan", "DIR"]);
   });
 
-  it("puts Flyd first among the week's three busiest", () => {
-    const changes = ["Logan", "Logan", "Logan", "DIR", "DIR", "Flyd"].map((project, i) => ({ project, hash: String(i), at: at("2026-11-09", 10, i), subject: `change ${i}` }));
+  it("always colours Flyd, Logan and DIR, in that order, however busy the others were", () => {
+    expect(buildWeek([], NOW).lead).toEqual(["Flyd", "Logan", "DIR"]);
+    const changes = ["Bloom", "Bloom", "Bloom", "CapFive", "CapFive", "DIR", "Logan"].map((project, i) => ({ project, hash: String(i), at: at("2026-11-09", 10, i), subject: `change ${i}` }));
     expect(buildWeek(changes, NOW).lead).toEqual(["Flyd", "Logan", "DIR"]);
   });
 

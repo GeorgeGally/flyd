@@ -1,7 +1,7 @@
 /**
  * The Week tab: eight days side by side, midnight at the top, each day a strip
- * coloured hour by hour by the project that changed then (the week's three
- * busiest in their own inks, everything else one neutral). The day picked
+ * coloured hour by hour by the project that changed then (Flyd, Logan and
+ * DIR in their own inks, everything else one neutral). The day picked
  * (hovered or tapped; at first the latest day with work) is told underneath.
  * Data from /api/week (week.ts). Runs inside the page script's closure after
  * Today's script and borrows its helpers (frontEsc, withToken, centre).
