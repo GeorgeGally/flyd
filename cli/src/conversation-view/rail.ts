@@ -280,8 +280,8 @@ export const RAIL_STATE: Record<ReadState, RailState> = { needs_you: "needs", bl
 
 /**
  * Where an exchange stands, read by the one work reader (lib/work-state.ts):
- * an answer that asks him, or says the work is stopped or waits on him, needs
- * him; a report whose lead says the work is still moving is under way; any
+ * an answer that asks him anywhere, or whose lead says the work is stopped or
+ * waits on him, needs him; a report whose lead says it is still moving is under way; any
  * other answer is done (Flyd's own answers are answers, never work); else it
  * is under way. Pure.
  */
@@ -290,11 +290,12 @@ export function railState(exchange: { answer?: ConversationMessage; answered?: b
   const answer = exchange.answer?.text.trim();
   if (answer) {
     const plain = inline(answer.replace(/```[\s\S]*?```/g, ""));
-    const said = readWork(plain);
-    if (said && RAIL_STATE[said] === "needs") return "needs";
+    if (readWork(plain) === "needs_you") return "needs";
+    // Only the lead says where the work stands: a later "failed" or "-ing" word is a fact, not news.
+    const lead = readWork(sentences(plain)[0] ?? "");
+    if (lead && RAIL_STATE[lead] === "needs") return "needs";
     if (exchange.answer!.answers?.startsWith("ask:")) return "done";
-    // Only the lead says whether the work is still going: a later "-ing" word is a fact, not progress.
-    return readWork(sentences(plain)[0] ?? "") === "moving" ? "underway" : "done";
+    return lead === "moving" ? "underway" : "done";
   }
   return exchange.answered ? "done" : "underway";
 }

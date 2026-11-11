@@ -5,8 +5,8 @@ import type { DomainResult, DomainRunStatus } from "../command/types.js";
 // Every surface that says where work stands (the rail, the reply cards, the
 // status card, the state of play, Jobs) reads it through this one reader and
 // shows it in its own words; none keeps a regex reader of its own. A domain
-// run's reply is read here when it lands (command/firstmate.ts) and the state
-// is stored with its result. The golden table in
+// run's state is read here whenever the run is written (command/store.ts), so
+// the state stored with its result always follows its status and reply. The golden table in
 // lib/__tests__/work-state-golden.ts is the one list of sentences every surface
 // is checked against.
 
@@ -189,9 +189,13 @@ export function workStateOfRun(status: DomainRunStatus, result?: Pick<DomainResu
   }
 }
 
-/** The run with its work state read from its result, once, where its reply was judged. */
-export function withWorkState<T extends { status: DomainRunStatus; result?: DomainResult }>(run: T): T {
+/**
+ * The run with its work state read from its status and, unless its reply is
+ * an older one its status has since moved past, the reply's words: applied on
+ * every write of a run (command/store.ts). Pure.
+ */
+export function withWorkState<T extends { status: DomainRunStatus; result?: DomainResult }>(run: T, readWords = true): T {
   if (!run.result) return run;
-  const workState = workStateOfRun(run.status, run.result);
+  const workState = workStateOfRun(run.status, readWords ? run.result : undefined);
   return workState === run.result.workState ? run : { ...run, result: { ...run.result, ...(workState ? { workState } : {}) } };
 }

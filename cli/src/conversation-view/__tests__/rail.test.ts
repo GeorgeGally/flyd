@@ -298,6 +298,11 @@ describe("one row per message", () => {
       expect(railState({ answer: assistant("a", text, "q") })).toBe("done");
     }
     expect(railState({ answer: assistant("a", "The checks are still running.", "ask:1") })).toBe("done");
+    // A stop or a ready word later in an explanation is a fact; only its lead, or an ask anywhere, says it waits on him.
+    expect(railState({ answer: assistant("a", "Here is why CI broke. The tests failed because the Node version changed.", "q") })).toBe("done");
+    expect(railState({ answer: assistant("a", "I looked at the pipeline. The build is ready for review on its own branch.", "q") })).toBe("done");
+    expect(railState({ answer: assistant("a", "Blocked on the Stripe key.", "q") })).toBe("needs");
+    expect(railState({ answer: assistant("a", "I looked at the pipeline. Want me to merge it?", "q") })).toBe("needs");
     expect(railState({ answered: true })).toBe("done");
     expect(railState({})).toBe("underway");
     expect(railState({ answered: true, state: "underway" })).toBe("underway");
