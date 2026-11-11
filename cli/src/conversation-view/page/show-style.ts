@@ -249,7 +249,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .art-thread[hidden] { display: none; }
 .art-entry { display: flex; flex-direction: column; gap: 6px; }
 .art-msg { margin: 0; font: 500 17px/1.5 var(--sans); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
-.art-msg--you { font-weight: 400; color: var(--muted); }
+.art-msg--you { font-weight: 400; color: var(--fg); }
 /* His answer is the substance, not a footnote: full strength and his own size, with no rule beside it. */
 .art-msg--them { color: var(--strong); }
 /* What Flyd is doing about his newest message: one quiet line that the answer replaces. */
