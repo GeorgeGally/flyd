@@ -52,7 +52,7 @@ export function modelName(id: string): string {
   const route = /^([a-z-]+)[:/]/i.exec(id)?.[1]?.toLowerCase();
   const bare = id.replace(/^[a-z-]+[:/]/i, "").split("/").pop() ?? id;
   const claude = /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i.exec(bare);
-  const gpt = /^gpt-([\d.]+)(?:-(.+))?$/i.exec(bare);
+  const gpt = /^gpt-(\d[\d.]*[a-z]?)(?:-(.+))?$/i.exec(bare);
   const word = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
   const said = claude ? `Claude ${word(claude[1]!)} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`
     : gpt && !/realtime/i.test(bare) ? `GPT-${gpt[1]}${gpt[2] ? ` ${gpt[2].split("-").map(word).join(" ")}` : ""}`

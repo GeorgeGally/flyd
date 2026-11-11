@@ -104,31 +104,31 @@ const TOOLS_FRESH_MS = 30 * 60_000;
 /** Outside the alias grammar, so no saved machine can share the local row. */
 const LOCAL_ID = "@local";
 
+/** Turns ps rows into one row per program, "cpu memory count name": macOS paths cut to the program's own name, so the reading stays small however busy the machine is. */
+export const RUNNING_TOTALS = `{ c = $1; m = $2; sub("^ *[^ ]+ +[^ ]+ +", ""); if (substr($0, 1, 1) == "/") sub(".*/", ""); k = substr($0, 1, 40); n[k]++; cpu[k] += c; mem[k] += m } END { for (k in n) print cpu[k], mem[k], n[k], k }`;
+
 /** What a read runs, on Linux and macOS alike. Sent as sh's stdin, so a remote login shell of any kind runs it the same. */
 export const READ_SCRIPT = `export LC_ALL=C PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
 echo @@cores; getconf _NPROCESSORS_ONLN
 echo @@uptime; uptime
 echo @@memory; if [ -r /proc/meminfo ]; then cat /proc/meminfo; else sysctl -n hw.memsize; vm_stat; sysctl -n vm.swapusage; fi
 echo @@disk; if [ -d /System/Volumes/Data ]; then df -kP /System/Volumes/Data; else df -kP /; fi
-echo @@running; ps -A -o pcpu= -o pmem= -o comm= | sort -rn | head -n 4000
+echo @@running; ps -A -o pcpu= -o pmem= -o comm= | awk '${RUNNING_TOTALS}' | sort -rn | head -n 1000
 echo @@end
 `;
 
-/** Read now and then, before the end marker: the version each tool prints, from wherever it is installed. */
-export const TOOLS_SCRIPT = `echo @@tools
-PATH="$HOME/.local/bin:$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+/** Read on its own now and then: the version each tool prints, from wherever it is installed. */
+export const TOOLS_SCRIPT = `export LC_ALL=C
+echo @@tools
+PATH="$HOME/.local/bin:$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 for d in "$HOME"/.nvm/versions/node/*/bin; do PATH="$PATH:$d"; done
 export PATH
 for t in claude codex; do v=$("$t" --version </dev/null 2>/dev/null | head -n 1) && echo "$t $v"; done
+echo @@end
 `;
 
-/** The read script, with the tools asked for when they are due. */
-export function readScript(tools: boolean): string {
-  return tools ? READ_SCRIPT.replace("echo @@end", `${TOOLS_SCRIPT}echo @@end`) : READ_SCRIPT;
-}
-
 // The read's own commands, which ps catches mid-run.
-const OWN_COMMANDS = new Set(["ps", "sort", "head", "sh"]);
+const OWN_COMMANDS = new Set(["ps", "awk", "sort", "head", "sh"]);
 
 /** An alias can never read as an ssh option: it starts with a letter, digit or user, and holds no spaces or shell characters. */
 export function validAlias(alias: string): boolean {
@@ -188,16 +188,14 @@ function diskOf(lines: string[]): MachineUsage | undefined {
   return row ? { used: Number(row[2]) * 1024, total: Number(row[1]) * 1024 } : undefined;
 }
 
-interface PsRow { name: string; cpu: number; memory: number }
+interface PsRow { name: string; cpu: number; memory: number; count: number }
 
 function psRows(lines: string[]): PsRow[] {
   return lines.flatMap((line) => {
-    const row = /^\s*([\d.]+)\s+([\d.]+)\s+(.+?)\s*$/.exec(line);
+    const row = /^\s*([\d.]+)\s+([\d.]+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
     if (!row) return [];
-    // macOS gives the whole path, spaces and all; Linux gives a short name that may hold a slash.
-    const command = row[3]!.startsWith("/") ? row[3]!.slice(row[3]!.lastIndexOf("/") + 1) : row[3]!;
-    const name = command.replace(/\p{Cc}/gu, "").slice(0, 40);
-    return !name || OWN_COMMANDS.has(name) ? [] : [{ name, cpu: Number(row[1]), memory: Number(row[2]) }];
+    const name = row[4]!.replace(/\p{Cc}/gu, "").slice(0, 40);
+    return !name || OWN_COMMANDS.has(name) ? [] : [{ name, cpu: Number(row[1]), memory: Number(row[2]), count: Number(row[3]) }];
   });
 }
 
@@ -213,25 +211,25 @@ function runningOf(rows: PsRow[]): MachineProcess[] {
     .map((process) => ({ ...process, cpu: tenths(process.cpu), memory: tenths(process.memory) }));
 }
 
-const TEST_BROWSER = /chrome for testing|headless[ _-]?shell|^chromium\b/i;
+const TEST_BROWSER = /chrome for testing|headless[ _-]?shell|^chrome-headless/i;
 
 /** The app a process belongs to, as people name it: every "Google Chrome Helper (Renderer)" is Chrome. */
 export function appOf(name: string): string {
   const app = name.replace(/ Helper\b.*$/, "").replace(/^Google /, "").trim() || name;
-  if (/^(chrome|chrome_crashpad_handler)$/i.test(app)) return "Chrome";
-  if (/^headless[ _-]?shell$|^chrome-headless-shell$/i.test(app)) return "Headless Chromium";
+  if (/^(chrome|chrome_crashpad(_handler)?)$/i.test(app)) return "Chrome";
+  if (/^headless[ _-]?shell$|^chrome-headless(-shell)?$/i.test(app)) return "Headless Chromium";
   return app;
 }
 
 function holdingOf(rows: PsRow[]): MachineHolder[] {
-  const byApp = new Map<string, MachineHolder>();
-  for (const { name, memory } of rows) {
+  const byApp = new Map<string, MachineHolder & { test: boolean }>();
+  for (const { name, memory, count } of rows) {
     const app = appOf(name);
-    const seen = byApp.get(app) ?? { name: app, count: 0, memory: 0, ...(TEST_BROWSER.test(name) ? { test: true } : {}) };
-    byApp.set(app, { ...seen, count: seen.count + 1, memory: seen.memory + memory });
+    const seen = byApp.get(app) ?? { name: app, count: 0, memory: 0, test: true };
+    byApp.set(app, { ...seen, count: seen.count + count, memory: seen.memory + memory, test: seen.test && TEST_BROWSER.test(name) });
   }
   return [...byApp.values()].filter((app) => app.memory > 0).sort((a, b) => b.memory - a.memory).slice(0, HOLDING_MAX)
-    .map((app) => ({ ...app, memory: tenths(app.memory) }));
+    .map(({ test, ...app }) => ({ ...app, memory: tenths(app.memory), ...(test ? { test: true } : {}) }));
 }
 
 function upDaysOf(uptime: string): number | undefined {
@@ -272,8 +270,13 @@ export function parseReading(output: string): MachineReading | null {
     ...(upDays !== undefined ? { upDays } : {}),
     running: runningOf(rows),
     ...(holding.length ? { holding } : {}),
-    ...(sections.has("tools") ? { tools: toolsOf(sections.get("tools") ?? []) } : {}),
   };
+}
+
+/** The tools read's output as versions, or null when it stopped short. Pure. */
+export function parseTools(output: string): MachineTools | null {
+  const sections = sectionsOf(output);
+  return sections.has("tools") && sections.has("end") ? toolsOf(sections.get("tools") ?? []) : null;
 }
 
 /** Why a machine could not be read. The raw error stays out of the page: it can carry a server's banner. */
@@ -418,25 +421,34 @@ export class MachinesBoard {
     return { ...row, ...machineWords(row) };
   }
 
+  private run(target: Target, timeoutMs: number, script: string): Promise<Capture> {
+    return target.alias ? capture(this.options.ssh ?? "ssh", sshArgs(target.alias), timeoutMs, script) : capture("sh", ["-s"], timeoutMs, script);
+  }
+
   private async read(target: Target, cell: Cell): Promise<void> {
     cell.busy = true;
-    const tools = Date.now() - cell.toolsAt >= (this.options.toolsFreshMs ?? TOOLS_FRESH_MS);
-    const timeoutMs = this.options.timeoutMs ?? (tools ? TOOLS_TIMEOUT_MS : READ_TIMEOUT_MS);
-    const script = readScript(tools);
-    const result = await (target.alias ? capture(this.options.ssh ?? "ssh", sshArgs(target.alias), timeoutMs, script) : capture("sh", ["-s"], timeoutMs, script));
+    const result = await this.run(target, this.options.timeoutMs ?? READ_TIMEOUT_MS, READ_SCRIPT);
     const reading = result.code === 0 ? parseReading(result.output) : null;
     cell.busy = false;
     cell.readAt = Date.now();
     if (reading) {
-      const { tools: read, ...rest } = reading;
-      if (read) { cell.tools = read; cell.toolsAt = cell.readAt; }
-      cell.reading = rest;
+      cell.reading = reading;
       cell.seenAt = new Date().toISOString();
       delete cell.reason;
+      if (cell.readAt - cell.toolsAt >= (this.options.toolsFreshMs ?? TOOLS_FRESH_MS)) {
+        cell.toolsAt = cell.readAt;
+        void this.readTools(target, cell);
+      }
     } else {
       delete cell.reading;
       cell.reason = offlineReason(result.error, result.timedOut, result.missing);
     }
+  }
+
+  private async readTools(target: Target, cell: Cell): Promise<void> {
+    const result = await this.run(target, this.options.timeoutMs ?? TOOLS_TIMEOUT_MS, TOOLS_SCRIPT);
+    const tools = result.code === 0 ? parseTools(result.output) : null;
+    if (tools) cell.tools = tools;
   }
 
   private save(machines: SavedMachine[]): void {

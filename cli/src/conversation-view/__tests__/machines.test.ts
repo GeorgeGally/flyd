@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, s
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FIRST_MACHINES, MachinesBoard, READ_SCRIPT, TOOLS_SCRIPT, appOf, offlineReason, parseReading, readScript, sshArgs, validAlias } from "../machines.js";
+import { FIRST_MACHINES, MachinesBoard, READ_SCRIPT, RUNNING_TOTALS, TOOLS_SCRIPT, appOf, offlineReason, parseReading, parseTools, sshArgs, validAlias } from "../machines.js";
 import type { MachineRow } from "../machines.js";
 import { ConversationViewServer } from "../server.js";
 import type { ConversationSource } from "../types.js";
@@ -23,13 +23,13 @@ SwapFree:        6000000 kB
 Filesystem     1024-blocks      Used Available Capacity Mounted on
 /dev/nvme0n1p2  1000000000 400000000 550000000      43% /
 @@running
- 92.5  3.1 node
- 12.0  1.5 node
-  8.0  9.0 postgres
-  4.0  0.0 ps
-  1.0  0.1 kworker/0:1-events
-  0.5  0.1 sshd
-  0.2  0.1 systemd
+92.5 3.1 1 node
+12 1.5 1 node
+8 9 1 postgres
+4 0 1 ps
+1 0.1 1 kworker/0:1-events
+0.5 0.1 1 sshd
+0.2 0.1 1 systemd
 @@end
 `;
 
@@ -53,9 +53,8 @@ total = 2048.00M  used = 512.50M  free = 1535.50M  (encrypted)
 Filesystem    1024-blocks      Used Available Capacity  Mounted on
 /dev/disk3s5    494384795 300000000 150000000    67%   /System/Volumes/Data
 @@running
- 40.0  2.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
- 10.0  1.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-  9.0  4.0 /usr/local/bin/node
+50 3 2 Google Chrome
+9 4 1 node
 @@end
 `;
 
@@ -86,12 +85,11 @@ describe("a reading", () => {
 
   it("holds each app's processes together, flags test browsers, and reads the days up", () => {
     const busy = MAC.replace("@@end", "").replace(/@@running[\s\S]*$/, `@@running
-  1.0 20.0 /Applications/Google Chrome.app/Contents/Frameworks/x/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)
-  1.0 10.0 /Applications/Google Chrome.app/Contents/Frameworks/x/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)
-  0.5  5.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-  0.2  4.0 /x/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing
-  0.2  3.0 /x/Google Chrome for Testing Helper (GPU).app/Contents/MacOS/Google Chrome for Testing Helper (GPU)
-  0.1  0.0 /usr/sbin/cron
+2 30 2 Google Chrome Helper (Renderer)
+0.5 5 1 Google Chrome
+0.2 4 1 Google Chrome for Testing
+0.2 3 1 Google Chrome for Testing Helper (GPU)
+0.1 0 1 cron
 @@end
 `);
     const reading = parseReading(busy)!;
@@ -104,15 +102,54 @@ describe("a reading", () => {
     expect(parseReading(LINUX.replace("up 2 days,  8:51", "up  8:51"))!.upDays).toBe(0);
     expect(appOf("headless_shell")).toBe("Headless Chromium");
     expect(appOf("chrome")).toBe("Chrome");
-    expect(parseReading(LINUX)!.tools).toBeUndefined();
   });
 
-  it("reads the tool versions when they were asked for", () => {
-    const withTools = LINUX.replace("@@end", "@@tools\nclaude 2.1.318 (Claude Code)\ncodex codex-cli 0.167.0\n@@end");
-    expect(parseReading(withTools)!.tools).toEqual({ claude: "2.1.318", codex: "0.167.0" });
-    expect(parseReading(LINUX.replace("@@end", "@@tools\n@@end"))!.tools).toEqual({});
-    expect(readScript(false)).toBe(READ_SCRIPT);
-    expect(readScript(true)).toBe(READ_SCRIPT.replace("echo @@end", TOOLS_SCRIPT + "echo @@end"));
+  it("flags only test browsers, on Linux's cut names too, never his own Chrome or Chromium", () => {
+    const linux = LINUX.replace(/@@running[\s\S]*$/, `@@running
+1 9 4 chrome-headless
+1 8 3 chromium
+1 7 2 chrome
+@@end
+`);
+    expect(parseReading(linux)!.holding).toEqual([
+      { name: "Headless Chromium", count: 4, memory: 9, test: true },
+      { name: "chromium", count: 3, memory: 8 },
+      { name: "Chrome", count: 2, memory: 7 },
+    ]);
+    const mixed = LINUX.replace(/@@running[\s\S]*$/, `@@running
+1 2 1 headless_shell
+1 3 1 chrome-headless-shell
+1 9 5 Google Chrome
+@@end
+`);
+    expect(parseReading(mixed)!.holding).toEqual([
+      { name: "Chrome", count: 5, memory: 9 },
+      { name: "Headless Chromium", count: 2, memory: 5, test: true },
+    ]);
+  });
+
+  it("adds up ps rows by program, cutting macOS paths to the program's name", () => {
+    const ps = [
+      " 40.0  2.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      " 10.0  1.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "  1.0 20.0 /Applications/Google Chrome.app/Contents/Frameworks/x/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)",
+      "  9.0  4.0 /usr/local/bin/node",
+      "  1.0  0.1 kworker/0:1-events",
+      "",
+    ].join("\n");
+    const { stdout } = spawnSync("awk", [RUNNING_TOTALS], { input: ps, encoding: "utf8", env: { LC_ALL: "C", PATH: process.env.PATH } });
+    expect(stdout.trim().split("\n").sort()).toEqual([
+      "1 0.1 1 kworker/0:1-events",
+      "1 20 1 Google Chrome Helper (Renderer)",
+      "50 3 2 Google Chrome",
+      "9 4 1 node",
+    ]);
+  });
+
+  it("reads the tool versions, and nothing when that read stopped short", () => {
+    expect(parseTools("banner\n@@tools\nclaude 2.1.318 (Claude Code)\ncodex codex-cli 0.167.0\n@@end\n")).toEqual({ claude: "2.1.318", codex: "0.167.0" });
+    expect(parseTools("@@tools\n@@end\n")).toEqual({});
+    expect(parseTools("@@tools\nclaude 2.1.318 (Claude Code)\n")).toBeNull();
   });
 
   it("asks each tool only for its version, from the usual install places", () => {
@@ -125,7 +162,7 @@ describe("a reading", () => {
         chmodSync(join(bin, tool!), 0o755);
       }
       const { stdout } = spawnSync("sh", ["-s"], { input: TOOLS_SCRIPT, cwd: dir, encoding: "utf8", env: { HOME: dir, PATH: "/usr/bin:/bin" } });
-      expect(stdout).toBe("@@tools\nclaude 2.1.318 (Claude Code)\ncodex codex-cli 0.167.0\n");
+      expect(stdout).toBe("@@tools\nclaude 2.1.318 (Claude Code)\ncodex codex-cli 0.167.0\n@@end\n");
       expect(readFileSync(join(dir, "claude.args"), "utf8")).toBe("--version\n");
       expect(readFileSync(join(dir, "codex.args"), "utf8")).toBe("--version\n");
     } finally {
@@ -160,7 +197,7 @@ describe("a reading", () => {
         return stderr.split("\n").flatMap((line) => /^\++ '?([^\s'=]+)(?=[\s']|$)/.exec(line)?.[1] ?? []);
       };
       const ran = new Set([...commandsOn(meminfo, absent), ...commandsOn(absent, dir)]);
-      expect([...ran].sort()).toEqual(["[", "cat", "df", "echo", "export", "getconf", "head", "ps", "sort", "sysctl", "uptime", "vm_stat"]);
+      expect([...ran].sort()).toEqual(["[", "awk", "cat", "df", "echo", "export", "getconf", "head", "ps", "sort", "sysctl", "uptime", "vm_stat"]);
       expect(readdirSync(dir)).toEqual(before);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -232,10 +269,21 @@ describe("the board, with a fake ssh", () => {
 for arg; do last2=$last; last=$arg; done
 alias=$last2
 printf '%s\\n' "$@" > "${dir}/$alias.args"
-cat > "${dir}/$alias.stdin"
+cat > "${dir}/$alias.$$"
+if grep -q '^echo @@tools' "${dir}/$alias.$$"; then
+  mv "${dir}/$alias.$$" "${dir}/$alias.tools"
+  echo x >> "${dir}/$alias.toolreads"
+  case "$alias" in
+    linux) cat "${dir}/tools.txt" ;;
+    stuck) exec sleep 30 ;;
+  esac
+  exit 0
+fi
+mv "${dir}/$alias.$$" "${dir}/$alias.stdin"
 case "$alias" in
   linux) cat "${dir}/linux.txt" ;;
   mac|local) cat "${dir}/mac.txt" ;;
+  stuck) cat "${dir}/linux.txt" ;;
   dead) exec sleep 30 ;;
   locked) echo "george@locked: Permission denied (publickey)." >&2; exit 255 ;;
   gibberish) echo "this is not a reading" ;;
@@ -267,17 +315,32 @@ esac
   });
 
   it("asks for the tool versions when they are due, keeps them between reads, and says what matters", async () => {
-    writeFileSync(join(dir, "linux.txt"), LINUX.replace("@@end", "@@tools\ncodex codex-cli 0.167.0\n@@end"));
+    writeFileSync(join(dir, "tools.txt"), "@@tools\ncodex codex-cli 0.167.0\n@@end\n");
     const machines = new MachinesBoard({ path, ssh, first: [{ name: "Box", alias: "linux" }], freshMs: 0, toolsFreshMs: 60_000, timeoutMs: 700, localName: "Here" });
     machines.view();
     await vi.waitFor(() => expect(row(machines.view().machines, "linux").reading?.tools).toEqual({ codex: "0.167.0" }), { timeout: 4000, interval: 20 });
-    expect(readFileSync(join(dir, "linux.stdin"), "utf8")).toBe(readScript(true));
-    writeFileSync(join(dir, "linux.txt"), LINUX);
+    expect(readFileSync(join(dir, "linux.tools"), "utf8")).toBe(TOOLS_SCRIPT);
+    expect(readFileSync(join(dir, "linux.stdin"), "utf8")).toBe(READ_SCRIPT);
+    rmSync(join(dir, "linux.stdin"));
     await vi.waitFor(() => expect(readFileSync(join(dir, "linux.stdin"), "utf8")).toBe(READ_SCRIPT), { timeout: 4000, interval: 20 });
+    expect(readFileSync(join(dir, "linux.toolreads"), "utf8")).toBe("x\n");
     const box = row(machines.view().machines, "linux");
     expect(box.reading?.tools).toEqual({ codex: "0.167.0" });
     expect(box.say).toMatch(/^All well: up 2 days/);
     expect(box.action).toBeUndefined();
+  });
+
+  it("keeps a machine online when its tools never answer, and does not ask them again until they are due", async () => {
+    const machines = new MachinesBoard({ path, ssh, first: [{ name: "Box", alias: "stuck" }], freshMs: 0, toolsFreshMs: 60_000, timeoutMs: 300, localName: "Here" });
+    machines.view();
+    await vi.waitFor(() => expect(row(machines.view().machines, "stuck").state).toBe("online"), { timeout: 4000, interval: 20 });
+    const started = Date.now();
+    while (Date.now() - started < 1200) {
+      expect(row(machines.view().machines, "stuck").state).toBe("online");
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    expect(readFileSync(join(dir, "stuck.toolreads"), "utf8")).toBe("x\n");
+    expect(row(machines.view().machines, "stuck").reading?.tools).toBeUndefined();
   });
 
   it("marks a dead machine offline without holding up the others or the answer", async () => {

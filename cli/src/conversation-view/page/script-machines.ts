@@ -114,13 +114,19 @@ export const MACHINES_SCRIPT = `
   // A button asks Flyd in the conversation, the same way a typed message does.
   function machineAsk(text) {
     machineAsking = "";
-    input.value = text;
-    if (typeof grow === "function") grow();
     setCentre("talk", true);
     var tries = 0;
     (function submitWhenReady() {
-      if (current) { composer.requestSubmit(); return; }
+      if (current) {
+        var draft = input.value;
+        input.value = text;
+        composer.requestSubmit();
+        input.value = draft;
+        if (typeof grow === "function") grow();
+        return;
+      }
       if (tries++ < 100) setTimeout(submitWhenReady, 200);
+      else noteRefusal("Flyd could not ask that: the conversation is not open yet. Try the button again in a moment.");
     })();
   }
   document.getElementById("machines").addEventListener("click", function (event) {

@@ -19,8 +19,8 @@ const QUOTA = {
 
 describe("a model's name", () => {
   it("reads as people say it, with the route it takes", () => {
-    expect(["anthropic:claude-sonnet-5-5", "claude-haiku-5-5", "opencode-go/gpt-6-luna", "openai:gpt-5.6-luna", "openrouter/inception/mercury-2.5", "gpt-realtime-2.1"].map(modelName))
-      .toEqual(["Claude Sonnet 5.5", "Claude Haiku 5.5", "GPT-6 Luna through OpenCode Go", "GPT-5.6 Luna", "Mercury 2.5 through OpenRouter", "gpt-realtime-2.1"]);
+    expect(["anthropic:claude-sonnet-5-5", "claude-haiku-5-5", "opencode-go/gpt-6-luna", "openai:gpt-5.6-luna", "openrouter/inception/mercury-2.5", "gpt-realtime-2.1", "gpt-4o-mini-transcribe"].map(modelName))
+      .toEqual(["Claude Sonnet 5.5", "Claude Haiku 5.5", "GPT-6 Luna through OpenCode Go", "GPT-5.6 Luna", "Mercury 2.5 through OpenRouter", "gpt-realtime-2.1", "GPT-4o Mini Transcribe"]);
   });
 });
 

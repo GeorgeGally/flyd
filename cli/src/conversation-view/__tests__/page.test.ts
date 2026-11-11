@@ -5224,6 +5224,44 @@ describe("the Machines screen", () => {
     expect(sends().at(-1)).toBe("The Mac is short of memory. Find what can safely close.");
   });
 
+  it("keeps a half-typed message when a button asks Flyd", async () => {
+    const fetcher = serve(() => ({ machines: [ONLINE] }));
+    load("");
+    await settle();
+    FakeEventSource.instances.at(-1)!.emit("session", { id: "latest", title: "Latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    tab().click();
+    await settle();
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.value = "half a thought";
+    (document.querySelector(".machine .mach-btn") as HTMLElement).click();
+    await settle();
+    const sends = fetcher.mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)).text);
+    expect(sends).toEqual(["The Mac is short of memory. Find what can safely close."]);
+    expect(input.value).toBe("half a thought");
+  });
+
+  it("says so when a button could not ask Flyd, and leaves the message box alone", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const fetcher = serve(() => ({ machines: [ONLINE] }));
+      load("");
+      await vi.runOnlyPendingTimersAsync();
+      tab().click();
+      await vi.runOnlyPendingTimersAsync();
+      const input = document.getElementById("input") as HTMLTextAreaElement;
+      input.value = "half a thought";
+      (document.querySelector(".machine .mach-btn") as HTMLElement).click();
+      await vi.advanceTimersByTimeAsync(25_000);
+      expect(fetcher.mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+      expect(input.value).toBe("half a thought");
+      const notice = document.getElementById("notice")!;
+      expect(notice.hidden).toBe(false);
+      expect(notice.textContent).toMatch(/could not ask that/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("hides the dark panel when there are no versions to compare", async () => {
     serve(() => ({ machines: [ONLINE] }));
     load("");
