@@ -1439,10 +1439,18 @@ describe("a hold that puts several decisions to him", () => {
     ]);
   });
 
+  it("splits a decision numbered 1) 2) 3) into one question each, with its own answers", () => {
+    expect(holdDecisions("Three calls before the Flyd today build finishes, see data/flyd-ui-lab/report.md 'Shipping Flyd today': 1) WhatsApp card on Today: remove it from the timeline, or keep it; 2) horoscope source: AstroVed (moon sign) or another; 3) News tab: anything beyond news, weather and horoscope?")).toEqual([
+      { question: "WhatsApp card on Today", options: ["Remove it from the timeline", "Keep it"] },
+      { question: "Horoscope source", options: ["AstroVed", "Another"] },
+      { question: "News tab: anything beyond news, weather and horoscope?", options: ["No, that's all"] },
+    ]);
+  });
+
   it("drops only a trailing board or lab location, never a plain word after board or lab", () => {
     expect(holdDecisions("(1) keep the lab version - yes/no; (2) which to keep: the old one, the new lab design. Lab data/x/lab.html, board http://127.0.0.1:4387/session/1")).toEqual([
       { question: "Keep the lab version", options: ["Yes", "No"] },
-      { question: "Which to keep", options: ["the old one", "the new lab design"] },
+      { question: "Which to keep", options: ["The old one", "The new lab design"] },
     ]);
   });
 

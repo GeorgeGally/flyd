@@ -8,6 +8,7 @@ import { forHim, statusSaid } from "../lib/pa-voice.js";
 import { plainTitle } from "./plain-words.js";
 import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import { namedAnswers, type NamedAnswers } from "./choices.js";
+import { holdDecisions, type HoldDecision } from "./artefact.js";
 import type { ShowItem, ShowScreen } from "./show.js";
 
 /**
@@ -31,6 +32,8 @@ export interface JobThread {
   title: string;
   at: string;
   kind: "conversation" | "run";
+  /** The whole entry as one sentence, never cut short: what the Timeline says when he opens it. */
+  full?: string;
 }
 
 /** What changed, then what he needs to do: one sentence each, said to him. */
@@ -67,6 +70,8 @@ export interface Job {
   choices?: string[];
   /** The answer Flyd recommends, when it names one. */
   recommended?: string;
+  /** Several numbered questions in one ask, each with its own answers: one card each on the open job. */
+  decisions?: HoldDecision[];
   /** The domain run an answer given on this job reaches. Absent when the run has finished and cannot take one. */
   domainRun?: string;
   /** A call Flyd answered for him by one of his standing rules; his own answer takes it back. */
@@ -140,6 +145,15 @@ const one = (value: string, max = 200) => {
   return `${line.slice(0, cut > max / 2 ? cut : max - 1).replace(/[\s,;:–—-]+$/, "")}…`;
 };
 
+/** A run's brief as one whole sentence to him: the staff framing gone, nothing cut. Pure. */
+export function runSentence(outcome: string): string {
+  let text = outcome.replace(/\s+/g, " ").trim();
+  const card = BRIEF_FRAME.test(text) ? /\bcard titled\s+["“]([^"”]+)/i.exec(text) : null;
+  if (card) text = card[1]!;
+  for (let pass = 0; pass < 3 && BRIEF_FRAME.test(text); pass += 1) text = text.replace(BRIEF_FRAME, "");
+  return forHim(plainTitle(text)).replace(/…$/, "");
+}
+
 /** Hand-off framing Flyd wrote for its staff, never for him: "Answer George's question, reading whatever code is needed, and change nothing:". */
 const BRIEF_FRAME = /^(?:answer (?:george's|your|the captain's|his) question\b[^:]*|act on (?:george's|your|the captain's|his) answer to|update the work from (?:george's|your|his) follow-up on|answer to pending decision [\w.-]+)\s*:\s*/i;
 
@@ -150,11 +164,7 @@ const BRIEF_FRAME = /^(?:answer (?:george's|your|the captain's|his) question\b[^
  * reads "Review Jev decision log". Pure.
  */
 export function runTitle(outcome: string): string {
-  let text = outcome.replace(/\s+/g, " ").trim();
-  const card = BRIEF_FRAME.test(text) ? /\bcard titled\s+["“]([^"”]+)/i.exec(text) : null;
-  if (card) text = card[1]!;
-  for (let pass = 0; pass < 3 && BRIEF_FRAME.test(text); pass += 1) text = text.replace(BRIEF_FRAME, "");
-  text = forHim(plainTitle(text)).replace(/…$/, "");
+  const text = runSentence(outcome);
   // The subject before a colon is the name; the rest is the brief's detail.
   const head = /^([^:?]{8,80}):\s/.exec(text)?.[1];
   return one(head ?? text, 90);
@@ -336,7 +346,8 @@ export function jobsFrom(input: {
       : name ? bucketFor(name) : lone(buckets, run.id, title);
     if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; markActive(name, bucket); }
     bucket.signals.push(signal);
-    bucket.threads.push({ id: run.id, title, at: run.updatedAt, kind: "run" });
+    const full = runSentence(run.outcome);
+    bucket.threads.push({ id: run.id, title, at: run.updatedAt, kind: "run", ...(full && full !== title ? { full } : {}) });
     for (const artifact of artifactsOf(run.artifacts, exists)) {
       if (artifact.href) bucket.links.push({ label: artifact.label, url: artifact.href });
       else bucket.files.push({ label: artifact.label });
@@ -430,7 +441,10 @@ export function jobsFrom(input: {
     }
     const links = uniqueLinks(bucket.links);
     const digestSaid = digestView(digest, lead.ask);
-    const answers = lead.group === "needs" ? answersOf(lead, digestSaid) : null;
+    // A run that asks several numbered questions at once puts each to him on its own card.
+    const numbered = lead.group === "needs" && !lead.decision && lead.ask ? holdDecisions(lead.ask) : [];
+    const several = numbered.length > 1 ? numbered : null;
+    const answers = lead.group === "needs" && !several ? answersOf(lead, digestSaid) : null;
     jobs.push({
       id: bucket.id,
       group: lead.group,
@@ -451,6 +465,7 @@ export function jobsFrom(input: {
       threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8),
       digest: digestSaid,
       ...(lead.decision ? { decision: lead.decision } : {}),
+      ...(several ? { decisions: several } : {}),
       ...(answers ? { choices: answers.options, ...(answers.recommended ? { recommended: answers.recommended } : {}) } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
       ...(lead.handled ? { handled: lead.handled } : {}),

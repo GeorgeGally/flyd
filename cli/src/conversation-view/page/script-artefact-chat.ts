@@ -484,6 +484,81 @@ export const ARTEFACT_CHAT_SCRIPT = `
     });
     if (onChange) onChange();
   }
+  // One of several questions, as its own card: the question, its answers one tap each (the
+  // recommended one first), and a line for his own words. Each answer names its question.
+  function questionCard(chat, key, one) {
+    var item = el("li", "art-decision");
+    item.appendChild(el("p", "art-decision-q", one.question));
+    if (one.done) {
+      item.appendChild(el("p", "art-decision-a art-decision-done", one.done));
+      item.classList.add("art-decision--done");
+      return item;
+    }
+    if (one.note && one.recommended) item.appendChild(el("p", "art-decision-rec", one.note));
+    var pendingKey = key + "\\n" + one.question;
+    if (!chat.state.answers || typeof chat.state.answers !== "object") chat.state.answers = {};
+    function answer(text) {
+      if (chat.state.answers[one.question] || choicePending[pendingKey]) return;
+      choicePending[pendingKey] = text;
+      chat.deliver('On "' + one.question + '": ' + text, function () {
+        delete choicePending[pendingKey];
+        chat.state.answers[one.question] = text;
+        chat.save();
+        paint();
+      });
+      paint();
+    }
+    var ordered = choicesInOrder(one.options || [], one.recommended);
+    var picks = el("div", "choices");
+    picks.setAttribute("role", "group");
+    picks.setAttribute("aria-label", one.question);
+    var buttons = ordered.map(function (choice) {
+      var button = el("button", "choice-pick" + (choice === one.recommended ? " primary" : ""));
+      button.type = "button";
+      button.appendChild(el("span", "", choice));
+      if (choice === one.recommended) button.appendChild(el("small", "", "recommended"));
+      button.addEventListener("click", function () { answer(choice); });
+      picks.appendChild(button);
+      return button;
+    });
+    if (buttons.length) item.appendChild(picks);
+    var own = el("form", "art-decision-own");
+    var words = el("input", "art-decision-input");
+    words.type = "text";
+    words.maxLength = 1000;
+    words.placeholder = buttons.length ? "Or say something else…" : "Your answer…";
+    words.setAttribute("aria-label", "Your answer: " + one.question);
+    var go = el("button", "art-chat-send", "Send");
+    go.type = "submit";
+    own.appendChild(words);
+    own.appendChild(go);
+    own.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var text = words.value.trim();
+      if (!text) return;
+      words.value = "";
+      answer(text);
+    });
+    item.appendChild(own);
+    var sent = el("p", "art-decision-sent");
+    sent.setAttribute("role", "status");
+    item.appendChild(sent);
+    // Once answered, this card's buttons and words are done; the other questions stay open.
+    function paint() {
+      var chosen = chat.state.answers[one.question] || choicePending[pendingKey] || "";
+      buttons.forEach(function (button, index) {
+        button.setAttribute("aria-pressed", String(chosen === ordered[index]));
+        button.disabled = !!chosen;
+      });
+      words.disabled = !!chosen;
+      go.disabled = !!chosen;
+      own.hidden = !!chosen && ordered.indexOf(chosen) !== -1;
+      sent.textContent = chat.state.answers[one.question] ? (ordered.indexOf(chosen) === -1 ? "Sent: " + chosen : "Sent") : choicePending[pendingKey] ? "Sending…" : "";
+      item.classList.toggle("art-decision--answered", !!chat.state.answers[one.question]);
+    }
+    paint();
+    return item;
+  }
   // The recommended answer first.
   function choicesInOrder(choices, recommended) {
     var list = (choices || []).slice();
@@ -513,19 +588,13 @@ export const ARTEFACT_CHAT_SCRIPT = `
     var chat = given || artefactChat(key, target, askLabel(decision), decision && decision.question ? key + ":" + decision.question : "");
     // A hold that puts two (or three) decisions to him says each one in its own plain line, with what
     // he can pick and what the work recommends, and what a landed change has already answered.
-    if (decision && decision.decisions && decision.decisions.length > 1) {
+    // Several numbered questions: one card each, with its own answers to tap and its own words, and
+    // each answer goes back naming the question it answers. What a landed change answered says so.
+    var several = !!(decision && decision.decisions && decision.decisions.length > 1);
+    if (several) {
       var askList = el("ol", "art-decisions");
       decision.decisions.forEach(function (one) {
-        var item = el("li", "art-decision");
-        item.appendChild(el("p", "art-decision-q", one.question));
-        if (one.done) {
-          item.appendChild(el("p", "art-decision-a art-decision-done", one.done));
-          item.classList.add("art-decision--done");
-        } else if (one.options && one.options.length) {
-          item.appendChild(el("p", "art-decision-a", one.options.join("  ·  ")));
-          if (one.recommended) item.appendChild(el("p", "art-decision-rec", [one.note, "recommended: " + one.recommended].filter(Boolean).join(" · ")));
-        }
-        askList.appendChild(item);
+        askList.appendChild(questionCard(chat, key, one));
       });
       wrap.appendChild(askList);
     }
@@ -581,7 +650,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
       wrap.appendChild(steps.el);
       // Each question takes his own words; the box below only says where the answers are.
       chat.form.classList.add("art-chat--receipt");
-    } else if (decision && decision.choices.length) {
+    } else if (!several && decision && decision.choices.length) {
       var choices = el("div", "choices");
       choices.setAttribute("role", "group");
       choices.setAttribute("aria-label", "Options");

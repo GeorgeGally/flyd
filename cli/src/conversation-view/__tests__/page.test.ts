@@ -5173,6 +5173,59 @@ describe("the front page", () => {
     }
   });
 
+  it("asks several numbered questions as one card each, and sends each answer tagged with its question", async () => {
+    const stream = await opened();
+    const decisions = [
+      { question: "WhatsApp card on Today", options: ["Remove it from the timeline", "Keep it"] },
+      { question: "Horoscope source", options: ["AstroVed", "Another"] },
+      { question: "News tab: anything beyond news, weather and horoscope?", options: ["No, that's all"] },
+    ];
+    const job = {
+      id: "today-calls", group: "needs", state: "Needs you", title: "Three calls on Today", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "you", ask: "Three calls", because: "",
+      shots: [], links: [], files: [], threads: [], digest: null, domainRun: "run-3", questionIdentity: "Three calls", decisions,
+    };
+    stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [job] });
+    after(() => document.querySelector<HTMLElement>('.job[data-job="today-calls"]')!.click());
+    const cards = () => [...document.querySelectorAll<HTMLElement>(".job-view .art-decision")];
+    expect(cards().map((card) => card.querySelector(".art-decision-q")!.textContent)).toEqual(decisions.map((one) => one.question));
+    expect(cards().map((card) => [...card.querySelectorAll(".choice-pick")].map((button) => button.textContent))).toEqual([["Remove it from the timeline", "Keep it"], ["AstroVed", "Another"], ["No, that's all"]]);
+    expect(cards().every((card) => card.querySelector("input.art-decision-input"))).toBe(true);
+    cards()[1]!.querySelectorAll<HTMLButtonElement>(".choice-pick")[0]!.click();
+    await settle();
+    const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-3", text: 'On "Horoscope source": AstroVed' });
+    // Only that question is done; the others stay open.
+    expect([...cards()[1]!.querySelectorAll<HTMLButtonElement>(".choice-pick")].every((button) => button.disabled)).toBe(true);
+    expect([...cards()[0]!.querySelectorAll<HTMLButtonElement>(".choice-pick")].some((button) => button.disabled)).toBe(false);
+    const own = cards()[2]!.querySelector<HTMLFormElement>(".art-decision-own")!;
+    own.querySelector<HTMLInputElement>("input")!.value = "Add the tide times";
+    own.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const last = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(last[1]!.body))).toMatchObject({ text: 'On "News tab: anything beyond news, weather and horoscope?": Add the tide times' });
+  });
+
+  it("keeps the Timeline behind a small link, closed until opened, and says each entry whole", async () => {
+    const stream = await opened();
+    const long = "Rework the Today page so the WhatsApp card, the horoscope source and the News tab each follow what you decided in the last review round.";
+    const job = {
+      id: "today", group: "working", state: "Working", title: "Today page", project: "", at: "2026-10-26T12:00:00.000Z", next: "Under way", owner: "Flyd", ask: "", because: "",
+      shots: [], links: [], files: [], digest: null, threads: [{ id: "run-1", title: "Rework the Today page so the WhatsApp card…", full: long, at: "2026-10-26T12:00:00.000Z", kind: "run" }],
+    };
+    stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [job] });
+    after(() => document.querySelector<HTMLElement>('.job[data-job="today"]')!.click());
+    const toggle = document.querySelector<HTMLButtonElement>(".job-view .jv-time-toggle")!;
+    const list = document.querySelector<HTMLElement>(".job-view .jv-time-list")!;
+    expect(toggle.textContent).toBe("Timeline");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(list.hidden).toBe(true);
+    toggle.click();
+    expect(list.hidden).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(list.querySelector(".jv-thread")!.textContent).toBe(long);
+    expect(list.textContent).not.toContain("…");
+  });
+
   it("opens a handled line from the server's jobs on a take-back form that reaches Flyd's answer", async () => {
     const stream = await opened();
     stream.emit("update", {

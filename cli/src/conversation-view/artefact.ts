@@ -878,6 +878,26 @@ function aside(raw: string): string | undefined {
   return kept || undefined;
 }
 
+/** "anything beyond news…?", "anything else?", "any more?": asks whether there is more. */
+const ANYTHING_MORE = /^(?:is there\s+)?any(?:thing|\s+more|\s+others?)\b[^?]*\?$/i;
+/** The one answer to "anything more?" that needs no words of his. */
+export const NOTHING_MORE = "No, that's all";
+
+/** "A (aside) or B": the alternatives either side of a top-level "or", when there are two. Pure. */
+function splitOr(text: string): string[] {
+  let depth = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && /^\sor\s/i.test(text.slice(index, index + 4))) {
+      const parts = [text.slice(0, index), text.slice(index + 4)].map((part) => part.trim());
+      return parts.every(Boolean) && !/\sor\s/i.test(parts[1]!) ? parts : [];
+    }
+  }
+  return [];
+}
+
 /** One numbered decision out of a hold's prose, or undefined when there are no words to ask with. Pure. */
 function decisionFrom(body: string): HoldDecision | undefined {
   // Where the hold says its material sits belongs to the artefact, not to the decision.
@@ -896,8 +916,14 @@ function decisionFrom(body: string): HoldDecision | undefined {
   const yesNo = /\s*[-–—]\s*yes\s*\/\s*no\s*$/i.exec(text);
   if (yesNo) { text = text.slice(0, yesNo.index); options.push("Yes", "No"); }
   const colon = yesNo ? -1 : topColon(text);
-  const listed = colon > 0 ? splitTop(text.slice(colon + 1)) : [];
-  const asked = colon > 0 ? text.slice(0, colon) : text;
+  const after = colon > 0 ? text.slice(colon + 1) : "";
+  let listed = colon > 0 ? splitTop(after) : [];
+  // "horoscope source: AstroVed (moon sign) or another": two alternatives joined by "or" alone.
+  if (colon > 0 && listed.length < 2 && !/\?\s*$/.test(after)) listed = splitOr(after);
+  // "News tab: anything beyond news, weather and horoscope?" asks for more, not a pick among a list.
+  const askingMore = colon > 0 && ANYTHING_MORE.test(after.trim());
+  if (askingMore) listed = [];
+  const asked = colon > 0 && (listed.length >= 2 || options.length) ? text.slice(0, colon) : text;
   let recommended: string | undefined;
   let note: string | undefined;
   // The alternatives after a colon are the choice; the words before it are the question.
@@ -906,7 +932,7 @@ function decisionFrom(body: string): HoldDecision | undefined {
       // "…, or drop?": the last alternative carries the sentence's "or" and its question mark.
       const option = raw.replace(/\s*\([^)]*\)/g, "").replace(/^or\s+/i, "").replace(/[.;,?]+$/, "").trim();
       if (!option) continue;
-      options.push(option);
+      options.push(option.charAt(0).toUpperCase() + option.slice(1));
       if (!recommended && RECOMMENDS.test(raw)) { recommended = option; note = aside(raw); }
     }
   }
@@ -919,8 +945,9 @@ function decisionFrom(body: string): HoldDecision | undefined {
   if (!question) return undefined;
   return {
     question: question.charAt(0).toUpperCase() + question.slice(1),
-    // One alternative is not a choice: his own words answer it.
-    options: options.length >= 2 ? options : [],
+    // One alternative is not a choice: his own words answer it. Asking for anything more has one
+    // answer to tap (there is nothing more); anything else is his to say.
+    options: options.length >= 2 ? options : askingMore ? [NOTHING_MORE] : [],
     ...(recommended ? { recommended, ...(note ? { note } : {}) } : {}),
   };
 }
@@ -933,6 +960,8 @@ export function holdDecisions(hold: string): HoldDecision[] {
   let numbered = [...hold.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\s*\(\d+\)\s|$)/g)].map((match) => match[2]!);
   // "Review and 1. Opinion section: …? 2. Reports band heading: …? 3. …": numbered the other way.
   if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|\s)\d\.\s+([\s\S]*?)(?=\s+\d\.\s|$)/g)].map((match) => match[1]!);
+  // "Three calls: 1) WhatsApp card: remove it, or keep it; 2) horoscope source: …": numbered with a bracket only.
+  if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|[\s:;,])\d+\)\s+([\s\S]*?)(?=[\s;,]+\d+\)\s|$)/g)].map((match) => match[1]!);
   const bodies = numbered.length >= 2 ? numbered : [hold];
   return bodies.map((body) => decisionFrom(body.replace(/^[\s;,-]+/, ""))).filter((decision): decision is HoldDecision => Boolean(decision));
 }

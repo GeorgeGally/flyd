@@ -301,6 +301,18 @@ describe("jobsFrom", () => {
     expect(open.choices).toBeUndefined();
   });
 
+  it("puts a run's numbered questions on the job one by one, and gives the Timeline the whole brief", () => {
+    const outcome = "Rework the Today page so the WhatsApp card, the horoscope source and the News tab each follow what you decided in the last review round.";
+    const job = jobsFrom({ runs: [run({ status: "needs_decision", outcome, question: "1) WhatsApp card: remove it, or keep it; 2) News tab: anything else?" })], now: NOW }).jobs[0]!;
+    expect(job.decisions).toEqual([
+      { question: "WhatsApp card", options: ["Remove it", "Keep it"] },
+      { question: "News tab: anything else?", options: ["No, that's all"] },
+    ]);
+    expect(job.choices).toBeUndefined();
+    expect(job.threads[0]!.title.length).toBeLessThanOrEqual(90);
+    expect(job.threads[0]!.full).toBe(outcome);
+  });
+
   it("gives a card the reading of its own item, never another item's in the same project", () => {
     // The Week page PR and the WhatsApp card are both Flyd work; the WhatsApp reading is newer.
     const week = "The Week page now shows each hour's changes when you hover a bar. ".repeat(6);

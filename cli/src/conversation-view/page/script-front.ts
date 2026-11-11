@@ -481,19 +481,37 @@ export const FRONT_SCRIPT = `
       parts.push(acts);
     }
 
-    (job.threads || []).forEach(function (thread, index) {
-      if (!index) {
-        var time = el("div", "jv-time");
-        time.appendChild(el("p", "jv-k", "Timeline"));
-        parts.push(time);
-      }
-      var row = thread.kind === "conversation" ? el("button", "jv-thread", thread.title || "Conversation") : el("p", "jv-thread", thread.title || "Run");
-      if (row.tagName === "BUTTON") {
-        row.type = "button";
-        row.addEventListener("click", function () { setCentre("talk", true); connect(thread.id); frontSelect("talk"); });
-      }
-      parts[parts.length - 1].appendChild(row);
-    });
+    // The Timeline sits behind one small link, closed until he opens it; each entry is said whole.
+    if ((job.threads || []).length) {
+      var time = el("div", "jv-time");
+      var timeKey = "flyd-timeline:" + job.id;
+      var opened = false;
+      try { opened = sessionStorage.getItem(timeKey) === "open"; } catch (_) {}
+      var toggle = el("button", "jv-time-toggle", "Timeline");
+      toggle.type = "button";
+      var entries = el("div", "jv-time-list");
+      entries.id = "jv-time-" + job.id.replace(/[^A-Za-z0-9_-]/g, "-");
+      toggle.setAttribute("aria-controls", entries.id);
+      toggle.setAttribute("aria-expanded", String(opened));
+      entries.hidden = !opened;
+      toggle.addEventListener("click", function () {
+        entries.hidden = !entries.hidden;
+        toggle.setAttribute("aria-expanded", String(!entries.hidden));
+        try { sessionStorage.setItem(timeKey, entries.hidden ? "closed" : "open"); } catch (_) {}
+      });
+      job.threads.forEach(function (thread) {
+        var said = thread.full || thread.title || (thread.kind === "conversation" ? "Conversation" : "Run");
+        var row = thread.kind === "conversation" ? el("button", "jv-thread", said) : el("p", "jv-thread", said);
+        if (row.tagName === "BUTTON") {
+          row.type = "button";
+          row.addEventListener("click", function () { setCentre("talk", true); connect(thread.id); frontSelect("talk"); });
+        }
+        entries.appendChild(row);
+      });
+      time.appendChild(toggle);
+      time.appendChild(entries);
+      parts.push(time);
+    }
     if (job.files && job.files.length) parts.push(el("p", "jv-files", job.files.map(function (file) { return file.label; }).join(" · ")));
     if (job.detail && !(job.previews && job.previews.length)) parts.push(frontDetailTalk(job));
     if (VIEW_TOKEN) {
@@ -541,6 +559,8 @@ export const FRONT_SCRIPT = `
   function frontDecision(job) {
     var choices = job.choices && job.choices.length ? job.choices : null;
     if (job.decision) return choices ? Object.assign({}, job.decision, { choices: choices, recommended: job.recommended || job.decision.recommended }) : job.decision;
+    // Several numbered questions from the run: one card each, answered on their own.
+    if (job.decisions && job.decisions.length > 1) return { question: job.ask || "", questionIdentity: job.questionIdentity || "", choices: [], decisions: job.decisions };
     if (!choices) return null;
     return { question: job.ask || "", questionIdentity: job.questionIdentity || "", choices: choices, recommended: job.recommended || "" };
   }
@@ -573,7 +593,7 @@ export const FRONT_SCRIPT = `
     }
     frontRoot.setAttribute("data-job", job.id);
     frontHead(job, VIEW_TOKEN && Array.isArray(frontUpdate.jobs));
-    var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.domainRun, job.questionIdentity, job.next, job.ask, job.digest, job.threads, job.files, job.choices, job.recommended]);
+    var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.domainRun, job.questionIdentity, job.next, job.ask, job.digest, job.threads, job.files, job.choices, job.recommended, job.decisions]);
     // A job already open stays as he left it while he is typing in it.
     if (drawn === frontDrawn.view || (frontDrawn.viewId === job.id && jobView.contains(document.activeElement))) return;
     frontDrawn.view = drawn;
@@ -611,6 +631,7 @@ export const FRONT_SCRIPT = `
       digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
       threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.domainRun || "",
       choices: Array.isArray(job.choices) ? job.choices : [], recommended: job.recommended || "",
+      decisions: Array.isArray(job.decisions) ? job.decisions : [],
       handled: job.handled && job.handled.decisionId ? { decisionId: job.handled.decisionId, task: job.handled.task || "" } : null,
     };
   }
