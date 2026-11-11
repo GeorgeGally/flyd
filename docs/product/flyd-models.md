@@ -24,10 +24,11 @@ nothing else.
 | Reply summaries in the Flyd window | Claude Haiku 5.5 | xAI Grok (`XAI_API_KEY` or the grok CLI's key) |
 | Typing prediction | Claude Haiku 5.5, conversation cached | `openrouter:inception/mercury-2.5` |
 | Coding crew (`flyd crew`, `start_coding_task`) | `opencode-go/gpt-6-luna`, or `FLYD_CREW_MODEL` (never OpenCode's own default) | `cursor/auto` (Cursor's agent on George's login) when the provider refuses; `FLYD_CREW_BACKUP_MODELS` |
-| Background learning, synthesis, curation | `FLYD_MODEL` chain, unchanged | — |
+| Background learning, synthesis, curation, the news edition | `FLYD_MODEL` | `FLYD_CHAT_FALLBACK_MODELS`, CommandCode, then a backup on another provider (`FLYD_ONE_SHOT_BACKUP_MODELS`; `openai:gpt-5.4-mini` while `OPENAI_API_KEY` is set) |
 
 A fallback takes over when Claude errors, declines, or the month's cap is
-reached. A failed provider cools down for ten minutes before it is tried again.
+reached. A failed provider (quota, out of credit, auth or server fault) cools
+down for ten minutes before it is tried again.
 
 ## Prompt caching
 
@@ -60,6 +61,7 @@ until the 1st and he hears that once too.
 | `FLYD_CHAT_MODEL` | `FLYD_MODEL` | Chat's model after Claude |
 | `FLYD_CHAT_FALLBACK_MODELS` | — | Comma-separated, provider-qualified models after that |
 | `FLYD_MODEL` | — | Background jobs' model, and quick jobs' fallback |
+| `FLYD_ONE_SHOT_BACKUP_MODELS` | `openai:gpt-5.4-mini` when `OPENAI_API_KEY` is set | Comma-separated, provider-qualified models background jobs try after every configured one refuses; `none` turns it off |
 | `FLYD_ROUTING_FALLBACK_MODEL` | — | Pins the room reader and view router to one exact model |
 | `FLYD_PREDICTION_MODEL` | Claude Haiku, then Mercury | Pins typing prediction to one exact model |
 | `FLYD_PREDICTIONS` | on | `0` turns typing prediction off |

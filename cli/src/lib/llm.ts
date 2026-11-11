@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { elideToolHistory, type ToolHistoryPolicy, type ToolHistoryStats } from "../runtime/tool-history.js";
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
-import { usesOpenAITransport, apiModelId, defaultModel, fallbackModelChain, quickModelChain, resolveModelConnection, type ModelConnection } from "./config.js";
+import { usesOpenAITransport, apiModelId, defaultModel, oneShotModelChain, quickModelChain, resolveModelConnection, type ModelConnection } from "./config.js";
 import { claudeHeaders, recordClaudeUsage, type ClaudeUsage } from "./claude-spend.js";
 
 interface FixtureRule {
@@ -265,8 +265,8 @@ export async function query(
     // A caller that picked a specific non-default model gets exactly that model.
     response = await once(model);
   } else {
-    // Default-model callers get the same provider failover as chat.
-    response = (await runWithModelFailover([model ?? defaultModel(), ...fallbackModelChain()], once)).result;
+    // Default-model callers fail over like chat, then to a backup on another provider.
+    response = (await runWithModelFailover(oneShotModelChain(), once)).result;
   }
   finalizeEvidenceSurface(enriched.surfaceId, response);
   return response;
@@ -405,11 +405,11 @@ function isAbort(error: unknown, signal?: AbortSignal): boolean {
   return name === "AbortError" || name === "APIUserAbortError";
 }
 
-/** Quota, auth, and server faults mean "this provider, not this request". */
+/** Quota, credit, auth, and server faults mean "this provider, not this request". */
 function shouldCoolDown(error: unknown): boolean {
   const status = providerStatus(error);
-  if (status !== undefined) return status === 429 || status === 401 || status === 403 || status >= 500;
-  return /usage limit|rate limit|quota|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|socket hang up|No API key/i.test(
+  if (status !== undefined) return status === 429 || status === 402 || status === 401 || status === 403 || status >= 500;
+  return /usage limit|rate limit|quota|insufficient (account )?(funds|balance)|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|socket hang up|No API key/i.test(
     error instanceof Error ? error.message : String(error),
   );
 }

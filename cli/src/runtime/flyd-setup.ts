@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chatModelChain, claudeChatModel, claudeQuickModel, defaultModel, fallbackModelChain, FLYD_APPLICATION_ROOT, getKey, quickModelChain } from "../lib/config.js";
+import { chatModelChain, claudeChatModel, claudeQuickModel, defaultModel, FLYD_APPLICATION_ROOT, getKey, fallbackModelChain, oneShotBackupModels, quickModelChain } from "../lib/config.js";
 import { claudeApiKey, spendStatus } from "../lib/claude-spend.js";
 
 // What Flyd runs on, worked out each time it is asked, from the same resolvers
@@ -125,12 +125,12 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
   });
 
   const main = attempt(defaultModel);
-  const mainFallbacks = attempt(fallbackModelChain) ?? [];
+  const mainFallbacks = [...new Set([...(attempt(fallbackModelChain) ?? []), ...oneShotBackupModels()])].filter((model) => model !== main);
   add({
     job: "One-shot thinking: memory curation and the council, the news edition and the morning brief",
     model: main ?? "not configured (set FLYD_MODEL)",
     ...(mainFallbacks.length ? { fallbacks: mainFallbacks } : {}),
-    settings: ["FLYD_MODEL", "FLYD_CHAT_FALLBACK_MODELS", ...COMMANDCODE_SETTINGS],
+    settings: ["FLYD_MODEL", "FLYD_CHAT_FALLBACK_MODELS", ...COMMANDCODE_SETTINGS, "FLYD_ONE_SHOT_BACKUP_MODELS"],
   });
 
   const typesafe = Boolean(process.env.TYPESAFE_API_KEY?.trim());

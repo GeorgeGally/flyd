@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chatModelChain, resolveModelConnection, usesOpenAITransport } from "../config.js";
+import { chatModelChain, oneShotModelChain, resolveModelConnection, usesOpenAITransport } from "../config.js";
 import { openAIAgentTransport, resetProviderCooldowns, runWithModelFailover } from "../llm.js";
 import { commandCodeModelId } from "../../runtime/flyd-worker-config.js";
 
@@ -53,6 +53,39 @@ describe("provider-qualified models", () => {
   });
 });
 
+describe("one-shot model chain", () => {
+  beforeEach(() => {
+    // George's live shape: every configured model on one OpenCode Go account.
+    vi.stubEnv("FLYD_MODEL", "opencode-go/deepseek-v4.1-flash");
+    vi.stubEnv("FLYD_CHAT_FALLBACK_MODELS", "opencode-go/deepseek-v4-pro");
+    vi.stubEnv("COMMANDCODE_API_KEY", "");
+    vi.stubEnv("CMD_API_KEY", "");
+    vi.stubEnv("FLYD_ONE_SHOT_BACKUP_MODELS", "");
+    vi.stubEnv("OPENAI_API_KEY", "oa-key");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("ends on another provider, so one empty account cannot silence the news and the council", () => {
+    expect(oneShotModelChain()).toEqual([
+      "opencode-go/deepseek-v4.1-flash",
+      "opencode-go/deepseek-v4-pro",
+      "openai:gpt-5.4-mini",
+    ]);
+  });
+
+  it("takes the backup from FLYD_ONE_SHOT_BACKUP_MODELS, and none turns it off", () => {
+    vi.stubEnv("FLYD_ONE_SHOT_BACKUP_MODELS", "openrouter:google/gemini-2.5-flash, openai:gpt-5.6-luna");
+    expect(oneShotModelChain().slice(2)).toEqual(["openrouter:google/gemini-2.5-flash", "openai:gpt-5.6-luna"]);
+    vi.stubEnv("FLYD_ONE_SHOT_BACKUP_MODELS", "none");
+    expect(oneShotModelChain()).toEqual(["opencode-go/deepseek-v4.1-flash", "opencode-go/deepseek-v4-pro"]);
+  });
+
+  it("adds no OpenAI backup without an OpenAI key", () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    expect(oneShotModelChain()).toEqual(["opencode-go/deepseek-v4.1-flash", "opencode-go/deepseek-v4-pro"]);
+  });
+});
+
 describe("runWithModelFailover", () => {
   beforeEach(() => resetProviderCooldowns());
 
@@ -74,6 +107,21 @@ describe("runWithModelFailover", () => {
     const second = await runWithModelFailover(["primary", "backup"], attempt);
     expect(second.model).toBe("backup");
     expect(attempts).toEqual(["backup"]);
+  });
+
+  it("reaches the backup past an account out of credit, and skips that account next time", async () => {
+    const attempts: string[] = [];
+    const attempt = async (model: string) => {
+      attempts.push(model);
+      if (model.startsWith("opencode-go/")) throw providerError(402, "Insufficient balance. Top up at https://opencode.ai/console");
+      return `answer from ${model}`;
+    };
+    const chain = ["opencode-go/deepseek-v4.1-flash", "opencode-go/deepseek-v4-pro", "openai:gpt-5.4-mini"];
+    expect((await runWithModelFailover(chain, attempt)).model).toBe("openai:gpt-5.4-mini");
+
+    attempts.length = 0;
+    await runWithModelFailover(chain, attempt);
+    expect(attempts).toEqual(["openai:gpt-5.4-mini"]);
   });
 
   it("does not replay an attempt that already changed something", async () => {
