@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chatModelChain, resolveModelConnection, usesOpenAITransport } from "../config.js";
+import { chatModelChain, oneShotModelChain, resolveModelConnection, usesOpenAITransport } from "../config.js";
 import { openAIAgentTransport, resetProviderCooldowns, runWithModelFailover } from "../llm.js";
 import { commandCodeModelId } from "../../runtime/flyd-worker-config.js";
 
@@ -53,6 +56,41 @@ describe("provider-qualified models", () => {
   });
 });
 
+describe("one-shot model chain", () => {
+  let spendDir: string;
+  beforeEach(() => {
+    spendDir = mkdtempSync(join(tmpdir(), "flyd-one-shot-"));
+    vi.stubEnv("FLYD_CLAUDE_SPEND_FILE", join(spendDir, "spend.json"));
+    vi.stubEnv("FLYD_CLAUDE_MONTHLY_CAP_USD", "");
+    vi.stubEnv("FLYD_CLAUDE_QUICK_MODEL", "");
+    vi.stubEnv("FLYD_CLAUDE", "1");
+    vi.stubEnv("CLAUDE_API_KEY", "claude-key");
+    // George's live shape: every configured model on one OpenCode Go account.
+    vi.stubEnv("FLYD_MODEL", "opencode-go/deepseek-v4.1-flash");
+    vi.stubEnv("FLYD_CHAT_FALLBACK_MODELS", "opencode-go/deepseek-v4-pro");
+    vi.stubEnv("COMMANDCODE_API_KEY", "");
+    vi.stubEnv("CMD_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "oa-key");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(spendDir, { recursive: true, force: true });
+  });
+
+  it("ends on Claude Haiku, so one empty account cannot silence the news and the council", () => {
+    expect(oneShotModelChain()).toEqual([
+      "opencode-go/deepseek-v4.1-flash",
+      "opencode-go/deepseek-v4-pro",
+      "anthropic:claude-haiku-5-5",
+    ]);
+  });
+
+  it("has no backup when Claude is off, and never reaches for OpenAI", () => {
+    vi.stubEnv("FLYD_CLAUDE", "0");
+    expect(oneShotModelChain()).toEqual(["opencode-go/deepseek-v4.1-flash", "opencode-go/deepseek-v4-pro"]);
+  });
+});
+
 describe("runWithModelFailover", () => {
   beforeEach(() => resetProviderCooldowns());
 
@@ -74,6 +112,21 @@ describe("runWithModelFailover", () => {
     const second = await runWithModelFailover(["primary", "backup"], attempt);
     expect(second.model).toBe("backup");
     expect(attempts).toEqual(["backup"]);
+  });
+
+  it("reaches the backup past an account out of credit, and skips that account next time", async () => {
+    const attempts: string[] = [];
+    const attempt = async (model: string) => {
+      attempts.push(model);
+      if (model.startsWith("opencode-go/")) throw providerError(402, "Insufficient balance. Top up at https://opencode.ai/console");
+      return `answer from ${model}`;
+    };
+    const chain = ["opencode-go/deepseek-v4.1-flash", "opencode-go/deepseek-v4-pro", "anthropic:claude-haiku-5-5"];
+    expect((await runWithModelFailover(chain, attempt)).model).toBe("anthropic:claude-haiku-5-5");
+
+    attempts.length = 0;
+    await runWithModelFailover(chain, attempt);
+    expect(attempts).toEqual(["anthropic:claude-haiku-5-5"]);
   });
 
   it("does not replay an attempt that already changed something", async () => {

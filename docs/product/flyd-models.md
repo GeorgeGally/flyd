@@ -24,10 +24,11 @@ nothing else.
 | Reply summaries in the Flyd window | Claude Haiku 5.5 | xAI Grok (`XAI_API_KEY` or the grok CLI's key) |
 | Typing prediction | Claude Haiku 5.5, conversation cached | `openrouter:inception/mercury-2.5` |
 | Coding crew (`flyd crew`, `start_coding_task`) | `opencode-go/gpt-6-luna`, or `FLYD_CREW_MODEL` (never OpenCode's own default) | `cursor/auto` (Cursor's agent on George's login) when the provider refuses; `FLYD_CREW_BACKUP_MODELS` |
-| Background learning, synthesis, curation | `FLYD_MODEL` chain, unchanged | — |
+| Background learning, synthesis, curation, the news edition | `FLYD_MODEL` | `FLYD_CHAT_FALLBACK_MODELS`, CommandCode, then Claude Haiku 5.5 (`FLYD_CLAUDE_QUICK_MODEL`) while Claude is on and under its cap |
 
 A fallback takes over when Claude errors, declines, or the month's cap is
-reached. A failed provider cools down for ten minutes before it is tried again.
+reached. A failed provider (quota, out of credit, auth or server fault) cools
+down for ten minutes before it is tried again.
 
 ## Prompt caching
 
@@ -54,7 +55,7 @@ until the 1st and he hears that once too.
 | `FLYD_CLAUDE` | on | `0` keeps Claude out of every job |
 | `FLYD_CLAUDE_CHAT_MODEL` | `claude-sonnet-5-5` | Chat's Claude model |
 | `FLYD_CLAUDE_CHAT_EFFORT` | `medium` | Sonnet's effort for chat turns (`low` answers faster, checks in more) |
-| `FLYD_CLAUDE_QUICK_MODEL` | `claude-haiku-5-5` | Quick jobs' and typing's Claude model |
+| `FLYD_CLAUDE_QUICK_MODEL` | `claude-haiku-5-5` | Quick jobs' and typing's Claude model, and background jobs' last backup |
 | `FLYD_CLAUDE_MONTHLY_CAP_USD` | `100` | Monthly Claude spend cap in US dollars |
 | `FLYD_CLAUDE_USAGE_LOG` | — | Path of an opt-in per-call usage trail, for measuring cache hits |
 | `FLYD_CHAT_MODEL` | `FLYD_MODEL` | Chat's model after Claude |

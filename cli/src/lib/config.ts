@@ -215,6 +215,16 @@ export function fallbackModelChain(): string[] {
   return [...new Set(chain)];
 }
 
+/**
+ * One-shot queries (the news edition, the council, taste, self-improvement):
+ * FLYD_MODEL, the shared fallbacks, then Claude's quick model while Claude is
+ * on and under its cap, so one empty account cannot silence every background job.
+ */
+export function oneShotModelChain(): string[] {
+  const claude = claudeQuickModel();
+  return [...new Set([defaultModel(), ...fallbackModelChain(), ...(claude ? [claude] : [])])];
+}
+
 /** CommandCode serves Claude only through its Anthropic Messages endpoint. */
 function commandCodeUsesMessages(model: string): boolean {
   return /^claude-/i.test(apiModelId(model));
