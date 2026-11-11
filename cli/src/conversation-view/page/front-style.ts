@@ -97,6 +97,19 @@ export const FRONT_STYLE = `
 .job .next {
   margin: 8px 0 0; font: 400 14.5px/1.45 var(--sans); color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* A decision's named answers sit on its card, under what it says, with room above them. */
+.jobask { margin: 0 0 16px; border-radius: var(--card-radius); background: var(--card); transition: background-color .2s ease, box-shadow .2s ease; }
+.jobask > .job { margin: 0; background: none; box-shadow: none; }
+.jobask:hover, .jobask.on { background: var(--sheet); }
+.jobask.on { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
+.jpicks { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px var(--card-pad) var(--card-pad); }
+.jpick { min-height: 36px; padding: 8px 14px; border: 0; border-radius: 8px; background: none; box-shadow: inset 0 0 0 1px var(--line); font: 500 14px/1.3 var(--sans); color: var(--ink); cursor: pointer; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.jpick:hover { background: var(--well); }
+.jpick.primary:not(:disabled), .jpick[aria-pressed="true"] { background: var(--ink); color: var(--sheet); box-shadow: none; }
+.jpick:disabled { cursor: default; }
+.jpick:disabled:not([aria-pressed="true"]) { opacity: .45; }
+.jpick:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.jsent { margin: -6px 0 0; padding: 0 var(--card-pad) var(--card-pad); font: 400 13px/1.4 var(--sans); color: var(--mute); }
 .job-new { display: flex; gap: 8px; margin: 4px 0 24px; }
 .job-new input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
 .job-new button { height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--ink); color: var(--sheet); font: 500 13px/1 var(--sans); cursor: pointer; }
@@ -178,8 +191,13 @@ export const FRONT_STYLE = `
 .jv-next { margin: 0 0 16px; max-width: 62ch; color: var(--ink2); }
 .jv-next .own { color: var(--mute); }
 .jv-time { margin-top: 22px; display: grid; gap: 4px; }
+.jv-time-toggle { justify-self: start; margin: 0; padding: 4px 0; border: 0; background: none; font: 400 13px/1.4 var(--sans); color: var(--mute); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--mute) 45%, transparent); cursor: pointer; }
+.jv-time-toggle:hover { color: var(--ink2); }
+.jv-time-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.jv-time-list { display: grid; gap: 2px; margin-top: 6px; }
+.jv-time-list[hidden] { display: none; }
 .jv-k { margin: 0 0 4px; font-size: 14px; color: var(--mute); }
-.jv-thread { display: block; width: 100%; margin: 0; padding: 6px 0; border: 0; background: none; text-align: left; font: 400 16px/1.45 var(--sans); color: var(--ink); }
+.jv-thread { display: block; width: 100%; margin: 0; padding: 6px 0; border: 0; background: none; text-align: left; font: 400 15px/1.5 var(--sans); color: var(--ink2); white-space: normal; overflow-wrap: anywhere; overflow: visible; text-overflow: clip; }
 button.jv-thread { cursor: pointer; }
 .jv-files { margin: 14px 0 0; font-size: 14px; color: var(--mute); }
 .jv-work { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 20px; }
@@ -226,6 +244,11 @@ button.jv-thread { cursor: pointer; }
 .job-view .choice-pick { min-height: 36px; padding: 8px 14px; border: 0; border-radius: 8px; background: none; box-shadow: inset 0 0 0 1px var(--line); font: 500 14px/1.3 var(--sans); color: var(--ink); max-width: 100%; }
 .job-view .choice-pick:hover { background: var(--well); color: var(--ink); }
 .job-view .choice-pick[aria-pressed="true"], .job-view .choice-pick[aria-pressed="true"]:hover { background: var(--ink); color: var(--sheet); box-shadow: none; }
+.job-view .choice-pick.primary:not(:disabled), .job-view .choice-pick.primary:not(:disabled):hover { background: var(--ink); color: var(--sheet); box-shadow: none; }
+.job-view .choice-pick.primary:not(:disabled) small, .job-view .choice-pick[aria-pressed="true"] small { color: color-mix(in srgb, var(--sheet) 70%, transparent); }
+.job-view .art-decision { background: var(--card); }
+.job-view .art-decision .choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.job-view .art-decision-input { background: var(--sheet); border-color: var(--line); color: var(--ink); }
 .job-view .art-thread { gap: 14px; margin: 4px 0 6px; }
 .job-view .art-msg { font-size: 18px; font-weight: 500; color: var(--ink2); }
 .job-view .art-msg--you { font-weight: 400; color: var(--ink); }

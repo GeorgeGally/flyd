@@ -3553,9 +3553,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(needs.querySelector(".needs-rec")!.textContent).toContain("I'd pick B.");
     expect(needs.querySelectorAll(".decision-evidence .shot")).toHaveLength(1);
     expect([...needs.querySelectorAll(".call-link")].map((link) => link.textContent)).toEqual(["Open preview ↗"]);
-    expect([...needs.querySelectorAll<HTMLButtonElement>(".choice-pick")].map((button) => button.textContent)).toEqual(["A", "Brecommended"]);
+    expect([...needs.querySelectorAll<HTMLButtonElement>(".choice-pick")].map((button) => button.textContent)).toEqual(["Brecommended", "A"]);
 
-    needs.querySelectorAll<HTMLButtonElement>(".choice-pick")[1]!.click();
+    needs.querySelectorAll<HTMLButtonElement>(".choice-pick")[0]!.click();
     await settle();
     const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
     expect(sends.at(-1)).toEqual({ session: "latest", replyTo: "reply:a#2", questionText: "Which direction?", text: "B", clientId: expect.stringMatching(/^note-/) });
@@ -4984,7 +4984,7 @@ describe("the front page", () => {
     expect(candidates[0]!.querySelector<HTMLImageElement>(".jv-phone img")!.getAttribute("src")).toContain("shots%2Fv2-phone.png");
     expect(candidates[1]!.querySelector(".jv-phone img")).not.toBeNull();
     // The choice stays under the designs, so he picks without leaving the card.
-    expect([...document.querySelectorAll(".job-view .choice-pick")].map((button) => button.textContent)).toEqual(["V2 Live page", "V10 Edit the pagerecommended"]);
+    expect([...document.querySelectorAll(".job-view .choice-pick")].map((button) => button.textContent)).toEqual(["V10 Edit the pagerecommended", "V2 Live page"]);
   });
 
   it("states a working row in Flyd's words: no framing, no George, and one line of state and what happens next", async () => {
@@ -5087,6 +5087,143 @@ describe("the front page", () => {
     await settle();
     const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
     expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-2", questionText: `${prefix} new`, text: "Yes" });
+  });
+
+  it("puts a decision's named answers on its card as buttons, recommended first, sent as if typed", async () => {
+    const stream = await opened();
+    const job = {
+      id: "board", group: "needs", state: "Needs you", title: "Show the existing Liesel board", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "you", ask: "Waiting on your go-ahead.", because: "",
+      shots: [], links: [], files: [], threads: [], domainRun: "run-9", questionIdentity: "Waiting on your go-ahead.",
+      digest: { changed: "The board is finished.", needed: "Say yes to merge it, which I recommend, or tell me to leave it unmerged." },
+      choices: ["Yes", "Leave it unmerged"], recommended: "Yes",
+    };
+    stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [job] });
+    const picks = () => [...document.querySelectorAll<HTMLButtonElement>('.jobask .jpick[data-pick-job="board"]')];
+    expect(picks().map((button) => button.textContent)).toEqual(["Yes", "Leave it unmerged"]);
+    expect(picks()[0]!.classList.contains("primary")).toBe(true);
+    // The buttons are beside the card, never inside its own button.
+    expect(document.querySelector(".job .jpick")).toBeNull();
+    picks()[1]!.click();
+    await settle();
+    const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-9", questionText: "Waiting on your go-ahead.", text: "Leave it unmerged" });
+    expect(picks().every((button) => button.disabled)).toBe(true);
+    expect(picks()[1]!.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector(".jobask .jsent")!.textContent).toMatch(/^Sent to /);
+    // The open job offers the same answers over its box, already answered.
+    after(() => document.querySelector<HTMLElement>('.job[data-job="board"]')!.click());
+    const open = [...document.querySelectorAll<HTMLButtonElement>(".job-view .choice-pick")];
+    expect(open.map((button) => button.textContent)).toEqual(["Yesrecommended", "Leave it unmerged"]);
+    expect(open.every((button) => button.disabled)).toBe(true);
+    expect(document.querySelector(".job-view textarea")).not.toBeNull();
+  });
+
+  it("offers a run's next question its own buttons after he tapped an answer to the last one", async () => {
+    const stream = await opened();
+    const job = {
+      id: "board", group: "needs", state: "Needs you", title: "Show the existing Liesel board", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "you", ask: "Waiting on your go-ahead.", because: "",
+      shots: [], links: [], files: [], threads: [], domainRun: "run-9", questionIdentity: "Merge the board?",
+      digest: { changed: "The board is finished.", needed: "Say yes to merge it." },
+      choices: ["Yes", "No"], recommended: "Yes",
+    };
+    const update = (next: typeof job) => stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [next] });
+    update(job);
+    const picks = () => [...document.querySelectorAll<HTMLButtonElement>('.jobask .jpick[data-pick-job="board"]')];
+    picks()[0]!.click();
+    await settle();
+    expect(picks().every((button) => button.disabled)).toBe(true);
+    update({ ...job, questionIdentity: "Restart Flyd now?" });
+    await settle();
+    expect(picks().map((button) => button.disabled)).toEqual([false, false]);
+    expect(document.querySelector(".jobask .jsent")).toBeNull();
+    after(() => document.querySelector<HTMLElement>('.job[data-job="board"]')!.click());
+    const open = [...document.querySelectorAll<HTMLButtonElement>(".job-view .choice-pick")];
+    expect(open.map((button) => button.disabled)).toEqual([false, false]);
+    open[1]!.click();
+    await settle();
+    const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-9", questionText: "Restart Flyd now?", text: "No" });
+  });
+
+  it("hears that a card button's answer was not delivered once the job is opened", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const stream = await opened();
+      const job = {
+        id: "board", group: "needs", state: "Needs you", title: "Show the existing Liesel board", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "you", ask: "Waiting on your go-ahead.", because: "",
+        shots: [], links: [], files: [], threads: [], domainRun: "run-9", questionIdentity: "Waiting on your go-ahead.",
+        digest: { changed: "The board is finished.", needed: "Say yes to merge it." },
+        choices: ["Yes", "Leave it unmerged"], recommended: "Yes",
+      };
+      stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [job] });
+      let routed = false;
+      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "pending:abc" } : String(url).startsWith("/api/note?") ? (routed ? { notDelivered: "Couldn't reach the run. Try again." } : { receipt: "sent" }) : {}));
+      document.querySelector<HTMLButtonElement>('.jobask .jpick[data-pick="Yes"]')!.click();
+      await settle();
+      vi.advanceTimersByTime(4000);
+      await settle();
+      routed = true;
+      document.querySelector<HTMLElement>('.job[data-job="board"]')!.click();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      vi.advanceTimersByTime(4000);
+      await settle();
+      expect(document.querySelector(".job-view .art-chat-receipt")!.textContent).toBe("Couldn't reach the run. Try again.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks several numbered questions as one card each, and sends each answer tagged with its question", async () => {
+    const stream = await opened();
+    const decisions = [
+      { question: "WhatsApp card on Today", options: ["Remove it from the timeline", "Keep it"] },
+      { question: "Horoscope source", options: ["AstroVed", "Another"] },
+      { question: "News tab: anything beyond news, weather and horoscope?", options: ["No, that's all"] },
+    ];
+    const job = {
+      id: "today-calls", group: "needs", state: "Needs you", title: "Three calls on Today", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "you", ask: "Three calls", because: "",
+      shots: [], links: [], files: [], threads: [], digest: null, domainRun: "run-3", questionIdentity: "Three calls", decisions,
+    };
+    stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [job] });
+    after(() => document.querySelector<HTMLElement>('.job[data-job="today-calls"]')!.click());
+    const cards = () => [...document.querySelectorAll<HTMLElement>(".job-view .art-decision")];
+    expect(cards().map((card) => card.querySelector(".art-decision-q")!.textContent)).toEqual(decisions.map((one) => one.question));
+    expect(cards().map((card) => [...card.querySelectorAll(".choice-pick")].map((button) => button.textContent))).toEqual([["Remove it from the timeline", "Keep it"], ["AstroVed", "Another"], ["No, that's all"]]);
+    expect(cards().every((card) => card.querySelector("input.art-decision-input"))).toBe(true);
+    cards()[1]!.querySelectorAll<HTMLButtonElement>(".choice-pick")[0]!.click();
+    await settle();
+    const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-3", text: 'On "Horoscope source": AstroVed' });
+    // Only that question is done; the others stay open.
+    expect([...cards()[1]!.querySelectorAll<HTMLButtonElement>(".choice-pick")].every((button) => button.disabled)).toBe(true);
+    expect([...cards()[0]!.querySelectorAll<HTMLButtonElement>(".choice-pick")].some((button) => button.disabled)).toBe(false);
+    const own = cards()[2]!.querySelector<HTMLFormElement>(".art-decision-own")!;
+    own.querySelector<HTMLInputElement>("input")!.value = "Add the tide times";
+    own.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const last = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(last[1]!.body))).toMatchObject({ text: 'On "News tab: anything beyond news, weather and horoscope?": Add the tide times' });
+  });
+
+  it("keeps the Timeline behind a small link, closed until opened, and says each entry whole", async () => {
+    const stream = await opened();
+    const long = "Rework the Today page so the WhatsApp card, the horoscope source and the News tab each follow what you decided in the last review round.";
+    const job = {
+      id: "today", group: "working", state: "Working", title: "Today page", project: "", at: "2026-10-26T12:00:00.000Z", next: "Under way", owner: "Flyd", ask: "", because: "",
+      shots: [], links: [], files: [], digest: null, threads: [{ id: "run-1", title: "Rework the Today page so the WhatsApp card…", full: long, at: "2026-10-26T12:00:00.000Z", kind: "run" }],
+    };
+    stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [job] });
+    after(() => document.querySelector<HTMLElement>('.job[data-job="today"]')!.click());
+    const toggle = document.querySelector<HTMLButtonElement>(".job-view .jv-time-toggle")!;
+    const list = document.querySelector<HTMLElement>(".job-view .jv-time-list")!;
+    expect(toggle.textContent).toBe("Timeline");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(list.hidden).toBe(true);
+    toggle.click();
+    expect(list.hidden).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(list.querySelector(".jv-thread")!.textContent).toBe(long);
+    expect(list.textContent).not.toContain("…");
   });
 
   it("opens a handled line from the server's jobs on a take-back form that reaches Flyd's answer", async () => {

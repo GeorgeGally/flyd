@@ -187,7 +187,14 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .inline-card .scene-ask { margin-top: 10px; max-width: none; }
 /* A hold with more than one decision: each in its own plain line, then what he can pick. */
 .art-decisions { display: flex; flex-direction: column; gap: 16px; margin: 0 0 22px; padding: 0; list-style: none; }
-.art-decision { display: flex; flex-direction: column; gap: 5px; }
+.art-decision { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 12px; background: var(--tint); }
+.art-decision .choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.art-decision-own { display: flex; gap: 8px; }
+.art-decision-own[hidden] { display: none; }
+.art-decision-input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border: 1px solid var(--faint); border-radius: 8px; background: var(--bg); color: var(--fg); font: 400 15px/1.3 var(--sans); }
+.art-decision-own .art-chat-send { flex: none; }
+.art-decision-sent { margin: 0; font: 400 13px/1.4 var(--sans); color: var(--muted); }
+.art-decision-sent:empty { display: none; }
 .art-decision-q { margin: 0; font: 500 17px/1.3 var(--sans); color: var(--strong); }
 .art-decision-a { margin: 0; font: 400 14.5px/1.45 var(--sans); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
 .art-decision-rec { margin: 0; font: 400 14px/1.45 var(--sans); color: var(--muted); }
@@ -203,6 +210,9 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .choice-pick:hover { color: var(--strong); border-color: var(--accent); }
 .choice-pick[aria-pressed="true"], .choice-pick[aria-pressed="true"]:hover { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 .choice-pick[aria-pressed="true"] small { color: color-mix(in srgb, var(--bg) 70%, transparent); }
+.choice-pick.primary:not(:disabled), .choice-pick.primary:not(:disabled):hover { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.choice-pick.primary:not(:disabled) small { color: color-mix(in srgb, var(--bg) 70%, transparent); }
+.choice-pick:disabled { cursor: default; }
 .choice-pick:disabled:not([aria-pressed="true"]) { opacity: .45; cursor: default; }
 .choice-pick:disabled:not([aria-pressed="true"]):hover { color: var(--fg); border-color: var(--faint); }
 .scene-ask :focus-visible, .scene-shot img:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

@@ -878,6 +878,26 @@ function aside(raw: string): string | undefined {
   return kept || undefined;
 }
 
+/** "anything beyond news…?", "anything else?", "any more?": asks whether there is more. */
+const ANYTHING_MORE = /^(?:is there\s+)?any(?:thing|\s+more|\s+others?)\b[^?]*\?$/i;
+/** The one answer to "anything more?" that needs no words of his. */
+export const NOTHING_MORE = "No, that's all";
+
+/** "A (aside) or B": the alternatives either side of a top-level "or", when there are two. Pure. */
+function splitOr(text: string): string[] {
+  let depth = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && /^\sor\s/i.test(text.slice(index, index + 4))) {
+      const parts = [text.slice(0, index), text.slice(index + 4)].map((part) => part.trim());
+      return parts.every(Boolean) && !/\sor\s/i.test(parts[1]!) ? parts : [];
+    }
+  }
+  return [];
+}
+
 /** One numbered decision out of a hold's prose, or undefined when there are no words to ask with. Pure. */
 function decisionFrom(body: string): HoldDecision | undefined {
   // Where the hold says its material sits belongs to the artefact, not to the decision.
@@ -896,8 +916,14 @@ function decisionFrom(body: string): HoldDecision | undefined {
   const yesNo = /\s*[-–—]\s*yes\s*\/\s*no\s*$/i.exec(text);
   if (yesNo) { text = text.slice(0, yesNo.index); options.push("Yes", "No"); }
   const colon = yesNo ? -1 : topColon(text);
-  const listed = colon > 0 ? splitTop(text.slice(colon + 1)) : [];
-  const asked = colon > 0 ? text.slice(0, colon) : text;
+  const after = colon > 0 ? text.slice(colon + 1) : "";
+  let listed = colon > 0 ? splitTop(after) : [];
+  // "horoscope source: AstroVed (moon sign) or another": two alternatives joined by "or" alone.
+  if (colon > 0 && listed.length < 2 && !/\?\s*$/.test(after)) listed = splitOr(after);
+  // "News tab: anything beyond news, weather and horoscope?" asks for more, not a pick among a list.
+  const askingMore = colon > 0 && ANYTHING_MORE.test(after.trim());
+  if (askingMore) listed = [];
+  const asked = colon > 0 && (listed.length >= 2 || options.length) ? text.slice(0, colon) : text;
   let recommended: string | undefined;
   let note: string | undefined;
   // The alternatives after a colon are the choice; the words before it are the question.
@@ -906,8 +932,9 @@ function decisionFrom(body: string): HoldDecision | undefined {
       // "…, or drop?": the last alternative carries the sentence's "or" and its question mark.
       const option = raw.replace(/\s*\([^)]*\)/g, "").replace(/^or\s+/i, "").replace(/[.;,?]+$/, "").trim();
       if (!option) continue;
-      options.push(option);
-      if (!recommended && RECOMMENDS.test(raw)) { recommended = option; note = aside(raw); }
+      const named = option.charAt(0).toUpperCase() + option.slice(1);
+      options.push(named);
+      if (!recommended && RECOMMENDS.test(raw)) { recommended = named; note = aside(raw); }
     }
   }
   const question = asked
@@ -919,8 +946,9 @@ function decisionFrom(body: string): HoldDecision | undefined {
   if (!question) return undefined;
   return {
     question: question.charAt(0).toUpperCase() + question.slice(1),
-    // One alternative is not a choice: his own words answer it.
-    options: options.length >= 2 ? options : [],
+    // One alternative is not a choice: his own words answer it. Asking for anything more has one
+    // answer to tap (there is nothing more); anything else is his to say.
+    options: options.length >= 2 ? options : askingMore ? [NOTHING_MORE] : [],
     ...(recommended ? { recommended, ...(note ? { note } : {}) } : {}),
   };
 }
@@ -930,11 +958,59 @@ function decisionFrom(body: string): HoldDecision | undefined {
  * is two decisions, each with its own alternatives. A hold that numbers nothing is one decision. Pure.
  */
 export function holdDecisions(hold: string): HoldDecision[] {
-  let numbered = [...hold.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\s*\(\d+\)\s|$)/g)].map((match) => match[2]!);
+  const decisions = (bodies: string[]): HoldDecision[] => bodies.map((body) => decisionFrom(body.replace(/^[\s;,-]+/, ""))).filter((decision): decision is HoldDecision => Boolean(decision));
+  const asked = numberedChoice(hold);
+  if (asked) return [asked];
+  const { items, bracketed } = numberedItems(hold);
+  if (items.length < 2) return decisions([hold]);
+  const split = decisions(items.map((item) => item.body));
+  // "Pick one: 1) Departures 2) Picture desk" numbers answers, not questions: it stays one decision.
+  return split.length >= 2 && (!bracketed || items.some(asksOwn)) ? split : decisions([hold]);
+}
+
+/** A hold's numbered items, each with where it starts, and whether they are numbered with a bracket only. Pure. */
+function numberedItems(hold: string): { items: Array<{ at: number; body: string }>; bracketed: boolean } {
+  let items = [...hold.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\s*\(\d+\)\s|$)/g)].map((match) => ({ at: match.index, body: match[2]! }));
   // "Review and 1. Opinion section: …? 2. Reports band heading: …? 3. …": numbered the other way.
-  if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|\s)\d\.\s+([\s\S]*?)(?=\s+\d\.\s|$)/g)].map((match) => match[1]!);
-  const bodies = numbered.length >= 2 ? numbered : [hold];
-  return bodies.map((body) => decisionFrom(body.replace(/^[\s;,-]+/, ""))).filter((decision): decision is HoldDecision => Boolean(decision));
+  if (items.length < 2) items = [...hold.matchAll(/(?:^|\s)\d\.\s+([\s\S]*?)(?=\s+\d\.\s|$)/g)].map((match) => ({ at: match.index, body: match[1]! }));
+  if (items.length >= 2) return { items, bracketed: false };
+  // "Three calls: 1) WhatsApp card: remove it, or keep it; 2) horoscope source: …": numbered with a bracket only.
+  items = [...hold.matchAll(/(?:^|[\s:;,])\d+\)\s+([\s\S]*?)(?=[\s;,]+\d+\)\s|$)/g)].map((match) => ({ at: match.index, body: match[1]! }));
+  return { items, bracketed: true };
+}
+
+/**
+ * Whether a numbered item asks its own question: it names its own answers ("remove it, or keep it",
+ * "- yes/no", "anything beyond …?"), or it ends on a question mark that is not the sentence's last. Pure.
+ */
+function asksOwn(item: { body: string }, index: number, items: Array<{ body: string }>): boolean {
+  const body = item.body.trim();
+  if (index < items.length - 1 && /\?$/.test(body)) return true;
+  return Boolean(decisionFrom(body.replace(/^[\s;,-]+/, ""))?.options.length) && /\bor\b|yes\s*\/\s*no|\?/i.test(body);
+}
+
+/**
+ * One question whose answers are numbered: "Which should I build? 1. Departures 2. Notch?" or
+ * "Pick one: 1) Departures 2) Picture desk". Undefined when the numbers are questions of their own. Pure.
+ */
+export function numberedChoice(hold: string): HoldDecision | undefined {
+  const { items } = numberedItems(hold);
+  if (items.length < 2 || items.some(asksOwn)) return undefined;
+  const lead = hold.slice(0, items[0]!.at).trim().split(/[.!?]\s+(?=\S)/).at(-1) ?? "";
+  if (!/[?:]$/.test(lead) || !/^(?:which|what|pick|choose|select)\b|\b(?:want me to|should i|do you want)\b/i.test(lead)) return undefined;
+  const options: string[] = [];
+  let recommended: string | undefined;
+  for (const { body } of items) {
+    // "Departures: big type, quiet" describes the answer; its name is the button.
+    const option = body.replace(/:[\s\S]*$/, "").replace(/\s*\([^)]*\)/g, "").replace(/(?:[\s,;]+or)?[\s.;,?]*$/i, "").replace(/^or\s+/i, "").trim();
+    if (!option) continue;
+    const named = option.charAt(0).toUpperCase() + option.slice(1);
+    options.push(named);
+    if (!recommended && RECOMMENDS.test(body)) recommended = named;
+  }
+  if (options.length < 2) return undefined;
+  const question = lead.replace(/[\s:]+$/, "");
+  return { question: question.charAt(0).toUpperCase() + question.slice(1), options, ...(recommended ? { recommended } : {}) };
 }
 
 /** Whether two lines share a run of words specific enough to say they are about the same thing. Pure. */

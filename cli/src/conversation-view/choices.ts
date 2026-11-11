@@ -332,3 +332,81 @@ export function withoutClosingAsk(text: string): string {
 export function choiceTarget(message: ConversationMessage): string {
   return message.answers ?? message.id;
 }
+
+/** The answers a decision names, the one Flyd recommends first. */
+export interface NamedAnswers {
+  options: string[];
+  recommended?: string;
+}
+
+/** A one-word answer Flyd asks him to say ("Say merge"); anything else after "say" is not an answer to tap. */
+const SAID_WORD = /^(yes|no|go|merge|ok|okay|ship|land|stop|wait|continue|proceed|approve|skip|hold|leave|retry|restart|publish|deploy|push|keep|drop|cancel)\b(?=\s*(?:$|[,;.!]|\s(?:to|so|and|if|or|now)\b))/i;
+const SAID_QUOTED = /^['"‘“]([^'"‘’“”]{1,60})['"’”]/;
+/** "…, or tell me to leave it unmerged", "… or say 'wait'", "yes or no": the other answer. */
+const SAID_OTHER = /,?\s+or\s+(?:just\s+)?(?:(tell me to|say|reply)\s+)?/gi;
+const RECOMMENDS = /\b(?:which i recommend|i recommend (?:it|that|this)|\(recommended\b|recommended\))/i;
+
+/** The answer said right after "say"/"reply"/"tell me to": a quoted phrase, a known one-word answer, or a short clause. */
+function saidAnswer(rest: string, clause: boolean): string {
+  const quoted = SAID_QUOTED.exec(rest);
+  if (quoted) return clip(capitalise(quoted[1]!.trim()), OPTION_CHARS);
+  const word = SAID_WORD.exec(rest);
+  if (word) return capitalise(word[1]!.toLowerCase());
+  if (!clause) return "";
+  // "tell me to leave it unmerged": the clause up to its end, when it is short.
+  const said = rest.split(/[;,.!?]|\s+(?:so|because|which|and I(?:'|’)ll)\s/i)[0]!.trim();
+  if (!said || OPEN_WORD.test(said) || /^(?:whether|if)\b/i.test(said) || said.split(/\s+/).length > 7) return "";
+  return clip(capitalise(said), OPTION_CHARS);
+}
+
+/**
+ * Flyd's own words for what he needs to do, read as the answers they name:
+ * "Say merge, and I'll merge both updates; I recommend it." is Merge,
+ * recommended; "Say yes to merge it, which I recommend, or tell me to leave it
+ * unmerged." is Yes (recommended) and Leave it unmerged. Only a first sentence
+ * that opens by telling him what to say counts; anything else (pick a design,
+ * say when, decide whether) is his own words to give, and null. Pure.
+ */
+export function saidAnswers(text: string): NamedAnswers | null {
+  const first = sentences(inline(text).trim())[0] ?? "";
+  const opening = /^(?:just\s+)?(?:say|reply(?:\s+with)?|answer)\s+/i.exec(first);
+  if (!opening) return null;
+  const rest = first.slice(opening[0].length);
+  const one = saidAnswer(rest, false);
+  if (!one) return null;
+  let two = "";
+  let other: RegExpMatchArray | undefined;
+  for (const match of rest.matchAll(SAID_OTHER)) {
+    two = saidAnswer(rest.slice(match.index! + match[0].length), !!match[1]);
+    if (two) { other = match; break; }
+  }
+  const before = other ? rest.slice(0, other.index) : rest;
+  const options = two && two.toLowerCase() !== one.toLowerCase() ? [one, two] : [one];
+  const recommended = RECOMMENDS.test(before) ? one : two && RECOMMENDS.test(rest.slice(other!.index!)) ? two : undefined;
+  return ordered({ options, ...(recommended ? { recommended } : {}) });
+}
+
+/** The recommended answer first. */
+function ordered(answers: NamedAnswers): NamedAnswers {
+  const { options, recommended } = answers;
+  if (!recommended || !options.includes(recommended)) return { options };
+  return { options: [recommended, ...options.filter((option) => option !== recommended)], recommended };
+}
+
+/**
+ * The small fixed set of answers a decision put to him names, from the first
+ * of these words that names any: a question with its options (a yes-or-no
+ * question is Yes / No), or Flyd's own "say merge" wording. An open question,
+ * several questions at once, or a pick-any-number list names none: those are
+ * his own words to give. Pure.
+ */
+export function namedAnswers(...texts: Array<string | undefined>): NamedAnswers | null {
+  for (const text of texts) {
+    if (!text?.trim()) continue;
+    const asked = choiceOf(text);
+    if (asked && !asked.steps && !asked.multiple && asked.options.length) return { options: asked.options };
+    const said = saidAnswers(text);
+    if (said) return said;
+  }
+  return null;
+}

@@ -286,6 +286,64 @@ describe("jobsFrom", () => {
     expect(shown).not.toMatch(/George needs|his picks|\bGeorge\b|\bcaptain\b|Design decisions are pending/);
   });
 
+  it("gives a decision its named answers as one-tap choices, and an open question none", () => {
+    const text = "The Liesel board for Pierre's Radio direction is finished and passing all checks. ".repeat(4);
+    const digest = {
+      hash: digestHash(text), project: "Cap5", changed: "The Liesel board is finished and passing all checks.",
+      needed: "Say merge, and I'll merge both waiting Flyd updates and restart Flyd; I recommend it.",
+      at: "2026-10-26T10:00:00.000Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0,
+    };
+    const said = jobsFrom({ projects: [project()], reports: [{ project: "Cap5", title: "Board", text }], digests: [digest], runs: [run({ status: "needs_decision", question: "Waiting on your go-ahead." })], now: NOW }).jobs[0]!;
+    expect(said).toMatchObject({ group: "needs", domainRun: "run-1", choices: ["Merge"], recommended: "Merge" });
+    const asked = jobsFrom({ runs: [run({ status: "needs_decision", question: "Should I merge now or wait for checks?" })], now: NOW }).jobs[0]!;
+    expect(asked.choices).toEqual(["Merge now", "Wait for checks"]);
+    const open = jobsFrom({ runs: [run({ status: "needs_decision", question: "Which price should ship?" })], now: NOW }).jobs[0]!;
+    expect(open.choices).toBeUndefined();
+  });
+
+  it("puts a run's numbered questions on the job one by one, and gives the Timeline the whole brief", () => {
+    const outcome = "Rework the Today page so the WhatsApp card, the horoscope source and the News tab each follow what you decided in the last review round.";
+    const job = jobsFrom({ runs: [run({ status: "needs_decision", outcome, question: "1) WhatsApp card: remove it, or keep it; 2) News tab: anything else?" })], now: NOW }).jobs[0]!;
+    expect(job.decisions).toEqual([
+      { question: "WhatsApp card", options: ["Remove it", "Keep it"] },
+      { question: "News tab: anything else?", options: ["No, that's all"] },
+    ]);
+    expect(job.choices).toBeUndefined();
+    expect(job.threads[0]!.title.length).toBeLessThanOrEqual(90);
+    expect(job.threads[0]!.full).toBe(outcome);
+  });
+
+  it("keeps a run's numbered answers to one question as one question", () => {
+    const job = jobsFrom({ runs: [run({ status: "needs_decision", question: "Which direction should I build? 1. Departures 2. Picture desk 3. Notch" })], now: NOW }).jobs[0]!;
+    expect(job.decisions).toBeUndefined();
+  });
+
+  it("gives a run's numbered answers to one question as that question's buttons", () => {
+    const asked = (question: string) => jobsFrom({ runs: [run({ status: "needs_decision", question })], now: NOW }).jobs[0]!;
+    const trailing = asked("Which should I build? 1. Departures 2. Picture desk 3. Notch?");
+    expect(trailing.decisions).toBeUndefined();
+    expect(trailing.choices).toEqual(["Departures", "Picture desk", "Notch"]);
+    const described = asked("Which direction? 1. Departures: big type, quiet 2. Picture desk");
+    expect(described.decisions).toBeUndefined();
+    expect(described.choices).toEqual(["Departures", "Picture desk"]);
+  });
+
+  it("puts a run's numbered questions on their own cards after a lead-in that says what it needs", () => {
+    const job = jobsFrom({ runs: [run({ status: "needs_decision", question: "Here's what I need from you: 1) WhatsApp card: remove it, or keep it; 2) horoscope source: AstroVed or another; 3) news tab: anything beyond news, weather and horoscope?" })], now: NOW }).jobs[0]!;
+    expect(job.decisions).toEqual([
+      { question: "WhatsApp card", options: ["Remove it", "Keep it"] },
+      { question: "Horoscope source", options: ["AstroVed", "Another"] },
+      { question: "News tab: anything beyond news, weather and horoscope?", options: ["No, that's all"] },
+    ]);
+    expect(job.choices).toBeUndefined();
+  });
+
+  it("puts a run's numbered instruction on its own card beside the question it is numbered with", () => {
+    const job = jobsFrom({ runs: [run({ status: "needs_decision", question: "(1) keep the lab version - yes/no; (2) tell me the new tab's name" })], now: NOW }).jobs[0]!;
+    expect(job.decisions?.map((decision) => decision.question)).toEqual(["Keep the lab version", "Tell me the new tab's name"]);
+    expect(job.choices).toBeUndefined();
+  });
+
   it("gives a card the reading of its own item, never another item's in the same project", () => {
     // The Week page PR and the WhatsApp card are both Flyd work; the WhatsApp reading is newer.
     const week = "The Week page now shows each hour's changes when you hover a bar. ".repeat(6);

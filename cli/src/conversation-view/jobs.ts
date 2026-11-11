@@ -7,6 +7,8 @@ import { plainSaid } from "../lib/backstage.js";
 import { forHim, statusSaid } from "../lib/pa-voice.js";
 import { plainTitle } from "./plain-words.js";
 import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
+import { namedAnswers, type NamedAnswers } from "./choices.js";
+import { holdDecisions, numberedChoice, type HoldDecision } from "./artefact.js";
 import type { ShowItem, ShowScreen } from "./show.js";
 
 /**
@@ -30,6 +32,8 @@ export interface JobThread {
   title: string;
   at: string;
   kind: "conversation" | "run";
+  /** The whole entry as one sentence, never cut short: what the Timeline says when he opens it. */
+  full?: string;
 }
 
 /** What changed, then what he needs to do: one sentence each, said to him. */
@@ -62,6 +66,12 @@ export interface Job {
   digest: JobDigestView | null;
   /** The show item's decision, when the job needs one, so the job opens on its decisions. */
   decision?: ShowItem["decision"];
+  /** The few answers the decision names, one tap each, the recommended one first. Absent for an open question. */
+  choices?: string[];
+  /** The answer Flyd recommends, when it names one. */
+  recommended?: string;
+  /** Several numbered questions in one ask, each with its own answers: one card each on the open job. */
+  decisions?: HoldDecision[];
   /** The domain run an answer given on this job reaches. Absent when the run has finished and cannot take one. */
   domainRun?: string;
   /** A call Flyd answered for him by one of his standing rules; his own answer takes it back. */
@@ -135,6 +145,15 @@ const one = (value: string, max = 200) => {
   return `${line.slice(0, cut > max / 2 ? cut : max - 1).replace(/[\s,;:–—-]+$/, "")}…`;
 };
 
+/** A run's brief as one whole sentence to him: the staff framing gone, nothing cut. Pure. */
+export function runSentence(outcome: string): string {
+  let text = outcome.replace(/\s+/g, " ").trim();
+  const card = BRIEF_FRAME.test(text) ? /\bcard titled\s+["“]([^"”]+)/i.exec(text) : null;
+  if (card) text = card[1]!;
+  for (let pass = 0; pass < 3 && BRIEF_FRAME.test(text); pass += 1) text = text.replace(BRIEF_FRAME, "");
+  return forHim(plainTitle(text)).replace(/…$/, "");
+}
+
 /** Hand-off framing Flyd wrote for its staff, never for him: "Answer George's question, reading whatever code is needed, and change nothing:". */
 const BRIEF_FRAME = /^(?:answer (?:george's|your|the captain's|his) question\b[^:]*|act on (?:george's|your|the captain's|his) answer to|update the work from (?:george's|your|his) follow-up on|answer to pending decision [\w.-]+)\s*:\s*/i;
 
@@ -145,11 +164,7 @@ const BRIEF_FRAME = /^(?:answer (?:george's|your|the captain's|his) question\b[^
  * reads "Review Jev decision log". Pure.
  */
 export function runTitle(outcome: string): string {
-  let text = outcome.replace(/\s+/g, " ").trim();
-  const card = BRIEF_FRAME.test(text) ? /\bcard titled\s+["“]([^"”]+)/i.exec(text) : null;
-  if (card) text = card[1]!;
-  for (let pass = 0; pass < 3 && BRIEF_FRAME.test(text); pass += 1) text = text.replace(BRIEF_FRAME, "");
-  text = forHim(plainTitle(text)).replace(/…$/, "");
+  const text = runSentence(outcome);
   // The subject before a colon is the name; the rest is the brief's detail.
   const head = /^([^:?]{8,80}):\s/.exec(text)?.[1];
   return one(head ?? text, 90);
@@ -331,7 +346,8 @@ export function jobsFrom(input: {
       : name ? bucketFor(name) : lone(buckets, run.id, title);
     if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; markActive(name, bucket); }
     bucket.signals.push(signal);
-    bucket.threads.push({ id: run.id, title, at: run.updatedAt, kind: "run" });
+    const full = runSentence(run.outcome);
+    bucket.threads.push({ id: run.id, title, at: run.updatedAt, kind: "run", ...(full && full !== title ? { full } : {}) });
     for (const artifact of artifactsOf(run.artifacts, exists)) {
       if (artifact.href) bucket.links.push({ label: artifact.label, url: artifact.href });
       else bucket.files.push({ label: artifact.label });
@@ -424,6 +440,12 @@ export function jobsFrom(input: {
       if (!stored.has(source.hash) && !pending.some((item) => item.hash === source.hash)) pending.push(source);
     }
     const links = uniqueLinks(bucket.links);
+    const digestSaid = digestView(digest, lead.ask);
+    // A run that asks several numbered questions at once puts each to him on its own card.
+    const numbered = lead.group === "needs" && !lead.decision && lead.ask ? holdDecisions(lead.ask) : [];
+    const several = numbered.length > 1 ? numbered : null;
+    const listed = lead.group === "needs" && !lead.decision && lead.ask ? numberedChoice(lead.ask) : undefined;
+    const answers = lead.group === "needs" && !several ? (listed ?? answersOf(lead, digestSaid)) : null;
     jobs.push({
       id: bucket.id,
       group: lead.group,
@@ -442,14 +464,33 @@ export function jobsFrom(input: {
       links: links.slice(0, 4),
       files: bucket.files.slice(0, 6),
       threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8),
-      digest: digestView(digest, lead.ask),
+      digest: digestSaid,
       ...(lead.decision ? { decision: lead.decision } : {}),
+      ...(several ? { decisions: several } : {}),
+      ...(answers ? { choices: answers.options, ...(answers.recommended ? { recommended: answers.recommended } : {}) } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
       ...(lead.handled ? { handled: lead.handled } : {}),
     });
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));
   return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8) };
+}
+
+/**
+ * The answers a decision waiting on him names, so the card can take them in one
+ * tap: a fleet call's own options when it asks one thing, else the run's
+ * question, else what Flyd said he needs to do ("Say merge, and I'll …"). A
+ * call that asks several things at once, or an open question, names none. Pure.
+ */
+function answersOf(lead: Signal, digest: JobDigestView | null): NamedAnswers | null {
+  const decision = lead.decision;
+  if (decision) {
+    if (decision.steps?.length || (decision.decisions?.length ?? 0) > 1) return null;
+    if (!decision.choices.length) return namedAnswers(lead.ask, digest?.needed);
+    const recommended = decision.recommended && decision.choices.includes(decision.recommended) ? decision.recommended : undefined;
+    return { options: recommended ? [recommended, ...decision.choices.filter((choice) => choice !== recommended)] : decision.choices, ...(recommended ? { recommended } : {}) };
+  }
+  return namedAnswers(lead.ask, digest?.needed);
 }
 
 /**

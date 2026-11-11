@@ -1439,10 +1439,60 @@ describe("a hold that puts several decisions to him", () => {
     ]);
   });
 
+  it("splits a decision numbered 1) 2) 3) into one question each, with its own answers", () => {
+    expect(holdDecisions("Three calls before the Flyd today build finishes, see data/flyd-ui-lab/report.md 'Shipping Flyd today': 1) WhatsApp card on Today: remove it from the timeline, or keep it; 2) horoscope source: AstroVed (moon sign) or another; 3) News tab: anything beyond news, weather and horoscope?")).toEqual([
+      { question: "WhatsApp card on Today", options: ["Remove it from the timeline", "Keep it"] },
+      { question: "Horoscope source", options: ["AstroVed", "Another"] },
+      { question: "News tab: anything beyond news, weather and horoscope?", options: ["No, that's all"] },
+    ]);
+  });
+
+  it("keeps a hold that numbers its answers, not its questions, as one decision", () => {
+    expect(holdDecisions("Pick one: 1) Departures 2) Picture desk")).toHaveLength(1);
+  });
+
+  it("keeps a numbered answer list under one question as one decision with those answers, whatever its punctuation", () => {
+    expect(holdDecisions("Pick one: 1) Departures 2) Picture desk?")).toEqual([{ question: "Pick one", options: ["Departures", "Picture desk"] }]);
+    expect(holdDecisions("Pick one: (1) Departures, (2) Picture desk, or (3) Notch?")).toEqual([{ question: "Pick one", options: ["Departures", "Picture desk", "Notch"] }]);
+    expect(holdDecisions("Which direction? 1. Departures: big type, quiet 2. Picture desk (recommended)")).toEqual([
+      { question: "Which direction?", options: ["Departures", "Picture desk"], recommended: "Picture desk" },
+    ]);
+  });
+
+  it("puts each numbered question on its own card even when the lead-in says what or which", () => {
+    const three = [
+      { question: "WhatsApp card", options: ["Remove it", "Keep it"] },
+      { question: "Horoscope source", options: ["AstroVed", "Another"] },
+      { question: "News tab: anything beyond news, weather and horoscope?", options: ["No, that's all"] },
+    ];
+    expect(holdDecisions("Here's what I need from you: 1) WhatsApp card: remove it, or keep it; 2) horoscope source: AstroVed or another; 3) news tab: anything beyond news, weather and horoscope?")).toEqual(three);
+    expect(holdDecisions("Which of these should I sort first? 1) WhatsApp card: remove it, or keep it; 2) horoscope source: AstroVed or another; 3) news tab: anything beyond news, weather and horoscope?")).toEqual(three);
+  });
+
+  it("splits a hold numbered (1) (2) into an instruction and a question", () => {
+    expect(holdDecisions("(1) Tell me the new tab's name (2) Should I keep the lab version?").map((decision) => decision.question)).toEqual([
+      "Tell me the new tab's name",
+      "Should I keep the lab version?",
+    ]);
+  });
+
+  it("puts a bracketed hold's instruction on its own card beside the question it is numbered with", () => {
+    expect(holdDecisions("Two calls: 1) keep the lab version - yes/no; 2) tell me the new tab's name").map((decision) => decision.question)).toEqual([
+      "Keep the lab version",
+      "Tell me the new tab's name",
+    ]);
+  });
+
+  it("marks the recommended answer with the same words its button shows", () => {
+    expect(holdDecisions("1) WhatsApp card: keep it (recommended), or remove it; 2) News tab: anything else?")[0]).toEqual(
+      { question: "WhatsApp card", options: ["Keep it", "Remove it"], recommended: "Keep it" },
+    );
+  });
+
   it("drops only a trailing board or lab location, never a plain word after board or lab", () => {
     expect(holdDecisions("(1) keep the lab version - yes/no; (2) which to keep: the old one, the new lab design. Lab data/x/lab.html, board http://127.0.0.1:4387/session/1")).toEqual([
       { question: "Keep the lab version", options: ["Yes", "No"] },
-      { question: "Which to keep", options: ["the old one", "the new lab design"] },
+      { question: "Which to keep", options: ["The old one", "The new lab design"] },
     ]);
   });
 
