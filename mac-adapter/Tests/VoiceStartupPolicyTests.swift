@@ -78,4 +78,65 @@ final class VoiceStartupPolicyTests: XCTestCase {
         XCTAssertEqual(session3.revision, initialRev + 1)
         XCTAssertEqual(session3.sessionId, session1.sessionId)
     }
+
+    // MARK: - Voice status follows Core's health
+
+    func testFirstHealthyAnswerFetchesVoiceStatus() {
+        var watch = CoreHealthWatch()
+        XCTAssertEqual(watch.observe(healthy: true, voiceStatusReady: true), .fetch(generation: 1))
+    }
+
+    func testUnchangedHealthDoesNotRefetch() {
+        var watch = CoreHealthWatch()
+        _ = watch.observe(healthy: true, voiceStatusReady: true)
+        XCTAssertNil(watch.observe(healthy: true, voiceStatusReady: true))
+        XCTAssertNil(watch.observe(healthy: true, voiceStatusReady: true))
+    }
+
+    /// Core down at launch, up later: voice status is fetched when it comes up instead of
+    /// staying whatever launch saw.
+    func testCoreComingUpAfterLaunchFetchesVoiceStatus() {
+        var watch = CoreHealthWatch()
+        XCTAssertEqual(watch.observe(healthy: false, voiceStatusReady: false), .clear(generation: 1))
+        XCTAssertNil(watch.observe(healthy: false, voiceStatusReady: false))
+        XCTAssertEqual(watch.observe(healthy: true, voiceStatusReady: true), .fetch(generation: 2))
+    }
+
+    /// A restart (down, then up) refetches, so a fixed voice setup is seen without
+    /// relaunching the app.
+    func testCoreRestartRefetchesVoiceStatus() {
+        var watch = CoreHealthWatch()
+        _ = watch.observe(healthy: true, voiceStatusReady: true)
+        XCTAssertEqual(watch.observe(healthy: false, voiceStatusReady: false), .clear(generation: 2))
+        XCTAssertEqual(watch.observe(healthy: true, voiceStatusReady: true), .fetch(generation: 3))
+    }
+
+    /// A fetch that finishes after Core's health changed again is dropped.
+    func testAFetchOutlivedByAHealthChangeIsStale() {
+        var watch = CoreHealthWatch()
+        guard case .fetch(let generation)? = watch.observe(healthy: true, voiceStatusReady: true) else {
+            return XCTFail("expected a fetch")
+        }
+        _ = watch.observe(healthy: false, voiceStatusReady: false)
+        XCTAssertFalse(watch.isCurrent(generation))
+    }
+
+    /// Core restarted between two polls (never seen down) after the voice setup was
+    /// fixed: the not-ok status is refetched on the next poll instead of sticking.
+    func testUnchangedHealthRefetchesWhileVoiceStatusIsNotReady() {
+        var watch = CoreHealthWatch()
+        _ = watch.observe(healthy: true, voiceStatusReady: false)
+        XCTAssertEqual(watch.observe(healthy: true, voiceStatusReady: false), .fetch(generation: 2))
+        XCTAssertNil(watch.observe(healthy: true, voiceStatusReady: true))
+    }
+
+    /// A refetch supersedes a slower fetch still in flight.
+    func testARefetchMakesTheEarlierFetchStale() {
+        var watch = CoreHealthWatch()
+        guard case .fetch(let first)? = watch.observe(healthy: true, voiceStatusReady: false) else {
+            return XCTFail("expected a fetch")
+        }
+        _ = watch.observe(healthy: true, voiceStatusReady: false)
+        XCTAssertFalse(watch.isCurrent(first))
+    }
 }

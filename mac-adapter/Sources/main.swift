@@ -80,13 +80,15 @@ let island = DictationPill.shared
 let invocationPanel = InvocationPanel()
 var activeAugmentPanels: [AugmentPanel] = []
 var activeInvocationTask: Task<Void, Never>?
-var activeVoiceInvocationId: String?
-/// Push-to-talk's hold on the microphone; released only through `stopVoiceCapture()`.
-var activeVoiceMicToken: MicSessionToken?
+/// Push-to-talk's session, from Fn+Control down until the words are sent (or dropped).
+var activeVoiceSession: InvocationSessionToken?
+/// The text bar's session, from opening until the invocation finishes or is cancelled.
+var activeTextSession: InvocationSessionToken?
 let voiceConversationId = UUID().uuidString
 var voiceTranscriptionTimeout: DispatchWorkItem?
 var voiceHoldMonitor: Timer?
 var cachedVoiceStatus: FlydClient.VoiceStatusResponse?
+var coreHealthWatch = CoreHealthWatch()
 var setupWindow: NSWindow?
 var coreLaunched = false
 var flydStarted = false
@@ -271,24 +273,47 @@ func startFlyd(closeSetup: Bool = true) {
 
     stateMachine.start()
 
-    Task {
-        let healthy = await flydClient.healthCheck()
-        if healthy {
-            print("[Flyd] Connected to Flyd Core")
-            if let voiceStatus = await flydClient.voiceStatus() {
-                await MainActor.run {
-                    cachedVoiceStatus = voiceStatus
-                    if !voiceStatus.ok {
-                        print("[Flyd] Voice setup unavailable: \(voiceStatus.message ?? "unknown")")
-                    }
-                }
-            }
-        } else {
-            print("[Flyd] Flyd Core not running — pass-through disabled. Invocations will log locally.")
-        }
-    }
+    startCoreHealthWatch()
 
     print("[Flyd] Agent started. Tap fn to dictate (tap again to insert) or hold it to talk, double-tap fn for text, hold ⌃fn for conversation.")
+}
+
+/// Voice status follows Core: it is fetched whenever Core's health changes (first
+/// answer, Core coming back after a restart), refetched on each poll while it is
+/// missing or not ok, and forgotten while Core is down, instead of being read once at
+/// launch and trusted forever.
+func startCoreHealthWatch() {
+    checkCoreHealth()
+    let timer = Timer(timeInterval: CoreHealthWatch.pollInterval, repeats: true) { _ in checkCoreHealth() }
+    RunLoop.main.add(timer, forMode: .common)
+}
+
+func checkCoreHealth() {
+    Task {
+        let healthy = await flydClient.healthCheck()
+        let refresh = await MainActor.run {
+            coreHealthWatch.observe(healthy: healthy, voiceStatusReady: cachedVoiceStatus?.ok == true)
+        }
+        switch refresh {
+        case nil:
+            return
+        case .clear(let generation):
+            print("[Flyd] Flyd Core not running — pass-through disabled. Invocations will log locally.")
+            await MainActor.run {
+                if coreHealthWatch.isCurrent(generation) { cachedVoiceStatus = nil }
+            }
+        case .fetch(let generation):
+            print("[Flyd] Connected to Flyd Core")
+            let voiceStatus = await flydClient.voiceStatus()
+            await MainActor.run {
+                guard coreHealthWatch.isCurrent(generation) else { return }
+                cachedVoiceStatus = voiceStatus
+                if let voiceStatus, !voiceStatus.ok {
+                    print("[Flyd] Voice setup unavailable: \(voiceStatus.message ?? "unknown")")
+                }
+            }
+        }
+    }
 }
 
 func ensureCoreLaunched() {
@@ -412,15 +437,11 @@ func startDictation() -> Bool {
 /// a typed message; nothing is raised or focused, so he keeps looking at what
 /// he is talking about. The notch pill is the only cue.
 func beginVoiceInvocation() {
-    guard let micToken = MicSession.shared.begin(.voice) else {
+    guard let session = state.begin(.voice) else {
         island.show(.failed("Microphone is busy"))
         return
     }
-    activeVoiceMicToken = micToken
-    let (invocationId, _) = state.startInvocation()
-    activeVoiceInvocationId = invocationId
-
-    state.transition(to: .listening)
+    activeVoiceSession = session
     island.show(.listening)
     ConversationWindow.shared.voice(.start)
 
@@ -488,7 +509,7 @@ func handleVoiceRelease() {
     case .finishRecording:
         stopVoiceHoldMonitor()
         stopVoiceCapture()
-        state.transition(to: .transcribing)
+        if let session = activeVoiceSession { state.transition(to: .transcribing, session: session) }
         island.show(.working)
         ConversationWindow.shared.voice(.transcribing)
         startVoiceTranscriptionTimeout()
@@ -539,10 +560,9 @@ func cleanupVoiceInvocation(message: String? = nil) {
     stopVoiceCapture()
     resetVoiceCaptureCallbacks()
     voiceRelay.disconnect()
-    activeVoiceInvocationId = nil
+    endVoiceSession()
     activeInvocationTask?.cancel()
     activeInvocationTask = nil
-    state.cancelInvocation()
     stateMachine.cancel()
     executor.clearInvocationRefs()
 
@@ -565,7 +585,7 @@ func handleShortcutPress() {
     island.hide()
     suppressNextShortcutRelease = true
     activeInvocationTask?.cancel()
-    state.cancelInvocation()
+    endTextSession()
     stateMachine.cancel()
     invocationPanel.dismiss()
     activeAugmentPanels.forEach { $0.dismiss() }
@@ -576,16 +596,32 @@ func handleShortcutPress() {
     resetVoiceCaptureCallbacks()
     stopVoiceHoldMonitor()
     voiceRelay.disconnect()
-    activeVoiceInvocationId = nil
+    endVoiceSession()
     executor.clearInvocationRefs()
 }
 
-/// Ends push-to-talk's mic session, which turns capture off. Without a token there is
-/// nothing of push-to-talk's to stop, so another session's mic is left alone.
+/// Turns push-to-talk's capture off; its session goes on through transcription. Without
+/// a session there is nothing of push-to-talk's to stop, so another session's mic is
+/// left alone.
 func stopVoiceCapture() {
-    guard let micToken = activeVoiceMicToken else { return }
-    activeVoiceMicToken = nil
-    MicSession.shared.end(micToken)
+    guard let session = activeVoiceSession else { return }
+    state.mic.stopCapture(for: session)
+}
+
+/// Ends push-to-talk's session: the mic goes off and, if it still owns Flyd, the phase
+/// returns to present.
+func endVoiceSession() {
+    guard let session = activeVoiceSession else { return }
+    activeVoiceSession = nil
+    state.end(session)
+}
+
+/// Ends the text bar's session. With an explicit session, only that one: a cancelled
+/// invocation finishing late cannot end the one that replaced it.
+func endTextSession(_ session: InvocationSessionToken? = nil) {
+    guard let target = session ?? activeTextSession else { return }
+    if activeTextSession == target { activeTextSession = nil }
+    state.end(target)
 }
 
 func resetVoiceCaptureCallbacks() {
@@ -606,7 +642,7 @@ func handleInvocation() {
 
     if currentPhase != .idle {
         activeInvocationTask?.cancel()
-        state.cancelInvocation()
+        endTextSession()
         stateMachine.cancel()
         invocationPanel.dismiss()
         workInteractionCoordinator.cancelActiveInvocation()
@@ -622,12 +658,21 @@ func handleInvocation() {
         ))
         invocationPanel.show()
         invocationPanel.onIntentSubmitted = { intent in
+            // A new intent supersedes one still resolving.
+            guard !ScrawlRecorder.blocksInvocation else { return }
+            activeInvocationTask?.cancel()
+            endTextSession()
+            guard let session = state.begin(.text) else {
+                invocationPanel.updateState(.error(message: "Flyd is busy - try again in a moment"))
+                return
+            }
+            activeTextSession = session
             invocationPanel.updateState(.processing)
-            let (invocationId, revision) = state.startInvocation()
+            let revision = state.revision
             stateMachine.setRevision(revision)
             activeInvocationTask = Task {
                 await processInvocation(
-                    invocationId: invocationId,
+                    session: session,
                     revision: revision,
                     modality: "text",
                     intent: intent,
@@ -637,7 +682,7 @@ func handleInvocation() {
         }
         invocationPanel.onCancelled = {
             activeInvocationTask?.cancel()
-            state.cancelInvocation()
+            endTextSession()
             stateMachine.cancel()
             executor.clearInvocationRefs()
             workInteractionCoordinator.cancelActiveInvocation()
@@ -645,7 +690,13 @@ func handleInvocation() {
         return
     }
 
-    let (invocationId, revision) = state.startInvocation()
+    guard let session = state.begin(.text) else {
+        ShortcutLog.record("handler: text bar refused (busy)")
+        return
+    }
+    activeTextSession = session
+    let invocationId = session.id
+    let revision = state.revision
     stateMachine.setRevision(revision)
     stateMachine.startPrewarm()
 
@@ -653,16 +704,16 @@ func handleInvocation() {
         executor.registerElement(ref: "el_01", element: element)
     }
 
-    state.transition(to: .awaitingIntent)
+    state.transition(to: .awaitingIntent, session: session)
 
     invocationPanel.onIntentSubmitted = { intent in
         invocationPanel.updateState(.processing)
-        activeInvocationTask = Task { await processInvocation(invocationId: invocationId, revision: revision, modality: "text", intent: intent) }
+        activeInvocationTask = Task { await processInvocation(session: session, revision: revision, modality: "text", intent: intent) }
     }
 
     invocationPanel.onCancelled = {
         activeInvocationTask?.cancel()
-        state.cancelInvocation()
+        endTextSession(session)
         stateMachine.cancel()
         executor.clearInvocationRefs()
         auditRecorder.record(
@@ -676,12 +727,13 @@ func handleInvocation() {
 }
 
 func processInvocation(
-    invocationId: String,
+    session: InvocationSessionToken,
     revision: Int,
     modality: String,
     intent: String,
     conversationId: String? = nil
 ) async {
+    let invocationId = session.id
     let traceStart = Date()
 
     stateMachine.captureIntent(intent: intent)
@@ -698,7 +750,7 @@ func processInvocation(
     )
     let usedFallbackEnvironment = environment.focusedElement.role == "AXUnknown"
 
-    state.transition(to: .resolving)
+    state.transition(to: .resolving, session: session)
 
     if !stateMachine.verifyPreExecution() {
         print("[Flyd] WARNING: App/window changed before execution")
@@ -739,7 +791,7 @@ func processInvocation(
 
         await MainActor.run {
             showInvocationError("Flyd is starting - try again in a moment", modality: modality)
-            state.transition(to: .present)
+            endTextSession(session)
             executor.clearInvocationRefs()
             stateMachine.resetCheckpoints()
         }
@@ -774,6 +826,8 @@ func processInvocation(
 
     guard !Task.isCancelled, FlydState.shared.invocationId == invocationId else {
         print("[Flyd] Invocation \(invocationId.prefix(8)) cancelled during resolution")
+        // Whoever cancelled usually ended the session already; this is then a no-op.
+        await MainActor.run { endTextSession(session) }
         return
     }
 
@@ -788,14 +842,14 @@ func processInvocation(
 
         await MainActor.run {
             showInvocationError("Flyd did not answer in time - try again", modality: modality)
-            state.transition(to: .present)
+            endTextSession(session)
             executor.clearInvocationRefs()
             stateMachine.resetCheckpoints()
         }
         return
     }
 
-    state.transition(to: .executing)
+    state.transition(to: .executing, session: session)
 
     print("[Flyd] Resolution: \(resolution.mode) — \(resolution.rationale)")
 
@@ -810,7 +864,7 @@ func processInvocation(
         await MainActor.run {
             invocationPanel.dismiss()
             island.hide()
-            state.transition(to: .present)
+            endTextSession(session)
         }
         return
     }
@@ -843,7 +897,7 @@ func processInvocation(
                 await MainActor.run {
                     invocationPanel.dismiss()
                     island.hide()
-                    state.transition(to: .present)
+                    endTextSession(session)
                 }
                 return
             }
@@ -938,7 +992,7 @@ func processInvocation(
         await MainActor.run {
             invocationPanel.dismiss()
             island.hide()
-            state.transition(to: .present)
+            endTextSession(session)
             if resolution.surface == "conversation" {
                 ConversationWindow.shared.show()
             }
@@ -975,7 +1029,7 @@ func processInvocation(
         } else {
             invocationPanel.dismissUnlessShowingResult()
         }
-        state.transition(to: .present)
+        endTextSession(session)
     }
 }
 

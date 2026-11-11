@@ -177,11 +177,11 @@ Core uses `JSON.stringify(body)` (camelCase). The Swift decoder in `FlydClient.p
 ```swift
 await MainActor.run {
     invocationPanel.dismiss()
-    state.transition(to: .present)
+    endTextSession(session)
 }
 ```
 
-`state.cancelInvocation()` / state-machine cancellation are thread-safe. `NSPanel`, `NSTextField` and other AppKit calls are not.
+`FlydState` session calls (`state.end(session)`, `state.transition(to:session:)`) / state-machine cancellation are thread-safe. `NSPanel`, `NSTextField` and other AppKit calls are not.
 
 ### No deadline task
 

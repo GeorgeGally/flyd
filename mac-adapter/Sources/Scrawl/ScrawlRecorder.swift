@@ -30,6 +30,8 @@ final class ScrawlRecorder {
     private var finishTimeout: DispatchWorkItem?
     private var clickMonitor: Any?
     private var targetContext: DictationContextCapture?
+    /// The invocation this recording holds; only it can return Flyd to present.
+    private var invocationId: String?
     private var segmentBytes = 0
 
     /// Core answers shorter audio with "No speech detected" instead of a transcript.
@@ -88,8 +90,7 @@ final class ScrawlRecorder {
         let screen = pointer.screen, display = pointer.display
         startedAt = ProcessInfo.processInfo.systemUptime
         createdAt = Date()
-        _ = FlydState.shared.startInvocation()
-        FlydState.shared.transition(to: .capturing)
+        invocationId = FlydState.shared.startInvocation().invocationId
         let app = NSWorkspace.shared.frontmostApplication
         let bounds = CGDisplayBounds(display)
         target = .init(app: app?.localizedName ?? "Screen", bundleId: app?.bundleIdentifier ?? "unknown", displayId: display,
@@ -306,6 +307,7 @@ final class ScrawlRecorder {
         frames = []; strokes = []; marks = []; clicks = []; latest = nil; previousThumbnail = []
         targetContext = nil; target = nil; transcriptionFailure = nil; segmentIndex = 0
         InvocationStateMachine.shared.endDictationGesture()
-        FlydState.shared.cancelInvocation()
+        if let invocationId { FlydState.shared.cancelInvocation(invocationId) }
+        invocationId = nil
     }
 }
