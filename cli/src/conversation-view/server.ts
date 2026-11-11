@@ -65,6 +65,7 @@ import { PreviewProbe } from "./preview-probe.js";
 import type { MachinesBoard } from "./machines.js";
 import { MachineSetupReader, type MachineSetup } from "./machine-setup.js";
 import type { WeatherReader } from "./weather.js";
+import type { WeekReader } from "./week.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
 import { ComposerDrafts, draftKey } from "./drafts.js";
 import { concernKind, readStaffView, type StaffView } from "../command/fleet-monitor.js";
@@ -828,6 +829,8 @@ export class ConversationViewServer {
     private readonly whatsapp?: WhatsAppPairing,
     /** The Machines tab's list and readings; without it the tab is empty. */
     private readonly machines?: MachinesBoard,
+    /** The Week tab's eight days, hour by hour; without it the tab says it has nothing to show. */
+    private readonly week?: WeekReader,
   ) {}
 
   async listen(port = DEFAULT_VIEW_PORT): Promise<number> {
@@ -894,6 +897,13 @@ export class ConversationViewServer {
         sendJson(res, 403, { error: "missing or wrong token" }); return;
       }
       sendJson(res, 200, { weather: this.weather?.current() ?? null });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/week") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" }); return;
+      }
+      sendJson(res, 200, { week: (await this.week?.current().catch(() => null)) ?? null });
       return;
     }
     if (req.method === "GET" && url.pathname === "/routines") {

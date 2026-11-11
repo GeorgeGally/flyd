@@ -31,9 +31,10 @@ export const TODAY_SCRIPT = `
     centre = name;
     frontRoot.setAttribute("data-centre", name);
     centreTabs.querySelectorAll(".ctab").forEach(function (tab) {
-      var on = tab.dataset.centre === (name === "news" ? "news" : "today");
+      var on = tab.dataset.centre === (name === "news" || name === "week" ? name : "today");
       tab.setAttribute("aria-pressed", String(on));
     });
+    if (name === "week") loadWeek();
     if (name === "news") { loadWeather(); newsPlaceholder(newsPicked); newsPickInView(); newsConfirm(); }
     else { newsPlaceholder(null); paintConfirm(conversationConfirm); }
     newsSyncStreams();
