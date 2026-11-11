@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SnapshotDiffer } from "../server.js";
 import { digestHash } from "../job-digest.js";
-import { editJob, jobRunFromDomain, jobsFrom, type JobRun } from "../jobs.js";
+import { editJob, jobRunFromDomain, jobsFrom, runTitle, type JobRun } from "../jobs.js";
 import { heldItems, parseBearings } from "../artefact.js";
 import type { DomainRun } from "../../command/types.js";
 import { applyProjectOps, readProjects, type Project } from "../../council/projects.js";
@@ -64,8 +64,8 @@ describe("jobsFrom", () => {
     }
     const stalled = jobsFrom({ runs: [run({ id: "stalled", status: "failed", project: "S", outcome: "The last handoff stalled." })], now: NOW });
     expect(stalled.jobs[0]!.next).toBe("The last step stalled.");
-    // The decision is his: its card keeps the question, said without the branch.
-    expect(board.jobs.find((job) => job.group === "needs")).toMatchObject({ next: "Ready: merge it?", ask: "Ready: merge it?" });
+    // The decision is his: its card keeps the question, said once, without the branch.
+    expect(board.jobs.find((job) => job.group === "needs")).toMatchObject({ next: "", ask: "Ready: merge it?" });
   });
 
   it("does not count queued work or a run gone quiet as working", () => {
@@ -164,7 +164,7 @@ describe("jobsFrom", () => {
       expect(board.jobs[0]!.threads).toContainEqual({ id: session.id, title: session.title, at: session.updatedAt, kind: "conversation" });
       expect(board.pending).toMatchObject([{ hash, text }]);
       const withDigest = jobsFrom({ ...base, digests: [digest] });
-      expect(withDigest.jobs[0]!.digest).toMatchObject({ changed: digest.changed, means: digest.means, needed: digest.needed });
+      expect(withDigest.jobs[0]!.digest).toEqual({ changed: digest.changed, needed: digest.needed });
       expect(withDigest.pending).toEqual([]);
     }
   });
@@ -265,6 +265,72 @@ describe("jobsFrom", () => {
     expect(board.jobs[0]).toMatchObject({ group: "waiting", next: "Nothing is moving this.", owner: "you" });
   });
 
+  it("speaks a reading stored in the third person to him, in two sentences", () => {
+    // The CapFive card as it was stored before Flyd spoke to him directly.
+    const text = "CapFive lab round 5. ".repeat(20);
+    const digest = {
+      hash: digestHash(text), project: "Cap5",
+      changed: "The CapFive lab round 5 captain has posted three open questions about the Review and Opinion section, the Reports band heading, and V5 tombstones.",
+      means: "Design decisions are pending on the Opinion section content and empty-state handling, the Reports band heading wording, and whether V5 tombstones keep their date captions.",
+      needed: "George needs to answer the three questions: Opinion section back-fill or drop, Reports heading wording, and whether to keep or restore V5 date captions.",
+      at: "2026-10-26T10:00:00.000Z", model: "claude-haiku-5-5", inputTokens: 10, outputTokens: 8, usd: 0,
+    };
+    const board = jobsFrom({ projects: [project()], reports: [{ project: "Cap5", title: "Lab", text }], digests: [digest], runs: [run({ status: "needs_decision", question: "Still open: his picks for the other five sections - v01 hero buttons, v03 deals on phones." })], now: NOW });
+    const job = board.jobs[0]!;
+    expect(job.digest).toEqual({
+      changed: "I have three open questions about the Review and Opinion section, the Reports band heading, and V5 tombstones.",
+      needed: "You need to answer the three questions: Opinion section back-fill or drop, Reports heading wording, and whether to keep or restore V5 date captions.",
+    });
+    expect(job.ask).toBe("Still open: your picks for the other five sections - v01 hero buttons, v03 deals on phones.");
+    const shown = [job.ask, job.next, job.digest!.changed, job.digest!.needed].join("\n");
+    expect(shown).not.toMatch(/George needs|his picks|\bGeorge\b|\bcaptain\b|Design decisions are pending/);
+  });
+
+  it("gives a card the reading of its own item, never another item's in the same project", () => {
+    // The Week page PR and the WhatsApp card are both Flyd work; the WhatsApp reading is newer.
+    const week = "The Week page now shows each hour's changes when you hover a bar. ".repeat(6);
+    const whatsapp = "WhatsApp is still unlinked so the Link WhatsApp card stays. ".repeat(6);
+    const item = (id: string, kind: string, headline: string, detail: string, at: string) => ({ id, kind, headline, detail, why: "", task: id, project: "Flyd", at });
+    const show = { ...screen, ready: [item("ready:week", "ready", "Week view", week, "2026-10-26T12:06:00.000Z")], held: [item("waiting:wa", "waiting", "WhatsApp card", whatsapp, "2026-10-26T09:00:00.000Z")] } as unknown as ShowScreen;
+    const reading = (text: string, changed: string, at: string) => ({ hash: digestHash(text), project: "Flyd", changed, needed: "Nothing", at, model: "m", inputTokens: 0, outputTokens: 0, usd: 0 });
+    const digests = [reading(week, "The Week page shows details when you hover a bar.", "2026-10-26T12:10:00.000Z"), reading(whatsapp, "WhatsApp is still unlinked, so its card stays.", "2026-10-26T12:20:00.000Z")];
+    const board = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, digests, now: NOW });
+    const card = board.jobs.find((job) => job.title === "Flyd")!;
+    expect(card.digest?.changed).toBe("The Week page shows details when you hover a bar.");
+    expect(JSON.stringify(card)).not.toContain("WhatsApp is still unlinked, so its card stays.");
+  });
+
+  it("never borrows a reading that only shares the project's name", () => {
+    const show = { ...screen, ready: [{ id: "ready:waits", kind: "ready", headline: "Flyd CoS 13c: explicit waits (audit #2)", detail: "Checks green: PR ready for review (still monitoring for merge/close):…", why: "", task: "flyd-cos-waits", project: "Flyd" }] } as unknown as ShowScreen;
+    const whatsapp = { hash: "e5230039a9902629", project: "Flyd", changed: "WhatsApp is still unlinked, so the 'Link WhatsApp' card stays on screen.", needed: "Link WhatsApp on your phone.", at: "2026-11-09T02:50:35.212Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0 };
+    const card = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, digests: [whatsapp], now: NOW }).jobs.find((job) => job.title === "Flyd")!;
+    expect(card.digest).toBeNull();
+    expect(card.ask).toBe("Flyd CoS 13c: explicit waits is finished and ready for you to land.");
+  });
+
+  it("never heads a ready card with the staff's status line", () => {
+    const show = { ...screen, ready: [{ id: "ready:week", kind: "ready", headline: "The Week page", detail: "Checks green: PR ready for review (still monitoring for merge/close): https://example.com/pull/274", why: "", task: "week", project: "Flyd" }] } as unknown as ShowScreen;
+    const card = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, now: NOW }).jobs.find((job) => job.title === "Flyd")!;
+    expect(card.ask).toBe("The Week page is finished and ready for you to land.");
+    expect(`${card.ask} ${card.next}`).not.toMatch(/Checks green|monitoring|PR ready/i);
+  });
+
+  it("takes a card's title only from Flyd's own hand-off, never from his request", () => {
+    expect(runTitle("Remove the card titled “Stale tasks” from the Week page")).toBe("Remove the card titled “Stale tasks” from the Week page");
+  });
+
+  it("names a passed-on question by its subject, says it once and never cuts it mid-word", () => {
+    const question = "Jev was a second opinion I was supposed to ask before big choices. In six weeks it was used only 5 times, last on 9 October, and it never changed anything. I recommend removing it. Do you want me to remove it, or keep it running for another month?";
+    const outcome = `Answer George's question, reading whatever code is needed, and change nothing: George got a card titled "Answer to pending decision jev-firstmate-review: Review Jev decision log: did Jev change or improve firstmate decisions? captain decides keep or remove" and asked what it means.`;
+    const domain = { id: "domain-jev", status: "needs_decision", transport: { kind: "firstmate" }, request: { source: "view", intendedOutcome: outcome, originalMessage: "what is this?" }, owner: "FirstMate", updatedAt: "2026-10-26T12:06:00.000Z", result: { unresolvedQuestions: [question], artifacts: [], detailedReport: "" } } as unknown as Parameters<typeof jobRunFromDomain>[0];
+    const card = jobsFrom({ runs: [jobRunFromDomain(domain)], now: NOW }).jobs[0]!;
+    expect(card.title).toBe("Review Jev decision log");
+    expect(card.ask).toBe(question);
+    expect(card.next).toBe("");
+    expect(card.threads.map((thread) => thread.title)).toEqual(["Review Jev decision log"]);
+    expect(JSON.stringify(card)).not.toMatch(/George|Answer your question|pending decision|reading whatever code/);
+  });
+
   it("attaches a stored digest by hash and does not ask again for the same text", () => {
     const text = `${"The third tier is gone. ".repeat(20)}Send the one offer.`;
     const hash = digestHash(text);
@@ -275,7 +341,7 @@ describe("jobsFrom", () => {
     const input = { projects: [project()], reports: [{ project: "Cap5", title: "Deck", text }], digests: [digest], now: NOW };
     const once = jobsFrom(input);
     const twice = jobsFrom(input);
-    expect(once.jobs[0]!.digest).toEqual({ changed: "The third tier is gone.", means: "One offer is enough.", needed: "Send it.", link: "https://example.com/deck" });
+    expect(once.jobs[0]!.digest).toEqual({ changed: "The third tier is gone.", needed: "Send it.", link: "https://example.com/deck" });
     expect(once.pending).toEqual([]);
     expect(twice.jobs[0]!.digest).toEqual(once.jobs[0]!.digest);
     expect(once.jobs[0]!.group).toBe("waiting");

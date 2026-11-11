@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { PA_VOICE } from "../lib/pa-voice.js";
 import { diagnosisFromText, type AnswerBody } from "../conversation-view/answer-form.js";
 import { answerForm, reshapeAnswer } from "../conversation-view/answer-shape.js";
 import { ArtefactFeed } from "../conversation-view/artefact.js";
@@ -76,7 +77,9 @@ async function listenNear(server: ConversationViewServer, port: number, explicit
  * The shape Flyd's own answers may take in the view, said to the model on
  * these turns only; one it does not choose is prose.
  */
-const DIAGNOSIS_PROMPT = "This answer is in the Flyd conversation view. When it explains why something did or did not work, it MUST use the diagnosis form, even though your usual style is connected prose: open with `**Diagnosis: <the outcome in one line>**`, then exactly one line each for `**Expected:**`, `**Observed:**`, `**Cause:**`, `**Evidence:**` and `**Next:**` (Evidence names the mechanism, spec or source — a file, a log, or the documented behaviour — and need not be something you read this turn). The labelled lines are your own working notes; George reads only the Diagnosis line and Next (plus the first sentence of Cause when he asked why), so write those as his PA would say them: the Diagnosis line a plain acknowledgement of what is wrong or what you found, and Next in the first person, saying what you will do and when he will hear (e.g. `I'm fixing it now and will tell you when it's in.`). Every other answer is prose. Never force the shape onto an answer that is not explaining a cause.";
+// Every answer in the view is said as his PA would say it: plain prose, outcome first, no report labels.
+// The old forced Expected/Observed/Cause/Evidence/Next form is what turned answers into engineering reports.
+const FORM_PROMPT = `This answer is in the Flyd conversation view.\n${PA_VOICE}`;
 
 /**
  * Flyd's own assistant turn, as agenda items and background jobs run one: nobody is there to approve actions.
@@ -91,11 +94,12 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   onStep?.("Remembering what I know about this", memoryLookup(question));
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
   const article = turn ? await articleForTurn(turn.source.sessionId, question) : undefined;
-  const text = await respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: DIAGNOSIS_PROMPT });
+  const text = await respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: FORM_PROMPT });
   const declared = diagnosisFromText(text);
   if (declared) return withAskedWhy(declared, question);
+  // A comparison may be drawn as a table; an explanation stays the plain words he was told.
   const form = await answerForm(question, text);
-  if (!form) return text;
+  if (!form || form === "diagnosis") return text;
   const { quickQuery } = await import("../lib/llm.js");
   const shaped = await reshapeAnswer(question, text, form, (prompt) => quickQuery(prompt, { json: true }));
   return shaped ? withAskedWhy(shaped, question) : text;

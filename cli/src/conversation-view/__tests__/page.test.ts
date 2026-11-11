@@ -1990,6 +1990,27 @@ describe("header and artefact view", () => {
     expect(ask.querySelector(".step-lead")!.textContent).toBe("Your answers.");
   });
 
+  it("shows one review link however often it is named, and every other distinct link", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:refs", kind: "call", headline: "Pick the heading", why: "", task: "refs", links: [
+      { label: "Open design review", url: "http://127.0.0.1:4387/session/a" },
+      { label: "Open design review", url: "http://127.0.0.1:4387/session/b" },
+      { label: "Open reference", url: "https://example.com/one" },
+      { label: "Open reference", url: "https://example.com/two" },
+      { label: "Open reference", url: "https://example.com/one" },
+    ] }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const links = [...document.querySelectorAll<HTMLAnchorElement>("#scene-meta a")].map((link) => [link.textContent, link.getAttribute("href")]);
+    expect(links).toEqual([
+      ["Open design review", "http://127.0.0.1:4387/session/a"],
+      ["Open reference", "https://example.com/one"],
+      ["Open reference", "https://example.com/two"],
+    ]);
+  });
+
   it("answers a decision in one tap or in his own words, keeps Tab and typing in its chat box, and says where the answer is in plain words", async () => {
     vi.useFakeTimers({ toFake: ["setInterval"] });
     try {
@@ -2331,7 +2352,7 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
     document.getElementById("flip")!.click();
     const meta = document.getElementById("scene-meta")!;
-    expect(meta.querySelector(".closed")!.textContent).toBe("The review page for this has closed");
+    expect(meta.querySelector(".closed")!.textContent).toBe("The review page is offline right now");
     expect([...meta.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["https://github.com/o/flyd/pull/9"]);
     const chat = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
     expect(chat.placeholder).toBe("Say something about this…");
@@ -4857,6 +4878,13 @@ describe("the front page", () => {
     expect(cap.querySelector(".digest")).toBeNull();
     expect(cap.textContent).not.toContain("The deck dropped the third pricing tier.");
     expect(cap.querySelector("a")).toBeNull();
+    // Open, Flyd tells him what changed, then what he needs to do: two sentences, no Changed/Means/Needed labels.
+    after(() => cap.click());
+    const said = Array.from(document.querySelectorAll(".job-view .jv-digest p")).map((line) => line.textContent);
+    expect(said).toEqual(["The deck dropped the third pricing tier.", "Send it."]);
+    expect(document.querySelector(".job-view .jv-digest b")).toBeNull();
+    expect(document.querySelector(".job-view")!.textContent).not.toContain("Cap5 can review one offer.");
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
     expect(document.querySelector('.job[data-job="pick"] .next')!.textContent).toContain("Pick a hero");
     after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     expect(document.querySelector(".jv-ask")!.textContent).toBe("Which hero should ship?");
@@ -4879,7 +4907,6 @@ describe("the front page", () => {
     expect(JSON.parse(String(posted[1]!.body))).toEqual({ op: "close", id: "pick" });
     after(() => document.querySelector<HTMLElement>('.job[data-job="cap5"]')!.click());
     expect(document.querySelector(".jv-digest")!.textContent).toContain("The deck dropped the third pricing tier.");
-    expect(document.querySelector(".jv-digest")!.textContent).toContain("Cap5 can review one offer.");
     expect(document.querySelector<HTMLAnchorElement>(".jv-digest .fbtn")!.href).toBe("https://example.com/deck");
     expect(document.querySelector(".jv-files")!.textContent).toBe("deck.pdf");
   });

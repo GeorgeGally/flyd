@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { priceFor } from "../lib/claude-spend.js";
 import { FLYD_DIR } from "../lib/config.js";
+import { forHim, PA_VOICE } from "../lib/pa-voice.js";
 import { quickQuery } from "../lib/llm.js";
 
 /**
@@ -16,8 +17,11 @@ export interface JobDigest {
   hash: string;
   /** Project name this reading belongs to, when the artefact named one. */
   project?: string;
+  /** What changed, said to him by Flyd in one sentence. */
   changed: string;
-  means: string;
+  /** Kept only so readings stored before it was dropped still parse; never shown. */
+  means?: string;
+  /** What he needs to do, one sentence, or "Nothing". */
   needed: string;
   link?: string;
   at: string;
@@ -73,24 +77,24 @@ export function rememberDigest(digest: JobDigest, path = digestPath()): void {
 
 const clip = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, LINE);
 
-/** The model's JSON, or null when it is not a 3-line reading. */
+/** The model's JSON, or null when it is not a reading. */
 export function digestFromModel(text: string, source: DigestSource, usage: { model: string; inputTokens: number; outputTokens: number; usd: number }, at: string): JobDigest | null {
   const body = text.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
   let parsed: unknown;
   try { parsed = JSON.parse(body); } catch { return null; }
   const record = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
   // A reading line that names the staff or how the work runs is left out (the relay check), as if the model had said nothing there.
-  const plain = (value: unknown) => { const line = plainSaid(clip(value)); return line && namesBackstage(line) ? "" : line; };
+  // Flyd speaks to him: a line the model still wrote about him in the third person is turned to "you".
+  const plain = (value: unknown) => { const line = forHim(plainSaid(clip(value))); return line && namesBackstage(line) ? "" : line; };
   const changed = plain(record.changed);
-  const means = plain(record.means);
   const needed = plain(record.needed);
-  if (!changed && !means && !needed) return null;
+  if (!changed && !needed) return null;
   const rawLink = clip(record.link) || source.link || "";
   const link = /^https?:\/\//i.test(rawLink) ? rawLink : undefined;
   return {
     hash: source.hash,
     ...(source.project ? { project: source.project } : {}),
-    changed, means, needed,
+    changed, needed,
     ...(link ? { link } : {}),
     at,
     model: usage.model,
@@ -109,9 +113,12 @@ function estimate(model: string, input: string, output: string): { model: string
 }
 
 const PROMPT = [
-  "Distill one artefact for George, who is scanning a jobs column. Four short lines, plain words.",
-  "Return only JSON: {\"changed\":\"what changed, one line\",\"means\":\"what it means for the work, one line\",\"needed\":\"what is needed from George, or 'Nothing' if it is done\",\"link\":\"the one url to open, or empty\"}",
-  "No preamble, no markdown fence. Each line under 30 words.",
+  "You are Flyd, George's assistant, telling him about one piece of his work as he scans his jobs.",
+  PA_VOICE,
+  "Speak as \"I\", to him as \"you\". One sentence per line, no repeating yourself.",
+  "Return only JSON: {\"changed\":\"one sentence: what changed\",\"needed\":\"one sentence: what you need to do, or 'Nothing' if it is done\",\"link\":\"the one url to open, or empty\"}",
+  "Example: {\"changed\":\"I have three questions for you on the CapFive page.\",\"needed\":\"Pick the Opinion section, the Reports heading and the date captions.\",\"link\":\"\"}",
+  "No preamble, no markdown fence. Each sentence under 20 words.",
 ].join("\n");
 
 export type DigestAsk = (prompt: string) => Promise<string>;
@@ -126,13 +133,13 @@ export async function distill(source: DigestSource, ask: DigestAsk = defaultAsk,
   } catch (error) {
     const usage = estimate(model, prompt, "");
     logDigest(source.hash, usage, "failed");
-    return { hash: source.hash, ...(source.project ? { project: source.project } : {}), changed: "", means: "", needed: "", at: now.toISOString(), ...usage, failed: true };
+    return { hash: source.hash, ...(source.project ? { project: source.project } : {}), changed: "", needed: "", at: now.toISOString(), ...usage, failed: true };
   }
   const usage = estimate(model, prompt, text);
   const digest = digestFromModel(text, source, usage, now.toISOString());
   if (!digest) {
     logDigest(source.hash, usage, "unreadable");
-    return { hash: source.hash, ...(source.project ? { project: source.project } : {}), changed: "", means: "", needed: "", at: now.toISOString(), ...usage, failed: true };
+    return { hash: source.hash, ...(source.project ? { project: source.project } : {}), changed: "", needed: "", at: now.toISOString(), ...usage, failed: true };
   }
   logDigest(source.hash, usage, "ok");
   return digest;

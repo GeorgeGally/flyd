@@ -1,3 +1,4 @@
+import { forHim } from "../lib/pa-voice.js";
 import { plainLinks } from "./line-links.js";
 import { answeredForHim, choiceTarget, openChoice } from "./choices.js";
 import { asksIn, brief, decisionOf, handledBy, statusHeadline, withoutStubs } from "./executive.js";
@@ -125,11 +126,20 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
   };
 }
 
+/**
+ * Whether an open call is worth ringing him for. A note for later ("Next: which Flyd screens
+ * Loose leaf reaches next") or one marked not urgent waits on the board instead. Pure.
+ */
+export function ringsHim(row: { label: string; question?: string }): boolean {
+  const said = (row.question ?? row.label).trim();
+  return !/^(?:next|later)\s*[:-]/i.test(said) && !/\b(?:non-?urgent|not urgent|no rush|low priority)\b/i.test(said);
+}
+
 export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefact): ConversationStatus {
-  const ask = fleet?.calls.find((row) => !row.ledgerOnly);
+  const ask = fleet?.calls.find((row) => !row.ledgerOnly && ringsHim(row));
   const notable = fleet?.landed.find((row) => row.notable);
   const reply = ask
-    ? { id: `decision:${ask.executiveDecisionId ?? ask.task ?? ask.label}`, headline: ask.question ?? ask.label, asks: true }
+    ? { id: `decision:${ask.executiveDecisionId ?? ask.task ?? ask.label}`, headline: forHim(ask.question ?? ask.label), asks: true }
     : notable
       ? { id: `outcome:${notable.executiveDecisionId ?? notable.task ?? notable.label}`, headline: notable.label, asks: false }
       : current.reply?.asks || current.reply?.id.startsWith("answer:") ? current.reply : undefined;

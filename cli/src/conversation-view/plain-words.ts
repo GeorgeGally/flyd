@@ -1,3 +1,5 @@
+import { toYou } from "../lib/to-you.js";
+
 // Titles and lines in the right column are Flyd's own words about the work: no
 // backstage framing ("Act on George's answer to:"), no second person naming him
 // ("George's", "the captain"), and never the raw question as a heading. A line
@@ -47,11 +49,7 @@ export function plainTitle(text: string | undefined, project?: string): string {
       break;
     }
   }
-  line = line
-    .replace(/\bgeorge's\b/gi, "your")
-    .replace(/\bgeorge\b/gi, "you")
-    .replace(/\bthe captain's\b/gi, "your")
-    .replace(/\bthe captain\b/gi, "you")
+  line = toYou(line.replace(/\bgeorge\b/gi, "George"))
     .replace(/\s{2,}/g, " ")
     .trim();
   if (!line) return "";

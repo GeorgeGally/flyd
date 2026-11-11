@@ -23,6 +23,7 @@ import { readDomainRun } from "../command/store.js";
 import type { StaffWorker } from "../command/fleet-monitor.js";
 import type { ShowItem, ShowKind } from "./show.js";
 import { plainTitle, saysNothing } from "./plain-words.js";
+import { forHim, shortHeadline, staffStatusLine } from "../lib/pa-voice.js";
 import { SnapshotGate, type SnapshotGateOptions } from "./snapshot-gate.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
@@ -442,7 +443,7 @@ export function parseBacklog(markdown: string): Map<string, BacklogEntry> {
     const finished = [tags.get("merged"), tags.get("done"), tags.get("landed")].find((value) => value && /^\d{4}-\d{2}-\d{2}/.test(value));
     const hold = holdReason(tags.get("hold") ?? "");
     const since = tags.get("since");
-    const url = rest.match(PR_URL)?.[0] ?? rest.match(/https?:\/\/[^\s()]+/)?.[0];
+    const url = rest.match(PR_URL)?.[0] ?? rest.match(URL_IN_PROSE)?.[0];
     current = {
       title,
       ...(url ? { url } : {}),
@@ -550,7 +551,14 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
       }
       // Nothing is left to answer: it leaves Needs you as settled, never as a decision.
       if (decisions.length && !open.length) next.ledgerOnly = true;
-      next.references = [...new Set(entry.hold.match(/https?:\/\/[^\s,)]+/g) ?? [])].map((url) => ({ label: /\/session\//.test(url) ? "Open design review" : "Open reference", url }));
+      next.references = reviewLinks(proseLinks(entry.hold), next.url);
+    }
+    // A report or lab whose board is named only by the call that follows it ("dir-controls-lab-choice")
+    // still links that board: the board is where he looks at the work.
+    if (!call && entry && row.task && !next.references?.length) {
+      const said = [entry.hold, entry.notes, ...[...backlog].filter(([task]) => task.startsWith(`${row.task}-`)).flatMap(([, other]) => [other.hold, other.notes])].filter(Boolean).join(" ");
+      const boards = proseLinks(said).filter((url) => LIESEL_BOARD.test(url));
+      if (boards.length) next.references = reviewLinks(boards, next.url);
     }
     if (next.repo) {
       next.context = related.slice(-6).map(([, other]) => `${other.finished ? `Finished ${other.finished}` : "Still open"}: ${other.title}. ${other.notes ?? ""}`).join("\n").slice(0, 2400);
@@ -888,7 +896,8 @@ function decisionFrom(body: string): HoldDecision | undefined {
   // The alternatives after a colon are the choice; the words before it are the question.
   if (listed.length >= 2) {
     for (const raw of listed) {
-      const option = raw.replace(/\s*\([^)]*\)/g, "").replace(/[.;,]+$/, "").trim();
+      // "…, or drop?": the last alternative carries the sentence's "or" and its question mark.
+      const option = raw.replace(/\s*\([^)]*\)/g, "").replace(/^or\s+/i, "").replace(/[.;,?]+$/, "").trim();
       if (!option) continue;
       options.push(option);
       if (!recommended && RECOMMENDS.test(raw)) { recommended = option; note = aside(raw); }
@@ -914,7 +923,9 @@ function decisionFrom(body: string): HoldDecision | undefined {
  * is two decisions, each with its own alternatives. A hold that numbers nothing is one decision. Pure.
  */
 export function holdDecisions(hold: string): HoldDecision[] {
-  const numbered = [...hold.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\s*\(\d+\)\s|$)/g)].map((match) => match[2]!);
+  let numbered = [...hold.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\s*\(\d+\)\s|$)/g)].map((match) => match[2]!);
+  // "Review and 1. Opinion section: …? 2. Reports band heading: …? 3. …": numbered the other way.
+  if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|\s)\d\.\s+([\s\S]*?)(?=\s+\d\.\s|$)/g)].map((match) => match[1]!);
   const bodies = numbered.length >= 2 ? numbered : [hold];
   return bodies.map((body) => decisionFrom(body.replace(/^[\s;,-]+/, ""))).filter((decision): decision is HoldDecision => Boolean(decision));
 }
@@ -1224,12 +1235,20 @@ function withoutProject(label: string, names: string[]): string {
 function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeOptions): ShowItem | undefined {
   const project = row.repo ? options.project?.(row.repo) ?? row.repo : undefined;
   const names = [project, row.repo].filter((name): name is string => Boolean(name));
-  const detail = row.said?.line && !saysNothing(row.said.line) ? row.said.line : row.detail;
+  // A worker's status line to its supervisor ("note applied in place (… #8d9aa6) verified headless 1440/834/390") is never what he reads.
+  const own = row.said?.line && !saysNothing(row.said.line) ? row.said.line : row.detail;
+  const detail = own && staffStatusLine(own) ? undefined : own;
   const sourceHeadline = plainTitle(withoutProject(row.label, names), project);
   // A question with options leads with the question in plain words, and under it the work it is about.
   const asked = kind === "call" ? row.question ?? (row.choices?.length && row.detail ? plainQuestion(row.detail) : "") : "";
   const recommended = row.recommendation?.option ?? (asked ? recommendedChoice(row.detail ?? "") : undefined);
-  const headline = asked || plainTitle(row.said?.headline ?? (row.status === "report available" ? `Earlier report: ${sourceHeadline}` : sourceHeadline), project);
+  // A headline is a short complete phrase: a long question, one carrying a link, or a label cut with an
+  // ellipsis is never the headline (the question is still asked in full below it).
+  const cutShort = (text: string) => /…|\.\.\.|https?:\/\//.test(text) || text.length > 90;
+  const titled = row.said?.headline && !cutShort(row.said.headline) ? row.said.headline : shortHeadline(withoutProject(row.label, names)) || sourceHeadline;
+  // Several questions are listed one per line under the headline: the headline names them all, not the first.
+  const several = (row.decisions?.length ?? 0) > 1;
+  const headline = forHim(asked && !several && !cutShort(asked) ? asked : several && !row.said?.headline ? `${row.decisions!.filter((one) => !one.done).length || row.decisions!.length} questions on ${titled}` : plainTitle(titled, project));
   if (!headline) return undefined;
   return {
     id: `${kind}:${id}`,
@@ -1238,7 +1257,8 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
     headline,
     why: "",
     ...(kind === "call" && row.task ? { decision: { task: row.task, ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}), ...(row.decisions?.length ? { decisions: row.decisions } : {}) } } : {}),
-    ...(asked ? { detail: row.recommendation?.option ? recommendationText(row.recommendation) : row.said?.line || sourceHeadline } : detail ? { detail } : {}),
+    // Several listed questions need no line restating the work's name under the headline.
+    ...(asked ? (several && !row.said?.line && !row.recommendation?.option ? {} : { detail: row.recommendation?.option ? recommendationText(row.recommendation) : row.said?.line || sourceHeadline }) : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
     ...(row.started ? { started: row.started } : {}),
     ...((row.shotDir ?? row.task) && row.shots?.length
@@ -1251,8 +1271,42 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
     ...(project ? { project } : {}),
     ...(row.task ? { task: row.task } : {}),
     ...withLink(row.url),
-    ...(row.references?.length ? { links: [...(row.url ? [{ label: linkLabel(row.url), url: row.url }] : []), ...row.references] } : {}),
+    ...(row.references?.length ? { links: [...(row.url ? [{ label: LIESEL_BOARD.test(row.url) ? "Open board" : LAVISH_REVIEW.test(row.url) ? "Open design review" : linkLabel(row.url), url: row.url }] : []), ...row.references.filter((link) => link.url !== row.url)] } : {}),
   };
+}
+
+/**
+ * A link written in prose, without the punctuation after it: "on http://127.0.0.1:4747/board/e4dc…: Monza, …"
+ * is the board, not "…/board/e4dc…:", which Liesel answers as a board that does not exist.
+ */
+const URL_IN_PROSE = /https?:\/\/[^\s<>()\]]+[^\s<>()\].,;:!?'"”’]/g;
+
+/** The links a line of prose names, each without the punctuation after it. Pure. */
+export function proseLinks(text: string): string[] {
+  return text.match(URL_IN_PROSE) ?? [];
+}
+
+/** A Liesel board (its own review surface) and a Lavish review page. */
+const LIESEL_BOARD = /^https?:\/\/(?:127\.0\.0\.1|localhost):4747\/board\//i;
+const LAVISH_REVIEW = /^https?:\/\/(?:127\.0\.0\.1|localhost):4387\/session\//i;
+
+/**
+ * The links a hold names, each once: two links that open the same review are one, and a
+ * project's Liesel board is the design review whenever there is one, ahead of any Lavish
+ * page. The card's own link is not said again. Pure.
+ */
+export function reviewLinks(urls: readonly string[], own?: string): Array<{ label: string; url: string }> {
+  const unique = [...new Set(urls.map((url) => url.replace(/[.;:]+$/, "")))].filter((url) => url !== own);
+  const board = unique.some((url) => LIESEL_BOARD.test(url)) || (own ? LIESEL_BOARD.test(own) : false);
+  const kept = unique.filter((url) => !(board && LAVISH_REVIEW.test(url)));
+  const isReview = (url: string) => LIESEL_BOARD.test(url) || LAVISH_REVIEW.test(url);
+  // One review link, the board first: "Open board" for Liesel, "Open design review" for a Lavish page.
+  const review = kept.filter(isReview).sort((a, b) => Number(LIESEL_BOARD.test(b)) - Number(LIESEL_BOARD.test(a)))[0];
+  const ownIsReview = own ? isReview(own) : false;
+  return [
+    ...(review && !ownIsReview ? [{ label: LIESEL_BOARD.test(review) ? "Open board" : "Open design review", url: review }] : []),
+    ...kept.filter((url) => !isReview(url)).map((url) => ({ label: "Open reference", url })),
+  ];
 }
 
 function withLink(url: string | undefined): Partial<ShowItem> {

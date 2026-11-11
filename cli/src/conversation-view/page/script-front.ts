@@ -243,7 +243,7 @@ export const FRONT_SCRIPT = `
   function frontLine(job) {
     var digest = job.digest || {};
     var needed = digest.needed && !/^(nothing|none|n\\/a)\\b/i.test(digest.needed) ? digest.needed : "";
-    var said = needed || digest.changed || digest.means || job.next || frontTitle(job.detail);
+    var said = needed || digest.changed || job.next || job.ask || frontTitle(job.detail);
     return frontText(said || job.title);
   }
   // The card's action line: a concrete next step in real counts or Flyd's own pick, else nothing.
@@ -422,14 +422,12 @@ export const FRONT_SCRIPT = `
     if (split.rest) parts.push(el("p", "jv-lead", split.rest));
 
     if (job.ask) parts.push(el("p", "jv-ask", job.ask));
-    if (job.digest && (job.digest.changed || job.digest.means || job.digest.needed)) {
+    if (job.digest && (job.digest.changed || job.digest.needed)) {
+      // Flyd telling him: what changed, then what he needs to do. One sentence a line, no labels.
       var block = el("div", "jv-digest");
-      [["Changed", job.digest.changed], ["Means", job.digest.means], ["Needed", job.digest.needed]].forEach(function (pair) {
-        if (!pair[1]) return;
-        var line = el("p");
-        line.appendChild(el("b", "", pair[0]));
-        line.appendChild(document.createTextNode(" " + pair[1]));
-        block.appendChild(line);
+      var needed = job.digest.needed && !/^(nothing|none|n\\/a)\\b/i.test(job.digest.needed) ? job.digest.needed : "";
+      [job.digest.changed, needed].forEach(function (said) {
+        if (said) block.appendChild(el("p", "", said));
       });
       var href = frontHttp(job.digest.link);
       if (href) {

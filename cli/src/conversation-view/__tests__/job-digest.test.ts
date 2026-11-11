@@ -17,7 +17,8 @@ afterEach(() => { vi.restoreAllMocks(); });
 describe("job digests", () => {
   it("reads a fenced JSON reading and keeps only an http link", () => {
     const parsed = digestFromModel('```json\n{"changed":"Tier three is gone.","means":"One offer.","needed":"Send it.","link":"javascript:alert(1)"}\n```', source("hello"), usage, at);
-    expect(parsed).toMatchObject({ changed: "Tier three is gone.", means: "One offer.", needed: "Send it." });
+    expect(parsed).toMatchObject({ changed: "Tier three is gone.", needed: "Send it." });
+    expect(parsed).not.toHaveProperty("means");
     expect(parsed!.link).toBeUndefined();
     expect(digestFromModel("not json", source("hello"), usage, at)).toBeNull();
   });
@@ -44,6 +45,20 @@ describe("job digests", () => {
     await scheduleDigest([bad], { path, ask: async () => { retried = true; return "again"; } });
     expect(retried).toBe(false);
     expect(readDigests(path).find((digest) => digest.hash === bad.hash)!.failed).toBe(true);
+  });
+
+  it("keeps a new reading said to him even when the model writes about him", () => {
+    const parsed = digestFromModel(JSON.stringify({ changed: "George's lab has three open questions.", needed: "George needs to pick the Reports heading.", link: "" }), source("cap5"), usage, at);
+    expect(parsed).toMatchObject({ changed: "Your lab has three open questions.", needed: "You need to pick the Reports heading." });
+  });
+
+  it("asks the model to speak as I, to you, one sentence a line", async () => {
+    let prompt = "";
+    await scheduleDigest([source("cap5 prompt")], { path: pathFor("p.json"), ask: async (sent) => { prompt = sent; return "{}"; } });
+    expect(prompt).toContain('Speak as "I"');
+    expect(prompt).toContain('as "you"');
+    expect(prompt).not.toContain("what is needed from George");
+    expect(prompt).not.toContain('"means"');
   });
 
   it("does not call a model under tests unless one is passed", () => {

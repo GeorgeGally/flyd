@@ -16,6 +16,8 @@ describe("Flyd's standalone conversation source", () => {
   it("acknowledges the choice in plain language and offers iteration feedback only when requested", async () => {
     expect(decisionAcknowledgement("How should the lab proceed?", "another round")).toBe("we're doing another round");
     expect(decisionAcknowledgement("Which design?", "the second one")).toBe("we'll do the second one");
+    expect(decisionAcknowledgement("Which design?", "What are the actual three questions that I need answering? Why aren't they just here?")).toBe("I'll get you an answer");
+    expect(decisionAcknowledgement("Which design?", "Keep the hero as it is today and move the deals row below the sectors on phones")).toBe("I'm on it");
 
     dir = mkdtempSync(join(tmpdir(), "flyd-decision-followup-"));
     const desk = new FlydDesk({ dir, answer: async () => "unused" });

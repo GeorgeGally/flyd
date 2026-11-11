@@ -8,7 +8,7 @@ import { semanticObjectFromShow } from "../semantic.js";
 import { readyItems,
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, heldItems, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   adviceHighlights, pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
-  callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, holdDecisions, decisionProgress, type FleetArtefact,
+  callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, holdDecisions, decisionProgress, reviewLinks, proseLinks, type FleetArtefact,
 } from "../artefact.js";
 import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -1469,5 +1469,30 @@ describe("a hold that puts several decisions to him", () => {
       "- [x] flyd-direction - Flyd: build V3 Notch on the live activity screen https://github.com/GeorgeGally/flyd/pull/240 (repo: /repo/flyd) (kind: ship) (merged 2026-10-29)",
     ].join("\n")), new Map(), now).calls[0];
     expect(settled?.ledgerOnly).toBe(true);
+  });
+});
+
+describe("the CapFive lab questions artefact", () => {
+  const hold = "Review http://127.0.0.1:4387/session/abc and 1. Opinion section: back with member Knowledge Hub posts in an Opinion category, hide when empty, or drop? 2. Reports band heading: Latest reports as built, or Latest deals? 3. V5 tombstones: keep without date captions as built, or restore captions? http://127.0.0.1:4387/session/abc";
+
+  it("says each question once, with its choices", () => {
+    const decisions = holdDecisions(hold);
+    expect(decisions.map((decision) => decision.question)).toEqual([
+      expect.stringMatching(/^Opinion section/),
+      expect.stringMatching(/^Reports band heading/),
+      expect.stringMatching(/^V5 tombstones/),
+    ]);
+    expect(decisions[1]!.options.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("never gives two links to the same review, and prefers the Liesel board", () => {
+    expect(reviewLinks(["http://127.0.0.1:4387/session/abc", "http://127.0.0.1:4387/session/abc."])).toEqual([{ label: "Open design review", url: "http://127.0.0.1:4387/session/abc" }]);
+    expect(reviewLinks(["http://127.0.0.1:4387/session/abc", "http://127.0.0.1:4747/board/cap5"])).toEqual([{ label: "Open board", url: "http://127.0.0.1:4747/board/cap5" }]);
+    expect(reviewLinks(["http://127.0.0.1:4387/session/abc"], "http://127.0.0.1:4387/session/abc")).toEqual([]);
+  });
+
+  it("links the Pierre board itself, not the board with the colon after it", () => {
+    const hold = "Choose the Pierre hardware design direction on http://127.0.0.1:4747/board/e4dc64c8844fac7a: Monza, Receiver, Sleeve, Studio, or Radio.";
+    expect(reviewLinks(proseLinks(hold))).toEqual([{ label: "Open board", url: "http://127.0.0.1:4747/board/e4dc64c8844fac7a" }]);
   });
 });
