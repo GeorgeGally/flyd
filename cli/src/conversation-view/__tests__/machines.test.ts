@@ -102,8 +102,10 @@ describe("a reading", () => {
       writeFileSync(meminfo, "MemTotal: 1 kB\n");
       const before = readdirSync(dir);
       // sh's own trace names every command the script runs. The two checks are aimed so each path runs on any computer.
+      // A pipeline's commands run at once and their trace lines interleave, so the trace runs them one after another.
       const commandsOn = (memory: string, dataVolume: string): string[] => {
-        const script = READ_SCRIPT.replaceAll("/proc/meminfo", memory).replaceAll("/System/Volumes/Data", dataVolume);
+        const script = READ_SCRIPT.replaceAll("/proc/meminfo", memory).replaceAll("/System/Volumes/Data", dataVolume)
+          .replaceAll(" | ", " </dev/null; ");
         const { stderr } = spawnSync("sh", ["-x", "-s"], { input: script, cwd: dir, encoding: "utf8", env: { HOME: dir, PATH: process.env.PATH, PS4: "+ " } });
         return stderr.split("\n").flatMap((line) => /^\++ '?([^\s']+)/.exec(line)?.[1] ?? []);
       };
