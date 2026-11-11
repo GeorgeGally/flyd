@@ -221,6 +221,11 @@ export async function notifyMac(title: string, message: string, kind: GeorgeKind
   await deliverNotification(title, message, kind, work);
 }
 
+/** As notifyMac, returning what became of it, for a caller that records whether George heard (crew/crew.ts). */
+export async function notifyMacOutcome(title: string, message: string, kind: GeorgeKind = "deliverable"): Promise<NotificationOutcome> {
+  return deliverNotification(title, message, kind);
+}
+
 /** What became of a notification: shown, kept as Flyd's own to handle, dropped as a coding session idle at its prompt, held for naming backstage or only saying work is under way, dropped as a repeat of one he heard today, or not delivered. */
 export type NotificationOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered";
 

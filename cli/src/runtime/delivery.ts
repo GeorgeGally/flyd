@@ -1,5 +1,6 @@
 import { listDomainRuns } from "../command/store.js";
 import { cameBack } from "../command/run-state.js";
+import { shownLine } from "../command/report.js";
 import type { DomainResult, DomainRun } from "../command/types.js";
 import { notificationLine, sentencesOf } from "../council/standard.js";
 import { ASKS_HIM, fitsAtAGlance, LINE_CHARS, MAX_CHARS, MAX_LINES } from "../conversation-view/for-george.js";
@@ -333,17 +334,18 @@ export const CONTEXT_HOURS = 48;
 /**
  * Work that came back lately, each as the line he was actually sent, for
  * the next chat turn: so "what did it say?" is answered without a tool call.
- * Only work he was actually told about is in it: Flyd's own notes to the staff,
+ * Only work he was actually shown is in it (its report record says "shown"; a line the notification gate screened
+ * out was never sent): Flyd's own notes to the staff,
  * its own fixes, and runs settled quietly or held are backstage.
  */
 export function deliveredPromptBlock(now = new Date(), runs: DomainRun[] = listDomainRuns()): string {
   const since = now.getTime() - CONTEXT_HOURS * 3_600_000;
   const lines = runs
-    .filter((run) => run.notified && run.told?.line && cameBack(run.status)
+    .filter((run) => shownLine(run) && cameBack(run.status)
       && run.request.source !== "flyd" && run.request.source !== "self-improvement" && Date.parse(run.updatedAt) >= since)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, CONTEXT_REPORTS)
-    .map((run) => `- ${run.told!.line}`);
+    .map((run) => `- ${shownLine(run)!}`);
   if (!lines.length) return "";
   return ["", "## Work that came back lately (newest first)", ...lines, "When he asks what came back or what it said, answer from this. The full report is in domain_work.", ""].join("\n");
 }

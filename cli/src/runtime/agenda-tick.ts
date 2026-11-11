@@ -98,8 +98,9 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
     {
       name: "crew", usesModel: false,
       run: async () => {
-        const { superviseCrew } = await import("../crew/crew.js");
-        return (await superviseCrew({ notify: notifyMac })).map((task) => `${task.id} ${task.status}`).join("; ");
+        const [{ superviseCrew }, { notifyMacOutcome }] = await Promise.all([import("../crew/crew.js"), import("./agenda.js")]);
+        // Crew counts a task notified only when the Mac took its notice.
+        return (await superviseCrew({ notify: notifyMacOutcome })).map((task) => `${task.id} ${task.status}`).join("; ");
       },
     },
     {

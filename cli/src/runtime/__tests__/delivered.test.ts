@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
-import { DELIVERED_SOURCE, deliverOnce, deliverOwed, MAX_TRIES, seedOnce, UNFINISHED_CLAIM_MS, type DeliveredRecord, type DeliveryReport } from "../delivered.js";
+import { DELIVERED_SOURCE, deliverOnce, deliverOwed, deliveryState, holdReport, markBriefed, MAX_TRIES, seedOnce, withdrawReport, UNFINISHED_CLAIM_MS, type DeliveredRecord, type DeliveryReport } from "../delivered.js";
 
 let dir: string | undefined;
 afterEach(() => {
@@ -26,16 +26,37 @@ function deliveredRecords(store: IntelligenceEventStore): DeliveredRecord[] {
 const report = (key: string, line = `Done: ${key}.`): DeliveryReport => ({ key, line, work: key });
 
 describe("flyd.delivered", () => {
+  it("reports what George saw apart from what the gate screened out, and where each report stands", async () => {
+    const store = new IntelligenceEventStore({ path: home() });
+    const outcomes: Record<string, "shown" | "kept" | "placeholder" | "undelivered"> = { "Done: work:s.": "shown", "Done: work:k.": "kept", "Done: work:p.": "placeholder", "Done: work:u.": "undelivered" };
+    const delivered = await deliverOnce(["work:s", "work:k", "work:p", "work:u"].map((key) => report(key)), { store, say: async (_title, message) => outcomes[message] });
+    expect(delivered.told.map((said) => said.key)).toEqual(["work:s", "work:k", "work:p", "work:u"]);
+    expect(delivered.shown.map((said) => said.key)).toEqual(["work:s"]);
+    expect(delivered.screened.map((said) => said.key)).toEqual(["work:k", "work:p"]);
+    expect(delivered.owed.map((said) => said.key)).toEqual(["work:u"]);
+    expect(delivered.states).toEqual({ "work:s": "shown", "work:k": "screened", "work:p": "screened", "work:u": "owed" });
+    // Asked again: nothing is said, and each still reads where it stands.
+    expect((await deliverOnce([report("work:k")], { store, say: async () => "shown" })).states).toEqual({ "work:k": "screened" });
+    // Held, then briefed in the morning: he saw it. Held, then withdrawn: it never rings.
+    holdReport(report("work:h"), { until: "break" }, { store });
+    holdReport(report("work:w"), { until: "break" }, { store });
+    expect(deliveryState("work:h", { store })).toBe("held");
+    markBriefed(["work:h"], { store });
+    withdrawReport("work:w", { store });
+    expect([deliveryState("work:h", { store }), deliveryState("work:w", { store }), deliveryState("work:none", { store })]).toEqual(["shown", "withdrawn", undefined]);
+    store.close();
+  });
+
   it("tells each report once, and a restart on the same store tells none again", async () => {
     const path = home();
     const said: string[] = [];
     const say = async (_title: string, message: string) => { said.push(message); return "shown" as const; };
     let store = new IntelligenceEventStore({ path });
     expect((await deliverOnce([report("work:a"), report("work:b"), report("work:a")], { store, say })).told).toHaveLength(2);
-    expect(await deliverOnce([report("work:a")], { store, say })).toEqual({ told: [], owed: [] });
+    expect(await deliverOnce([report("work:a")], { store, say })).toMatchObject({ told: [], owed: [] });
     store.close();
     store = new IntelligenceEventStore({ path });
-    expect(await deliverOnce([report("work:a"), report("work:b")], { store, say })).toEqual({ told: [], owed: [] });
+    expect(await deliverOnce([report("work:a"), report("work:b")], { store, say })).toMatchObject({ told: [], owed: [] });
     expect(said).toEqual(["Done: work:a.", "Done: work:b."]);
     expect(deliveredRecords(store).map((record) => [record.key, record.outcome])).toEqual([["work:a", "shown"], ["work:b", "shown"]]);
     store.close();
@@ -80,7 +101,8 @@ describe("flyd.delivered", () => {
     // Cut off again: whether he heard it is unknown, so it is not said a third time.
     const said: string[] = [];
     const after = await deliverOnce([report("work:c")], { store, say: async (_t, message) => { said.push(message); }, now: () => new Date(later.getTime() + UNFINISHED_CLAIM_MS + 1) });
-    expect([after, said]).toEqual([{ told: [], owed: [] }, []]);
+    expect(after).toMatchObject({ told: [], owed: [] });
+    expect(said).toEqual([]);
     store.close();
   });
 
@@ -101,7 +123,7 @@ describe("flyd.delivered", () => {
     const said: Array<[string, string | undefined, string | undefined]> = [];
     const told = await deliverOwed({ store, say: async (_t, message, kind, work) => { said.push([message, kind, work]); return "shown"; }, now: step(18) });
     expect([said, told.owed]).toEqual([[["Done: work:d.", "deliverable", "the footer"]], []]);
-    expect(await deliverOwed({ store, say: async () => "shown", now: step(30) })).toEqual({ told: [], owed: [] });
+    expect(await deliverOwed({ store, say: async () => "shown", now: step(30) })).toMatchObject({ told: [], owed: [] });
     expect(deliveredRecords(store).map((record) => [record.key, record.outcome])).toEqual([["work:d", "shown"]]);
     store.close();
   });
@@ -121,7 +143,7 @@ describe("flyd.delivered", () => {
     }
     expect([tries, MAX_TRIES]).toEqual([7, 6]);
     // Given up: no longer owed, never tried again.
-    expect(await deliverOwed({ store, say, now: () => new Date(at.getTime() + 2 * 24 * 60 * 60_000) })).toEqual({ told: [], owed: [] });
+    expect(await deliverOwed({ store, say, now: () => new Date(at.getTime() + 2 * 24 * 60 * 60_000) })).toMatchObject({ told: [], owed: [] });
     expect(tries).toBe(7);
     store.close();
   });
@@ -139,7 +161,7 @@ describe("flyd.delivered", () => {
     expect(seedOnce(["work:new-1"], { store })).toBe(false);
     await deliverOnce([report("work:old-1"), report("work:new-1")], { store, say });
     expect(said).toEqual(["Done: work:new-1."]);
-    expect(await deliverOwed({ store, say, now: () => new Date(Date.now() + 24 * 60 * 60_000) })).toEqual({ told: [], owed: [] });
+    expect(await deliverOwed({ store, say, now: () => new Date(Date.now() + 24 * 60 * 60_000) })).toMatchObject({ told: [], owed: [] });
     store.close();
   });
 });
