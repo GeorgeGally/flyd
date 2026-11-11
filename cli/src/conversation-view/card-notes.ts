@@ -23,8 +23,8 @@ export interface NoteResult {
   body: Record<string, unknown>;
 }
 
-/** Where an accepted note went: the id its route gave it, or that it could not be delivered. */
-export type NoteOutcome = { id: string } | { failed: string };
+/** Where an accepted note went: the id its route gave it with what else the route said, or that it could not be delivered. */
+export type NoteOutcome = { id: string; followUp?: unknown; pictureFailed?: true; warning?: unknown } | { failed: string };
 
 /** A stand-in response that keeps what routing would have said, so it can be told now or later. */
 export class HeldResponse {
@@ -51,13 +51,20 @@ export class HeldResponse {
 /** The plain line a card shows when a note it was told was accepted could not be delivered after all. */
 export const NOT_DELIVERED = "Not delivered. Try again.";
 
-type Spooled = { payload: unknown; at: number } | { outcome: NoteOutcome; at: number };
+type Spooled = { payload: unknown; card?: string; at: number } | { outcome: NoteOutcome; at: number };
+
+/** Routes one note into a held response; a route that throws is a failed delivery, never a rejection. */
+async function routed(route: (res: HeldResponse) => Promise<void>): Promise<NoteResult> {
+  const res = new HeldResponse();
+  try { await route(res); } catch { /* an empty response is a failed delivery */ }
+  return res.result();
+}
 
 export class CardNotes {
   private readonly root: string;
   private readonly acceptMs: number;
-  /** Notes route one at a time, in the order they came: a later one never overtakes an earlier one. */
-  private chain: Promise<unknown> = Promise.resolve();
+  /** Each card's notes route one at a time, in the order they came: a later one never overtakes an earlier one, and cards never wait on each other. */
+  private readonly chains = new Map<string, Promise<unknown>>();
   private readonly byClient = new Map<string, Promise<NoteResult>>();
   private readonly settled = new Map<string, NoteOutcome>();
 
@@ -71,12 +78,12 @@ export class CardNotes {
    * quickly, else with an accepted receipt while routing goes on. The same client id sent again
    * (a resend after a timeout, a second copy of the card) gets the same answer, never a second route.
    */
-  accept(payload: unknown, clientId: string | undefined, route: (res: HeldResponse) => Promise<void>): Promise<NoteResult> {
+  accept(payload: unknown, clientId: string | undefined, card: string, route: (res: HeldResponse) => Promise<void>): Promise<NoteResult> {
     const known = clientId ? this.byClient.get(clientId) : undefined;
     if (known) return known;
     // Only a note that went is remembered: a failure, told now or after it was accepted, is his to send again, and that must route.
     const forget = () => { if (clientId && this.byClient.get(clientId) === result) this.byClient.delete(clientId); };
-    const result: Promise<NoteResult> = this.take(payload, route, forget).then((outcome) => {
+    const result: Promise<NoteResult> = this.take(payload, card, route, forget).then((outcome) => {
       if (outcome.status >= 400) forget();
       return outcome;
     });
@@ -114,41 +121,38 @@ export class CardNotes {
         if (Date.now() - spooled.at > SETTLED_KEEP_MS) rmSync(this.path(id), { force: true });
         continue;
       }
-      void this.queue(id, (res) => route(spooled.payload, res));
+      void this.queue(id, spooled.card ?? "", (res) => route(spooled.payload, res));
     }
   }
 
-  private async take(payload: unknown, route: (res: HeldResponse) => Promise<void>, forget: () => void): Promise<NoteResult> {
+  private async take(payload: unknown, card: string, route: (res: HeldResponse) => Promise<void>, forget: () => void): Promise<NoteResult> {
     // Ids sort in the order notes came, so a restart replays them in that order too.
     const id = `pending:${Date.now().toString().padStart(15, "0")}-${randomBytes(6).toString("hex")}`;
     try {
-      this.write(id, { payload, at: Date.now() });
+      this.write(id, { payload, card, at: Date.now() });
     } catch {
       // Nowhere to keep it: routed in place, and he waits for the answer as before.
-      const res = new HeldResponse();
-      await this.serial(() => route(res));
-      return res.result();
+      return this.serial(card, () => routed(route));
     }
-    const routed = this.queue(id, route).then((result) => {
+    const delivered = this.queue(id, card, route).then((result) => {
       if (result.status >= 400) forget();
       return result;
     });
     let timer: NodeJS.Timeout | undefined;
     const slow = new Promise<"slow">((resolve) => { timer = setTimeout(() => resolve("slow"), this.acceptMs); timer.unref?.(); });
-    const first = await Promise.race([routed, slow]);
+    const first = await Promise.race([delivered, slow]);
     clearTimeout(timer);
     if (first !== "slow") return first;
     return { status: 200, body: { id, timestamp: new Date().toISOString(), waiting: "Sent to Flyd" } };
   }
 
   /** Routes one spooled note in its turn and records where it went. */
-  private queue(id: string, route: (res: HeldResponse) => Promise<void>): Promise<NoteResult> {
-    return this.serial(async () => {
-      const res = new HeldResponse();
-      try { await route(res); } catch { /* an empty response is a failed delivery */ }
-      const result = res.result();
+  private queue(id: string, card: string, route: (res: HeldResponse) => Promise<void>): Promise<NoteResult> {
+    return this.serial(card, async () => {
+      const result = await routed(route);
+      const { followUp, pictureFailed, warning } = result.body;
       const outcome: NoteOutcome = result.status < 400 && typeof result.body.id === "string"
-        ? { id: result.body.id }
+        ? { id: result.body.id, ...(followUp ? { followUp } : {}), ...(pictureFailed === true ? { pictureFailed: true as const } : {}), ...(warning ? { warning } : {}) }
         : { failed: NOT_DELIVERED };
       this.settled.set(id, outcome);
       try { this.write(id, { outcome, at: Date.now() }); } catch { /* kept in memory for this run */ }
@@ -156,9 +160,10 @@ export class CardNotes {
     });
   }
 
-  private serial<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.chain.then(work, work);
-    this.chain = next.catch(() => undefined);
+  private serial<T>(card: string, work: () => Promise<T>): Promise<T> {
+    const next = (this.chains.get(card) ?? Promise.resolve()).then(work, work);
+    const tail = next.then(() => undefined, () => undefined).then(() => { if (this.chains.get(card) === tail) this.chains.delete(card); });
+    this.chains.set(card, tail);
     return next;
   }
 

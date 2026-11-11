@@ -939,6 +939,41 @@ describe("ConversationViewServer", () => {
     expect(await note(second.id)).toMatchObject({ id: "note:2", receipt: "sent" });
   });
 
+  it("routes one card's notes without waiting on another card's slow route", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    Object.assign(server!, { cardNotes: new CardNotes({ root: join(dir!, "card-notes"), acceptMs: 50 }), liveCall: async () => { await gate; return undefined; } });
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const slow = JSON.parse((await post(port, JSON.stringify({ decision: "logan-chat", decisionTask: "logan-chat", jobTitle: "Logan chat", questionText: "Go-ahead to land Logan chat?", text: "Yes", clientId: "note-a" }), headers)).body);
+    expect(slow.id).toMatch(/^pending:/);
+    const other = JSON.parse((await post(port, JSON.stringify({ about: { title: "Christmas map", task: "xmas" }, text: "Make it calmer", clientId: "note-b" }), headers)).body);
+    expect(other.id).not.toMatch(/^pending:/);
+    expect(inbox.sent.map((message) => message.text.split("\n\n").at(-1))).toEqual(["Make it calmer"]);
+    release();
+  });
+
+  it("returns what a slow route said about a note, not only its id", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    const notes = new CardNotes({ root: join(dir!, "card-notes"), acceptMs: 20 });
+    Object.assign(server!, { cardNotes: notes });
+    const accepted = await notes.accept({}, "note-f", "card", async (res) => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      res.writeHead(200).end(JSON.stringify({ id: "note:1", followUp: "exec-1" }));
+    });
+    expect(accepted.body.id).toMatch(/^pending:/);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(JSON.parse((await get(port, `/api/note?id=${encodeURIComponent(String(accepted.body.id))}&token=${viewToken}`)).body)).toMatchObject({ id: "note:1", followUp: "exec-1" });
+  });
+
+  it("lets a note go again after a route that threw when it could not be kept on disk", async () => {
+    const notes = new CardNotes({ root: "/dev/null/card-notes" });
+    await expect(notes.accept({}, "note-x", "card", async () => { throw new Error("down"); })).resolves.toMatchObject({ status: 502 });
+    await expect(notes.accept({}, "note-x", "card", async (res) => { res.writeHead(200).end(JSON.stringify({ id: "note:2" })); })).resolves.toMatchObject({ status: 200, body: { id: "note:2" } });
+  });
+
   it("tells the card a note it accepted could not be delivered, and lets the same note go again", async () => {
     const inbox = new MemoryInbox();
     const port = await start(inbox);

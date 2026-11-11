@@ -775,6 +775,12 @@ function sameToken(given: string | string[] | undefined, expected: string): bool
 }
 
 /** What a message to Flyd may carry, from the composer, a card's chat box or a reply. */
+/** The card a note is about, so one card's notes go in order without holding up another's. */
+function cardOf(payload: SendPayload): string {
+  const about = payload.about && typeof payload.about === "object" ? payload.about as { task?: unknown; title?: unknown } : undefined;
+  return JSON.stringify([payload.decisionTask ?? payload.decision ?? payload.decisionFollowUp ?? payload.domainRun ?? about?.task ?? about?.title ?? payload.replyTo ?? ""]);
+}
+
 type SendPayload = { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; domainRun?: unknown; jobTitle?: unknown; replyTo?: unknown; questionText?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -1066,14 +1072,15 @@ export class ConversationViewServer {
       // asking until one arrives or the note goes from the inbox for good.
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
       let id = url.searchParams.get("id") ?? "";
+      let said: Record<string, unknown> = {};
       // A note accepted while its route was still being worked out: once routed, the card is told its real id.
       if (id.startsWith("pending:")) {
         const outcome = this.cardNotes.outcome(id);
         if (!outcome) { sendJson(res, 200, { receipt: this.cardNotes.routing(id) ? "sent" : null }); return; }
         if ("failed" in outcome) { sendJson(res, 200, { receipt: "sent", notDelivered: outcome.failed }); return; }
-        id = outcome.id;
+        ({ id, ...said } = outcome);
       }
-      const routedId = id === url.searchParams.get("id") ? {} : { id };
+      const routedId = id === url.searchParams.get("id") ? {} : { id, ...said };
       const note = (this.source.exchanges?.() ?? []).find((exchange) => exchange.question.id === id);
       const chat = note && !note.answer && this.source.noteAnswer ? await this.source.noteAnswer(id).catch(() => undefined) : undefined;
       const answer = note?.answer ?? chat;
@@ -1744,10 +1751,10 @@ export class ConversationViewServer {
     }
     // His note from a card is accepted as soon as Core has it; routing it (a decision answer waits
     // for a fresh fleet read) goes on behind, in the order he sent his notes.
-    if (payload.domainRun !== undefined || payload.decision !== undefined || payload.decisionFollowUp !== undefined || payload.about !== undefined) {
-      const clientId = typeof payload.clientId === "string" && payload.clientId.length <= 100 ? payload.clientId : undefined;
+    const clientId = typeof payload.clientId === "string" && payload.clientId.length <= 100 ? payload.clientId : undefined;
+    if (payload.domainRun !== undefined || payload.decision !== undefined || payload.decisionFollowUp !== undefined || payload.about !== undefined || (payload.replyTo !== undefined && clientId)) {
       const { clientId: _client, ...note } = payload;
-      const result = await this.cardNotes.accept(note, clientId, (held) => this.routeNote(note, held as unknown as ServerResponse));
+      const result = await this.cardNotes.accept(note, clientId, cardOf(note), (held) => this.routeNote(note, held as unknown as ServerResponse));
       sendJson(res, result.status, result.body);
       return;
     }

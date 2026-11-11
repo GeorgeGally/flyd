@@ -2300,6 +2300,76 @@ describe("header and artefact view", () => {
     expect(JSON.parse(localStorage.getItem("flyd-decision:logan-chat") || "[]").map((entry: { id: string }) => entry.id)).toEqual(["ask:1", "ask:2"]);
   });
 
+  it("resends the whole note when Core accepted it and then could not deliver it", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+      chat.value = "Make the pins bigger";
+      chat.dispatchEvent(new Event("input"));
+      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "pending:1", waiting: "Sent to Flyd" } : String(url).startsWith("/api/note?") ? { receipt: "sent", notDelivered: "Not delivered. Try again." } : {}));
+      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+      vi.advanceTimersByTime(4000);
+      await settle();
+      expect(ask.querySelector(".art-failed")!.textContent).toContain("Not delivered");
+      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "note:pins" } : {}));
+      ask.querySelector<HTMLButtonElement>(".art-retry")!.click();
+      await settle();
+      const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
+      expect(sends).toHaveLength(2);
+      expect(sends[1]).toEqual(sends[0]);
+      expect(sends[1]).toMatchObject({ text: "Make the pins bigger", decision: "visuals", clientId: expect.stringMatching(/^note-/) });
+      expect(ask.querySelector(".art-failed")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks for the follow-up a slow decision answer needs once Core says where it went", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    try {
+      load("");
+      await settle();
+      const stream = open("latest", []);
+      const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
+      stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+      document.getElementById("flip")!.click();
+      const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+      const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+      chat.value = "Another round";
+      chat.dispatchEvent(new Event("input"));
+      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "pending:1", waiting: "Sent to Flyd" } : String(url).startsWith("/api/note?") ? { id: "note:1", receipt: "sent", followUp: "exec-1" } : {}));
+      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+      vi.advanceTimersByTime(3000);
+      await settle();
+      expect(JSON.parse(sessionStorage.getItem("flyd-decision:visuals") || "{}").followUpRequired).toBe("exec-1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says a picture did not go when a reload sends its note without it", async () => {
+    localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "Like this", key: "note-left", pictures: 1, body: { text: "Like this", session: "latest", decision: "visuals", decisionTask: "visuals", questionText: "Choose from the lab" } }]));
+    vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "note:pins" } : {}));
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    await settle();
+    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+    expect(ask.querySelector(".art-entry .art-failed")!.textContent).toBe("Picture not sent - attach it again");
+  });
+
   it("sends a note left unsent by a reload when the card comes back", async () => {
     localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "Make the pins bigger", key: "note-left", body: { text: "Make the pins bigger", session: "latest", decision: "visuals", decisionTask: "visuals", questionText: "Choose from the lab" } }]));
     vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "note:pins" } : {}));

@@ -79,7 +79,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
         mine.forEach(function (entry, index) { if ((other.id && entry.id === other.id) || (other.key && entry.key === other.key)) at = index; });
         if (at === -1) { mine.splice(after + 1, 0, Object.assign({}, other)); after += 1; return; }
         var entry = mine[at];
-        if (!entry.id && other.id) { entry.id = other.id; delete entry.failed; }
+        if (!entry.id && other.id && other.id.indexOf("pending:") !== 0) { entry.id = other.id; delete entry.failed; }
         if (!entry.answer && other.answer) entry.answer = other.answer;
         if (other.done) entry.done = true;
         after = Math.max(after, at);
@@ -159,6 +159,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
       (state.thread || []).forEach(function (entry) {
         var box = el("div", "art-entry");
         box.appendChild(el("p", "art-msg art-msg--you", entry.text));
+        if (entry.picturesLost) box.appendChild(el("p", "art-msg art-failed", "Picture not sent - attach it again"));
         if (!entry.id) {
           box.appendChild(unsentLine(entry));
         } else if (entry.answer) {
@@ -255,7 +256,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
             if (!data) return;
             var entry = waiting[index];
             // Accepted while its route was being worked out: now the card follows the real note.
-            if (data.id && data.id !== entry.id) { entry.id = data.id; changed = true; }
+            if (data.id && data.id !== entry.id) { entry.id = data.id; settle(entry, data); changed = true; }
             // Accepted, then it could not be delivered after all: he sees that, with a way to send it again.
             if (data.notDelivered && !entry.answer) {
               delete entry.id;
@@ -325,7 +326,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
         return line;
       }
       line.appendChild(el("span", "art-pulse"));
-      line.appendChild(el("span", "", entry === inFlight || !inFlight ? "Sending" : "Waiting to send"));
+      line.appendChild(el("span", "", entry === inFlight || (!inFlight && unsent()[0] === entry) ? "Sending" : "Waiting to send"));
       return line;
     }
     function bodyFor(text, sending) {
@@ -345,12 +346,27 @@ export const ARTEFACT_CHAT_SCRIPT = `
       if (sending.length) body.images = sending.map(function (image) { return { mediaType: image.mediaType, data: image.data }; });
       return body;
     }
+    // Where a note went is known: it is done with, and what the route said about it is his to see.
+    function settle(entry, data) {
+      var sending = entry.images || [];
+      delete entry.body;
+      delete entry.images;
+      // A warning is the server's own reason: only a picture that missed is his to send again; anything else was saved and goes on.
+      var pictureFailed = data.pictureFailed === true && sending.length > 0;
+      state.error = pictureFailed ? "The picture didn't go through; send it again" : data.warning ? "Saved; Flyd passes it on shortly" : "";
+      if (target.decision && data.followUp) state.followUpRequired = data.followUp;
+      if (pictureFailed) {
+        state.attachmentRetry = true;
+        images = sending.concat(images);
+      } else if (!unsent().length) state.attachmentRetry = false;
+      paintImages();
+    }
     function deliver(text, done) {
       state.error = "";
       var sending = takesImages ? images.slice() : [];
       // His words stand in the card's own thread the moment he sends them, not when a reply comes.
       // Only the newest few dozen are kept: old ones have long scrolled off the card anyway.
-      var entry = { text: text, key: "note-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10), body: bodyFor(text, []), images: sending };
+      var entry = { text: text, key: "note-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10), body: bodyFor(text, []), images: sending, pictures: sending.length };
       if (done) after[entry.key] = done;
       state.thread = (state.thread || []).concat([entry]).slice(-50);
       // The box empties as he sends, and so does the saved draft. A picture that went with this note
@@ -378,6 +394,8 @@ export const ARTEFACT_CHAT_SCRIPT = `
       paintThread();
       paint();
       var sending = entry.images || [];
+      // Pictures stay in memory only: a note brought back by a reload goes without them, and he is told.
+      if (entry.pictures && !sending.length) entry.picturesLost = true;
       var body = Object.assign({}, entry.body, { clientId: entry.key });
       if (sending.length) body.images = sending.map(function (image) { return { mediaType: image.mediaType, data: image.data }; });
       var controller = typeof AbortController === "function" ? new AbortController() : null;
@@ -393,18 +411,10 @@ export const ARTEFACT_CHAT_SCRIPT = `
           if (!result.ok) throw new Error("Not delivered. Try again.");
           // Accepted is accepted: a receipt without an id still never sends the note again.
           entry.id = typeof result.data.id === "string" && result.data.id ? result.data.id : entry.key;
-          delete entry.body;
-          delete entry.images;
           state.receipt = unsent().length ? "sending" : "sent";
-          // A warning is the server's own reason: only a picture that missed is his to send again; anything else was saved and goes on.
-          var pictureFailed = result.data.pictureFailed === true && sending.length > 0;
-          state.error = pictureFailed ? "The picture didn't go through; send it again" : result.data.warning ? "Saved; Flyd passes it on shortly" : "";
-          if (target.decision && result.data.followUp) state.followUpRequired = result.data.followUp;
-          if (pictureFailed) {
-            state.attachmentRetry = true;
-            images = sending.concat(images);
-          } else if (!unsent().length) state.attachmentRetry = false;
-          paintImages();
+          // Accepted while still routing: the note is kept whole until Core says where it went, in case it must go again.
+          if (entry.id.indexOf("pending:") === 0) state.error = "";
+          else settle(entry, result.data);
           if (after[entry.key]) { after[entry.key](); delete after[entry.key]; }
           save();
           paint();
