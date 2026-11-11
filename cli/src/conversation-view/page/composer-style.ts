@@ -115,6 +115,18 @@ export const COMPOSER_STYLE = `
 .commands .about { font-size: 0.66em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .commands .none { font: 0.72em var(--mono); color: var(--muted); cursor: default; }
 .commands.in-box { position: static; max-height: 14em; margin: 6px 0 0; padding: 0; font-size: 16px; background: transparent; border-radius: 0; box-shadow: none; }
+/* Where the message goes, always said: Flyd's general chat, or the project he is in or picked. */
+.composer .scope-line { position: relative; display: flex; margin: 0 0 0.4em -0.25em; }
+.composer .scope { padding: 4px 6px; border-radius: 5px; background: transparent; color: var(--muted); font: 500 13px/1.2 var(--sans); letter-spacing: 0; text-transform: none; transition: color 140ms ease, background 140ms ease; }
+.composer .scope:hover, .composer .scope[aria-expanded="true"] { color: var(--strong); background: var(--tint); }
+.composer .scope:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.composer .scope #scope-name { color: var(--fg); font-weight: 600; }
+.composer .scope.project #scope-name { color: var(--accent); }
+.composer .scope-menu { position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 5; min-width: 12em; max-height: 16em; overflow: auto; margin: 0; padding: 4px; list-style: none; border-radius: 8px; background: var(--bg); box-shadow: 0 6px 24px color-mix(in srgb, var(--fg) 16%, transparent); }
+.composer .scope-menu[hidden] { display: none; }
+.composer .scope-menu button { display: block; width: 100%; padding: 7px 10px; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 400 14px/1.3 var(--sans); letter-spacing: 0; text-transform: none; }
+.composer .scope-menu button:hover, .composer .scope-menu button:focus-visible { background: var(--tint); outline: 0; }
+.composer .scope-menu button[aria-selected="true"] { font-weight: 600; }
 .composer .hint { margin-top: 0.45em; min-height: 1em; font: 12.5px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 @media (max-width: 720px) {

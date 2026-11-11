@@ -1,6 +1,6 @@
 import { articleChat, listArticleChats } from "./article-chat.js";
 import type { FlydDesk } from "./flyd-desk.js";
-import type { ConversationFollower, ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
+import type { ChatScope, ConversationFollower, ConversationMessage, ConversationSnapshot, ConversationSource, Exchange, FileUpload, ImageData, ImageUpload, Recipient, SentMessage, SessionSummary } from "./types.js";
 
 export const FLYD_CONVERSATION_ID = "conversation";
 const WINDOW_SESSION = /^window:[A-Za-z0-9-]{8,64}$/;
@@ -77,9 +77,9 @@ export class FlydConversationSource implements ConversationSource {
     return { close: () => { closed = true; clearInterval(timer); } };
   }
 
-  async send(sessionId: string, text: string, images: ImageUpload[] = [], files: FileUpload[] = []): Promise<SentMessage> {
+  async send(sessionId: string, text: string, images: ImageUpload[] = [], files: FileUpload[] = [], _to?: Recipient, scope?: ChatScope): Promise<SentMessage> {
     if (!this.isConversationSession(sessionId)) throw new Error(`No such Flyd conversation: ${sessionId}`);
-    return this.options.desk.ask(text, images, sessionId, files);
+    return this.options.desk.ask(text, images, sessionId, files, scope);
   }
 
   async sendDecisionFollowUp(text: string, decision: { decisionId: string; taskId: string }, sessionId?: string): Promise<SentMessage> {

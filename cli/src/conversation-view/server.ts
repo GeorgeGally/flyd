@@ -782,7 +782,7 @@ function cardOf(payload: SendPayload): string {
 }
 
 /** What a message to Flyd may carry, from the composer, a card's chat box or a reply. */
-type SendPayload = { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; domainRun?: unknown; jobTitle?: unknown; replyTo?: unknown; questionText?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
+type SendPayload = { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; domainRun?: unknown; jobTitle?: unknown; replyTo?: unknown; questionText?: unknown; comment?: unknown; about?: unknown; passage?: unknown; scope?: unknown };
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -1933,7 +1933,9 @@ export class ConversationViewServer {
     }
     try {
       const expanded = await expandScrawl({ text: payload.text, images: images as ImageUpload[] });
-      const sent = await this.source.send(payload.session, expanded.text, expanded.images, files as FileUpload[]);
+      // Where the message box said it goes: a project's name, or "" for the general chat. Absent from older pages.
+      const scope = typeof payload.scope === "string" && payload.scope.length <= 80 ? { ...(payload.scope.trim() ? { project: payload.scope.trim() } : {}) } : undefined;
+      const sent = await this.source.send(payload.session, expanded.text, expanded.images, files as FileUpload[], undefined, scope);
       if (expanded.bundle) {
         await fileScrawl(expanded.bundle).catch((error: unknown) =>
           console.warn(`[view] Flyd could not file the Scrawl capture: ${error instanceof Error ? error.message : String(error)}`));
