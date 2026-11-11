@@ -318,6 +318,12 @@ describe("jobsFrom", () => {
     expect(job.decisions).toBeUndefined();
   });
 
+  it("puts a run's numbered instruction on its own card beside the question it is numbered with", () => {
+    const job = jobsFrom({ runs: [run({ status: "needs_decision", question: "(1) keep the lab version - yes/no; (2) tell me the new tab's name" })], now: NOW }).jobs[0]!;
+    expect(job.decisions?.map((decision) => decision.question)).toEqual(["Keep the lab version", "Tell me the new tab's name"]);
+    expect(job.choices).toBeUndefined();
+  });
+
   it("gives a card the reading of its own item, never another item's in the same project", () => {
     // The Week page PR and the WhatsApp card are both Flyd work; the WhatsApp reading is newer.
     const week = "The Week page now shows each hour's changes when you hover a bar. ".repeat(6);

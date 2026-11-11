@@ -1451,6 +1451,13 @@ describe("a hold that puts several decisions to him", () => {
     expect(holdDecisions("Pick one: 1) Departures 2) Picture desk")).toHaveLength(1);
   });
 
+  it("puts a bracketed hold's instruction on its own card beside the question it is numbered with", () => {
+    expect(holdDecisions("Two calls: 1) keep the lab version - yes/no; 2) tell me the new tab's name").map((decision) => decision.question)).toEqual([
+      "Keep the lab version",
+      "Tell me the new tab's name",
+    ]);
+  });
+
   it("marks the recommended answer with the same words its button shows", () => {
     expect(holdDecisions("1) WhatsApp card: keep it (recommended), or remove it; 2) News tab: anything else?")[0]).toEqual(
       { question: "WhatsApp card", options: ["Keep it", "Remove it"], recommended: "Keep it" },

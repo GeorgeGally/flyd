@@ -444,7 +444,7 @@ export function jobsFrom(input: {
     // A run that asks several numbered questions at once puts each to him on its own card.
     const numbered = lead.group === "needs" && !lead.decision && lead.ask ? holdDecisions(lead.ask) : [];
     // Numbered answers ("Which direction? 1. Departures 2. Picture desk") are one question, not several.
-    const several = numbered.length > 1 && numbered.every(asksSomething) ? numbered : null;
+    const several = numbered.length > 1 && numbered.some(asksSomething) ? numbered : null;
     const answers = lead.group === "needs" && !several ? answersOf(lead, digestSaid) : null;
     jobs.push({
       id: bucket.id,
