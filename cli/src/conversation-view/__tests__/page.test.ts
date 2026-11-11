@@ -2348,9 +2348,12 @@ describe("header and artefact view", () => {
       vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "pending:1", waiting: "Sent to Flyd" } : String(url).startsWith("/api/note?") ? { id: "note:1", receipt: "sent", followUp: "exec-1" } : {}));
       ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
       await settle();
+      // Not routed yet: nothing to reply to until Core says where it went.
+      expect(ask.querySelector(".art-reply")).toBeNull();
       vi.advanceTimersByTime(3000);
       await settle();
       expect(JSON.parse(sessionStorage.getItem("flyd-decision:visuals") || "{}").followUpRequired).toBe("exec-1");
+      expect(ask.querySelector(".art-reply")).not.toBeNull();
     } finally {
       vi.useRealTimers();
     }

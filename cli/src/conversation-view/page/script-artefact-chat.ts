@@ -172,7 +172,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
           line.appendChild(el("span", "", workingWords(entry)));
           box.appendChild(line);
         }
-        if (entry.id) box.appendChild(replyOpener(entry));
+        if (entry.id && entry.id !== entry.key && entry.id.indexOf("pending:") !== 0) box.appendChild(replyOpener(entry));
         thread.appendChild(box);
       });
       if (focused && focused.isConnected && document.activeElement !== focused) focused.focus();
