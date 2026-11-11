@@ -4,9 +4,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, uti
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FirstmateDomainTransport, firstmateRequestBody, sessionLaunchFailures, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
+import { defaultFirstmateExec, FirstmateDomainTransport, firstmateRequestBody, sessionLaunchFailures, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
 import { captainNotice } from "../notice.js";
 import { parseDomainResult } from "../result.js";
+import { createLaunchFailureCache } from "../../runtime/repeat-guard.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, saveDomainRun } from "../store.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -1073,6 +1074,51 @@ describe("FirstMate domain transport", () => {
       }
     }
   }
+
+  it("caches a runtime from sessions that die at startup, but not from sessions that die mid-work", async () => {
+    const home = join(dir, "firstmate-mid-session");
+    const bin = join(dir, "bin-mid-session");
+    mkdirSync(home, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    const gate = join(dir, "mid-session-gate");
+    writeFileSync(join(bin, "claude"), `#!/bin/sh\nwhile [ ! -f ${JSON.stringify(gate)} ]; do sleep 0.02; done\necho "API Error: 500 Internal server error"\nexit 1\n`, { mode: 0o755 });
+    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_ALLOW_LAUNCH: process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH };
+    process.env.PATH = `${bin}:${process.env.PATH}`;
+    process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH = "1";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      let cache = createLaunchFailureCache();
+      const drive = async (request: string, liveForMs: number) => {
+        rmSync(gate, { force: true });
+        const attempts: Record<string, unknown>[] = [];
+        const result = await startFirstmateSession({
+          home, script: "/fake/fm-inbox.sh", exec: defaultFirstmateExec, request,
+          readiness: { available: true, canReceive: false, liveHarness: false },
+          env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
+          recordAttempt: (entry) => { attempts.push(entry); },
+          launchFailures: cache,
+        });
+        expect(result.started).toBe(true);
+        vi.setSystemTime(Date.now() + liveForMs);
+        writeFileSync(gate, "");
+        await vi.waitFor(() => expect(attempts.map((entry) => entry.outcome)).toContain("failed"), { timeout: 5_000 });
+      };
+      vi.setSystemTime(Date.parse("2026-10-09T01:00:00.000Z"));
+      for (const request of ["mid-a", "mid-b", "mid-c"]) await drive(request, 5 * 60_000);
+      expect(cache.blocked("claude")).toBeNull();
+
+      cache = createLaunchFailureCache();
+      for (const request of ["early-a", "early-b", "early-c"]) await drive(request, 1_000);
+      expect(cache.blocked("claude")).toMatch(/failed 3 times the same way/);
+    } finally {
+      vi.useRealTimers();
+      rmSync(gate, { force: true });
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
 
   it("stops a detached launch whose spawned session keeps failing after three identical failures", async () => {
     const { launches, run, repeated } = await driveDetachedLaunches("firstmate-detached", 'echo "session crashed"', 21);

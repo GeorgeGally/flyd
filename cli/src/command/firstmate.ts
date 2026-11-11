@@ -307,6 +307,8 @@ export const sessionLaunchFailures = createLaunchFailureCache();
 const LAUNCH_RETRY_BASE_MS = 2 * 60_000;
 const LAUNCH_RETRY_MAX_MS = 30 * 60_000;
 const SESSION_OUTPUT_LIMIT = 8 * 1024;
+/** A spawned session that dies later than this after starting failed mid-work, not at launch. */
+const SESSION_STARTUP_MS = 60_000;
 const LAUNCH_COOLDOWN_MS = 5 * 60_000;
 const UNREAD_TOO_LONG_MS = 3 * 60_000;
 const SESSION_IDLE_MS = 15 * 60_000;
@@ -512,7 +514,7 @@ export async function startFirstmateSession(options: {
   const logAttempt = options.recordAttempt ?? recordSessionAttempt;
   const record = (entry: Record<string, unknown>): void => {
     logAttempt(entry);
-    if (typeof entry.runtime === "string" && entry.outcome === "failed") {
+    if (typeof entry.runtime === "string" && entry.outcome === "failed" && entry.midSession !== true) {
       cache.record(entry.runtime, typeof entry.detail === "string" && entry.detail ? entry.detail : String(entry.outcome));
     }
   };
@@ -598,6 +600,7 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
         return;
       }
       let settled = false;
+      let spawnedAt: number | undefined;
       const log = join(commandDir(), "firstmate-helpers", `${process.pid}-${Date.now()}-${runtime}.log`);
       let child: ReturnType<typeof spawn>;
       try {
@@ -624,6 +627,7 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
       });
       child.once("spawn", () => {
         handedOff = true;
+        spawnedAt = Date.now();
         if (child.pid) {
           forgetHelpers((helper) => helper.home === home);
           writeHelpers([...readHelpers(), { pid: child.pid, startedAt: new Date().toISOString(), home, log }]);
@@ -645,7 +649,8 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
         const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
         if (limited || code !== 0) {
           detail = output.slice(-500);
-          record({ runtime, outcome: limited ? "usage_limited" : "failed", detail });
+          const midSession = spawnedAt !== undefined && Date.now() - spawnedAt >= SESSION_STARTUP_MS;
+          record({ runtime, outcome: limited ? "usage_limited" : "failed", detail, ...(midSession ? { midSession } : {}) });
           if (!settled) {
             settled = true;
             attempt(index + 1);
