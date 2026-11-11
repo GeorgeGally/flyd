@@ -1,3 +1,4 @@
+import { readDomainRun } from "../store.js";
 import type { Objective, PlannedRun, PlannedRunState, RunBrief } from "./types.js";
 
 // The objective's plan (v8 Phase 6): runs that wait on runs of the same objective, released by reconciliation. No
@@ -109,4 +110,14 @@ export function sinks(objective: Objective): PlannedRun[] {
 /** Whether the objective follows this domain run (so its report is the objective's): dispatched, or being dispatched now. */
 export function followsRun(objective: Objective, runId: string): boolean {
   return objective.runs.includes(runId) || planOf(objective).some((run) => run.state === "dispatching" && planRequestId(objective.id, run) === runId);
+}
+
+/** A run put back in the queue for another attempt, its last result kept as prior work. */
+export function requeue(run: PlannedRun, extra: Partial<PlannedRun> = {}): Partial<PlannedRun> {
+  return { state: "queued", ref: undefined, sent: undefined, reviewed: undefined, dispatching: undefined, reconciled: undefined, reportedTwice: undefined, prior: run.ref ? [...new Set([...(run.prior ?? []), run.ref])] : run.prior, ...extra };
+}
+
+/** Whether one of its dispatched team runs is still waiting on his decision. */
+export function awaitsDecision(objective: Objective): boolean {
+  return planOf(objective).some((run) => run.state === "dispatched" && Boolean(run.ref) && !run.ref!.includes(":") && readDomainRun(run.ref!)?.status === "needs_decision");
 }

@@ -55,13 +55,17 @@ export interface PlannedRun extends Omit<RunBrief, "after"> {
   adapted?: boolean;
   /** The settled result already reviewed (`<ref>:<status>:<updatedAt>`), so each result is reviewed and told once. */
   reviewed?: string;
+  /** Left mid-dispatch by a pass that died, and asked again by its request id. */
+  reconciled?: boolean;
+  /** Its team reported a second result after the first was kept; the first stands. */
+  reportedTwice?: boolean;
 }
 
 /** One adaptation the Chief of Staff made on its own, with why, so `work_status` can explain it. */
 export interface Adaptation {
   run: string;
   at: string;
-  action: "rebrief" | "cancel" | "add";
+  action: "rebrief" | "cancel" | "add" | "drop";
   reason: string;
 }
 
@@ -93,9 +97,38 @@ export interface Objective {
   /** His corrections, in order, with the run each one targeted. */
   corrections?: Array<{ revision: number; run: string; text: string; at: string }>;
   adaptations?: Adaptation[];
+  /** What it waits on George for, once asked (v8 Phase 7): every wait carries a question, and his reply resumes it. */
+  waitingOn?: Waiting;
+  /** He set the wait aside until then: nothing is raised again before, and the rest of the work carries on. */
+  snooze?: { until: string; reportId?: string; at: string };
+  /** When anything last moved: a run sent or settled, his reply. */
+  progressAt?: string;
+  /** What the Chief of Staff chose each time it went quiet for a day, with why. */
+  triage?: Array<{ at: string; choice: "nudge" | "park" | "ongoing" | "asked"; reason: string }>;
+  /** Waiting on something outside Flyd's control: never chased. */
+  parked?: { at: string; reason: string };
+  /** Meant to run continuously: never treated as stuck. */
+  ongoing?: boolean;
+  /** He took a result that fell short as it is (its finals' reviewed keys): delivered without another check. */
+  takenAsIs?: string;
   reportIds: string[];
   /** Intake taken by a process, so two ticks never brief it twice; a claim older than the lease is taken over. */
   claim?: { pid: number; at: string };
+}
+
+/**
+ * What a wait is for, so his reply resumes the right thing: a run's own call (passed to the run), a run that didn't
+ * finish (try again or drop it), a result that fell short (take it or try again), work that couldn't start (tell me
+ * more), work gone quiet (nudge, park, ongoing), or a wait with no question yet.
+ */
+export type WaitKind = "run" | "retry" | "accept" | "intake" | "stuck" | "question";
+
+export interface Waiting {
+  reportId: string;
+  kind: WaitKind;
+  question: string;
+  options?: string[];
+  at: string;
 }
 
 export type CosReportKind = "done" | "decision" | "blocked" | "credential" | "irreversible";

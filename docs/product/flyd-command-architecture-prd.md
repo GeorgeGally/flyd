@@ -401,6 +401,27 @@ This is v8 Phase 6 (`docs/plans/2026-11-08-flyd-orchestration-v8.md`). The plan 
 - **Delivery and acceptance.** The one `done` report is written only when every run is completed and valid for the current revision. Before that, one query checks the final result against the objective's done-when. A check that can't be read lets the result through, noted in the report's detail; the domain's own review still stands. A single final domain run is told through `tellRun`; anything else is one line.
 - **Adapting.** A failed run, or a final result that falls short of done-when, is re-briefed to its team once with why. A one-off job may have acted outside, so it is never re-run on its own. A second failure, or a failed job, is one `decision` report; there is no third try, and an unanswered close-but-not-there decision is not re-checked. Each adaptation is recorded with its reason, and `work_status` shows the plan, his corrections and the adaptations.
 
+### Chief of Staff — waiting work (behind `FLYD_COS=1`)
+
+This is v8 Phase 7. Each objective records what it waits on George for (`waitingOn`: the report, its question and options), so nothing waits silently and his reply has somewhere to go.
+
+- **Every wait carries a question.** An objective waiting on George with nothing asked gets one: "“X” is waiting on you for Y", where Y is the open question of a run awaiting his decision, or "a decision".
+- **Snooze.** `tell_work` with `kind: "snooze"` and `until` (`this_evening`, `tomorrow_morning`, or a time he names) sets the wait aside. Until then the CoS raises nothing for it and doesn't treat the objective as stuck; the rest of the objective carries on. At the time it is raised once more ("Back as you asked: …"). `work_status` lists it as snoozed until then.
+- **His reply resumes the same objective**, never a new task. `tell_work` with his answer (`kind: "decision"`, and `choice` when he picked an offered option):
+  - a run's own call goes to that run, as before;
+  - work that couldn't start goes back to intake with his answer added;
+  - a result that fell short is delivered when he takes it as it is;
+  - otherwise what didn't make it is tried again with his words, or dropped (with what waits on it) when he says to drop it.
+  - an option counts only when `choice` names it, or when his words name exactly one offered option; an unclear stuck reply, or one naming two options, asks again and changes nothing;
+  - his words alone never re-run a one-off job that already ran: he is asked first, and only an explicit option runs it again. A job whose dispatch was refused never ran, so his words re-queue it as for any retry ("Try again" / "Drop it").
+- **Stuck work is mostly Flyd's to settle.** An objective with no progress for a day (`STUCK_MS`: no run sent or settled, no word from its teams, no earlier triage) is settled from what it waits on:
+  - a FirstMate run is chased by the fleet monitor (recorded as a nudge);
+  - a Librarian run gets a note asking where it stands;
+  - a crew run is parked, since the crew tells him itself.
+  When the CoS can't tell (a run never confirmed, a one-off job running a day, a team that can't be asked), George gets one decision: Nudge / Park it / It's ongoing. Staff silence on its own never reaches him. Each choice is recorded with why. Parked and ongoing objectives are never treated as stuck again.
+- **Plain run statuses** show in `work_status(objective_id)` only, so only when he asks: interrupted, retrying; picked up (a retry finished it); replaced (a newer revision took over); reported twice (one result kept); still finishing (gone quiet; the chaser is on it).
+- **Not yet covered:** the conversation view's Needs you column has no snooze button. It lists FirstMate's own calls, not the CoS's reports, so a snooze is set by telling Flyd.
+
 ### Chief of Staff — steering and status (behind `FLYD_COS=1`)
 
 This is split plan Phase 4. With the flag on:
