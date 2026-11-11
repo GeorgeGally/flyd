@@ -93,7 +93,6 @@ interface FlydConfig {
   FLYD_MODEL?: string;
   FLYD_CHAT_MODEL?: string;
   FLYD_CHAT_FALLBACK_MODELS?: string;
-  FLYD_ONE_SHOT_BACKUP_MODELS?: string;
   FLYD_CLAUDE_CHAT_MODEL?: string;
   FLYD_CLAUDE_QUICK_MODEL?: string;
   FLYD_PREDICTIONS?: string;
@@ -216,27 +215,14 @@ export function fallbackModelChain(): string[] {
   return [...new Set(chain)];
 }
 
-/** OpenAI's small model, the one George already runs dictation on. */
-export const DEFAULT_ONE_SHOT_BACKUP_MODEL = "openai:gpt-5.4-mini";
-
 /**
- * Where one-shot thinking (the news edition, the council, taste,
- * self-improvement) goes once FLYD_MODEL and its fallbacks have all refused,
- * for example an account out of credit: FLYD_ONE_SHOT_BACKUP_MODELS,
- * comma-separated and provider-qualified, else OpenAI's small model while
- * OPENAI_API_KEY is set. "none" turns it off. Without a backup on another
- * provider, one empty account silences every background job.
+ * One-shot queries (the news edition, the council, taste, self-improvement):
+ * FLYD_MODEL, the shared fallbacks, then Claude's quick model while Claude is
+ * on and under its cap, so one empty account cannot silence every background job.
  */
-export function oneShotBackupModels(): string[] {
-  const configured = getKey("FLYD_ONE_SHOT_BACKUP_MODELS")?.trim();
-  if (configured === "none") return [];
-  if (configured) return configured.split(",").map((model) => model.trim()).filter(Boolean);
-  return getKey("OPENAI_API_KEY")?.trim() ? [DEFAULT_ONE_SHOT_BACKUP_MODEL] : [];
-}
-
-/** One-shot queries: FLYD_MODEL, the shared fallbacks, then the backup on another provider. */
 export function oneShotModelChain(): string[] {
-  return [...new Set([defaultModel(), ...fallbackModelChain(), ...oneShotBackupModels()])];
+  const claude = claudeQuickModel();
+  return [...new Set([defaultModel(), ...fallbackModelChain(), ...(claude ? [claude] : [])])];
 }
 
 /** CommandCode serves Claude only through its Anthropic Messages endpoint. */

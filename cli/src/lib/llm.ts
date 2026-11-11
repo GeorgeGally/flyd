@@ -265,7 +265,7 @@ export async function query(
     // A caller that picked a specific non-default model gets exactly that model.
     response = await once(model);
   } else {
-    // Default-model callers fail over like chat, then to a backup on another provider.
+    // Default-model callers fail over like chat, then to Claude's quick model.
     response = (await runWithModelFailover(oneShotModelChain(), once)).result;
   }
   finalizeEvidenceSurface(enriched.surfaceId, response);
