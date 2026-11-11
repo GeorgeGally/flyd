@@ -12,6 +12,11 @@ describe("toYou", () => {
   it("keeps the grammar when he is the subject, the owner or the object", () => {
     expect(toYou("Is George's call needed?")).toBe("Is your call needed?");
     expect(toYou("Is George happy with v2?")).toBe("Are you happy with v2?");
+    expect(toYou("When does George want the deck?")).toBe("When do you want the deck?");
+    expect(toYou("What does the captain think of v2?")).toBe("What do you think of v2?");
+    expect(toYou("Why is George blocked?")).toBe("Why are you blocked?");
+    expect(toYou("Which version has George picked?")).toBe("Which version have you picked?");
+    expect(toYou("The owner is George.")).toBe("The owner is you.");
     expect(toYou("Ship it, or does George want another round?")).toBe("Ship it, or do you want another round?");
     expect(toYou("Tests are green; is George happy to merge?")).toBe("Tests are green; are you happy to merge?");
     expect(toYou("If v2 works, does the captain want v3 too?")).toBe("If v2 works, do you want v3 too?");
@@ -45,6 +50,11 @@ describe("toYou grammar seen in real cards", () => {
     expect(toYou("Mark has George on the guest list.")).toBe("Mark has you on the guest list.");
     expect(toYou("The invite was George and Pierre.")).toBe("The invite was you and Pierre.");
     expect(toYou("Is George happy with v2?")).toBe("Are you happy with v2?");
+    expect(toYou("When does George want the deck?")).toBe("When do you want the deck?");
+    expect(toYou("What does the captain think of v2?")).toBe("What do you think of v2?");
+    expect(toYou("Why is George blocked?")).toBe("Why are you blocked?");
+    expect(toYou("Which version has George picked?")).toBe("Which version have you picked?");
+    expect(toYou("The owner is George.")).toBe("The owner is you.");
     expect(toYou("Ship it, or does George want another round?")).toBe("Ship it, or do you want another round?");
     expect(toYou("Tests are green; is George happy to merge?")).toBe("Tests are green; are you happy to merge?");
     expect(toYou("If v2 works, does the captain want v3 too?")).toBe("If v2 works, do you want v3 too?");
