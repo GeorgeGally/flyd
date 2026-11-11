@@ -55,7 +55,7 @@ until the 1st and he hears that once too.
 | `FLYD_CLAUDE` | on | `0` keeps Claude out of every job |
 | `FLYD_CLAUDE_CHAT_MODEL` | `claude-sonnet-5-5` | Chat's Claude model |
 | `FLYD_CLAUDE_CHAT_EFFORT` | `medium` | Sonnet's effort for chat turns (`low` answers faster, checks in more) |
-| `FLYD_CLAUDE_QUICK_MODEL` | `claude-haiku-5-5` | Quick jobs' and typing's Claude model |
+| `FLYD_CLAUDE_QUICK_MODEL` | `claude-haiku-5-5` | Quick jobs' and typing's Claude model, and background jobs' last backup |
 | `FLYD_CLAUDE_MONTHLY_CAP_USD` | `100` | Monthly Claude spend cap in US dollars |
 | `FLYD_CLAUDE_USAGE_LOG` | — | Path of an opt-in per-call usage trail, for measuring cache hits |
 | `FLYD_CHAT_MODEL` | `FLYD_MODEL` | Chat's model after Claude |
