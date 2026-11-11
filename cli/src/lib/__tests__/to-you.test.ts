@@ -12,6 +12,9 @@ describe("toYou", () => {
   it("keeps the grammar when he is the subject, the owner or the object", () => {
     expect(toYou("Is George's call needed?")).toBe("Is your call needed?");
     expect(toYou("Is George happy with v2?")).toBe("Are you happy with v2?");
+    expect(toYou("Does George want index.html updated?")).toBe("Do you want index.html updated?");
+    expect(toYou("Is George OK with v2.1?")).toBe("Are you OK with v2.1?");
+    expect(toYou("Does the captain want v5.2 or v6?")).toBe("Do you want v5.2 or v6?");
     expect(toYou("When does George want the deck?")).toBe("When do you want the deck?");
     expect(toYou("What does the captain think of v2?")).toBe("What do you think of v2?");
     expect(toYou("Why is George blocked?")).toBe("Why are you blocked?");
@@ -50,6 +53,9 @@ describe("toYou grammar seen in real cards", () => {
     expect(toYou("Mark has George on the guest list.")).toBe("Mark has you on the guest list.");
     expect(toYou("The invite was George and Pierre.")).toBe("The invite was you and Pierre.");
     expect(toYou("Is George happy with v2?")).toBe("Are you happy with v2?");
+    expect(toYou("Does George want index.html updated?")).toBe("Do you want index.html updated?");
+    expect(toYou("Is George OK with v2.1?")).toBe("Are you OK with v2.1?");
+    expect(toYou("Does the captain want v5.2 or v6?")).toBe("Do you want v5.2 or v6?");
     expect(toYou("When does George want the deck?")).toBe("When do you want the deck?");
     expect(toYou("What does the captain think of v2?")).toBe("What do you think of v2?");
     expect(toYou("Why is George blocked?")).toBe("Why are you blocked?");
