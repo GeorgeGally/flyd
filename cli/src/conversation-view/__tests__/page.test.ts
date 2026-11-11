@@ -1938,7 +1938,7 @@ describe("header and artefact view", () => {
     expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toBe("");
     document.querySelector<HTMLButtonElement>(".scene-ask .choice-pick")!.click();
     await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "latest", replyTo: "reply:a#2", questionText: "Want me to add all three?", text: "Yes, all three" }]);
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "latest", replyTo: "reply:a#2", questionText: "Want me to add all three?", text: "Yes, all three" , clientId: expect.stringMatching(/^note-/) }]);
     expect(document.querySelector(".scene-ask .art-chat-receipt")!.textContent).toBe("Sent to Flyd");
     const picks = [...document.querySelectorAll<HTMLButtonElement>(".scene-ask .choice-pick")];
     expect(picks.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
@@ -1959,7 +1959,7 @@ describe("header and artefact view", () => {
     document.querySelector<HTMLButtonElement>("#readouts .ro-open")!.click();
     document.querySelector<HTMLButtonElement>("#calls .choice-pick")!.click();
     await settle();
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "asked-session", replyTo: "reply:a#2", questionText: "Want me to add all three?", text: "Yes, all three" }]);
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([{ session: "asked-session", replyTo: "reply:a#2", questionText: "Want me to add all three?", text: "Yes, all three" , clientId: expect.stringMatching(/^note-/) }]);
   });
 
   it("asks a reply's several questions on the artefact one at a time; a tap there never sends", async () => {
@@ -1984,7 +1984,7 @@ describe("header and artefact view", () => {
     expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("");
     ask.querySelector<HTMLButtonElement>(".step-send")!.click();
     await settle();
-    expect(sends()).toEqual([{ session: "latest", replyTo: "reply:b#4", questionText: "Still waiting on you", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No" }]);
+    expect(sends()).toEqual([{ session: "latest", replyTo: "reply:b#4", questionText: "Still waiting on you", text: "1. Discard the old CapFive experiment branches? Yes\n2. Should Flyd's sidebar show newest at the top again? No" , clientId: expect.stringMatching(/^note-/) }]);
     expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to Flyd");
     expect(ask.querySelector(".step-send")).toBeNull();
     expect(ask.querySelector(".step-lead")!.textContent).toBe("Your answers.");
@@ -2229,7 +2229,8 @@ describe("header and artefact view", () => {
     expect(entries.map((entry) => Boolean(entry.querySelector(".art-reply")))).toEqual([true, true, true, true]);
   });
 
-  it("keeps a card's message out of its thread and back in the box when it does not go", async () => {    load("");
+  it("marks a card's message that did not go as not delivered, and Try again sends the same note", async () => {
+    load("");
     await settle();
     const stream = open("latest", []);
     const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
@@ -2242,9 +2243,75 @@ describe("header and artefact view", () => {
     vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/send" ? json({ error: "firstmate did not take the message" }, 502) : json({})));
     ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
-    expect(ask.querySelector<HTMLElement>(".art-thread")!.hidden).toBe(true);
-    expect(chat.value).toBe("Make the pins bigger");
-    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Not delivered; try again.");
+    // His words stay in the thread, plainly marked, and the box is free for the next note.
+    expect([...ask.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["Make the pins bigger"]);
+    expect(ask.querySelector(".art-failed")!.textContent).toContain("Not delivered");
+    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Not delivered. Try again.");
+    expect(chat.value).toBe("");
+    vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "note:pins" } : {}));
+    ask.querySelector<HTMLButtonElement>(".art-retry")!.click();
+    await settle();
+    const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
+    expect(sends).toHaveLength(2);
+    // The same note, under the same id, so a send that did reach Core is never routed twice.
+    expect(sends[1].clientId).toBe(sends[0].clientId);
+    expect(ask.querySelector(".art-failed")).toBeNull();
+    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to Flyd");
+  });
+
+  it("takes a second note while the first is still sending, and sends both in order", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:logan", kind: "call", headline: "Logan chat", why: "", task: "logan-chat", decision: { task: "logan-chat", question: "Go-ahead to land Logan chat?", choices: [] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+    const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+    const send = ask.querySelector<HTMLButtonElement>(".art-chat-send")!;
+    const answers: Array<(response: Response) => void> = [];
+    vi.mocked(fetch).mockImplementation((url) => (url === "/api/send" ? new Promise<Response>((resolve) => answers.push(resolve)) : Promise.resolve(json({}))));
+    const say = async (words: string) => {
+      chat.value = words;
+      chat.dispatchEvent(new Event("input"));
+      expect(send.disabled).toBe(false);
+      ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      await settle();
+    };
+    await say("This, I think, has also been completed.");
+    expect(ask.querySelector(".art-working")!.textContent).toBe("Sending");
+    // The first is still on its way: the box is free and takes the second straight away.
+    await say("I'm more interested in design and UX.");
+    expect(chat.value).toBe("");
+    expect([...ask.querySelectorAll(".art-msg--you")].map((node) => node.textContent)).toEqual(["This, I think, has also been completed.", "I'm more interested in design and UX."]);
+    expect([...ask.querySelectorAll(".art-working")].map((node) => node.textContent)).toEqual(["Sending", "Waiting to send"]);
+    // One at a time, oldest first.
+    expect(answers).toHaveLength(1);
+    answers[0]!(json({ id: "ask:1" }));
+    await settle();
+    expect(answers).toHaveLength(2);
+    answers[1]!(json({ id: "ask:2" }));
+    await settle();
+    const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)).text);
+    expect(sends).toEqual(["This, I think, has also been completed.", "I'm more interested in design and UX."]);
+    expect([...ask.querySelectorAll(".art-working")].map((node) => node.textContent)).not.toContain("Sending");
+    expect(ask.querySelector(".art-chat-receipt")!.textContent).toBe("Sent to Flyd");
+    // Both stay with the card across a reload, with the ids Core gave them.
+    expect(JSON.parse(localStorage.getItem("flyd-decision:logan-chat") || "[]").map((entry: { id: string }) => entry.id)).toEqual(["ask:1", "ask:2"]);
+  });
+
+  it("sends a note left unsent by a reload when the card comes back", async () => {
+    localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "Make the pins bigger", key: "note-left", body: { text: "Make the pins bigger", session: "latest", decision: "visuals", decisionTask: "visuals", questionText: "Choose from the lab" } }]));
+    vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "note:pins" } : {}));
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    await settle();
+    const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
+    expect(sends).toEqual([expect.objectContaining({ text: "Make the pins bigger", clientId: "note-left", decision: "visuals" })]);
   });
 
   it("shows a card's thread again after a reload, answers and all", async () => {
@@ -2340,7 +2407,7 @@ describe("header and artefact view", () => {
     document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
-      { session: "latest", text: "Make the pins bigger", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://github.com/o/flyd/pull/9" } },
+      { session: "latest", text: "Make the pins bigger", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map", url: "https://github.com/o/flyd/pull/9" }, clientId: expect.stringMatching(/^note-/) },
     ]);
   });
 
@@ -2378,7 +2445,7 @@ describe("header and artefact view", () => {
     document.querySelector(".scene-ask .art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
     await settle();
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)))).toEqual([
-      { session: "latest", text: "Like this", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map" }, images: [{ mediaType: "image/png", data }] },
+      { session: "latest", text: "Like this", about: { title: "Christmas Nuanu map", task: "gnm-xmas-map" }, clientId: expect.stringMatching(/^note-/), images: [{ mediaType: "image/png", data }] },
     ]);
     // Once it went, the box is empty again.
     expect(images.hidden).toBe(true);
@@ -3277,7 +3344,7 @@ describe("what Flyd shows of its staff, at a glance", () => {
     needs.querySelectorAll<HTMLButtonElement>(".choice-pick")[1]!.click();
     await settle();
     const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
-    expect(sends.at(-1)).toEqual({ session: "latest", replyTo: "reply:a#2", questionText: "Which direction?", text: "B" });
+    expect(sends.at(-1)).toEqual({ session: "latest", replyTo: "reply:a#2", questionText: "Which direction?", text: "B", clientId: expect.stringMatching(/^note-/) });
   });
 
   it("shows a call's designs, named, over the message box when he clicks its card", async () => {

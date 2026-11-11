@@ -1,5 +1,8 @@
 import { MAX_IMAGE_BYTES } from "../attachment-limits.js";
 
+/** How long a card waits for Core to accept a note before saying it was not delivered. */
+export const NOTE_SEND_TIMEOUT_MS = 20_000;
+
 /** The chat box under every artefact, scene questions and answerable "needs you" lines. */
 export const ARTEFACT_CHAT_SCRIPT = `
   // A sidebar item's chat sits behind one small icon until he opens it.
@@ -71,17 +74,23 @@ export const ARTEFACT_CHAT_SCRIPT = `
       var mine = state.thread || [];
       var after = -1;
       (Array.isArray(stored) ? stored : []).forEach(function (other) {
-        if (!other || !other.id) return;
+        if (!other || !(other.id || other.key)) return;
         var at = -1;
-        mine.forEach(function (entry, index) { if (entry.id === other.id) at = index; });
+        mine.forEach(function (entry, index) { if ((other.id && entry.id === other.id) || (other.key && entry.key === other.key)) at = index; });
         if (at === -1) { mine.splice(after + 1, 0, Object.assign({}, other)); after += 1; return; }
         var entry = mine[at];
+        if (!entry.id && other.id) { entry.id = other.id; delete entry.failed; }
         if (!entry.answer && other.answer) entry.answer = other.answer;
         if (other.done) entry.done = true;
         after = Math.max(after, at);
       });
       state.thread = mine.slice(-50);
-      store(key, JSON.stringify(state.thread.filter(function (entry) { return entry.id; })));
+      // A note still on its way is kept as well, so a reload sends it rather than losing it; pictures stay in memory.
+      store(key, JSON.stringify(state.thread.filter(function (entry) { return entry.id || entry.key; }).map(function (entry) {
+        var kept = Object.assign({}, entry);
+        delete kept.images;
+        return kept;
+      })));
       paintThread();
     }
     // The newest message of his still waiting on an answer: the one line that says what
@@ -89,7 +98,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     function openEntry() {
       var list = state.thread || [];
       for (var i = list.length - 1; i >= 0; i -= 1) {
-        if (list[i].done) continue;
+        if (list[i].done || !list[i].id) continue;
         return list[i].answer ? null : list[i];
       }
       return null;
@@ -142,7 +151,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     var drawn = "";
     function paintThread() {
       var open = openEntry();
-      var next = JSON.stringify([state.thread, open ? [open.doing, open.handoff, open.id] : null, state.receipt]);
+      var next = JSON.stringify([state.thread, open ? [open.doing, open.handoff, open.id] : null, state.receipt, sendingKey()]);
       if (next === drawn) return;
       drawn = next;
       var focused = thread.contains(document.activeElement) ? document.activeElement : null;
@@ -150,7 +159,9 @@ export const ARTEFACT_CHAT_SCRIPT = `
       (state.thread || []).forEach(function (entry) {
         var box = el("div", "art-entry");
         box.appendChild(el("p", "art-msg art-msg--you", entry.text));
-        if (entry.answer) {
+        if (!entry.id) {
+          box.appendChild(unsentLine(entry));
+        } else if (entry.answer) {
           box.appendChild(el("p", "art-msg art-msg--them", entry.answer));
         } else if (entry === open) {
           var line = el("p", "art-msg art-working");
@@ -173,7 +184,8 @@ export const ARTEFACT_CHAT_SCRIPT = `
       receipt.classList.toggle("problem", !!state.error);
       receipt.classList.toggle("sent", !state.error && (state.receipt === "sent" || state.receipt === "read"));
       // A picture alone says enough about an artefact; an answer still needs words.
-      send.disabled = state.receipt === "sending" || !(input.value.trim() || ((target.about || state.attachmentRetry) && images.length));
+      // An earlier note on its way never holds up the next: notes queue and go in order.
+      send.disabled = !(input.value.trim() || ((target.about || state.attachmentRetry) && images.length));
       if (chat.onPaint) chat.onPaint();
     }
     function paintImages() {
@@ -242,6 +254,17 @@ export const ARTEFACT_CHAT_SCRIPT = `
           results.forEach(function (data, index) {
             if (!data) return;
             var entry = waiting[index];
+            // Accepted while its route was being worked out: now the card follows the real note.
+            if (data.id && data.id !== entry.id) { entry.id = data.id; changed = true; }
+            // Accepted, then it could not be delivered after all: he sees that, with a way to send it again.
+            if (data.notDelivered && !entry.answer) {
+              delete entry.id;
+              entry.failed = true;
+              state.receipt = "";
+              state.error = data.notDelivered;
+              changed = true;
+              return;
+            }
             // Gone from firstmate's inbox poll after poll (one miss is only firstmate moving
             // it to handled/): nothing more will come for it. A note firstmate has taken but
             // not answered is not finished with — it can still gain a reply — so the card
@@ -275,21 +298,37 @@ export const ARTEFACT_CHAT_SCRIPT = `
         });
       }, 3000);
     }
-    function deliver(text, done) {
-      state.receipt = "sending";
-      state.error = "";
-      // His words stand in the card's own thread the moment he sends them, not when a reply comes.
-      // Only the newest few dozen are kept: old ones have long scrolled off the card anyway.
-      var entry = { text: text };
-      state.thread = (state.thread || []).concat([entry]).slice(-50);
-      // The box empties as he sends, and so does the saved draft: a redraw while it is on its way
-      // must not bring his words back into the box. They come back only if nothing went.
-      // (A choice button sends its own words: a draft in the box is left alone.)
-      var draft = input.value.trim() === text ? input.value : "";
-      if (draft) { input.value = ""; state.text = ""; save(); }
-      paintThread();
-      paint();
-      var sending = takesImages ? images.slice() : [];
+    // His notes go one at a time, oldest first: each is queued the moment he sends it, the box is
+    // free for the next straight away, and a note shows sent once Core has accepted it.
+    var after = {};
+    var inFlight = null;
+    function sendingKey() { return inFlight ? inFlight.key : ""; }
+    function unsent() { return (state.thread || []).filter(function (entry) { return entry.key && !entry.id; }); }
+    // The line under a note that has not gone yet: on its way, waiting its turn, or not delivered with a way to try again.
+    function unsentLine(entry) {
+      var line = el("p", "art-msg art-working");
+      line.setAttribute("role", "status");
+      line.setAttribute("aria-live", "polite");
+      if (entry.failed) {
+        line.classList.add("art-failed");
+        line.appendChild(el("span", "", "Not delivered"));
+        var again = el("button", "art-retry", "Try again");
+        again.type = "button";
+        again.addEventListener("click", function () {
+          unsent().forEach(function (one) { delete one.failed; });
+          state.error = "";
+          save();
+          paint();
+          pump();
+        });
+        line.appendChild(again);
+        return line;
+      }
+      line.appendChild(el("span", "art-pulse"));
+      line.appendChild(el("span", "", entry === inFlight || !inFlight ? "Sending" : "Waiting to send"));
+      return line;
+    }
+    function bodyFor(text, sending) {
       var body = Object.assign({ text: text, session: current }, target);
       if (state.attachmentRetry) {
         if (target.domainRun) delete body.questionText;
@@ -304,36 +343,82 @@ export const ARTEFACT_CHAT_SCRIPT = `
         delete body.decision;
       }
       if (sending.length) body.images = sending.map(function (image) { return { mediaType: image.mediaType, data: image.data }; });
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, true)
+      return body;
+    }
+    function deliver(text, done) {
+      state.error = "";
+      var sending = takesImages ? images.slice() : [];
+      // His words stand in the card's own thread the moment he sends them, not when a reply comes.
+      // Only the newest few dozen are kept: old ones have long scrolled off the card anyway.
+      var entry = { text: text, key: "note-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10), body: bodyFor(text, []), images: sending };
+      if (done) after[entry.key] = done;
+      state.thread = (state.thread || []).concat([entry]).slice(-50);
+      // The box empties as he sends, and so does the saved draft. A picture that went with this note
+      // leaves the box with it; one pasted after stays for the next.
+      // (A choice button sends its own words: a draft in the box is left alone.)
+      if (input.value.trim() === text) { input.value = ""; state.text = ""; }
+      images = images.filter(function (image) { return sending.indexOf(image) === -1; });
+      paintImages();
+      save();
+      paint();
+      pump();
+    }
+    // Sends the oldest note not yet gone. One that failed holds the ones after it, so they never arrive out of order.
+    function pump() {
+      if (inFlight) return;
+      var entry = unsent()[0];
+      if (!entry || entry.failed) {
+        if (state.receipt === "sending") state.receipt = "";
+        paintThread();
+        paint();
+        return;
+      }
+      inFlight = entry;
+      state.receipt = "sending";
+      paintThread();
+      paint();
+      var sending = entry.images || [];
+      var body = Object.assign({}, entry.body, { clientId: entry.key });
+      if (sending.length) body.images = sending.map(function (image) { return { mediaType: image.mediaType, data: image.data }; });
+      var controller = typeof AbortController === "function" ? new AbortController() : null;
+      var timer = setTimeout(function () { if (controller) controller.abort(); }, ${NOTE_SEND_TIMEOUT_MS});
+      var init = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+      if (controller) init.signal = controller.signal;
+      authed("/api/send", init, true)
         .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
         .then(function (result) {
-          // The server's reason is Flyd's to read: he sees one plain line, and his words go back in the box.
-          if (!result.ok) throw new Error("Not delivered; try again.");
-          state.receipt = "sent";
+          clearTimeout(timer);
+          inFlight = null;
+          // The server's reason is Flyd's to read: he sees one plain line and the note stays to send again.
+          if (!result.ok) throw new Error("Not delivered. Try again.");
+          // Accepted is accepted: a receipt without an id still never sends the note again.
+          entry.id = typeof result.data.id === "string" && result.data.id ? result.data.id : entry.key;
+          delete entry.body;
+          delete entry.images;
+          state.receipt = unsent().length ? "sending" : "sent";
           // A warning is the server's own reason: only a picture that missed is his to send again; anything else was saved and goes on.
           var pictureFailed = result.data.pictureFailed === true && sending.length > 0;
           state.error = pictureFailed ? "The picture didn't go through; send it again" : result.data.warning ? "Saved; Flyd passes it on shortly" : "";
           if (target.decision && result.data.followUp) state.followUpRequired = result.data.followUp;
-          entry.id = result.data.id;
-          // Only what went is cleared: one pasted while it was on its way stays for the next.
-          if (pictureFailed) state.attachmentRetry = true;
-          else {
-            images = images.filter(function (image) { return sending.indexOf(image) === -1; });
-            state.attachmentRetry = false;
-          }
+          if (pictureFailed) {
+            state.attachmentRetry = true;
+            images = sending.concat(images);
+          } else if (!unsent().length) state.attachmentRetry = false;
           paintImages();
-          if (done) done();
+          if (after[entry.key]) { after[entry.key](); delete after[entry.key]; }
           save();
           paint();
           watch();
+          pump();
         })
-        .catch(function (error) {
+        .catch(function () {
+          clearTimeout(timer);
+          inFlight = null;
+          // Kept in the thread, marked, with Try again: he never has to type it twice.
+          entry.failed = true;
           state.receipt = "";
-          state.error = "Not delivered; try again.";
-          // Nothing went, so it is not in the thread: his words go back in the box to try again.
-          state.thread = (state.thread || []).filter(function (one) { return one !== entry; });
-          if (draft && !input.value) { input.value = draft; state.text = draft; save(); }
-          paintThread();
+          state.error = "Not delivered. Try again.";
+          save();
           paint();
         });
     }
@@ -363,6 +448,8 @@ export const ARTEFACT_CHAT_SCRIPT = `
     paintThread();
     paint();
     watch();
+    // A note he sent before a reload that never got through goes now, in its turn.
+    pump();
     return chat;
   }
   // A scene's foot: a question's options, one tap each, then the chat box.

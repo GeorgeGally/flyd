@@ -75,6 +75,7 @@ import { noteSaid, screenOutgoing } from "../council/reply-review.js";
 import { stripCommitIds } from "../runtime/honesty-check.js";
 import { expandScrawl, fileScrawl } from "./scrawl-capture.js";
 import { NoticeBoard, noticeLine, noticeOf, type NoticeInput } from "./notices.js";
+import { CardNotes } from "./card-notes.js";
 
 // Loopback-only view. Explicit composer typing may request a bounded model
 // completion; predictions cannot invoke the source's send or dispatch work.
@@ -773,6 +774,9 @@ function sameToken(given: string | string[] | undefined, expected: string): bool
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** What a message to Flyd may carry, from the composer, a card's chat box or a reply. */
+type SendPayload = { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; domainRun?: unknown; jobTitle?: unknown; replyTo?: unknown; questionText?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
@@ -809,6 +813,8 @@ export class ConversationViewServer {
   private readonly jobWake = new Set<() => void>();
   /** The jobs the column last drew: a tick on a Flyd ask is checked against these. */
   private boardJobs: Job[] = [];
+  /** His notes from cards: accepted at once, routed in order behind. */
+  private readonly cardNotes = new CardNotes();
 
   constructor(
     private readonly source: ConversationSource,
@@ -851,6 +857,8 @@ export class ConversationViewServer {
       });
     });
     this.port = (server.address() as AddressInfo).port;
+    // Notes he was told were accepted before a restart still go where they were meant to.
+    this.cardNotes.resume((payload, held) => this.routeNote(payload as SendPayload, held as unknown as ServerResponse));
     return this.port;
   }
 
@@ -1057,7 +1065,15 @@ export class ConversationViewServer {
       // never reported finished with: it can still gain a reply, so the card keeps
       // asking until one arrives or the note goes from the inbox for good.
       if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) { sendJson(res, 403, { error: "missing or wrong token" }); return; }
-      const id = url.searchParams.get("id") ?? "";
+      let id = url.searchParams.get("id") ?? "";
+      // A note accepted while its route was still being worked out: once routed, the card is told its real id.
+      if (id.startsWith("pending:")) {
+        const outcome = this.cardNotes.outcome(id);
+        if (!outcome) { sendJson(res, 200, { receipt: this.cardNotes.routing(id) ? "sent" : null }); return; }
+        if ("failed" in outcome) { sendJson(res, 200, { receipt: "sent", notDelivered: outcome.failed }); return; }
+        id = outcome.id;
+      }
+      const routedId = id === url.searchParams.get("id") ? {} : { id };
       const note = (this.source.exchanges?.() ?? []).find((exchange) => exchange.question.id === id);
       const chat = note && !note.answer && this.source.noteAnswer ? await this.source.noteAnswer(id).catch(() => undefined) : undefined;
       const answer = note?.answer ?? chat;
@@ -1067,6 +1083,7 @@ export class ConversationViewServer {
       const failed = note && !answer && note.waitingFailed ? note.waiting ?? "" : "";
       const doing = note && !answer && !failed ? liveWords(note.doing || note.waiting || "") : "";
       sendJson(res, 200, {
+        ...routedId,
         receipt: note ? (answer || note.handoff === "taken" || note.question.receipt === "read" ? "read" : "sent") : null,
         ...(answer ? { answer: { text: answer.text, ...(answer.timestamp ? { timestamp: answer.timestamp } : {}) } } : {}),
         ...(doing ? { doing } : {}),
@@ -1714,7 +1731,7 @@ export class ConversationViewServer {
       sendJson(res, 415, { error: "expected application/json" });
       return;
     }
-    let payload: { session?: unknown; text?: unknown; images?: unknown; files?: unknown; decision?: unknown; decisionFollowUp?: unknown; decisionTask?: unknown; domainRun?: unknown; jobTitle?: unknown; replyTo?: unknown; questionText?: unknown; undo?: unknown; comment?: unknown; about?: unknown; passage?: unknown };
+    let payload: SendPayload & { clientId?: unknown; undo?: unknown };
     try {
       payload = JSON.parse(await readBody(req, MAX_SEND_BODY_BYTES)) as typeof payload;
     } catch {
@@ -1725,6 +1742,20 @@ export class ConversationViewServer {
       await this.undo(res, payload.session, payload.undo);
       return;
     }
+    // His note from a card is accepted as soon as Core has it; routing it (a decision answer waits
+    // for a fresh fleet read) goes on behind, in the order he sent his notes.
+    if (payload.domainRun !== undefined || payload.decision !== undefined || payload.decisionFollowUp !== undefined || payload.about !== undefined) {
+      const clientId = typeof payload.clientId === "string" && payload.clientId.length <= 100 ? payload.clientId : undefined;
+      const { clientId: _client, ...note } = payload;
+      const result = await this.cardNotes.accept(note, clientId, (held) => this.routeNote(note, held as unknown as ServerResponse));
+      sendJson(res, result.status, result.body);
+      return;
+    }
+    await this.routeNote(payload, res);
+  }
+
+  /** Where one message goes: a card note to its decision, run or job; anything else to its conversation. */
+  private async routeNote(payload: SendPayload, res: ServerResponse): Promise<void> {
     const session = typeof payload.session === "string" ? payload.session : undefined;
     const images = payload.images ?? [];
     const validImages = Array.isArray(images) && images.every((image) =>
