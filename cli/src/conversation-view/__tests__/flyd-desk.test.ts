@@ -209,6 +209,21 @@ describe("FlydDesk", () => {
     expect(numbers).toEqual([1, 2, 3, 4, 5, 6, 1]);
   });
 
+  it("hands Flyd's turn where he wrote it from, and nothing when the window gave no scope", async () => {
+    const scopes: unknown[] = [];
+    const desk = new FlydDesk({ dir, answer: async (_question, _history, _onStep, turn) => {
+      scopes.push(turn && "scope" in turn ? turn.scope : "none");
+      return "Done.";
+    } });
+    desk.ask("Preferences should be full-page", [], "scoped", [], {});
+    await until(() => (scopes.length === 1 ? true : undefined));
+    desk.ask("swap the hero", [], "scoped", [], { project: "HFTW" });
+    await until(() => (scopes.length === 2 ? true : undefined));
+    desk.ask("hello", [], "scoped");
+    await until(() => (scopes.length === 3 ? true : undefined));
+    expect(scopes).toEqual([{}, { project: "HFTW" }, "none"]);
+  });
+
   it("gives follow-ups the full list an answer kept in Artefacts", async () => {
     const history: unknown[] = [];
     const desk = new FlydDesk({ dir, answer: async (_question, earlier, _onStep, turn) => {

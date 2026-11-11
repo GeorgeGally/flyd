@@ -108,6 +108,7 @@ ${FRONT_HTML}
       <button type="button" id="article-confirm-yes">Remember</button>
       <button type="button" id="article-confirm-no">Not now</button>
     </div>
+    <div class="scope-line"><button class="scope" id="scope" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="scope-menu">To: <span id="scope-name">Flyd</span></button><ul class="scope-menu" id="scope-menu" role="listbox" aria-label="Where this message goes" hidden></ul></div>
     <div class="field">
       <button class="attach" id="attach" type="button" aria-label="Attach images or documents" title="Attach images or documents">+</button>
       <input type="file" id="attach-input" multiple hidden tabindex="-1">

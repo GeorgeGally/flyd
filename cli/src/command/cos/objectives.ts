@@ -50,12 +50,13 @@ export function mutateObjective(id: string, change: (current: Objective | null) 
 }
 
 /** Opens an objective in intake, durably, and returns it. George's words are kept exactly as given. */
-export function openObjective(input: Pick<Objective, "words" | "flydNotes" | "origin"> & Partial<Pick<Objective, "contextRefs" | "urgency" | "project">>, dir = commandDir(), now = new Date()): Objective {
+export function openObjective(input: Pick<Objective, "words" | "flydNotes" | "origin"> & Partial<Pick<Objective, "contextRefs" | "urgency" | "project" | "general">>, dir = commandDir(), now = new Date()): Objective {
   const id = `obj-${now.getTime().toString(36)}-${randomUUID().slice(0, 8)}`;
   const at = now.toISOString();
   const objective: Objective = {
     id, revision: 0, createdAt: at, updatedAt: at, origin: input.origin, words: input.words, flydNotes: input.flydNotes,
     contextRefs: input.contextRefs ?? [], ...(input.urgency ? { urgency: input.urgency } : {}), ...(input.project ? { project: input.project } : {}),
+    ...(input.general ? { general: true } : {}),
     status: "intake", runs: [], reportIds: [],
   };
   return mutateObjective(id, () => objective, dir)!;

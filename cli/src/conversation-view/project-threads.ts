@@ -3,7 +3,7 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import type { ProjectAsker } from "./project-asker.js";
 import { aboutOnly, askLine, nameReader, tagTurns, turnsOf, type ThreadProject, type Turn } from "./project-tags.js";
 import { inline, SALUTATION, sentences } from "./summaries.js";
-import type { ConversationFollower, ConversationMessage, ConversationSnapshot, ConversationSource, FileUpload, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
+import type { ChatScope, ConversationFollower, ConversationMessage, ConversationSnapshot, ConversationSource, FileUpload, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
 
 // His conversations split by project. Every feed's sessions are read once in the
 // background, then only what changed, tagged (project-tags.ts) and merged across
@@ -110,6 +110,7 @@ export class ProjectThreads {
   private timer?: ReturnType<typeof setInterval>;
   private readonly listeners = new Set<() => void>();
   private readonly read: (text: string) => string[];
+  private readonly names: (text: string) => string[];
 
   constructor(private readonly options: {
     feeds: ThreadFeed[];
@@ -119,6 +120,7 @@ export class ProjectThreads {
   }) {
     // The same words are read at every merge: once each is enough.
     const reader = nameReader(options.projects);
+    this.names = reader;
     const read = new Map<string, string[]>();
     this.read = (text) => {
       const known = read.get(text);
@@ -312,7 +314,7 @@ export class ProjectThreads {
   }
 
   /** The thread's project, when it is one rather than All or Other. */
-  private project(sessionId: string): string | undefined {
+  project(sessionId: string): string | undefined {
     return sessionId === ALL_THREAD || sessionId === OTHER_THREAD ? undefined : this.name(sessionId);
   }
 
@@ -337,6 +339,16 @@ export class ProjectThreads {
   }
 
   /** What his words in a thread need to stand on their own, in the lines `plainNote` takes back off. */
+  /**
+   * Where a message is for: the one project his words clearly name, else where he
+   * wrote it from. "Flyd, …" addressed to Flyd names no project.
+   */
+  scopeFor(text: string, from: ChatScope): ChatScope {
+    const named = this.names(text.replace(/^\s*(?:(?:hey|hi|ok|okay)\s+)?flyd\b[\s,:!.-]*/i, ""));
+    if (from.project && named.includes(from.project)) return { project: from.project };
+    return named.length === 1 ? { project: named[0]! } : { ...from };
+  }
+
   lead(sessionId: string): string {
     const project = this.project(sessionId);
     const lines = this.snapshot(sessionId).messages.slice(-CONTEXT_LINES)
@@ -362,6 +374,11 @@ export function withProjectThreads(source: ConversationSource, threads: ProjectT
     return live;
   };
   /** His words with the thread they were said in. A slash command stays first, or it is no longer a command. */
+  // A project's thread speaks for that project; "everything" and "other" are no project's.
+  const threadScope = (sessionId: string): ChatScope => {
+    const project = threads.project(sessionId);
+    return project ? { project } : {};
+  };
   const inThread = (sessionId: string, text: string): string => (text.trimStart().startsWith("/") ? text : `${threads.lead(sessionId)}\n\n${text}`);
   const sent = async (work: Promise<SentMessage>): Promise<SentMessage> => {
     const result = await work;
@@ -407,8 +424,13 @@ export function withProjectThreads(source: ConversationSource, threads: ProjectT
       }).catch((error: unknown) => onError?.(error instanceof Error ? error : new Error(String(error))));
       return { close: () => { closed = true; stop(); targetFollower?.close(); } };
     },
-    send: async (sessionId, text, images?: ImageUpload[], files?: FileUpload[], to?) =>
-      sent(isThread(sessionId) ? source.send(await target(sessionId), inThread(sessionId, text), images, files, to) : source.send(sessionId, text, images, files, to)),
+    send: async (sessionId, text, images?: ImageUpload[], files?: FileUpload[], to?, scope?: ChatScope) => {
+      if (!isThread(sessionId)) return sent(source.send(sessionId, text, images, files, to, scope ? threads.scopeFor(text, scope) : undefined));
+      const where = threads.scopeFor(text, scope ?? threadScope(sessionId));
+      // The thread's own lead says which project it is; a message he sent elsewhere from here goes without it.
+      const said = where.project === threads.project(sessionId) ? inThread(sessionId, text) : text;
+      return sent(source.send(await target(sessionId), said, images, files, to, where));
+    },
     ...(source.sendDecision ? { sendDecision: async (text: string, images: ImageUpload[] = [], decision?: { decisionId: string; taskId: string }, sessionId?: string) =>
       source.sendDecision!(text, images, decision, sessionId && isThread(sessionId) ? await target(sessionId) : sessionId) } : {}),
     ...(source.sendDecisionFollowUp ? { sendDecisionFollowUp: async (text: string, decision: { decisionId: string; taskId: string }, sessionId?: string) =>

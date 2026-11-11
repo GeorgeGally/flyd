@@ -87,6 +87,8 @@ export interface Objective {
   urgency?: "now" | "today" | "whenever";
   /** The project Flyd was in when he asked, a hint for intake. */
   project?: { name?: string; root?: string };
+  /** He asked in Flyd's general chat, not a project's: the work is for a project only if his words name one. */
+  general?: boolean;
   status: ObjectiveStatus;
   /** Set once intake has decided; a restart dispatches it again by the same request id instead of asking again. */
   brief?: CosBrief;

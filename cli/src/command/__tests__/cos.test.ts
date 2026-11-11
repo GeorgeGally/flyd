@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { IntelligenceEventStore } from "../../intelligence/event-store.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
-import { runAssistantTool } from "../../runtime/assistant-tools.js";
+import { handOffProject, runAssistantTool } from "../../runtime/assistant-tools.js";
 import { chatToolSet } from "../../runtime/conversation-responder.js";
 import { planTurn } from "../../runtime/turn-plan.js";
 import { runRequestId, type Dispatch } from "../cos/dispatch.js";
-import { parseIntake } from "../cos/intake.js";
+import { intakePrompt, parseIntake } from "../cos/intake.js";
 import { listObjectives, mutateObjective, openObjective, readObjective } from "../cos/objectives.js";
 import { cosReports, cosTick } from "../cos/tick.js";
 import type { CosReport } from "../cos/types.js";
@@ -160,6 +160,25 @@ describe("Chief of Staff reports", () => {
 });
 
 describe("hand_off", () => {
+  it("from Flyd's general chat is no project's, even though Core runs inside one; from a project's conversation it is that project's", async () => {
+    process.env.FLYD_COS = "1";
+    const situation = { project: "flyd", projectRoot: "/tmp/flyd" };
+    await runAssistantTool("hand_off", { words: "x", notes: "" }, { userMessage: "Preferences should be full-page", situation, chatScope: {} });
+    await runAssistantTool("hand_off", { words: "x", notes: "" }, { userMessage: "Swap the hero image", situation, chatScope: { project: "HFTW" } });
+    await runAssistantTool("hand_off", { words: "x", notes: "" }, { userMessage: "Make the box bigger", situation, chatScope: { project: "Flyd" } });
+    expect(handOffProject({ situation, chatScope: {} })).toBeUndefined();
+    expect(handOffProject({ situation, chatScope: { project: "HFTW" } })).toEqual({ name: "HFTW" });
+    expect(handOffProject({ situation, chatScope: { project: "Flyd" } })).toEqual({ name: "Flyd", root: "/tmp/flyd" });
+    expect(handOffProject({ situation })).toEqual({ name: "flyd", root: "/tmp/flyd" });
+    const byWords = new Map(listObjectives().map((objective) => [objective.words, objective]));
+    expect([byWords.get("Preferences should be full-page")?.project, byWords.get("Preferences should be full-page")?.general]).toEqual([undefined, true]);
+    expect(byWords.get("Swap the hero image")?.project).toEqual({ name: "HFTW" });
+    expect(byWords.get("Swap the hero image")?.general).toBeUndefined();
+    const prompt = intakePrompt(byWords.get("Preferences should be full-page")!, { work: "HFTW shop hero images" });
+    expect(prompt).toContain("He asked in Flyd's general chat, not in any project's.");
+    expect(prompt).not.toContain("HFTW shop hero images");
+    expect(intakePrompt(byWords.get("Swap the hero image")!, { work: "HFTW shop hero images" })).toContain("What he is working on: HFTW shop hero images");
+  });
   it("records his exact words as an objective, only with the Chief of Staff on, and is the delegate route's one tool", async () => {
     const context = { userMessage: "Make me three versions of the gallery page", situation: { project: "cap5", projectRoot: "/tmp/cap5" } };
     expect(await runAssistantTool("hand_off", { words: "three gallery versions", notes: "cap5" }, context)).toMatch(/not available/);

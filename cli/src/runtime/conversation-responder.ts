@@ -58,6 +58,7 @@ import { formatCompiledContext } from "../cognition/context-format.js";
 import type { CompiledContext } from "../cognition/types.js";
 import { CognitiveCurator } from "../cognition/curator/curator.js";
 import { runCuratorSweep } from "../cognition/curator/reconcile.js";
+import { chatScopeLine, type ChatScope } from "./chat-scope.js";
 
 interface ConversationInput {
   source?: ConversationTurnSource;
@@ -74,6 +75,8 @@ interface ConversationInput {
   history: ConversationTurn[];
   memory: MemoryEvidence;
   situation: AgentSituation | null;
+  /** Where he wrote it from in Flyd's window: a project's conversation, or the general chat. */
+  chatScope?: ChatScope;
   crossRepo?: BriefRepo[];
   presentHypothesis?: string | null;
   weather?: string;
@@ -311,7 +314,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
   ];
   const article = articleEvidence(input.article);
   const attachedBlock = input.attached?.trim() ? `\n\n${input.attached.trim()}` : "";
-  const promptBody = `${localClock(input.now?.() ?? new Date())}\n${cognitiveContext}${agenda}${situation}${memory}${weather}${presentModel}${crossRepo}${article}${history}\nGeorge: ${input.message}${attachedBlock}\nFlyd:`;
+  const promptBody = `${localClock(input.now?.() ?? new Date())}\n${cognitiveContext}${agenda}${situation}${memory}${weather}${presentModel}${crossRepo}${article}${history}\n${chatScopeLine(input.chatScope)}George: ${input.message}${attachedBlock}\nFlyd:`;
 
   // Companion mode: most of what George says is conversation, not an operation.
   // A small model answers far better with a short prompt that is mostly who it
@@ -1317,6 +1320,7 @@ export async function respondToConversation(
   const handler = createToolHandler(defaultRoot, knownRepos, input.onToken, input.askUser, dependencies.fetchFn, dependencies.readOnly, {
     presentHypothesis: input.presentHypothesis,
     situation: input.situation ? { project: input.situation.project, projectRoot: input.situation.projectRoot } : null,
+    ...(input.chatScope ? { chatScope: input.chatScope } : {}),
     userMessage: input.message,
     skill: skill ? { name: skill.name, body: skill.body } : null,
     onCodingHandoff: input.onCodingHandoff,

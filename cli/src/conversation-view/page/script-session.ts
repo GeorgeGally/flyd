@@ -57,6 +57,7 @@ export const SESSION_SCRIPT = `
       assistant = session.assistantLabel;
       answersInSession = session.answersInSession === true;
       showTitle(session);
+      scopeSession(session);
       loadSessions();
     });
     source.addEventListener("update", function (event) { problem.textContent = ""; apply(JSON.parse(event.data)); });

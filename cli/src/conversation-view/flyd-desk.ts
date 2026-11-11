@@ -14,7 +14,7 @@ import { answeringLine } from "./living.js";
 import { checkDocuments, MAX_IMAGE_BYTES, MAX_IMAGES, sniffImage } from "./firstmate-inbox.js";
 import { documentText } from "./document-text.js";
 import { isPlaceholderStatus, relayStatus, type InFlightTool } from "./status-text.js";
-import type { ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
+import type { ChatScope, ConversationMessage, Exchange, FileUpload, ImageData, ImageUpload, SentMessage, SessionSummary } from "./types.js";
 import { collectRoutingCase, routingHash, safeRoutingValue, type RoutingTrace } from "../runtime/routing-learning.js";
 import type { RouteReading } from "../runtime/turn-plan.js";
 import type { TurnUnderstanding } from "../runtime/conversation-presence.js";
@@ -203,7 +203,7 @@ interface AskRecord {
 }
 
 /** Flyd's own answer to a question, given the window's earlier questions and answers; `onStep` says what it is doing as it goes. */
-export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string }) => Promise<string | AnswerBody>;
+export type Answerer = (question: string, history: Array<{ role: "user" | "assistant"; content: string }>, onStep?: (step: string, tool?: InFlightTool) => void, turn?: { source: ConversationTurnSource; turnNumber: number; onPreparation(id: string): void; onInteraction(kind: "conversation" | "work_status" | "decision" | "deliverable"): void; onUnderstanding(turn: TurnUnderstanding): void; onArtefact(body: string): void; askUser?(prompt: string): Promise<boolean | "always">; outside?: boolean; attached?: string; scope?: ChatScope }) => Promise<string | AnswerBody>;
 
 /** What the screenshots he attached to a question show, in words, for Flyd's turn, which takes words only. */
 export type Seer = (question: string, images: ImageUpload[], onStep?: (step: string, tool?: InFlightTool) => void) => Promise<string>;
@@ -424,7 +424,7 @@ export class FlydDesk {
   }
 
   /** Takes the question and starts answering it; the answer lands in a later `exchanges()`. */
-  ask(text: string, images: ImageUpload[] = [], sessionId = "conversation", files: FileUpload[] = []): SentMessage {
+  ask(text: string, images: ImageUpload[] = [], sessionId = "conversation", files: FileUpload[] = [], scope?: ChatScope): SentMessage {
     const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
     const documents = checkDocuments(files);
     const kept = this.keepImages(id, images);
@@ -471,6 +471,7 @@ export class FlydDesk {
           .slice(-4).map(earlier => ({ ref: `ask:${earlier.id}`, text: earlier.text.slice(0, 350) })),
         revision: 1, consentRef: `conversation:view:${sessionId}`, final: true as const, retention: "local_default" as const },
       ...(askUser ? { askUser } : {}),
+      ...(scope ? { scope } : {}),
       ...(filed.length || earlierAnswered.some((earlier) => earlier.read?.length) ? { outside: true } : {}),
       turnNumber: this.recordsForSession(conversation).filter((earlier) => earlier.id !== id).length + 1,
       onInteraction: (interactionClass: "conversation" | "work_status" | "decision" | "deliverable") => { record = { ...record, interactionClass }; this.write(record); },

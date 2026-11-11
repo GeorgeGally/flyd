@@ -17,7 +17,9 @@ import { isHisImage, ReplyShots } from "./reply-shots.js";
 import { pictured, PICTURE_WITHIN_MS, siteChangeOf } from "./site-changes.js";
 import { isRepositoryStatusTitle, shortConversationTitle } from "./session-title.js";
 import { captainImageAt, toolImageAt, TranscriptConversation } from "./transcript-filter.js";
+import { chatScopeLine } from "../runtime/chat-scope.js";
 import type {
+  ChatScope,
   ConversationFollower,
   ConversationMessage,
   ConversationSnapshot,
@@ -295,7 +297,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
     return this.inbox !== undefined;
   }
 
-  async send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[], to?: Recipient): Promise<SentMessage> {
+  async send(sessionId: string, text: string, images?: ImageUpload[], files?: FileUpload[], to?: Recipient, scope?: ChatScope): Promise<SentMessage> {
     if (!this.inbox) throw new Error("This conversation is read-only");
     this.sessionPath(sessionId);
     const command = matchCommand(text, await this.commands());
@@ -314,9 +316,12 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
           }
           : this.desk.complete,
       );
-      if (route === "flyd") return this.desk.desk.ask(text, images, sessionId, files);
+      if (route === "flyd") return this.desk.desk.ask(text, images, sessionId, files, scope);
       // Firstmate is one of Flyd's staff: his words go with Flyd's own brief. A slash command runs exactly as he typed it.
-      const brief = command || carriesCommand(text) ? undefined : await this.desk.brief?.(text, this.latest.get(sessionId) ?? []).catch(() => undefined);
+      const flydBrief = command || carriesCommand(text) ? undefined : await this.desk.brief?.(text, this.latest.get(sessionId) ?? []).catch(() => undefined);
+      // Where he wrote it from goes first, so a general message is never taken for the last project talked about.
+      const where = command || carriesCommand(text) ? "" : chatScopeLine(scope).trim();
+      const brief = [where, flydBrief].filter(Boolean).join("\n") || undefined;
       try {
         const sent = await this.inbox.send(text, images, command?.name, files, brief, sessionId);
         this.desk.desk.routed?.(text, sessionId, sent.timestamp);

@@ -1,5 +1,6 @@
 import { refuseLeakedLaunch } from "./launch-guard.js";
 import type { AgentTool } from "../lib/llm.js";
+import type { ChatScope } from "./chat-scope.js";
 import { formatWorkModelResult, parseWorkModelArgs, workModelTool } from "./work-model-tool.js";
 
 // Capabilities that used to be regex intercepts in front of the model. Each
@@ -188,11 +189,30 @@ export const assistantTools: AgentTool[] = [
   },
 ];
 
+/**
+ * The project a handoff is for. From the window, where he wrote it from decides: the general chat is no
+ * project's, even though Core runs inside one; a project's conversation is that project's.
+ */
+export function handOffProject(context: Pick<AssistantToolContext, "situation" | "chatScope">): { name?: string; root?: string } | undefined {
+  const situation = context.situation;
+  if (context.chatScope) {
+    const name = context.chatScope.project;
+    if (!name) return undefined;
+    const same = situation?.project && situation.project.toLowerCase() === name.toLowerCase();
+    return { name, ...(same && situation?.projectRoot ? { root: situation.projectRoot } : {}) };
+  }
+  return situation?.project || situation?.projectRoot
+    ? { ...(situation.project ? { name: situation.project } : {}), ...(situation.projectRoot ? { root: situation.projectRoot } : {}) }
+    : undefined;
+}
+
 export const ASSISTANT_TOOL_NAMES = new Set(assistantTools.map((tool) => tool.name));
 
 export interface AssistantToolContext {
   presentHypothesis?: string | null;
   situation?: { project?: string; projectRoot?: string } | null;
+  /** Where he wrote it from in Flyd's window; when given, it (not the repo Core runs in) says which project the work is for. */
+  chatScope?: ChatScope;
   /** George's current message, retained verbatim for a delegated boss. */
   userMessage?: string;
   skill?: { name: string; body: string } | null;
@@ -329,13 +349,12 @@ export async function runAssistantTool(
         const words = (context.userMessage ?? String(input.words ?? "")).trim();
         if (!words) return "Error: hand_off needs his words";
         const urgency = ["now", "today", "whenever"].includes(String(input.urgency)) ? input.urgency as "now" | "today" | "whenever" : undefined;
-        const project = context.situation?.project || context.situation?.projectRoot
-          ? { ...(context.situation.project ? { name: context.situation.project } : {}), ...(context.situation.projectRoot ? { root: context.situation.projectRoot } : {}) }
-          : undefined;
+        const project = handOffProject(context);
         const objective = openObjective({
           words, flydNotes: String(input.notes ?? "").trim(),
           origin: { surface: "chat", ...(context.sessionId ? { sessionId: context.sessionId } : {}) },
           ...(urgency ? { urgency } : {}), ...(project ? { project } : {}),
+          ...(context.chatScope && !context.chatScope.project ? { general: true } : {}),
         });
         // Intake starts now rather than on the next command tick (never from a test: intake asks a model).
         if (!process.env.VITEST) void import("../command/cos/tick.js").then(({ cosTick }) => cosTick()).catch(() => undefined);

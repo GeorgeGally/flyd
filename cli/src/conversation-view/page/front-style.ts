@@ -227,10 +227,10 @@ button.jv-thread { cursor: pointer; }
 .job-view .choice-pick:hover { background: var(--well); color: var(--ink); }
 .job-view .choice-pick[aria-pressed="true"], .job-view .choice-pick[aria-pressed="true"]:hover { background: var(--ink); color: var(--sheet); box-shadow: none; }
 .job-view .art-thread { gap: 14px; margin: 4px 0 6px; }
-.job-view .art-msg { font-size: 16px; color: var(--ink2); }
-.job-view .art-msg--you { color: var(--ink); }
-/* In the job's own reading column his answer is the substance: full strength, marked by its hairline. */
-.job-view .art-msg--them { color: var(--ink); font-size: 16.5px; line-height: 1.55; }
+.job-view .art-msg { font-size: 18px; font-weight: 500; color: var(--ink2); }
+.job-view .art-msg--you { font-weight: 400; color: var(--ink2); }
+/* In the job's own reading column his answer is the substance: full strength, no rule beside it. */
+.job-view .art-msg--them { color: var(--ink); line-height: 1.55; }
 .job-view .art-reply { margin: 2px 0 10px; }
 .job-view .art-chat-field { padding: 6px 6px 6px 16px; border: 0; border-radius: 12px; background: var(--well); }
 .job-view .art-chat-field:focus-within { background: var(--well-on); }

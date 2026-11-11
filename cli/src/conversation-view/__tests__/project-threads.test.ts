@@ -7,7 +7,7 @@ import { plainNote } from "../rail.js";
 import { ProjectAsker } from "../project-asker.js";
 import { threadCatalogue } from "../project-tags.js";
 import { ALL_THREAD, OTHER_THREAD, ProjectThreads, threadId, THREAD_MESSAGES, withProjectThreads, type ThreadFeed } from "../project-threads.js";
-import type { ConversationMessage, ConversationSnapshot, ConversationSource, SessionSummary } from "../types.js";
+import type { ChatScope, ConversationMessage, ConversationSnapshot, ConversationSource, SessionSummary } from "../types.js";
 
 const projects = threadCatalogue("", []);
 const user = (id: string, text: string, timestamp: string): ConversationMessage => ({ id, role: "user", text, timestamp });
@@ -439,6 +439,50 @@ describe("withProjectThreads", () => {
     await withProjectThreads(source, await threads()).send(ALL_THREAD, "hello");
     expect(source.sent[0]![0]).toBe("window:project-all");
     expect(plainNote(source.sent[0]![1])).toEqual({ words: "hello", thread: true });
+  });
+
+  describe("where a message goes", () => {
+    const scoped = (): ConversationSource & { scopes: Array<[string, string, ChatScope | undefined]> } => {
+      const scopes: Array<[string, string, ChatScope | undefined]> = [];
+      return Object.assign(base({
+        newSession: (id) => ({ id, title: "New", updatedAt: "" }),
+        send: async (session, text, _images, _files, _to, scope) => { scopes.push([session, text, scope]); return { id: "sent", timestamp: "2026-11-06T10:00:00Z" }; },
+      }), { scopes });
+    };
+
+    it("keeps a general message general, even after talk about a project, and never reads Flyd addressed as a project", async () => {
+      const source = scoped();
+      const wrapped = withProjectThreads(source, await threads());
+      await wrapped.send("live", "Preferences should be full-page and beautifully designed", [], [], undefined, {});
+      await wrapped.send("live", "Flyd, make the conversation text bigger", [], [], undefined, {});
+      expect(source.scopes.map(([, , scope]) => scope)).toEqual([{}, {}]);
+    });
+
+    it("re-scopes a message that clearly names another project, by any name he uses for it", async () => {
+      const source = scoped();
+      const wrapped = withProjectThreads(source, await threads());
+      await wrapped.send("live", "the hero image on Home for the Woods is wrong", [], [], undefined, {});
+      await wrapped.send("live", "videos are stuck on DIR", [], [], undefined, { project: "HFTW" });
+      await wrapped.send("live", "the DIR player and the HFTW hero", [], [], undefined, { project: "HFTW" });
+      expect(source.scopes.map(([, , scope]) => scope)).toEqual([{ project: "HFTW" }, { project: "DIR" }, { project: "HFTW" }]);
+    });
+
+    it("in a project's thread speaks for that project unless he picked elsewhere, and drops the thread's lead when he did", async () => {
+      const source = scoped();
+      const wrapped = withProjectThreads(source, await threads());
+      await wrapped.send("project:dir", "smaller squares");
+      await wrapped.send("project:dir", "make Preferences full-page", [], [], undefined, {});
+      expect(source.scopes[0]![2]).toEqual({ project: "DIR" });
+      expect(source.scopes[0]![1]).toMatch(/^About the project "DIR"/);
+      expect(source.scopes[1]![2]).toEqual({});
+      expect(source.scopes[1]![1]).toBe("make Preferences full-page");
+    });
+
+    it("passes no scope from a caller that gives none", async () => {
+      const source = scoped();
+      await withProjectThreads(source, await threads()).send("live", "hello");
+      expect(source.scopes[0]![2]).toBeUndefined();
+    });
   });
 
   it("leaves ordinary sessions to the source", async () => {

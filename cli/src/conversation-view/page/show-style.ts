@@ -248,10 +248,10 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .art-thread { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
 .art-thread[hidden] { display: none; }
 .art-entry { display: flex; flex-direction: column; gap: 6px; }
-.art-msg { margin: 0; font: 400 15px/1.5 var(--sans); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
-.art-msg--you { color: var(--fg); }
-/* His answer is the substance, not a footnote: marked off by a hairline, never a whisper. */
-.art-msg--them { padding-left: 15px; border-left: 2px solid color-mix(in srgb, var(--accent) 32%, transparent); }
+.art-msg { margin: 0; font: 500 17px/1.5 var(--sans); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.art-msg--you { font-weight: 400; color: var(--muted); }
+/* His answer is the substance, not a footnote: full strength and his own size, with no rule beside it. */
+.art-msg--them { color: var(--strong); }
 /* What Flyd is doing about his newest message: one quiet line that the answer replaces. */
 .art-working { display: flex; align-items: center; gap: 9px; color: var(--muted); animation: art-in 200ms ease-out both; }
 .art-pulse { flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: art-breathe 1.4s ease-in-out infinite; }
@@ -267,8 +267,7 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .art-retry { font: 500 13.5px/1 var(--sans); color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; }
 .art-retry:hover { text-decoration: underline; }
 .art-chat--nested { margin-top: 4px; }
-/* Flyd's reply: a step smaller and held back, the way its voice sits under his elsewhere. */
-.art-msg--them { font-size: 14px; margin-bottom: 4px; }
+.art-msg--them { margin-bottom: 4px; }
 .scene-ask .step-q { font-size: clamp(20px, 1.6vw, 26px); line-height: 1.25; }
 .scene-ask .step-review { font-size: clamp(16px, 1.2vw, 19px); }
 .scene-meta .closed { color: var(--muted); font-style: italic; }

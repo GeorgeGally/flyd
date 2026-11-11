@@ -29,7 +29,7 @@ const KNOWN: Array<ThreadProject & { keys: string[] }> = [
   },
   { name: "CapFive", aliases: ["capfive", "cap5", "cap 5", "captfive", "aica"], keys: ["capfive", "cap5", "capfive-client-work"] },
   { name: "Logan", aliases: ["logan"], keys: ["logan"] },
-  { name: "HFTW", aliases: ["hftw"], keys: ["hftw"] },
+  { name: "HFTW", aliases: ["hftw", "home for the woods"], keys: ["hftw"] },
   { name: "Atomise", aliases: ["atomise", "atomize"], keys: ["atomise"] },
   { name: "Liesel", aliases: ["liesel", "easel"], keys: ["easel", "easel-design-board", "liesel"] },
   { name: "CleanX", aliases: ["cleanx"], keys: ["cleanx"] },

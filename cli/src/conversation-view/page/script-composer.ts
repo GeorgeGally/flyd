@@ -327,8 +327,9 @@ export const COMPOSER_SCRIPT = `
   });
   input.addEventListener("input", grow);
   input.addEventListener("input", function () { noteRefusal(""); });
-  // Terminal-style history: Up on the first line recalls earlier messages,
-  // newest first; Down walks back and finally restores the draft.
+  // Terminal-style history: Shift+Up recalls earlier messages, newest first;
+  // Shift+Down walks back and finally restores the draft. Plain Up and Down
+  // only move the caret.
   var recall = { list: [], index: -1, draft: "" };
   function captainHistory() {
     var list = [];
@@ -346,14 +347,92 @@ export const COMPOSER_SCRIPT = `
   }
   commandMenu(input, document.getElementById("commands"), function () { typingPredictions.reset(); grow(); });
 
+  // Where his message goes, said above the box: Flyd's general chat ("" is no
+  // project) unless he is in a project's thread or picks one. One click changes it.
+  var scopeBtn = document.getElementById("scope");
+  var scopeNameEl = document.getElementById("scope-name");
+  var scopeMenu = document.getElementById("scope-menu");
+  var scopeThread = "";
+  var scopeChoice = null;
+  function scopeNow() { return scopeChoice !== null ? scopeChoice : scopeThread; }
+  function scopeLabel(name) { return !name ? "Flyd" : name.toLowerCase() === "flyd" ? "Flyd (project)" : name; }
+  function drawScope() {
+    var name = scopeNow();
+    scopeNameEl.textContent = scopeLabel(name);
+    scopeBtn.classList.toggle("project", !!name);
+    scopeBtn.setAttribute("aria-label", name ? "To " + scopeLabel(name) + ". Change where this goes" : "To Flyd, no project. Change where this goes");
+  }
+  // A new conversation starts where it is: a project's thread speaks for that project, anything else is general.
+  function scopeSession(session) {
+    var id = session.id || "";
+    var thread = id.indexOf("project:") === 0 && id !== "project:all" && id !== "project:other";
+    scopeThread = thread ? String(session.title || "") : "";
+    scopeChoice = null;
+    closeScope();
+    drawScope();
+  }
+  function closeScope() {
+    scopeMenu.hidden = true;
+    scopeBtn.setAttribute("aria-expanded", "false");
+  }
+  function pickScope(name) {
+    scopeChoice = name;
+    closeScope();
+    drawScope();
+    input.focus();
+  }
+  function drawScopeMenu(names) {
+    var now = scopeNow();
+    scopeMenu.innerHTML = "";
+    [""].concat(names.filter(function (name) { return name; })).forEach(function (name) {
+      var item = document.createElement("li");
+      var choice = document.createElement("button");
+      choice.type = "button";
+      choice.setAttribute("role", "option");
+      choice.setAttribute("aria-selected", name === now ? "true" : "false");
+      choice.dataset.scope = name;
+      choice.textContent = name ? scopeLabel(name) : "Flyd, no project";
+      choice.addEventListener("click", function () { pickScope(name); });
+      item.appendChild(choice);
+      scopeMenu.appendChild(item);
+    });
+  }
+  function openScope() {
+    var now = scopeNow();
+    drawScopeMenu(now ? [now] : []);
+    scopeMenu.hidden = false;
+    scopeBtn.setAttribute("aria-expanded", "true");
+    var mark = scopeMenu.querySelector('[aria-selected="true"]');
+    if (mark) mark.focus();
+    fetch("/api/projects").then(function (r) { return r.json(); }).then(function (list) {
+      if (scopeMenu.hidden) return;
+      var names = (list.projects || []).map(function (thread) { return String(thread.name || ""); });
+      if (now && names.indexOf(now) === -1) names.unshift(now);
+      var focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.scope : undefined;
+      drawScopeMenu(names);
+      var again = focused !== undefined ? scopeMenu.querySelector('[data-scope="' + CSS.escape(focused) + '"]') : null;
+      if (again) again.focus();
+    }).catch(function () {});
+  }
+  scopeBtn.addEventListener("click", function () { if (scopeMenu.hidden) openScope(); else closeScope(); });
+  scopeMenu.addEventListener("keydown", function (event) {
+    var items = Array.prototype.slice.call(scopeMenu.querySelectorAll("button"));
+    var at = items.indexOf(document.activeElement);
+    if (event.key === "Escape") { event.preventDefault(); closeScope(); scopeBtn.focus(); }
+    else if (event.key === "ArrowDown" && items.length) { event.preventDefault(); items[(at + 1) % items.length].focus(); }
+    else if (event.key === "ArrowUp" && items.length) { event.preventDefault(); items[(at - 1 + items.length) % items.length].focus(); }
+  });
+  document.addEventListener("click", function (event) {
+    if (!scopeMenu.hidden && !scopeMenu.contains(event.target) && !scopeBtn.contains(event.target)) closeScope();
+  });
+  drawScope();
+
   input.addEventListener("keydown", function (event) {
     if (event.isComposing) return;
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); return; }
-    if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
+    if (!event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
     var value = input.value;
     if (event.key === "ArrowUp") {
-      var onFirstLine = value.lastIndexOf("\\n", input.selectionStart - 1) === -1;
-      if (!onFirstLine) return;
       if (recall.index === -1) {
         recall.list = captainHistory();
         if (!recall.list.length) return;
@@ -366,8 +445,6 @@ export const COMPOSER_SCRIPT = `
       setRecalled(recall.list[recall.index]);
     } else if (event.key === "ArrowDown") {
       if (recall.index === -1) return;
-      var onLastLine = value.indexOf("\\n", input.selectionEnd) === -1;
-      if (!onLastLine) return;
       event.preventDefault();
       recall.index += 1;
       if (recall.index >= recall.list.length) {
@@ -581,6 +658,7 @@ export const COMPOSER_SCRIPT = `
     var payload = JSON.stringify({
       session: current,
       text: text,
+      scope: scopeNow(),
       images: sending.filter(function (a) { return !a.name; }).map(function (image) { return { mediaType: image.mediaType, data: image.data }; }),
       files: sending.filter(function (a) { return a.name; }).map(function (file) { return { name: file.name, data: file.data }; }),
     });

@@ -701,7 +701,7 @@ describe("conversation page", () => {
 
     await type("");
     const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
-    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ session: "latest", text: "", images: [{ mediaType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" }], files: [] });
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ session: "latest", text: "", scope: "", images: [{ mediaType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" }], files: [] });
     expect(document.querySelectorAll(".attachment")).toHaveLength(0);
     expect(document.querySelectorAll(".msg.pending .shot img")).toHaveLength(1);
     void stream;
@@ -737,6 +737,7 @@ describe("conversation page", () => {
     expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({
       session: "latest",
       text: "read these",
+      scope: "",
       images: [],
       files: [{ name: "Q3 report.pdf", data: btoa("%PDF-1.3 hello") }, { name: "notes.md", data: btoa("# notes") }],
     });
@@ -768,6 +769,7 @@ describe("conversation page", () => {
     expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({
       session: "latest",
       text: "look at these",
+      scope: "",
       images: [{ mediaType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" }],
       files: [{ name: "brief.pdf", data: btoa("%PDF-1.3 hi") }],
     });
@@ -1303,7 +1305,36 @@ describe("conversation page", () => {
     expect(document.querySelector(".summary")!.classList.contains("pending")).toBe(false);
   });
 
-  it("recalls earlier messages with Up on the first line and restores the draft with Down", async () => {
+  it("says where a message goes, general unless he is in a project's thread, and changes it in one click", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    const scope = document.getElementById("scope") as HTMLButtonElement;
+    expect(scope.textContent).toBe("To: Flyd");
+    const sentScope = () => JSON.parse(String((vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)![1] as RequestInit).body)).scope;
+    await type("Preferences should be full-page");
+    expect(sentScope()).toBe("");
+
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/projects" ? json({ ready: true, projects: [{ id: "project:hftw", name: "HFTW", count: 3 }, { id: "project:flyd", name: "Flyd", count: 2 }] }) : url === "/api/send" ? json(sendResponse) : json({ assistantLabel: "firstmate", sessions: SESSIONS }))));
+    scope.click();
+    await settle();
+    const menu = document.getElementById("scope-menu")!;
+    expect(menu.hidden).toBe(false);
+    expect([...menu.querySelectorAll("button")].map((choice) => choice.textContent)).toEqual(["Flyd, no project", "HFTW", "Flyd (project)"]);
+    menu.querySelector<HTMLButtonElement>('[data-scope="HFTW"]')!.click();
+    expect(menu.hidden).toBe(true);
+    expect(scope.textContent).toBe("To: HFTW");
+    await type("swap the hero image");
+    expect(sentScope()).toBe("HFTW");
+
+    // A project's thread speaks for that project; leaving it is general again.
+    FakeEventSource.instances.at(-1)!.emit("session", { id: "project:dir", title: "DIR", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    expect(scope.textContent).toBe("To: DIR");
+    FakeEventSource.instances.at(-1)!.emit("session", { id: "latest", title: "latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    expect(scope.textContent).toBe("To: Flyd");
+  });
+
+  it("recalls earlier messages with Shift+Up and restores the draft with Shift+Down", async () => {
     load("");
     await settle();
     open("latest", [
@@ -1313,14 +1344,16 @@ describe("conversation page", () => {
       { id: "u3", role: "user", html: "<p>second ask</p>" },
     ]);
     const input = document.getElementById("input") as HTMLTextAreaElement;
-    const press = (key: string) => {
-      const event = new KeyboardEvent("keydown", { key, cancelable: true });
+    const press = (key: string, shiftKey = true) => {
+      const event = new KeyboardEvent("keydown", { key, shiftKey, cancelable: true });
       input.dispatchEvent(event);
       return event.defaultPrevented;
     };
     input.value = "half-typed draft";
     input.setSelectionRange(input.value.length, input.value.length);
 
+    expect(press("ArrowUp", false)).toBe(false);
+    expect(input.value).toBe("half-typed draft");
     expect(press("ArrowUp")).toBe(true);
     expect(input.value).toBe("second ask");
     press("ArrowUp");
@@ -1334,7 +1367,7 @@ describe("conversation page", () => {
     expect(press("ArrowDown")).toBe(false);
   });
 
-  it("leaves Up to move the caret inside a multi-line draft, and includes messages just sent", async () => {
+  it("leaves plain Up to move the caret, even on the first line, and includes messages just sent", async () => {
     load("");
     await settle();
     open("latest", [{ id: "u1", role: "user", html: "<p>older</p>" }]);
@@ -1345,10 +1378,15 @@ describe("conversation page", () => {
     input.dispatchEvent(up);
     expect(up.defaultPrevented).toBe(false);
     expect(input.value).toBe("line one\nline two");
+    input.setSelectionRange(0, 0);
+    const firstLineUp = new KeyboardEvent("keydown", { key: "ArrowUp", cancelable: true });
+    input.dispatchEvent(firstLineUp);
+    expect(firstLineUp.defaultPrevented).toBe(false);
+    expect(input.value).toBe("line one\nline two");
 
     input.value = "";
     await type("just sent");
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", cancelable: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", shiftKey: true, cancelable: true }));
     expect(input.value).toBe("just sent");
   });
 
