@@ -111,7 +111,6 @@ const DONE_KEEP_DAYS = 21;
 /** An open run that has not moved for this long is not work under way, whatever its record still says. */
 const QUIET_RUN_MS = DAY;
 const REPORT_CHARS = 240;
-const OPEN_RUN = new Set(["queued", "accepted", "working", "needs_decision", "incomplete", "failed"]);
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
 const STATE: Record<JobGroup, string> = { needs: "Needs you", working: "Working", waiting: "Waiting", done: "Done" };

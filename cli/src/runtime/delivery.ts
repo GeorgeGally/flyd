@@ -1,4 +1,5 @@
 import { listDomainRuns } from "../command/store.js";
+import { cameBack } from "../command/run-state.js";
 import type { DomainResult, DomainRun } from "../command/types.js";
 import { notificationLine, sentencesOf } from "../council/standard.js";
 import { ASKS_HIM, fitsAtAGlance, LINE_CHARS, MAX_CHARS, MAX_LINES } from "../conversation-view/for-george.js";
@@ -338,7 +339,7 @@ export const CONTEXT_HOURS = 48;
 export function deliveredPromptBlock(now = new Date(), runs: DomainRun[] = listDomainRuns()): string {
   const since = now.getTime() - CONTEXT_HOURS * 3_600_000;
   const lines = runs
-    .filter((run) => run.notified && run.told?.line && ["completed", "failed", "needs_decision"].includes(run.status)
+    .filter((run) => run.notified && run.told?.line && cameBack(run.status)
       && run.request.source !== "flyd" && run.request.source !== "self-improvement" && Date.parse(run.updatedAt) >= since)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, CONTEXT_REPORTS)

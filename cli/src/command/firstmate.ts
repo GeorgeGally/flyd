@@ -9,6 +9,7 @@ import { createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } f
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
 import { checkDomainHandoff } from "../runtime/acceptance.js";
 import { commandDir, commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
+import { isSettled } from "./run-state.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
 import { decisionsLines } from "./types.js";
 
@@ -641,7 +642,7 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
 
 function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, nowMs = Date.now(), dir?: string, terminal?: RepeatedLoopError): DomainRun {
   const current = readDomainRun(run.id, dir) ?? run;
-  if (["completed", "failed", "cancelled"].includes(current.status)) return current;
+  if (isSettled(current.status)) return current;
   if (terminal) {
     const { launchRetry: _retry, ...rest } = current;
     const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, result: parseDomainResult(terminal.message).result, updatedAt: new Date(nowMs).toISOString() };
@@ -773,7 +774,7 @@ export async function syncFirstmateDomainRuns(options: {
     stopHelper(idle, nowMs);
     return [];
   }
-  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !["completed", "failed", "cancelled"].includes(run.status));
+  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !isSettled(run.status));
   if (readiness) {
     if (readiness.canReceive === false && !readiness.liveHarness) {
       const pending = receipts.pending ?? [];

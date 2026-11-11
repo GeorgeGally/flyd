@@ -6,6 +6,7 @@ import { plainLine } from "../../lib/reaches-george.js";
 import { TEAMS } from "../../runtime/turn-plan.js";
 import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
+import { cameBack, isAtWork } from "../run-state.js";
 import type { DomainRun } from "../types.js";
 import { dispatchBrief, type Dispatch, type Dispatched, type SentBrief } from "./dispatch.js";
 import { intakeObjective, readRun, type Complete } from "./intake.js";
@@ -257,8 +258,6 @@ async function confirm(objective: Objective, run: PlannedRun, deps: CosTickDeps,
   await report(current, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "unconfirmed" });
 }
 
-const SETTLED = new Set<DomainRun["status"]>(["completed", "failed", "needs_decision"]);
-const AT_WORK = new Set<DomainRun["status"]>(["queued", "accepted", "working"]);
 
 /** A dispatched run that has settled: reviewed once, then completed, re-briefed once, or raised with George. */
 async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, store: IntelligenceEventStore, decisions: Map<string, ExecutiveDecisionRecord>): Promise<void> {
@@ -289,9 +288,9 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
   const domain = readDomainRun(ref);
   if (!domain) return;
   if (domain.status === "cancelled") { changeRun(objective.id, run.key, () => ({ state: "cancelled" })); return; }
-  if (!domain.result || !SETTLED.has(domain.status)) {
+  if (!domain.result || !cameBack(domain.status)) {
     // Back at work after his decision: the objective is working again unless something else still waits on him.
-    if (AT_WORK.has(domain.status) && run.reviewed?.includes(":needs_decision:")) {
+    if (isAtWork(domain.status) && run.reviewed?.includes(":needs_decision:")) {
       changeRun(objective.id, run.key, () => ({ reviewed: undefined }), (current) => (
         current.status === "needs_george" && !planOf(current).some((other) => other.state === "failed") && !awaitsDecision(current)
           ? { status: "working", waitingOn: undefined, snooze: undefined } : {}

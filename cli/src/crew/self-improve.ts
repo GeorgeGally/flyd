@@ -7,6 +7,7 @@ import { localDay } from "../council/memory-store.js";
 import { normalizeCriteria } from "../runtime/acceptance.js";
 import { dispatchCrewTask, listTasks, type CrewTask } from "./crew.js";
 import { listDomainRuns } from "../command/store.js";
+import { isSettled } from "../command/run-state.js";
 import type { DomainRun } from "../command/types.js";
 import { routingFailureEvidence } from "../runtime/routing-learning.js";
 import { reviewEvidence, selfReviewDir } from "../council/reply-review.js";
@@ -325,7 +326,7 @@ function awaitingGeorge(tasks: CrewTask[], now: Date, flydDir?: string): CrewTas
   const crew = tasks.find((task) => task.source === "self-improvement" && ["running", "verifying", "ready", "landing"].includes(task.status));
   if (crew) return crew;
   return listDomainRuns(flydDir ? join(flydDir, "command") : undefined).find((run) => run.request.source === "self-improvement"
-    && ["queued", "accepted", "working", "needs_decision"].includes(run.status)
+    && !isSettled(run.status)
     && now.getTime() - Date.parse(run.updatedAt) < DOMAIN_RUN_HOLD_MS);
 }
 

@@ -8,6 +8,7 @@ import { query, type QueryOptions } from "../lib/llm.js";
 import { readTaste } from "../council/taste.js";
 import { designLabSkill, designTeamSkills } from "./design.js";
 import { createDomainRun, isDomainRunId, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
+import { isSettled } from "./run-state.js";
 import type { DomainRequest, DomainResult, DomainRun } from "./types.js";
 import { decisionsLines } from "./types.js";
 
@@ -942,7 +943,8 @@ async function makeWithOpenCode(cwd: string, prompt: string): Promise<string> {
 const working = new Set<string>();
 
 function terminal(run: DomainRun): boolean {
-  return ["completed", "failed", "cancelled", "needs_decision"].includes(run.status);
+  // A decision pauses the runner until George answers.
+  return isSettled(run.status) || run.status === "needs_decision";
 }
 
 /** Steps one lab to its end in the background, at most one runner per lab in this process. */

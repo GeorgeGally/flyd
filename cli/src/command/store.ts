@@ -1,7 +1,10 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
+import { canMove } from "./run-state.js";
 import type { DomainMessage, DomainRun } from "./types.js";
+
+export { canMove, cameBack, isAtWork, isFinal, isOpen, isSettled } from "./run-state.js";
 
 // The command store: one JSON file per domain run, written by Core's scheduler
 // and by `flyd view` at once. Every write goes through `mutateDomainRun`: under
@@ -78,6 +81,15 @@ export function mutateDomainRun(id: string, change: (current: DomainRun | null) 
     const next = change(current);
     if (!next) return current;
     if (next.id !== id) throw new Error("A change cannot move a domain run to another id");
+    const from = current?.status ?? null;
+    // First release: an illegal move is recorded, not refused (command/run-state.ts).
+    if (from !== next.status && !canMove(from, next.status)) {
+      try {
+        recordDomainRunRefusal({ at: new Date().toISOString(), origin: "run-state", reason: "illegal_move", runId: id, from: from ?? "none", to: next.status }, dir);
+      } catch {
+        // The log is evidence, never a reason to lose the write.
+      }
+    }
     const saved: DomainRun = { ...next, revision: (current?.revision ?? 0) + 1 };
     writeJsonFile(path, saved);
     return saved;
@@ -147,7 +159,7 @@ export function saveDomainRun(run: DomainRun, dir = commandDir()): void {
   mutateDomainRun(run.id, () => run, dir);
 }
 
-export function recordDomainRunRefusal(refusal: { at: string; origin: string; reason: string; projectRoot?: string }, dir = commandDir()): void {
+export function recordDomainRunRefusal(refusal: { at: string; origin: string; reason: string; projectRoot?: string; runId?: string; from?: string; to?: string }, dir = commandDir()): void {
   const path = join(dir, "refusals.jsonl");
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   appendFileSync(path, `${JSON.stringify(refusal)}\n`, { encoding: "utf8", mode: 0o600 });
