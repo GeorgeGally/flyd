@@ -72,12 +72,14 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "tell_work",
-    description: "Pass George's correction, decision, change of priority or cancel to work he already handed off. The Chief of Staff finds which piece of work it is for and delivers it; if it could be for more than one, it returns the one question to ask him. Use it only when his message is about work under way.",
+    description: "Pass George's correction, decision, change of priority or cancel to work he already handed off, or his answer to something it is waiting on him for (that resumes the same work; never hand it off again), or set a wait aside until later (snooze). The Chief of Staff finds which piece of work it is for and delivers it; if it could be for more than one, it returns the one question to ask him. Use it only when his message is about work under way.",
     input_schema: {
       type: "object",
       properties: {
         message: { type: "string", description: "His message about the work, in his words" },
-        kind: { type: "string", enum: ["correction", "decision", "priority_change", "cancel"], description: "What the message does to the work" },
+        kind: { type: "string", enum: ["correction", "decision", "priority_change", "cancel", "snooze"], description: "What the message does to the work; his answer to a question it asked him is a decision" },
+        choice: { type: "string", description: "The option he picked, when he answered a question that offered options" },
+        until: { type: "string", description: "For snooze: this_evening, tomorrow_morning, or an ISO time he named" },
         objective_id: { type: "string", description: "The objective it is for, when work_status showed which" },
         team: { type: "string", enum: ["coding", "knowledge", "creative", "life"], description: "Which kind of work it is about, when clear" },
       },
@@ -342,7 +344,7 @@ export async function runAssistantTool(
       case "tell_work": {
         const { cosEnabled } = await import("../command/cos/objectives.js");
         if (!cosEnabled()) return "Error: tell_work is not available";
-        const kinds = ["correction", "decision", "priority_change", "cancel"];
+        const kinds = ["correction", "decision", "priority_change", "cancel", "snooze"];
         const teams = ["coding", "knowledge", "creative", "life"];
         const { tellWork } = await import("../command/cos/steer.js");
         const outcome = await tellWork({
@@ -350,8 +352,12 @@ export async function runAssistantTool(
           ...(input.objective_id ? { objectiveId: String(input.objective_id) } : {}),
           ...(kinds.includes(String(input.kind)) ? { kind: input.kind as "correction" } : {}),
           ...(teams.includes(String(input.team)) ? { team: input.team as "coding" } : {}),
+          ...(input.until ? { until: String(input.until) } : {}),
+          ...(input.choice ? { choice: String(input.choice) } : {}),
         });
+        if (outcome.delivered && outcome.until) return `Set aside until ${outcome.until}; nothing comes back before then. Tell him in a line when it will.`;
         if (outcome.delivered) return "Delivered to the work it is for. Tell him in a line that it has it; don't send it again.";
+        if (outcome.reason === "invalid_time") return "That isn't a time still to come. Ask him when he wants it back.";
         if (outcome.reason === "ambiguous") return `It could be for more than one piece of work. Ask him, in one line: ${outcome.ask}`;
         if (outcome.reason === "not_steerable" && outcome.ask) return `It can't be changed now. Ask him, in one line: ${outcome.ask}`;
         if (outcome.reason === "no_active_work") return "No work under way matches. Treat it as him talking to you; don't say it was passed on.";

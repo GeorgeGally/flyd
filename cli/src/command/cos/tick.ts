@@ -10,8 +10,8 @@ import type { DomainRun } from "../types.js";
 import { dispatchBrief, type Dispatch, type Dispatched, type SentBrief } from "./dispatch.js";
 import { intakeObjective, readRun, type Complete } from "./intake.js";
 import { cosEnabled, listObjectives, mutateObjective, readObjective } from "./objectives.js";
-import { isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, sinks } from "./plan.js";
-import type { Adaptation, CosReport, CosReportKind, Objective, PlannedRun, RunBrief } from "./types.js";
+import { isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, requeue, sinks } from "./plan.js";
+import type { Adaptation, CosReport, CosReportKind, Objective, PlannedRun, RunBrief, WaitKind } from "./types.js";
 
 // The Chief of Staff's tick (split plan Phase 3, v8 Phase 6; behind FLYD_COS=1). Called from the command tick, and
 // kicked at once by hand_off. For each objective it:
@@ -84,13 +84,24 @@ function workOf(objective: Objective): string {
   return shortWords(objective.brief?.outcome ?? objective.words);
 }
 
-/** One report, recorded on the objective and told; nothing when it was told already. */
-async function report(objective: Objective, made: CosReport, deps: CosTickDeps, store: IntelligenceEventStore, tell: () => Promise<unknown>, status: Objective["status"]): Promise<void> {
+/**
+ * One report, recorded on the objective and told; nothing when it was told already. A report that leaves the objective
+ * waiting on George records what it waits on (`wait`), so his reply resumes it; any other ends the wait.
+ */
+async function report(objective: Objective, made: CosReport, deps: CosTickDeps, store: IntelligenceEventStore, tell: () => Promise<unknown>, status: Objective["status"], wait?: { kind: WaitKind; question?: string }): Promise<void> {
   if (objective.reportIds.includes(made.id)) return;
   await tell();
   recordCosReport(made, store, deps.now?.());
-  mutateObjective(objective.id, (current) => current && {
-    ...current, status: current.status === "cancelled" ? current.status : status, reportIds: current.reportIds.includes(made.id) ? current.reportIds : [...current.reportIds, made.id],
+  mutateObjective(objective.id, (current) => {
+    if (!current) return null;
+    const { waitingOn: _waiting, snooze: _snooze, ...rest } = current;
+    const waiting = status === "needs_george" && wait
+      ? { waitingOn: { reportId: made.id, kind: wait.kind, question: wait.question ?? made.outcome, ...(made.options?.length ? { options: made.options } : {}), at: new Date().toISOString() } }
+      : status === "needs_george" ? { ...(current.waitingOn ? { waitingOn: current.waitingOn } : {}), ...(current.snooze ? { snooze: current.snooze } : {}) } : {};
+    return {
+      ...rest, ...waiting, status: current.status === "cancelled" ? current.status : status,
+      reportIds: current.reportIds.includes(made.id) ? current.reportIds : [...current.reportIds, made.id],
+    };
   });
 }
 
@@ -98,7 +109,7 @@ async function blocked(objective: Objective, reason: string, deps: CosTickDeps, 
   if (readObjective(objective.id)?.status === "cancelled") return;
   // One plain sentence: what happened. The reason stays on the record.
   const made = { ...plainReport(objective, "blocked", `I couldn't get “${shortWords(objective.words)}” started; tell me a bit more and I'll set it going.`, key), detail: reason };
-  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george");
+  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: key === "intake" ? "intake" : "retry" });
 }
 
 /** Under the objective's lock: the plan as it is now, changed; null writes nothing. The first write keeps an older objective's plan. */
@@ -110,7 +121,7 @@ function mutatePlan(id: string, change: (objective: Objective, plan: PlannedRun[
     const next = change(current, plan);
     if (!next) return null;
     changed = true;
-    return { ...current, plan, ...next };
+    return { ...current, plan, progressAt: new Date().toISOString(), ...next };
   });
   return changed ? saved : null;
 }
@@ -188,14 +199,14 @@ function resultText(ref: string, jobs?: Array<{ id: string; result?: string }>):
 async function reconcile(objective: Objective, run: PlannedRun, deps: CosTickDeps, store: IntelligenceEventStore): Promise<void> {
   const answer = await (deps.dispatch ?? dispatchBrief)(objective, sentBrief(objective, run), planRequestId(objective.id, run), { replay: true })
     .catch((error: unknown): Dispatched => ({ unknown: error instanceof Error ? error.message : String(error) }));
-  await dispatched(objective.id, run.key, answer, deps, store);
+  await dispatched(objective.id, run.key, answer, deps, store, true);
 }
 
 /** Records what the executor answered for a run: its receipt, `unknown`, or a refusal (a blocked report). */
-async function dispatched(id: string, key: string, answer: Dispatched, deps: CosTickDeps, store: IntelligenceEventStore): Promise<void> {
+async function dispatched(id: string, key: string, answer: Dispatched, deps: CosTickDeps, store: IntelligenceEventStore, reconciled = false): Promise<void> {
   if ("ref" in answer) {
     const ref = answer.ref;
-    const recorded = changeRun(id, key, () => ({ state: "dispatched", ref, dispatching: undefined }), (objective) => ({
+    const recorded = changeRun(id, key, () => ({ state: "dispatched", ref, dispatching: undefined, ...(reconciled ? { reconciled: true } : {}) }), (objective) => ({
       runs: objective.runs.includes(ref) ? objective.runs : [...objective.runs, ref],
     }));
     // He cancelled while it was being sent: the run is stopped as well.
@@ -238,7 +249,8 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
     // Back at work after his decision: the objective is working again unless something else still waits on him.
     if (AT_WORK.has(domain.status) && run.reviewed?.includes(":needs_decision:")) {
       changeRun(objective.id, run.key, () => ({ reviewed: undefined }), (current) => (
-        current.status === "needs_george" && !planOf(current).some((other) => other.state === "failed") ? { status: "working" } : {}
+        current.status === "needs_george" && !planOf(current).some((other) => other.state === "failed")
+          ? { status: "working", waitingOn: undefined, snooze: undefined } : {}
       ));
     }
     return;
@@ -258,7 +270,7 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
   // A call only he can make: told now, while the rest of the objective carries on.
   const id = `${objective.id}:${key}`;
   const made = told ? { ...plainReport(objective, "decision", told.line, ""), id, evidenceRefs: [`domain-run:${ref}`] } : runReport(objective, domain, decision!, id);
-  await report(objective, made, deps, store, async () => told ? undefined : (deps.tell ?? defaultTell)(domain, decision!, `cos:${id}`), "needs_george");
+  await report(objective, made, deps, store, async () => told ? undefined : (deps.tell ?? defaultTell)(domain, decision!, `cos:${id}`), "needs_george", { kind: "run" });
   changeRun(objective.id, run.key, () => ({ reviewed: key }));
 }
 
@@ -269,11 +281,6 @@ function runReport(objective: Objective, run: DomainRun, decision: ExecutiveDeci
     ...(shaped.recommendation ? { recommendation: shaped.recommendation } : {}), ...(shaped.options?.length ? { options: shaped.options } : {}),
     evidenceRefs: [`domain-run:${run.id}`, ...decision.evidenceRefs], shape: shaped.shape, artefacts: shaped.artefacts, urgency: objective.urgency ?? shaped.urgency,
   };
-}
-
-/** Puts a run back in the queue for another attempt, its result kept as prior work. */
-function requeue(run: PlannedRun, extra: Partial<PlannedRun> = {}): Partial<PlannedRun> {
-  return { state: "queued", ref: undefined, sent: undefined, reviewed: undefined, dispatching: undefined, prior: run.ref ? [...new Set([...(run.prior ?? []), run.ref])] : run.prior, ...extra };
 }
 
 /** A completed run: kept as done, or, when a correction overtook it, kept as prior work and run again; never delivered stale. */
@@ -299,7 +306,7 @@ async function failed(objective: Objective, run: PlannedRun, key: string, why: s
     : reason ? `${work} didn't finish: ${reason}` : `${work} didn't finish.`;
   const made: CosReport = { ...plainReport(objective, "decision", outcome, key), detail, evidenceRefs: [linkOf(run.ref!)], options: ["Try another way", "Drop it"] };
   changeRun(objective.id, run.key, () => ({ state: "failed", reviewed: key }));
-  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george");
+  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "retry" });
 }
 
 /** Runs dispatched and not yet settled, across every open objective. */
@@ -452,9 +459,13 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   if (!live.length || !live.every((run) => isValid(run, objective))) return;
   const finals = sinks(objective);
   const reportId = `${id}:${finals.map((run) => run.reviewed).join("+")}`;
-  const shortKey = `short:${finals.map((run) => run.reviewed).join("+")}`;
-  if (objective.reportIds.includes(reportId) || objective.reportIds.includes(`${id}:${shortKey}`)) return;
-  const verdict = await accept(objective, finals, deps);
+  const finalsKey = finals.map((run) => run.reviewed).join("+");
+  const shortKey = `short:${finalsKey}`;
+  if (objective.reportIds.includes(reportId)) return;
+  // He took a result that fell short as it is: delivered without asking the check again.
+  const taken = objective.takenAsIs === finalsKey;
+  if (!taken && objective.reportIds.includes(`${id}:${shortKey}`)) return;
+  const verdict = taken ? { met: true, missing: "", checked: true } : await accept(objective, finals, deps);
   if (!verdict.met) {
     const retry = finals.find((run) => !run.adapted && !run.ref?.startsWith("job:"));
     const missing = verdict.missing || "it doesn't yet meet what done means";
@@ -465,7 +476,7 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
       return;
     }
     const made: CosReport = { ...plainReport(objective, "decision", `${workOf(objective)} is close but not there: ${missing}. Take it as it is, or try another way?`, shortKey), options: ["Take it as it is", "Try another way"], evidenceRefs: finals.map((run) => linkOf(run.ref!)) };
-    await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george");
+    await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "accept" });
     return;
   }
   const unchecked = verdict.checked ? "" : "Not checked against done_when (the check couldn't be read).";
@@ -507,9 +518,84 @@ async function advance(id: string, deps: CosTickDeps, store: IntelligenceEventSt
   }
   for (const run of planOf(readObjective(id) ?? start)) {
     if (run.state === "dispatched" && run.ref) await settle(readObjective(id) ?? start, run, deps, store, decisions);
+    // A second result after the first was kept: the first stands, and work_status can say so.
+    if (run.state === "completed" && run.ref && !run.ref.includes(":") && !run.reportedTwice) {
+      const domain = readDomainRun(run.ref);
+      if (domain?.status === "completed" && `${run.ref}:completed:${domain.updatedAt}` !== run.reviewed) changeRun(id, run.key, () => ({ reportedTwice: true }));
+    }
   }
   await finish(id, deps, store, decisions);
   await release(id, deps, store, now);
+  await attend(id, deps, store, now);
+}
+
+/** Work with no progress this long is settled by the Chief of Staff: chased, parked, or put to George when it can't tell. */
+export const STUCK_MS = 24 * 60 * 60_000;
+
+/** When anything last moved on it: its own record, the last triage, or its teams' runs. */
+function lastProgress(objective: Objective): number {
+  const marks = [objective.progressAt ?? objective.createdAt, objective.triage?.at(-1)?.at ?? "",
+    ...planOf(objective).flatMap((run) => (run.ref && !run.ref.includes(":") ? [readDomainRun(run.ref)?.updatedAt ?? ""] : []))];
+  return Math.max(...marks.map((mark) => Date.parse(mark)).filter(Number.isFinite));
+}
+
+/**
+ * What waits on George, and what has gone quiet (v8 Phase 7). A snoozed wait raises nothing until its time, then comes
+ * back once. A wait with no question gets one ("X is waiting on you for Y"). Work quiet for a day is settled here:
+ * nudged (FirstMate's runs are chased by the fleet monitor; the Librarian gets a note), parked when it waits on
+ * something outside, or, when that can't be told, one decision for George. Staff silence alone never reaches him.
+ */
+async function attend(id: string, deps: CosTickDeps, store: IntelligenceEventStore, now: Date): Promise<void> {
+  const objective = readObjective(id);
+  if (!objective || !["working", "needs_george"].includes(objective.status)) return;
+  const work = workOf(objective);
+  if (objective.snooze) {
+    if (now.getTime() < Date.parse(objective.snooze.until)) return;
+    const waiting = objective.waitingOn;
+    if (waiting && objective.status === "needs_george" && waiting.reportId === objective.snooze.reportId) {
+      const made: CosReport = { ...plainReport(objective, "decision", `Back as you asked: ${waiting.question}`, `back:${objective.snooze.until}`), ...(waiting.options ? { options: waiting.options } : {}) };
+      return report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: waiting.kind, question: waiting.question });
+    }
+    mutateObjective(id, (current) => current && { ...current, snooze: undefined });
+    return;
+  }
+  if (objective.status === "needs_george") {
+    if (objective.waitingOn) return;
+    const asked = planOf(objective).map((run) => (run.ref && !run.ref.includes(":") ? readDomainRun(run.ref) : null)).find((run) => run?.status === "needs_decision");
+    const question = plainLine(asked?.result?.unresolvedQuestions[0] ?? "");
+    const made = plainReport(objective, "decision", `“${work}” is waiting on you for ${question && !unfitForHim(question).length ? question.replace(/[.?!]+$/, "") : "a decision"}.`, `waiting:${objective.progressAt ?? objective.updatedAt}`);
+    return report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: asked ? "run" : "question" });
+  }
+  if (objective.parked || objective.ongoing || now.getTime() - lastProgress(objective) < STUCK_MS) return;
+  const out = planOf(objective).filter((run) => ["dispatching", "dispatched", "unknown"].includes(run.state));
+  if (!out.length) return;
+  let cannotTell = "";
+  let nudged = "";
+  let parked = "";
+  for (const run of out) {
+    if (run.state !== "dispatched" || !run.ref) { cannotTell = "a team never confirmed it has the work"; continue; }
+    if (run.ref.startsWith("job:")) { cannotTell = "a one-off job has been running for a day"; continue; }
+    if (run.ref.startsWith("crew:")) { parked = "the crew tells him itself when it is ready"; continue; }
+    const domain = readDomainRun(run.ref);
+    if (!domain) { cannotTell = "a run's record is missing"; continue; }
+    if (domain.status === "needs_decision") continue;
+    if (domain.transport.kind === "firstmate") { nudged = "FirstMate is being chased for it"; continue; }
+    const sent = await (deps.send ?? sendRunMessage)({ run: domain, kind: "question", from: "flyd", body: "Where does this stand? It has been quiet for a day." }).catch(() => ({ delivered: false }));
+    if (sent.delivered) nudged = `${domain.owner} was asked where it stands`;
+    else cannotTell = `${domain.owner} can't be asked where it stands`;
+  }
+  const at = now.toISOString();
+  if (cannotTell) {
+    const made: CosReport = { ...plainReport(objective, "decision", `“${work}” has gone quiet and I can't tell why. Nudge it, park it, or is it meant to keep running?`, `stuck:${at}`), options: ["Nudge", "Park it", "It's ongoing"] };
+    mutateObjective(id, (current) => current && { ...current, triage: [...(current.triage ?? []), { at, choice: "asked", reason: cannotTell }] });
+    return report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "stuck" });
+  }
+  const choice = nudged ? "nudge" : parked ? "park" : null;
+  if (!choice) return;
+  const reason = nudged || parked;
+  mutateObjective(id, (current) => current && {
+    ...current, triage: [...(current.triage ?? []), { at, choice, reason }], ...(choice === "park" ? { parked: { at, reason } } : {}),
+  });
 }
 
 const defaultComplete: Complete = async (prompt) => (await import("../../lib/llm.js")).quickQuery(prompt, { json: true });

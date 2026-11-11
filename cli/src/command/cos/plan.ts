@@ -110,3 +110,8 @@ export function sinks(objective: Objective): PlannedRun[] {
 export function followsRun(objective: Objective, runId: string): boolean {
   return objective.runs.includes(runId) || planOf(objective).some((run) => run.state === "dispatching" && planRequestId(objective.id, run) === runId);
 }
+
+/** A run put back in the queue for another attempt, its last result kept as prior work. */
+export function requeue(run: PlannedRun, extra: Partial<PlannedRun> = {}): Partial<PlannedRun> {
+  return { state: "queued", ref: undefined, sent: undefined, reviewed: undefined, dispatching: undefined, reconciled: undefined, reportedTwice: undefined, prior: run.ref ? [...new Set([...(run.prior ?? []), run.ref])] : run.prior, ...extra };
+}
