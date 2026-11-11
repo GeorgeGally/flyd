@@ -466,12 +466,19 @@ export const ARTEFACT_CHAT_SCRIPT = `
   // button for that card steps back at once, and nothing about it outlives the page.
   var choicePending = {};
   // A choice button sends its words exactly as if he had typed them, through the card's own chat.
-  function pickChoice(chat, key, choice, onChange) {
-    if (chat.state.picked || choicePending[key]) return;
+  function askedOf(decision) {
+    return [decision.questionIdentity || decision.question || ""].concat(decision.choices || []).join("\\n");
+  }
+  function pickedFor(state, decision) {
+    return state.picked && state.pickedFor === askedOf(decision) ? state.picked : "";
+  }
+  function pickChoice(chat, key, decision, choice, onChange) {
+    if (pickedFor(chat.state, decision) || choicePending[key]) return;
     choicePending[key] = choice;
     chat.deliver(choice, function () {
       delete choicePending[key];
       chat.state.picked = choice;
+      chat.state.pickedFor = askedOf(decision);
       chat.save();
       if (onChange) onChange();
     });
@@ -584,13 +591,13 @@ export const ARTEFACT_CHAT_SCRIPT = `
         button.type = "button";
         button.appendChild(el("span", "", choice));
         if (choice === decision.recommended) button.appendChild(el("small", "", "recommended"));
-        button.addEventListener("click", function () { pickChoice(chat, key, choice, chat.onPaint); });
+        button.addEventListener("click", function () { pickChoice(chat, key, decision, choice, chat.onPaint); });
         choices.appendChild(button);
         return button;
       });
       // Once he picks, the one he picked stays lit and every button is done: his answer is in the thread below.
       chat.onPaint = function () {
-        var chosen = chat.state.picked || choicePending[key] || "";
+        var chosen = pickedFor(chat.state, decision) || choicePending[key] || "";
         buttons.forEach(function (button, index) {
           button.setAttribute("aria-pressed", String(chosen === ordered[index]));
           button.disabled = !!chosen;

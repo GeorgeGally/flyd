@@ -542,7 +542,7 @@ export const FRONT_SCRIPT = `
     var choices = job.choices && job.choices.length ? job.choices : null;
     if (job.decision) return choices ? Object.assign({}, job.decision, { choices: choices, recommended: job.recommended || job.decision.recommended }) : job.decision;
     if (!choices) return null;
-    return { question: job.ask || "", choices: choices, recommended: job.recommended || "" };
+    return { question: job.ask || "", questionIdentity: job.questionIdentity || "", choices: choices, recommended: job.recommended || "" };
   }
   // What has become of an answer sent from a card's button: on its way, sent, or not delivered.
   function frontPicked(job) {
@@ -550,7 +550,7 @@ export const FRONT_SCRIPT = `
     var pending = choicePending[key];
     var stored = {};
     try { stored = JSON.parse(sessionStorage.getItem(key) || "{}") || {}; } catch (_) {}
-    var chosen = pending || stored.picked || "";
+    var chosen = pending || pickedFor(stored, frontDecision(job)) || "";
     if (!chosen) return null;
     if (!pending) return { choice: chosen, line: "Sent to " + assistant };
     var failed = Object.keys(frontChats).some(function (id) {
@@ -645,7 +645,7 @@ export const FRONT_SCRIPT = `
       var job = frontJobs.get(pick.dataset.pickJob);
       if (!job || pick.disabled) return;
       var answer = frontAnswer(job);
-      pickChoice(answer.chat, answer.key, pick.dataset.pick, function () { frontDrawn.jobs = ""; frontDrawJobs(Array.from(frontJobs.values())); });
+      pickChoice(answer.chat, answer.key, frontDecision(job), pick.dataset.pick, function () { frontDrawn.jobs = ""; frontDrawJobs(Array.from(frontJobs.values())); });
       return;
     }
     var card = event.target.closest(".job");

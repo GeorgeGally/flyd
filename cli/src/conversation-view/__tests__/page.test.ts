@@ -5118,6 +5118,33 @@ describe("the front page", () => {
     expect(document.querySelector(".job-view textarea")).not.toBeNull();
   });
 
+  it("offers a run's next question its own buttons after he tapped an answer to the last one", async () => {
+    const stream = await opened();
+    const job = {
+      id: "board", group: "needs", state: "Needs you", title: "Show the existing Liesel board", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "you", ask: "Waiting on your go-ahead.", because: "",
+      shots: [], links: [], files: [], threads: [], domainRun: "run-9", questionIdentity: "Merge the board?",
+      digest: { changed: "The board is finished.", needed: "Say yes to merge it." },
+      choices: ["Yes", "No"], recommended: "Yes",
+    };
+    const update = (next: typeof job) => stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [next] });
+    update(job);
+    const picks = () => [...document.querySelectorAll<HTMLButtonElement>('.jobask .jpick[data-pick-job="board"]')];
+    picks()[0]!.click();
+    await settle();
+    expect(picks().every((button) => button.disabled)).toBe(true);
+    update({ ...job, questionIdentity: "Restart Flyd now?" });
+    await settle();
+    expect(picks().map((button) => button.disabled)).toEqual([false, false]);
+    expect(document.querySelector(".jobask .jsent")).toBeNull();
+    after(() => document.querySelector<HTMLElement>('.job[data-job="board"]')!.click());
+    const open = [...document.querySelectorAll<HTMLButtonElement>(".job-view .choice-pick")];
+    expect(open.map((button) => button.disabled)).toEqual([false, false]);
+    open[1]!.click();
+    await settle();
+    const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-9", questionText: "Restart Flyd now?", text: "No" });
+  });
+
   it("hears that a card button's answer was not delivered once the job is opened", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     try {
