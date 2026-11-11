@@ -263,6 +263,9 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .art-reply { font: 500 13.5px/1 var(--sans); color: var(--muted); background: none; border: 0; padding: 4px 0; cursor: pointer; }
 .art-reply:hover { color: var(--strong); }
 .art-reply[hidden] { display: none; }
+.art-failed { color: var(--strong); }
+.art-retry { font: 500 13.5px/1 var(--sans); color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; }
+.art-retry:hover { text-decoration: underline; }
 .art-chat--nested { margin-top: 4px; }
 /* Flyd's reply: a step smaller and held back, the way its voice sits under his elsewhere. */
 .art-msg--them { font-size: 14px; margin-bottom: 4px; }

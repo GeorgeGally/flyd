@@ -17,6 +17,7 @@ import { readDomainRun, saveDomainRun } from "../../command/store.js";
 import { artefactAsk } from "../replies.js";
 import { ArtefactFeed } from "../artefact.js";
 import { ConversationViewServer, replyCards, SnapshotDiffer } from "../server.js";
+import { CardNotes } from "../card-notes.js";
 import { ComposerPredictions } from "../composer-predictions.js";
 import { plainNote } from "../rail.js";
 import { ComposerDrafts } from "../drafts.js";
@@ -911,6 +912,88 @@ describe("ConversationViewServer", () => {
     expect(await receipt("note:2")).toBe("sent");
     expect(await receipt("note:9")).toBeNull();
     expect((await get(port, "/api/note?id=note%3A1")).status).toBe(403);
+  });
+
+  it("accepts a card's note at once while its route is slow, routes notes in order, and tells the card where each went", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    // A decision answer is checked against a fresh fleet read first, and that read can take a minute.
+    Object.assign(server!, { cardNotes: new CardNotes({ acceptMs: 50 }), liveCall: async () => { await gate; return undefined; } });
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const answer = (text: string, clientId: string) => post(port, JSON.stringify({ decision: "logan-chat", decisionTask: "logan-chat", jobTitle: "Logan chat", questionText: "Go-ahead to land Logan chat?", text, clientId }), headers);
+    const first = JSON.parse((await answer("This, I think, has also been completed.", "note-a")).body);
+    const second = JSON.parse((await answer("I'm more interested in design and UX.", "note-b")).body);
+    expect(first).toMatchObject({ id: expect.stringMatching(/^pending:/), waiting: "Sent to Flyd" });
+    expect(second.id).not.toBe(first.id);
+    // The same note sent again (a timed-out send, a second copy of the card) is the same note.
+    expect(JSON.parse((await answer("This, I think, has also been completed.", "note-a")).body).id).toBe(first.id);
+    const note = async (id: string) => JSON.parse((await get(port, `/api/note?id=${encodeURIComponent(id)}&token=${viewToken}`)).body);
+    expect(await note(first.id)).toEqual({ receipt: "sent" });
+    expect(inbox.sent).toHaveLength(0);
+    release();
+    for (let attempt = 0; attempt < 100 && inbox.sent.length < 2; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(inbox.sent.map((message) => message.text.split("\n\n").at(-1))).toEqual(["This, I think, has also been completed.", "I'm more interested in design and UX."]);
+    expect(await note(first.id)).toMatchObject({ id: "note:1", receipt: "sent" });
+    expect(await note(second.id)).toMatchObject({ id: "note:2", receipt: "sent" });
+  });
+
+  it("routes one card's notes without waiting on another card's slow route", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    Object.assign(server!, { cardNotes: new CardNotes({ acceptMs: 50 }), liveCall: async () => { await gate; return undefined; } });
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const slow = JSON.parse((await post(port, JSON.stringify({ decision: "logan-chat", decisionTask: "logan-chat", jobTitle: "Logan chat", questionText: "Go-ahead to land Logan chat?", text: "Yes", clientId: "note-a" }), headers)).body);
+    expect(slow.id).toMatch(/^pending:/);
+    const other = JSON.parse((await post(port, JSON.stringify({ about: { title: "Christmas map", task: "xmas" }, text: "Make it calmer", clientId: "note-b" }), headers)).body);
+    expect(other.id).not.toMatch(/^pending:/);
+    expect(inbox.sent.map((message) => message.text.split("\n\n").at(-1))).toEqual(["Make it calmer"]);
+    release();
+  });
+
+  it("returns what a slow route said about a note, not only its id", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    const notes = new CardNotes({ acceptMs: 20 });
+    Object.assign(server!, { cardNotes: notes });
+    const accepted = await notes.accept("note-f", "card", async (res) => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      res.writeHead(200).end(JSON.stringify({ id: "note:1", followUp: "exec-1" }));
+    });
+    expect(accepted.body.id).toMatch(/^pending:/);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(JSON.parse((await get(port, `/api/note?id=${encodeURIComponent(String(accepted.body.id))}&token=${viewToken}`)).body)).toMatchObject({ id: "note:1", followUp: "exec-1" });
+  });
+
+  it("lets a note go again after a route that threw", async () => {
+    const notes = new CardNotes();
+    await expect(notes.accept("note-x", "card", async () => { throw new Error("down"); })).resolves.toMatchObject({ status: 502 });
+    await expect(notes.accept("note-x", "card", async (res) => { res.writeHead(200).end(JSON.stringify({ id: "note:2" })); })).resolves.toMatchObject({ status: 200, body: { id: "note:2" } });
+  });
+
+  it("tells the card a note it accepted could not be delivered, and lets the same note go again", async () => {
+    const inbox = new MemoryInbox();
+    const port = await start(inbox);
+    let fail = true;
+    const send = inbox.send.bind(inbox);
+    inbox.send = async (...args: Parameters<MemoryInbox["send"]>) => { await new Promise((resolve) => setTimeout(resolve, 100)); if (fail) throw new Error("inbox down"); return send(...args); };
+    Object.assign(server!, { cardNotes: new CardNotes({ acceptMs: 20 }) });
+    const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
+    const about = () => post(port, JSON.stringify({ about: { title: "Logan chat" }, text: "Make it calmer", clientId: "note-c" }), headers);
+    const accepted = JSON.parse((await about()).body);
+    expect(accepted.id).toMatch(/^pending:/);
+    const note = async (id: string) => JSON.parse((await get(port, `/api/note?id=${encodeURIComponent(id)}&token=${viewToken}`)).body);
+    let told = await note(accepted.id);
+    for (let attempt = 0; attempt < 100 && !told.notDelivered; attempt++) { await new Promise((resolve) => setTimeout(resolve, 10)); told = await note(accepted.id); }
+    expect(told).toEqual({ receipt: "sent", notDelivered: "Not delivered. Try again." });
+    fail = false;
+    const again = JSON.parse((await about()).body);
+    expect(again.id).not.toBe(accepted.id);
+    for (let attempt = 0; attempt < 100 && !inbox.sent.length; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(inbox.sent.map((message) => message.text)).toEqual(['About the artefact "Logan chat"\n\nMake it calmer']);
   });
 
   it("returns the reply about a note he sent from an artefact, so it can land in the card's own thread", async () => {
