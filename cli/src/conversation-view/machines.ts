@@ -3,13 +3,15 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { hostname, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
+import { machineWords } from "./machine-words.js";
 
 // The Machines tab: the computer Flyd runs on, read locally, and every saved
 // machine, read over `ssh <alias>`. Readings are one fixed script and nothing
 // else: nothing typed on the page reaches a shell, and the script only reads.
 // A machine is saved as a name and an alias; keys, users and ports stay in the
 // SSH config. Each machine is read on its own, so a dead one only marks its own
-// row. Readings live in memory.
+// row. Readings live in memory. Now and then the read also asks Claude Code and
+// Codex for their versions, so the tab can say which machine is behind.
 
 export interface SavedMachine {
   name: string;
@@ -29,6 +31,20 @@ export interface MachineProcess {
   memory: number;
 }
 
+/** One app's processes together: Chrome and all its helpers are one holder. */
+export interface MachineHolder {
+  name: string;
+  /** How many processes. */
+  count: number;
+  /** Percent of the machine's memory, added up. */
+  memory: number;
+  /** Browsers started for tests (Chrome for Testing, headless Chromium), not his own. */
+  test?: boolean;
+}
+
+/** Tool versions, by tool: "claude", "codex". */
+export type MachineTools = Partial<Record<"claude" | "codex", string>>;
+
 export interface MachineReading {
   cores?: number;
   /** One, five and fifteen minutes. */
@@ -36,7 +52,12 @@ export interface MachineReading {
   memory?: MachineUsage;
   swap?: MachineUsage;
   disk?: MachineUsage;
+  /** Whole days since the machine started. */
+  upDays?: number;
   running: MachineProcess[];
+  /** The apps holding the most memory, most first. */
+  holding?: MachineHolder[];
+  tools?: MachineTools;
 }
 
 export interface MachineRow {
@@ -49,10 +70,23 @@ export interface MachineRow {
   /** Why an offline machine is offline, in plain words. */
   reason?: string;
   seenAt?: string;
+  /** What matters on this machine, in one plain sentence. */
+  say?: string;
+  /** The one thing to do about it, if there is one. */
+  action?: MachineAction;
+}
+
+/** A button on the Machines tab. Pressing it asks Flyd, in the conversation, in these words. */
+export interface MachineAction {
+  label: string;
+  /** What Flyd is asked to do. */
+  ask: string;
+  /** When set, the page asks him first, in these words: the action changes something. */
+  confirm?: string;
 }
 
 export const FIRST_MACHINES: SavedMachine[] = [
-  { name: "PC", alias: "radarboy3k" },
+  { name: "PC", alias: "pc-firstmate" },
   { name: "Server", alias: "85.155.185.63" },
 ];
 
@@ -64,6 +98,9 @@ const FRESH_MS = 20_000;
 const OUTPUT_MAX = 256 * 1024;
 const ERROR_MAX = 8 * 1024;
 const RUNNING_MAX = 5;
+const HOLDING_MAX = 3;
+const TOOLS_TIMEOUT_MS = 30_000;
+const TOOLS_FRESH_MS = 30 * 60_000;
 /** Outside the alias grammar, so no saved machine can share the local row. */
 const LOCAL_ID = "@local";
 
@@ -73,9 +110,22 @@ echo @@cores; getconf _NPROCESSORS_ONLN
 echo @@uptime; uptime
 echo @@memory; if [ -r /proc/meminfo ]; then cat /proc/meminfo; else sysctl -n hw.memsize; vm_stat; sysctl -n vm.swapusage; fi
 echo @@disk; if [ -d /System/Volumes/Data ]; then df -kP /System/Volumes/Data; else df -kP /; fi
-echo @@running; ps -A -o pcpu= -o pmem= -o comm= | sort -rn | head -n 60
+echo @@running; ps -A -o pcpu= -o pmem= -o comm= | sort -rn | head -n 4000
 echo @@end
 `;
+
+/** Read now and then, before the end marker: the version each tool prints, from wherever it is installed. */
+export const TOOLS_SCRIPT = `echo @@tools
+PATH="$HOME/.local/bin:$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+for d in "$HOME"/.nvm/versions/node/*/bin; do PATH="$PATH:$d"; done
+export PATH
+for t in claude codex; do v=$("$t" --version </dev/null 2>/dev/null | head -n 1) && echo "$t $v"; done
+`;
+
+/** The read script, with the tools asked for when they are due. */
+export function readScript(tools: boolean): string {
+  return tools ? READ_SCRIPT.replace("echo @@end", `${TOOLS_SCRIPT}echo @@end`) : READ_SCRIPT;
+}
 
 // The read's own commands, which ps catches mid-run.
 const OWN_COMMANDS = new Set(["ps", "sort", "head", "sh"]);
@@ -138,20 +188,65 @@ function diskOf(lines: string[]): MachineUsage | undefined {
   return row ? { used: Number(row[2]) * 1024, total: Number(row[1]) * 1024 } : undefined;
 }
 
-function runningOf(lines: string[]): MachineProcess[] {
-  const byName = new Map<string, MachineProcess>();
-  for (const line of lines) {
+interface PsRow { name: string; cpu: number; memory: number }
+
+function psRows(lines: string[]): PsRow[] {
+  return lines.flatMap((line) => {
     const row = /^\s*([\d.]+)\s+([\d.]+)\s+(.+?)\s*$/.exec(line);
-    if (!row) continue;
+    if (!row) return [];
     // macOS gives the whole path, spaces and all; Linux gives a short name that may hold a slash.
     const command = row[3]!.startsWith("/") ? row[3]!.slice(row[3]!.lastIndexOf("/") + 1) : row[3]!;
     const name = command.replace(/\p{Cc}/gu, "").slice(0, 40);
-    if (!name || OWN_COMMANDS.has(name)) continue;
+    return !name || OWN_COMMANDS.has(name) ? [] : [{ name, cpu: Number(row[1]), memory: Number(row[2]) }];
+  });
+}
+
+const tenths = (value: number): number => Math.round(value * 10) / 10;
+
+function runningOf(rows: PsRow[]): MachineProcess[] {
+  const byName = new Map<string, MachineProcess>();
+  for (const { name, cpu, memory } of rows) {
     const seen = byName.get(name) ?? { name, cpu: 0, memory: 0 };
-    byName.set(name, { name, cpu: seen.cpu + Number(row[1]), memory: seen.memory + Number(row[2]) });
+    byName.set(name, { name, cpu: seen.cpu + cpu, memory: seen.memory + memory });
   }
   return [...byName.values()].sort((a, b) => b.cpu - a.cpu || b.memory - a.memory).slice(0, RUNNING_MAX)
-    .map((process) => ({ ...process, cpu: Math.round(process.cpu * 10) / 10, memory: Math.round(process.memory * 10) / 10 }));
+    .map((process) => ({ ...process, cpu: tenths(process.cpu), memory: tenths(process.memory) }));
+}
+
+const TEST_BROWSER = /chrome for testing|headless[ _-]?shell|^chromium\b/i;
+
+/** The app a process belongs to, as people name it: every "Google Chrome Helper (Renderer)" is Chrome. */
+export function appOf(name: string): string {
+  const app = name.replace(/ Helper\b.*$/, "").replace(/^Google /, "").trim() || name;
+  if (/^(chrome|chrome_crashpad_handler)$/i.test(app)) return "Chrome";
+  if (/^headless[ _-]?shell$|^chrome-headless-shell$/i.test(app)) return "Headless Chromium";
+  return app;
+}
+
+function holdingOf(rows: PsRow[]): MachineHolder[] {
+  const byApp = new Map<string, MachineHolder>();
+  for (const { name, memory } of rows) {
+    const app = appOf(name);
+    const seen = byApp.get(app) ?? { name: app, count: 0, memory: 0, ...(TEST_BROWSER.test(name) ? { test: true } : {}) };
+    byApp.set(app, { ...seen, count: seen.count + 1, memory: seen.memory + memory });
+  }
+  return [...byApp.values()].filter((app) => app.memory > 0).sort((a, b) => b.memory - a.memory).slice(0, HOLDING_MAX)
+    .map((app) => ({ ...app, memory: tenths(app.memory) }));
+}
+
+function upDaysOf(uptime: string): number | undefined {
+  if (!/\bup\b/.test(uptime)) return undefined;
+  const days = /\bup\s+(\d+)\s+days?/.exec(uptime);
+  return days ? Number(days[1]) : 0;
+}
+
+function toolsOf(lines: string[]): MachineTools {
+  const tools: MachineTools = {};
+  for (const line of lines) {
+    const found = /^(claude|codex)\s.*?(\d+\.\d+\.\d+)/.exec(line.trim());
+    if (found) tools[found[1] as "claude" | "codex"] = found[2]!;
+  }
+  return tools;
 }
 
 /** The read's output as a reading, or null when it stopped short or held nothing Flyd can use. Anything printed before the first marker is ignored. Pure. */
@@ -164,13 +259,20 @@ export function parseReading(output: string): MachineReading | null {
   const { memory, swap } = memoryLines.some((line) => line.startsWith("MemTotal:")) ? linuxMemory(memoryLines) : macMemory(memoryLines);
   const disk = diskOf(sections.get("disk") ?? []);
   if (!load && !memory && !disk) return null;
+  const uptime = (sections.get("uptime") ?? []).join(" ");
+  const upDays = upDaysOf(uptime);
+  const rows = psRows(sections.get("running") ?? []);
+  const holding = holdingOf(rows);
   return {
     ...(cores > 0 ? { cores } : {}),
     ...(load ? { load: [Number(load[1]), Number(load[2]), Number(load[3])] as [number, number, number] } : {}),
     ...(memory ? { memory } : {}),
     ...(swap ? { swap } : {}),
     ...(disk ? { disk } : {}),
-    running: runningOf(sections.get("running") ?? []),
+    ...(upDays !== undefined ? { upDays } : {}),
+    running: runningOf(rows),
+    ...(holding.length ? { holding } : {}),
+    ...(sections.has("tools") ? { tools: toolsOf(sections.get("tools") ?? []) } : {}),
   };
 }
 
@@ -193,7 +295,7 @@ interface Capture {
 }
 
 /** One command with the read script on its stdin. Settles by the deadline whatever the command does. */
-function capture(file: string, args: string[], timeoutMs: number): Promise<Capture> {
+function capture(file: string, args: string[], timeoutMs: number, script: string): Promise<Capture> {
   return new Promise((resolve) => {
     let output = "";
     let error = "";
@@ -211,13 +313,16 @@ function capture(file: string, args: string[], timeoutMs: number): Promise<Captu
     child.on("error", (cause: NodeJS.ErrnoException) => settle({ code: null, timedOut: false, missing: cause.code === "ENOENT" }));
     child.on("close", (code) => settle({ code, timedOut: false, missing: false }));
     child.stdin.on("error", () => {});
-    child.stdin.end(READ_SCRIPT);
+    child.stdin.end(script);
   });
 }
 
 interface Cell {
   busy: boolean;
   readAt: number;
+  /** When the tools were last asked for; they are kept between reads. */
+  toolsAt: number;
+  tools?: MachineTools;
   reading?: MachineReading;
   reason?: string;
   seenAt?: string;
@@ -236,6 +341,8 @@ export interface MachinesOptions {
   ssh?: string;
   timeoutMs?: number;
   freshMs?: number;
+  /** How long tool versions stay good; 0 asks every read. */
+  toolsFreshMs?: number;
   /** The first list, used until a change saves one. */
   first?: SavedMachine[];
   localName?: string;
@@ -297,28 +404,33 @@ export class MachinesBoard {
   }
 
   private row(target: Target): MachineRow {
-    const cell = this.cells.get(target.id) ?? { busy: false, readAt: 0 };
+    const cell = this.cells.get(target.id) ?? { busy: false, readAt: 0, toolsAt: 0 };
     this.cells.set(target.id, cell);
     if (!cell.busy && Date.now() - cell.readAt >= (this.options.freshMs ?? FRESH_MS)) void this.read(target, cell);
     const state = cell.reason ? "offline" : cell.reading ? "online" : "checking";
-    return {
+    const row: MachineRow = {
       id: target.id, name: target.name, local: !target.alias, state,
       ...(target.alias ? { alias: target.alias } : {}),
-      ...(state === "online" ? { reading: cell.reading } : {}),
+      ...(state === "online" && cell.reading ? { reading: { ...cell.reading, ...(cell.tools ? { tools: cell.tools } : {}) } } : {}),
       ...(cell.reason ? { reason: cell.reason } : {}),
       ...(cell.seenAt ? { seenAt: cell.seenAt } : {}),
     };
+    return { ...row, ...machineWords(row) };
   }
 
   private async read(target: Target, cell: Cell): Promise<void> {
     cell.busy = true;
-    const timeoutMs = this.options.timeoutMs ?? READ_TIMEOUT_MS;
-    const result = await (target.alias ? capture(this.options.ssh ?? "ssh", sshArgs(target.alias), timeoutMs) : capture("sh", ["-s"], timeoutMs));
+    const tools = Date.now() - cell.toolsAt >= (this.options.toolsFreshMs ?? TOOLS_FRESH_MS);
+    const timeoutMs = this.options.timeoutMs ?? (tools ? TOOLS_TIMEOUT_MS : READ_TIMEOUT_MS);
+    const script = readScript(tools);
+    const result = await (target.alias ? capture(this.options.ssh ?? "ssh", sshArgs(target.alias), timeoutMs, script) : capture("sh", ["-s"], timeoutMs, script));
     const reading = result.code === 0 ? parseReading(result.output) : null;
     cell.busy = false;
     cell.readAt = Date.now();
     if (reading) {
-      cell.reading = reading;
+      const { tools: read, ...rest } = reading;
+      if (read) { cell.tools = read; cell.toolsAt = cell.readAt; }
+      cell.reading = rest;
       cell.seenAt = new Date().toISOString();
       delete cell.reason;
     } else {

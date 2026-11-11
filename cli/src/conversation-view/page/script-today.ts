@@ -31,13 +31,16 @@ export const TODAY_SCRIPT = `
     centre = name;
     frontRoot.setAttribute("data-centre", name);
     centreTabs.querySelectorAll(".ctab").forEach(function (tab) {
-      var on = tab.dataset.centre === (name === "news" || name === "week" ? name : "today");
+      var on = tab.dataset.centre === (name === "talk" ? "today" : name);
       tab.setAttribute("aria-pressed", String(on));
+      // On a phone the tabs scroll sideways; the chosen one is kept in view.
+      if (on && centreTabs.scrollWidth > centreTabs.clientWidth) centreTabs.scrollLeft = Math.max(0, tab.offsetLeft - centreTabs.offsetLeft - 8);
     });
     if (name === "week") loadWeek();
     if (name === "news") { loadWeather(); newsPlaceholder(newsPicked); newsPickInView(); newsConfirm(); }
     else { newsPlaceholder(null); paintConfirm(conversationConfirm); }
     newsSyncStreams();
+    if (name === "machines") loadMachines();
     if (name !== "talk") window.scrollTo(0, 0);
   }
   centreTabs.addEventListener("click", function (event) {

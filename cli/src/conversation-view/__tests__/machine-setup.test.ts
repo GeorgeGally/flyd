@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MachineSetupReader, usageFrom } from "../machine-setup.js";
+import { MachineSetupReader, modelName, usageFrom } from "../machine-setup.js";
 
 const QUOTA = {
   providers: [
@@ -17,6 +17,24 @@ const QUOTA = {
   ],
 };
 
+describe("a model's name", () => {
+  it("reads as people say it, with the route it takes", () => {
+    expect(["anthropic:claude-sonnet-5-5", "claude-haiku-5-5", "opencode-go/gpt-6-luna", "openai:gpt-5.6-luna", "openrouter/inception/mercury-2.5", "gpt-realtime-2.1"].map(modelName))
+      .toEqual(["Claude Sonnet 5.5", "Claude Haiku 5.5", "GPT-6 Luna through OpenCode Go", "GPT-5.6 Luna", "Mercury 2.5 through OpenRouter", "gpt-realtime-2.1"]);
+  });
+});
+
+describe("the newest tool versions", () => {
+  it("are read in the background and kept, never waited on", async () => {
+    let calls = 0;
+    const reader = new MachineSetupReader(async () => ({ providers: [] }), async () => { calls += 1; return { codex: "0.167.0" }; });
+    await reader.read();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await reader.read()).latest).toEqual({ codex: "0.167.0" });
+    expect(calls).toBe(1);
+  });
+});
+
 describe("the Machines tab's usage", () => {
   it("reads quota-axi's JSON as one row per provider with a number, its tightest window and a run-out before the reset", () => {
     expect(usageFrom(QUOTA)).toEqual([
@@ -32,7 +50,7 @@ describe("the Machines tab's usage", () => {
 
   it("answers at once with the last usage it has, reading quota-axi in the background", async () => {
     let calls = 0;
-    const reader = new MachineSetupReader(async () => { calls += 1; return QUOTA; });
+    const reader = new MachineSetupReader(async () => { calls += 1; return QUOTA; }, async () => ({}));
     const first = await reader.read();
     expect(calls).toBe(1);
     expect(Array.isArray(first.models)).toBe(true);
@@ -50,7 +68,7 @@ describe("the Machines tab's usage", () => {
       const quota = vi.fn<() => Promise<unknown>>()
         .mockResolvedValueOnce(QUOTA).mockRejectedValueOnce(new Error("unavailable"))
         .mockImplementationOnce(() => new Promise((resolve) => { finishEmpty = resolve; }));
-      const reader = new MachineSetupReader(quota);
+      const reader = new MachineSetupReader(quota, async () => ({}));
       await reader.read();
       await new Promise((resolve) => setTimeout(resolve, 0));
       const first = await reader.read();

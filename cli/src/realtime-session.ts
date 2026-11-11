@@ -13,6 +13,7 @@ import { decisionPolicyBlock } from "./lib/decision-policy.js";
 import { loadVocabulary, transcriptionPrompt } from "./dictation/vocabulary.js";
 import { correctVoiceNames, learnNameCorrection } from "./dictation/names.js";
 import { readSoul } from "./lib/soul.js";
+import { realtimeModel } from "./lib/realtime-model.js";
 import { presenceEnabled, presenceInstructions } from "./runtime/conversation-presence.js";
 
 const REALTIME_INSTRUCTIONS =
@@ -127,10 +128,7 @@ export function startRealtimeServer(): Promise<void> {
   });
 }
 
-/** The LIVE session model: FLYD_REALTIME_MODEL, else the default. */
-export function realtimeModel(): string {
-  return process.env.FLYD_REALTIME_MODEL || "gpt-realtime-2.1";
-}
+export { realtimeModel };
 
 /** What transcribes George's side of a LIVE session. */
 export const REALTIME_TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
