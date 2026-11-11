@@ -45,6 +45,7 @@ Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Cor
 - Daily edition, 3-hourly must-know watch, daily evolution (looks for up to 2 new sources from his profile and memory). Engine pinned at `~/.flyd/vendor/last30days-skill`.
 - The edition mixes articles with a stat, a GIF, a video, an image, a quote and a thread (`cli/src/council/inspiration.ts`). Terms come from a lexical digest of his open jobs, expanded by one cheap call (or an n-gram fallback) and fetched from HN, Wikimedia, Wikipedia, Wikiquote, plus Giphy, Pexels, Reddit, ZenQuotes, Google Trends, Brave and World Bank / Our World in Data when those need no secret or the key is set (`inspiration-sources.ts`). A shown-log recycles the oldest. No logged-in social search.
 - Reddit: `www.reddit.com/r/<sub>/.rss`, sequential, no bot UA.
+- Each run that calls the news writer's model is recorded in `scout/run-state.json` (`scout-run.ts`): when, whether it got through, and only the kind of trouble (out of credit, usage limit, refused, unreachable), never the provider's error text. The view's Today reads it to say whether the news is working.
 
 ## Crew (`flyd crew [list|dispatch <outcome> [--done <point>]…|show|supervise|land|discard]`, `cli/src/crew/crew.ts`)
 
