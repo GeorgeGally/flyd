@@ -109,8 +109,9 @@ export function createLaunchFailureCache(limit = MAX_IDENTICAL_LAUNCH_FAILURES, 
       const shape = errorShape(failure);
       const signatures = failures.get(runtime) ?? new Map<string, { count: number; lastAt: number; error: string }>();
       const seen = signatures.get(shape);
-      // A probe after the window that fails the same way again goes straight back to the cache.
-      const count = seen && (nowMs - seen.lastAt < windowMs || seen.count >= limit) ? seen.count + 1 : 1;
+      // A probe just after the window that fails the same way again goes straight back to the cache.
+      const age = seen ? nowMs - seen.lastAt : Infinity;
+      const count = seen && (age < windowMs || (seen.count >= limit && age < 2 * windowMs)) ? seen.count + 1 : 1;
       signatures.set(shape, { count, lastAt: nowMs, error: failure });
       failures.set(runtime, signatures);
     },

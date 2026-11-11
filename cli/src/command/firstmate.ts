@@ -512,7 +512,7 @@ export async function startFirstmateSession(options: {
   const logAttempt = options.recordAttempt ?? recordSessionAttempt;
   const record = (entry: Record<string, unknown>): void => {
     logAttempt(entry);
-    if (typeof entry.runtime === "string" && (entry.outcome === "failed" || entry.outcome === "usage_limited")) {
+    if (typeof entry.runtime === "string" && entry.outcome === "failed") {
       cache.record(entry.runtime, typeof entry.detail === "string" && entry.detail ? entry.detail : String(entry.outcome));
     }
   };

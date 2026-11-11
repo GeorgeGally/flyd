@@ -1112,7 +1112,7 @@ describe("FirstMate domain transport", () => {
         if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
         if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: canReceive, lock: { live_harness: false } }), stderr: "" };
         launches += 1;
-        throw new Error("claude: usage limit reached");
+        throw new Error("claude: Invalid API key");
       };
       const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate-acknowledged"), script: "/fake/fm-inbox.sh", exec });
       const start = Date.parse("2026-10-09T01:00:00.000Z");
@@ -1141,7 +1141,7 @@ describe("FirstMate domain transport", () => {
       const [run] = listDomainRuns();
       expect(run!.status).toBe("failed");
       expect(run!.launchRetry).toBeUndefined();
-      expect(run!.failure).toMatch(/on claude failed 3 times the same way \(claude: usage limit reached\)/);
+      expect(run!.failure).toMatch(/on claude failed 3 times the same way \(claude: Invalid API key\)/);
       expect(changed.filter((item) => item.status === "failed").map((item) => item.result?.brief)).toEqual([run!.failure]);
     } finally {
       if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
@@ -1160,7 +1160,7 @@ describe("FirstMate domain transport", () => {
         if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }, { id: "view-note", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
         if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
         launches += 1;
-        throw new Error("claude: usage limit reached");
+        throw new Error("claude: Invalid API key");
       };
       const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
       const start = Date.parse("2026-10-09T01:00:00.000Z");
@@ -1209,6 +1209,24 @@ describe("FirstMate domain transport", () => {
     expect(calls).toHaveLength(3);
     expect(runB.terminal).toBeDefined();
     expect(runB.failure).toMatch(/on claude failed 3 times the same way \(not installed\)/);
+  });
+
+  it("keeps usage limits out of the runtime cache, so a new run still gets its own launch and backs off", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("claude: usage limit reached, resets at 5pm"); };
+    const launch = (request: string) => startFirstmateSession({
+      home: "/fake/firstmate-limited", script: "/fake/fm-inbox.sh", exec, request,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
+      recordAttempt: vi.fn(),
+    });
+    for (const request of ["run-a", "run-b", "run-c"]) await launch(request);
+    expect(calls).toHaveLength(3);
+
+    const runD = await launch("run-d");
+    expect(calls).toHaveLength(4);
+    expect(runD.terminal).toBeUndefined();
+    expect(runD.failure).toBe("I couldn't start the work right now. I'll keep it safe and try again when I can.");
   });
 
   it("cools the home down instead of relaunching every tick for an unconsumed note", async () => {

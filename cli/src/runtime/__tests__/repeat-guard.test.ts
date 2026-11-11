@@ -96,14 +96,22 @@ describe("repeat guard", () => {
 
   it("lets a runtime launch again once it succeeds or the window lapses", () => {
     const cache = createLaunchFailureCache();
-    for (let i = 0; i < MAX_IDENTICAL_LAUNCH_FAILURES; i += 1) cache.record("claude", `usage limit reached, resets in ${i}h`, 1_000);
+    for (let i = 0; i < MAX_IDENTICAL_LAUNCH_FAILURES; i += 1) cache.record("claude", `spawn claude ENOENT (attempt ${i})`, 1_000);
     expect(cache.blocked("claude", 2_000)).toMatch(/failed 3 times/);
     expect(cache.blocked("opencode", 2_000)).toBeNull();
     expect(cache.blocked("claude", 1_000 + LAUNCH_FAILURE_WINDOW_MS)).toBeNull();
     // The probe after the window failing the same way goes straight back to the cache.
-    cache.record("claude", "usage limit reached, resets in 1h", 1_000 + LAUNCH_FAILURE_WINDOW_MS);
+    cache.record("claude", "spawn claude ENOENT (attempt 9)", 1_000 + LAUNCH_FAILURE_WINDOW_MS);
     expect(cache.blocked("claude", 2_000 + LAUNCH_FAILURE_WINDOW_MS)).toMatch(/failed 4 times/);
     cache.record("claude", null);
     expect(cache.blocked("claude", 3_000 + LAUNCH_FAILURE_WINDOW_MS)).toBeNull();
+  });
+
+  it("starts the count over when the same failure comes back long after the window", () => {
+    const cache = createLaunchFailureCache();
+    for (let i = 0; i < MAX_IDENTICAL_LAUNCH_FAILURES; i += 1) cache.record("claude", "spawn claude ENOENT", 1_000);
+    const days = 4 * 24 * LAUNCH_FAILURE_WINDOW_MS;
+    cache.record("claude", "spawn claude ENOENT", days);
+    expect(cache.blocked("claude", days + 1_000)).toBeNull();
   });
 });
