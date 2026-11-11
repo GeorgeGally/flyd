@@ -13,6 +13,7 @@ enum LiveSessionState: Equatable {
 final class LiveSessionController {
     static let shared = LiveSessionController()
 
+    private let mic: MicSession
     private let bridge = LiveAudioBridge.shared
     private let voiceCapture = VoiceCapture.shared
     private let audioPlayer = StreamingAudioPlayer()
@@ -25,6 +26,10 @@ final class LiveSessionController {
     var isActive: Bool { state != .disconnected && state != .failed }
     private(set) var state: LiveSessionState = .disconnected
 
+    init(mic: MicSession = .shared) {
+        self.mic = mic
+    }
+
     func handleToggle() {
         if isActive {
             stop()
@@ -34,30 +39,15 @@ final class LiveSessionController {
     }
 
     private func start() {
-        guard state == .disconnected || state == .failed else { return }
-        guard let token = MicSession.shared.begin(.live) else {
-            DictationPill.shared.show(.failed("Microphone is busy"))
-            return
-        }
-        micToken = token
-        sessionId = UUID().uuidString
+        guard let token = claimMic() else { return }
         startedAt = Date()
-        observedTargets = [:]
 
         FlydState.shared.transition(to: .live)
         AuditRecorder.shared.recordLiveSessionStart(sessionId: sessionId)
 
-        state = .connecting
         bridge.onStateChange = { [weak self] bridgeState in
             DispatchQueue.main.async {
-                // Events delivered after this session ended are ignored.
-                guard let self, self.micToken == token else { return }
-                if bridgeState == .active {
-                    self.state = .active
-                } else if Self.endsSession(on: bridgeState) {
-                    print("[Flyd] LIVE connection dropped; ending the session")
-                    self.end(as: .failed)
-                }
+                self?.handleBridgeState(bridgeState, for: token)
             }
         }
         bridge.onAudioReceived = { [weak self] data in
@@ -86,11 +76,36 @@ final class LiveSessionController {
         bridge.connect()
     }
 
+    /// Takes the mic for a new session. When refused, the "busy" cue shows only if no
+    /// dictation or push-to-talk cue is on screen, so a recording mic stays visible.
+    func claimMic() -> MicSessionToken? {
+        guard state == .disconnected || state == .failed else { return nil }
+        guard let token = mic.begin(.live) else {
+            switch mic.holder?.kind {
+            case .dictation, .voice: break
+            case .live, nil: DictationPill.shared.show(.failed("Microphone is busy"))
+            }
+            return nil
+        }
+        micToken = token
+        sessionId = UUID().uuidString
+        observedTargets = [:]
+        state = .connecting
+        return token
+    }
+
     /// A bridge that failed or disconnected ends the session, which turns the mic off.
-    static func endsSession(on bridgeState: LiveAudioBridge.ConnectionState) -> Bool {
+    /// Events delivered after the session ended are ignored.
+    func handleBridgeState(_ bridgeState: LiveAudioBridge.ConnectionState, for token: MicSessionToken) {
+        guard micToken == token else { return }
         switch bridgeState {
-        case .failed, .disconnected: return true
-        case .connecting, .ready, .active, .closing: return false
+        case .active:
+            state = .active
+        case .failed, .disconnected:
+            print("[Flyd] LIVE connection dropped; ending the session")
+            end(as: .failed)
+        case .connecting, .ready, .closing:
+            break
         }
     }
 
@@ -106,7 +121,7 @@ final class LiveSessionController {
         sessionTask?.cancel()
         sessionTask = nil
         if let micToken {
-            MicSession.shared.end(micToken)
+            mic.end(micToken)
             self.micToken = nil
         }
         voiceCapture.onAudioChunk = nil

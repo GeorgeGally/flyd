@@ -106,14 +106,53 @@ final class MicSessionTests: XCTestCase {
         XCTAssertEqual(edge(fn, at: 3.0) + edge([], at: 3.05), [.dictationStop])
     }
 
-    /// A dropped LIVE bridge ends the session (turning the mic off); a live or
-    /// in-progress connection does not.
-    func testADroppedLiveBridgeEndsTheSession() {
-        XCTAssertTrue(LiveSessionController.endsSession(on: .failed))
-        XCTAssertTrue(LiveSessionController.endsSession(on: .disconnected))
-        XCTAssertFalse(LiveSessionController.endsSession(on: .connecting))
-        XCTAssertFalse(LiveSessionController.endsSession(on: .ready))
-        XCTAssertFalse(LiveSessionController.endsSession(on: .active))
-        XCTAssertFalse(LiveSessionController.endsSession(on: .closing))
+    /// A dropped LIVE bridge ends the session: the mic goes off once, the session is
+    /// failed and Flyd is back in present. Before, `.failed` left the mic held.
+    func testADroppedLiveBridgeTurnsTheMicOff() {
+        for dropped in [LiveAudioBridge.ConnectionState.failed, .disconnected] {
+            var stops = 0
+            let mic = MicSession(stopCapture: { stops += 1 })
+            let controller = LiveSessionController(mic: mic)
+            let token = controller.claimMic()!
+            FlydState.shared.transition(to: .live)
+
+            controller.handleBridgeState(dropped, for: token)
+
+            XCTAssertNil(mic.holder, "\(dropped)")
+            XCTAssertEqual(stops, 1, "\(dropped)")
+            XCTAssertEqual(controller.state, .failed, "\(dropped)")
+            XCTAssertEqual(FlydState.shared.mode, .present, "\(dropped)")
+        }
+    }
+
+    /// Connection progress keeps the session and its mic.
+    func testAConnectingLiveBridgeKeepsTheMic() {
+        var stops = 0
+        let mic = MicSession(stopCapture: { stops += 1 })
+        let controller = LiveSessionController(mic: mic)
+        let token = controller.claimMic()!
+
+        controller.handleBridgeState(.ready, for: token)
+        controller.handleBridgeState(.active, for: token)
+
+        XCTAssertEqual(mic.holder, token)
+        XCTAssertEqual(stops, 0)
+        XCTAssertEqual(controller.state, .active)
+    }
+
+    /// An event for a session that already ended does not touch the next one.
+    func testAStaleBridgeEventLeavesTheNextSessionAlone() {
+        var stops = 0
+        let mic = MicSession(stopCapture: { stops += 1 })
+        let controller = LiveSessionController(mic: mic)
+        let first = controller.claimMic()!
+        controller.handleBridgeState(.failed, for: first)
+        let second = controller.claimMic()!
+
+        controller.handleBridgeState(.failed, for: first)
+
+        XCTAssertEqual(mic.holder, second)
+        XCTAssertEqual(stops, 1)
+        XCTAssertEqual(controller.state, .connecting)
     }
 }
