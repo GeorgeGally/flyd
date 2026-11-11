@@ -4159,6 +4159,54 @@ describe("the front page", () => {
     expect(tell.querySelector("time")!.textContent).toBe("Thursday 5 November, no changes");
   });
 
+  it("opens a card beside a Week block naming its project, its hours and what changed then", async () => {
+    const hours = (from: number, to: number) => Array.from({ length: 24 }, (_, h) => (h >= from && h < to ? 1 : 0));
+    const days = ["2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08", "2026-11-09", "2026-11-10", "2026-11-11"].map((day) => ({ day, hours: {}, changes: 0, head: "", lines: [] as string[], work: [] as unknown[] }));
+    const when = (h: number, m = 0) => new Date(2026, 10, 10, h, m).getTime();
+    const work = [
+      ...Array.from({ length: 6 }, (_, i) => ({ project: "Flyd", at: when(9, i * 5), title: `Change ${i + 1}` })),
+      { project: "Flyd", at: when(10, 15), title: "Add the Week tab", ref: "#274" },
+      { project: "Logan", at: when(14), title: "Keep the canvas still" },
+    ];
+    days[6] = { day: "2026-11-10", hours: { Flyd: hours(9, 11), Logan: hours(14, 15) } as never, changes: 8, head: "Add the Week tab", lines: [], work };
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (String(url).startsWith("/api/week") ? json({ week: { days, lead: ["Flyd", "Logan", "DIR"], read: "" } }) : json({ assistantLabel: "firstmate", sessions: SESSIONS })));
+    const stream = await opened();
+    stream.emit("update", { order: [], messages: [], working: false, show: SHOW, live: { known: true, counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="week"]')!.click();
+    await settle();
+    const card = document.getElementById("wk-card")!;
+    expect(card.hidden).toBe(true);
+    const strip = document.querySelectorAll<HTMLElement>(".wk-day")[6]!;
+    const [flyd, logan] = [...strip.querySelectorAll<HTMLElement>(".wk-lane i")];
+    // The two Flyd hours join into one block; its card lists the latest five and counts the rest.
+    flyd!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    expect(card.hidden).toBe(false);
+    expect(card.getAttribute("role")).toBe("tooltip");
+    expect(card.querySelector(".wk-card-who")!.textContent).toBe("Flyd");
+    expect(card.querySelector(".wk-card-when")!.textContent).toBe("09:00 to 11:00, 7 changes");
+    expect([...card.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["Change 3", "Change 4", "Change 5", "Change 6", "Add the Week tab #274"]);
+    expect(card.querySelector(".wk-card-more")!.textContent).toBe("and 2 earlier");
+    expect(flyd!.classList.contains("lit")).toBe(true);
+    expect(strip.getAttribute("aria-describedby")).toBe("wk-card");
+    document.getElementById("wk-days")!.dispatchEvent(new MouseEvent("mouseleave"));
+    expect(card.hidden).toBe(true);
+    // A tap keeps the card until a tap elsewhere.
+    logan!.click();
+    expect(card.querySelector(".wk-card-who")!.textContent).toBe("Logan");
+    expect(card.querySelector(".wk-card-when")!.textContent).toBe("14:00 to 15:00, 1 change");
+    document.getElementById("wk-days")!.dispatchEvent(new MouseEvent("mouseleave"));
+    expect(card.hidden).toBe(false);
+    document.body.click();
+    expect(card.hidden).toBe(true);
+    // From the keyboard, the arrows on a focused day walk its blocks.
+    strip.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(card.querySelector(".wk-card-who")!.textContent).toBe("Flyd");
+    strip.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(card.querySelector(".wk-card-who")!.textContent).toBe("Logan");
+    strip.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(card.hidden).toBe(true);
+  });
+
   it("shows News as stories in columns, leaves filler out, and the box asks about the story in view", async () => {
     const stream = await opened();
     const stories = [
