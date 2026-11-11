@@ -9,7 +9,8 @@ import { createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } f
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
 import { checkDomainHandoff } from "../runtime/acceptance.js";
 import { commandDir, commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
-import { isSettled } from "./run-state.js";
+import { cameBack, isSettled } from "./run-state.js";
+import { dueReport, quietReport } from "./report.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
 import { decisionsLines } from "./types.js";
 
@@ -645,7 +646,8 @@ function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, n
   if (isSettled(current.status)) return current;
   if (terminal) {
     const { launchRetry: _retry, ...rest } = current;
-    const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, result: parseDomainResult(terminal.message).result, updatedAt: new Date(nowMs).toISOString() };
+    const at = new Date(nowMs).toISOString();
+    const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, result: parseDomainResult(terminal.message).result, updatedAt: at, report: dueReport("failed", at) };
     return commitDomainRun(current, stopped, dir);
   }
   const attempts = (current.launchRetry?.attempts ?? 0) + 1;
@@ -852,6 +854,7 @@ export async function syncFirstmateDomainRuns(options: {
       const status: DomainRunStatus = outcome === "unclear" ? "working" : predates && outcome === "needs_decision" ? "cancelled" : outcome;
       const { notified, failure, incompleteReason: _previous, launchRetry: _retry, statusAskedAt, ...rest } = next;
       const news = !predates && (status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result));
+      const settledAt = reply.at ?? (options.now ?? (() => new Date()))().toISOString();
       next = {
         ...rest,
         status,
@@ -860,6 +863,11 @@ export async function syncFirstmateDomainRuns(options: {
         transport: { ...next.transport, replyCursor: reply.cursor },
         // A new outcome is announced again; the same one is not, nor an old reply replayed.
         ...(predates ? { notified: true } : notified !== undefined && !news ? { notified } : {}),
+        // The outcome's report, in the same commit as the outcome: a restart can never lose it (command/report.ts).
+        // A reply after work was sent back to its boss is reviewed afresh even when it says the same (as is one on a run
+        // recorded before the report record that was never announced).
+        ...(cameBack(status) && (predates || news || (run.report ? run.report.sentBack : !notified))
+          ? { report: predates ? quietReport(status, settledAt) : dueReport(status, settledAt) } : {}),
         ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
         ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
         ...(strict.fragment ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
@@ -877,7 +885,11 @@ export async function syncFirstmateDomainRuns(options: {
         : "completed";
       const status: DomainRunStatus = outcome === "unclear" ? "working" : outcome;
       const stale = nowMs - Date.parse(run.updatedAt) > LEGACY_ANNOUNCE_WITHIN_MS;
-      next = { ...next, status, ...(stale && status === "completed" ? { notified: true } : {}), ...(status === "failed" ? { failure: run.result.brief } : {}) };
+      const settledAt = (options.now ?? (() => new Date()))().toISOString();
+      next = {
+        ...next, status, ...(stale && status === "completed" ? { notified: true } : {}), ...(status === "failed" ? { failure: run.result.brief } : {}),
+        ...(cameBack(status) ? { report: stale && status === "completed" ? quietReport(status, settledAt) : dueReport(status, settledAt) } : {}),
+      };
       statusUnclear = outcome === "unclear";
     } else if (run.status === "working" && run.result?.format === "raw") {
       // A reply taken before its "status: …" lines could be read: read it again.
@@ -893,6 +905,7 @@ export async function syncFirstmateDomainRuns(options: {
           result: parsed.result,
           ...(stale && parsed.status === "completed" ? { notified: true } : {}),
           ...(parsed.status === "failed" ? { failure: parsed.result.brief } : {}),
+          ...(cameBack(parsed.status) ? { report: (stale && parsed.status === "completed" ? quietReport : dueReport)(parsed.status, (options.now ?? (() => new Date()))().toISOString()) } : {}),
           ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
           ...(strict.fragment ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
         };

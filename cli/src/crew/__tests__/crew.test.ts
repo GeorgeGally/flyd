@@ -84,6 +84,21 @@ describe("crew", () => {
     expect(notify).toHaveBeenLastCalledWith("Flyd", "Break the tests is blocked: its tests failed. Tell me whether to try another way or drop it.", "blocker");
   });
 
+  it("counts a task notified only when the Mac took its notice, and tries an undelivered one again", async () => {
+    await dispatchCrewTask({ repo, outcome: "Do nothing", launch: fakeCrewmate(false) });
+    const outcomes = ["undelivered", "shown"] as const;
+    const notify = vi.fn(async () => outcomes[notify.mock.calls.length - 1]);
+    const [idle] = await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify });
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(readTask(idle!.id)).toMatchObject({ status: "failed", notified: false, notifyTries: 1 });
+    // The next pass says it again; this time the Mac took it, and it is never said a third time.
+    await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify });
+    await superviseCrew({ alive: () => false, runCommand: async () => ({ ok: true, output: "" }), notify });
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(readTask(idle!.id)?.notified).toBe(true);
+    expect(readTask(idle!.id)?.notifyTries).toBeUndefined();
+  });
+
   it("says the provider ran out of credit when that, not a test, is what the run recorded", async () => {
     const launch = vi.fn((task: { log: string }) => {
       writeFileSync(task.log, `${JSON.stringify({ type: "error", timestamp: 1, error: { type: "provider.quota", message: "This request requires more credits, or fewer max_tokens. You requested up to 256000 tokens, but can only afford 49.", status: 402 } })}\n`);

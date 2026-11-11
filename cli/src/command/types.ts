@@ -1,3 +1,5 @@
+import type { GeorgeKind } from "../lib/reaches-george.js";
+
 export const DOMAIN_IDS = ["coding", "knowledge", "creative", "life"] as const;
 export type DomainId = typeof DOMAIN_IDS[number];
 
@@ -130,9 +132,41 @@ export interface DomainRun {
   incompleteReason?: string;
   /** When Flyd last asked the staff for a clear status; at most one such ask is open until a reply is read. */
   statusAskedAt?: string;
+  /** What became of telling George this run's latest outcome (command/report.ts): the one record every reader uses. */
+  report?: RunReport;
+  /** Legacy, still written for one release: read `report` instead. */
   notified?: boolean;
-  /** The line George was actually sent for this run and the decision behind it; absent when it was settled quietly or held. */
+  /** Legacy, still written for one release: read `report` (state "shown") instead. The line George was actually sent for this run and the decision behind it; absent when it was settled quietly or held. */
   told?: { line: string; decisionId: string };
   /** Bumped by every write (command/store.ts `mutateDomainRun`); absent on runs written before it. */
   revision?: number;
+}
+
+/**
+ * Where telling George one outcome of a run has got to (command/report.ts):
+ * due → reviewing → sending → shown, or quiet (nothing for him), screened (the notification gate kept it from him),
+ * held → sending | withdrawn, owed → sending | gave_up.
+ */
+export type ReportState = "due" | "reviewing" | "quiet" | "held" | "sending" | "shown" | "screened" | "owed" | "gave_up" | "withdrawn";
+
+export interface RunReport {
+  state: ReportState;
+  /** The run's status when this outcome settled: the report is about that outcome only. */
+  status: DomainRunStatus;
+  /** When the outcome settled (written with it); names this report among the run's later ones. */
+  since: string;
+  /** When it entered its current state. */
+  at: string;
+  /** Quiet because Flyd sent the work back to its boss: the boss's next reply is reviewed afresh, even if it says the same. */
+  sentBack?: boolean;
+  /** Reviews that failed before one could finish. */
+  tries?: number;
+  /** The delivery record's key (runtime/delivered.ts), once there is a line to tell. */
+  key?: string;
+  /** The line to tell, once there is one; the line he saw when shown. */
+  line?: string;
+  kind?: GeorgeKind;
+  work?: string;
+  evidenceRefs?: string[];
+  decisionId?: string;
 }

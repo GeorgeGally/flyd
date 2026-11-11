@@ -22,7 +22,7 @@ export const MAX_TRIES = 6;
 const OWED_WINDOW_MS = 24 * 60 * 60_000;
 
 export interface DeliveryReport {
-  /** What the report is about, stable across restarts: "work:domain-…" (finishedKey), "run:domain-…:<hash>". */
+  /** What the report is about, stable across restarts: "work:domain-…:<since>" (finishedKey), "run:domain-…:<hash>". */
   key: string;
   /** The one line George is told. */
   line: string;
@@ -33,7 +33,12 @@ export interface DeliveryReport {
   evidenceRefs?: string[];
 }
 
-export type DeliveryOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered" | "seeded" | "briefed";
+export type DeliveryOutcome = "shown" | "kept" | "idle" | "backstage" | "placeholder" | "repeat" | "undelivered" | "seeded" | "briefed" | "withdrawn";
+
+/** Outcomes that mean George actually saw the line: on his screen, or in the morning brief he was given. */
+export function seen(outcome: DeliveryOutcome | undefined): boolean {
+  return outcome === "shown" || outcome === "briefed";
+}
 
 /** A report held for a natural break (runtime/attention.ts): told later, batched, or in the morning brief. */
 export interface HeldFor {
@@ -171,14 +176,57 @@ function openStore(store?: IntelligenceEventStore): IntelligenceEventStore {
   return store ?? new IntelligenceEventStore(process.env.VITEST && !process.env.FLYD_DIR ? { path: ":memory:" } : {});
 }
 
+/** What became of a report, from its outcome on record; nothing while it has none. */
+function outcomeOf(store: IntelligenceEventStore, key: string): DeliveryOutcome | undefined {
+  const outcome = (store.findByIdempotencyKey(DELIVERED_SOURCE, `outcome:${key}`)?.payload?.delivered as { outcome?: DeliveryOutcome } | undefined)?.outcome;
+  return outcome;
+}
+
+/** Where a report stands in the delivery log, as a run's report state (command/report.ts); nothing when the log never heard of it. */
+export type DeliveryState = "held" | "sending" | "owed" | "shown" | "screened" | "gave_up" | "withdrawn";
+
+function stateIn(store: IntelligenceEventStore, key: string): DeliveryState | undefined {
+  const outcome = outcomeOf(store, key);
+  if (outcome) return seen(outcome) ? "shown" : outcome === "withdrawn" ? "withdrawn" : "screened";
+  const last = lastTry(store, key);
+  if (last) {
+    if (!retryable(store, key, last)) return "gave_up";
+    return found(store, `undelivered:${key}:${last.n}`) ? "owed" : "sending";
+  }
+  return found(store, `held:${key}`) ? "held" : undefined;
+}
+
+/** Where a report stands in the delivery log (see DeliveryState). */
+export function deliveryState(key: string, options: { store?: IntelligenceEventStore } = {}): DeliveryState | undefined {
+  const store = openStore(options.store);
+  try {
+    return stateIn(store, key);
+  } finally {
+    if (options.store === undefined) store.close();
+  }
+}
+
+export interface Delivered {
+  /** Every report claimed now (said, or tried). */
+  told: DeliveryReport[];
+  /** Those George actually saw. Only these are "sent" to him. */
+  shown: DeliveryReport[];
+  /** Those the notification gate kept from him (Flyd's own, backstage, a placeholder, an idle session). */
+  screened: DeliveryReport[];
+  /** Those not delivered yet, to be tried again. */
+  owed: DeliveryReport[];
+  /** Where each report asked for now stands, by key. */
+  states: Record<string, DeliveryState | undefined>;
+}
+
 /**
  * Tells George each report exactly once, each in its own line.
- * Returns the reports told now, and those still owed (not delivered yet, to be tried again).
+ * Returns the reports claimed now, split by what became of them, and where every report asked for stands.
  */
 export async function deliverOnce(
   reports: DeliveryReport[],
   options: { store?: IntelligenceEventStore; say?: Say; now?: () => Date; together?: (claimed: DeliveryReport[]) => string } = {},
-): Promise<{ told: DeliveryReport[]; owed: DeliveryReport[] }> {
+): Promise<Delivered> {
   const store = openStore(options.store);
   const owns = options.store === undefined;
   const say = options.say ?? defaultSay;
@@ -189,26 +237,38 @@ export async function deliverOnce(
       const attempt = claimDelivery(store, report, now());
       return attempt === undefined ? [] : [{ report, attempt }];
     });
+    const outcomes = new Map<string, DeliveryOutcome>();
     if (options.together && claimed.length > 1) {
       // Held reports come out together as one line (runtime/attention.ts); a call among them keeps a decision's gate.
       const lead = claimed.find(({ report }) => report.kind === "decision")?.report ?? claimed[0]!.report;
       const outcome = await say("Flyd", options.together(claimed.map(({ report }) => report)), lead.kind ?? "deliverable", lead.work).catch(() => "undelivered" as const);
-      for (const { report, attempt } of claimed) recordOutcome(store, report, outcome ?? "shown", attempt, now());
+      for (const { report, attempt } of claimed) {
+        recordOutcome(store, report, outcome ?? "shown", attempt, now());
+        outcomes.set(report.key, outcome ?? "shown");
+      }
     } else {
       for (const { report, attempt } of claimed) {
         const outcome = await say("Flyd", report.line, report.kind ?? "deliverable", report.work).catch(() => "undelivered" as const);
         // Not delivered (no adapter listening, Core down): kept open, so a later sweep says it again.
         recordOutcome(store, report, outcome ?? "shown", attempt, now());
+        outcomes.set(report.key, outcome ?? "shown");
       }
     }
-    return { told: claimed.map(({ report }) => report), owed: unique.filter((report) => owed(store, report.key)) };
+    const told = claimed.map(({ report }) => report);
+    return {
+      told,
+      shown: told.filter((report) => seen(outcomes.get(report.key))),
+      screened: told.filter((report) => { const outcome = outcomes.get(report.key); return outcome !== undefined && outcome !== "undelivered" && !seen(outcome); }),
+      owed: unique.filter((report) => owed(store, report.key)),
+      states: Object.fromEntries(unique.map((report) => [report.key, stateIn(store, report.key)])),
+    };
   } finally {
     if (owns) store.close();
   }
 }
 
 /** Says again every report still owed (left undelivered, or cut off mid-send), whichever process first claimed it. */
-export async function deliverOwed(options: { store?: IntelligenceEventStore; say?: Say; now?: () => Date } = {}): Promise<{ told: DeliveryReport[]; owed: DeliveryReport[] }> {
+export async function deliverOwed(options: { store?: IntelligenceEventStore; say?: Say; now?: () => Date } = {}): Promise<Delivered> {
   const store = openStore(options.store);
   try {
     const open = new Map<string, DeliveryReport>();
@@ -217,7 +277,7 @@ export async function deliverOwed(options: { store?: IntelligenceEventStore; say
       if (!record || record.outcome || open.has(record.key) || !owed(store, record.key)) continue;
       open.set(record.key, { key: record.key, line: record.line, ...(record.kind ? { kind: record.kind } : {}), ...(record.work ? { work: record.work } : {}), evidenceRefs: event.evidenceRefs ?? [] });
     }
-    return open.size ? await deliverOnce([...open.values()], { ...options, store }) : { told: [], owed: [] };
+    return open.size ? await deliverOnce([...open.values()], { ...options, store }) : { told: [], shown: [], screened: [], owed: [], states: {} };
   } finally {
     if (options.store === undefined) store.close();
   }
@@ -300,6 +360,20 @@ export function heldReports(options: { store?: IntelligenceEventStore } = {}): A
   }
 }
 
+/**
+ * A held report no longer worth telling (its run moved on, or he answered the call it held): withdrawn, so
+ * nothing releases it later. Nothing when it was told or withdrawn already.
+ */
+export function withdrawReport(key: string, options: { store?: IntelligenceEventStore; now?: () => Date } = {}): void {
+  const store = openStore(options.store);
+  try {
+    const at = (options.now?.() ?? new Date()).toISOString();
+    store.transaction(() => recordTold(store, key, at, "withdrawn"));
+  } finally {
+    if (options.store === undefined) store.close();
+  }
+}
+
 /** Held reports told in the morning brief: nothing tells them again. */
 export function markBriefed(keys: string[], options: { store?: IntelligenceEventStore; now?: () => Date } = {}): void {
   if (!keys.length) return;
@@ -312,7 +386,7 @@ export function markBriefed(keys: string[], options: { store?: IntelligenceEvent
   }
 }
 
-/** One key per piece of finished work: the id of the run Core announces it for. */
-export function finishedKey(id: string): string {
-  return `work:${id}`;
+/** One key per outcome of finished work: the run Core announces it for, and when that outcome came (its report's since). */
+export function finishedKey(id: string, since?: string): string {
+  return since ? `work:${id}:${since}` : `work:${id}`;
 }

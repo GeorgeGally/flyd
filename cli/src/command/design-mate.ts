@@ -7,8 +7,9 @@ import { FLYD_DIR } from "../lib/config.js";
 import { query, type QueryOptions } from "../lib/llm.js";
 import { readTaste } from "../council/taste.js";
 import { designLabSkill, designTeamSkills } from "./design.js";
+import { dueReport } from "./report.js";
 import { createDomainRun, isDomainRunId, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
-import { isSettled } from "./run-state.js";
+import { cameBack, isSettled } from "./run-state.js";
 import type { DomainRequest, DomainResult, DomainRun } from "./types.js";
 import { decisionsLines } from "./types.js";
 
@@ -613,7 +614,10 @@ ${others}
 }
 
 function save(run: DomainRun, update: Partial<DomainRun>): DomainRun {
-  return mutateDomainRun(run.id, (current) => ({ ...(current ?? run), ...update, updatedAt: new Date().toISOString() })) ?? run;
+  const at = new Date().toISOString();
+  // A lab that settles carries its report, due, in the same write (command/report.ts).
+  const report = update.status && cameBack(update.status) ? { report: dueReport(update.status, at) } : {};
+  return mutateDomainRun(run.id, (current) => ({ ...(current ?? run), ...update, ...report, updatedAt: at })) ?? run;
 }
 
 /** One step of a lab: brief, build, critique or hand over. Every step is saved, so a restart picks up where it stopped. */

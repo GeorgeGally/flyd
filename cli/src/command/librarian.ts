@@ -12,6 +12,7 @@ import {
   type JobRecord,
 } from "../runtime/background-jobs.js";
 import { parseDomainResult } from "./result.js";
+import { dueReport } from "./report.js";
 import { commitDomainRun, createDomainRun, isDomainRunId, listDomainRuns, readDomainRun } from "./store.js";
 import { isSettled } from "./run-state.js";
 import type { DomainRequest, DomainRun, SpecialistOutput } from "./types.js";
@@ -134,12 +135,15 @@ async function synthesize(run: DomainRun, specialistOutputs: SpecialistOutput[])
   // outputs. L2 is supplied from the actual worker records.
   const result = { ...parsed.result, specialistOutputs, raw: [raw, ...specialistOutputs.flatMap((item) => item.raw ? [item.raw] : [])] };
   const status = parsed.status && parsed.status !== "working" ? parsed.status : "completed";
+  const at = new Date().toISOString();
   const next: DomainRun = {
     ...run,
     status,
     phase: "done",
     result,
-    updatedAt: new Date().toISOString(),
+    updatedAt: at,
+    // The outcome's report, in the same commit as the outcome (command/report.ts).
+    report: dueReport(status, at),
     ...(status === "failed" ? { failure: result.brief } : {}),
   };
   return commitDomainRun(run, next);

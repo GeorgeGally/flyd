@@ -7,6 +7,7 @@ import { TEAMS } from "../../runtime/turn-plan.js";
 import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
 import { cameBack, isAtWork } from "../run-state.js";
+import { shownLine } from "../report.js";
 import type { DomainRun } from "../types.js";
 import { dispatchBrief, type Dispatch, type Dispatched, type SentBrief } from "./dispatch.js";
 import { intakeObjective, readRun, type Complete } from "./intake.js";
@@ -303,7 +304,9 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
   // Overtaken by a correction: kept as prior work and run again, never reviewed or delivered.
   if (domain.status === "completed" && run.validFor !== (objective.briefRevision ?? 0)) return completed(objective, run, key);
   // Told already (before a restart could record it): recorded as told, never said again.
-  const told = domain.notified && domain.told ? domain.told : null;
+  // Only a line he was shown counts (command/report.ts): a screened or held one was never his.
+  const shown = shownLine(domain);
+  const told = shown ? { line: shown } : null;
   const decision = told ? null : await (deps.decide ?? defaultDecide)(domain);
   // Sent back to its boss: it stays working, and the boss's next reply is reviewed afresh.
   if (decision?.action && decision.verification.status === "verified") return;
@@ -531,8 +534,9 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   const final = finals.length === 1 && finals[0]!.ref && !finals[0]!.ref.includes(":") ? readDomainRun(finals[0]!.ref) : null;
   if (final) {
     // Told already (before a restart could record it): recorded as told, never said again.
-    if (final.notified && final.told) {
-      const made = { ...plainReport(objective, "done", final.told.line, ""), id: reportId, evidenceRefs: [`domain-run:${final.id}`] };
+    const shown = shownLine(final);
+    if (shown) {
+      const made = { ...plainReport(objective, "done", shown, ""), id: reportId, evidenceRefs: [`domain-run:${final.id}`] };
       return report(objective, made, deps, store, async () => undefined, "done");
     }
     const decision = decisions.get(final.id) ?? await (deps.decide ?? defaultDecide)(final);

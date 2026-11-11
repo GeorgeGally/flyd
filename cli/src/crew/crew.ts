@@ -6,6 +6,7 @@ import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
+import type { NotificationOutcome } from "../runtime/agenda.js";
 import { claudeApiKey, claudeHeaders, recordClaudeUsage } from "../lib/claude-spend.js";
 import { normalizeCriteria, parseVerdicts, unmetChecks, unresolvedItems, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
 import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
@@ -64,6 +65,8 @@ export interface CrewTask {
   noProgressIterations?: number;
   source?: "chat" | "self-improvement" | "cli";
   notified?: boolean;
+  /** Notices the Mac never took for this task's latest state; tried again until MAX_NOTIFY_TRIES. */
+  notifyTries?: number;
   /** What done means, stated at dispatch. Empty: the outcome itself is the one point. */
   doneWhen?: string[];
   /** The independent review of the diff against doneWhen, after the checks pass. */
@@ -539,7 +542,8 @@ export async function cleanupCrewWorktree(task: Pick<CrewTask, "repo" | "worktre
 export interface SuperviseDependencies {
   now?: () => Date;
   dir?: string;
-  notify?: (title: string, message: string, kind?: GeorgeKind) => Promise<void>;
+  /** Tells George; what became of it (runtime/agenda.ts `notifyMac`) decides whether the task counts as notified. */
+  notify?: (title: string, message: string, kind?: GeorgeKind) => Promise<NotificationOutcome | void>;
   /** Test seams. */
   alive?: (pid: number | undefined) => boolean;
   runCommand?: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>;
@@ -640,6 +644,8 @@ async function failShortReview(task: CrewTask, deps: SuperviseDependencies, now:
 
 const MAX_REVIEW_DIFF = 80_000;
 const MAX_REVIEW_RETRIES = 3;
+/** Passes a notice the Mac never took is tried again before the task counts as notified anyway. */
+const MAX_NOTIFY_TRIES = 6;
 /** Days a fully checked fix of Flyd's own keeps trying to merge before it is dropped. */
 const OWN_FIX_LAND_DAYS = 3;
 const REVIEW_TIMEOUT_MS = Number(process.env.FLYD_CREW_REVIEW_TIMEOUT_MS) || 5 * 60_000;
@@ -1086,20 +1092,39 @@ async function superviseSettled(changed: CrewTask[], deps: SuperviseDependencies
     if (at >= 0) changed[at] = settled;
     else changed.push(settled);
   }
+  // Tasks whose last notice the Mac never took are tried again, up to MAX_NOTIFY_TRIES passes.
+  if (deps.notify) {
+    for (const owed of listTasks(dir).filter((item) => item.notified === false && (item.notifyTries ?? 0) > 0 && ["ready", "failed", "landed"].includes(item.status))) {
+      if (!changed.some((item) => item.id === owed.id)) changed.push(owed);
+    }
+  }
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
+    // Notified only once the Mac took it (or the notice gate settled it): an undelivered one is tried again later.
+    const tell = async (message: string, kind: GeorgeKind): Promise<boolean> => {
+      const outcome = await deps.notify!("Flyd", message, kind).catch(() => "undelivered" as const);
+      return outcome !== "undelivered";
+    };
+    const record = (heard: boolean, status: CrewTask["status"]): void => {
+      const tries = (task.notifyTries ?? 0) + 1;
+      if (heard || tries >= MAX_NOTIFY_TRIES) {
+        const { notifyTries: _tries, ...rest } = task;
+        saveFrom({ ...rest, notified: true }, [status], dir);
+      } else saveFrom({ ...task, notified: false, notifyTries: tries }, [status], dir);
+    };
+    let heard = true;
     if (task.status === "landed") {
       const uncertain = (task.afterLandResults ?? []).filter((result) => result.uncertain).map((result) => result.step);
       const failed = (task.afterLandResults ?? []).filter((result) => !result.ok && !result.uncertain);
       if (failed.length) {
         const problem = `${plainOutcome(task)} is merged into main, but ${failed.map((result) => `its ${result.step} didn't go through (${result.detail})`).join("; ")}; it won't be run again on its own, so run it yourself once that's sorted.`;
-        await deps.notify!("Flyd", problem, "blocker").catch(() => undefined);
+        heard = await tell(problem, "blocker");
       } else if (uncertain.length) {
         const question = `${plainOutcome(task)} is merged into main, but I can't tell whether its ${uncertain.join(" and ")} went through: it was running when I stopped, and I won't run it again on my own. Can you check whether it happened?`;
-        await deps.notify!("Flyd", question, "blocker").catch(() => undefined);
+        heard = await tell(question, "blocker");
       } else if (task.source !== "self-improvement") {
-        await deps.notify!("Flyd", `${plainOutcome(task)} is merged into main: its tests pass and it does everything you asked.`, "deliverable").catch(() => undefined);
+        heard = await tell(`${plainOutcome(task)} is merged into main: its tests pass and it does everything you asked.`, "deliverable");
       }
-      saveFrom({ ...task, notified: true }, ["landed"], dir);
+      record(heard, "landed");
       continue;
     }
     // A ready task's review is met or couldn't run: a short verdict never leaves a task ready.
@@ -1111,8 +1136,8 @@ async function superviseSettled(changed: CrewTask[], deps: SuperviseDependencies
         : couldNotLand.has(task.id)
           ? `${plainOutcome(task)} is done and tested, but I couldn't merge it myself: ${couldNotLand.get(task.id)}. Say /land once that's sorted.`
           : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
-    if (task.source !== "self-improvement") await deps.notify!("Flyd", message, task.status !== "ready" ? "blocker" : "deliverable").catch(() => undefined);
-    saveFrom({ ...task, notified: true }, [task.status], dir);
+    if (task.source !== "self-improvement") heard = await tell(message, task.status !== "ready" ? "blocker" : "deliverable");
+    record(heard, task.status);
   }
   // Old failed and discarded tasks give their worktrees and spent branches back.
   await pruneCrewTasks({ now, dir }).catch((error: unknown) => {
