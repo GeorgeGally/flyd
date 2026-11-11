@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { applyProjectOps, projectId, readProjects, type Project, type ProjectKind } from "../council/projects.js";
-import type { DomainRun } from "../command/types.js";
+import type { DomainRun, DomainRunStatus } from "../command/types.js";
+import { workStateOfRun, type WorkState } from "../lib/work-state.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
 import { plainSaid } from "../lib/backstage.js";
 import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
@@ -80,6 +81,8 @@ export interface JobRun {
   questionIdentity?: string;
   report?: string;
   artifacts: string[];
+  /** Where the work stands, as read once from its reply (lib/work-state.ts); from its status when it carries none. */
+  work?: WorkState;
 }
 
 export interface JobSession {
@@ -141,6 +144,7 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
     questionIdentity: question ?? run.request.intendedOutcome ?? run.request.originalMessage,
     ...(report ? { report } : {}),
     artifacts: run.result?.artifacts ?? [],
+    ...(() => { const work = run.result?.workState ?? workStateOfRun(run.status, run.result); return work ? { work } : {}; })(),
   };
 }
 
@@ -166,23 +170,26 @@ function rank(group: JobGroup): number {
 
 function runSignal(run: JobRun, now: number): Signal | null {
   const at = run.updatedAt;
-  if (run.status === "needs_decision") {
+  // Where the work stands is the one work state its reply was read into; its status alone says how it is held.
+  const work = run.work ?? workStateOfRun(run.status as DomainRunStatus);
+  if (work === "needs_you") {
     if (run.source === "flyd") return null;
     return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
   // Who on the staff does the work is Flyd's business: the card says only whether it is his move or Flyd's.
   if (run.status === "queued") return { group: "waiting", state: "Queued", at, next: run.outcome || "Queued", owner: "Flyd", ask: "", because: `Run ${run.id} is queued` };
-  if (run.status === "accepted" || run.status === "working") {
+  if (run.status === "incomplete") return { group: "waiting", at, next: run.outcome || "Not finished yet", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
+  if (work === "blocked") return { group: "waiting", state: "Blocked", at, next: run.outcome || "Not finished yet", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
+  if (work === "moving") {
     if (run.transport === "firstmate") return null;
     if (now - Date.parse(at) > QUIET_RUN_MS) return { group: "waiting", at, next: run.outcome || "Waiting", owner: "Flyd", ask: "", because: `Run ${run.id} has gone quiet` };
     return { group: "working", at, ...(run.started ? { started: run.started } : {}), next: run.outcome || "Under way", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
   }
-  if (run.status === "incomplete" || run.status === "failed") {
-    return { group: "waiting", at, next: run.outcome || "Not finished yet", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
+  if (work === "ready") {
+    if (run.source === "flyd") return null;
+    return { group: "needs", state: "Ready to land", at, next: run.outcome || "Ready to land", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is ready to land` };
   }
-  if (run.status === "completed") {
-    return { group: "done", at, next: run.outcome || "Landed", owner: "", ask: "", because: `Run ${run.id} completed` };
-  }
+  if (work === "landed") return { group: "done", at, next: run.outcome || "Landed", owner: "", ask: "", because: `Run ${run.id} completed` };
   return null;
 }
 

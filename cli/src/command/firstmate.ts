@@ -11,6 +11,7 @@ import { checkDomainHandoff } from "../runtime/acceptance.js";
 import { commandDir, commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
 import { cameBack, isSettled } from "./run-state.js";
 import { dueReport, quietReport } from "./report.js";
+import { withWorkState } from "../lib/work-state.js";
 import type { DomainMessage, DomainRequest, DomainRun, DomainRunStatus } from "./types.js";
 import { decisionsLines } from "./types.js";
 
@@ -647,7 +648,7 @@ function suspendFirstmateRun(run: DomainRun, failure = SESSION_LAUNCH_FAILURE, n
   if (terminal) {
     const { launchRetry: _retry, ...rest } = current;
     const at = new Date(nowMs).toISOString();
-    const stopped: DomainRun = { ...rest, status: "failed", failure: terminal.message, result: parseDomainResult(terminal.message).result, updatedAt: at, report: dueReport("failed", at) };
+    const stopped: DomainRun = withWorkState({ ...rest, status: "failed", failure: terminal.message, result: parseDomainResult(terminal.message).result, updatedAt: at, report: dueReport("failed", at) });
     return commitDomainRun(current, stopped, dir);
   }
   const attempts = (current.launchRetry?.attempts ?? 0) + 1;
@@ -911,6 +912,8 @@ export async function syncFirstmateDomainRuns(options: {
         };
       }
     }
+    // Where the work stands is read here, once, from the judged reply, and stored with its result for every surface.
+    if (next.status !== run.status || next.result !== run.result) next = withWorkState(next);
     if (JSON.stringify(next) === JSON.stringify(run)) continue;
     // Only what this sync changed is applied, so a message `flyd view` sent meanwhile survives.
     next = commitDomainRun(run, next);
