@@ -322,7 +322,7 @@ const RUN_EVERY_MS = 24 * 60 * 60 * 1000;
 const DOMAIN_RUN_HOLD_MS = 7 * 86_400_000;
 
 function awaitingGeorge(tasks: CrewTask[], now: Date, flydDir?: string): CrewTask | DomainRun | undefined {
-  const crew = tasks.find((task) => task.source === "self-improvement" && ["running", "verifying", "ready"].includes(task.status));
+  const crew = tasks.find((task) => task.source === "self-improvement" && ["running", "verifying", "ready", "landing"].includes(task.status));
   if (crew) return crew;
   return listDomainRuns(flydDir ? join(flydDir, "command") : undefined).find((run) => run.request.source === "self-improvement"
     && ["queued", "accepted", "working", "needs_decision"].includes(run.status)

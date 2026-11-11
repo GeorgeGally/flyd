@@ -681,6 +681,200 @@ describe("after landing", () => {
   });
 });
 
+describe("crew landing and the task state machine", () => {
+  const passing = async () => ({ ok: true, output: "" });
+  /** A pid no process holds: the lander or verifier that set it is gone. */
+  const DEAD = 2_147_483_646;
+  const readyTask = async (afterLand?: ("push" | "deploy")[]) => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate(), ...(afterLand ? { afterLand } : {}) });
+    await superviseCrew({ alive: () => false, runCommand: passing });
+    expect(readTask(task.id)?.status).toBe("ready");
+    return readTask(task.id)!;
+  };
+  const commitsOnMain = () => Number(git(repo, "rev-list", "--count", "main"));
+
+  it("resumes a landing that died after merging: no second merge, finished after-land steps not run again", async () => {
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { deploy: "vercel --prod" } }));
+    git(repo, "add", "."); git(repo, "commit", "-qm", "add deploy script");
+    const task = await readyTask(["push", "deploy"]);
+    // The first lander merged, pushed, recorded both, then died before deploying.
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    const merged = commitsOnMain();
+    saveTask({ ...task, status: "landing", landingStep: "merged", landerPid: DEAD, afterLandResults: [{ step: "push", ok: true, detail: "pushed" }] });
+    const ran: string[] = [];
+    const landed = await landCrewTask(task.id, undefined, async (command) => { ran.push(command); return { ok: true, output: "done" }; });
+    expect(ran).toEqual(["npm run deploy"]);
+    expect(commitsOnMain()).toBe(merged);
+    expect(landed).toMatchObject({ status: "landed" });
+    expect(landed.landingStep).toBeUndefined();
+    expect(landed.landerPid).toBeUndefined();
+    expect(landed.afterLandResults?.map((result) => result.step)).toEqual(["push", "deploy"]);
+  });
+
+  it("never runs a deploy again that was in flight when the lander died, and asks George about it", async () => {
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { deploy: "vercel --prod" } }));
+    git(repo, "add", "."); git(repo, "commit", "-qm", "add deploy script");
+    const task = await readyTask(["push", "deploy"]);
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    saveTask({ ...task, status: "landing", landingStep: "merged", landerPid: DEAD, afterLandResults: [{ step: "push", ok: true, detail: "pushed" }], afterLandStarted: "deploy" });
+    const runCommand = vi.fn(async () => ({ ok: true, output: "done" }));
+    const notify = vi.fn(async () => {});
+    const changed = await superviseCrew({ alive: () => false, runCommand, notify });
+    expect(runCommand).not.toHaveBeenCalledWith("npm run deploy", expect.anything());
+    const landed = changed.find((item) => item.id === task.id)!;
+    expect(landed.status).toBe("landed");
+    expect(landed.afterLandStarted).toBeUndefined();
+    expect(landed.afterLandResults?.[1]).toMatchObject({ step: "deploy", ok: false, uncertain: true, detail: expect.stringContaining("may or may not have run") });
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("can't tell whether its deploy went through"), "blocker");
+  });
+
+  it("runs a push again that was in flight when the lander died: pushing twice is harmless", async () => {
+    const task = await readyTask(["push"]);
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    saveTask({ ...task, status: "landing", landingStep: "merged", landerPid: DEAD, afterLandStarted: "push" });
+    const ran: string[] = [];
+    const landed = await landCrewTask(task.id, undefined, async (command) => { ran.push(command); return { ok: true, output: "done" }; });
+    expect(ran).toEqual(["git push origin main"]);
+    expect(landed.afterLandResults).toEqual([{ step: "push", ok: true, detail: expect.any(String) }]);
+  });
+
+  it("hands a stranded, unmerged landing back as ready when the checkout moved, so it can still be told, landed or discarded", async () => {
+    const task = await readyTask();
+    saveTask({ ...task, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    git(repo, "checkout", "-qb", "elsewhere");
+    const notify = vi.fn(async () => {});
+    const changed = await superviseCrew({ alive: () => false, runCommand: passing, notify });
+    expect(readTask(task.id)).toMatchObject({ status: "ready" });
+    expect(readTask(task.id)?.landingStep).toBeUndefined();
+    expect(readTask(task.id)?.landerPid).toBeUndefined();
+    expect(changed.find((item) => item.id === task.id)?.status).toBe("ready");
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("Say /land"), "deliverable");
+    git(repo, "checkout", "-q", "main");
+    expect((await discardCrewTask(task.id)).status).toBe("discarded");
+  });
+
+  it("never hands back a claimed landing whose merge reached main before the crash, even with the checkout moved", async () => {
+    const task = await readyTask();
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    const merged = commitsOnMain();
+    saveTask({ ...task, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    git(repo, "checkout", "-qb", "elsewhere");
+    await superviseCrew({ alive: () => false, runCommand: passing });
+    expect(readTask(task.id)?.status).toBe("landed");
+    expect(commitsOnMain()).toBe(merged);
+    await expect(discardCrewTask(task.id)).rejects.toThrow("is landed; it can't be discarded");
+  });
+
+  it("never deploys from a checkout that moved off the base branch while a landing was stranded", async () => {
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { deploy: "vercel --prod" } }));
+    git(repo, "add", "."); git(repo, "commit", "-qm", "add deploy script");
+    const task = await readyTask(["push", "deploy"]);
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    saveTask({ ...task, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    git(repo, "checkout", "-qb", "elsewhere");
+    const ran: string[] = [];
+    const landed = await landCrewTask(task.id, undefined, async (command) => { ran.push(command); return { ok: true, output: "done" }; });
+    expect(ran).toEqual(["git push origin main"]);
+    expect(landed.afterLandResults?.[1]).toMatchObject({ step: "deploy", ok: false, detail: expect.stringContaining("is on elsewhere") });
+  });
+
+  it("tells George, as a blocker, when a resumed landing's deploy didn't run", async () => {
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { deploy: "vercel --prod" } }));
+    git(repo, "add", "."); git(repo, "commit", "-qm", "add deploy script");
+    const task = await readyTask(["push", "deploy"]);
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    saveTask({ ...task, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    git(repo, "checkout", "-qb", "elsewhere");
+    const notify = vi.fn(async () => {});
+    await superviseCrew({ alive: () => false, runCommand: passing, notify });
+    expect(readTask(task.id)?.status).toBe("landed");
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("its deploy didn't go through"), "blocker");
+    expect(notify).not.toHaveBeenCalledWith("Flyd", expect.stringContaining("does everything you asked"), expect.anything());
+  });
+
+  it("resumes a claimed landing: merges once, and skips the merge when the crash came just after it", async () => {
+    const first = await readyTask();
+    saveTask({ ...first, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    expect((await landCrewTask(first.id)).status).toBe("landed");
+    expect(readFileSync(join(repo, "feature.txt"), "utf8")).toBe("done\n");
+
+    const second = await dispatchCrewTask({ repo, outcome: "Another change", launch: vi.fn((task: { worktree: string; log: string }) => {
+      writeFileSync(join(task.worktree, "other.txt"), "x\n");
+      git(task.worktree, "add", "."); git(task.worktree, "commit", "-qm", "feat: other");
+      writeFileSync(task.log, "");
+      return 424242;
+    }) });
+    await superviseCrew({ alive: () => false, runCommand: passing });
+    git(repo, "merge", "--no-ff", "-qm", "merge", second.branch);
+    const merged = commitsOnMain();
+    saveTask({ ...readTask(second.id)!, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    expect((await landCrewTask(second.id)).status).toBe("landed");
+    expect(commitsOnMain()).toBe(merged);
+  });
+
+  it("supervise resumes a landing whose process died, and the task ends landed", async () => {
+    const task = await readyTask();
+    saveTask({ ...task, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    const changed = await superviseCrew({ alive: () => false, runCommand: passing });
+    expect(changed.find((item) => item.id === task.id)?.status).toBe("landed");
+    expect(readTask(task.id)?.status).toBe("landed");
+    expect(existsSync(join(repo, "feature.txt"))).toBe(true);
+  });
+
+  it("lets only one lander claim a task, and never discards landing or landed work", async () => {
+    const task = await readyTask();
+    saveTask({ ...task, status: "landing", landingStep: "claimed", landerPid: process.ppid });
+    await expect(landCrewTask(task.id)).rejects.toThrow("already being landed");
+    await expect(discardCrewTask(task.id)).rejects.toThrow("is landing; it can't be discarded");
+    expect(readTask(task.id)?.status).toBe("landing");
+    expect(git(repo, "branch", "--list", task.branch)).not.toBe("");
+
+    saveTask({ ...task, status: "ready" });
+    const landed = await landCrewTask(task.id);
+    await expect(discardCrewTask(task.id)).rejects.toThrow("is landed; it can't be discarded");
+    await expect(landCrewTask(task.id)).rejects.toThrow("is landed, not ready to land");
+    expect(readTask(task.id)).toEqual(landed);
+  });
+
+  it("hands a task back as ready, with the checkout untouched, when its merge conflicts", async () => {
+    const task = await readyTask();
+    writeFileSync(join(repo, "feature.txt"), "conflicting\n");
+    git(repo, "add", "."); git(repo, "commit", "-qm", "conflict");
+    await expect(landCrewTask(task.id)).rejects.toThrow();
+    expect(readTask(task.id)).toMatchObject({ status: "ready" });
+    expect(readTask(task.id)?.landingStep).toBeUndefined();
+    expect(git(repo, "status", "--porcelain")).toBe("");
+  });
+
+  it("returns a task stranded in verifying to running and checks it again in the same pass", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
+    saveTask({ ...readTask(task.id)!, status: "verifying", verifierPid: DEAD });
+    const [done] = await superviseCrew({ alive: () => false, runCommand: passing });
+    expect(done).toMatchObject({ id: task.id, status: "ready", commits: 1 });
+    expect(readTask(task.id)?.verifierPid).toBeUndefined();
+  });
+
+  it("leaves a task verifying while its verifier is still alive", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
+    saveTask({ ...readTask(task.id)!, status: "verifying", verifierPid: process.ppid });
+    expect(await superviseCrew({ alive: () => false, runCommand: passing })).toEqual([]);
+    expect(readTask(task.id)?.status).toBe("verifying");
+  });
+
+  it("never writes a stale snapshot over a task discarded while its checks ran", async () => {
+    const task = await dispatchCrewTask({ repo, outcome: "Add a feature file", launch: fakeCrewmate() });
+    const notify = vi.fn(async () => {});
+    const runCommand = vi.fn(async () => {
+      if (readTask(task.id)?.status === "verifying") await discardCrewTask(task.id);
+      return { ok: true, output: "" };
+    });
+    const changed = await superviseCrew({ alive: () => false, runCommand, notify });
+    expect(changed).toEqual([]);
+    expect(readTask(task.id)?.status).toBe("discarded");
+    expect(notify).not.toHaveBeenCalled();
+  });
+});
+
 describe("what stopped a failed task", () => {
   it("says each failure in plain words, never the raw error", () => {
     expect(blockedBy({ reason: "no_progress", noProgressIterations: 0, failure: "no progress: no files changed" })).toBe("it finished without changing any files");

@@ -21,7 +21,16 @@ import { verificationCommandsForRepository } from "../runtime/verification-comma
 
 const execFileAsync = promisify(execFile);
 
-export type CrewStatus = "running" | "verifying" | "ready" | "failed" | "landed" | "discarded";
+export type CrewStatus = "running" | "verifying" | "ready" | "landing" | "failed" | "landed" | "discarded";
+
+/**
+ * How far a landing got: claimed (the task is ours to land), merged (its branch is on
+ * the base branch), deployed (George's after-land steps ran). A restart resumes from here.
+ */
+export type LandingStep = "claimed" | "merged" | "deployed";
+
+/** Final states: nothing moves a task out of them. */
+export const FINAL_CREW_STATUSES: readonly CrewStatus[] = ["landed", "discarded"];
 
 export interface CrewTask {
   id: string;
@@ -33,6 +42,12 @@ export interface CrewTask {
   worktree: string;
   status: CrewStatus;
   pid?: number;
+  /** While landing: the step reached so far. */
+  landingStep?: LandingStep;
+  /** While landing: the process carrying it out. */
+  landerPid?: number;
+  /** While verifying: the supervise process running the checks. */
+  verifierPid?: number;
   log: string;
   createdAt: string;
   finishedAt?: string;
@@ -61,7 +76,9 @@ export interface CrewTask {
   attemptStartedAt?: string;
   /** Steps beyond the crew that George approved at dispatch, run when he lands it. */
   afterLand?: AfterLandStep[];
-  afterLandResults?: Array<{ step: AfterLandStep; ok: boolean; detail: string }>;
+  afterLandResults?: Array<{ step: AfterLandStep; ok: boolean; detail: string; uncertain?: boolean }>;
+  /** While landing: the after-land step started but not yet recorded. */
+  afterLandStarted?: AfterLandStep;
   /** The model the crewmate runs on ("provider/model"; "cursor/…" runs Cursor's agent); unset means the crew default. */
   model?: string;
   /** Models this task already ran on before its provider refused and it moved to a backup. */
@@ -108,6 +125,61 @@ export function saveTask(task: CrewTask, dir = crewDir()): void {
 
 export function readTask(id: string, dir = crewDir()): CrewTask | null {
   try { return JSON.parse(readFileSync(taskPath(id, dir), "utf8")) as CrewTask; } catch { return null; }
+}
+
+/** Transitions this process is carrying out right now, so it never mistakes its own work for a stranded one. */
+const activeLandings = new Set<string>();
+const activeVerifications = new Set<string>();
+
+const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/** Hold a task's record lock (across processes) for one read-check-write. */
+function withTaskLock<T>(id: string, dir: string, body: () => T): T {
+  const lock = join(dir, "tasks", `${id}.lock`);
+  mkdirSync(dirname(lock), { recursive: true, mode: 0o700 });
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      writeFileSync(lock, String(process.pid), { flag: "wx", mode: 0o600 });
+      break;
+    } catch {
+      const holder = Number((() => { try { return readFileSync(lock, "utf8").trim(); } catch { return ""; } })());
+      if (!holder || (holder !== process.pid && !processAlive(holder)) || attempt >= 200) {
+        try { rmSync(lock); } catch { /* raced */ }
+      } else {
+        sleepSync(10);
+      }
+    }
+  }
+  try {
+    return body();
+  } finally {
+    try { rmSync(lock); } catch { /* already gone */ }
+  }
+}
+
+/**
+ * Compare-and-set on a task record: re-read it, and only while its status is still one
+ * of `from` save what `change` makes of it. Null when the task moved on (or `change`
+ * declines); the record on disk is then untouched.
+ */
+export function transitionTask(id: string, from: readonly CrewStatus[], change: (task: CrewTask) => CrewTask | null, dir = crewDir()): CrewTask | null {
+  return withTaskLock(id, dir, () => {
+    const current = readTask(id, dir);
+    if (!current || !from.includes(current.status)) return null;
+    const next = change(current);
+    if (!next) return null;
+    saveTask(next, dir);
+    return next;
+  });
+}
+
+/** Save a snapshot only if the task on disk is still in `from`: a pass never writes over a discard or a landing. */
+function saveFrom(task: CrewTask, from: readonly CrewStatus[], dir: string): boolean {
+  return transitionTask(task.id, from, () => task, dir) !== null;
+}
+
+function strandedBy(id: string, pid: number | undefined, active: Set<string>): boolean {
+  return !pid || (pid === process.pid ? !active.has(id) : !processAlive(pid));
 }
 
 export function listTasks(dir = crewDir()): CrewTask[] {
@@ -761,10 +833,19 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
   const alive = deps.alive ?? processAlive;
   const run = deps.runCommand ?? defaultRunCommand;
   const changed: CrewTask[] = [];
+  // A pass that died mid-check left its task verifying with nobody verifying it:
+  // hand it back to running so this pass checks it again.
+  for (const stranded of listTasks(dir).filter((item) => item.status === "verifying" && strandedBy(item.id, item.verifierPid, activeVerifications))) {
+    transitionTask(stranded.id, ["verifying"], (task) => {
+      if (!strandedBy(task.id, task.verifierPid, activeVerifications)) return null;
+      const { verifierPid, ...rest } = task;
+      return { ...rest, status: "running" };
+    }, dir);
+  }
   for (const listed of listTasks(dir).filter((item) => item.status === "running")) {
     const spendOffset = recordCrewSpend(listed);
     const task = spendOffset === listed.spendOffset ? listed : { ...listed, spendOffset };
-    if (task !== listed) saveTask(task, dir);
+    if (task !== listed && !saveFrom(task, ["running"], dir)) continue;
     const processIsAlive = alive(task.pid);
     let observed = task;
     const iterations = completedIterations(task.log);
@@ -793,127 +874,159 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
           const complete = { ...failed, commits, diffStat };
           const cleaned = !dirty && await cleanupCrewWorktree(complete, { deleteBranch: commits === 0 });
           const recorded = cleaned ? { ...complete, worktreeRemoved: true } : complete;
-          saveTask(recorded, dir);
-          changed.push(recorded);
+          if (saveFrom(recorded, ["running"], dir)) changed.push(recorded);
           continue;
         }
       } else {
         observed = { ...task, completedIterations: iterations };
       }
-      saveTask(observed, dir);
+      if (!saveFrom(observed, ["running"], dir)) continue;
     }
     if (processIsAlive) {
       if (now.getTime() - Date.parse(observed.attemptStartedAt ?? observed.createdAt) > MAX_RUNTIME_MS) {
         try { (deps.kill ?? ((pid: number) => process.kill(-pid, "SIGTERM")))(observed.pid!); } catch { /* already gone */ }
         const trace = lastSummary(observed.log);
         const failed = { ...withoutFailure(observed), status: "failed" as const, failure: "stopped after 2 hours without finishing", summary: trace, trace, finishedAt: now.toISOString() };
-        saveTask(failed, dir);
-        changed.push(failed);
+        if (saveFrom(failed, ["running"], dir)) changed.push(failed);
       }
       continue;
     }
-    saveTask({ ...observed, status: "verifying" }, dir);
-    const summary = lastSummary(observed.log);
-    // Count the branch's commits from the repository, never from the worktree:
-    // a missing worktree must not read as "nothing was committed", or the
-    // cleanup below deletes a branch that holds real work.
-    let commits = 0;
-    let diffStat = "";
-    let counted = false;
+    activeVerifications.add(task.id);
     try {
-      commits = Number(await git(task.repo, ["rev-list", "--count", `${task.baseCommit}..${task.branch}`])) || 0;
-      diffStat = await git(task.repo, ["diff", "--shortstat", `${task.baseCommit}..${task.branch}`]);
-      counted = true;
-    } catch { /* branch gone */ }
-    if (commits > 0 && !existsSync(task.worktree)) await restoreWorktree(task);
-    const dirty = await git(task.worktree, ["status", "--porcelain"]).catch(() => "");
-    const verification: CrewTask["verification"] = [];
-    if (commits > 0) {
-      for (const command of await verificationCommandsForRepository(task.worktree).catch(() => [])) {
-        const result = await run(command, task.worktree);
-        const tail = result.output.trim().split("\n").slice(-8).join("\n").slice(-800);
-        // A suite that was already red on the base commit must not fail every
-        // task: pass the check when the crewmate added no failure of its own.
-        if (!result.ok) {
-          const base = await baselineOutput(task, command, run, dir);
-          if (base !== null && onlyPreExistingFailures(result.output, base)) {
-            verification.push({ command, ok: true, preExisting: true, tail });
-            continue;
-          }
+      const outcome = await verifyFinishedTask(task, observed, deps, dir, now, run);
+      if (outcome) changed.push(outcome);
+    } finally {
+      activeVerifications.delete(task.id);
+    }
+  }
+  await superviseSettled(changed, deps, dir, now, run);
+  return changed;
+}
+
+/**
+ * Check a crewmate that has stopped. The task is claimed as verifying first; every
+ * later save re-reads it, so a discard made while the checks ran is never overwritten.
+ */
+async function verifyFinishedTask(task: CrewTask, observed: CrewTask, deps: SuperviseDependencies, dir: string, now: Date, run: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>): Promise<CrewTask | undefined> {
+  if (!transitionTask(task.id, ["running"], () => ({ ...observed, status: "verifying", verifierPid: process.pid }), dir)) return undefined;
+  const settle = (next: CrewTask): CrewTask | undefined => {
+    const { verifierPid, ...rest } = next;
+    return saveFrom(rest, ["verifying"], dir) ? rest : undefined;
+  };
+  const stillVerifying = () => readTask(task.id, dir)?.status === "verifying";
+  const summary = lastSummary(observed.log);
+  // Count the branch's commits from the repository, never from the worktree:
+  // a missing worktree must not read as "nothing was committed", or the
+  // cleanup below deletes a branch that holds real work.
+  let commits = 0;
+  let diffStat = "";
+  let counted = false;
+  try {
+    commits = Number(await git(task.repo, ["rev-list", "--count", `${task.baseCommit}..${task.branch}`])) || 0;
+    diffStat = await git(task.repo, ["diff", "--shortstat", `${task.baseCommit}..${task.branch}`]);
+    counted = true;
+  } catch { /* branch gone */ }
+  if (commits > 0 && !existsSync(task.worktree)) await restoreWorktree(task);
+  const dirty = await git(task.worktree, ["status", "--porcelain"]).catch(() => "");
+  const verification: CrewTask["verification"] = [];
+  if (commits > 0) {
+    for (const command of await verificationCommandsForRepository(task.worktree).catch(() => [])) {
+      const result = await run(command, task.worktree);
+      const tail = result.output.trim().split("\n").slice(-8).join("\n").slice(-800);
+      // A suite that was already red on the base commit must not fail every
+      // task: pass the check when the crewmate added no failure of its own.
+      if (!result.ok) {
+        const base = await baselineOutput(task, command, run, dir);
+        if (base !== null && onlyPreExistingFailures(result.output, base)) {
+          verification.push({ command, ok: true, preExisting: true, tail });
+          continue;
         }
-        verification.push({ command, ok: result.ok, tail });
-        if (!result.ok) break;
       }
+      verification.push({ command, ok: result.ok, tail });
+      if (!result.ok) break;
     }
-    const verified = commits > 0 && verification.every((step) => step.ok);
-    // A crewmate whose provider refused the work (no credits, a usage limit, a bad key) did not fail at the work: say so.
-    const refused = verified ? undefined : providerFailure(task.log);
-    const noProgress = commits === 0 && !dirty && !refused;
-    // A refusal is the provider's problem, not the work's: carry on in the same worktree on the next backup model.
-    const backup = refused ? nextBackupModel(observed) : undefined;
-    if (backup) {
-      const moved: CrewTask = { ...observed, model: backup, triedModels: [...(observed.triedModels ?? []), observed.model ?? crewModel()] };
-      let pid: number | undefined;
-      try {
-        const commands = verification.length ? verification.map((step) => step.command) : await verificationCommandsForRepository(observed.worktree).catch(() => []);
-        pid = (deps.launch ?? launchCrewmate)(moved, crewBackupBrief(moved, commands));
-      } catch (error) {
-        console.warn("[crew] backup relaunch failed:", error instanceof Error ? error.message : error);
-      }
-      if (pid) {
-        const again: CrewTask = {
-          ...moved, status: "running", pid, commits, diffStat,
-          progressSignature: await worktreeSignature(observed.worktree, observed.baseCommit).catch(() => observed.progressSignature),
-          completedIterations: completedIterations(observed.log), noProgressIterations: 0, attemptStartedAt: now.toISOString(),
-        };
-        saveTask(again, dir);
-        changed.push(again);
-        continue;
-      }
+  }
+  const verified = commits > 0 && verification.every((step) => step.ok);
+  // A crewmate whose provider refused the work (no credits, a usage limit, a bad key) did not fail at the work: say so.
+  const refused = verified ? undefined : providerFailure(task.log);
+  const noProgress = commits === 0 && !dirty && !refused;
+  // A refusal is the provider's problem, not the work's: carry on in the same worktree on the next backup model.
+  const backup = refused ? nextBackupModel(observed) : undefined;
+  if (backup && stillVerifying()) {
+    const moved: CrewTask = { ...observed, model: backup, triedModels: [...(observed.triedModels ?? []), observed.model ?? crewModel()] };
+    let pid: number | undefined;
+    try {
+      const commands = verification.length ? verification.map((step) => step.command) : await verificationCommandsForRepository(observed.worktree).catch(() => []);
+      pid = (deps.launch ?? launchCrewmate)(moved, crewBackupBrief(moved, commands));
+    } catch (error) {
+      console.warn("[crew] backup relaunch failed:", error instanceof Error ? error.message : error);
     }
-    // Passing checks is necessary, not sufficient: the independent reviewer's
-    // verdict decides. A diff it finds short of the brief fails the task; the
-    // crewmate gets exactly one re-run with the findings before George hears about it.
-    let review: AcceptanceCheck[] | undefined;
-    if (verified) {
-      const criteria = acceptanceCriteria(task);
-      try {
-        const reply = await (deps.review ?? defaultReview)(reviewPrompt({ ...task, summary }, await reviewDiff(task)));
-        if (reply !== null) review = parseVerdicts(criteria, reply);
-      } catch (error) {
-        console.warn("[crew] independent review failed:", error instanceof Error ? error.message : error);
-        review = criteria.map((criterion) => ({ criterion, met: false, note: "the review couldn't run", unchecked: true }));
-      }
-      if (reviewFoundShort(review)) {
-        const short = await failShortReview({ ...withoutFailure(observed), commits, diffStat, verification, summary, review: review! }, deps, now);
-        saveTask(short, dir);
-        changed.push(short);
-        continue;
-      }
+    if (pid) {
+      const again: CrewTask = {
+        ...moved, status: "running", pid, commits, diffStat,
+        progressSignature: await worktreeSignature(observed.worktree, observed.baseCommit).catch(() => observed.progressSignature),
+        completedIterations: completedIterations(observed.log), noProgressIterations: 0, attemptStartedAt: now.toISOString(),
+      };
+      return settle(again);
     }
-    const done: CrewTask = {
-      // A re-run that passes clears the first round's recorded shortfall.
-      ...withoutFailure(observed),
-      status: verified ? "ready" : "failed",
-      finishedAt: now.toISOString(),
-      commits, diffStat, verification, summary,
-      ...(review ? { review } : {}),
-      ...(verified ? {} : {
-        ...(noProgress ? { reason: "no_progress" as const, noProgressIterations: observed.noProgressIterations ?? completedIterations(observed.log), trace: summary } : {}),
-        failure: refused
-          ? `provider error: ${refused}`
-          : commits === 0
-            ? noProgress
-              ? "no progress: no files changed"
-              : `no commits${dirty ? " (uncommitted changes left in the worktree)" : ""}`
-            : `verification failed: ${verification.find((step) => !step.ok)?.command ?? "unknown"}`,
-      }),
-    };
-    // A failed task's worktree goes; its branch stays while it holds commits, and uncommitted work is never thrown away.
-    const cleaned = !verified && await cleanupCrewWorktree(done, { deleteBranch: counted && commits === 0 });
-    const recorded: CrewTask = cleaned ? { ...done, worktreeRemoved: true } : done;
-    saveTask(recorded, dir);
-    changed.push(recorded);
+  }
+  // Passing checks is necessary, not sufficient: the independent reviewer's
+  // verdict decides. A diff it finds short of the brief fails the task; the
+  // crewmate gets exactly one re-run with the findings before George hears about it.
+  let review: AcceptanceCheck[] | undefined;
+  if (verified) {
+    const criteria = acceptanceCriteria(task);
+    try {
+      const reply = await (deps.review ?? defaultReview)(reviewPrompt({ ...task, summary }, await reviewDiff(task)));
+      if (reply !== null) review = parseVerdicts(criteria, reply);
+    } catch (error) {
+      console.warn("[crew] independent review failed:", error instanceof Error ? error.message : error);
+      review = criteria.map((criterion) => ({ criterion, met: false, note: "the review couldn't run", unchecked: true }));
+    }
+    if (reviewFoundShort(review)) {
+      // A task discarded while it was checked gets no re-run.
+      if (!stillVerifying()) return undefined;
+      const short = await failShortReview({ ...withoutFailure(observed), commits, diffStat, verification, summary, review: review! }, deps, now);
+      return settle(short);
+    }
+  }
+  const done: CrewTask = {
+    // A re-run that passes clears the first round's recorded shortfall.
+    ...withoutFailure(observed),
+    status: verified ? "ready" : "failed",
+    finishedAt: now.toISOString(),
+    commits, diffStat, verification, summary,
+    ...(review ? { review } : {}),
+    ...(verified ? {} : {
+      ...(noProgress ? { reason: "no_progress" as const, noProgressIterations: observed.noProgressIterations ?? completedIterations(observed.log), trace: summary } : {}),
+      failure: refused
+        ? `provider error: ${refused}`
+        : commits === 0
+          ? noProgress
+            ? "no progress: no files changed"
+            : `no commits${dirty ? " (uncommitted changes left in the worktree)" : ""}`
+          : `verification failed: ${verification.find((step) => !step.ok)?.command ?? "unknown"}`,
+    }),
+  };
+  // A failed task's worktree goes; its branch stays while it holds commits, and uncommitted work is never thrown away.
+  const cleaned = !verified && await cleanupCrewWorktree(done, { deleteBranch: counted && commits === 0 });
+  const recorded: CrewTask = cleaned ? { ...done, worktreeRemoved: true } : done;
+  return settle(recorded);
+}
+
+/** After the verification round: late reviews, own fixes landing or dropping, stranded landings resumed, George told. */
+async function superviseSettled(changed: CrewTask[], deps: SuperviseDependencies, dir: string, now: Date, run: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>): Promise<void> {
+  // A landing whose process died part-way resumes from its last step rather than starting over.
+  for (const stranded of listTasks(dir).filter((item) => item.status === "landing" && strandedBy(item.id, item.landerPid, activeLandings))) {
+    try {
+      const landed = { ...await landCrewTask(stranded.id, dir, run), notified: false };
+      const at = changed.findIndex((item) => item.id === landed.id);
+      if (at >= 0) changed[at] = landed; else changed.push(landed);
+    } catch (error) {
+      console.warn("[crew] could not resume a landing:", error instanceof Error ? error.message : error);
+      const handedBack = readTask(stranded.id, dir);
+      if (handedBack?.status === "ready" && !changed.some((item) => item.id === handedBack.id)) changed.push({ ...handedBack, notified: false });
+    }
   }
   // A review that couldn't run (a slow or refused model) is tried again on a later
   // tick, one task per pass, rather than leaving tested work unjudged for good.
@@ -922,16 +1035,15 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     const retries = (unjudged.reviewRetries ?? 0) + 1;
     try {
       const reply = await (deps.review ?? defaultReview)(reviewPrompt(unjudged, await reviewDiff(unjudged)));
-      if (reply !== null) {
+      if (reply !== null && readTask(unjudged.id, dir)?.status === "ready") {
         const judged: CrewTask = { ...unjudged, review: parseVerdicts(acceptanceCriteria(unjudged), reply), reviewRetries: retries, notified: false };
         // The late verdict carries the same weight as a prompt one.
         const settled = reviewFoundShort(judged.review) ? await failShortReview(judged, deps, now) : judged;
-        saveTask(settled, dir);
-        changed.push(settled);
+        if (saveFrom(settled, ["ready"], dir)) changed.push(settled);
       }
     } catch (error) {
       console.warn("[crew] review retry failed:", error instanceof Error ? error.message : error);
-      saveTask({ ...unjudged, reviewRetries: retries }, dir);
+      saveFrom({ ...unjudged, reviewRetries: retries }, ["ready"], dir);
     }
   }
   // Flyd's own fixes land themselves once tested and checked against everything
@@ -970,15 +1082,24 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
     }
     if (!settled) continue;
     settled = { ...settled, notified: true };
-    saveTask(settled, dir);
+    saveFrom(settled, [settled.status], dir);
     if (at >= 0) changed[at] = settled;
     else changed.push(settled);
   }
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
     if (task.status === "landed") {
-      const merged = `${plainOutcome(task)} is merged into main: its tests pass and it does everything you asked.`;
-      if (task.source !== "self-improvement") await deps.notify!("Flyd", merged, "deliverable").catch(() => undefined);
-      saveTask({ ...task, notified: true }, dir);
+      const uncertain = (task.afterLandResults ?? []).filter((result) => result.uncertain).map((result) => result.step);
+      const failed = (task.afterLandResults ?? []).filter((result) => !result.ok && !result.uncertain);
+      if (failed.length) {
+        const problem = `${plainOutcome(task)} is merged into main, but ${failed.map((result) => `its ${result.step} didn't go through (${result.detail})`).join("; ")}; it won't be run again on its own, so run it yourself once that's sorted.`;
+        await deps.notify!("Flyd", problem, "blocker").catch(() => undefined);
+      } else if (uncertain.length) {
+        const question = `${plainOutcome(task)} is merged into main, but I can't tell whether its ${uncertain.join(" and ")} went through: it was running when I stopped, and I won't run it again on my own. Can you check whether it happened?`;
+        await deps.notify!("Flyd", question, "blocker").catch(() => undefined);
+      } else if (task.source !== "self-improvement") {
+        await deps.notify!("Flyd", `${plainOutcome(task)} is merged into main: its tests pass and it does everything you asked.`, "deliverable").catch(() => undefined);
+      }
+      saveFrom({ ...task, notified: true }, ["landed"], dir);
       continue;
     }
     // A ready task's review is met or couldn't run: a short verdict never leaves a task ready.
@@ -991,13 +1112,12 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
           ? `${plainOutcome(task)} is done and tested, but I couldn't merge it myself: ${couldNotLand.get(task.id)}. Say /land once that's sorted.`
           : `${plainOutcome(task)} is done and tested. Say /land to merge it in.`;
     if (task.source !== "self-improvement") await deps.notify!("Flyd", message, task.status !== "ready" ? "blocker" : "deliverable").catch(() => undefined);
-    saveTask({ ...task, notified: true }, dir);
+    saveFrom({ ...task, notified: true }, [task.status], dir);
   }
   // Old failed and discarded tasks give their worktrees and spent branches back.
   await pruneCrewTasks({ now, dir }).catch((error: unknown) => {
     console.warn("[crew] prune failed:", error instanceof Error ? error.message : error);
   });
-  return changed;
 }
 
 /** A self-improvement fix with passing checks and every acceptance check met lands without waiting for George. */
@@ -1011,24 +1131,109 @@ export function landsOnItsOwn(task: CrewTask): boolean {
  * Land a verified task on the branch it started from. Fast-forward when
  * possible, a merge commit otherwise; refuses a dirty or moved checkout
  * rather than guessing.
+ *
+ * ready → landing(claimed → merged → deployed) → landed. The task is claimed
+ * by compare-and-set, so two landers never both land it, and each step is
+ * saved as it completes: a restart resumes from the last step instead of
+ * merging or running George's after-land steps again.
  */
 export async function landCrewTask(id: string, dir = crewDir(), run: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }> = defaultRunCommand): Promise<CrewTask> {
   const task = readTask(id, dir);
   if (!task) throw new Error(`No crew task ${id}`);
-  if (task.status !== "ready") throw new Error(`Task ${id} is ${task.status}, not ready to land`);
+  if (task.status === "landing") {
+    if (!strandedBy(id, task.landerPid, activeLandings)) throw new Error(`Task ${id} is already being landed`);
+  } else if (task.status !== "ready") {
+    throw new Error(`Task ${id} is ${task.status}, not ready to land`);
+  }
+  // Until the branch is merged, a moved or dirty checkout stops the landing before it is claimed.
+  if (task.status === "ready" || task.landingStep === "claimed") {
+    if (!await branchMerged(task)) {
+      try {
+        await checkLandable(task);
+      } catch (error) {
+        if (task.status === "landing") {
+          transitionTask(id, ["landing"], (current) => current.landingStep === "claimed" && strandedBy(id, current.landerPid, activeLandings) ? handBack(current) : null, dir);
+        }
+        throw error;
+      }
+    }
+  }
+  const claimed = transitionTask(id, ["ready", "landing"], (current) => {
+    if (current.status === "landing" && !strandedBy(id, current.landerPid, activeLandings)) return null;
+    return { ...current, status: "landing", landingStep: current.landingStep ?? "claimed", landerPid: process.pid };
+  }, dir);
+  if (!claimed) throw new Error(`Task ${id} is no longer ready to land`);
+  activeLandings.add(id);
+  try {
+    let landing = claimed;
+    const step = (change: Partial<CrewTask>): CrewTask => {
+      const next = transitionTask(id, ["landing"], (current) => current.landerPid === process.pid ? { ...current, ...change } : null, dir);
+      if (!next) throw new Error(`Task ${id} was taken over while landing`);
+      return next;
+    };
+    if (landing.landingStep === "claimed") {
+      if (!await branchMerged(landing)) {
+        try {
+          await git(landing.repo, ["merge", "--ff-only", landing.branch]);
+        } catch {
+          try {
+            await git(landing.repo, ["merge", "--no-ff", "-m", `Merge ${landing.branch}: ${landing.outcome.slice(0, 60)}`, landing.branch]);
+          } catch (error) {
+            // Nothing landed: leave the checkout as it was and hand the task back as ready.
+            await git(landing.repo, ["merge", "--abort"]).catch(() => undefined);
+            transitionTask(id, ["landing"], handBack, dir);
+            throw error;
+          }
+        }
+      }
+      landing = step({ landingStep: "merged" });
+    }
+    if (landing.landingStep === "merged") {
+      await git(landing.repo, ["worktree", "remove", landing.worktree]).catch(() => undefined);
+      // Each after-land step is recorded as it finishes; a resumed landing skips the ones already done.
+      const results = [...(landing.afterLandResults ?? [])];
+      for (const afterStep of (landing.afterLand ?? []).slice(results.length)) {
+        if (results.some((result) => !result.ok)) break;
+        let result: NonNullable<CrewTask["afterLandResults"]>[number];
+        if (landing.afterLandStarted === afterStep && afterStep !== "push") {
+          result = { step: afterStep, ok: false, uncertain: true, detail: `${afterStep} was running when the landing stopped; it may or may not have run, so it was not run again` };
+        } else {
+          landing = step({ afterLandStarted: afterStep });
+          result = await runAfterLandStep(landing, afterStep, run);
+        }
+        results.push(result);
+        landing = step({ afterLandResults: results, afterLandStarted: undefined });
+        if (!result.ok) break;
+      }
+      landing = step({ landingStep: "deployed" });
+    }
+    const landed = transitionTask(id, ["landing"], (current) => {
+      if (current.landerPid !== process.pid) return null;
+      const { landingStep, landerPid, afterLandStarted, ...rest } = current;
+      return { ...rest, status: "landed", finishedAt: new Date().toISOString() };
+    }, dir);
+    if (!landed) throw new Error(`Task ${id} was taken over while landing`);
+    return landed;
+  } finally {
+    activeLandings.delete(id);
+  }
+}
+
+/** A landing that merged nothing goes back to ready. */
+function handBack(current: CrewTask): CrewTask {
+  const { landingStep, landerPid, afterLandStarted, ...rest } = current;
+  return { ...rest, status: "ready" };
+}
+
+/** True once the task's branch is already part of its base branch. */
+async function branchMerged(task: CrewTask): Promise<boolean> {
+  return git(task.repo, ["merge-base", "--is-ancestor", task.branch, `refs/heads/${task.baseBranch}`]).then(() => true, () => false);
+}
+
+async function checkLandable(task: CrewTask): Promise<void> {
   const current = await git(task.repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
   if (current !== task.baseBranch) throw new Error(`${task.repo} is on ${current}; switch back to ${task.baseBranch} to land`);
   if (await git(task.repo, ["status", "--porcelain", "--untracked-files=no"])) throw new Error(`${task.repo} has uncommitted changes; commit or stash them first`);
-  try {
-    await git(task.repo, ["merge", "--ff-only", task.branch]);
-  } catch {
-    await git(task.repo, ["merge", "--no-ff", "-m", `Merge ${task.branch}: ${task.outcome.slice(0, 60)}`, task.branch]);
-  }
-  await git(task.repo, ["worktree", "remove", task.worktree]).catch(() => undefined);
-  const afterLandResults = await runAfterLand(task, run);
-  const landed: CrewTask = { ...task, status: "landed", finishedAt: new Date().toISOString(), ...(afterLandResults.length ? { afterLandResults } : {}) };
-  saveTask(landed, dir);
-  return landed;
 }
 
 /** The repo's own deploy command, if it declares one. */
@@ -1043,33 +1248,32 @@ export function deployCommand(repo: string): string | null {
   return null;
 }
 
-/** Carry out the steps George approved when he dispatched the task, in order; stop at the first failure. */
-async function runAfterLand(task: CrewTask, run: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>): Promise<NonNullable<CrewTask["afterLandResults"]>> {
-  const results: NonNullable<CrewTask["afterLandResults"]> = [];
-  for (const step of task.afterLand ?? []) {
-    const command = step === "push" ? `git push origin ${task.baseBranch}` : deployCommand(task.repo);
-    if (!command) {
-      results.push({ step, ok: false, detail: "this repo declares no deploy command (package.json \"deploy\" script or a Makefile deploy target)" });
-      break;
-    }
-    const result = await run(command, task.repo);
-    results.push({ step, ok: result.ok, detail: `${command}: ${result.output.trim().split("\n").slice(-3).join(" ").slice(0, 300)}` });
-    if (!result.ok) break;
+/** Carry out one step George approved when he dispatched the task. */
+async function runAfterLandStep(task: CrewTask, step: AfterLandStep, run: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>): Promise<NonNullable<CrewTask["afterLandResults"]>[number]> {
+  const command = step === "push" ? `git push origin ${task.baseBranch}` : deployCommand(task.repo);
+  if (!command) return { step, ok: false, detail: "this repo declares no deploy command (package.json \"deploy\" script or a Makefile deploy target)" };
+  if (step !== "push") {
+    const unsafe = await checkLandable(task).then(() => null, (error: unknown) => error instanceof Error ? error.message : String(error));
+    if (unsafe) return { step, ok: false, detail: `${unsafe}; ${step} not run` };
   }
-  return results;
+  const result = await run(command, task.repo);
+  return { step, ok: result.ok, detail: `${command}: ${result.output.trim().split("\n").slice(-3).join(" ").slice(0, 300)}` };
 }
 
 /** Discard a task's worktree and branch (George's call; the branch is gone after this). */
+/** Landed and landing work is past discarding: its commits are, or are becoming, part of George's branch. */
 export async function discardCrewTask(id: string, dir = crewDir()): Promise<CrewTask> {
   const task = readTask(id, dir);
   if (!task) throw new Error(`No crew task ${id}`);
+  if (task.status === "landed" || task.status === "landing") throw new Error(`Task ${id} is ${task.status}; it can't be discarded`);
+  // Claimed first, by compare-and-set: a landing or a supervise pass that started meanwhile wins or loses cleanly.
+  const claimed = transitionTask(id, ["running", "verifying", "ready", "failed", "discarded"], (current) => ({ ...current, status: "discarded" }), dir);
+  if (!claimed) throw new Error(`Task ${id} is ${readTask(id, dir)?.status ?? "gone"}; it can't be discarded`);
   if (task.status === "running" && processAlive(task.pid)) {
     try { process.kill(-task.pid!, "SIGTERM"); } catch { /* gone */ }
   }
-  const removed = await cleanupCrewWorktree(task, { force: true, deleteBranch: true });
-  const discarded = { ...task, status: "discarded" as const, ...(removed ? { worktreeRemoved: true } : {}) };
-  saveTask(discarded, dir);
-  return discarded;
+  const removed = await cleanupCrewWorktree(claimed, { force: true, deleteBranch: true });
+  return removed ? transitionTask(id, ["discarded"], (current) => ({ ...current, worktreeRemoved: true }), dir) ?? claimed : claimed;
 }
 
 /** Days a failed or discarded task keeps its worktree before the supervise tick tidies it away. */
@@ -1185,7 +1389,7 @@ export function describeTask(task: CrewTask): string {
   const verification = task.verification?.length ? ` · checks ${task.verification.every((step) => step.ok) ? "pass" : "FAIL"}` : "";
   const review = task.review?.length ? ` · review ${task.review.filter((check) => check.met).length}/${task.review.length}` : "";
   const after = task.afterLandResults?.length
-    ? ` · ${task.afterLandResults.map((result) => `${result.step} ${result.ok ? "done" : "FAILED"}`).join(", ")}`
+    ? ` · ${task.afterLandResults.map((result) => `${result.step} ${result.ok ? "done" : result.uncertain ? "UNCERTAIN" : "FAILED"}`).join(", ")}`
     : task.afterLand?.length ? ` · then ${task.afterLand.join(", ")} on /land` : "";
-  return `[${task.id}] ${task.status}${task.diffStat ? ` · ${task.diffStat}` : ""}${verification}${review}${after} — ${task.outcome.slice(0, 90)}${task.failure ? ` (${task.failure})` : ""}`;
+  return `[${task.id}] ${task.status}${task.landingStep ? ` (${task.landingStep})` : ""}${task.diffStat ? ` · ${task.diffStat}` : ""}${verification}${review}${after} — ${task.outcome.slice(0, 90)}${task.failure ? ` (${task.failure})` : ""}`;
 }

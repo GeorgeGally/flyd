@@ -28,7 +28,7 @@ describe("one channel to the coding staff", () => {
       const text = readFileSync(path, "utf8");
       const file = relative(SRC, path);
       // An fm-inbox subcommand handed to an exec: note, ready, receipts, reply, drain, announce.
-      if (/\[\s*"note"\s*,\s*"--request-id"|\[\s*"ready"\s*\]|\[\s*"receipts"\s*,\s*"--|\[\s*"(?:reply|drain|announce)"\s*,\s*"/.test(text)) runners.push(file);
+      if (/\[\s*"note"\s*,\s*"--request-id"|\bscript\s*,\s*\[\s*"ready"\s*\]|\[\s*"receipts"\s*,\s*"--|\[\s*"(?:reply|drain|announce)"\s*,\s*"/.test(text)) runners.push(file);
       if (/["'`]fm-inbox\.sh["'`]/.test(text)) scriptPaths.push(file);
       if (/\bdefaultFirstmateExec\b|\bfirstmateStdout\b/.test(text)) lowLevel.push(file);
     }
