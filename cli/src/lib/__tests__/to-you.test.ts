@@ -12,6 +12,9 @@ describe("toYou", () => {
   it("keeps the grammar when he is the subject, the owner or the object", () => {
     expect(toYou("Is George's call needed?")).toBe("Is your call needed?");
     expect(toYou("Is George happy with v2?")).toBe("Are you happy with v2?");
+    expect(toYou("Ship it, or does George want another round?")).toBe("Ship it, or do you want another round?");
+    expect(toYou("Tests are green; is George happy to merge?")).toBe("Tests are green; are you happy to merge?");
+    expect(toYou("If v2 works, does the captain want v3 too?")).toBe("If v2 works, do you want v3 too?");
     expect(toYou("Send it for George to review.")).toBe("Send it for you to review.");
   });
 
@@ -42,5 +45,8 @@ describe("toYou grammar seen in real cards", () => {
     expect(toYou("Mark has George on the guest list.")).toBe("Mark has you on the guest list.");
     expect(toYou("The invite was George and Pierre.")).toBe("The invite was you and Pierre.");
     expect(toYou("Is George happy with v2?")).toBe("Are you happy with v2?");
+    expect(toYou("Ship it, or does George want another round?")).toBe("Ship it, or do you want another round?");
+    expect(toYou("Tests are green; is George happy to merge?")).toBe("Tests are green; are you happy to merge?");
+    expect(toYou("If v2 works, does the captain want v3 too?")).toBe("If v2 works, do you want v3 too?");
   });
 });
