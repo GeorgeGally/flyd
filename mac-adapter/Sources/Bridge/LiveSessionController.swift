@@ -20,6 +20,7 @@ final class LiveSessionController {
     private var sessionId: String = ""
     private var startedAt: Date?
     private var observedTargets: [String: ObservedTarget] = [:]
+    private var micToken: MicSessionToken?
 
     var isActive: Bool { state != .disconnected && state != .failed }
     private(set) var state: LiveSessionState = .disconnected
@@ -34,6 +35,8 @@ final class LiveSessionController {
 
     private func start() {
         guard state == .disconnected || state == .failed else { return }
+        guard let token = MicSession.shared.begin(.live) else { return }
+        micToken = token
         sessionId = UUID().uuidString
         startedAt = Date()
         observedTargets = [:]
@@ -44,9 +47,14 @@ final class LiveSessionController {
         state = .connecting
         bridge.onStateChange = { [weak self] bridgeState in
             DispatchQueue.main.async {
+                // Only this session's own events may move it; a late event from an
+                // earlier session must not end the current one.
+                guard let self, self.micToken == token else { return }
                 switch bridgeState {
-                case .active: self?.state = .active
-                case .failed, .disconnected: self?.state = .failed
+                case .active: self.state = .active
+                case .failed, .disconnected:
+                    print("[Flyd] LIVE connection dropped; ending the session")
+                    self.end(as: .failed)
                 case .connecting, .ready, .closing: break
                 }
             }
@@ -69,17 +77,29 @@ final class LiveSessionController {
         voiceCapture.onAudioChunk = { [weak self] chunk in
             self?.bridge.sendAudioChunk(chunk)
         }
-        _ = voiceCapture.start(muteOutput: false)
+        guard voiceCapture.start(muteOutput: false) else {
+            print("[Flyd] LIVE microphone did not start")
+            end(as: .failed)
+            return
+        }
         bridge.connect()
     }
 
     func stop() {
         guard isActive else { return }
+        end(as: .disconnected)
+    }
 
+    /// Every way out of a session: the mic goes off, the mode returns to present, and the
+    /// session lands in `.disconnected` (stopped) or `.failed` (dropped).
+    private func end(as finalState: LiveSessionState) {
         state = .disconnecting
         sessionTask?.cancel()
         sessionTask = nil
-        voiceCapture.stop()
+        if let micToken {
+            MicSession.shared.end(micToken)
+            self.micToken = nil
+        }
         voiceCapture.onAudioChunk = nil
         bridge.onStateChange = nil
         bridge.onAudioReceived = nil
@@ -96,7 +116,7 @@ final class LiveSessionController {
             AuditRecorder.shared.recordLiveSessionEnd(sessionId: sessionId, duration: duration)
         }
 
-        state = .disconnected
+        state = finalState
         FlydState.shared.transition(to: .present)
     }
 
