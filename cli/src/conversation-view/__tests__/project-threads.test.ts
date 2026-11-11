@@ -450,7 +450,7 @@ describe("withProjectThreads", () => {
       }), { scopes });
     };
 
-    it("keeps a general message general, even after talk about a project, and never reads Flyd addressed as a project", async () => {
+    it("passes a general pick through as general, even after talk about a project or Flyd addressed by name", async () => {
       const source = scoped();
       const wrapped = withProjectThreads(source, await threads());
       await wrapped.send("live", "Preferences should be full-page and beautifully designed", [], [], undefined, {});
