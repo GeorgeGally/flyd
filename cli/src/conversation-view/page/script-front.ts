@@ -504,6 +504,7 @@ export const FRONT_SCRIPT = `
         var answer = frontAnswer(job);
         var asked = frontDecision(job);
         parts.push(asked ? sceneAsk({ title: job.title, decision: asked }, answer.key, answer.chat) : answer.chat.form);
+        answer.chat.watch();
       }
     }
     return parts;

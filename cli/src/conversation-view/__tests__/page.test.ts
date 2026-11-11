@@ -5118,6 +5118,34 @@ describe("the front page", () => {
     expect(document.querySelector(".job-view textarea")).not.toBeNull();
   });
 
+  it("hears that a card button's answer was not delivered once the job is opened", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const stream = await opened();
+      const job = {
+        id: "board", group: "needs", state: "Needs you", title: "Show the existing Liesel board", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "you", ask: "Waiting on your go-ahead.", because: "",
+        shots: [], links: [], files: [], threads: [], domainRun: "run-9", questionIdentity: "Waiting on your go-ahead.",
+        digest: { changed: "The board is finished.", needed: "Say yes to merge it." },
+        choices: ["Yes", "Leave it unmerged"], recommended: "Yes",
+      };
+      stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [job] });
+      let routed = false;
+      vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "pending:abc" } : String(url).startsWith("/api/note?") ? (routed ? { notDelivered: "Couldn't reach the run. Try again." } : { receipt: "sent" }) : {}));
+      document.querySelector<HTMLButtonElement>('.jobask .jpick[data-pick="Yes"]')!.click();
+      await settle();
+      vi.advanceTimersByTime(4000);
+      await settle();
+      routed = true;
+      document.querySelector<HTMLElement>('.job[data-job="board"]')!.click();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      vi.advanceTimersByTime(4000);
+      await settle();
+      expect(document.querySelector(".job-view .art-chat-receipt")!.textContent).toBe("Couldn't reach the run. Try again.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("opens a handled line from the server's jobs on a take-back form that reaches Flyd's answer", async () => {
     const stream = await opened();
     stream.emit("update", {

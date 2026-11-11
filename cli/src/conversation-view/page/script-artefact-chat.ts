@@ -456,7 +456,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     form.appendChild(thread);
     form.appendChild(field);
     form.appendChild(receipt);
-    var chat = { form: form, state: state, deliver: deliver, save: save, target: target, onPaint: null };
+    var chat = { form: form, state: state, deliver: deliver, save: save, target: target, watch: watch, onPaint: null };
     paintThread();
     paint();
     watch();
