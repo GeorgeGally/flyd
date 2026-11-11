@@ -458,13 +458,13 @@ describe("withProjectThreads", () => {
       expect(source.scopes.map(([, , scope]) => scope)).toEqual([{}, {}]);
     });
 
-    it("re-scopes a message that clearly names another project, by any name he uses for it", async () => {
+    it("goes exactly where he picked, even when his words name another project", async () => {
       const source = scoped();
       const wrapped = withProjectThreads(source, await threads());
       await wrapped.send("live", "the hero image on Home for the Woods is wrong", [], [], undefined, {});
       await wrapped.send("live", "videos are stuck on DIR", [], [], undefined, { project: "HFTW" });
-      await wrapped.send("live", "the DIR player and the HFTW hero", [], [], undefined, { project: "HFTW" });
-      expect(source.scopes.map(([, , scope]) => scope)).toEqual([{ project: "HFTW" }, { project: "DIR" }, { project: "HFTW" }]);
+      await wrapped.send("project:dir", "the HFTW hero is wrong");
+      expect(source.scopes.map(([, , scope]) => scope)).toEqual([{}, { project: "HFTW" }, { project: "DIR" }]);
     });
 
     it("in a project's thread speaks for that project unless he picked elsewhere, and drops the thread's lead when he did", async () => {

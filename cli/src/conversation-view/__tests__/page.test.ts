@@ -1327,6 +1327,12 @@ describe("conversation page", () => {
     await type("swap the hero image");
     expect(sentScope()).toBe("HFTW");
 
+    // The stream reconnecting to the same conversation keeps his pick.
+    FakeEventSource.instances.at(-1)!.emit("session", { id: "latest", title: "latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    expect(scope.textContent).toBe("To: HFTW");
+    await type("and the footer");
+    expect(sentScope()).toBe("HFTW");
+
     // A project's thread speaks for that project; leaving it is general again.
     FakeEventSource.instances.at(-1)!.emit("session", { id: "project:dir", title: "DIR", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
     expect(scope.textContent).toBe("To: DIR");

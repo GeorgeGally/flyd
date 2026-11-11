@@ -1,9 +1,8 @@
 /**
  * Where George is writing from in Flyd's window: one project's conversation,
  * or Flyd's general chat (no project). The message box shows it and he can
- * change it in a click; a message that clearly names another project is
- * scoped to that one. General is the default, so earlier talk about a project
- * never makes a new message about it.
+ * change it in a click, and a message goes exactly where it shows. General is
+ * the default, so earlier talk about a project never makes a new message about it.
  */
 export interface ChatScope {
   /** The project's name as George uses it; absent in the general chat. */
