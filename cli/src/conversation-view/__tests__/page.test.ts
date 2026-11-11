@@ -5269,6 +5269,19 @@ describe("the Machines screen", () => {
     }
   });
 
+  it("says which model does which job in a sentence that agrees with whichever job comes first", async () => {
+    serve(() => ({ machines: [ONLINE], setup: {
+      models: [{ role: "Coding crews", model: "GPT-6 Luna through OpenCode Go" }, { role: "Typing", model: "GPT-4o Mini Transcribe" }, { role: "LIVE voice", model: "gpt-realtime-2.1" }],
+      usage: [],
+    } }));
+    load("");
+    await settle();
+    tab().click();
+    await settle();
+    expect(document.querySelector("#machines-side .mach-models")!.textContent)
+      .toBe("Coding crews run on GPT-6 Luna through OpenCode Go, typing on GPT-4o Mini Transcribe, and LIVE voice on gpt-realtime-2.1.");
+  });
+
   it("hides the right column when there are no versions, models or usage to show", async () => {
     serve(() => ({ machines: [ONLINE] }));
     load("");

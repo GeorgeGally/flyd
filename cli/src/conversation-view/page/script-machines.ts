@@ -55,11 +55,11 @@ export const MACHINES_SCRIPT = `
     var day = days === 0 ? "today" : days === 1 ? "tomorrow" : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
     return day + " at " + clock(iso);
   }
-  // "Chat runs on A, quick jobs on B, and LIVE voice on C." A role in capitals keeps them.
+  // "Chat runs on A, quick jobs on B, and LIVE voice on C."; "Coding crews run on A". A role in capitals keeps them.
   function machineModels(models) {
     var parts = models.map(function (one, i) {
       var role = i === 0 || /^.[A-Z]/.test(one.role) ? one.role : one.role.charAt(0).toLowerCase() + one.role.slice(1);
-      return role + (i === 0 ? " runs on " : " on ") + one.model;
+      return role + (i > 0 ? " on " : /s$/.test(one.role) ? " run on " : " runs on ") + one.model;
     });
     if (parts.length < 2) return parts.join("") + ".";
     var last = parts.pop();

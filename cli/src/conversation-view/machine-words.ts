@@ -75,7 +75,7 @@ function onlineWords(row: MachineRow, reading: MachineReading): { say: string; a
       action: {
         label: "Close the leftover test browsers",
         confirm: `Close the ${plural(tests.count, "test browser process", "test browser processes")} on ${name}? Your own browser stays open.`,
-        ask: `On ${name}, close the leftover test browsers (${tests.name}): ${plural(tests.count, "process", "processes")} holding ${size}. Leave my own browser and everything else open.`,
+        ask: `On ${name}, close the leftover test browsers. Leave my own browser and everything else open.`,
       },
     };
   }
@@ -85,12 +85,12 @@ function onlineWords(row: MachineRow, reading: MachineReading): { say: string; a
     const say = top && total
       ? `${top.name} is holding ${sayBytes(bytesOf(top.memory))}${top.count > 1 ? ` across ${top.count} processes` : ""}, and ${tight}.`
       : `${capital(tight)}.`;
-    return { say, action: { label: "Free up memory", ask: `${capital(name)} is short of memory. ${say} Find what can safely close, and check with me before closing anything I have open.` } };
+    return { say, action: { label: "Free up memory", ask: `Free up memory on ${name}. Find what can safely close, and check with me before closing anything I have open.` } };
   }
 
   if (disk !== undefined && disk >= DISK_FULL && reading.disk) {
     const say = `The disk is ${Math.round(disk * 100)}% full, with ${sayBytes(reading.disk.total - reading.disk.used)} left.`;
-    return { say, action: { label: "Find space to free", ask: `${capital(name)} is running out of disk. ${say} Find what can be cleared, and check with me before deleting anything.` } };
+    return { say, action: { label: "Find space to free", ask: `Free up disk space on ${name}. Find what can be cleared, and check with me before deleting anything.` } };
   }
 
   const busy = reading.load && reading.cores ? reading.load[1] / reading.cores : 0;
