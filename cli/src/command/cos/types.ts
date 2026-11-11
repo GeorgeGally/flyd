@@ -3,7 +3,8 @@ import type { BriefDecisions, DomainId } from "../types.js";
 
 // The Chief of Staff's own records (split plan "Contracts"; behind FLYD_COS=1).
 
-export type ObjectiveStatus = "intake" | "working" | "needs_george" | "done" | "failed" | "cancelled";
+/** A run that didn't finish is a wait on George (`needs_george`, `retry`), never a terminal state of its own. */
+export type ObjectiveStatus = "intake" | "working" | "needs_george" | "done" | "cancelled";
 
 /** One run intake plans: a team's brief, and the runs (by key) it waits on. */
 export interface RunBrief {
@@ -31,7 +32,8 @@ export interface CosBrief {
 
 /**
  * Where a planned run stands. `dispatching` is written before the executor is called, so a restart reconciles it by
- * request id rather than sending it twice; `unknown` is one its executor could not answer for, and is never re-sent.
+ * request id rather than sending it twice; `unknown` is one its executor could not answer for: it is never re-sent on its
+ * own, each pass looks again, and past `UNCONFIRMED_MS` it becomes George's call (send it again, or drop it).
  */
 export type PlannedRunState = "queued" | "dispatching" | "dispatched" | "unknown" | "completed" | "failed" | "dropped" | "cancelled";
 
@@ -59,6 +61,8 @@ export interface PlannedRun extends Omit<RunBrief, "after"> {
   reconciled?: boolean;
   /** Its team reported a second result after the first was kept; the first stands. */
   reportedTwice?: boolean;
+  /** When it was left `unknown`, so the wait to confirm it is bounded. */
+  unknownAt?: string;
 }
 
 /** One adaptation the Chief of Staff made on its own, with why, so `work_status` can explain it. */
@@ -117,11 +121,27 @@ export interface Objective {
 }
 
 /**
- * What a wait is for, so his reply resumes the right thing: a run's own call (passed to the run), a run that didn't
- * finish (try again or drop it), a result that fell short (take it or try again), work that couldn't start (tell me
- * more), work gone quiet (nudge, park, ongoing), or a wait with no question yet.
+ * What a wait is for, so his reply resumes the right thing. Each kind takes its own answers (`WAIT_ANSWERS`):
+ * - `intake`: work that couldn't start; any words, briefed again with them.
+ * - `run`: a run's own call; passed to that run.
+ * - `question`: a wait raised with nothing asked yet; any words, passed to the run that asks, if any.
+ * - `retry`: a run that didn't finish; try another way (with his words) or drop it.
+ * - `accept`: a result that fell short of done; take it as it is, or try another way.
+ * - `stuck`: work gone quiet; nudge it, park it, or it's ongoing.
+ * - `unconfirmed`: a run whose hand-over was never confirmed; send it again, or drop it.
  */
-export type WaitKind = "run" | "retry" | "accept" | "intake" | "stuck" | "question";
+export type WaitKind = "run" | "retry" | "accept" | "intake" | "stuck" | "question" | "unconfirmed";
+
+/** The options each wait offers; an empty list takes his words as they are. */
+export const WAIT_ANSWERS: Record<WaitKind, readonly string[]> = {
+  intake: [],
+  run: [],
+  question: [],
+  retry: ["Try another way", "Drop it"],
+  accept: ["Take it as it is", "Try another way"],
+  stuck: ["Nudge", "Park it", "It's ongoing"],
+  unconfirmed: ["Send it again", "Drop it"],
+};
 
 export interface Waiting {
   reportId: string;

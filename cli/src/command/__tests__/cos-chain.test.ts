@@ -157,18 +157,18 @@ describe("dispatch that may not have happened", () => {
     await cosTick({ ...h.deps, dispatch: crashing });
     expect([h.sent.map((item) => [item.id, item.replay]), planOf(readObjective(id)!)[0]?.state, readObjective(id)?.runs]).toEqual([[[`${id}-r1`, false], [`${id}-r1`, true]], "dispatched", [`${id}-r1`]]);
 
-    // An executor that can't answer for the request id: unknown, and never sent again.
+    // An executor that can't answer for the request id: unknown, and never sent again (only looked for again).
     const other = openObjective({ words: "book the table", flydNotes: "", origin: { surface: "chat" } }).id;
     let calls = 0;
     const silent: Dispatch = async (_objective, _brief, _requestId, given) => {
-      calls += 1;
       if (given?.replay) return { unknown: "a one-off job can't answer for a request id" };
+      calls += 1;
       throw new Error("Core killed");
     };
     await cosTick({ ...h.deps, dispatch: silent });
     await cosTick({ ...h.deps, dispatch: silent });
     await cosTick({ ...h.deps, dispatch: silent });
-    expect([calls, planOf(readObjective(other)!)[0]?.state]).toEqual([2, "unknown"]);
+    expect([calls, planOf(readObjective(other)!)[0]?.state]).toEqual([1, "unknown"]);
     h.store.close();
   });
 });

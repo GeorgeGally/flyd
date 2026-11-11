@@ -2,8 +2,8 @@ import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
 import type { DomainId, DomainRun } from "../types.js";
 import { listObjectives, mutateObjective, readObjective } from "./objectives.js";
-import { awaitsDecision, downstreamOf, isGone, planOf, requeue, sinks } from "./plan.js";
-import type { Adaptation, Objective, PlannedRun } from "./types.js";
+import { awaitsDecision, backTo, downstreamOf, isGone, planOf, requeue, sinks } from "./plan.js";
+import { WAIT_ANSWERS, type Adaptation, type Objective, type PlannedRun, type Waiting } from "./types.js";
 
 // Steering and status (split plan Phase 4, behind FLYD_COS=1). `tell_work` replaces the in-turn fast path: the Chief
 // of Staff resolves which objective and run George's message is for and delivers it through `sendRunMessage`; when
@@ -71,6 +71,8 @@ async function correct(objective: Objective, message: string, team: DomainId | u
   const target = correctionTarget(plan, team);
   if (!target) {
     const live = plan.filter((run) => !isGone(run));
+    // Nothing left to correct: never a question with no parts to pick from.
+    if (!live.length) return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };
     return { delivered: false, objectiveId: objective.id, reason: "ambiguous", ask: `Which part is this for: ${live.map((run) => `“${short(run.outcome, 40)}”`).join(" or ")}?` };
   }
   const affected = downstreamOf(objective.after ?? {}, target.key);
@@ -160,19 +162,22 @@ function picked(options: string[] | undefined, said: string): string | undefined
   return named.length === 1 ? named[0] : undefined;
 }
 
-/** Back at work, unless one of its runs still waits on his decision: then the wait question is asked again. */
-function backTo(current: Objective): Objective["status"] {
-  return awaitsDecision(current) ? "needs_george" : "working";
+/** What the objective waits on him for; work that never got a plan can only be told more, whatever was recorded. */
+function waitOf(objective: Objective): Waiting | undefined {
+  if (objective.status !== "needs_george") return undefined;
+  if (!planOf(objective).length) return { reportId: objective.waitingOn?.reportId ?? "", kind: "intake", question: objective.waitingOn?.question ?? "", at: objective.waitingOn?.at ?? objective.updatedAt };
+  return objective.waitingOn;
 }
 
 /**
- * His reply to what the objective waits on, resuming that objective: work gone quiet is nudged, parked or left running
- * as he says; work that couldn't start is briefed again with his answer; a result he takes as it is is delivered;
+ * His reply to what the objective waits on, resuming that objective with the answers its kind takes (`WAIT_ANSWERS`):
+ * work gone quiet is nudged, parked or left running as he says; work that couldn't start is briefed again with his
+ * answer; a result he takes as it is is delivered; a hand-over that was never confirmed is sent again or dropped;
  * otherwise what didn't make it is tried again with his words, or dropped when he says so.
  */
-async function resume(objective: Objective, message: string, choice: string | undefined, send: typeof sendRunMessage): Promise<SteerOutcome> {
-  const waiting = objective.waitingOn!;
-  const option = picked(waiting.options, choice ?? "") ?? picked(waiting.options, message);
+async function resume(objective: Objective, waiting: Waiting, message: string, choice: string | undefined, send: typeof sendRunMessage): Promise<SteerOutcome> {
+  const options = waiting.options?.length ? waiting.options : [...WAIT_ANSWERS[waiting.kind]];
+  const option = picked(options, choice ?? "") ?? picked(options, message);
   const at = new Date().toISOString();
   const done = { delivered: true, objectiveId: objective.id };
   const back = { waitingOn: undefined, snooze: undefined, progressAt: at };
@@ -207,6 +212,24 @@ async function resume(objective: Objective, message: string, choice: string | un
     });
     return done;
   }
+  if (waiting.kind === "unconfirmed") {
+    // Sent again only on his explicit word: a one-off job may already have gone ahead.
+    if (option !== "Send it again" && option !== "Drop it") return { delivered: false, objectiveId: objective.id, reason: "not_steerable", ask: "Send it again, or drop it?" };
+    mutateObjective(objective.id, (current) => {
+      if (!current) return null;
+      const plan = planOf(current).map((run) => ({ ...run }));
+      const adaptations: Adaptation[] = [...(current.adaptations ?? [])];
+      const unknown = plan.filter((run) => run.state === "unknown").map((run) => run.key);
+      const gone = option === "Drop it" ? new Set(unknown.flatMap((key) => [...downstreamOf(current.after ?? {}, key)])) : new Set<string>();
+      for (const [index, run] of plan.entries()) {
+        if (gone.has(run.key) && !isGone(run)) { plan[index] = { ...run, state: "dropped" }; adaptations.push({ run: run.key, at, action: "drop", reason: "he said to drop it" }); }
+        else if (option === "Send it again" && run.state === "unknown") plan[index] = { ...run, ...requeue(run, { failure: undefined }) };
+      }
+      const left = plan.some((run) => !isGone(run));
+      return { ...current, ...back, plan, adaptations, status: left ? backTo({ ...current, plan }) : "cancelled" };
+    });
+    return done;
+  }
   if (waiting.kind === "accept" && option === "Take it as it is") {
     mutateObjective(objective.id, (current) => current && { ...current, ...back, status: backTo(current), takenAsIs: sinks(current).map((run) => run.reviewed).join("+") });
     return done;
@@ -216,7 +239,7 @@ async function resume(objective: Objective, message: string, choice: string | un
   // A one-off job may have booked, sent or paid: only an explicit option runs it again, never his words alone.
   const ran = !option && (waiting.kind === "accept" ? sinks(objective) : planOf(objective).filter((run) => run.state === "failed")).find((run) => isJob(run) && Boolean(run.ref || run.prior?.length));
   if (ran) {
-    const again = waiting.options?.find((offered) => offered !== "Drop it" && offered !== "Take it as it is");
+    const again = options.find((offered) => offered !== "Drop it" && offered !== "Take it as it is");
     return { delivered: false, objectiveId: objective.id, reason: "not_steerable", ask: `“${short(ran.outcome, 40)}” already ran; run it again with this?`, ...(again ? { again } : {}) };
   }
   mutateObjective(objective.id, (current) => {
@@ -270,8 +293,9 @@ export async function tellWork(
   if (kind === "cancel") return cancel(objective, message, send);
   if (kind === "snooze") return snooze(objective, input.until, now);
   // His answer to what it waits on resumes this same objective; a run's own call goes to the run, as below.
-  if (objective.status === "needs_george" && objective.waitingOn && objective.waitingOn.kind !== "run" && (kind === "decision" || kind === "correction")) {
-    return resume(objective, message, input.choice, send);
+  const waiting = waitOf(objective);
+  if (waiting && waiting.kind !== "run" && (kind === "decision" || kind === "correction")) {
+    return resume(objective, waiting, message, input.choice, send);
   }
   if (kind === "correction") return correct(objective, message, input.team, send);
   const run = steerableRuns(objective)[0];
@@ -282,7 +306,7 @@ export async function tellWork(
 }
 
 const STAGE: Record<Objective["status"], string> = {
-  intake: "being briefed", working: "under way", needs_george: "waiting on you", done: "done", failed: "didn't finish", cancelled: "cancelled",
+  intake: "being briefed", working: "under way", needs_george: "waiting on you", done: "done", cancelled: "cancelled",
 };
 
 const RUN_STAGE: Record<PlannedRun["state"], string> = {
