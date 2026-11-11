@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -293,8 +293,13 @@ esac
 `);
     chmodSync(ssh, 0o755);
   });
-  // A read started by the last view() can still be writing into dir; retry rather than race it.
-  afterEach(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  // A read started by the last view() can still be writing into dir by its old path. Move dir away first so a late
+  // write fails instead of landing in a directory being removed.
+  afterEach(() => {
+    const gone = `${dir}.gone`;
+    renameSync(dir, gone);
+    rmSync(gone, { recursive: true, force: true });
+  });
 
   // Tool versions are left out unless a test asks: the local row would run this computer's own claude and codex.
   const board = (machines: Array<{ name: string; alias: string }>, freshMs = 60_000, toolsFreshMs = Number.POSITIVE_INFINITY) =>
