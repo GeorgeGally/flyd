@@ -72,6 +72,8 @@ export interface CrewTask {
   worktreeRemoved?: boolean;
   /** When a failed or discarded task's worktree (and, if safe, its branch) was tidied away. */
   prunedAt?: string;
+  /** The Chief of Staff run's request id, so a restart can find the task it handed over instead of starting another. */
+  requestId?: string;
 }
 
 /**
@@ -189,6 +191,7 @@ export interface DispatchOptions {
   doneWhen?: string[];
   afterLand?: AfterLandStep[];
   source?: CrewTask["source"];
+  requestId?: string;
   now?: Date;
   dir?: string;
   /** Test seam: start the crewmate process. */
@@ -222,6 +225,7 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
     ...(crewModel() ? { model: crewModel() } : {}),
     ...(doneWhen.length ? { doneWhen } : {}),
     ...(options.afterLand?.length ? { afterLand: options.afterLand } : {}),
+    ...(options.requestId ? { requestId: options.requestId } : {}),
   };
   // George's taste for this repo's project: what he has corrected before.
   const { resolveTasteProject, tastePromptText } = await import("../council/taste.js");

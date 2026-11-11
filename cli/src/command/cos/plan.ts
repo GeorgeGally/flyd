@@ -72,7 +72,7 @@ export function planFromBrief(objective: Pick<Objective, "brief" | "briefRevisio
 /** States that hold one of the active slots. */
 const ACTIVE = new Set<PlannedRunState>(["dispatching", "dispatched"]);
 
-/** Holds an active slot; a run handed to the compatibility crew is never settled here, so it holds none. */
+/** Holds an active slot; a run handed to the compatibility crew runs on the crew's own capacity, so it holds none. */
 export function isActive(run: PlannedRun): boolean {
   return ACTIVE.has(run.state) && !run.ref?.startsWith("crew:");
 }
@@ -114,10 +114,15 @@ export function followsRun(objective: Objective, runId: string): boolean {
 
 /** A run put back in the queue for another attempt, its last result kept as prior work. */
 export function requeue(run: PlannedRun, extra: Partial<PlannedRun> = {}): Partial<PlannedRun> {
-  return { state: "queued", ref: undefined, sent: undefined, reviewed: undefined, dispatching: undefined, reconciled: undefined, reportedTwice: undefined, prior: run.ref ? [...new Set([...(run.prior ?? []), run.ref])] : run.prior, ...extra };
+  return { state: "queued", ref: undefined, sent: undefined, reviewed: undefined, dispatching: undefined, reconciled: undefined, reportedTwice: undefined, unknownAt: undefined, prior: run.ref ? [...new Set([...(run.prior ?? []), run.ref])] : run.prior, ...extra };
 }
 
 /** Whether one of its dispatched team runs is still waiting on his decision. */
 export function awaitsDecision(objective: Objective): boolean {
   return planOf(objective).some((run) => run.state === "dispatched" && Boolean(run.ref) && !run.ref!.includes(":") && readDomainRun(run.ref!)?.status === "needs_decision");
+}
+
+/** Back at work after his answer, unless one of its runs still waits on his decision. */
+export function backTo(objective: Objective): Objective["status"] {
+  return awaitsDecision(objective) ? "needs_george" : "working";
 }

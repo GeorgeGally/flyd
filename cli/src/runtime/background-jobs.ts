@@ -36,6 +36,8 @@ export interface JobContract {
   background?: boolean;
   /** Started for a Chief of Staff objective: the objective reports the result, so the job never tells George itself. */
   objectiveId?: string;
+  /** The Chief of Staff run's request id, so a restart can find the job it started instead of starting another. */
+  requestId?: string;
 }
 
 export type JobCheck = AcceptanceCheck;

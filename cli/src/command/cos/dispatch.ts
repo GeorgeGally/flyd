@@ -4,8 +4,9 @@ import type { Objective } from "./types.js";
 
 // Dispatch: one planned run's brief to its team, through each team's existing entry point and nothing new inside
 // them. The request id is the run's own (`<objective>-r1`), so a restart that dispatches again is replayed by the team
-// (FirstMate's inbox, Librarian and Design Mate by request id) instead of starting the work twice. A team that can't
-// answer for a request id (a one-off job, the compatibility crew) is never sent it again: it answers `unknown`.
+// (FirstMate's inbox, Librarian and Design Mate by request id) instead of starting the work twice. A one-off job and
+// the compatibility crew keep the request id on their own record, so a replay finds what it started; one it can't find
+// (or one started before they kept it) is never sent again: it answers `unknown`.
 
 export type Dispatched = { ref: string } | { refused: string } | { unknown: string };
 
@@ -52,9 +53,12 @@ export const dispatchBrief: Dispatch = async (objective, brief, requestId, optio
         return { ref: dispatched.run.id };
       }
       // FirstMate not installed: the compatibility crew, which tells George itself when the work is ready.
-      if (options.replay) return { unknown: "the crew can't answer for a request id" };
-      const { dispatchCrewTask } = await import("../../crew/crew.js");
-      const task = await dispatchCrewTask({ repo: brief.project?.root ?? process.cwd(), outcome: brief.outcome, doneWhen: brief.doneWhen, afterLand: [], source: "chat" });
+      const { dispatchCrewTask, listTasks } = await import("../../crew/crew.js");
+      if (options.replay) {
+        const found = listTasks().find((task) => task.requestId === requestId);
+        return found ? { ref: `crew:${found.id}` } : { unknown: "the crew has no task for this request" };
+      }
+      const task = await dispatchCrewTask({ repo: brief.project?.root ?? process.cwd(), outcome: brief.outcome, doneWhen: brief.doneWhen, afterLand: [], source: "chat", requestId });
       return { ref: `crew:${task.id}` };
     }
     case "knowledge": {
@@ -67,11 +71,14 @@ export const dispatchBrief: Dispatch = async (objective, brief, requestId, optio
     }
     case "life": {
       // A one-off job; its result comes back as the objective's report, so the job itself never tells George.
-      if (options.replay) return { unknown: "a one-off job can't answer for a request id" };
       const jobs = await import("../../runtime/background-jobs.js");
+      if (options.replay) {
+        const found = jobs.listJobs().find((job) => job.contract.requestId === requestId);
+        return found ? { ref: `job:${found.id}` } : { unknown: "no one-off job was found for this request" };
+      }
       const { decisionsLines } = await import("../types.js");
       const task = [brief.outcome, ...decisionsLines(brief.decisions)].join("\n");
-      return { ref: `job:${jobs.startBackgroundJob({ task, doneWhen: brief.doneWhen, objectiveId: objective.id }, { run: jobs.runJobTurn, verify: jobs.verifyJobTurn })}` };
+      return { ref: `job:${jobs.startBackgroundJob({ task, doneWhen: brief.doneWhen, objectiveId: objective.id, requestId }, { run: jobs.runJobTurn, verify: jobs.verifyJobTurn })}` };
     }
   }
 };
