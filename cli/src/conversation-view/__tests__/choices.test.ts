@@ -298,6 +298,13 @@ describe("saidAnswers", () => {
     expect(saidAnswers("Say wait, or tell me to ship it now, which I recommend.")).toEqual({ options: ["Ship it now", "Wait"], recommended: "Ship it now" });
   });
 
+  it("reads both answers named with a bare 'or', and only a named answer after it", () => {
+    expect(saidAnswers("Say yes or no to merging the fix.")).toEqual({ options: ["Yes", "No"] });
+    expect(saidAnswers("Reply with 'yes' or 'no'.")).toEqual({ options: ["Yes", "No"] });
+    expect(saidAnswers("Say yes to merge it or the fix, or tell me to wait.")).toEqual({ options: ["Yes", "Wait"] });
+    expect(saidAnswers("Say go or rebase it first if you prefer.")).toEqual({ options: ["Go"] });
+  });
+
   it("names nothing for an open ask, whatever words it uses", () => {
     for (const text of [
       "Say when you're not mid-edit so the Logan restart can be done.",

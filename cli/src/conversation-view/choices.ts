@@ -342,8 +342,8 @@ export interface NamedAnswers {
 /** A one-word answer Flyd asks him to say ("Say merge"); anything else after "say" is not an answer to tap. */
 const SAID_WORD = /^(yes|no|go|merge|ok|okay|ship|land|stop|wait|continue|proceed|approve|skip|hold|leave|retry|restart|publish|deploy|push|keep|drop|cancel)\b(?=\s*(?:$|[,;.!]|\s(?:to|so|and|if|or|now)\b))/i;
 const SAID_QUOTED = /^['"‘“]([^'"‘’“”]{1,60})['"’”]/;
-/** "…, or tell me to leave it unmerged", "… or say 'wait'": the other answer. */
-const SAID_OTHER = /,?\s+or\s+(?:just\s+)?(?:tell me to|say|reply)\s+/i;
+/** "…, or tell me to leave it unmerged", "… or say 'wait'", "yes or no": the other answer. */
+const SAID_OTHER = /,?\s+or\s+(?:just\s+)?(?:(tell me to|say|reply)\s+)?/gi;
 const RECOMMENDS = /\b(?:which i recommend|i recommend (?:it|that|this)|\(recommended\b|recommended\))/i;
 
 /** The answer said right after "say"/"reply"/"tell me to": a quoted phrase, a known one-word answer, or a short clause. */
@@ -374,11 +374,15 @@ export function saidAnswers(text: string): NamedAnswers | null {
   const rest = first.slice(opening[0].length);
   const one = saidAnswer(rest, false);
   if (!one) return null;
-  const other = SAID_OTHER.exec(rest);
+  let two = "";
+  let other: RegExpMatchArray | undefined;
+  for (const match of rest.matchAll(SAID_OTHER)) {
+    two = saidAnswer(rest.slice(match.index! + match[0].length), !!match[1]);
+    if (two) { other = match; break; }
+  }
   const before = other ? rest.slice(0, other.index) : rest;
-  const two = other ? saidAnswer(rest.slice(other.index + other[0].length), true) : "";
   const options = two && two.toLowerCase() !== one.toLowerCase() ? [one, two] : [one];
-  const recommended = RECOMMENDS.test(before) ? one : two && RECOMMENDS.test(rest.slice(other!.index)) ? two : undefined;
+  const recommended = RECOMMENDS.test(before) ? one : two && RECOMMENDS.test(rest.slice(other!.index!)) ? two : undefined;
   return ordered({ options, ...(recommended ? { recommended } : {}) });
 }
 
