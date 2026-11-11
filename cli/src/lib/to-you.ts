@@ -28,11 +28,12 @@ const HIS_THINGS = "picks?|calls?|choices?|go-ahead|ok|okay|approval|answers?|de
 /** Lower case unless the word was "I": the last pass capitalises whatever now starts a sentence. */
 const capital = (word: string, _like: string): string => (word.startsWith("I ") ? word : word.toLowerCase());
 
-/** "he", "his", "him" said after he is named in the same sentence: "George needs … which will reload his tab". */
+/** "he", "his", "him" said after he is named in the same sentence, with nobody else named after him: "George needs … which will reload his tab". */
 function afterHim(sentence: string): string {
   const named = new RegExp(HIM).exec(sentence);
   if (!named) return sentence;
   const at = named.index + named[0].length;
+  if (/\b(?!I\b)[A-Z][\w-]*\b(?!['’]s)/.test(sentence.slice(at).replace(new RegExp(HIM, "g"), ""))) return sentence;
   const rest = sentence.slice(at)
     .replace(new RegExp(`\\b([Hh])is (${HIS_THINGS})\\b`, "g"), (_found, _h: string, thing: string) => `your ${thing}`)
     .replace(new RegExp(`\\b([Hh])e (${VERBS})\\b`, "g"), (_found, _h: string, verb: string) => `you ${AGREE[verb.toLowerCase()] ?? verb}`)

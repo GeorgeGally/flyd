@@ -20,6 +20,7 @@ describe("toYou", () => {
   it("leaves other people and plain words alone", () => {
     expect(toYou("Mark sent his notes on the deck.")).toBe("Mark sent his notes on the deck.");
     expect(toYou("Pierre sent his feedback and he wants a call with him on Friday.")).toBe("Pierre sent his feedback and he wants a call with him on Friday.");
+    expect(toYou("George asked Pierre to send his feedback, and he wants a call with him.")).toBe("You asked Pierre to send his feedback, and he wants a call with him.");
     expect(toYou("George asked about Pierre. He wants a call with him.")).toBe("You asked about Pierre. He wants a call with him.");
     expect(toYou("The work for the team is done.")).toBe("The work for the team is done.");
     expect(toYou("")).toBe("");
