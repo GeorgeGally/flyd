@@ -930,9 +930,12 @@ export class ConversationViewServer {
       const origin = req.headers.origin;
       if ((origin !== undefined && !isLoopbackHost(origin.replace(/^http:\/\//, ""), this.port)) || !sameToken(req.headers["x-flyd-view-token"], this.token)) { sendJson(res, 403, { error: "forbidden" }); return; }
       if (!this.whatsapp) { sendJson(res, 200, { result: { paired: false } }); return; }
+      const action = await readBody(req, 1024).then(body => (JSON.parse(body || "{}") as { action?: unknown }).action).catch(() => undefined);
+      // "stop": George set the offer aside, so the socket and its code go too.
+      if (action === "stop") { this.whatsapp.stop(); sendJson(res, 200, { result: { paired: this.whatsapp.state().paired } }); return; }
       this.whatsapp.start();
-      const { paired } = this.whatsapp.state();
-      sendJson(res, 200, { result: { paired } });
+      const { paired, error } = this.whatsapp.state();
+      sendJson(res, 200, { result: { paired, ...(error ? { error } : {}) } });
       return;
     }
     if (url.pathname === "/api/whatsapp-qr") {

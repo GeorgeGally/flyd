@@ -1,4 +1,4 @@
-import makeWASocket, { BufferJSON, DisconnectReason, initAuthCreds, proto, normalizeMessageContent, type AuthenticationState, type SignalDataTypeMap, type WAMessage as WireMessage } from "@whiskeysockets/baileys";
+import makeWASocket, { BufferJSON, DisconnectReason, fetchLatestWaWebVersion, initAuthCreds, type WAVersion, proto, normalizeMessageContent, type AuthenticationState, type SignalDataTypeMap, type WAMessage as WireMessage } from "@whiskeysockets/baileys";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { connectorDir } from "./accounts.js";
@@ -16,6 +16,41 @@ export function extractWhatsAppMessage(wire: WireMessage): WAMessage | null {
   const text = content.conversation ?? content.extendedTextMessage?.text ?? content.imageMessage?.caption ?? content.videoMessage?.caption ?? `[${kind}: content not downloaded]`;
   return { chat, id, text, kind, sender: wire.key.participant || chat, fromMe: Boolean(wire.key.fromMe), timestamp: Number(wire.messageTimestamp || 0) * 1000 };
 }
+
+/**
+ * WhatsApp refuses to link a device that reports an old WhatsApp Web build:
+ * the phone says "Couldn't link device" and to check its connection. Baileys
+ * bundles the build current at its own release, so ask WhatsApp for today's.
+ * Cached; on any failure the bundled build is used, so linking still starts.
+ */
+let cachedVersion: { version: WAVersion; at: number } | undefined;
+const VERSION_TTL_MS = 6 * 60 * 60_000;
+export async function currentWhatsAppVersion(fetchLatest: typeof fetchLatestWaWebVersion = fetchLatestWaWebVersion): Promise<WAVersion | undefined> {
+  if (cachedVersion && Date.now() - cachedVersion.at < VERSION_TTL_MS) return cachedVersion.version;
+  const latest = await fetchLatest({ signal: AbortSignal.timeout(8_000) }).catch(() => undefined);
+  if (!latest?.isLatest) return undefined;
+  cachedVersion = { version: latest.version, at: Date.now() };
+  return latest.version;
+}
+export function resetWhatsAppVersionCache(): void { cachedVersion = undefined; }
+
+/** Why a WhatsApp connection ended, in George's words. Never contains provider payloads. */
+export function whatsappFailureReason(code: number | undefined, message?: string): string {
+  if (message === "QR refs attempts ended") return "The code ran out before it was scanned. A fresh one is on its way.";
+  switch (code) {
+    case DisconnectReason.loggedOut: return "WhatsApp did not accept the link, or unlinked Flyd. Scan a fresh code from Linked devices.";
+    case 405: return "WhatsApp refused this version of Flyd's link. Flyd now asks WhatsApp for its current version on each try; if this keeps happening, WhatsApp changed something Flyd needs an update for.";
+    case DisconnectReason.forbidden: return "WhatsApp blocked this link for your account. Check WhatsApp on your phone.";
+    case DisconnectReason.timedOut: return "WhatsApp stopped answering. Check this Mac's internet connection or VPN, then try again.";
+    case DisconnectReason.connectionReplaced: return "Another Flyd or WhatsApp Web session took over this link.";
+    case DisconnectReason.badSession: return "Flyd's saved link was unreadable. Scan a fresh code.";
+    case DisconnectReason.multideviceMismatch: return "WhatsApp asked for a newer linking method. Update WhatsApp on your phone and try again.";
+    case DisconnectReason.unavailableService: return "WhatsApp's service is unavailable right now. Try again in a few minutes.";
+    case DisconnectReason.connectionClosed: case undefined: return "Flyd could not reach WhatsApp. Check this Mac's internet connection or VPN.";
+    default: return `WhatsApp ended the connection (code ${code}).`;
+  }
+}
+
 export class WhatsAppClient {
   readonly store: WhatsAppStore;
   private socket?: ReturnType<typeof makeWASocket>;
@@ -26,10 +61,11 @@ export class WhatsAppClient {
   private retries = 0;
   private lock: string;
   private locked = false;
-  constructor(private readonly socketFactory: typeof makeWASocket = makeWASocket) {
+  private failure?: string;
+  constructor(private readonly socketFactory: typeof makeWASocket = makeWASocket, private readonly version: () => Promise<WAVersion | undefined> = () => currentWhatsAppVersion()) {
     this.store = new WhatsAppStore(); this.lock = join(connectorDir(), "whatsapp", "connection.lock");
   }
-  status(): unknown { return { provider: "whatsapp", state: this.state, paired: this.paired(), history: "Partial linked-device history, plus messages received while connected. Text cache retained for 30 days; attachments and calls unsupported." }; }
+  status(): unknown { return { provider: "whatsapp", state: this.state, paired: this.paired(), ...(this.failure ? { lastError: this.failure } : {}), history: "Partial linked-device history, plus messages received while connected. Text cache retained for 30 days; attachments and calls unsupported." }; }
   paired(): boolean { const raw = this.store.auth("creds"); return Boolean(raw && JSON.parse(raw, BufferJSON.reviver).registered); }
   private acquire(): void {
     if (this.locked) return;
@@ -68,42 +104,51 @@ export class WhatsAppClient {
     };
     this.state = "connecting";
     this.ready = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { this.socket?.end(new Error("Connection timeout")); reject(new Error("WhatsApp connection timed out; check network and pairing")); }, onQR ? 120_000 : 25_000);
-      const socket = this.socketFactory({ auth: state, logger: silent, markOnlineOnConnect: false, syncFullHistory: false, getMessage: async () => undefined });
-      this.socket = socket;
-      socket.ev.on("creds.update", () => this.store.saveAuth("creds", JSON.stringify(state.creds, BufferJSON.replacer)));
-      socket.ev.on("chats.upsert", chats => { for (const c of chats) c.id && this.store.chat(c.id, c.name); });
-      socket.ev.on("contacts.upsert", contacts => { for (const c of contacts) c.id && this.store.chat(c.id, c.name || c.notify); });
-      socket.ev.on("messaging-history.set", history => {
-        for (const c of history.chats) c.id && this.store.chat(c.id, c.name);
-        for (const c of history.contacts) c.id && this.store.chat(c.id, c.name || c.notify);
-        for (const m of history.messages) { const parsed = extractWhatsAppMessage(m); if (parsed) this.store.message(parsed); }
-      });
-      socket.ev.on("messages.upsert", ({ messages }) => { for (const m of messages) { const parsed = extractWhatsAppMessage(m); if (parsed) this.store.message(parsed); } });
-      socket.ev.on("messages.delete", event => {
-        if ("keys" in event) for (const key of event.keys) this.store.db.prepare("DELETE FROM messages WHERE chat=? AND id=?").run(key.remoteJid, key.id);
-        else if (event.all) this.store.db.prepare("DELETE FROM messages WHERE chat=?").run(event.jid);
-      });
-      socket.ev.on("messages.update", updates => { for (const { key, update } of updates) {
-        if (update.message === null) this.store.db.prepare("DELETE FROM messages WHERE chat=? AND id=?").run(key.remoteJid, key.id);
-        else if (update.message) { const parsed = extractWhatsAppMessage({ key, ...update }); if (parsed) this.store.db.prepare("UPDATE messages SET text=?,kind=? WHERE chat=? AND id=?").run(parsed.text, parsed.kind, parsed.chat, parsed.id); }
-      } });
-      socket.ev.on("connection.update", update => {
-        if (this.socket !== socket) return;
-        if (update.qr && onQR) onQR(update.qr);
-        if (update.connection === "open") { clearTimeout(timer); this.state = "connected"; this.retries = 0; resolve(); }
-        if (update.connection === "close") {
-          clearTimeout(timer); this.state = "disconnected";
-          const code = (update.lastDisconnect?.error as { output?: { statusCode?: number } })?.output?.statusCode;
-          if (code === DisconnectReason.loggedOut) { this.state = "needs_pairing"; this.store.db.exec("DELETE FROM auth"); }
-          if (!this.stopped && code === DisconnectReason.restartRequired && this.retries++ < 5) {
-            this.ready = undefined; void this.connect(onQR).then(resolve, reject); return;
+      const fail = (reason: string) => { if (!this.stopped) this.failure = reason; reject(new Error(reason)); };
+      let timedOut: string | undefined;
+      const timer = setTimeout(() => {
+        timedOut = onQR ? "The code was not scanned in time. A fresh one is on its way." : "WhatsApp did not answer in time. Check this Mac's internet connection or VPN.";
+        this.socket?.end(new Error("Connection timeout")); fail(timedOut);
+      }, onQR ? 120_000 : 25_000);
+      void this.version().catch(() => undefined).then(version => {
+        if (this.stopped) { clearTimeout(timer); fail("Linking was stopped."); return; }
+        const socket = this.socketFactory({ auth: state, logger: silent, markOnlineOnConnect: false, syncFullHistory: false, getMessage: async () => undefined, ...(version ? { version } : {}) });
+        this.socket = socket;
+        socket.ev.on("creds.update", () => this.store.saveAuth("creds", JSON.stringify(state.creds, BufferJSON.replacer)));
+        socket.ev.on("chats.upsert", chats => { for (const c of chats) c.id && this.store.chat(c.id, c.name); });
+        socket.ev.on("contacts.upsert", contacts => { for (const c of contacts) c.id && this.store.chat(c.id, c.name || c.notify); });
+        socket.ev.on("messaging-history.set", history => {
+          for (const c of history.chats) c.id && this.store.chat(c.id, c.name);
+          for (const c of history.contacts) c.id && this.store.chat(c.id, c.name || c.notify);
+          for (const m of history.messages) { const parsed = extractWhatsAppMessage(m); if (parsed) this.store.message(parsed); }
+        });
+        socket.ev.on("messages.upsert", ({ messages }) => { for (const m of messages) { const parsed = extractWhatsAppMessage(m); if (parsed) this.store.message(parsed); } });
+        socket.ev.on("messages.delete", event => {
+          if ("keys" in event) for (const key of event.keys) this.store.db.prepare("DELETE FROM messages WHERE chat=? AND id=?").run(key.remoteJid, key.id);
+          else if (event.all) this.store.db.prepare("DELETE FROM messages WHERE chat=?").run(event.jid);
+        });
+        socket.ev.on("messages.update", updates => { for (const { key, update } of updates) {
+          if (update.message === null) this.store.db.prepare("DELETE FROM messages WHERE chat=? AND id=?").run(key.remoteJid, key.id);
+          else if (update.message) { const parsed = extractWhatsAppMessage({ key, ...update }); if (parsed) this.store.db.prepare("UPDATE messages SET text=?,kind=? WHERE chat=? AND id=?").run(parsed.text, parsed.kind, parsed.chat, parsed.id); }
+        } });
+        socket.ev.on("connection.update", update => {
+          if (this.socket !== socket) return;
+          if (update.qr && onQR) onQR(update.qr);
+          if (update.connection === "open") { clearTimeout(timer); this.state = "connected"; this.retries = 0; this.failure = undefined; resolve(); }
+          if (update.connection === "close") {
+            clearTimeout(timer); this.state = "disconnected";
+            const error = update.lastDisconnect?.error as { message?: string; output?: { statusCode?: number } } | undefined;
+            const code = error?.output?.statusCode;
+            if (code === DisconnectReason.loggedOut) { this.state = "needs_pairing"; this.store.db.exec("DELETE FROM auth"); }
+            if (!this.stopped && code === DisconnectReason.restartRequired && this.retries++ < 5) {
+              this.ready = undefined; void this.connect(onQR).then(resolve, reject); return;
+            }
+            fail(this.stopped ? "Linking was stopped." : timedOut ?? whatsappFailureReason(code, error?.message));
+            if (!this.stopped && code !== DisconnectReason.loggedOut && !onQR && !this.retry && this.retries++ < 5) this.retry = setTimeout(() => {
+              this.retry = undefined; this.ready = undefined; void this.connect(onQR).catch(() => undefined);
+            }, 3000);
           }
-          reject(new Error("WhatsApp disconnected; inspect flyd whatsapp status or pair again"));
-          if (!this.stopped && code !== DisconnectReason.loggedOut && !onQR && !this.retry && this.retries++ < 5) this.retry = setTimeout(() => {
-            this.retry = undefined; this.ready = undefined; void this.connect(onQR).catch(() => undefined);
-          }, 3000);
-        }
+        });
       });
     });
     const attempt = this.ready;

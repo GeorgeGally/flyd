@@ -43,16 +43,19 @@ export class WhatsAppPairing {
   private client?: WhatsAppClient;
   private code: string | undefined;
   private linked = false;
+  /** Why the last try did not link, in plain words; kept until a link or until the offer is dismissed. */
+  private failure: string | undefined;
   private running: Promise<void> | undefined;
+  private generation = 0;
   private release?: NodeJS.Timeout;
   private readonly listeners = new Set<() => void>();
   /** Built on first use; the view reads state() on every update, so its store is created the moment the conversation view opens. */
   private readonly whatsapp = (): WhatsAppClient => (this.client ??= whatsappClient());
 
-  /** Whether WhatsApp is linked, and the code to scan while it is not. */
-  state(): { paired: boolean; code?: string } {
+  /** Whether WhatsApp is linked, the code to scan while it is not, and why the last try failed. */
+  state(): { paired: boolean; code?: string; error?: string } {
     const paired = this.linked || this.whatsapp().paired();
-    return paired ? { paired } : { paired, ...(this.code ? { code: this.code } : {}) };
+    return paired ? { paired } : { paired, ...(this.code ? { code: this.code } : {}), ...(this.failure ? { error: this.failure } : {}) };
   }
 
   /** Listen for a code; safe to call on every poll. A no-op while one session runs. */
@@ -60,10 +63,13 @@ export class WhatsAppPairing {
     const client = this.whatsapp();
     if (this.running || client.paired()) return;
     this.code = undefined;
+    const run = this.generation;
     this.running = client.connect((code) => { this.code = code; this.emit(); })
       .then(() => {
+        if (run !== this.generation) return;
         this.linked = true;
         this.code = undefined;
+        this.failure = undefined;
         this.emit();
         // Let the first history sync land, then hand the socket back: Core is the
         // process that owns the linked device once it is paired.
@@ -71,18 +77,24 @@ export class WhatsAppPairing {
         this.release = setTimeout(() => this.stop(), PAIRING_SYNC_MS);
         this.release.unref?.();
       })
-      .catch(() => this.stop())
+      .catch((error: unknown) => { if (run !== this.generation) return; this.drop(); this.failure = error instanceof Error ? error.message : "Linking did not finish."; this.emit(); })
       .finally(() => { this.running = undefined; });
   }
 
   /** Drop the pairing socket and any code: the offer is not being shown any more. */
   stop(): void {
+    this.generation += 1;
+    this.drop();
+    this.failure = undefined;
+    this.emit();
+  }
+
+  private drop(): void {
     if (this.release) clearTimeout(this.release);
     this.release = undefined;
     this.client?.stop();
     this.linked = false;
     this.code = undefined;
-    this.emit();
   }
 
   onChange(listener: () => void): () => void {

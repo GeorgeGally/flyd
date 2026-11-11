@@ -99,10 +99,65 @@ it("survives WhatsApp's post-pairing restart and prevents a competing socket", a
       : { connection: "open" }));
     return { ev: { on: (name: string, handler: (value: unknown) => void) => handlers.set(name, handler) }, end: () => handlers.get("connection.update")?.({ connection: "close" }) };
   };
-  const client = new WhatsAppClient(factory as never);
-  const other = new WhatsAppClient(factory as never);
+  const version = async () => [2, 3000, 1] as [number, number, number];
+  const client = new WhatsAppClient(factory as never, version);
+  const other = new WhatsAppClient(factory as never, version);
   try {
     await client.connect(() => {}); expect(client.status()).toMatchObject({ state: "connected" }); expect(calls).toBe(2);
     await expect(other.connect(() => {})).rejects.toThrow(/another Flyd process/);
   } finally { client.stop(); other.stop(); client.store.close(); other.store.close(); if (previous === undefined) delete process.env.FLYD_CONNECTOR_DIR; else process.env.FLYD_CONNECTOR_DIR = previous; }
+});
+
+describe("linking against WhatsApp's current build", () => {
+  it("opens the socket with the build WhatsApp serves today, falling back to the bundled one", async () => {
+    const { currentWhatsAppVersion, resetWhatsAppVersionCache } = await import("../whatsapp.js");
+    resetWhatsAppVersionCache();
+    expect(await currentWhatsAppVersion(async () => ({ version: [2, 3000, 1054022738], isLatest: true }))).toEqual([2, 3000, 1054022738]);
+    resetWhatsAppVersionCache();
+    expect(await currentWhatsAppVersion(async () => ({ version: [2, 3000, 1], isLatest: false, error: "offline" }))).toBeUndefined();
+    resetWhatsAppVersionCache();
+  });
+
+  it("passes that build to the socket and says plainly why a link ended", async () => {
+    const { WhatsAppClient } = await import("../whatsapp.js");
+    const previous = process.env.FLYD_CONNECTOR_DIR; process.env.FLYD_CONNECTOR_DIR = directory;
+    const seen: unknown[] = [];
+    const factory = (config: { version?: unknown }) => {
+      seen.push(config.version);
+      const handlers = new Map<string, (value: unknown) => void>();
+      queueMicrotask(() => handlers.get("connection.update")?.({ connection: "close", lastDisconnect: { error: { output: { statusCode: 405 } } } }));
+      return { ev: { on: (name: string, handler: (value: unknown) => void) => handlers.set(name, handler) }, end: () => {} };
+    };
+    const client = new WhatsAppClient(factory as never, async () => [2, 3000, 1054022738]);
+    try {
+      await expect(client.connect(() => {})).rejects.toThrow(/refused this version/);
+      expect(seen).toEqual([[2, 3000, 1054022738]]);
+      expect(client.status()).toMatchObject({ lastError: expect.stringMatching(/refused this version/) });
+    } finally { client.stop(); client.store.close(); if (previous === undefined) delete process.env.FLYD_CONNECTOR_DIR; else process.env.FLYD_CONNECTOR_DIR = previous; }
+  });
+
+  it("says the code was not scanned, not that WhatsApp was unreachable, when nobody scans in time", async () => {
+    const { WhatsAppClient } = await import("../whatsapp.js");
+    const previous = process.env.FLYD_CONNECTOR_DIR; process.env.FLYD_CONNECTOR_DIR = directory;
+    const factory = () => {
+      const handlers = new Map<string, (value: unknown) => void>();
+      return { ev: { on: (name: string, handler: (value: unknown) => void) => handlers.set(name, handler) }, end: (error?: Error) => handlers.get("connection.update")?.({ connection: "close", lastDisconnect: { error } }) };
+    };
+    vi.useFakeTimers();
+    const client = new WhatsAppClient(factory as never, async () => [2, 3000, 1]);
+    try {
+      const linking = client.connect(() => {});
+      const outcome = expect(linking).rejects.toThrow(/not scanned in time/);
+      await vi.advanceTimersByTimeAsync(120_000);
+      await outcome;
+      expect(client.status()).toMatchObject({ lastError: expect.stringMatching(/not scanned in time/) });
+    } finally { vi.useRealTimers(); client.stop(); client.store.close(); if (previous === undefined) delete process.env.FLYD_CONNECTOR_DIR; else process.env.FLYD_CONNECTOR_DIR = previous; }
+  });
+
+  it("names an expired code and an unreachable WhatsApp in George's words", async () => {
+    const { whatsappFailureReason } = await import("../whatsapp.js");
+    expect(whatsappFailureReason(408, "QR refs attempts ended")).toMatch(/ran out before it was scanned/);
+    expect(whatsappFailureReason(401)).toMatch(/did not accept the link/);
+    expect(whatsappFailureReason(undefined)).toMatch(/internet connection or VPN/);
+  });
 });

@@ -11,7 +11,7 @@ transitions and responsive layout, not WhatsApp branding or navigation.
 1. Update/build Flyd (`cd cli && npm ci && npm run build`).
 2. Link it from inside Flyd: open the conversation window and select **people** in
    its header (`/whatsapp`), or open the “Link WhatsApp” card in the timeline. The
-   page draws the pairing QR live; in WhatsApp Settings → Linked Devices, scan it. The code refreshes by itself until it is scanned.
+   page draws the pairing QR live; in WhatsApp Settings → Linked Devices, scan it. The code refreshes by itself until it is scanned. If a try fails, the card says why in plain words, and **Not now** sets the offer aside (and drops the pairing socket) until you choose **Link WhatsApp** again.
 3. Core maintains the linked-device socket and reconnects with bounded retries. The
    offer card and the page's QR disappear once it is linked, and the page lists
    synced conversations.
@@ -28,7 +28,7 @@ then owns it again, and on-demand reconnects pick it up from there. A stale proc
 lock is recovered after its owner exits. `flyd whatsapp status` checks local pairing;
 `flyd whatsapp disconnect` removes local credentials/cache/drafts (close Core
 first), then unlink Flyd in WhatsApp Settings. `flyd whatsapp connect` still prints
-a QR in a terminal. Keep WhatsApp installed for account administration, recovery,
+a QR in a terminal. WhatsApp refuses to link a client reporting an outdated WhatsApp Web build (the phone says it couldn't link and to check the connection), so every socket asks web.whatsapp.com for the current build first (cached for six hours; the library's bundled build is the fallback). Keep WhatsApp installed for account administration, recovery,
 calls and unsupported media.
 
 ## Data and limitations
