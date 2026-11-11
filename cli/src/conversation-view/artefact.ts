@@ -961,22 +961,32 @@ export function holdDecisions(hold: string): HoldDecision[] {
   const decisions = (bodies: string[]): HoldDecision[] => bodies.map((body) => decisionFrom(body.replace(/^[\s;,-]+/, ""))).filter((decision): decision is HoldDecision => Boolean(decision));
   const asked = numberedChoice(hold);
   if (asked) return [asked];
-  const numbered = numberedItems(hold);
-  if (numbered.length < 2) return decisions([hold]);
-  const split = decisions(numbered.map((item) => item.body));
-  // A numbered list nothing in which asks is answers too; the last item's "?" ends the sentence, not a question of its own.
-  const asks = split.some((decision, index) => decision.options.length > 0 || (index < split.length - 1 && /\?$/.test(decision.question)));
-  return split.length >= 2 && asks ? split : decisions([hold]);
+  const { items, bracketed } = numberedItems(hold);
+  if (items.length < 2) return decisions([hold]);
+  const split = decisions(items.map((item) => item.body));
+  // "Pick one: 1) Departures 2) Picture desk" numbers answers, not questions: it stays one decision.
+  return split.length >= 2 && (!bracketed || items.some(asksOwn)) ? split : decisions([hold]);
 }
 
-/** A hold's numbered items, each with where it starts. Pure. */
-function numberedItems(hold: string): Array<{ at: number; body: string }> {
-  let numbered = [...hold.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\s*\(\d+\)\s|$)/g)].map((match) => ({ at: match.index, body: match[2]! }));
+/** A hold's numbered items, each with where it starts, and whether they are numbered with a bracket only. Pure. */
+function numberedItems(hold: string): { items: Array<{ at: number; body: string }>; bracketed: boolean } {
+  let items = [...hold.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\s*\(\d+\)\s|$)/g)].map((match) => ({ at: match.index, body: match[2]! }));
   // "Review and 1. Opinion section: …? 2. Reports band heading: …? 3. …": numbered the other way.
-  if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|\s)\d\.\s+([\s\S]*?)(?=\s+\d\.\s|$)/g)].map((match) => ({ at: match.index, body: match[1]! }));
+  if (items.length < 2) items = [...hold.matchAll(/(?:^|\s)\d\.\s+([\s\S]*?)(?=\s+\d\.\s|$)/g)].map((match) => ({ at: match.index, body: match[1]! }));
+  if (items.length >= 2) return { items, bracketed: false };
   // "Three calls: 1) WhatsApp card: remove it, or keep it; 2) horoscope source: …": numbered with a bracket only.
-  if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|[\s:;,])\d+\)\s+([\s\S]*?)(?=[\s;,]+\d+\)\s|$)/g)].map((match) => ({ at: match.index, body: match[1]! }));
-  return numbered;
+  items = [...hold.matchAll(/(?:^|[\s:;,])\d+\)\s+([\s\S]*?)(?=[\s;,]+\d+\)\s|$)/g)].map((match) => ({ at: match.index, body: match[1]! }));
+  return { items, bracketed: true };
+}
+
+/**
+ * Whether a numbered item asks its own question: it names its own answers ("remove it, or keep it",
+ * "- yes/no", "anything beyond …?"), or it ends on a question mark that is not the sentence's last. Pure.
+ */
+function asksOwn(item: { body: string }, index: number, items: Array<{ body: string }>): boolean {
+  const body = item.body.trim();
+  if (index < items.length - 1 && /\?$/.test(body)) return true;
+  return Boolean(decisionFrom(body.replace(/^[\s;,-]+/, ""))?.options.length) && /\bor\b|yes\s*\/\s*no|\?/i.test(body);
 }
 
 /**
@@ -984,13 +994,13 @@ function numberedItems(hold: string): Array<{ at: number; body: string }> {
  * "Pick one: 1) Departures 2) Picture desk". Undefined when the numbers are questions of their own. Pure.
  */
 export function numberedChoice(hold: string): HoldDecision | undefined {
-  const numbered = numberedItems(hold);
-  if (numbered.length < 2) return undefined;
-  const lead = hold.slice(0, numbered[0]!.at).trim().split(/[.!?]\s+(?=\S)/).at(-1) ?? "";
-  if (!/[?:]$/.test(lead) || !/\b(?:which|what|pick|choose|select|want me to|should i)\b/i.test(lead)) return undefined;
+  const { items } = numberedItems(hold);
+  if (items.length < 2 || items.some(asksOwn)) return undefined;
+  const lead = hold.slice(0, items[0]!.at).trim().split(/[.!?]\s+(?=\S)/).at(-1) ?? "";
+  if (!/[?:]$/.test(lead) || !/^(?:which|what|pick|choose|select)\b|\b(?:want me to|should i|do you want)\b/i.test(lead)) return undefined;
   const options: string[] = [];
   let recommended: string | undefined;
-  for (const { body } of numbered) {
+  for (const { body } of items) {
     // "Departures: big type, quiet" describes the answer; its name is the button.
     const option = body.replace(/:[\s\S]*$/, "").replace(/\s*\([^)]*\)/g, "").replace(/(?:[\s,;]+or)?[\s.;,?]*$/i, "").replace(/^or\s+/i, "").trim();
     if (!option) continue;

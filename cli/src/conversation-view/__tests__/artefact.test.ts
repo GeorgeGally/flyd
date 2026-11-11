@@ -1459,6 +1459,23 @@ describe("a hold that puts several decisions to him", () => {
     ]);
   });
 
+  it("puts each numbered question on its own card even when the lead-in says what or which", () => {
+    const three = [
+      { question: "WhatsApp card", options: ["Remove it", "Keep it"] },
+      { question: "Horoscope source", options: ["AstroVed", "Another"] },
+      { question: "News tab: anything beyond news, weather and horoscope?", options: ["No, that's all"] },
+    ];
+    expect(holdDecisions("Here's what I need from you: 1) WhatsApp card: remove it, or keep it; 2) horoscope source: AstroVed or another; 3) news tab: anything beyond news, weather and horoscope?")).toEqual(three);
+    expect(holdDecisions("Which of these should I sort first? 1) WhatsApp card: remove it, or keep it; 2) horoscope source: AstroVed or another; 3) news tab: anything beyond news, weather and horoscope?")).toEqual(three);
+  });
+
+  it("splits a hold numbered (1) (2) into an instruction and a question", () => {
+    expect(holdDecisions("(1) Tell me the new tab's name (2) Should I keep the lab version?").map((decision) => decision.question)).toEqual([
+      "Tell me the new tab's name",
+      "Should I keep the lab version?",
+    ]);
+  });
+
   it("puts a bracketed hold's instruction on its own card beside the question it is numbered with", () => {
     expect(holdDecisions("Two calls: 1) keep the lab version - yes/no; 2) tell me the new tab's name").map((decision) => decision.question)).toEqual([
       "Keep the lab version",

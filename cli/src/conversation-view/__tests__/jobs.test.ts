@@ -328,6 +328,16 @@ describe("jobsFrom", () => {
     expect(described.choices).toEqual(["Departures", "Picture desk"]);
   });
 
+  it("puts a run's numbered questions on their own cards after a lead-in that says what it needs", () => {
+    const job = jobsFrom({ runs: [run({ status: "needs_decision", question: "Here's what I need from you: 1) WhatsApp card: remove it, or keep it; 2) horoscope source: AstroVed or another; 3) news tab: anything beyond news, weather and horoscope?" })], now: NOW }).jobs[0]!;
+    expect(job.decisions).toEqual([
+      { question: "WhatsApp card", options: ["Remove it", "Keep it"] },
+      { question: "Horoscope source", options: ["AstroVed", "Another"] },
+      { question: "News tab: anything beyond news, weather and horoscope?", options: ["No, that's all"] },
+    ]);
+    expect(job.choices).toBeUndefined();
+  });
+
   it("puts a run's numbered instruction on its own card beside the question it is numbered with", () => {
     const job = jobsFrom({ runs: [run({ status: "needs_decision", question: "(1) keep the lab version - yes/no; (2) tell me the new tab's name" })], now: NOW }).jobs[0]!;
     expect(job.decisions?.map((decision) => decision.question)).toEqual(["Keep the lab version", "Tell me the new tab's name"]);
