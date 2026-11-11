@@ -24,7 +24,8 @@ const STATUS_LINE = /^\s*(?:(?:done|working|paused|blocked|needs-decision|ready)
 /** What a raw staff status line means for him, about the named work; null when the line is not one. Pure. */
 export function statusSaid(line: string, what: string): string | null {
   if (!STATUS_LINE.test(line)) return null;
-  const name = what.replace(/\s+/g, " ").trim().replace(/[.:…]+$/, "");
+  // "Flyd CoS 13c: explicit waits (audit #2)": the staff's own numbering in brackets is not the work's name.
+  const name = what.replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+/g, " ").trim().replace(/[.:…]+$/, "");
   return name ? `${name.charAt(0).toUpperCase()}${name.slice(1)} is finished and ready for you to land.` : "It is finished and ready for you to land.";
 }
 

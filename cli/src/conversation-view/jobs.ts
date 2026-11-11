@@ -545,16 +545,17 @@ function uniqueLinks(links: Job["links"]): Job["links"] {
  * The reading for the card's lead item. A lead with its own report reads only
  * that report's digest: a project card leading on the Week page PR never shows
  * the WhatsApp card's reading because both are Flyd work. A lead without one
- * reads the project's own reports, never another item's. Pure.
+ * reads the project's own reports, never another item's, and never a reading
+ * that only shares the project's name. Pure.
  */
 function newestDigest(digests: JobDigest[], bucket: Bucket, lead: Signal): JobDigest | undefined {
   const owned = new Set(bucket.signals.flatMap((signal) => (signal.reportHash ? [signal.reportHash] : [])));
   const hashes = lead.reportHash
     ? new Set([lead.reportHash])
     : new Set(bucket.reports.map((report) => report.hash).filter((hash) => !owned.has(hash)));
-  const key = jobKey(bucket.title);
+  // Matched by report only: a reading stored under the same project name may be any of its items'.
   return digests
-    .filter((digest) => hashes.has(digest.hash) || (!lead.reportHash && !owned.size && digest.project ? jobKey(digest.project) === key : false))
+    .filter((digest) => hashes.has(digest.hash))
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
 }
 
