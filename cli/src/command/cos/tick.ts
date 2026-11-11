@@ -220,7 +220,7 @@ async function dispatched(id: string, key: string, answer: Dispatched, deps: Cos
     const recorded = changeRun(id, key, () => ({ state: "dispatched", ref, dispatching: undefined, unknownAt: undefined, ...(reconciled ? { reconciled: true } : {}) }), (objective) => {
       const runs = objective.runs.includes(ref) ? objective.runs : [...objective.runs, ref];
       // Found after all: a wait on whether it was handed over is over once nothing else is unconfirmed.
-      const settled = objective.waitingOn?.kind === "unconfirmed" && !planOf(objective).some((run) => run.key !== key && run.state === "unknown");
+      const settled = objective.status === "needs_george" && objective.waitingOn?.kind === "unconfirmed" && !planOf(objective).some((run) => run.key !== key && run.state === "unknown");
       return settled ? { runs, status: backTo(objective), waitingOn: undefined, snooze: undefined } : { runs };
     });
     // He cancelled while it was being sent: the run is stopped as well.
@@ -240,7 +240,8 @@ async function dispatched(id: string, key: string, answer: Dispatched, deps: Cos
 
 /**
  * A run whose hand-over was never confirmed: looked for again by its request id each pass (never sent again on its
- * own), and, once it has stayed unconfirmed for UNCONFIRMED_MS, one call for George: send it again, or drop it.
+ * own), and, once it has stayed unconfirmed for UNCONFIRMED_MS, one call for George: send it again, or drop it. The call
+ * waits while another wait is open, and is asked again once that one is answered, if the run is still unconfirmed.
  */
 async function confirm(objective: Objective, run: PlannedRun, deps: CosTickDeps, store: IntelligenceEventStore, now: Date): Promise<void> {
   const answer = await (deps.dispatch ?? dispatchBrief)(objective, sentBrief(objective, run), planRequestId(objective.id, run), { replay: true })
@@ -250,8 +251,10 @@ async function confirm(objective: Objective, run: PlannedRun, deps: CosTickDeps,
   // Left unknown before the wait was bounded: the bound starts now.
   if (!Number.isFinite(since)) { changeRun(objective.id, run.key, (current) => current.state === "unknown" && !current.unknownAt ? { unknownAt: now.toISOString() } : null); return; }
   if (now.getTime() - since < UNCONFIRMED_MS) return;
-  const made: CosReport = { ...plainReport(objective, "decision", `I can't tell whether “${shortWords(run.outcome)}” was handed over. Send it again, or drop it?`, `unconfirmed:${run.key}:${run.attempt}`), detail: run.failure ?? "", options: [...WAIT_ANSWERS.unconfirmed] };
-  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "unconfirmed" });
+  const current = readObjective(objective.id);
+  if (!current || current.waitingOn || !["working", "needs_george"].includes(current.status)) return;
+  const made: CosReport = { ...plainReport(current, "decision", `I can't tell whether “${shortWords(run.outcome)}” was handed over. Send it again, or drop it?`, `unconfirmed:${run.key}:${run.attempt}:${current.reportIds.length}`), detail: run.failure ?? "", options: [...WAIT_ANSWERS.unconfirmed] };
+  await report(current, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "unconfirmed" });
 }
 
 const SETTLED = new Set<DomainRun["status"]>(["completed", "failed", "needs_decision"]);
@@ -271,7 +274,8 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
     // A one-off job may have acted outside (booked, sent, bought): it is never run again on its own.
     return failed(objective, run, key, why, job.result ?? job.lastError ?? "", deps, store, false);
   }
-  // The compatibility crew tells George itself when its work is ready or fails; the objective settles with it.
+  // The compatibility crew tells George itself when its work is ready or fails; the objective settles with it, and a
+  // crew run is never sent again on its own: a failed one is his call.
   if (ref.startsWith("crew:")) {
     const { readTask } = await import("../../crew/crew.js");
     const task = readTask(ref.slice(5));
@@ -280,7 +284,7 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
     if (run.reviewed === key) return;
     if (task.status === "ready" || task.status === "landed") return completed(objective, run, key);
     if (task.status === "discarded") { changeRun(objective.id, run.key, () => ({ state: "cancelled", reviewed: key })); return; }
-    return failed(objective, run, key, plainLine(task.failure ?? ""), task.summary ?? task.failure ?? "", deps, store, true);
+    return failed(objective, run, key, plainLine(task.failure ?? ""), task.summary ?? task.failure ?? "", deps, store, false);
   }
   const domain = readDomainRun(ref);
   if (!domain) return;
@@ -329,8 +333,8 @@ function completed(objective: Objective, run: PlannedRun, key: string): void {
 }
 
 /**
- * A failed run gets one alternative: re-briefed to its team with why it failed. A second failure, or a run that may
- * have acted outside (a one-off job), becomes one decision for George; nothing is tried a third time.
+ * A failed run gets one alternative: re-briefed to its team with why it failed. A second failure, a run that may have
+ * acted outside (a one-off job), or a crew run, becomes one decision for George; nothing is tried a third time.
  */
 async function failed(objective: Objective, run: PlannedRun, key: string, why: string, detail: string, deps: CosTickDeps, store: IntelligenceEventStore, retryable: boolean): Promise<void> {
   const reason = why && !unfitForHim(why).length ? why : "";
@@ -512,7 +516,7 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   if (!taken && objective.reportIds.includes(`${id}:${shortKey}`)) return;
   const verdict = taken ? { met: true, missing: "", checked: true } : await accept(objective, finals, deps);
   if (!verdict.met) {
-    const retry = finals.find((run) => !run.adapted && !run.ref?.startsWith("job:"));
+    const retry = finals.find((run) => !run.adapted && !run.ref?.startsWith("job:") && !run.ref?.startsWith("crew:"));
     const missing = verdict.missing || "it doesn't yet meet what done means";
     if (retry) {
       changeRun(id, retry.key, (current) => current.state === "completed" ? requeue(current, { adapted: true, failure: `it fell short of done: ${missing}` }) : null, (current) => ({
