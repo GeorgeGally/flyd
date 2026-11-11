@@ -8,6 +8,7 @@ import { sendRunMessage } from "./messages.js";
 import { noticeKind } from "./notice.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { listDomainRuns, mutateDomainRun, updateDomainRun } from "./store.js";
+import { cameBack, isOpen } from "./run-state.js";
 import type { DomainRun } from "./types.js";
 import { cosEnabled, readObjective } from "./cos/objectives.js";
 import { followsRun } from "./cos/plan.js";
@@ -62,7 +63,7 @@ export async function decideRun(
 ): Promise<ExecutiveDecisionRecord> {
   const result = run.result;
   const detail = [result?.brief, ...(result?.unresolvedQuestions ?? []), ...(result?.risks ?? [])].filter(Boolean).join("\n").slice(0, 2_000);
-  const active = ["queued", "accepted", "working", "needs_decision", "incomplete", "failed"].includes(run.status);
+  const active = isOpen(run.status);
   const report = run.request.domain === "knowledge" && run.status === "completed" && Boolean(result?.detailedReport.trim());
   // His recorded words: the routine calls they settle are answered for him (FLYD_STANDING_RULES=0 off; never under test).
   const standing = process.env.FLYD_STANDING_RULES === "0" || process.env.VITEST ? undefined : standingPreferences();
@@ -148,7 +149,7 @@ export async function notifyRun(
   windowIsOpen: (session: string) => boolean = (session) => windowOpen(session),
   attention: ReadAttention = readAttention,
 ): Promise<void> {
-  if (!run.result || run.notified || !["completed", "failed", "needs_decision"].includes(run.status)) return;
+  if (!run.result || run.notified || !cameBack(run.status)) return;
   // Work done for a Chief of Staff objective is the objective's to report (command/cos/tick.ts), never told on its own.
   if (run.request.objectiveId && cosEnabled()) {
     const objective = readObjective(run.request.objectiveId);

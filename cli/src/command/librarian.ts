@@ -13,6 +13,7 @@ import {
 } from "../runtime/background-jobs.js";
 import { parseDomainResult } from "./result.js";
 import { commitDomainRun, createDomainRun, isDomainRunId, listDomainRuns, readDomainRun } from "./store.js";
+import { isSettled } from "./run-state.js";
 import type { DomainRequest, DomainRun, SpecialistOutput } from "./types.js";
 import { decisionsLines } from "./types.js";
 
@@ -149,7 +150,7 @@ export async function syncLibrarianDomainRuns(options: {
 } = {}): Promise<DomainRun[]> {
   const jobs = new Map(listJobs().map((job) => [job.id, job]));
   const runs = listDomainRuns().filter((run) =>
-    run.owner === "Librarian" && run.request.domain === "knowledge" && !["completed", "failed", "cancelled"].includes(run.status));
+    run.owner === "Librarian" && run.request.domain === "knowledge" && !isSettled(run.status));
   const changed: DomainRun[] = [];
 
   for (const run of runs) {

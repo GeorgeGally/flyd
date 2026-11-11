@@ -40,6 +40,7 @@ import { StaleCallJudge } from "../conversation-view/stale-calls.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 import { LiveStaffSession, readStaffView } from "../command/fleet-monitor.js";
 import { listDomainRuns } from "../command/store.js";
+import { isOpen, isSettled } from "../command/run-state.js";
 import { sendRunMessage } from "../command/messages.js";
 import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
@@ -262,7 +263,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         throw new QuestionGone("That decision already has George's answer");
       }
       const run = listDomainRuns().find((item) => item.id === taskId && item.transport.kind === "firstmate"
-        && item.request.domain === "coding" && (update || ["queued", "accepted", "working", "needs_decision", "incomplete"].includes(item.status)));
+        && item.request.domain === "coding" && (update || !isSettled(item.status)));
       let evidenceRef: string;
       if (run) {
         const message = update ? `George's follow-up on his answer to: ${decision.question}\n\n${answer.trim()}` : `George's answer to: ${decision.question}\n\n${answer.trim()}`;
@@ -337,7 +338,6 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     : undefined;
   const decideChanges = async (changes: import("../intelligence/executive/firstmate-decision.js").FirstmateChange[]) => {
     const runs = listDomainRuns();
-    const activeStatuses = new Set(["queued", "accepted", "working", "needs_decision", "incomplete", "failed"]);
     // His recorded words, read once: the routine calls they settle are answered for him (FLYD_STANDING_RULES=0 off).
     const standing = process.env.FLYD_STANDING_RULES === "0" ? undefined : standingPreferences();
     const openCalls = [...new Set(changes.flatMap((change) => change.kind === "decision" && change.taskId ? [change.taskId] : []))];
@@ -346,7 +346,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       const authority = run ? authorityForStaffRun({
         runId: run.id,
         firstmate: run.transport.kind === "firstmate" && run.request.domain === "coding",
-        active: activeStatuses.has(run.status),
+        active: isOpen(run.status),
         autonomy: autonomyLevel(),
         ...(change.kind === "decision" ? { standing } : {}),
       }) : change.taskId && change.kind === "fleet_state" && ["working", "paused", "unknown", "failed"].includes(change.state)
@@ -364,7 +364,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       jev: { ...(process.env.FLYD_JEV_MODEL ? { model: process.env.FLYD_JEV_MODEL } : {}) },
       executeInternalAction: async (action) => {
         const run = listDomainRuns().find((item) => item.id === action.target && item.transport.kind === "firstmate"
-          && item.request.domain === "coding" && activeStatuses.has(item.status));
+          && item.request.domain === "coding" && isOpen(item.status));
         if (!run) {
           const observedTask = prepared.find((change) => change.taskId === action.target && change.authority?.some((grant) => grant.grantId === action.grantId));
           if (!observedTask || !inbox.available()) return { status: "unknown", evidenceRefs: [] };

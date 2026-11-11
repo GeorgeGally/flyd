@@ -6,6 +6,7 @@ import { reachesGeorge, type GeorgeKind } from "../lib/reaches-george.js";
 import { FirstmateDomainTransport, type FirstmateExec, type FirstmateReceipts } from "./firstmate.js";
 import { sendRunMessage } from "./messages.js";
 import { commandDir, listDomainRuns } from "./store.js";
+import { isSettled } from "./run-state.js";
 import type { DomainRun } from "./types.js";
 
 // Flyd watches its coding staff (FirstMate) from Core, read-only: the staff's
@@ -401,7 +402,7 @@ export class StaffMonitor {
     });
     const queued = Number(record(summary.counts).queued);
     // Flyd's own notes (check-ins, closes) are chases about something else, never handoffs to chase in turn.
-    const runs = listDomainRuns(this.dir()).filter((run) => run.transport.kind === "firstmate" && run.request.source !== "flyd" && (OPEN_HANDOFF.has(run.status) || run.status === "needs_decision"));
+    const runs = listDomainRuns(this.dir()).filter((run) => run.transport.kind === "firstmate" && run.request.source !== "flyd" && !isSettled(run.status));
     const handoffs = runs.map((run): StaffHandoff => {
       const heard = state.heard[run.id];
       const lastHeard = heard && heard.progress === progressOf(run) ? heard.since : run.updatedAt;

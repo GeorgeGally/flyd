@@ -1,5 +1,6 @@
 import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
+import { isSettled } from "../run-state.js";
 import type { DomainId, DomainRun } from "../types.js";
 import { listObjectives, mutateObjective, readObjective } from "./objectives.js";
 import { awaitsDecision, backTo, downstreamOf, isGone, planOf, requeue, sinks } from "./plan.js";
@@ -30,7 +31,6 @@ export interface SteerOutcome {
 }
 
 const OPEN = new Set<Objective["status"]>(["intake", "working", "needs_george"]);
-const STEERABLE = new Set<DomainRun["status"]>(["queued", "accepted", "working", "needs_decision"]);
 
 function short(words: string, max = 60): string {
   const line = words.replace(/\s+/g, " ").trim();
@@ -40,7 +40,7 @@ function short(words: string, max = 60): string {
 /** The domain runs of an objective that can still take a message, the one waiting on his decision first. */
 function steerableRuns(objective: Objective): DomainRun[] {
   const runs = [...objective.runs].reverse().filter((ref) => !ref.includes(":")).map((ref) => readDomainRun(ref))
-    .filter((run): run is DomainRun => Boolean(run && STEERABLE.has(run.status)));
+    .filter((run): run is DomainRun => Boolean(run && !isSettled(run.status)));
   return [...runs.filter((run) => run.status === "needs_decision"), ...runs.filter((run) => run.status !== "needs_decision")];
 }
 
@@ -56,7 +56,7 @@ function correctionTarget(plan: PlannedRun[], team?: DomainId): PlannedRun | nul
 function steerable(run: PlannedRun): DomainRun | null {
   if (run.state !== "dispatched" || !run.ref || run.ref.includes(":")) return null;
   const found = readDomainRun(run.ref);
-  return found && STEERABLE.has(found.status) ? found : null;
+  return found && !isSettled(found.status) ? found : null;
 }
 
 /** Started one-off job states a correction would re-run or leave stale. */
