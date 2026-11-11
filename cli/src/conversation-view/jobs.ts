@@ -4,7 +4,8 @@ import type { DomainRun, DomainRunStatus } from "../command/types.js";
 import { workStateOfRun, type WorkState } from "../lib/work-state.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
 import { plainSaid } from "../lib/backstage.js";
-import { toYou } from "../lib/to-you.js";
+import { forHim, statusSaid } from "../lib/pa-voice.js";
+import { plainTitle } from "./plain-words.js";
 import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import type { ShowItem, ShowScreen } from "./show.js";
 
@@ -126,7 +127,34 @@ export function jobKey(name: string): string {
   return slug.replace(/capfive|capfire|cap5/g, "cap5");
 }
 
-const one = (value: string, max = 200) => value.replace(/\s+/g, " ").trim().slice(0, max);
+/** One line, cut at a word with "…" when it is long: never mid-word ("Do you want me to r"). Pure. */
+const one = (value: string, max = 200) => {
+  const line = value.replace(/\s+/g, " ").trim();
+  if (line.length <= max) return line;
+  const cut = line.lastIndexOf(" ", max - 1);
+  return `${line.slice(0, cut > max / 2 ? cut : max - 1).replace(/[\s,;:–—-]+$/, "")}…`;
+};
+
+/** Hand-off framing Flyd wrote for its staff, never for him: "Answer George's question, reading whatever code is needed, and change nothing:". */
+const BRIEF_FRAME = /^(?:answer (?:george's|your|the captain's|his) question\b[^:]*|act on (?:george's|your|the captain's|his) answer to|update the work from (?:george's|your|his) follow-up on|answer to pending decision [\w.-]+)\s*:\s*/i;
+
+/**
+ * A run's name as he would say it: the subject, not the brief Flyd gave its
+ * staff. "Answer George's question…: George got a card titled \"Answer to
+ * pending decision jev-firstmate-review: Review Jev decision log: did Jev…\""
+ * reads "Review Jev decision log". Pure.
+ */
+export function runTitle(outcome: string): string {
+  let text = outcome.replace(/\s+/g, " ").trim();
+  const card = /\bcard titled\s+["“]([^"”]+)/i.exec(text);
+  if (card) text = card[1]!;
+  for (let pass = 0; pass < 3 && BRIEF_FRAME.test(text); pass += 1) text = text.replace(BRIEF_FRAME, "");
+  text = forHim(plainTitle(text)).replace(/…$/, "");
+  // The subject before a colon is the name; the rest is the brief's detail.
+  const head = /^([^:?]{8,80}):\s/.exec(text)?.[1];
+  return one(head ?? text, 90);
+}
+
 
 export function jobRunFromDomain(run: DomainRun): JobRun {
   const report = [run.result?.brief, run.result?.detailedReport].filter((part): part is string => Boolean(part?.trim())).join("\n\n");
@@ -144,7 +172,8 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
     updatedAt: run.updatedAt,
     ...(run.createdAt ? { started: run.createdAt } : {}),
     ...(run.report?.since ? { settled: run.report.since } : {}),
-    ...(question ? { question: one(question) } : {}),
+    // His question is never cut: it is shown whole and wraps.
+    ...(question ? { question: one(question, 4_000) } : {}),
     questionIdentity: question ?? run.request.intendedOutcome ?? run.request.originalMessage,
     ...(report ? { report } : {}),
     artifacts: run.result?.artifacts ?? [],
@@ -166,6 +195,8 @@ interface Signal {
   decision?: ShowItem["decision"];
   domainRun?: string;
   handled?: Job["handled"];
+  /** The hash of this signal's own report, so its card reads its own digest and never another item's. */
+  reportHash?: string;
 }
 
 function rank(group: JobGroup): number {
@@ -294,18 +325,20 @@ export function jobsFrom(input: {
     if (!signal) continue;
     const name = run.project;
     if (!name && signal.group === "done") continue;
+    const title = runTitle(run.outcome) || name || "Untitled run";
     const bucket = (signal.group === "working" || signal.group === "needs")
-      ? lone(buckets, `run:${run.id}`, run.outcome || name || "Untitled run")
-      : name ? bucketFor(name) : lone(buckets, run.id, run.outcome || "Untitled run");
+      ? lone(buckets, `run:${run.id}`, title)
+      : name ? bucketFor(name) : lone(buckets, run.id, title);
     if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; markActive(name, bucket); }
     bucket.signals.push(signal);
-    bucket.threads.push({ id: run.id, title: run.outcome || run.id, at: run.updatedAt, kind: "run" });
+    bucket.threads.push({ id: run.id, title, at: run.updatedAt, kind: "run" });
     for (const artifact of artifactsOf(run.artifacts, exists)) {
       if (artifact.href) bucket.links.push({ label: artifact.label, url: artifact.href });
       else bucket.files.push({ label: artifact.label });
     }
     if ((run.report?.length ?? 0) >= REPORT_CHARS) {
-      bucket.reports.push({ hash: digestHash(run.report!), project: bucket.title, title: run.outcome || bucket.title, text: run.report!, link: bucket.links[0]?.url });
+      signal.reportHash = digestHash(run.report!);
+      bucket.reports.push({ hash: signal.reportHash, project: bucket.title, title, text: run.report!, link: bucket.links[0]?.url });
     }
   }
 
@@ -324,27 +357,31 @@ export function jobsFrom(input: {
     const handled = item.kind === "landed" && item.status === "handled" && item.executiveDecisionId ? { decisionId: item.executiveDecisionId, task: item.task ?? "" } : undefined;
     const bucket = name && item.kind !== "live" && !handled ? bucketFor(name, item.headline) : lone(buckets, item.id, item.headline);
     if (item.kind === "live" && name) { bucket.project = basename(name); markActive(bucket.project, bucket); }
-    const ask = group === "needs" ? (item.decision?.question || item.detail || item.headline) : "";
+    // A staff status line ("Checks green: PR ready for review…") is said as what it means for him.
+    const detail = item.detail && (statusSaid(item.detail, item.headline) ?? item.detail);
+    const ask = group === "needs" ? (item.decision?.question || detail || item.headline) : "";
     const state = handled ? "Handled for you" : itemState(item);
-    bucket.signals.push({
+    const signal: Signal = {
       group,
       ...(state ? { state } : {}),
       at: item.at || item.started || "",
       // "Under way" says nothing the Working group has not.
-      next: item.kind === "live" && /^under way\.?$/i.test(item.detail ?? "") ? "" : item.detail || item.headline,
+      next: item.kind === "live" && /^under way\.?$/i.test(item.detail ?? "") ? "" : detail || item.headline,
       owner: group === "needs" ? "you" : "Flyd",
       ask,
       because: `Fleet ${item.kind}: ${item.id}`,
       ...(group === "needs" && item.decision ? { decision: item.decision } : {}),
       ...(handled ? { handled } : {}),
-    });
+    };
+    bucket.signals.push(signal);
     for (const shot of item.shots ?? []) if (shot.src) bucket.shots.push({ src: shot.src, label: shot.label });
     for (const link of [...(item.links ?? []), ...(item.open ? [item.open] : [])]) {
       if (link.closed || !link.url) continue;
       bucket.links.push({ label: link.label || "Open", url: link.url });
     }
     if ((item.detail?.length ?? 0) >= REPORT_CHARS) {
-      bucket.reports.push({ hash: digestHash(item.detail!), project: bucket.title, title: item.headline, text: item.detail!, link: bucket.links[0]?.url });
+      signal.reportHash = digestHash(item.detail!);
+      bucket.reports.push({ hash: signal.reportHash, project: bucket.title, title: item.headline, text: item.detail!, link: bucket.links[0]?.url });
     }
   }
 
@@ -382,7 +419,7 @@ export function jobsFrom(input: {
     const state = lead.state ?? STATE[lead.group];
     const at = [...bucket.signals.map((signal) => signal.at), ...bucket.threads.map((thread) => thread.at)].filter(Boolean).sort().at(-1) ?? "";
     if (lead.group === "done" && dayNumber(at || project?.updated || "", now) > DONE_KEEP_DAYS) continue;
-    const digest = newestDigest(digests, bucket);
+    const digest = newestDigest(digests, bucket, lead);
     for (const source of bucket.reports) {
       if (!stored.has(source.hash) && !pending.some((item) => item.hash === source.hash)) pending.push(source);
     }
@@ -395,9 +432,10 @@ export function jobsFrom(input: {
       project: bucket.project,
       at,
       ...(lead.started ? { started: lead.started } : {}),
-      next: shownLine(lead.next, lead.group),
+      // The question is said once: a next line that only repeats it is left out.
+      next: sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, lead.group),
       owner: lead.owner,
-      ask: lead.ask && toYou(plainSaid(lead.ask)),
+      ask: lead.ask && forHim(plainSaid(lead.ask)),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: bucket.shots.slice(0, 4),
@@ -423,11 +461,19 @@ export function jobsFrom(input: {
 export function digestView(digest: JobDigest | null | undefined, ask = ""): JobDigestView | null {
   if (!digest) return null;
   const same = (a: string, b: string) => a.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() === b.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  const changed = toYou(digest.changed);
-  let needed = toYou(digest.needed);
-  if (needed && ((ask && same(needed, toYou(plainSaid(ask)))) || same(needed, changed))) needed = "";
+  const changed = forHim(digest.changed);
+  let needed = forHim(digest.needed);
+  if (needed && ((ask && same(needed, forHim(plainSaid(ask)))) || same(needed, changed))) needed = "";
   if (!changed && !needed) return null;
   return { changed, needed, ...(digest.link ? { link: digest.link } : {}) };
+}
+
+/** Whether two lines say the same words, one perhaps cut short. Pure. */
+function sameWords(a: string, b: string): boolean {
+  const words = (text: string) => text.toLowerCase().replace(/…/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const x = words(a);
+  const y = words(b);
+  return Boolean(x && y) && (x === y || x.startsWith(y) || y.startsWith(x));
 }
 
 /** What a card says when its own words would name the staff or how the work is run. */
@@ -436,7 +482,7 @@ const QUIET_LINE: Record<Exclude<JobGroup, "needs">, string> = { working: "Under
 /** A card's line as he may see it: the relay check holds back staff names, branches and ids. A decision keeps its question, said plainly: the call is his. Pure. */
 function shownLine(line: string, group: JobGroup): string {
   if (!line) return line;
-  const plain = toYou(plainSaid(line));
+  const plain = forHim(plainSaid(line));
   return group !== "needs" && namesBackstage(plain) ? QUIET_LINE[group] : plain;
 }
 
@@ -495,11 +541,20 @@ function uniqueLinks(links: Job["links"]): Job["links"] {
   });
 }
 
-function newestDigest(digests: JobDigest[], bucket: Bucket): JobDigest | undefined {
-  const hashes = new Set(bucket.reports.map((report) => report.hash));
+/**
+ * The reading for the card's lead item. A lead with its own report reads only
+ * that report's digest: a project card leading on the Week page PR never shows
+ * the WhatsApp card's reading because both are Flyd work. A lead without one
+ * reads the project's own reports, never another item's. Pure.
+ */
+function newestDigest(digests: JobDigest[], bucket: Bucket, lead: Signal): JobDigest | undefined {
+  const owned = new Set(bucket.signals.flatMap((signal) => (signal.reportHash ? [signal.reportHash] : [])));
+  const hashes = lead.reportHash
+    ? new Set([lead.reportHash])
+    : new Set(bucket.reports.map((report) => report.hash).filter((hash) => !owned.has(hash)));
   const key = jobKey(bucket.title);
   return digests
-    .filter((digest) => hashes.has(digest.hash) || (digest.project ? jobKey(digest.project) === key : false))
+    .filter((digest) => hashes.has(digest.hash) || (!lead.reportHash && !owned.size && digest.project ? jobKey(digest.project) === key : false))
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
 }
 

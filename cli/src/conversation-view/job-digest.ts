@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { priceFor } from "../lib/claude-spend.js";
 import { FLYD_DIR } from "../lib/config.js";
-import { toYou } from "../lib/to-you.js";
+import { forHim, PA_VOICE } from "../lib/pa-voice.js";
 import { quickQuery } from "../lib/llm.js";
 
 /**
@@ -85,7 +85,7 @@ export function digestFromModel(text: string, source: DigestSource, usage: { mod
   const record = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
   // A reading line that names the staff or how the work runs is left out (the relay check), as if the model had said nothing there.
   // Flyd speaks to him: a line the model still wrote about him in the third person is turned to "you".
-  const plain = (value: unknown) => { const line = toYou(plainSaid(clip(value))); return line && namesBackstage(line) ? "" : line; };
+  const plain = (value: unknown) => { const line = forHim(plainSaid(clip(value))); return line && namesBackstage(line) ? "" : line; };
   const changed = plain(record.changed);
   const needed = plain(record.needed);
   if (!changed && !needed) return null;
@@ -113,8 +113,9 @@ function estimate(model: string, input: string, output: string): { model: string
 }
 
 const PROMPT = [
-  "You are Flyd, George's assistant, telling him about one piece of his work as he scans his jobs. Speak as \"I\" and talk to him as \"you\":",
-  "never his name, \"he\", \"his\", \"him\" or \"captain\". Short plain words, one sentence per line, no jargon, no repeating yourself.",
+  "You are Flyd, George's assistant, telling him about one piece of his work as he scans his jobs.",
+  PA_VOICE,
+  "Speak as \"I\", to him as \"you\". One sentence per line, no repeating yourself.",
   "Return only JSON: {\"changed\":\"one sentence: what changed\",\"needed\":\"one sentence: what you need to do, or 'Nothing' if it is done\",\"link\":\"the one url to open, or empty\"}",
   "Example: {\"changed\":\"I have three questions for you on the CapFive page.\",\"needed\":\"Pick the Opinion section, the Reports heading and the date captions.\",\"link\":\"\"}",
   "No preamble, no markdown fence. Each sentence under 20 words.",

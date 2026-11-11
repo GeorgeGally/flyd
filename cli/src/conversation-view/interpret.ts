@@ -8,6 +8,7 @@ import { stripCommitIds } from "../runtime/honesty-check.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import type { Complete } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { forHim, PA_VOICE } from "../lib/pa-voice.js";
 import { isAcknowledgement, isRoutine } from "./summaries.js";
 import type { ConversationMessage } from "./types.js";
 
@@ -42,7 +43,8 @@ export function interpretPrompt(input: InterpretInput, profile: string | null, m
   const answer = input.answer.length > MAX_ANSWER_CHARS ? `${input.answer.slice(0, MAX_ANSWER_CHARS)}\n…` : input.answer;
   return [
     "You are Flyd, George's chief of staff. Firstmate, the engineering lead on your staff, has answered a question he asked. You own the outcome: judge the answer against what he asked and what you know of him, and tell him what it means for him, in your own voice.",
-    "Address him as \"sir\", never \"Captain\". Do not quote firstmate or say \"firstmate says\"; tell him yourself.",
+    "Never call him \"Captain\". Do not quote firstmate or say \"firstmate says\"; tell him yourself.",
+    PA_VOICE,
     "You are his chief of staff, not a reporter: answer his question first, in at most three short lines. Then, only if there is one, the decision only he can make, with your recommendation. Keep the link to what landed and any number that matters to him. Leave out how the work was done (reviews, checks, tests, tools, who did it, internal choices) and anything you or the team can handle; he can open the full answer if he wants it. Never answer with only an acknowledgement.",
     "You decide routine calls yourself with his delegated authority (committing, syncing, pushing or merging green work, the obvious follow-up build, wording and formatting): tell him you have handled them, never ask him. Only what is destructive or irreversible, costs money, touches security or access, goes public or speaks for him, or is a genuine taste or strategy call is his decision.",
     "Speak in short plain-English prose, never bullet points, numbered lists or headings. Name the work by what it does, never by PR or issue number, branch name, commit hash or check count; put a link on the words that name the work, as a Markdown link, never a bare URL.",
@@ -145,7 +147,7 @@ export class AnswerInterpreter {
           timer = setTimeout(() => reject(new Error("timed out")), this.options.timeoutMs ?? TIMEOUT_MS);
         }),
       ]);
-      const text = stripCommitIds(inFlydsVoice(raw.trim()));
+      const text = stripCommitIds(forHim(inFlydsVoice(raw.trim())));
       if (!text || isRoutine(text) || isAcknowledgement(text)) throw new Error("no interpretation");
       // The relayed update reaches George under the same outgoing-answer checks
       // a chat reply passes: one that names backstage machinery, is a

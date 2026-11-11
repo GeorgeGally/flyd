@@ -27,7 +27,10 @@ function isIterationAnswer(answer: string): boolean {
 }
 
 export function decisionAcknowledgement(question: string, answer: string): string {
+  // A question back, or more than a short pick, is never echoed ("we'll do What are the actual three questions…").
+  if (/\?\s*$/.test(answer.trim()) || /^(?:what|why|how|where|when|who|which|can|could|would|is|are|does)\b/i.test(answer.trim())) return "I'll get you an answer";
   const clean = answer.replace(/[.!?]+$/, "").trim();
+  if (clean.split(/\s+/).length > 8) return "I'm on it";
   if (isIterationAnswer(clean)) return `we're doing ${clean.toLowerCase()}`;
   if (/^(yes|no|ship|hold|choose|pick|use|go with|do|don't|approve|reject)\b/i.test(clean)) return `we're going with ${clean}`;
   return `we'll do ${clean}`;

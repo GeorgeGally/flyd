@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { readUserProfile } from "../lib/user-profile.js";
 import type { Complete } from "./flyd-desk.js";
 import { inFlydsVoice } from "./flyd-voice.js";
+import { forHim, PA_VOICE } from "../lib/pa-voice.js";
 
 // The artefact's picks, said by Flyd. Firstmate's rows are task titles and run
 // notes ("Review Jev decision log: … keep or remove the rule"); Flyd's own
@@ -59,6 +60,7 @@ export function voicePrompt(items: Array<VoiceItem & { id: string }>, profile: s
   }));
   return [
     "You are Flyd, George's personal assistant. These are pieces of his work you may put on his screen, one at a time, as big type. For each, say what you would tell him, in your own voice.",
+    PA_VOICE,
     "headline: one sentence, at most 14 words, saying plainly what changed, with the actual values when the record has them (\"I set the GNM venue cost to 105M plus 10% of stall fees.\"). Direct, as you would say it out loud. Never put file names, page or code names, version labels (\"v18\"), PR numbers or terms of art in a headline; those may go in the line. Never repeat the task title's phrasing or its colon-and-question structure.",
     "line: one sentence, at most 30 words. For \"needs you\", the concrete decision he must make and what it leads to. Otherwise what happens next, or what he needs to know.",
     "You did the work, never George: say \"I\" (I'm on it, I've finished it, it's ready for you to look at). Never mention a crew, crewmates, workers, agents, sessions, scripts, firstmate or anyone behind you; to him it is only you. Never say he is doing, building or working on something; only a \"needs you\" row asks anything of him.",
@@ -84,7 +86,7 @@ export function withoutCrew(text: string): string {
 
 function tidy(text: unknown, max: number): string {
   if (typeof text !== "string") return "";
-  const line = withoutCrew(inFlydsVoice(text.replace(/\s+/g, " ").trim())).replace(/\s*[—–]\s*/g, ", ");
+  const line = withoutCrew(forHim(inFlydsVoice(text.replace(/\s+/g, " ").trim()))).replace(/\s*[—–]\s*/g, ", ");
   return line.length > max ? "" : line;
 }
 

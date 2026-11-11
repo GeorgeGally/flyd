@@ -12,6 +12,9 @@ const AGREE: Record<string, string> = {
   has: "have", is: "are", was: "were", does: "do", needs: "need", wants: "want", must: "must", makes: "make",
   picks: "pick", chooses: "choose", decides: "decide", asks: "ask", says: "say", prefers: "prefer", likes: "like",
   approves: "approve", reviews: "review", owns: "own", gets: "get", sees: "see", knows: "know", thinks: "think",
+  acts: "act", replies: "reply", answers: "answer", signs: "sign", looks: "look", checks: "check", confirms: "confirm",
+  goes: "go", sends: "send", lands: "land", merges: "merge", comes: "come", returns: "return", agrees: "agree",
+  gives: "give", tells: "tell", reads: "read", opens: "open", tests: "test", tries: "try", uses: "use", plays: "play",
   "hasn't": "haven't", "isn't": "aren't", "wasn't": "weren't", "doesn't": "don't",
 };
 const VERBS = Object.keys(AGREE).join("|");

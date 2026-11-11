@@ -243,7 +243,7 @@ export const FRONT_SCRIPT = `
   function frontLine(job) {
     var digest = job.digest || {};
     var needed = digest.needed && !/^(nothing|none|n\\/a)\\b/i.test(digest.needed) ? digest.needed : "";
-    var said = needed || digest.changed || job.next || frontTitle(job.detail);
+    var said = needed || digest.changed || job.next || job.ask || frontTitle(job.detail);
     return frontText(said || job.title);
   }
   // The card's action line: a concrete next step in real counts or Flyd's own pick, else nothing.

@@ -1,4 +1,5 @@
 import { HIS_TASTE, NEVER, speaksForHim } from "./auto-answers.js";
+import { forHim } from "../lib/pa-voice.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
 import type { ManifestationEvidence, ManifestationPart, ManifestationPlan } from "./semantic.js";
 
@@ -63,11 +64,12 @@ export function withoutObviousAsk(text: string): string {
 
 /** Whatever an answerer returned, as a body: a string is prose, a shape is one only when it is whole. */
 export function answerBody(value: unknown): AnswerBody {
-  if (typeof value === "string") return { lead: withoutObviousAsk(value), form: "prose" };
+  // Whatever wrote it, he hears it from his PA: to him, no report labels, no leave-to-tell question.
+  if (typeof value === "string") return { lead: withoutObviousAsk(forHim(value)), form: "prose" };
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const lead = said(record.lead);
+  const lead = forHim(said(record.lead));
   const told = [lead, ...partsFrom(record.parts).map((part) => part.text)].join("\n");
-  const next = doingNotAsking(said(record.next), told);
+  const next = doingNotAsking(forHim(said(record.next)), told);
   if (record.form === "diagnosis") {
     const parts = partsFrom(record.parts);
     const evidence = evidenceFrom(record.evidence);
