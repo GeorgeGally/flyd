@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, uti
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FirstmateDomainTransport, firstmateRequestBody, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
+import { FirstmateDomainTransport, firstmateRequestBody, sessionLaunchFailures, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
 import { captainNotice } from "../notice.js";
 import { parseDomainResult } from "../result.js";
 import { notifyRun } from "../scheduler.js";
@@ -20,6 +20,7 @@ describe("FirstMate domain transport", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-command-"));
     oldDir = process.env.FLYD_COMMAND_DIR;
     process.env.FLYD_COMMAND_DIR = dir;
+    sessionLaunchFailures.clear();
   });
 
   afterEach(() => {
@@ -1099,7 +1100,7 @@ describe("FirstMate domain transport", () => {
     expect(repeated).toEqual([]);
   });
 
-  it("backs off a picked-up run's relaunches, then fails it at the third identical failure", async () => {
+  it("backs off a picked-up run's relaunches, then fails it from the runtime's cached failure", async () => {
     const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
     process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
     try {
@@ -1135,11 +1136,12 @@ describe("FirstMate domain transport", () => {
 
       canReceive = false;
       for (let minute = 7; minute <= 70; minute += 1) await tick(minute);
-      expect(launchedAt).toEqual([0, 5, 10, 18, 34]);
+      // Claude has now failed three times the same way: the next relaunch is answered from that, with nothing spawned.
+      expect(launchedAt).toEqual([0, 5, 10]);
       const [run] = listDomainRuns();
       expect(run!.status).toBe("failed");
       expect(run!.launchRetry).toBeUndefined();
-      expect(run!.failure).toMatch(/3 identical launch attempts/);
+      expect(run!.failure).toMatch(/on claude failed 3 times the same way \(claude: usage limit reached\)/);
       expect(changed.filter((item) => item.status === "failed").map((item) => item.result?.brief)).toEqual([run!.failure]);
     } finally {
       if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
@@ -1147,7 +1149,7 @@ describe("FirstMate domain transport", () => {
     }
   });
 
-  it("blocks an unread note outside any run after three identical failures, then relaunches it once the backoff reaches its cap", async () => {
+  it("stops relaunching for unread notes outside any run while the runtime's identical failure is cached, then probes once the window lapses", async () => {
     const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
     process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
     try {
@@ -1163,13 +1165,20 @@ describe("FirstMate domain transport", () => {
       const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
       const start = Date.parse("2026-10-09T01:00:00.000Z");
       const launchedAt: number[] = [];
-      for (let minute = 0; minute <= 70; minute += 1) {
-        const before = launches;
-        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000) });
-        if (launches > before) launchedAt.push(minute);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        for (let minute = 0; minute <= 150; minute += 1) {
+          const before = launches;
+          vi.setSystemTime(start + minute * 60_000);
+          await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000) });
+          if (launches > before) launchedAt.push(minute);
+        }
+      } finally {
+        vi.useRealTimers();
       }
 
-      expect(launchedAt).toEqual([0, 5, 10, 34, 64]);
+      // No relaunch every 30 minutes at the backoff cap: one probe on the first sweep after the hour lapses, which fails the same way and is cached again.
+      expect(launchedAt).toEqual([0, 5, 10, 94]);
       const repeated = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl"), "utf8")
         .trim().split("\n").map((line) => JSON.parse(line) as { outcome?: string; home?: string })
         .filter((entry) => entry.home === home && entry.outcome === "repeated_loop");
@@ -1180,7 +1189,7 @@ describe("FirstMate domain transport", () => {
     }
   });
 
-  it("counts identical launch failures per request, so a new run still gets its own attempts", async () => {
+  it("refuses a new run from the cache once the runtime failed the same way three times", async () => {
     const calls: string[] = [];
     const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
     const launch = (request: string) => startFirstmateSession({
@@ -1197,9 +1206,9 @@ describe("FirstMate domain transport", () => {
     expect(calls).toHaveLength(3);
 
     const runB = await launch("run-b");
-    expect(calls).toHaveLength(4);
-    expect(runB.terminal).toBeUndefined();
-    expect(runB.failure).toBe("I couldn't start the work right now. I'll keep it safe and try again when I can.");
+    expect(calls).toHaveLength(3);
+    expect(runB.terminal).toBeDefined();
+    expect(runB.failure).toMatch(/on claude failed 3 times the same way \(not installed\)/);
   });
 
   it("cools the home down instead of relaunching every tick for an unconsumed note", async () => {

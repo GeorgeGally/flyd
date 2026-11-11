@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } from "../repeat-guard.js";
+import { describe, expect, it, vi } from "vitest";
+import { startFirstmateSession, type FirstmateExec } from "../../command/firstmate.js";
+import { createLaunchFailureCache, createRepeatGuard, LAUNCH_FAILURE_WINDOW_MS, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } from "../repeat-guard.js";
 
 describe("repeat guard", () => {
   it("allows one retry, then stops the same call failing the same way", () => {
@@ -51,5 +52,58 @@ describe("repeat guard", () => {
     const terminal = new RepeatedLoopError("stopped after 3 identical attempts", 3);
     expect(terminal.retryable).toBe(false);
     expect(terminal.attempts).toBe(3);
+  });
+
+  it("refuses a fourth launch on a runtime that failed three times the same way, without spawning", async () => {
+    const launchFailures = createLaunchFailureCache();
+    let error = "Error: claude exited 1: Invalid API key · Please run /login";
+    const exec = vi.fn<FirstmateExec>(async () => { throw new Error(error); });
+    // Each attempt serves a different request, as the sweep's unread notes and domain runs do.
+    const launch = (request: string) => startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
+      recordAttempt: vi.fn(),
+      launchFailures,
+    });
+    for (const request of ["run-a", "run-b", "notes-c"]) expect((await launch(request)).started).toBe(false);
+    expect(exec).toHaveBeenCalledTimes(3);
+
+    const refused = await launch("run-d");
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(refused.started).toBe(false);
+    expect(refused.terminal).toBeInstanceOf(RepeatedLoopError);
+    expect(refused.failure).toMatch(/failed 3 times the same way/);
+    expect(refused.failure).toMatch(/Invalid API key/);
+
+    // A different failure on the same runtime is new information, not the cached one.
+    const other = createLaunchFailureCache();
+    const varied = (request: string) => startFirstmateSession({
+      home: "/fake/firstmate", script: "/fake/fm-inbox.sh", exec, request,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
+      recordAttempt: vi.fn(),
+      launchFailures: other,
+    });
+    exec.mockClear();
+    await varied("run-e");
+    await varied("run-f");
+    error = "Error: spawn claude ENOENT";
+    await varied("run-g");
+    await varied("run-h");
+    expect(exec).toHaveBeenCalledTimes(4);
+  });
+
+  it("lets a runtime launch again once it succeeds or the window lapses", () => {
+    const cache = createLaunchFailureCache();
+    for (let i = 0; i < MAX_IDENTICAL_LAUNCH_FAILURES; i += 1) cache.record("claude", `usage limit reached, resets in ${i}h`, 1_000);
+    expect(cache.blocked("claude", 2_000)).toMatch(/failed 3 times/);
+    expect(cache.blocked("opencode", 2_000)).toBeNull();
+    expect(cache.blocked("claude", 1_000 + LAUNCH_FAILURE_WINDOW_MS)).toBeNull();
+    // The probe after the window failing the same way goes straight back to the cache.
+    cache.record("claude", "usage limit reached, resets in 1h", 1_000 + LAUNCH_FAILURE_WINDOW_MS);
+    expect(cache.blocked("claude", 2_000 + LAUNCH_FAILURE_WINDOW_MS)).toMatch(/failed 4 times/);
+    cache.record("claude", null);
+    expect(cache.blocked("claude", 3_000 + LAUNCH_FAILURE_WINDOW_MS)).toBeNull();
   });
 });
