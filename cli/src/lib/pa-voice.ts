@@ -74,6 +74,9 @@ export function withoutInformAsk(text: string): string {
 /** Report scaffolding at the start of a line: "Changed:", "**Needed**", "Means -". */
 const LABEL = /^(\s*)(?:\*\*(?:changed|means|needed|expected|observed|cause|evidence|next)\s*:?\s*\*\*\s*:?|(?:changed|means|needed|expected|observed|cause|evidence|next)\s*:)[ \t]*(?=\S)/gim;
 
+/** Fenced blocks and inline code: said exactly as written. */
+const CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/g;
+
 /**
  * Any words that reach him from the staff or a model, as his PA would say
  * them: said to him, no report labels, no bracketed PR numbers or monitoring asides, and
@@ -81,12 +84,17 @@ const LABEL = /^(\s*)(?:\*\*(?:changed|means|needed|expected|observed|cause|evid
  */
 export function forHim(text: string): string {
   if (!text) return text;
-  const said = toYou(text)
+  const code: string[] = [];
+  const prose = text.replace(CODE, (span) => `\uE000${code.push(span) - 1}\uE001`);
+  const said = toYou(prose)
     .replace(LABEL, "$1")
     // "(still monitoring for merge/close)", "(PR #274)": the staff's bookkeeping.
     .replace(/\s*\((?:still )?monitoring[^)]*\)/gi, "")
     .replace(/\s*\((?:PR|pull request)?\s*#\d+\)/gi, "");
-  return withoutInformAsk(said).replace(/[ \t]{2,}/g, " ").trim();
+  return withoutInformAsk(said)
+    .replace(/[ \t]{2,}/g, " ")
+    .trim()
+    .replace(/\uE000(\d+)\uE001/g, (_found, index: string) => code[Number(index)]!);
 }
 
 /** Phrases that must never reach him: third person, report labels, staff status lines, leave-to-tell questions. */

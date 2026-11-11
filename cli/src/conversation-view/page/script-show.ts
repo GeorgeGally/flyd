@@ -276,12 +276,17 @@ export const SHOW_SCRIPT = `
     if (box.project) sceneMeta.appendChild(el("span", "project", box.project));
     if (box.status && box.status !== word) sceneMeta.appendChild(el("span", "status", box.status));
     var shownLinks = {};
-    if (box.open) { shownLinks["url:" + box.open.url] = true; shownLinks["label:" + box.open.label] = true; }
-    (box.links || []).forEach(function (link) {
-      // Two links that do the same thing are one: the same address, or the same words.
-      if (shownLinks["url:" + link.url] || shownLinks["label:" + link.label]) return;
+    var linkKey = function (link) { return /^Open (?:board|design review)$/.test(link.label) ? "label:" + link.label : "url:" + link.url; };
+    var showLink = function (link) {
+      if (shownLinks[linkKey(link)] || shownLinks["url:" + link.url]) return false;
+      shownLinks[linkKey(link)] = true;
       shownLinks["url:" + link.url] = true;
-      shownLinks["label:" + link.label] = true;
+      return true;
+    };
+    if (box.open) showLink(box.open);
+    (box.links || []).forEach(function (link) {
+      // Two links that do the same thing are one: the same address, or the same review page.
+      if (!showLink(link)) return;
       // A page on this machine that stopped answering is said in words, never a dead link.
       if (link.closed) { sceneMeta.appendChild(el("span", "closed", "The review page is offline right now")); return; }
       var a = el("a", "", link.label);

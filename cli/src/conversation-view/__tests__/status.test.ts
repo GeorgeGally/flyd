@@ -206,10 +206,13 @@ describe("IslandRung", () => {
 });
 
 describe("what rings him", () => {
-  it("never rings for a vague follow-up note, only for a question he can answer", async () => {
+  it("rings for every open call except a note for later or one marked not urgent", async () => {
     const { ringsHim } = await import("../status.js");
     expect(ringsHim({ label: "Flyd UI", question: "Next: which Flyd screens Loose leaf reaches next" })).toBe(false);
-    expect(ringsHim({ label: "Pierre", question: "Choose the Pierre hardware direction", choices: ["Monza", "Radio"] })).toBe(true);
+    expect(ringsHim({ label: "Flyd UI", question: "later - tidy the menu bar copy" })).toBe(false);
+    expect(ringsHim({ label: "Deck", question: "Pick the deck cover, no rush" })).toBe(false);
+    expect(ringsHim({ label: "GNM", question: "Approve the GNM venue cost" })).toBe(true);
+    expect(ringsHim({ label: "Pierre", question: "Choose the Pierre hardware direction" })).toBe(true);
     expect(ringsHim({ label: "Jev", question: "Remove Jev or keep it?" })).toBe(true);
   });
 });

@@ -127,14 +127,12 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
 }
 
 /**
- * Whether an open call is worth ringing him for: a real question he can answer now. A vague
- * follow-up written as a note ("Next: which Flyd screens Loose leaf reaches next"), with no
- * question and nothing to pick, waits on the board instead. Pure.
+ * Whether an open call is worth ringing him for. A note for later ("Next: which Flyd screens
+ * Loose leaf reaches next") or one marked not urgent waits on the board instead. Pure.
  */
-export function ringsHim(row: { label: string; question?: string; choices?: string[]; decisions?: unknown[] }): boolean {
+export function ringsHim(row: { label: string; question?: string }): boolean {
   const said = (row.question ?? row.label).trim();
-  if (/^(?:next|later|follow[- ]?up|someday|eventually|backlog)\b\s*[:-]/i.test(said)) return false;
-  return Boolean(row.choices?.length || row.decisions?.length || /\?/.test(said));
+  return !/^(?:next|later)\s*[:-]/i.test(said) && !/\b(?:non-?urgent|not urgent|no rush|low priority)\b/i.test(said);
 }
 
 export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefact): ConversationStatus {

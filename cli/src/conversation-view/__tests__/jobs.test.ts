@@ -318,7 +318,7 @@ describe("jobsFrom", () => {
   it("names a passed-on question by its subject, says it once and never cuts it mid-word", () => {
     const question = "Jev was a second opinion I was supposed to ask before big choices. In six weeks it was used only 5 times, last on 9 October, and it never changed anything. I recommend removing it. Do you want me to remove it, or keep it running for another month?";
     const outcome = `Answer George's question, reading whatever code is needed, and change nothing: George got a card titled "Answer to pending decision jev-firstmate-review: Review Jev decision log: did Jev change or improve firstmate decisions? captain decides keep or remove" and asked what it means.`;
-    const domain = { id: "domain-jev", status: "needs_decision", transport: { kind: "firstmate" }, request: { source: "view", intendedOutcome: outcome, originalMessage: "what is this?" }, owner: "FirstMate", updatedAt: "2026-10-26T12:06:00.000Z", result: { unresolvedQuestions: [question], artifacts: [] } } as unknown as Parameters<typeof jobRunFromDomain>[0];
+    const domain = { id: "domain-jev", status: "needs_decision", transport: { kind: "firstmate" }, request: { source: "view", intendedOutcome: outcome, originalMessage: "what is this?" }, owner: "FirstMate", updatedAt: "2026-10-26T12:06:00.000Z", result: { unresolvedQuestions: [question], artifacts: [], detailedReport: "" } } as unknown as Parameters<typeof jobRunFromDomain>[0];
     const card = jobsFrom({ runs: [jobRunFromDomain(domain)], now: NOW }).jobs[0]!;
     expect(card.title).toBe("Review Jev decision log");
     expect(card.ask).toBe(question);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { interpretPrompt } from "../../conversation-view/interpret.js";
 import { bannedFor, forHim, PA_VOICE, shortHeadline, staffStatusLine, statusSaid, withoutInformAsk } from "../pa-voice.js";
 
 // Real lines Flyd showed George (data/flyd-voice-you/corpus.md), and what they read as now.
@@ -27,6 +28,11 @@ describe("forHim", () => {
     expect(forHim("Should I send the link to Mark?")).toBe("Should I send the link to Mark?");
   });
 
+  it("leaves code exactly as written", () => {
+    const answer = "Next: The fix is below.\n\n```ts\nthrow new Error(\"x\", {\n  cause: err,\n});\n```\n\nGeorge can run `next: build   now`.";
+    expect(forHim(answer)).toBe("The fix is below.\n\n```ts\nthrow new Error(\"x\", {\n  cause: err,\n});\n```\n\nYou can run `next: build   now`.");
+  });
+
   it("drops the staff's PR bookkeeping", () => {
     expect(forHim("The Week page is ready (still monitoring for merge/close).")).toBe("The Week page is ready.");
   });
@@ -53,10 +59,9 @@ describe("the banned phrases", () => {
     }
   });
 
-  it("the voice spec every speaking prompt carries says I, you and no labels", () => {
-    expect(PA_VOICE).toMatch(/"I"/);
-    expect(PA_VOICE).toMatch(/"you"/);
-    expect(PA_VOICE).toMatch(/Changed, Means, Needed/);
+  it("the prompt that interprets firstmate's answers carries the voice spec", () => {
+    const prompt = interpretPrompt({ question: "Is the deck done?", answer: "Changed: tier three is gone.", recent: [] }, null);
+    for (const line of PA_VOICE.split("\n")) expect(prompt).toContain(line);
   });
 });
 

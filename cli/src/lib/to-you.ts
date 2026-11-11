@@ -19,11 +19,26 @@ const AGREE: Record<string, string> = {
 };
 const VERBS = Object.keys(AGREE).join("|");
 
-/** Things of his that "his" names. A "his" before anything else may be someone else's. */
+/** His decisions: a bare "his" before one of these is him even with no name in the sentence ("Still open: his picks"). */
+const HIS_CALLS = "picks?|calls?|choices?|decisions?|answers?|approval|go-ahead";
+
+/** Things of his that "his" names once he is named earlier in the sentence. A "his" before anything else may be someone else's. */
 const HIS_THINGS = "picks?|calls?|choices?|go-ahead|ok|okay|approval|answers?|decisions?|word|review|look|sign-off|input|feedback|reply|replies|preferences?|taste|eye|attention|say|own|inbox|desk|time|questions?|call|pick|tab|screen|phone|mac|laptop|computer|browser|calendar|email";
 
 /** Lower case unless the word was "I": the last pass capitalises whatever now starts a sentence. */
 const capital = (word: string, _like: string): string => (word.startsWith("I ") ? word : word.toLowerCase());
+
+/** "he", "his", "him" said after he is named in the same sentence: "George needs … which will reload his tab". */
+function afterHim(sentence: string): string {
+  const named = new RegExp(HIM).exec(sentence);
+  if (!named) return sentence;
+  const at = named.index + named[0].length;
+  const rest = sentence.slice(at)
+    .replace(new RegExp(`\\b([Hh])is (${HIS_THINGS})\\b`, "g"), (_found, _h: string, thing: string) => `your ${thing}`)
+    .replace(new RegExp(`\\b([Hh])e (${VERBS})\\b`, "g"), (_found, _h: string, verb: string) => `you ${AGREE[verb.toLowerCase()] ?? verb}`)
+    .replace(/\b(for|to|ask|tell|show|give|from|with|remind|let) him\b/gi, (_found, word: string) => `${word} you`);
+  return sentence.slice(0, at) + rest;
+}
 
 /**
  * The same words said to him. "The CapFive lab round 5 captain has posted three
@@ -33,6 +48,7 @@ const capital = (word: string, _like: string): string => (word.startsWith("I ") 
 export function toYou(text: string): string {
   if (!text) return text;
   const said = text
+    .replace(/[^.!?\n]+[.!?]*/g, afterHim)
     // Questions brought to him: from where he sits, Flyd has them for him.
     .replace(new RegExp(`${HIM}\\s+(?:has|have)\\s+(?:posted|raised|left|sent|opened|asked)(?=\\s+(?:\\w+\\s+){0,3}(?:questions?|calls?|decisions?)\\b)`, "g"), (found) => capital("I have", found))
     // "is George" → "are you" in a question.
@@ -43,9 +59,7 @@ export function toYou(text: string): string {
     // "captain calls on V5", "captain's picks": a bare "captain" owning a decision is him too.
     .replace(/\b[Cc]aptain['’]s (calls?|picks?|decisions?|choices?|answers?)\b/g, (_found, thing: string) => `your ${thing}`)
     .replace(/\b[Cc]aptain calls (?=on\b)/g, "your calls ")
-    .replace(new RegExp(`\\b([Hh])is (${HIS_THINGS})\\b`, "g"), (_found, _h: string, thing: string) => `your ${thing}`)
-    .replace(new RegExp(`\\b([Hh])e (${VERBS})\\b`, "g"), (_found, _h: string, verb: string) => `you ${AGREE[verb.toLowerCase()] ?? verb}`)
-    .replace(/\b(for|to|ask|tell|show|give|from|with|remind|let) him\b/gi, (_found, word: string) => `${word} you`)
+    .replace(new RegExp(`\\b[Hh]is (${HIS_CALLS})\\b`, "g"), (_found, thing: string) => `your ${thing}`)
     // "Is you's call needed?" never: a possessive "you" is "your".
     .replace(/\byou['’]s\b/gi, (found) => capital("your", found));
   return said.replace(/(^\s*|[.!?]\s+|\n\s*)(you|your|i|are|have|do|were|haven't|aren't|don't|weren't)\b/g, (_found, lead: string, word: string) => `${lead}${word === "i" ? "I" : word.charAt(0).toUpperCase() + word.slice(1)}`);
@@ -53,5 +67,5 @@ export function toYou(text: string): string {
 
 /** Whether a line still talks about him in the third person. */
 export function aboutHim(text: string): boolean {
-  return new RegExp(`${HIM}|\\b[Hh]is (?:${HIS_THINGS})\\b|\\b[Hh]e (?:${VERBS})\\b`).test(text);
+  return new RegExp(`${HIM}|\\b[Hh]is (?:${HIS_CALLS})\\b`).test(text);
 }

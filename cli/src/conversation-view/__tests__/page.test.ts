@@ -1990,6 +1990,27 @@ describe("header and artefact view", () => {
     expect(ask.querySelector(".step-lead")!.textContent).toBe("Your answers.");
   });
 
+  it("shows one review link however often it is named, and every other distinct link", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:refs", kind: "call", headline: "Pick the heading", why: "", task: "refs", links: [
+      { label: "Open design review", url: "http://127.0.0.1:4387/session/a" },
+      { label: "Open design review", url: "http://127.0.0.1:4387/session/b" },
+      { label: "Open reference", url: "https://example.com/one" },
+      { label: "Open reference", url: "https://example.com/two" },
+      { label: "Open reference", url: "https://example.com/one" },
+    ] }] };
+    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
+    document.getElementById("flip")!.click();
+    const links = [...document.querySelectorAll<HTMLAnchorElement>("#scene-meta a")].map((link) => [link.textContent, link.getAttribute("href")]);
+    expect(links).toEqual([
+      ["Open design review", "http://127.0.0.1:4387/session/a"],
+      ["Open reference", "https://example.com/one"],
+      ["Open reference", "https://example.com/two"],
+    ]);
+  });
+
   it("answers a decision in one tap or in his own words, keeps Tab and typing in its chat box, and says where the answer is in plain words", async () => {
     vi.useFakeTimers({ toFake: ["setInterval"] });
     try {
