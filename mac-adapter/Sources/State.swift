@@ -55,11 +55,6 @@ final class FlydState: @unchecked Sendable {
         lock.withLock { _currentRevision }
     }
 
-    /// Whether `session` still owns Flyd's state.
-    func isCurrent(_ session: InvocationSessionToken) -> Bool {
-        lock.withLock { _invocationId == session.id }
-    }
-
     /// Starts a session, or nil when one is already held (the mic is busy).
     func begin(_ kind: InvocationSessionKind) -> InvocationSessionToken? {
         guard let token = mic.begin(kind) else { return nil }

@@ -15,7 +15,6 @@ final class MicSession {
     }
 
     var holder: InvocationSessionToken? { lock.withLock { machine.holder } }
-    var session: InvocationSession { lock.withLock { machine.session } }
 
     func begin(_ kind: InvocationSessionKind) -> InvocationSessionToken? {
         let token = lock.withLock { machine.begin(kind) }
@@ -32,12 +31,12 @@ final class MicSession {
         stopCapture()
     }
 
-    /// Ends the holder's session: `ending` turns capture off, then the mic is free.
-    /// False (and nothing touched) for a stale token.
+    /// Ends the holder's session: `ending` turns capture off (text never started it),
+    /// then the mic is free. False (and nothing touched) for a stale token.
     @discardableResult
     func end(_ token: InvocationSessionToken) -> Bool {
         guard lock.withLock({ machine.beginEnding(token) }) else { return false }
-        stopCapture()
+        if token.kind != .text { stopCapture() }
         lock.withLock { machine.finish(token) }
         return true
     }

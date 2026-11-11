@@ -82,7 +82,8 @@ final class PrivacyInvariantTests: XCTestCase {
 
     // MARK: - Mic only during explicit user action: one session owns it
 
-    /// Every kind of session turns the mic off when it ends and returns Flyd to present.
+    /// Every kind of session returns Flyd to present when it ends; every mic session turns
+    /// capture off, while text (which never starts capture) leaves it alone.
     func testEndingAnySessionTurnsTheMicOffAndReturnsToPresent() {
         for kind in [InvocationSessionKind.text, .voice, .dictation, .live] {
             var stops = 0
@@ -93,7 +94,7 @@ final class PrivacyInvariantTests: XCTestCase {
 
             flyd.end(session)
 
-            XCTAssertEqual(stops, 1, "\(kind)")
+            XCTAssertEqual(stops, kind == .text ? 0 : 1, "\(kind)")
             XCTAssertNil(flyd.mic.holder, "\(kind)")
             XCTAssertEqual(flyd.mode, .present, "\(kind)")
             XCTAssertEqual(flyd.phase, .idle, "\(kind)")

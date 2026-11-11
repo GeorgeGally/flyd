@@ -279,8 +279,9 @@ func startFlyd(closeSetup: Bool = true) {
 }
 
 /// Voice status follows Core: it is fetched whenever Core's health changes (first
-/// answer, Core coming back after a restart) and forgotten while Core is down, instead
-/// of being read once at launch and trusted forever.
+/// answer, Core coming back after a restart), refetched on each poll while it is
+/// missing or not ok, and forgotten while Core is down, instead of being read once at
+/// launch and trusted forever.
 func startCoreHealthWatch() {
     checkCoreHealth()
     let timer = Timer(timeInterval: CoreHealthWatch.pollInterval, repeats: true) { _ in checkCoreHealth() }
@@ -290,7 +291,9 @@ func startCoreHealthWatch() {
 func checkCoreHealth() {
     Task {
         let healthy = await flydClient.healthCheck()
-        let refresh = await MainActor.run { coreHealthWatch.observe(healthy: healthy) }
+        let refresh = await MainActor.run {
+            coreHealthWatch.observe(healthy: healthy, voiceStatusReady: cachedVoiceStatus?.ok == true)
+        }
         switch refresh {
         case nil:
             return
@@ -656,6 +659,7 @@ func handleInvocation() {
         invocationPanel.show()
         invocationPanel.onIntentSubmitted = { intent in
             // A new intent supersedes one still resolving.
+            guard !ScrawlRecorder.blocksInvocation else { return }
             activeInvocationTask?.cancel()
             endTextSession()
             guard let session = state.begin(.text) else {

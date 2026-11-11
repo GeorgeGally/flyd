@@ -55,8 +55,10 @@ struct CoreHealthWatch: Equatable {
     private(set) var lastHealthy: Bool?
     private(set) var generation = 0
 
-    mutating func observe(healthy: Bool) -> Refresh? {
-        guard healthy != lastHealthy else { return nil }
+    /// `voiceStatusReady` is whether the cached voice status is present and ok; while
+    /// it isn't, each healthy poll fetches again (a restart between polls, a failed fetch).
+    mutating func observe(healthy: Bool, voiceStatusReady: Bool) -> Refresh? {
+        guard healthy != lastHealthy || (healthy && !voiceStatusReady) else { return nil }
         lastHealthy = healthy
         generation += 1
         return healthy ? .fetch(generation: generation) : .clear(generation: generation)
