@@ -253,7 +253,8 @@ describe("the offline reason", () => {
   });
 });
 
-describe("the board, with a fake ssh", () => {
+// Generous timeouts: these spawn real processes and must hold up on a loaded machine.
+describe("the board, with a fake ssh", { timeout: 30_000 }, () => {
   let dir: string;
   let path: string;
   let ssh: string;
@@ -292,11 +293,12 @@ esac
 `);
     chmodSync(ssh, 0o755);
   });
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  // A read started by the last view() can still be writing into dir; retry rather than race it.
+  afterEach(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
 
   // Tool versions are left out unless a test asks: the local row would run this computer's own claude and codex.
   const board = (machines: Array<{ name: string; alias: string }>, freshMs = 60_000, toolsFreshMs = Number.POSITIVE_INFINITY) =>
-    new MachinesBoard({ path, ssh, first: machines, freshMs, toolsFreshMs, timeoutMs: 700, localName: "Here" });
+    new MachinesBoard({ path, ssh, first: machines, freshMs, toolsFreshMs, timeoutMs: 3000, localName: "Here" });
   const row = (rows: MachineRow[], id: string) => rows.find((machine) => machine.id === id)!;
 
   it("reads each machine with the fixed script and shows the Mac and Linux rows", async () => {
@@ -306,7 +308,7 @@ esac
       const rows = machines.view().machines;
       expect(row(rows, "linux").state).toBe("online");
       expect(row(rows, "mac").state).toBe("online");
-    }, { timeout: 4000, interval: 20 });
+    }, { timeout: 10_000, interval: 20 });
     const rows = machines.view().machines;
     expect(row(rows, "linux").reading!.cores).toBe(12);
     expect(row(rows, "mac").reading!.running[0]!.name).toBe("Google Chrome");
@@ -316,13 +318,16 @@ esac
 
   it("asks for the tool versions when they are due, keeps them between reads, and says what matters", async () => {
     writeFileSync(join(dir, "tools.txt"), "@@tools\ncodex codex-cli 0.167.0\n@@end\n");
-    const machines = new MachinesBoard({ path, ssh, first: [{ name: "Box", alias: "linux" }], freshMs: 0, toolsFreshMs: 60_000, timeoutMs: 700, localName: "Here" });
+    const machines = new MachinesBoard({ path, ssh, first: [{ name: "Box", alias: "linux" }], freshMs: 0, toolsFreshMs: 60_000, timeoutMs: 3000, localName: "Here" });
     machines.view();
-    await vi.waitFor(() => expect(row(machines.view().machines, "linux").reading?.tools).toEqual({ codex: "0.167.0" }), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "linux").reading?.tools).toEqual({ codex: "0.167.0" }), { timeout: 10_000, interval: 20 });
     expect(readFileSync(join(dir, "linux.tools"), "utf8")).toBe(TOOLS_SCRIPT);
     expect(readFileSync(join(dir, "linux.stdin"), "utf8")).toBe(READ_SCRIPT);
     rmSync(join(dir, "linux.stdin"));
-    await vi.waitFor(() => expect(readFileSync(join(dir, "linux.stdin"), "utf8")).toBe(READ_SCRIPT), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => {
+      machines.view();
+      expect(readFileSync(join(dir, "linux.stdin"), "utf8")).toBe(READ_SCRIPT);
+    }, { timeout: 10_000, interval: 20 });
     expect(readFileSync(join(dir, "linux.toolreads"), "utf8")).toBe("x\n");
     const box = row(machines.view().machines, "linux");
     expect(box.reading?.tools).toEqual({ codex: "0.167.0" });
@@ -331,11 +336,11 @@ esac
   });
 
   it("keeps a machine online when its tools never answer, and does not ask them again until they are due", async () => {
-    const machines = new MachinesBoard({ path, ssh, first: [{ name: "Box", alias: "stuck" }], freshMs: 0, toolsFreshMs: 60_000, timeoutMs: 300, localName: "Here" });
+    const machines = new MachinesBoard({ path, ssh, first: [{ name: "Box", alias: "stuck" }], freshMs: 0, toolsFreshMs: 60_000, timeoutMs: 2000, localName: "Here" });
     machines.view();
-    await vi.waitFor(() => expect(row(machines.view().machines, "stuck").state).toBe("online"), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "stuck").state).toBe("online"), { timeout: 10_000, interval: 20 });
     const started = Date.now();
-    while (Date.now() - started < 1200) {
+    while (Date.now() - started < 3000) {
       expect(row(machines.view().machines, "stuck").state).toBe("online");
       await new Promise((done) => setTimeout(done, 50));
     }
@@ -349,9 +354,9 @@ esac
     const first = machines.view().machines;
     expect(Date.now() - started).toBeLessThan(200);
     expect(row(first, "dead").state).toBe("checking");
-    await vi.waitFor(() => expect(row(machines.view().machines, "linux").state).toBe("online"), { timeout: 600, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "linux").state).toBe("online"), { timeout: 2000, interval: 20 });
     expect(row(machines.view().machines, "dead").state).toBe("checking");
-    await vi.waitFor(() => expect(row(machines.view().machines, "dead").state).toBe("offline"), { timeout: 3000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "dead").state).toBe("offline"), { timeout: 10_000, interval: 20 });
     const dead = row(machines.view().machines, "dead");
     expect(dead.reason).toBe("It did not answer.");
     expect(dead.reading).toBeUndefined();
@@ -364,32 +369,32 @@ esac
       const rows = machines.view().machines;
       expect(row(rows, "locked").state).toBe("offline");
       expect(row(rows, "gibberish").state).toBe("offline");
-    }, { timeout: 4000, interval: 20 });
+    }, { timeout: 10_000, interval: 20 });
     expect(row(machines.view().machines, "locked").reason).toMatch(/could not log in/);
     expect(JSON.stringify(machines.view())).not.toContain("george@locked");
   });
 
   it("goes offline, remembers when it was last seen, and comes back", async () => {
     const machines = board([{ name: "Flaky", alias: "flaky" }], 0);
-    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("online"), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("online"), { timeout: 10_000, interval: 20 });
     writeFileSync(join(dir, "down"), "");
-    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("offline"), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("offline"), { timeout: 10_000, interval: 20 });
     const offline = row(machines.view().machines, "flaky");
     expect(offline.seenAt).toBeTruthy();
     expect(offline.reading).toBeUndefined();
     rmSync(join(dir, "down"));
-    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("online"), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("online"), { timeout: 10_000, interval: 20 });
   });
 
   it("says so when this computer has no ssh", async () => {
-    const machines = new MachinesBoard({ path, ssh: join(dir, "no-ssh-here"), first: [{ name: "Box", alias: "linux" }], toolsFreshMs: Number.POSITIVE_INFINITY, timeoutMs: 700, localName: "Here" });
+    const machines = new MachinesBoard({ path, ssh: join(dir, "no-ssh-here"), first: [{ name: "Box", alias: "linux" }], toolsFreshMs: Number.POSITIVE_INFINITY, timeoutMs: 3000, localName: "Here" });
     machines.view();
-    await vi.waitFor(() => expect(row(machines.view().machines, "linux").reason).toBe("SSH is not installed here."), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "linux").reason).toBe("SSH is not installed here."), { timeout: 10_000, interval: 20 });
   });
 
   it("does not read a machine again while its reading is fresh", async () => {
     const machines = board([{ name: "Box", alias: "linux" }]);
-    await vi.waitFor(() => expect(row(machines.view().machines, "linux").state).toBe("online"), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "linux").state).toBe("online"), { timeout: 10_000, interval: 20 });
     rmSync(join(dir, "linux.stdin"));
     machines.view();
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -429,7 +434,7 @@ esac
   it("reads a saved machine called local over ssh, apart from this computer", async () => {
     const machines = board([{ name: "Box", alias: "local" }]);
     machines.view();
-    await vi.waitFor(() => expect(machines.view().machines.every((machine) => machine.state === "online")).toBe(true), { timeout: 8000, interval: 20 });
+    await vi.waitFor(() => expect(machines.view().machines.every((machine) => machine.state === "online")).toBe(true), { timeout: 10_000, interval: 20 });
     const [here, box] = machines.view().machines;
     expect(here).toMatchObject({ name: "Here", local: true });
     expect(box).toMatchObject({ name: "Box", alias: "local", local: false });
