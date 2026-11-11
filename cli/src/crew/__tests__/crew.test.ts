@@ -753,6 +753,18 @@ describe("crew landing and the task state machine", () => {
     expect((await discardCrewTask(task.id)).status).toBe("discarded");
   });
 
+  it("never hands back a claimed landing whose merge reached main before the crash, even with the checkout moved", async () => {
+    const task = await readyTask();
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    const merged = commitsOnMain();
+    saveTask({ ...task, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    git(repo, "checkout", "-qb", "elsewhere");
+    await superviseCrew({ alive: () => false, runCommand: passing });
+    expect(readTask(task.id)?.status).toBe("landed");
+    expect(commitsOnMain()).toBe(merged);
+    await expect(discardCrewTask(task.id)).rejects.toThrow("is landed; it can't be discarded");
+  });
+
   it("resumes a claimed landing: merges once, and skips the merge when the crash came just after it", async () => {
     const first = await readyTask();
     saveTask({ ...first, status: "landing", landingStep: "claimed", landerPid: DEAD });

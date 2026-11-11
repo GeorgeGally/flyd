@@ -1219,9 +1219,7 @@ function handBack(current: CrewTask): CrewTask {
 
 /** True once the task's branch is already part of its base branch. */
 async function branchMerged(task: CrewTask): Promise<boolean> {
-  const current = await git(task.repo, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "");
-  if (current !== task.baseBranch) return false;
-  return git(task.repo, ["merge-base", "--is-ancestor", task.branch, "HEAD"]).then(() => true, () => false);
+  return git(task.repo, ["merge-base", "--is-ancestor", task.branch, `refs/heads/${task.baseBranch}`]).then(() => true, () => false);
 }
 
 async function checkLandable(task: CrewTask): Promise<void> {
