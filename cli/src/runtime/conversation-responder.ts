@@ -324,7 +324,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
     // With a room reading, the answer sees who George is plus only the
     // knowledge selected for this moment — not the whole archive.
     const lean = options.room
-      ? `${localClock(input.now?.() ?? new Date())}\n${agenda}${weather}${article}${history}\nGeorge: ${input.message}${attachedBlock}\nFlyd:`
+      ? `${localClock(input.now?.() ?? new Date())}\n${agenda}${weather}${article}${history}\n${chatScopeLine(input.chatScope)}George: ${input.message}${attachedBlock}\nFlyd:`
       : promptBody;
     const repos = !projects && input.crossRepo?.length
       ? `His code repos (inspect with read_file/grep/git_log using repo=<path> only if he asks about the code): ${input.crossRepo.map((repo) => `${repo.name} ${repo.root}`).join("; ")}.`

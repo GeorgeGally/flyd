@@ -354,6 +354,7 @@ export const COMPOSER_SCRIPT = `
   var scopeMenu = document.getElementById("scope-menu");
   var scopeThread = "";
   var scopeChoice = null;
+  var scopeSessionId = null;
   function scopeNow() { return scopeChoice !== null ? scopeChoice : scopeThread; }
   function scopeLabel(name) { return !name ? "Flyd" : name.toLowerCase() === "flyd" ? "Flyd (project)" : name; }
   function drawScope() {
@@ -367,7 +368,8 @@ export const COMPOSER_SCRIPT = `
     var id = session.id || "";
     var thread = id.indexOf("project:") === 0 && id !== "project:all" && id !== "project:other";
     scopeThread = thread ? String(session.title || "") : "";
-    scopeChoice = null;
+    if (id !== scopeSessionId) scopeChoice = null;
+    scopeSessionId = id;
     closeScope();
     drawScope();
   }

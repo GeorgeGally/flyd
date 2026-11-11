@@ -338,7 +338,6 @@ export class ProjectThreads {
     };
   }
 
-  /** What his words in a thread need to stand on their own, in the lines `plainNote` takes back off. */
   /**
    * Where a message is for: the one project his words clearly name, else where he
    * wrote it from. "Flyd, …" addressed to Flyd names no project.
@@ -349,6 +348,7 @@ export class ProjectThreads {
     return named.length === 1 ? { project: named[0]! } : { ...from };
   }
 
+  /** What his words in a thread need to stand on their own, in the lines `plainNote` takes back off. */
   lead(sessionId: string): string {
     const project = this.project(sessionId);
     const lines = this.snapshot(sessionId).messages.slice(-CONTEXT_LINES)
