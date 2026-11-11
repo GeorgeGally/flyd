@@ -14,6 +14,7 @@ import { applyStoryMedia, scheduleStoryClips, scheduleStoryMedia, scheduleStoryS
 import { clip, inline, sentences } from "./summaries.js";
 import type { DayCount } from "./artefact.js";
 import { monitorObjectsFromSources, type SemanticObject } from "./semantic.js";
+import { providerTrouble, readScoutRun, type ProviderTrouble, type ScoutRun } from "../council/scout-run.js";
 
 // Flyd's left column: what Flyd itself is doing, as cards. Its own background
 // work (watching the news, reading back its answers, keeping memory, running
@@ -87,6 +88,103 @@ export interface ActivityPanel {
   monitors?: SemanticObject[];
   /** Finished design labs waiting for his look, as Activities ready for review. */
   reviews?: SemanticObject[];
+  /** Whether the news is working, said without his asking: feeds, the last edition, the morning brief. */
+  news?: NewsStatus;
+}
+
+/** The news, at a glance: one plain line, and a warning when something he relies on stopped. */
+export interface NewsStatus {
+  /** Feeds are on and have sources to read. */
+  running: boolean;
+  line: string;
+  /** The morning brief has not run, or the news writer's model calls are failing. */
+  warning?: string;
+}
+
+export interface NewsStatusInputs {
+  /** FLYD_SCOUT=0 turns the news off. */
+  enabled: boolean;
+  /** scout/sources.json, as read. */
+  sources: unknown;
+  /** scout/edition-latest.json, as read. */
+  edition: unknown;
+  /** morning.json: the brief prepared before he is up. */
+  morning: unknown;
+  /** The news writer's last recorded run (scout/run-state.json). */
+  run: ScoutRun | null;
+  /** The agenda log, oldest first: the launchd runner's record of each scout run. */
+  log: string[];
+}
+
+/** From this local hour a morning brief not yet prepared today is late. */
+const BRIEF_LATE_HOUR = 8;
+
+const TROUBLE_SAID: Record<ProviderTrouble, string> = {
+  out_of_credit: "The news writer's model account is out of credit, so the news has stopped updating.",
+  usage_limit: "The news writer has hit its model usage limit, so the news has stopped updating.",
+  refused: "The news writer's model key was refused, so the news has stopped updating.",
+  unreachable: "The news writer can't reach its model, so the news has stopped updating.",
+  failed: "The news writer's last run failed, so the news may be out of date.",
+};
+
+function clockAt(at: number): string {
+  return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+function dayAt(at: number): string {
+  return new Date(at).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+}
+
+/** Feeds on or off, the last edition and morning brief, and what stopped, from the records Flyd keeps. Pure. */
+export function newsStatus(inputs: NewsStatusInputs, now: number): NewsStatus {
+  const today = localDay(new Date(now));
+  const sources = Array.isArray(inputs.sources) ? inputs.sources as Array<{ status?: unknown }> : [];
+  const active = sources.filter((source) => source?.status === "active").length;
+  const running = inputs.enabled && active > 0;
+  const edition = inputs.edition as { date?: unknown; generatedAt?: unknown; items?: unknown } | null;
+  const editionAt = typeof edition?.generatedAt === "string" ? Date.parse(edition.generatedAt) : Number.NaN;
+  const stories = Array.isArray(edition?.items) ? edition.items.length : 0;
+  const morning = inputs.morning as { day?: unknown; preparedAt?: unknown } | null;
+  const briefAt = typeof morning?.preparedAt === "string" ? Date.parse(morning.preparedAt) : Number.NaN;
+  const briefToday = morning?.day === today && !Number.isNaN(briefAt);
+
+  const feeds = !inputs.enabled ? "News is switched off." : running ? `News feeds are running from ${active} ${active === 1 ? "source" : "sources"}.` : "News has no feeds running.";
+  const editionSaid = Number.isNaN(editionAt) ? "There's no news edition yet"
+    : edition?.date === today ? `Today's edition came in at ${clockAt(editionAt)} with ${stories} ${stories === 1 ? "story" : "stories"}`
+      : `The last edition was ${dayAt(editionAt)}`;
+  const briefSaid = briefToday ? `your morning brief was ready at ${clockAt(briefAt)}`
+    : Number.isNaN(briefAt) ? "there's no morning brief yet" : `the last morning brief was ${dayAt(briefAt)}`;
+  const line = inputs.enabled ? `${feeds} ${editionSaid}, and ${briefSaid}.` : feeds;
+
+  // The news writer is failing when its newest failure is newer than anything it last got through.
+  let worked = Number.isNaN(editionAt) ? 0 : editionAt;
+  let failed = 0;
+  let trouble: ProviderTrouble | undefined;
+  const failure = (at: number, kind: ProviderTrouble) => {
+    if (at > failed) {
+      failed = at;
+      trouble = kind;
+    }
+  };
+  if (inputs.run) {
+    const at = Date.parse(inputs.run.at);
+    if (!Number.isNaN(at)) {
+      if (inputs.run.ok) worked = Math.max(worked, at);
+      else failure(at, inputs.run.trouble ?? "failed");
+    }
+  }
+  for (const raw of inputs.log) {
+    const match = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z) scout( failed)?: (.*)$/.exec(raw.trim());
+    if (!match) continue;
+    const at = Date.parse(match[1]!);
+    if (Number.isNaN(at)) continue;
+    if (match[2]) failure(at, providerTrouble(match[3]!));
+    else if (/(?:^|; )(?:evolved|edition|watch):/.test(match[3]!)) worked = Math.max(worked, at);
+  }
+  const warnings: string[] = [];
+  if (inputs.enabled && trouble && failed > worked) warnings.push(TROUBLE_SAID[trouble]);
+  if (inputs.enabled && !briefToday && new Date(now).getHours() >= BRIEF_LATE_HOUR) warnings.push("This morning's brief hasn't run.");
+  return { running, line, ...(warnings.length ? { warning: warnings.join(" ") } : {}) };
 }
 
 /**
@@ -604,8 +702,16 @@ export class ActivityReader {
       },
       runs: listDomainRuns(this.commandDir),
     };
-    const panel = applyStoryMedia(composeActivity(inputs, now), this.dir);
-    const upkeep = applyStoryMedia(composeActivity({ ...inputs, upkeep: true }, now), this.dir);
+    const news = newsStatus({
+      enabled: process.env.FLYD_SCOUT !== "0",
+      sources: oneJson(join(scout, "sources.json")),
+      edition: editionFile,
+      morning: oneJson(join(this.dir, "morning.json")),
+      run: readScoutRun(scout),
+      log: inputs.log,
+    }, now);
+    const panel = { ...applyStoryMedia(composeActivity(inputs, now), this.dir), news };
+    const upkeep = { ...applyStoryMedia(composeActivity({ ...inputs, upkeep: true }, now), this.dir), news };
     const onStored = () => {
       if (this.refresh()) for (const each of this.listeners) each();
     };

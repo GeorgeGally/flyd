@@ -1431,6 +1431,69 @@ describe("conversation page", () => {
     expect(input.value).toBe("");
   });
 
+  it("shows the island's loader in the message box from the end of speech until the reply starts", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const loader = document.getElementById("voice-wait")!;
+    const composer = document.getElementById("composer")!;
+    const voice = (window as unknown as { flydVoice: Record<string, (text?: string) => void> }).flydVoice;
+
+    voice.start!();
+    voice.draft!("open the deals page");
+    // Still talking: the box listens, no loader yet.
+    expect(loader.hidden).toBe(true);
+    voice.transcribing!();
+    expect(loader.hidden).toBe(false);
+    expect(loader.getAttribute("role")).toBe("status");
+    expect(loader.textContent).toBe("Writing down what you said");
+    voice.send!("Open the deals page.");
+    await settle();
+    // Sent: still waiting, now on the answer, and the box is empty for the next message.
+    expect(loader.hidden).toBe(false);
+    expect(composer.classList.contains("voice-waiting")).toBe(true);
+    expect(loader.textContent).toContain("to answer");
+
+    const asked = { id: "note:1", role: "user", html: "<p>Open the deals page.</p>" };
+    stream.emit("update", { order: ["note:1"], messages: [asked], working: true });
+    await settle();
+    expect(loader.hidden).toBe(false);
+    stream.emit("update", { order: ["note:1", "a1"], messages: [asked, { id: "a1", role: "assistant", html: "<p>Opening it.</p>" }], working: true });
+    await settle();
+    expect(loader.hidden).toBe(true);
+    expect(composer.classList.contains("voice-waiting")).toBe(false);
+    expect(loader.textContent).toBe("");
+  });
+
+  it("takes the box's loader away when a recording fails or its message does not send", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    const loader = document.getElementById("voice-wait")!;
+    const voice = (window as unknown as { flydVoice: Record<string, (text?: string) => void> }).flydVoice;
+
+    voice.start!();
+    voice.transcribing!();
+    expect(loader.hidden).toBe(false);
+    voice.cancel!("Voice did not finish - try again");
+    expect(loader.hidden).toBe(true);
+
+    vi.mocked(fetch).mockImplementation(async (url) => (url === "/api/send" ? json({ error: "down" }, 500) : json({ assistantLabel: "firstmate", sessions: SESSIONS })));
+    voice.start!();
+    voice.transcribing!();
+    voice.send!("Open the deals page.");
+    await settle();
+    expect(loader.hidden).toBe(true);
+  });
+
+  it("never shows the voice loader for a typed message", async () => {
+    load("");
+    await settle();
+    open("latest", []);
+    await type("hello");
+    expect(document.getElementById("voice-wait")!.hidden).toBe(true);
+  });
+
   it("keeps what was typed before talking, and restores it when nothing was heard", async () => {
     load("");
     await settle();
@@ -3185,6 +3248,21 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show: { ...SHOW, live: false } });
     expect(document.getElementById("scene-head")!.textContent).toBe("Your move, sir.");
     expect(document.getElementById("show-doing")!.textContent).toBe("Nothing running right now");
+  });
+
+  it("says on Today whether the news is working, and what stopped, without being asked", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const status = document.getElementById("news-status")!;
+    expect(status.hidden).toBe(true);
+    const line = "News feeds are running from 64 sources. Today's edition came in at 12:19 with 11 stories, and your morning brief was ready at 07:02.";
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [], news: { running: true, line, warning: "The news writer's model account is out of credit, so the news has stopped updating." } } });
+    expect(status.hidden).toBe(false);
+    expect(document.getElementById("news-status-line")!.textContent).toBe(line);
+    expect(document.getElementById("news-status-warn")!.textContent).toContain("out of credit");
+    stream.emit("update", { order: [], messages: [], working: false, leftColumn: { now: [], recent: [], semantic: [], news: { running: true, line } } });
+    expect(document.getElementById("news-status-warn")!.hidden).toBe(true);
   });
 
   it("offers no left column and no header button while nothing needs him, even with the column switched on", async () => {

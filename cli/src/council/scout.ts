@@ -13,6 +13,7 @@ import { classifyMedia, mixInspiration, workFocusFromProjects, type InspirationI
 import { gatherInspiration, markShown, readShown } from "./inspiration-sources.js";
 import { localDay, memoryPromptText } from "./memory-store.js";
 import { liveProjects } from "./projects.js";
+import { providerTrouble, recordScoutRun } from "./scout-run.js";
 
 // The Scout: what's happening in the world that George would want to know —
 // found, ranked for him, delivered before he asks, and evolving.
@@ -933,26 +934,38 @@ export async function scoutTick(deps: ScoutDependencies): Promise<string[]> {
   const log: string[] = [];
   const result = await withLock(dir, async () => {
     if (process.env.FLYD_SCOUT === "0") return;
-    // Failure-paused sources get their retry without waiting for the daily evolution.
-    const revival = reviveFailedSources(readSources(dir, now), now);
-    if (revival.revived.length) {
-      writeSources(revival.sources, dir);
-      log.push(`retrying ${revival.revived.map((source) => source.name).join(", ")}`);
+    try {
+      await scoutTickWork(deps, dir, now, log);
+    } catch (error) {
+      // The front page says the news writer is failing, and why, from this record.
+      recordScoutRun(dir, { at: now.toISOString(), ok: false, trouble: providerTrouble(error instanceof Error ? error.message : String(error)) });
+      throw error;
     }
-    // Daily, with or without feedback: look for new sources, revive, explore the reserve, replan topics, refine taste.
-    if (evolutionDue(now, dir)) {
-      const changes = await evolveScout(deps);
-      log.push(`evolved: ${changes.map((change) => change.kind).join(", ") || "no changes"}`);
-    }
-    if (scoutDue(now, dir)) {
-      const run = await runScout(deps);
-      log.push(`edition: ${run.edition?.items.length ?? 0} items${run.failedTopics.length ? `, ${run.failedTopics.length} sources failed` : ""}`);
-    } else if (watchDue(now, dir)) {
-      const musts = await watchScout(deps);
-      atomicWrite(join(dir, "watch-state.json"), JSON.stringify({ lastWatchAt: now.toISOString() }));
-      log.push(`watch: ${musts.length} must-know`);
-    }
+    // Only a run that called the news writer says whether it works.
+    if (log.some((line) => /^(?:evolved|edition|watch):/.test(line))) recordScoutRun(dir, { at: now.toISOString(), ok: true });
   });
   if (result === "locked") log.push("locked");
   return log;
+}
+
+async function scoutTickWork(deps: ScoutDependencies, dir: string, now: Date, log: string[]): Promise<void> {
+  // Failure-paused sources get their retry without waiting for the daily evolution.
+  const revival = reviveFailedSources(readSources(dir, now), now);
+  if (revival.revived.length) {
+    writeSources(revival.sources, dir);
+    log.push(`retrying ${revival.revived.map((source) => source.name).join(", ")}`);
+  }
+  // Daily, with or without feedback: look for new sources, revive, explore the reserve, replan topics, refine taste.
+  if (evolutionDue(now, dir)) {
+    const changes = await evolveScout(deps);
+    log.push(`evolved: ${changes.map((change) => change.kind).join(", ") || "no changes"}`);
+  }
+  if (scoutDue(now, dir)) {
+    const run = await runScout(deps);
+    log.push(`edition: ${run.edition?.items.length ?? 0} items${run.failedTopics.length ? `, ${run.failedTopics.length} sources failed` : ""}`);
+  } else if (watchDue(now, dir)) {
+    const musts = await watchScout(deps);
+    atomicWrite(join(dir, "watch-state.json"), JSON.stringify({ lastWatchAt: now.toISOString() }));
+    log.push(`watch: ${musts.length} must-know`);
+  }
 }

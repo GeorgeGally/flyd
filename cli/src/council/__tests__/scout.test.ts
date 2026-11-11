@@ -7,6 +7,7 @@ import {
   runScout, scoutTick, SEED_TASTE, seedSources, takeEvolutionNotes, watchScout, writeSources, type Edition, type ScoutSource,
 } from "../scout.js";
 import { activityFromRecords } from "../../conversation-view/activity.js";
+import { providerTrouble, readScoutRun } from "../scout-run.js";
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "flyd-scout-")); });
@@ -244,6 +245,22 @@ describe("evolution", () => {
     expect(await scoutTick({ complete, fetchFn, dir, now: () => morning })).toEqual(["evolved: no changes", "edition: 0 items"]);
     expect(latestEdition(dir)?.items).toEqual([]);
     expect(await scoutTick({ complete, fetchFn, dir, now: () => morning })).toEqual(["watch: 0 must-know"]);
+    expect(readScoutRun(dir)).toEqual({ at: morning.toISOString(), ok: true });
+  });
+
+  it("records a news writer that fails, as the kind of trouble and never the provider's own words", async () => {
+    onlySources([{ kind: "rss", name: "Waxy.org", target: "https://waxy.org/feed/" }]);
+    const fetchFn = fakeFetch({ "waxy.org": rss([{ title: "Story", link: "https://waxy.org/s" }]) });
+    const complete = vi.fn(async () => { throw Object.assign(new Error("402 Insufficient balance. Top up at https://opencode.ai/console/wrk_secret/billing"), { status: 402 }); });
+    const morning = new Date(2026, 8, 27, 7, 30);
+    await expect(scoutTick({ complete, fetchFn, dir, now: () => morning })).rejects.toThrow(/402/);
+    expect(readScoutRun(dir)).toEqual({ at: morning.toISOString(), ok: false, trouble: "out_of_credit" });
+    expect(readFileSync(join(dir, "run-state.json"), "utf8")).not.toContain("opencode");
+    expect(providerTrouble("429 rate limit")).toBe("usage_limit");
+    expect(providerTrouble("models backed off until 2026-11-11T10:00:00Z")).toBe("usage_limit");
+    expect(providerTrouble("401 Unauthorized")).toBe("refused");
+    expect(providerTrouble("fetch failed")).toBe("unreachable");
+    expect(providerTrouble("Unexpected token in JSON")).toBe("failed");
   });
 
   it("never pauses a source George has only been shown, not marked down", async () => {

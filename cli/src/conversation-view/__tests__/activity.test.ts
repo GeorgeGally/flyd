@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kindVisual } from "../cards.js";
-import { ActivityReader, asksHowFlydWorks, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, LAB_REVIEW_WINDOW_MS, labReviews, MAX_RECENT, monitorsFromActivityRecords, recordActivity } from "../activity.js";
+import { ActivityReader, asksHowFlydWorks, activityFromJob, activityFromLogLine, activityFromRecords, activityRecordPath, composeActivity, editionStories, flashStories, LAB_REVIEW_WINDOW_MS, labReviews, MAX_RECENT, monitorsFromActivityRecords, newsStatus, recordActivity } from "../activity.js";
 import { needsGeorge } from "../semantic.js";
 import { saveDomainRun } from "../../command/store.js";
 import type { DomainRun } from "../../command/types.js";
@@ -415,6 +415,70 @@ describe("design labs waiting for his review", () => {
       const panel = new ActivityReader({ dir, now: () => NOW }).current();
       expect(panel.reviews?.map((object) => object.id)).toEqual(["lab:domain-lab"]);
       expect(composeActivity({ log: [], jobs: [], advice: [], records: [] }, NOW).reviews).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("news status", () => {
+  // Local times, so the lines read the same wherever the test runs.
+  const now = new Date(2026, 10, 11, 16, 50).getTime();
+  const iso = (hour: number, minute = 0, day = 11) => new Date(2026, 10, day, hour, minute).toISOString();
+  const logAt = (hour: number, minute: number, text: string) => `${iso(hour, minute)} ${text}`;
+  const sources = [{ status: "active" }, { status: "active" }, { status: "paused" }];
+  const healthy = {
+    enabled: true,
+    sources,
+    edition: { date: "2026-11-11", generatedAt: iso(12, 19), items: [{}, {}, {}] },
+    morning: { day: "2026-11-11", preparedAt: iso(7, 2) },
+    run: null,
+    log: [] as string[],
+  };
+
+  it("says the feeds are running, when today's edition came and when the morning brief was ready", () => {
+    expect(newsStatus(healthy, now)).toEqual({
+      running: true,
+      line: "News feeds are running from 2 sources. Today's edition came in at 12:19 with 3 stories, and your morning brief was ready at 07:02.",
+    });
+  });
+
+  it("warns when the news writer's provider is failing since its last edition, in plain words", () => {
+    const log = [logAt(13, 40, "scout failed: 402 Insufficient balance. Top up at https://opencode.ai/console/wrk_x/billing")];
+    const status = newsStatus({ ...healthy, log }, now);
+    expect(status.warning).toBe("The news writer's model account is out of credit, so the news has stopped updating.");
+    expect(JSON.stringify(status)).not.toContain("opencode");
+    // A failure before the edition it later made is over.
+    expect(newsStatus({ ...healthy, log: [logAt(11, 0, "scout failed: 402 Insufficient balance")] }, now).warning).toBeUndefined();
+    // A later run that got through clears it, from the run record or the log.
+    expect(newsStatus({ ...healthy, log, run: { at: iso(14, 0), ok: true } }, now).warning).toBeUndefined();
+    expect(newsStatus({ ...healthy, log: [...log, logAt(15, 0, "scout: evolved: no changes; watch: 0 must-know")] }, now).warning).toBeUndefined();
+    expect(newsStatus({ ...healthy, run: { at: iso(15, 0), ok: false, trouble: "usage_limit" } }, now).warning).toBe("The news writer has hit its model usage limit, so the news has stopped updating.");
+  });
+
+  it("warns when this morning's brief has not run, and says when the last ones were", () => {
+    const status = newsStatus({ ...healthy, morning: { day: "2026-11-10", preparedAt: iso(7, 5, 10) }, edition: { date: "2026-11-10", generatedAt: iso(6, 30, 10), items: [{}] } }, now);
+    expect(status.line).toBe("News feeds are running from 2 sources. The last edition was Tuesday 10 November, and the last morning brief was Tuesday 10 November.");
+    expect(status.warning).toBe("This morning's brief hasn't run.");
+    // Before eight it is not late yet.
+    expect(newsStatus({ ...healthy, morning: null }, new Date(2026, 10, 11, 7, 30).getTime()).warning).toBeUndefined();
+  });
+
+  it("says when the news is off or has nothing to read", () => {
+    expect(newsStatus({ ...healthy, enabled: false, log: [logAt(13, 40, "scout failed: 402")] }, now)).toEqual({ running: false, line: "News is switched off." });
+    expect(newsStatus({ ...healthy, sources: [{ status: "paused" }] }, now).line).toMatch(/^News has no feeds running\./);
+  });
+
+  it("is read from Flyd's own records onto the front page panel", () => {
+    const dir = mkdtempSync(join(tmpdir(), "activity-news-"));
+    try {
+      mkdirSync(join(dir, "scout"), { recursive: true });
+      writeFileSync(join(dir, "scout", "sources.json"), JSON.stringify(sources));
+      writeFileSync(join(dir, "scout", "edition-latest.json"), JSON.stringify(healthy.edition));
+      writeFileSync(join(dir, "morning.json"), JSON.stringify(healthy.morning));
+      writeFileSync(join(dir, "scout", "run-state.json"), JSON.stringify({ at: iso(15, 0), ok: false, trouble: "out_of_credit" }));
+      const panel = new ActivityReader({ dir, now: () => now }).current();
+      expect(panel.news).toMatchObject({ running: true, warning: "The news writer's model account is out of credit, so the news has stopped updating." });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

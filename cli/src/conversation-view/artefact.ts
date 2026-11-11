@@ -25,6 +25,7 @@ import type { ShowItem, ShowKind } from "./show.js";
 import { plainTitle, saysNothing } from "./plain-words.js";
 import { forHim, shortHeadline, staffStatusLine } from "../lib/pa-voice.js";
 import { SnapshotGate, type SnapshotGateOptions } from "./snapshot-gate.js";
+import { BoardShots, boardShotSrc, lieselBoardKey } from "./board-shots.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
 // fleet snapshot (the authoritative "everything going on"), Flyd's own memory,
@@ -71,6 +72,10 @@ export interface ArtefactRow {
   shotDir?: string;
   /** The candidates a lab made to choose between, when the shots are one per version. */
   previews?: CandidatePreview[];
+  /** The Liesel board it asks him to look at, by key, when it names one. */
+  board?: string;
+  /** When Flyd last pictured that board: the card shows the board itself, ahead of any older screenshot of it. */
+  boardShot?: number;
   /** Flyd's own words for it, once its model has said them. */
   said?: Said;
   /** The shared decision step's question and recommendation, when George owns it. */
@@ -577,6 +582,8 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     const previews = extra?.previews?.length ? extra.previews : next.shotDir ? extras.get(next.shotDir)?.previews : undefined;
     if (previews?.length) next.previews = previews;
     if (!next.url && entry?.url) next.url = entry.url;
+    const board = [next.url, ...(next.references ?? []).map((link) => link.url)].map(lieselBoardKey).find(Boolean);
+    if (board) next.board = board;
     return next;
   };
   if (fleet.unavailable) return fleet;
@@ -1261,9 +1268,12 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
     ...(asked ? (several && !row.said?.line && !row.recommendation?.option ? {} : { detail: row.recommendation?.option ? recommendationText(row.recommendation) : row.said?.line || sourceHeadline }) : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
     ...(row.started ? { started: row.started } : {}),
-    ...((row.shotDir ?? row.task) && row.shots?.length
-      ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
-      : {}),
+    // A board he is asked to look at is shown as it stands now; the task's own pictures of it are older.
+    ...(row.board && row.boardShot
+      ? { shots: [{ src: boardShotSrc(row.board, row.boardShot), label: "The board" }] }
+      : (row.shotDir ?? row.task) && row.shots?.length
+        ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
+        : {}),
     ...((row.shotDir ?? row.task) && row.previews?.length
       ? { previews: row.previews.map((preview) => ({ label: preview.label, image: shotSrc(row.shotDir ?? row.task!, preview.image), ...(preview.phone ? { phone: shotSrc(row.shotDir ?? row.task!, preview.phone) } : {}) })) }
       : {}),
@@ -1777,6 +1787,10 @@ export class ArtefactFeed {
   /** The last good bearings JSON, when it was read and how long the read took. */
   private good?: { raw: unknown; at: number; durationMs?: number };
   private gate?: SnapshotGate<FleetRead>;
+  /** Pictures of the Liesel boards the cards name; under vitest none unless a test passes them. */
+  private boardShots?: BoardShots | null;
+  /** The boards a card names now: only their pictures are ever served. */
+  private boardKeys = new Set<string>();
 
   /** Notices and replies use the same decision owner as polled fleet changes. */
   decide(changes: FirstmateChange[]): Promise<ExecutiveDecisionRecord[]> | null {
@@ -1807,8 +1821,44 @@ export class ArtefactFeed {
       timeoutMs?: number;
       /** The fleet read's gate; by default the one this process shares for the bearings script. */
       fleetGate?: SnapshotGate<FleetRead>;
+      /** Pictures of the boards cards name; by default ~/.flyd/view/board-shots, none under vitest. */
+      boards?: BoardShots;
     } = {},
   ) {}
+
+  private boards(): BoardShots | undefined {
+    if (this.boardShots === undefined) {
+      this.boardShots = this.options.boards ?? (process.env.VITEST ? null : new BoardShots());
+      // A board pictured since the last read shows on its card at once, without reading the fleet again.
+      this.boardShots?.onChange(() => {
+        if (!this.inputs.fleet) return;
+        this.inputs = { ...this.inputs, fleet: this.withBoards(this.inputs.fleet) };
+        for (const listener of this.listeners) listener();
+      });
+    }
+    return this.boardShots ?? undefined;
+  }
+
+  /** Each card that names a board carries when its picture was taken; a missing or old picture is taken again. */
+  private withBoards(fleet: FleetArtefact): FleetArtefact {
+    const boards = this.boards();
+    if (!boards || fleet.unavailable) return fleet;
+    const keys = new Set<string>();
+    const pictured = (row: ArtefactRow): ArtefactRow => {
+      if (!row.board) return row;
+      keys.add(row.board);
+      const picture = boards.want(row.board);
+      return picture ? { ...row, boardShot: picture.at } : row;
+    };
+    this.boardKeys = keys;
+    return { ...fleet, calls: fleet.calls.map(pictured), live: fleet.live.map(pictured), ready: fleet.ready.map(pictured), landed: fleet.landed.map(pictured), held: fleet.held.map(pictured), next: fleet.next.map(pictured) };
+  }
+
+  /** The absolute path of a board's picture a card names, or null for anything else. */
+  boardShotPath(key: string): string | null {
+    if (!this.boardKeys.has(key)) return null;
+    return this.boards()?.picture(key)?.path ?? null;
+  }
 
   current(): ArtefactInputs {
     return this.inputs;
@@ -2153,7 +2203,7 @@ export class ArtefactFeed {
       // never changes what reaches George, only how it reads (no commit subjects, no task ids).
       const { fleet, unsaid } = voice ? this.voiced(voice, decided) : { fleet: decided, unsaid: [] };
       this.inputs = {
-        fleet,
+        fleet: this.withBoards(fleet),
         ...(bearings.unavailable ? {} : { landedByDay: landedByDay(entries, Date.now()), landedWeek: weekLandedRows(entries, Date.now()) }),
         memories: memoryHighlights(memoryText),
         news: newsHighlights(newsRaw),
@@ -2240,7 +2290,7 @@ export class ArtefactFeed {
   private async say(voice: ArtefactVoice, enriched: FleetArtefact, unsaid: VoiceItem[], generation: number): Promise<void> {
     if (!(await voice.request(unsaid))) return;
     if (generation === this.generation) {
-      this.inputs = { ...this.inputs, fleet: this.voiced(voice, enriched).fleet };
+      this.inputs = { ...this.inputs, fleet: this.withBoards(this.voiced(voice, enriched).fleet) };
       for (const listener of this.listeners) listener();
     }
   }
