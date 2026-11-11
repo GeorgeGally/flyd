@@ -81,6 +81,8 @@ let invocationPanel = InvocationPanel()
 var activeAugmentPanels: [AugmentPanel] = []
 var activeInvocationTask: Task<Void, Never>?
 var activeVoiceInvocationId: String?
+/// Push-to-talk's hold on the microphone; released only through `stopVoiceCapture()`.
+var activeVoiceMicToken: MicSessionToken?
 let voiceConversationId = UUID().uuidString
 var voiceTranscriptionTimeout: DispatchWorkItem?
 var voiceHoldMonitor: Timer?
@@ -382,23 +384,27 @@ func handleVoiceInvocation() {
     beginVoiceInvocation()
 }
 
-func startDictation() {
-    guard !ScrawlRecorder.blocksInvocation else { return }
+/// False when dictation was refused; the caller tells the fn router.
+func startDictation() -> Bool {
+    guard !ScrawlRecorder.blocksInvocation else { return false }
     ShortcutLog.record("handler: dictation")
-    guard state.mode != .live, state.phase == .idle else { return }
+    guard state.mode != .live, state.phase == .idle else {
+        ShortcutLog.record("handler: dictation refused (busy)")
+        return false
+    }
 
     if let voiceStatus = cachedVoiceStatus, !voiceStatus.ok {
         dictation.showBlocked(voiceStatus.message ?? "Voice setup needs attention")
-        return
+        return false
     }
 
     guard permissionGate.hasMicrophone else {
         permissionGate.requestMicrophonePermission()
         dictation.showBlocked("Microphone permission required")
-        return
+        return false
     }
 
-    dictation.start()
+    return dictation.start()
 }
 
 /// Fn+Control held: the captain is talking to Flyd, in the background. His
@@ -406,6 +412,11 @@ func startDictation() {
 /// a typed message; nothing is raised or focused, so he keeps looking at what
 /// he is talking about. The notch pill is the only cue.
 func beginVoiceInvocation() {
+    guard let micToken = MicSession.shared.begin(.voice) else {
+        island.show(.failed("Microphone is busy"))
+        return
+    }
+    activeVoiceMicToken = micToken
     let (invocationId, _) = state.startInvocation()
     activeVoiceInvocationId = invocationId
 
@@ -425,7 +436,7 @@ func beginVoiceInvocation() {
     voiceRelay.onComplete = { transcript in
         DispatchQueue.main.async {
             clearVoiceTranscriptionTimeout()
-            voiceCapture.stop()
+            stopVoiceCapture()
             voiceRelay.disconnect()
             let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else {
@@ -439,7 +450,7 @@ func beginVoiceInvocation() {
     voiceRelay.onError = { error in
         DispatchQueue.main.async {
             clearVoiceTranscriptionTimeout()
-            voiceCapture.stop()
+            stopVoiceCapture()
             voiceRelay.disconnect()
             print("[Flyd] Voice transcription error: \(error)")
             cleanupVoiceInvocation(message: VoiceStartupPolicy.message(forTranscriptionError: error))
@@ -476,7 +487,7 @@ func handleVoiceRelease() {
     switch action {
     case .finishRecording:
         stopVoiceHoldMonitor()
-        voiceCapture.stop()
+        stopVoiceCapture()
         state.transition(to: .transcribing)
         island.show(.working)
         ConversationWindow.shared.voice(.transcribing)
@@ -525,7 +536,7 @@ func stopVoiceHoldMonitor() {
 func cleanupVoiceInvocation(message: String? = nil) {
     clearVoiceTranscriptionTimeout()
     stopVoiceHoldMonitor()
-    voiceCapture.stop()
+    stopVoiceCapture()
     resetVoiceCaptureCallbacks()
     voiceRelay.disconnect()
     activeVoiceInvocationId = nil
@@ -561,12 +572,20 @@ func handleShortcutPress() {
     activeAugmentPanels.removeAll()
     workInteractionCoordinator.cancelActiveInvocation()
     clearVoiceTranscriptionTimeout()
-    voiceCapture.stop()
+    stopVoiceCapture()
     resetVoiceCaptureCallbacks()
     stopVoiceHoldMonitor()
     voiceRelay.disconnect()
     activeVoiceInvocationId = nil
     executor.clearInvocationRefs()
+}
+
+/// Ends push-to-talk's mic session, which turns capture off. Without a token there is
+/// nothing of push-to-talk's to stop, so another session's mic is left alone.
+func stopVoiceCapture() {
+    guard let micToken = activeVoiceMicToken else { return }
+    activeVoiceMicToken = nil
+    MicSession.shared.end(micToken)
 }
 
 func resetVoiceCaptureCallbacks() {

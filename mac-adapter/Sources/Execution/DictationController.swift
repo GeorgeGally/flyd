@@ -28,6 +28,8 @@ final class DictationController {
     private let pill = DictationPill.shared
     private var timeout: DispatchWorkItem?
     private var recordingCap: DispatchWorkItem?
+    /// Held from capture start until capture stops; released by `stopCapture()`.
+    private var micToken: MicSessionToken?
     /// The last dictated text, so a paste that landed in the wrong place can be redone.
     /// Memory only: never written to disk, the journal or Flyd's memory.
     private var lastText: String?
@@ -38,8 +40,16 @@ final class DictationController {
     private let relay = VoiceTranscriptionRelay.shared
     private let stateMachine = InvocationStateMachine.shared
 
-    func start() {
-        guard case .idle = phase else { return }
+    /// False when dictation did not start, so the fn router can forget the gesture
+    /// instead of treating the next tap as "stop".
+    @discardableResult
+    func start() -> Bool {
+        guard case .idle = phase else { return false }
+        guard let token = MicSession.shared.begin(.dictation) else {
+            pill.show(.failed("Microphone is busy"))
+            return false
+        }
+        micToken = token
         let (invocationId, _) = state.startInvocation()
         let previousCorrection = DictationEditMonitor.shared.stop(send: false)
         let app = NSWorkspace.shared.frontmostApplication
@@ -78,7 +88,7 @@ final class DictationController {
 
         guard capture.start() else {
             fail("Microphone unavailable")
-            return
+            return false
         }
 
         let cap = DispatchWorkItem { [weak self] in
@@ -87,6 +97,7 @@ final class DictationController {
         }
         recordingCap = cap
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.maxRecording, execute: cap)
+        return true
     }
 
     func stop() {
@@ -213,6 +224,10 @@ final class DictationController {
         recordingCap?.cancel()
         recordingCap = nil
         capture.stop()
+        if let micToken {
+            MicSession.shared.end(micToken)
+            self.micToken = nil
+        }
         capture.onAudioChunk = nil
         capture.onLevel = nil
         capture.onSpectrum = nil
