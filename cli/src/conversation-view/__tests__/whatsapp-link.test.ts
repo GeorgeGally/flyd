@@ -65,10 +65,11 @@ describe("an unlinked WhatsApp on the main screen", () => {
 });
 
 describe("the pairing endpoints", () => {
+  const stopped: string[] = [];
   const pairing = (code?: string) => ({
     state: () => ({ paired: false, ...(code ? { code } : {}) }),
     start() {},
-    stop() {},
+    stop() { stopped.push("stop"); },
     onChange: () => () => {},
   }) as unknown as WhatsAppPairing;
 
@@ -85,6 +86,8 @@ describe("the pairing endpoints", () => {
       const pair = await fetch(base + "/api/whatsapp-pair", { method: "POST", headers: { "x-flyd-view-token": token }, body: JSON.stringify({ action: "start" }) });
       expect(await pair.json()).toMatchObject({ result: { paired: false } });
       expect((await fetch(base + "/api/whatsapp-pair", { method: "POST", body: "{}" })).status).toBe(403);
+      await fetch(base + "/api/whatsapp-pair", { method: "POST", headers: { "x-flyd-view-token": token }, body: JSON.stringify({ action: "stop" }) });
+      expect(stopped).toEqual(["stop"]);
       // Unpaired, the artefacts column still carries nothing about WhatsApp.
       const rail = (server as unknown as { rail: (snapshot: ConversationSnapshot) => { artefacts: Array<{ id: string; title: string; url?: string }> } }).rail(snapshot());
       expect(rail.artefacts.some((card) => card.id.includes("whatsapp"))).toBe(false);

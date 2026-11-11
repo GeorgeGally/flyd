@@ -73,4 +73,25 @@ describe("People artefact", () => {
     expect(document.getElementById("messages")!.textContent).toContain("See you soon");
     expect(document.getElementById("messages")!.textContent).not.toContain("More conversation");
   });
+  it("lets George set the link offer aside, says why a try failed, and brings it back on request", async () => {
+    vi.stubGlobal("setInterval", vi.fn());
+    try { localStorage.clear(); } catch { /* storage unavailable */ }
+    const actions: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, options: { body: string }) => {
+      if (url === "/api/whatsapp-pair") { const { action } = JSON.parse(options.body); actions.push(action); return new Response(JSON.stringify({ result: { paired: false, ...(action === "start" ? { error: "WhatsApp did not accept the link." } : {}) } }), { status: 200 }); }
+      return new Response(JSON.stringify({ result: { paired: false, state: "disconnected" } }), { status: 200 });
+    }));
+    const html = renderWhatsAppPage("test-token");
+    document.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(html)![1].replace(/<script>[\s\S]*<\/script>/, "");
+    new Function(/<script>([\s\S]*)<\/script>/.exec(html)![1])();
+    await settle();
+    expect(document.querySelector(".link-error")!.textContent).toContain("did not accept the link");
+    (document.getElementById("link-later") as HTMLButtonElement).click(); await settle();
+    expect(actions).toEqual(["start", "stop"]);
+    expect(document.querySelector(".qr")).toBe(null);
+    expect(document.getElementById("messages")!.textContent).toContain("WhatsApp is not linked.");
+    (document.getElementById("link-again") as HTMLButtonElement).click(); await settle();
+    expect(actions.at(-1)).toBe("start");
+    expect(document.querySelector(".qr")).not.toBe(null);
+  });
 });

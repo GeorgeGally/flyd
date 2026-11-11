@@ -21,7 +21,18 @@ describe("the pairing session", () => {
     pairing.start();
     await flush();
     expect(stop).toHaveBeenCalled();
-    expect(pairing.state().paired).toBe(false);
+    expect(pairing.state()).toEqual({ paired: false, error: "WhatsApp connection timed out" });
+  });
+
+  it("says why the last try failed until George sets the offer aside", async () => {
+    connect.mockRejectedValue(new Error("WhatsApp did not accept the link"));
+    const pairing = new WhatsAppPairing();
+    pairing.start(); await flush();
+    connect.mockReturnValue(new Promise(() => {}));
+    pairing.start(); await flush();
+    expect(pairing.state().error).toBe("WhatsApp did not accept the link");
+    pairing.stop();
+    expect(pairing.state()).toEqual({ paired: false });
   });
 
   it("keeps the socket after a link so the first history can land", async () => {
