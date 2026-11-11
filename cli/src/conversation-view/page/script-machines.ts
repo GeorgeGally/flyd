@@ -1,19 +1,21 @@
 /**
  * The Machines screen, the header tab after Today, News and Week: one row per
- * machine with Core's one sentence about what matters there and at most one
- * button; then which model does which job, Claude's spend and the usage left;
- * and, on the dark panel, the tool versions in one sentence with one button.
+ * machine, its name as a headline over Core's one sentence about what matters
+ * there and at most one button; and, in the right column, the tool versions in
+ * one sentence with one button, which model does which job in one sentence,
+ * Claude's spend and the usage left.
  * A button asks Flyd in the conversation, in Core's words. One that would change
  * something asks him first, in place. The list is read only while the screen is
  * up, soon again while a machine is still being checked; applyScreen reads
  * again on the way back from the artefact screen. Borrows VIEW_TOKEN, ago,
- * clock, frontEsc, frontRoot, input, composer, grow, current, centre and
+ * clock, frontEsc, frontRoot, current, deliver, noteRefusal, centre and
  * setCentre from the page's closure.
  */
 export const MACHINES_SCRIPT = `
   var machinesList = document.getElementById("machines-list");
   var machinesSetupEl = document.getElementById("machines-setup");
   var machinesTools = document.getElementById("machines-tools");
+  var machinesSide = document.getElementById("machines-side");
   var machineOpen = document.getElementById("machine-open");
   var machineForm = document.getElementById("machine-form");
   var machineError = document.getElementById("machine-error");
@@ -53,14 +55,20 @@ export const MACHINES_SCRIPT = `
     var day = days === 0 ? "today" : days === 1 ? "tomorrow" : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
     return day + " at " + clock(iso);
   }
+  // "Chat runs on A, quick jobs on B, and LIVE voice on C." A role in capitals keeps them.
+  function machineModels(models) {
+    var parts = models.map(function (one, i) {
+      var role = i === 0 || /^.[A-Z]/.test(one.role) ? one.role : one.role.charAt(0).toLowerCase() + one.role.slice(1);
+      return role + (i === 0 ? " runs on " : " on ") + one.model;
+    });
+    if (parts.length < 2) return parts.join("") + ".";
+    var last = parts.pop();
+    return parts.join(", ") + (parts.length > 1 ? ", and " : " and ") + last + ".";
+  }
   function machineSetup(setup) {
     if (!setup) return "";
     var html = "";
-    if (setup.models && setup.models.length) {
-      html += '<section class="mach-routes" aria-label="Models">' + setup.models.map(function (one) {
-        return '<div class="mach-route"><span class="mach-job">' + frontEsc(one.role) + '</span><span class="mach-model">' + frontEsc(one.model) + '</span></div>';
-      }).join("") + '</section>';
-    }
+    if (setup.models && setup.models.length) html += '<p class="mach-models">' + frontEsc(machineModels(setup.models)) + '</p>';
     if (setup.spend) {
       var cap = "$" + setup.spend.cap.toLocaleString("en");
       html += '<p class="setup-spend">' + (setup.spend.capped
@@ -92,7 +100,7 @@ export const MACHINES_SCRIPT = `
     if (list !== machinesDrawn.list) { machinesDrawn.list = list; machinesList.innerHTML = list; }
     if (setup !== machinesDrawn.setup) { machinesDrawn.setup = setup; machinesSetupEl.innerHTML = setup; }
     if (tools !== machinesDrawn.tools) { machinesDrawn.tools = tools; machinesTools.innerHTML = tools; }
-    machinesTools.hidden = !tools;
+    machinesSide.hidden = !tools && !setup;
     return machines.some(function (machine) { return machine.state === "checking"; });
   }
   var machinesView = { machines: [] };
@@ -111,21 +119,19 @@ export const MACHINES_SCRIPT = `
       .then(function (view) { machinesLoading = false; machinesView = view; machinesSetup = view.setup; machinesToolsWords = view.tools; return drawMachines(view); })
       .then(machinesAgain).catch(function () { machinesLoading = false; machinesAgain(false); });
   }
-  // A button asks Flyd in the conversation, the same way a typed message does.
+  // A button sends its own words to Flyd in the conversation; the message box is left as it is.
   function machineAsk(text) {
     machineAsking = "";
     setCentre("talk", true);
     var tries = 0;
-    (function submitWhenReady() {
+    (function sendWhenReady() {
       if (current) {
-        var draft = input.value;
-        input.value = text;
-        composer.requestSubmit();
-        input.value = draft;
-        if (typeof grow === "function") grow();
+        deliver(JSON.stringify({ session: current, text: text, images: [], files: [] })).then(function (sent) {
+          if (sent.unsure) noteRefusal("Flyd may not have got that. Check the conversation before asking again.");
+        }, function () { noteRefusal("Flyd could not ask that. Try the button again in a moment."); });
         return;
       }
-      if (tries++ < 100) setTimeout(submitWhenReady, 200);
+      if (tries++ < 100) setTimeout(sendWhenReady, 200);
       else noteRefusal("Flyd could not ask that: the conversation is not open yet. Try the button again in a moment.");
     })();
   }

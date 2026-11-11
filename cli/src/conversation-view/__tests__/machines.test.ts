@@ -396,8 +396,8 @@ esac
     expect(() => statSync(join(dir, "linux.stdin"))).toThrow();
   });
 
-  it("starts from the PC and the server when nothing is saved, leaving out the computer it runs on", () => {
-    expect(FIRST_MACHINES).toEqual([{ name: "PC", alias: "pc-firstmate" }, { name: "Server", alias: "85.155.185.63" }]);
+  it("starts from the PC alone when nothing is saved, leaving out the computer it runs on", () => {
+    expect(FIRST_MACHINES).toEqual([{ name: "PC", alias: "pc-firstmate" }]);
     const self = hostname().split(".")[0]!;
     const rows = new MachinesBoard({ path, ssh, first: [{ name: "Self", alias: self }, { name: "Box", alias: "linux" }] }).saved();
     expect(rows).toEqual([{ name: "Box", alias: "linux" }]);

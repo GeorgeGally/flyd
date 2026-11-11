@@ -5171,7 +5171,7 @@ describe("the Machines screen", () => {
     noonTomorrow.setHours(12, 0, 0, 0);
     const soon = noonTomorrow.toISOString();
     serve(() => ({ machines: [ONLINE], setup: {
-      models: [{ role: "Chat", model: "Claude Sonnet 5.5" }, { role: "Coding crews", model: "GPT-6 Luna through OpenCode Go" }],
+      models: [{ role: "Chat", model: "Claude Sonnet 5.5" }, { role: "Quick jobs", model: "Claude Haiku 5.5" }, { role: "Coding crews", model: "GPT-6 Luna through OpenCode Go" }, { role: "LIVE voice", model: "gpt-realtime-2.1" }],
       spend: { usd: 1.789, cap: 100, calls: 1036, capped: false },
       usageAt: new Date(Date.now() - 12 * 60_000).toISOString(),
       usage: [{ provider: "Claude", left: 69, resetsAt: soon }, { provider: "OpenCode Go", left: 0, resetsAt: soon }, { provider: "Codex", left: 24, resetsAt: soon, runsOutAt: soon }],
@@ -5180,9 +5180,10 @@ describe("the Machines screen", () => {
     await settle();
     tab().click();
     await settle();
-    const setup = document.querySelector(".machine-setup")!;
-    expect([...setup.querySelectorAll(".mach-route")].map((one) => [one.querySelector(".mach-job")!.textContent, one.querySelector(".mach-model")!.textContent]))
-      .toEqual([["Chat", "Claude Sonnet 5.5"], ["Coding crews", "GPT-6 Luna through OpenCode Go"]]);
+    const setup = document.querySelector("#machines-side .machine-setup")!;
+    expect(document.getElementById("machines-side")!.hidden).toBe(false);
+    expect(setup.querySelector(".mach-models")!.textContent)
+      .toBe("Chat runs on Claude Sonnet 5.5, quick jobs on Claude Haiku 5.5, coding crews on GPT-6 Luna through OpenCode Go, and LIVE voice on gpt-realtime-2.1.");
     expect(setup.querySelector(".setup-spend")!.textContent).toBe("Claude has cost $1.79 of your $100 this month, across 1,036 calls.");
     const usage = [...setup.querySelectorAll(".setup-usage li")];
     expect(setup.querySelector(".setup-usage-read")!.textContent).toBe("Usage read 12m ago");
@@ -5202,7 +5203,7 @@ describe("the Machines screen", () => {
     tab().click();
     await settle();
     const panel = document.getElementById("machines-tools")!;
-    expect(panel.hidden).toBe(false);
+    expect(document.getElementById("machines-side")!.hidden).toBe(false);
     expect(panel.querySelector(".mach-tools-say")!.textContent).toBe(tools.say);
     const sends = () => fetcher.mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)).text);
     (panel.querySelector(".mach-btn") as HTMLElement).click();
@@ -5224,7 +5225,7 @@ describe("the Machines screen", () => {
     expect(sends().at(-1)).toBe("The Mac is short of memory. Find what can safely close.");
   });
 
-  it("keeps a half-typed message when a button asks Flyd", async () => {
+  it("keeps a half-typed message and its attachment when a button asks Flyd", async () => {
     const fetcher = serve(() => ({ machines: [ONLINE] }));
     load("");
     await settle();
@@ -5233,11 +5234,17 @@ describe("the Machines screen", () => {
     await settle();
     const input = document.getElementById("input") as HTMLTextAreaElement;
     input.value = "half a thought";
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    const paste = new Event("paste", { cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
+    input.dispatchEvent(paste);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment img"); i += 1) await settle();
     (document.querySelector(".machine .mach-btn") as HTMLElement).click();
     await settle();
-    const sends = fetcher.mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)).text);
-    expect(sends).toEqual(["The Mac is short of memory. Find what can safely close."]);
+    const sent = fetcher.mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(sent.map((one) => [one.text, one.images.length])).toEqual([["The Mac is short of memory. Find what can safely close.", 0]]);
     expect(input.value).toBe("half a thought");
+    expect(document.querySelectorAll(".attachment img")).toHaveLength(1);
   });
 
   it("says so when a button could not ask Flyd, and leaves the message box alone", async () => {
@@ -5262,13 +5269,13 @@ describe("the Machines screen", () => {
     }
   });
 
-  it("hides the dark panel when there are no versions to compare", async () => {
+  it("hides the right column when there are no versions, models or usage to show", async () => {
     serve(() => ({ machines: [ONLINE] }));
     load("");
     await settle();
     tab().click();
     await settle();
-    expect(document.getElementById("machines-tools")!.hidden).toBe(true);
+    expect(document.getElementById("machines-side")!.hidden).toBe(true);
   });
 
   it("says plainly when a machine is offline, with no numbers", async () => {

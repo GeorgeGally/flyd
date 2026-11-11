@@ -87,7 +87,6 @@ export interface MachineAction {
 
 export const FIRST_MACHINES: SavedMachine[] = [
   { name: "PC", alias: "pc-firstmate" },
-  { name: "Server", alias: "85.155.185.63" },
 ];
 
 const NAME_MAX = 60;
