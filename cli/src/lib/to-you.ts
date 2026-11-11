@@ -20,7 +20,7 @@ const AGREE: Record<string, string> = {
 const VERBS = Object.keys(AGREE).join("|");
 
 /** Things of his that "his" names. A "his" before anything else may be someone else's. */
-const HIS_THINGS = "picks?|calls?|choices?|go-ahead|ok|okay|approval|answers?|decisions?|word|review|look|sign-off|input|feedback|reply|replies|preferences?|taste|eye|attention|say|own|inbox|desk|time|questions?|call|pick";
+const HIS_THINGS = "picks?|calls?|choices?|go-ahead|ok|okay|approval|answers?|decisions?|word|review|look|sign-off|input|feedback|reply|replies|preferences?|taste|eye|attention|say|own|inbox|desk|time|questions?|call|pick|tab|screen|phone|mac|laptop|computer|browser|calendar|email";
 
 /** Lower case unless the word was "I": the last pass capitalises whatever now starts a sentence. */
 const capital = (word: string, _like: string): string => (word.startsWith("I ") ? word : word.toLowerCase());

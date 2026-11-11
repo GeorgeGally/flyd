@@ -12,6 +12,8 @@ const REAL: Array<[string, string]> = [
   ["The page isn't broken. Do you want me to pass along the confirmation once the screenshot is in?", "The page isn't broken. I'll let you know once the screenshot is in."],
   ["**Changed** The deck dropped the third tier.\n**Needed** Send it.", "The deck dropped the third tier.\nSend it."],
   ["Means: Design decisions are pending.", "Design decisions are pending."],
+  ["The page isn't broken.\n\nDo you want me to pass along the confirmation once the screenshot is in?", "The page isn't broken.\n\nI'll let you know once the screenshot is in."],
+  ["George needs to give firstmate a time for Logan's restart, which will reload his tab.", "You need to give firstmate a time for Logan's restart, which will reload your tab."],
 ];
 
 describe("forHim", () => {

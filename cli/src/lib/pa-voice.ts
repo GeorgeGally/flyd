@@ -30,7 +30,7 @@ export function statusSaid(line: string, what: string): string | null {
 }
 
 /** Questions that only ask leave to tell him something: Flyd always tells him, so it never asks. */
-const INFORM_ASK = /(?:^|(?<=[.!?]\s))(?:do you want|would you like|want|shall|should)\s+(?:me|I)\s+(?:to\s+)?(?:pass (?:along|on)|let you know|tell you|update you|report back|ping you|keep you (?:posted|updated)|send you (?:the|a) (?:confirmation|update|note))\b([^?]*)\?/gi;
+const INFORM_ASK = /(?:^|(?<=[.!?]\s+))(?:do you want|would you like|want|shall|should)\s+(?:me|I)\s+(?:to\s+)?(?:pass (?:along|on)|let you know|tell you|update you|report back|ping you|keep you (?:posted|updated)|send you (?:the|a) (?:confirmation|update|note))\b([^?]*)\?/gim;
 
 /** The leave-to-tell question said as what Flyd will do. "Do you want me to pass along the confirmation once the screenshot is in?" → "I'll let you know once the screenshot is in." Pure. */
 export function withoutInformAsk(text: string): string {
