@@ -38,7 +38,13 @@ describe("command store", () => {
     expect(readDomainRun("domain-store-2", dir)!.result?.workState).toBe("blocked");
     // Retried: the same result, but the run is working again.
     const failed = readDomainRun("domain-store-2", dir)!;
-    expect(commitDomainRun(failed, { ...failed, status: "working" }, dir).result?.workState).toBe("moving");
+    const retried = commitDomainRun(failed, { ...failed, status: "working" }, dir);
+    expect(retried.result?.workState).toBe("moving");
+    // A later write while it is still working (a message he sent) keeps it moving: the old reply is not read again.
+    expect(commitDomainRun(retried, { ...retried, messages: [message("from-view")], updatedAt: "2026-11-11T01:00:00.000Z" }, dir).result?.workState).toBe("moving");
+    // A new reply is read afresh.
+    const later = readDomainRun("domain-store-2", dir)!;
+    expect(commitDomainRun(later, { ...later, result: result("Blocked on the Stripe key again.") }, dir).result?.workState).toBe("blocked");
   });
 
   it("applies a change made from an earlier read onto the run as it is now", () => {

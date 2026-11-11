@@ -182,20 +182,24 @@ describe("jobsFrom", () => {
     expect(jobRunFromDomain({ ...domain, result: { ...domain.result!, unresolvedQuestions: ["Ship now?"] } }).question).toBe("Ship now?");
   });
 
-  it("keeps a ready run in Needs you only while its landing is open", () => {
+  it("keeps a ready run in Needs you for a day from when it settled, then calls it done, PR or not", () => {
     const pr = "https://github.com/acme/site/pull/42";
     const ready = (over: Partial<JobRun>) => run({ status: "completed", work: "ready", ...over });
     const groupOf = (board: ReturnType<typeof jobsFrom>, id: string) => board.jobs.find((job) => job.threads.some((thread) => thread.id === id))?.group;
-    const open = jobsFrom({ runs: [ready({ id: "with-pr", artifacts: [pr] }), ready({ id: "fresh", updatedAt: "2026-10-26T11:00:00.000Z" })], now: NOW });
-    expect(groupOf(open, "with-pr")).toBe("needs");
-    expect(groupOf(open, "fresh")).toBe("needs");
-    // The fleet reports its PR merged: it has landed, whatever its reply said.
-    const landed = { id: "landed:42", kind: "landed", headline: "Site fix", why: "", links: [{ label: "acme/site #42", url: pr }] };
-    const merged = jobsFrom({ runs: [ready({ id: "with-pr", artifacts: [pr] })], show: { ...screen, done: [landed] } as unknown as ShowScreen, now: NOW });
-    expect(groupOf(merged, "with-pr")).toBe("done");
-    // With no PR to check, a ready run older than a day drops to done.
-    const old = jobsFrom({ runs: [ready({ id: "stale", updatedAt: "2026-10-25T10:00:00.000Z" })], now: NOW });
-    expect(groupOf(old, "stale")).toBe("done");
+    const board = jobsFrom({
+      runs: [
+        ready({ id: "fresh-pr", artifacts: [pr], settled: "2026-10-26T02:00:00.000Z" }),
+        ready({ id: "fresh", settled: "2026-10-26T02:00:00.000Z" }),
+        // Settled two days ago; a later message bumped its update time, which does not restart the day.
+        ready({ id: "old-pr", artifacts: [pr], settled: "2026-10-24T11:00:00.000Z", updatedAt: "2026-10-26T11:30:00.000Z" }),
+        ready({ id: "old", project: "Other", settled: "2026-10-24T11:00:00.000Z" }),
+      ],
+      now: NOW,
+    });
+    expect(groupOf(board, "fresh-pr")).toBe("needs");
+    expect(groupOf(board, "fresh")).toBe("needs");
+    expect(groupOf(board, "old-pr")).toBe("done");
+    expect(groupOf(board, "old")).toBe("done");
   });
 
   it("says finished work is ready and a finished report is a report", () => {

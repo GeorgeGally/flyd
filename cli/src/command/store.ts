@@ -92,7 +92,9 @@ export function mutateDomainRun(id: string, change: (current: DomainRun | null) 
       }
     }
     const sameReply = current?.result?.brief === next.result?.brief && current?.result?.detailedReport === next.result?.detailedReport;
-    const saved: DomainRun = { ...withWorkState(next, !sameReply || from === next.status), revision: (current?.revision ?? 0) + 1 };
+    const kept = sameReply && from === next.status ? current?.result?.workState : undefined;
+    const stated = kept && next.result ? { ...next, result: { ...next.result, workState: kept } } : withWorkState(next, !sameReply || from === next.status);
+    const saved: DomainRun = { ...stated, revision: (current?.revision ?? 0) + 1 };
     writeJsonFile(path, saved);
     return saved;
   });

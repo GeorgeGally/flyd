@@ -77,6 +77,8 @@ export interface JobRun {
   owner: string;
   updatedAt: string;
   started?: string;
+  /** When its outcome settled, from its report: how long finished work has been waiting. */
+  settled?: string;
   question?: string;
   questionIdentity?: string;
   report?: string;
@@ -113,7 +115,6 @@ const DAY = 24 * 60 * 60 * 1000;
 const DONE_KEEP_DAYS = 21;
 /** An open run that has not moved for this long is not work under way, whatever its record still says. */
 const QUIET_RUN_MS = DAY;
-const PULL = /github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
 const REPORT_CHARS = 240;
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
@@ -141,6 +142,7 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
     owner: run.owner,
     updatedAt: run.updatedAt,
     ...(run.createdAt ? { started: run.createdAt } : {}),
+    ...(run.report?.since ? { settled: run.report.since } : {}),
     ...(question ? { question: one(question) } : {}),
     questionIdentity: question ?? run.request.intendedOutcome ?? run.request.originalMessage,
     ...(report ? { report } : {}),
@@ -169,17 +171,12 @@ function rank(group: JobGroup): number {
   return group === "needs" ? 0 : group === "working" ? 1 : group === "waiting" ? 2 : 3;
 }
 
-/** Whether a ready run's landing is still open: its pull request not yet merged, or, with none, not a day old. */
-function landingOpen(run: JobRun, merged: Set<string>, now: number): boolean {
-  const prs = run.artifacts.filter((ref) => PULL.test(ref));
-  return prs.length ? !prs.some((url) => merged.has(url)) : now - Date.parse(run.updatedAt) <= DAY;
-}
-
-function runSignal(run: JobRun, now: number, merged: Set<string>): Signal | null {
+function runSignal(run: JobRun, now: number): Signal | null {
   const at = run.updatedAt;
   // Where the work stands is the one work state its reply was read into; its status alone says how it is held.
   const read = run.work ?? workStateOfRun(run.status as DomainRunStatus);
-  const work = read === "ready" && !landingOpen(run, merged, now) ? "landed" : read;
+  // Finished work waits on him for a day from when it settled; after that it is done, PR or not.
+  const work = read === "ready" && now - Date.parse(run.settled ?? at) > DAY ? "landed" : read;
   if (work === "needs_you") {
     if (run.source === "flyd") return null;
     return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
@@ -291,10 +288,8 @@ export function jobsFrom(input: {
     active.push(bucket);
     activeProjects.set(projectKey, active);
   };
-  // The pull requests the fleet reports merged: a ready run whose PR is among them has landed.
-  const merged = new Set(showItems(input.show).filter((item) => item.kind === "landed").flatMap((item) => item.links ?? []).map((link) => link.url));
   for (const run of input.runs ?? []) {
-    const signal = runSignal(run, now, merged);
+    const signal = runSignal(run, now);
     if (!signal) continue;
     const name = run.project;
     if (!name && signal.group === "done") continue;
@@ -459,7 +454,7 @@ function artifactsOf(paths: string[], exists: (path: string) => boolean): JobArt
   const out: JobArtifact[] = [];
   for (const ref of paths) {
     if (/^https?:\/\//i.test(ref)) {
-      const pr = PULL.test(ref);
+      const pr = /github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/.test(ref);
       out.push({ label: pr ? "Pull request" : safeHost(ref), kind: pr ? "pr" : "url", href: ref });
       continue;
     }
