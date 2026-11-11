@@ -4857,6 +4857,13 @@ describe("the front page", () => {
     expect(cap.querySelector(".digest")).toBeNull();
     expect(cap.textContent).not.toContain("The deck dropped the third pricing tier.");
     expect(cap.querySelector("a")).toBeNull();
+    // Open, Flyd tells him what changed, then what he needs to do: two sentences, no Changed/Means/Needed labels.
+    after(() => cap.click());
+    const said = Array.from(document.querySelectorAll(".job-view .jv-digest p")).map((line) => line.textContent);
+    expect(said).toEqual(["The deck dropped the third pricing tier.", "Send it."]);
+    expect(document.querySelector(".job-view .jv-digest b")).toBeNull();
+    expect(document.querySelector(".job-view")!.textContent).not.toContain("Cap5 can review one offer.");
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
     expect(document.querySelector('.job[data-job="pick"] .next')!.textContent).toContain("Pick a hero");
     after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     expect(document.querySelector(".jv-ask")!.textContent).toBe("Which hero should ship?");
@@ -4879,7 +4886,6 @@ describe("the front page", () => {
     expect(JSON.parse(String(posted[1]!.body))).toEqual({ op: "close", id: "pick" });
     after(() => document.querySelector<HTMLElement>('.job[data-job="cap5"]')!.click());
     expect(document.querySelector(".jv-digest")!.textContent).toContain("The deck dropped the third pricing tier.");
-    expect(document.querySelector(".jv-digest")!.textContent).toContain("Cap5 can review one offer.");
     expect(document.querySelector<HTMLAnchorElement>(".jv-digest .fbtn")!.href).toBe("https://example.com/deck");
     expect(document.querySelector(".jv-files")!.textContent).toBe("deck.pdf");
   });

@@ -4,6 +4,7 @@ import type { DomainRun, DomainRunStatus } from "../command/types.js";
 import { workStateOfRun, type WorkState } from "../lib/work-state.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
 import { plainSaid } from "../lib/backstage.js";
+import { toYou } from "../lib/to-you.js";
 import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import type { ShowItem, ShowScreen } from "./show.js";
 
@@ -30,9 +31,9 @@ export interface JobThread {
   kind: "conversation" | "run";
 }
 
+/** What changed, then what he needs to do: one sentence each, said to him. */
 export interface JobDigestView {
   changed: string;
-  means: string;
   needed: string;
   link?: string;
 }
@@ -396,14 +397,14 @@ export function jobsFrom(input: {
       ...(lead.started ? { started: lead.started } : {}),
       next: shownLine(lead.next, lead.group),
       owner: lead.owner,
-      ask: lead.ask && plainSaid(lead.ask),
+      ask: lead.ask && toYou(plainSaid(lead.ask)),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: bucket.shots.slice(0, 4),
       links: links.slice(0, 4),
       files: bucket.files.slice(0, 6),
       threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8),
-      digest: digest ? { changed: digest.changed, means: digest.means, needed: digest.needed, ...(digest.link ? { link: digest.link } : {}) } : null,
+      digest: digestView(digest, lead.ask),
       ...(lead.decision ? { decision: lead.decision } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
       ...(lead.handled ? { handled: lead.handled } : {}),
@@ -413,13 +414,29 @@ export function jobsFrom(input: {
   return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8) };
 }
 
+/**
+ * A stored reading as he reads it: to him, two sentences. Readings stored
+ * before Flyd spoke to him directly are turned to "you" here; the old "means"
+ * line only restated the other two and is not shown. A "needed" that is the
+ * card's own question again is not said twice. Pure.
+ */
+export function digestView(digest: JobDigest | null | undefined, ask = ""): JobDigestView | null {
+  if (!digest) return null;
+  const same = (a: string, b: string) => a.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() === b.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const changed = toYou(digest.changed);
+  let needed = toYou(digest.needed);
+  if (needed && ((ask && same(needed, toYou(plainSaid(ask)))) || same(needed, changed))) needed = "";
+  if (!changed && !needed) return null;
+  return { changed, needed, ...(digest.link ? { link: digest.link } : {}) };
+}
+
 /** What a card says when its own words would name the staff or how the work is run. */
 const QUIET_LINE: Record<Exclude<JobGroup, "needs">, string> = { working: "Under way", waiting: "Waiting", done: "Done" };
 
 /** A card's line as he may see it: the relay check holds back staff names, branches and ids. A decision keeps its question, said plainly: the call is his. Pure. */
 function shownLine(line: string, group: JobGroup): string {
   if (!line) return line;
-  const plain = plainSaid(line);
+  const plain = toYou(plainSaid(line));
   return group !== "needs" && namesBackstage(plain) ? QUIET_LINE[group] : plain;
 }
 

@@ -164,7 +164,7 @@ describe("jobsFrom", () => {
       expect(board.jobs[0]!.threads).toContainEqual({ id: session.id, title: session.title, at: session.updatedAt, kind: "conversation" });
       expect(board.pending).toMatchObject([{ hash, text }]);
       const withDigest = jobsFrom({ ...base, digests: [digest] });
-      expect(withDigest.jobs[0]!.digest).toMatchObject({ changed: digest.changed, means: digest.means, needed: digest.needed });
+      expect(withDigest.jobs[0]!.digest).toEqual({ changed: digest.changed, needed: digest.needed });
       expect(withDigest.pending).toEqual([]);
     }
   });
@@ -265,6 +265,27 @@ describe("jobsFrom", () => {
     expect(board.jobs[0]).toMatchObject({ group: "waiting", next: "Nothing is moving this.", owner: "you" });
   });
 
+  it("speaks a reading stored in the third person to him, in two sentences", () => {
+    // The CapFive card as it was stored before Flyd spoke to him directly.
+    const text = "CapFive lab round 5. ".repeat(20);
+    const digest = {
+      hash: digestHash(text), project: "Cap5",
+      changed: "The CapFive lab round 5 captain has posted three open questions about the Review and Opinion section, the Reports band heading, and V5 tombstones.",
+      means: "Design decisions are pending on the Opinion section content and empty-state handling, the Reports band heading wording, and whether V5 tombstones keep their date captions.",
+      needed: "George needs to answer the three questions: Opinion section back-fill or drop, Reports heading wording, and whether to keep or restore V5 date captions.",
+      at: "2026-10-26T10:00:00.000Z", model: "claude-haiku-5-5", inputTokens: 10, outputTokens: 8, usd: 0,
+    };
+    const board = jobsFrom({ projects: [project()], reports: [{ project: "Cap5", title: "Lab", text }], digests: [digest], runs: [run({ status: "needs_decision", question: "Still open: his picks for the other five sections - v01 hero buttons, v03 deals on phones." })], now: NOW });
+    const job = board.jobs[0]!;
+    expect(job.digest).toEqual({
+      changed: "I have three open questions about the Review and Opinion section, the Reports band heading, and V5 tombstones.",
+      needed: "You need to answer the three questions: Opinion section back-fill or drop, Reports heading wording, and whether to keep or restore V5 date captions.",
+    });
+    expect(job.ask).toBe("Still open: your picks for the other five sections - v01 hero buttons, v03 deals on phones.");
+    const shown = [job.ask, job.next, job.digest!.changed, job.digest!.needed].join("\n");
+    expect(shown).not.toMatch(/George needs|his picks|\bGeorge\b|\bcaptain\b|Design decisions are pending/);
+  });
+
   it("attaches a stored digest by hash and does not ask again for the same text", () => {
     const text = `${"The third tier is gone. ".repeat(20)}Send the one offer.`;
     const hash = digestHash(text);
@@ -275,7 +296,7 @@ describe("jobsFrom", () => {
     const input = { projects: [project()], reports: [{ project: "Cap5", title: "Deck", text }], digests: [digest], now: NOW };
     const once = jobsFrom(input);
     const twice = jobsFrom(input);
-    expect(once.jobs[0]!.digest).toEqual({ changed: "The third tier is gone.", means: "One offer is enough.", needed: "Send it.", link: "https://example.com/deck" });
+    expect(once.jobs[0]!.digest).toEqual({ changed: "The third tier is gone.", needed: "Send it.", link: "https://example.com/deck" });
     expect(once.pending).toEqual([]);
     expect(twice.jobs[0]!.digest).toEqual(once.jobs[0]!.digest);
     expect(once.jobs[0]!.group).toBe("waiting");

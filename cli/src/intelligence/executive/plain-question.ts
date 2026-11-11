@@ -1,3 +1,5 @@
+import { toYou } from "../../lib/to-you.js";
+
 // A staff question as George reads it: said to him, once, without the
 // machinery around it. Deterministic, so a question whose rewrite never came
 // or was not grounded is still never shown in the staff's own words: either
@@ -46,16 +48,6 @@ export function withoutRepeats(text: string): string {
   }).join(" ");
 }
 
-/** Said about him, turned to him: "George's three calls" reads "your three calls". */
-function toHim(text: string): string {
-  return text
-    .replace(/\b(?:is|has|does|was) (?:George|the captain)\b(?!['’]s)/gi, (said) => ({ is: "are you", has: "have you", does: "do you", was: "were you" })[said.split(" ")[0]!.toLowerCase()]!)
-    .replace(/\b(?:George|the captain)(?:'s|’s)\b/gi, "your")
-    .replace(/\b(?:George|the captain) (?:has|needs|wants|must|makes|picks|chooses|decides)\b/gi, (said) => `you ${said.split(" ").pop()!.replace(/^has$/i, "have").replace(/s$/i, "")}`)
-    .replace(/\b(?:George|the captain)\b/gi, "you")
-    .replace(/\bhis (picks?|calls?|choices?|choice|go-ahead|ok|okay|approval|answers?|decisions?|word|review|look)\b/gi, "your $1");
-}
-
 /**
  * The question in plain words to him, or null when no plain question is left
  * once the machinery is gone: then it is held, and its boss restates it. Pure.
@@ -72,7 +64,8 @@ export function plainQuestionFor(text: string, tasks?: string | readonly string[
     // "plan: data/…", "(board http://127.0.0.1:…)": the label goes with the path it names.
     .replace(/\b(?:plan|report|board|notes?|at|in|from|to)\s*:?\s+(?=https?:\/\/(?:127\.|localhost|0\.0\.)|~?\/(?:Users|tmp|private|var)\/|\b(?:data|bin|state|config|docs|src|cli|lib)\/|\b[\w.-]+\/[\w.-]+\.(?:md|html|ts|js|json|sh|txt|png|jpg|log)\b)/gi, "")
     .replace(PATH, "");
-  said = toHim(said)
+  // Said about him, turned to him: "George's three calls" reads "your three calls".
+  said = toYou(said)
     // Brackets and punctuation the cuts left empty or dangling.
     .replace(/\(\s*[;,:]*\s*/g, "(")
     .replace(/\s*[;,:]*\s*\)/g, ")")
