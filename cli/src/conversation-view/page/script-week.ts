@@ -158,7 +158,7 @@ export const WEEK_SCRIPT = `
   weekDays.addEventListener("mouseover", function (event) {
     var one = event.target.closest(".wk-day"); if (one) weekPick(one.dataset.day);
     var seg = event.target.closest(".wk-lane i");
-    if (seg && seg !== weekLit) weekShow(seg);
+    if (seg && seg !== weekLit) { weekPinned = false; weekShow(seg); }
     else if (!seg && !weekPinned && !weekKeyed) weekHide();
   });
   weekDays.addEventListener("mouseleave", function () {
