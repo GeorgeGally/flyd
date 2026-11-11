@@ -4,9 +4,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, uti
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FirstmateDomainTransport, firstmateRequestBody, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
+import { defaultFirstmateExec, FirstmateDomainTransport, firstmateRequestBody, sessionLaunchFailures, startFirstmateSession, syncFirstmateDomainRuns, type FirstmateExec } from "../firstmate.js";
 import { captainNotice } from "../notice.js";
 import { parseDomainResult } from "../result.js";
+import { createLaunchFailureCache } from "../../runtime/repeat-guard.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, saveDomainRun } from "../store.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
@@ -20,6 +21,7 @@ describe("FirstMate domain transport", () => {
     dir = mkdtempSync(join(tmpdir(), "flyd-command-"));
     oldDir = process.env.FLYD_COMMAND_DIR;
     process.env.FLYD_COMMAND_DIR = dir;
+    sessionLaunchFailures.clear();
   });
 
   afterEach(() => {
@@ -1073,6 +1075,51 @@ describe("FirstMate domain transport", () => {
     }
   }
 
+  it("caches a runtime from sessions that die at startup, but not from sessions that die mid-work", async () => {
+    const home = join(dir, "firstmate-mid-session");
+    const bin = join(dir, "bin-mid-session");
+    mkdirSync(home, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    const gate = join(dir, "mid-session-gate");
+    writeFileSync(join(bin, "claude"), `#!/bin/sh\nwhile [ ! -f ${JSON.stringify(gate)} ]; do sleep 0.02; done\necho "API Error: 500 Internal server error"\nexit 1\n`, { mode: 0o755 });
+    const saved = { PATH: process.env.PATH, FLYD_FIRSTMATE_ALLOW_LAUNCH: process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH };
+    process.env.PATH = `${bin}:${process.env.PATH}`;
+    process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH = "1";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      let cache = createLaunchFailureCache();
+      const drive = async (request: string, liveForMs: number) => {
+        rmSync(gate, { force: true });
+        const attempts: Record<string, unknown>[] = [];
+        const result = await startFirstmateSession({
+          home, script: "/fake/fm-inbox.sh", exec: defaultFirstmateExec, request,
+          readiness: { available: true, canReceive: false, liveHarness: false },
+          env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
+          recordAttempt: (entry) => { attempts.push(entry); },
+          launchFailures: cache,
+        });
+        expect(result.started).toBe(true);
+        vi.setSystemTime(Date.now() + liveForMs);
+        writeFileSync(gate, "");
+        await vi.waitFor(() => expect(attempts.map((entry) => entry.outcome)).toContain("failed"), { timeout: 5_000 });
+      };
+      vi.setSystemTime(Date.parse("2026-10-09T01:00:00.000Z"));
+      for (const request of ["mid-a", "mid-b", "mid-c"]) await drive(request, 5 * 60_000);
+      expect(cache.blocked("claude")).toBeNull();
+
+      cache = createLaunchFailureCache();
+      for (const request of ["early-a", "early-b", "early-c"]) await drive(request, 1_000);
+      expect(cache.blocked("claude")).toMatch(/failed 3 times the same way/);
+    } finally {
+      vi.useRealTimers();
+      rmSync(gate, { force: true });
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it("stops a detached launch whose spawned session keeps failing after three identical failures", async () => {
     const { launches, run, repeated } = await driveDetachedLaunches("firstmate-detached", 'echo "session crashed"', 21);
 
@@ -1099,7 +1146,7 @@ describe("FirstMate domain transport", () => {
     expect(repeated).toEqual([]);
   });
 
-  it("backs off a picked-up run's relaunches, then fails it at the third identical failure", async () => {
+  it("backs off a picked-up run's relaunches, then fails it from the runtime's cached failure", async () => {
     const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
     process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
     try {
@@ -1111,7 +1158,7 @@ describe("FirstMate domain transport", () => {
         if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
         if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: canReceive, lock: { live_harness: false } }), stderr: "" };
         launches += 1;
-        throw new Error("claude: usage limit reached");
+        throw new Error("claude: Invalid API key");
       };
       const transport = new FirstmateDomainTransport({ home: join(dir, "firstmate-acknowledged"), script: "/fake/fm-inbox.sh", exec });
       const start = Date.parse("2026-10-09T01:00:00.000Z");
@@ -1135,11 +1182,12 @@ describe("FirstMate domain transport", () => {
 
       canReceive = false;
       for (let minute = 7; minute <= 70; minute += 1) await tick(minute);
-      expect(launchedAt).toEqual([0, 5, 10, 18, 34]);
+      // Claude has now failed three times the same way: the next relaunch is answered from that, with nothing spawned.
+      expect(launchedAt).toEqual([0, 5, 10]);
       const [run] = listDomainRuns();
       expect(run!.status).toBe("failed");
       expect(run!.launchRetry).toBeUndefined();
-      expect(run!.failure).toMatch(/3 identical launch attempts/);
+      expect(run!.failure).toMatch(/on claude failed 3 times the same way \(claude: Invalid API key\)/);
       expect(changed.filter((item) => item.status === "failed").map((item) => item.result?.brief)).toEqual([run!.failure]);
     } finally {
       if (previous === undefined) delete process.env.FLYD_FIRSTMATE_RUNTIMES;
@@ -1147,7 +1195,7 @@ describe("FirstMate domain transport", () => {
     }
   });
 
-  it("blocks an unread note outside any run after three identical failures, then relaunches it once the backoff reaches its cap", async () => {
+  it("stops relaunching for unread notes outside any run while the runtime's identical failure is cached, then probes once the window lapses", async () => {
     const previous = process.env.FLYD_FIRSTMATE_RUNTIMES;
     process.env.FLYD_FIRSTMATE_RUNTIMES = "claude";
     try {
@@ -1158,18 +1206,25 @@ describe("FirstMate domain transport", () => {
         if (args[0] === "receipts") return { stdout: JSON.stringify({ pending: [{ id: "note-1", request_id: "domain-test-1", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }, { id: "view-note", acknowledged: false, reply: null, at: "2026-10-09T00:00:00.000Z" }] }), stderr: "" };
         if (args[0] === "ready") return { stdout: JSON.stringify({ can_receive: false, lock: { live_harness: false } }), stderr: "" };
         launches += 1;
-        throw new Error("claude: usage limit reached");
+        throw new Error("claude: Invalid API key");
       };
       const transport = new FirstmateDomainTransport({ home, script: "/fake/fm-inbox.sh", exec });
       const start = Date.parse("2026-10-09T01:00:00.000Z");
       const launchedAt: number[] = [];
-      for (let minute = 0; minute <= 70; minute += 1) {
-        const before = launches;
-        await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000) });
-        if (launches > before) launchedAt.push(minute);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        for (let minute = 0; minute <= 150; minute += 1) {
+          const before = launches;
+          vi.setSystemTime(start + minute * 60_000);
+          await syncFirstmateDomainRuns({ transport, now: () => new Date(start + minute * 60_000) });
+          if (launches > before) launchedAt.push(minute);
+        }
+      } finally {
+        vi.useRealTimers();
       }
 
-      expect(launchedAt).toEqual([0, 5, 10, 34, 64]);
+      // No relaunch every 30 minutes at the backoff cap: one probe on the first sweep after the hour lapses, which fails the same way and is cached again.
+      expect(launchedAt).toEqual([0, 5, 10, 94]);
       const repeated = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "firstmate-session.jsonl"), "utf8")
         .trim().split("\n").map((line) => JSON.parse(line) as { outcome?: string; home?: string })
         .filter((entry) => entry.home === home && entry.outcome === "repeated_loop");
@@ -1180,7 +1235,7 @@ describe("FirstMate domain transport", () => {
     }
   });
 
-  it("counts identical launch failures per request, so a new run still gets its own attempts", async () => {
+  it("refuses a new run from the cache once the runtime failed the same way three times", async () => {
     const calls: string[] = [];
     const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("not installed"); };
     const launch = (request: string) => startFirstmateSession({
@@ -1197,9 +1252,27 @@ describe("FirstMate domain transport", () => {
     expect(calls).toHaveLength(3);
 
     const runB = await launch("run-b");
+    expect(calls).toHaveLength(3);
+    expect(runB.terminal).toBeDefined();
+    expect(runB.failure).toMatch(/on claude failed 3 times the same way \(not installed\)/);
+  });
+
+  it("keeps usage limits out of the runtime cache, so a new run still gets its own launch and backs off", async () => {
+    const calls: string[] = [];
+    const exec: FirstmateExec = async (runtime) => { calls.push(runtime); throw new Error("claude: usage limit reached, resets at 5pm"); };
+    const launch = (request: string) => startFirstmateSession({
+      home: "/fake/firstmate-limited", script: "/fake/fm-inbox.sh", exec, request,
+      readiness: { available: true, canReceive: false, liveHarness: false },
+      env: { FLYD_FIRSTMATE_RUNTIMES: "claude" },
+      recordAttempt: vi.fn(),
+    });
+    for (const request of ["run-a", "run-b", "run-c"]) await launch(request);
+    expect(calls).toHaveLength(3);
+
+    const runD = await launch("run-d");
     expect(calls).toHaveLength(4);
-    expect(runB.terminal).toBeUndefined();
-    expect(runB.failure).toBe("I couldn't start the work right now. I'll keep it safe and try again when I can.");
+    expect(runD.terminal).toBeUndefined();
+    expect(runD.failure).toBe("I couldn't start the work right now. I'll keep it safe and try again when I can.");
   });
 
   it("cools the home down instead of relaunching every tick for an unconsumed note", async () => {

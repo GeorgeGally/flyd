@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { firstmateHome, firstmateInboxScript } from "../lib/firstmate-home.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
-import { createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError } from "../runtime/repeat-guard.js";
+import { createLaunchFailureCache, createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError, type LaunchFailureCache } from "../runtime/repeat-guard.js";
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
 import { checkDomainHandoff } from "../runtime/acceptance.js";
 import { commandDir, commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
@@ -302,9 +302,13 @@ const SESSION_PROMPT = "Run bin/fm-session-start.sh exactly once in this home. T
 const SESSION_LAUNCH_FAILURE = "I couldn't start the work right now. I'll keep it safe and try again when I can.";
 const SESSION_LAUNCH_OPERATION = "firstmate-session-launch";
 const launchRepeats = createRepeatGuard(MAX_IDENTICAL_LAUNCH_FAILURES);
+/** Launch failures per runtime, shared by every request: a runtime that keeps failing the same way is refused from here, without spawning. */
+export const sessionLaunchFailures = createLaunchFailureCache();
 const LAUNCH_RETRY_BASE_MS = 2 * 60_000;
 const LAUNCH_RETRY_MAX_MS = 30 * 60_000;
 const SESSION_OUTPUT_LIMIT = 8 * 1024;
+/** A spawned session that dies later than this after starting failed mid-work, not at launch. */
+const SESSION_STARTUP_MS = 60_000;
 const LAUNCH_COOLDOWN_MS = 5 * 60_000;
 const UNREAD_TOO_LONG_MS = 3 * 60_000;
 const SESSION_IDLE_MS = 15 * 60_000;
@@ -504,20 +508,34 @@ export async function startFirstmateSession(options: {
   env?: NodeJS.ProcessEnv;
   recordAttempt?: (entry: Record<string, unknown>) => void;
   onFailure?: (failure: string, terminal?: RepeatedLoopError) => void;
+  launchFailures?: LaunchFailureCache;
 }): Promise<FirstmateLaunch> {
-  const record = options.recordAttempt ?? recordSessionAttempt;
+  const cache = options.launchFailures ?? sessionLaunchFailures;
+  const logAttempt = options.recordAttempt ?? recordSessionAttempt;
+  const record = (entry: Record<string, unknown>): void => {
+    logAttempt(entry);
+    if (typeof entry.runtime === "string" && entry.outcome === "failed" && entry.midSession !== true) {
+      cache.record(entry.runtime, typeof entry.detail === "string" && entry.detail ? entry.detail : String(entry.outcome));
+    }
+  };
   const ready = options.readiness ?? await (async () => {
     const { stdout } = await options.exec(options.script, ["ready"], { env: { ...process.env, FM_HOME: options.home }, timeout: 5_000 });
     const parsed = JSON.parse(stdout) as { can_receive?: boolean; lock?: { live_harness?: boolean } };
     return { available: true, canReceive: parsed.can_receive === true, liveHarness: parsed.lock?.live_harness === true };
   })().catch(() => ({ available: true, canReceive: "unknown" as const }));
   if (ready.canReceive !== false || ready.liveHarness) return { started: false };
-  const runtimes = sessionRuntimes(options.env);
-  const launch = launchInput(options.home, runtimes, options.request);
+  const configured = sessionRuntimes(options.env);
+  const launch = launchInput(options.home, configured, options.request);
   if (launchRepeats.blocked(SESSION_LAUNCH_OPERATION, launch)) {
     const attempts = launchRepeats.attempts(SESSION_LAUNCH_OPERATION, launch);
     const terminal = new RepeatedLoopError(repeatedLaunchFailure(attempts), attempts);
     return { started: false, failure: terminal.message, terminal };
+  }
+  const runtimes = configured.filter((candidate) => !cache.blocked(candidate));
+  if (!runtimes.length) {
+    // Every runtime keeps failing the same way, whichever request asks: answer from that and start nothing.
+    const reason = cache.blocked(configured[0]!)!;
+    return { started: false, failure: reason, terminal: new RepeatedLoopError(reason, MAX_IDENTICAL_LAUNCH_FAILURES) };
   }
   let runtime: SessionRuntime | undefined;
   let detail: string | undefined;
@@ -529,7 +547,10 @@ export async function startFirstmateSession(options: {
     record({ runtime: runtime ?? runtimes[0], outcome: "repeated_loop", home: options.home, attempts, detail: (detail ?? failure).slice(0, 500) });
     return { started: false, failure: terminal.message, terminal };
   };
-  const succeeded = (): void => launchRepeats.record(SESSION_LAUNCH_OPERATION, launch, null);
+  const succeeded = (started: SessionRuntime): void => {
+    launchRepeats.record(SESSION_LAUNCH_OPERATION, launch, null);
+    cache.record(started, null);
+  };
   if (options.exec === defaultFirstmateExec) {
     // A test must never wake a real firstmate session.
     if (process.env.VITEST && process.env.FLYD_FIRSTMATE_ALLOW_LAUNCH !== "1") return { started: false };
@@ -556,7 +577,7 @@ export async function startFirstmateSession(options: {
         continue;
       }
       record({ runtime: candidate, outcome: "started" });
-      succeeded();
+      succeeded(candidate);
       return { started: true };
     } catch (error) {
       detail = error instanceof Error ? error.message : String(error);
@@ -566,7 +587,7 @@ export async function startFirstmateSession(options: {
   return fail(SESSION_LAUNCH_FAILURE);
 }
 
-function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[], record: (entry: Record<string, unknown>) => void, onFailure: (failure: string, detail?: string) => void, release: () => void, succeeded: () => void): Promise<{ started: boolean; failure?: string; detail?: string }> {
+function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[], record: (entry: Record<string, unknown>) => void, onFailure: (failure: string, detail?: string) => void, release: () => void, succeeded: (runtime: SessionRuntime) => void): Promise<{ started: boolean; failure?: string; detail?: string }> {
   return new Promise((resolve) => {
     let handedOff = false;
     let detail: string | undefined;
@@ -579,6 +600,7 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
         return;
       }
       let settled = false;
+      let spawnedAt: number | undefined;
       const log = join(commandDir(), "firstmate-helpers", `${process.pid}-${Date.now()}-${runtime}.log`);
       let child: ReturnType<typeof spawn>;
       try {
@@ -605,6 +627,7 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
       });
       child.once("spawn", () => {
         handedOff = true;
+        spawnedAt = Date.now();
         if (child.pid) {
           forgetHelpers((helper) => helper.home === home);
           writeHelpers([...readHelpers(), { pid: child.pid, startedAt: new Date().toISOString(), home, log }]);
@@ -626,14 +649,15 @@ function launchDetachedFirstmateSession(home: string, runtimes: SessionRuntime[]
         const limited = /usage limit|rate limit|quota exceeded|overloaded/i.test(output);
         if (limited || code !== 0) {
           detail = output.slice(-500);
-          record({ runtime, outcome: limited ? "usage_limited" : "failed", detail });
+          const midSession = spawnedAt !== undefined && Date.now() - spawnedAt >= SESSION_STARTUP_MS;
+          record({ runtime, outcome: limited ? "usage_limited" : "failed", detail, ...(midSession ? { midSession } : {}) });
           if (!settled) {
             settled = true;
             attempt(index + 1);
           }
         } else {
           release();
-          succeeded();
+          succeeded(runtime);
         }
       });
     };

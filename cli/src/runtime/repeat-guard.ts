@@ -70,3 +70,53 @@ export function createRepeatGuard(limit = MAX_IDENTICAL_FAILURES): RepeatGuard {
     },
   };
 }
+
+/** How long a runtime's repeated launch failure stays cached before one launch may probe it again. */
+export const LAUNCH_FAILURE_WINDOW_MS = 60 * 60_000;
+
+/**
+ * Session launches keyed by runtime rather than by request: when a runtime
+ * keeps failing to start the same way, every request asking it to start will
+ * fail that way too. Once one error signature has failed `limit` times within
+ * the window, the runtime is refused from the cache, without spawning anything,
+ * until a launch on it succeeds or the window lapses. A different error is new
+ * information and counts on its own.
+ */
+export interface LaunchFailureCache {
+  /** The cached reason this runtime may not launch now, or null to let it launch. */
+  blocked(runtime: string, nowMs?: number): string | null;
+  /** A launch outcome on this runtime: its failure output, or null when it started cleanly. */
+  record(runtime: string, failure: string | null, nowMs?: number): void;
+  clear(): void;
+}
+
+export function createLaunchFailureCache(limit = MAX_IDENTICAL_LAUNCH_FAILURES, windowMs = LAUNCH_FAILURE_WINDOW_MS): LaunchFailureCache {
+  const failures = new Map<string, Map<string, { count: number; lastAt: number; error: string }>>();
+  const blocking = (runtime: string, nowMs: number) => {
+    for (const seen of failures.get(runtime)?.values() ?? []) {
+      if (seen.count >= limit && nowMs - seen.lastAt < windowMs) return seen;
+    }
+    return undefined;
+  };
+  return {
+    blocked(runtime, nowMs = Date.now()) {
+      const seen = blocking(runtime, nowMs);
+      if (!seen) return null;
+      return `Starting the work on ${runtime} failed ${seen.count} times the same way (${seen.error.trim().slice(0, 200)}), so I'm not starting it there again until that clears.`;
+    },
+    record(runtime, failure, nowMs = Date.now()) {
+      if (failure === null) { failures.delete(runtime); return; }
+      const shape = errorShape(failure);
+      const signatures = failures.get(runtime) ?? new Map<string, { count: number; lastAt: number; error: string }>();
+      const seen = signatures.get(shape);
+      // A probe just after the window that fails the same way again goes straight back to the cache.
+      const age = seen ? nowMs - seen.lastAt : Infinity;
+      const count = seen && (age < windowMs || (seen.count >= limit && age < 2 * windowMs)) ? seen.count + 1 : 1;
+      signatures.set(shape, { count, lastAt: nowMs, error: failure });
+      failures.set(runtime, signatures);
+    },
+    clear() {
+      failures.clear();
+    },
+  };
+}
