@@ -188,6 +188,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
       // An earlier note on its way never holds up the next: notes queue and go in order.
       send.disabled = !(input.value.trim() || ((target.about || state.attachmentRetry) && images.length));
       if (chat.onPaint) chat.onPaint();
+      if (chat.afterPaint) chat.afterPaint();
     }
     function paintImages() {
       thumbs.textContent = "";
@@ -455,23 +456,54 @@ export const ARTEFACT_CHAT_SCRIPT = `
     form.appendChild(thread);
     form.appendChild(field);
     form.appendChild(receipt);
-    var chat = { form: form, state: state, deliver: deliver, save: save, onPaint: null };
+    var chat = { form: form, state: state, deliver: deliver, save: save, target: target, onPaint: null };
     paintThread();
     paint();
     watch();
     return chat;
   }
-  // A scene's foot: a question's options, one tap each, then the chat box.
-  function sceneAsk(box, key) {
-    var wrap = el("div", "scene-ask");
-    wrap.dataset.key = key;
+  // The answer a choice button sent on this page, by card key, while it is on its way: every
+  // button for that card steps back at once, and nothing about it outlives the page.
+  var choicePending = {};
+  // A choice button sends its words exactly as if he had typed them, through the card's own chat.
+  function pickChoice(chat, key, choice, onChange) {
+    if (chat.state.picked || choicePending[key]) return;
+    choicePending[key] = choice;
+    chat.deliver(choice, function () {
+      delete choicePending[key];
+      chat.state.picked = choice;
+      chat.save();
+      if (onChange) onChange();
+    });
+    if (onChange) onChange();
+  }
+  // The recommended answer first.
+  function choicesInOrder(choices, recommended) {
+    var list = (choices || []).slice();
+    var at = recommended ? list.indexOf(recommended) : -1;
+    if (at > 0) list.unshift(list.splice(at, 1)[0]);
+    return list;
+  }
+  // Where his words about a scene go: its decision, the reply that asked, or the thing itself.
+  function askTarget(box) {
     var decision = box.decision;
     var link = box.open || (box.links || []).find(function (one) { return !one.closed; });
     var about = { title: box.title };
     if (box.task) about.task = box.task;
     if (link) about.url = link.url;
-    var target = !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.decisionId || decision.task, decisionTask: decision.task, questionText: decision.question, jobTitle: box.title, session: drawnFrom };
-    var chat = artefactChat(key, target, decision && (decision.choices.length || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…", decision && decision.question ? key + ":" + decision.question : "");
+    return !decision ? { about: about } : decision.replyTo ? { session: drawnFrom, replyTo: decision.replyTo, questionText: decision.question } : { decision: decision.decisionId || decision.task, decisionTask: decision.task, questionText: decision.question, jobTitle: box.title, session: drawnFrom };
+  }
+  function askLabel(decision) {
+    return decision && ((decision.choices && decision.choices.length) || decision.steps) ? "Or say something else…" : decision ? "Your answer…" : "Say something about this…";
+  }
+  // A scene's foot: a question's options, one tap each, then the chat box.
+  // \`given\` is a chat the caller already holds for this card, so its other buttons share it.
+  function sceneAsk(box, key, given) {
+    var wrap = el("div", "scene-ask");
+    wrap.dataset.key = key;
+    var decision = box.decision;
+    var target = given ? given.target : askTarget(box);
+    var chat = given || artefactChat(key, target, askLabel(decision), decision && decision.question ? key + ":" + decision.question : "");
     // A hold that puts two (or three) decisions to him says each one in its own plain line, with what
     // he can pick and what the work recommends, and what a landed change has already answered.
     if (decision && decision.decisions && decision.decisions.length > 1) {
@@ -546,24 +578,22 @@ export const ARTEFACT_CHAT_SCRIPT = `
       var choices = el("div", "choices");
       choices.setAttribute("role", "group");
       choices.setAttribute("aria-label", "Options");
-      var buttons = decision.choices.map(function (choice) {
-        var button = el("button", "choice-pick");
+      var ordered = choicesInOrder(decision.choices, decision.recommended);
+      var buttons = ordered.map(function (choice) {
+        var button = el("button", "choice-pick" + (choice === decision.recommended ? " primary" : ""));
         button.type = "button";
         button.appendChild(el("span", "", choice));
         if (choice === decision.recommended) button.appendChild(el("small", "", "recommended"));
-        button.addEventListener("click", function () {
-          if (chat.state.picked || chat.state.receipt === "sending") return;
-          chat.deliver(choice, function () { chat.state.picked = choice; });
-        });
+        button.addEventListener("click", function () { pickChoice(chat, key, choice, chat.onPaint); });
         choices.appendChild(button);
         return button;
       });
-      // The one he picked stays lit; the others step back once it is sent.
+      // Once he picks, the one he picked stays lit and every button is done: his answer is in the thread below.
       chat.onPaint = function () {
+        var chosen = chat.state.picked || choicePending[key] || "";
         buttons.forEach(function (button, index) {
-          var picked = chat.state.picked === decision.choices[index];
-          button.setAttribute("aria-pressed", String(picked));
-          button.disabled = !!chat.state.picked && !picked;
+          button.setAttribute("aria-pressed", String(chosen === ordered[index]));
+          button.disabled = !!chosen;
         });
       };
       chat.onPaint();

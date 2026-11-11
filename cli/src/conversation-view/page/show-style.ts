@@ -203,6 +203,9 @@ a.open-page, .msg.user a.open-page { display: flex; width: fit-content; align-it
 .choice-pick:hover { color: var(--strong); border-color: var(--accent); }
 .choice-pick[aria-pressed="true"], .choice-pick[aria-pressed="true"]:hover { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 .choice-pick[aria-pressed="true"] small { color: color-mix(in srgb, var(--bg) 70%, transparent); }
+.choice-pick.primary:not(:disabled), .choice-pick.primary:not(:disabled):hover { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.choice-pick.primary:not(:disabled) small { color: color-mix(in srgb, var(--bg) 70%, transparent); }
+.choice-pick:disabled { cursor: default; }
 .choice-pick:disabled:not([aria-pressed="true"]) { opacity: .45; cursor: default; }
 .choice-pick:disabled:not([aria-pressed="true"]):hover { color: var(--fg); border-color: var(--faint); }
 .scene-ask :focus-visible, .scene-shot img:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

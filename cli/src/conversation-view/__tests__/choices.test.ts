@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { choiceOf, choiceTarget, openChoice, withoutClosingAsk } from "../choices.js";
+import { choiceOf, choiceTarget, openChoice, withoutClosingAsk, namedAnswers, saidAnswers } from "../choices.js";
 import { SnapshotDiffer } from "../server.js";
 import { showOf } from "../show.js";
 import { boxesOf } from "../boxes.js";
@@ -282,5 +282,38 @@ describe("the choice, where he sees it", () => {
     const second = differ.next({ messages: [asked, flyds, back], working: false }).messages;
     expect(second.find((message) => message.id === "note:6")).toMatchObject({ undone: true });
     expect(second.find((message) => message.id === asked.id)!.choice).toMatchObject({ question: "Checks are green. Should I merge the Flyd change?" });
+  });
+});
+
+describe("saidAnswers", () => {
+  it("reads Flyd's own 'say merge' wording as the answer it names, recommended first", () => {
+    expect(saidAnswers("Say merge, and I'll merge both waiting Flyd updates and restart Flyd; I recommend it.")).toEqual({ options: ["Merge"], recommended: "Merge" });
+    expect(saidAnswers("Say yes to merge it and restart Flyd, which I recommend, or tell me to leave it unmerged; the safety check needs your go-ahead."))
+      .toEqual({ options: ["Yes", "Leave it unmerged"], recommended: "Yes" });
+    expect(saidAnswers("Say go and I'll fix that card and the two others together.")).toEqual({ options: ["Go"] });
+    expect(saidAnswers("Reply 'OK to inspect the PostTraction server' so a worker can log in read-only.")).toEqual({ options: ["OK to inspect the PostTraction server"] });
+  });
+
+  it("puts the recommended answer first when it is the second one named", () => {
+    expect(saidAnswers("Say wait, or tell me to ship it now, which I recommend.")).toEqual({ options: ["Ship it now", "Wait"], recommended: "Ship it now" });
+  });
+
+  it("names nothing for an open ask, whatever words it uses", () => {
+    for (const text of [
+      "Say when you're not mid-edit so the Logan restart can be done.",
+      "Pick one: add the FAL key, which I recommend, or the Gemini key.",
+      "Decide whether to add Codex/ChatGPT quota now or wait for the reset.",
+      "Name 2-3 existing logos he loves, or say 'just do another round' to start now.",
+      "Nothing",
+    ]) expect(saidAnswers(text), text).toBeNull();
+  });
+});
+
+describe("namedAnswers", () => {
+  it("takes a question's own options before Flyd's wording, and names none for an open question", () => {
+    expect(namedAnswers("Ready on branch fm/x: merge it?", "Say go.")).toEqual({ options: ["Yes", "No"] });
+    expect(namedAnswers("Should I merge now or wait for checks?")).toEqual({ options: ["Merge now", "Wait for checks"] });
+    expect(namedAnswers("Which price should ship?", "Say merge so it can go in.")).toEqual({ options: ["Merge"] });
+    expect(namedAnswers("Which price should ship?", "Pick a price on the board.")).toBeNull();
   });
 });

@@ -3553,9 +3553,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(needs.querySelector(".needs-rec")!.textContent).toContain("I'd pick B.");
     expect(needs.querySelectorAll(".decision-evidence .shot")).toHaveLength(1);
     expect([...needs.querySelectorAll(".call-link")].map((link) => link.textContent)).toEqual(["Open preview ↗"]);
-    expect([...needs.querySelectorAll<HTMLButtonElement>(".choice-pick")].map((button) => button.textContent)).toEqual(["A", "Brecommended"]);
+    expect([...needs.querySelectorAll<HTMLButtonElement>(".choice-pick")].map((button) => button.textContent)).toEqual(["Brecommended", "A"]);
 
-    needs.querySelectorAll<HTMLButtonElement>(".choice-pick")[1]!.click();
+    needs.querySelectorAll<HTMLButtonElement>(".choice-pick")[0]!.click();
     await settle();
     const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
     expect(sends.at(-1)).toEqual({ session: "latest", replyTo: "reply:a#2", questionText: "Which direction?", text: "B", clientId: expect.stringMatching(/^note-/) });
@@ -4984,7 +4984,7 @@ describe("the front page", () => {
     expect(candidates[0]!.querySelector<HTMLImageElement>(".jv-phone img")!.getAttribute("src")).toContain("shots%2Fv2-phone.png");
     expect(candidates[1]!.querySelector(".jv-phone img")).not.toBeNull();
     // The choice stays under the designs, so he picks without leaving the card.
-    expect([...document.querySelectorAll(".job-view .choice-pick")].map((button) => button.textContent)).toEqual(["V2 Live page", "V10 Edit the pagerecommended"]);
+    expect([...document.querySelectorAll(".job-view .choice-pick")].map((button) => button.textContent)).toEqual(["V10 Edit the pagerecommended", "V2 Live page"]);
   });
 
   it("states a working row in Flyd's words: no framing, no George, and one line of state and what happens next", async () => {
@@ -5087,6 +5087,35 @@ describe("the front page", () => {
     await settle();
     const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
     expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-2", questionText: `${prefix} new`, text: "Yes" });
+  });
+
+  it("puts a decision's named answers on its card as buttons, recommended first, sent as if typed", async () => {
+    const stream = await opened();
+    const job = {
+      id: "board", group: "needs", state: "Needs you", title: "Show the existing Liesel board", project: "", at: "2026-10-26T12:00:00.000Z", next: "", owner: "you", ask: "Waiting on your go-ahead.", because: "",
+      shots: [], links: [], files: [], threads: [], domainRun: "run-9", questionIdentity: "Waiting on your go-ahead.",
+      digest: { changed: "The board is finished.", needed: "Say yes to merge it, which I recommend, or tell me to leave it unmerged." },
+      choices: ["Yes", "Leave it unmerged"], recommended: "Yes",
+    };
+    stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [job] });
+    const picks = () => [...document.querySelectorAll<HTMLButtonElement>('.jobask .jpick[data-pick-job="board"]')];
+    expect(picks().map((button) => button.textContent)).toEqual(["Yes", "Leave it unmerged"]);
+    expect(picks()[0]!.classList.contains("primary")).toBe(true);
+    // The buttons are beside the card, never inside its own button.
+    expect(document.querySelector(".job .jpick")).toBeNull();
+    picks()[1]!.click();
+    await settle();
+    const request = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").at(-1)!;
+    expect(JSON.parse(String(request[1]!.body))).toMatchObject({ domainRun: "run-9", questionText: "Waiting on your go-ahead.", text: "Leave it unmerged" });
+    expect(picks().every((button) => button.disabled)).toBe(true);
+    expect(picks()[1]!.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector(".jobask .jsent")!.textContent).toMatch(/^Sent to /);
+    // The open job offers the same answers over its box, already answered.
+    after(() => document.querySelector<HTMLElement>('.job[data-job="board"]')!.click());
+    const open = [...document.querySelectorAll<HTMLButtonElement>(".job-view .choice-pick")];
+    expect(open.map((button) => button.textContent)).toEqual(["Yesrecommended", "Leave it unmerged"]);
+    expect(open.every((button) => button.disabled)).toBe(true);
+    expect(document.querySelector(".job-view textarea")).not.toBeNull();
   });
 
   it("opens a handled line from the server's jobs on a take-back form that reaches Flyd's answer", async () => {

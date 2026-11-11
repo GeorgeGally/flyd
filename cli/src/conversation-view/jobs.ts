@@ -7,6 +7,7 @@ import { plainSaid } from "../lib/backstage.js";
 import { forHim, statusSaid } from "../lib/pa-voice.js";
 import { plainTitle } from "./plain-words.js";
 import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
+import { namedAnswers, type NamedAnswers } from "./choices.js";
 import type { ShowItem, ShowScreen } from "./show.js";
 
 /**
@@ -62,6 +63,10 @@ export interface Job {
   digest: JobDigestView | null;
   /** The show item's decision, when the job needs one, so the job opens on its decisions. */
   decision?: ShowItem["decision"];
+  /** The few answers the decision names, one tap each, the recommended one first. Absent for an open question. */
+  choices?: string[];
+  /** The answer Flyd recommends, when it names one. */
+  recommended?: string;
   /** The domain run an answer given on this job reaches. Absent when the run has finished and cannot take one. */
   domainRun?: string;
   /** A call Flyd answered for him by one of his standing rules; his own answer takes it back. */
@@ -424,6 +429,8 @@ export function jobsFrom(input: {
       if (!stored.has(source.hash) && !pending.some((item) => item.hash === source.hash)) pending.push(source);
     }
     const links = uniqueLinks(bucket.links);
+    const digestSaid = digestView(digest, lead.ask);
+    const answers = lead.group === "needs" ? answersOf(lead, digestSaid) : null;
     jobs.push({
       id: bucket.id,
       group: lead.group,
@@ -442,14 +449,32 @@ export function jobsFrom(input: {
       links: links.slice(0, 4),
       files: bucket.files.slice(0, 6),
       threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8),
-      digest: digestView(digest, lead.ask),
+      digest: digestSaid,
       ...(lead.decision ? { decision: lead.decision } : {}),
+      ...(answers ? { choices: answers.options, ...(answers.recommended ? { recommended: answers.recommended } : {}) } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
       ...(lead.handled ? { handled: lead.handled } : {}),
     });
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));
   return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8) };
+}
+
+/**
+ * The answers a decision waiting on him names, so the card can take them in one
+ * tap: a fleet call's own options when it asks one thing, else the run's
+ * question, else what Flyd said he needs to do ("Say merge, and I'll …"). A
+ * call that asks several things at once, or an open question, names none. Pure.
+ */
+function answersOf(lead: Signal, digest: JobDigestView | null): NamedAnswers | null {
+  const decision = lead.decision;
+  if (decision) {
+    if (decision.steps?.length || (decision.decisions?.length ?? 0) > 1) return null;
+    if (!decision.choices.length) return namedAnswers(lead.ask, digest?.needed);
+    const recommended = decision.recommended && decision.choices.includes(decision.recommended) ? decision.recommended : undefined;
+    return { options: recommended ? [recommended, ...decision.choices.filter((choice) => choice !== recommended)] : decision.choices, ...(recommended ? { recommended } : {}) };
+  }
+  return namedAnswers(lead.ask, digest?.needed);
 }
 
 /**

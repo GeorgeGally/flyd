@@ -255,13 +255,31 @@ export const FRONT_SCRIPT = `
     return decision.recommended ? "Go with " + frontText(decision.recommended) : "";
   }
   // A job card: the picture (work under way is words only), what it says, its next step, then the project and when in plain words; no label above it.
+  // A decision with a few named answers takes them on the card itself, one tap each, the recommended one first.
+  function frontJobPicks(job) {
+    if (!VIEW_TOKEN || job.group !== "needs" || !job.choices || !job.choices.length) return "";
+    var picked = frontPicked(job);
+    var buttons = choicesInOrder(job.choices, job.recommended).map(function (choice) {
+      var on = picked && picked.choice === choice;
+      return '<button type="button" class="jpick' + (choice === job.recommended ? " primary" : "") + '" data-pick-job="' + frontEsc(job.id) + '" data-pick="' + frontEsc(choice) + '"'
+        + ' aria-pressed="' + (on ? "true" : "false") + '"' + (picked ? " disabled" : "") + '>' + frontEsc(choice) + '</button>';
+    }).join("");
+    return '<div class="jpicks" role="group" aria-label="Answers">' + buttons + '</div>'
+      + (picked ? '<p class="jsent" role="status">' + frontEsc(picked.line) + '</p>' : "");
+  }
   function frontJobCard(job) {
+    var picks = frontJobPicks(job);
+    var card = frontJobButton(job, !!picks);
+    return picks ? '<div class="jobask' + (job.id === frontActive ? " on" : "") + '">' + card + picks + '</div>' : card;
+  }
+  function frontJobButton(job, picks) {
     var moving = job.group === "working";
     var pic = !moving && job.shots && job.shots.length
       ? '<div class="frame"><img src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy"></div>' : "";
     var line = frontLine(job);
     var reading = line ? '<p class="next">' + frontEsc(line) + '</p>' : "";
-    var action = frontAction(job);
+    // Buttons that say the answers need no line naming Flyd's pick.
+    var action = picks ? "" : frontAction(job);
     var tag = job.project || frontGlance(job.title, 32);
     return '<button type="button" class="job ' + job.group + (pic ? "" : " text") + (job.id === frontActive ? " on" : "") + '" data-job="' + frontEsc(job.id) + '"'
       + (job.id === frontActive ? ' aria-current="true"' : "") + '>'
@@ -479,20 +497,66 @@ export const FRONT_SCRIPT = `
     if (job.files && job.files.length) parts.push(el("p", "jv-files", job.files.map(function (file) { return file.label; }).join(" · ")));
     if (job.detail && !(job.previews && job.previews.length)) parts.push(frontDetailTalk(job));
     if (VIEW_TOKEN) {
-      if (job.domainRun) {
-        parts.push(artefactChat("flyd-domain:" + job.domainRun, { domainRun: job.domainRun, jobTitle: job.title, questionText: job.questionIdentity }, "Your answer…").form);
-      } else if (job.handled) {
+      if (job.handled) {
         parts.push(artefactChat("flyd-handled:" + job.handled.decisionId, { decisionFollowUp: job.handled.decisionId, decisionTask: job.handled.task, jobTitle: job.title }, "Your own answer takes this back…").form);
-      } else if (job.decision) {
-        parts.push(sceneAsk({ title: job.title, decision: job.decision }, "flyd-decision:" + (job.decision.decisionId || job.decision.task)));
       } else {
-        var about = { title: job.title };
-        if (job.task) about.task = job.task;
-        if (links.length) about.url = links[0].url;
-        parts.push(artefactChat("flyd-front:" + job.id, { about: about }, "Message " + assistant + " about this job").form);
+        // The answers the decision names are buttons over the box, the same ones the job's card carries.
+        var answer = frontAnswer(job);
+        var asked = frontDecision(job);
+        parts.push(asked ? sceneAsk({ title: job.title, decision: asked }, answer.key, answer.chat) : answer.chat.form);
       }
     }
     return parts;
+  }
+  // Where his answer to a job goes, the same from its card and from the open job: the run that
+  // waits on it, its fleet decision, or the job itself. One chat per card, so both places share it.
+  var frontChats = {};
+  function frontAnswerTarget(job) {
+    if (job.domainRun && !job.handled) return { key: "flyd-domain:" + job.domainRun, target: { domainRun: job.domainRun, jobTitle: job.title, questionText: job.questionIdentity }, label: "Your answer…" };
+    if (job.decision) {
+      var decision = frontDecision(job);
+      return { key: "flyd-decision:" + (decision.decisionId || decision.task), target: askTarget({ title: job.title, decision: decision }), label: askLabel(decision), earlier: decision.question ? "flyd-decision:" + (decision.decisionId || decision.task) + ":" + decision.question : "" };
+    }
+    var about = { title: job.title };
+    if (job.task) about.task = job.task;
+    var link = (job.links || []).find(function (one) { return one && one.url && !one.closed; });
+    if (link) about.url = link.url;
+    return { key: "flyd-front:" + job.id, target: { about: about }, label: "Message " + assistant + " about this job" };
+  }
+  function frontAnswer(job) {
+    var to = frontAnswerTarget(job);
+    var label = job.choices && job.choices.length ? "Or say something else…" : to.label;
+    var id = to.key + "\\n" + JSON.stringify(to.target) + "\\n" + label;
+    if (!frontChats[id]) {
+      var chat = artefactChat(to.key, to.target, label, to.earlier || "");
+      // A note sent from the open job, or one that did not go, shows on the card too.
+      chat.afterPaint = function () { if (frontUpdate) frontDrawJobs(Array.from(frontJobs.values())); };
+      chat.answerKey = to.key;
+      frontChats[id] = chat;
+    }
+    return { key: to.key, chat: frontChats[id] };
+  }
+  // The decision the open job asks, with the answers the card offers; null when it names none and has no decision.
+  function frontDecision(job) {
+    var choices = job.choices && job.choices.length ? job.choices : null;
+    if (job.decision) return choices ? Object.assign({}, job.decision, { choices: choices, recommended: job.recommended || job.decision.recommended }) : job.decision;
+    if (!choices) return null;
+    return { question: job.ask || "", choices: choices, recommended: job.recommended || "" };
+  }
+  // What has become of an answer sent from a card's button: on its way, sent, or not delivered.
+  function frontPicked(job) {
+    var key = frontAnswerTarget(job).key;
+    var pending = choicePending[key];
+    var stored = {};
+    try { stored = JSON.parse(sessionStorage.getItem(key) || "{}") || {}; } catch (_) {}
+    var chosen = pending || stored.picked || "";
+    if (!chosen) return null;
+    if (!pending) return { choice: chosen, line: "Sent to " + assistant };
+    var failed = Object.keys(frontChats).some(function (id) {
+      var chat = frontChats[id];
+      return chat.answerKey === key && (chat.state.thread || []).some(function (entry) { return entry.text === pending && entry.failed; });
+    });
+    return { choice: chosen, line: failed ? "Not delivered. Open it to try again." : "Sending…" };
   }
   function frontStage() {
     if (!frontUpdate) return;
@@ -508,7 +572,7 @@ export const FRONT_SCRIPT = `
     }
     frontRoot.setAttribute("data-job", job.id);
     frontHead(job, VIEW_TOKEN && Array.isArray(frontUpdate.jobs));
-    var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.domainRun, job.questionIdentity, job.next, job.ask, job.digest, job.threads, job.files]);
+    var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.domainRun, job.questionIdentity, job.next, job.ask, job.digest, job.threads, job.files, job.choices, job.recommended]);
     // A job already open stays as he left it while he is typing in it.
     if (drawn === frontDrawn.view || (frontDrawn.viewId === job.id && jobView.contains(document.activeElement))) return;
     frontDrawn.view = drawn;
@@ -545,6 +609,7 @@ export const FRONT_SCRIPT = `
       at: job.at || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", questionIdentity: job.questionIdentity || "", because: job.because || "",
       digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
       threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.domainRun || "",
+      choices: Array.isArray(job.choices) ? job.choices : [], recommended: job.recommended || "",
       handled: job.handled && job.handled.decisionId ? { decisionId: job.handled.decisionId, task: job.handled.task || "" } : null,
     };
   }
@@ -574,6 +639,14 @@ export const FRONT_SCRIPT = `
   jobsEl.addEventListener("click", function (event) {
     var more = event.target.closest(".fmore");
     if (more) { frontOpen[more.dataset.more] = !frontOpen[more.dataset.more]; renderFront(); return; }
+    var pick = event.target.closest(".jpick");
+    if (pick) {
+      var job = frontJobs.get(pick.dataset.pickJob);
+      if (!job || pick.disabled) return;
+      var answer = frontAnswer(job);
+      pickChoice(answer.chat, answer.key, pick.dataset.pick, function () { frontDrawn.jobs = ""; frontDrawJobs(Array.from(frontJobs.values())); });
+      return;
+    }
     var card = event.target.closest(".job");
     if (card) frontSelect(card.dataset.job);
   });

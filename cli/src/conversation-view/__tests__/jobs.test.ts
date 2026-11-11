@@ -286,6 +286,21 @@ describe("jobsFrom", () => {
     expect(shown).not.toMatch(/George needs|his picks|\bGeorge\b|\bcaptain\b|Design decisions are pending/);
   });
 
+  it("gives a decision its named answers as one-tap choices, and an open question none", () => {
+    const text = "The Liesel board for Pierre's Radio direction is finished and passing all checks. ".repeat(4);
+    const digest = {
+      hash: digestHash(text), project: "Cap5", changed: "The Liesel board is finished and passing all checks.",
+      needed: "Say merge, and I'll merge both waiting Flyd updates and restart Flyd; I recommend it.",
+      at: "2026-10-26T10:00:00.000Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0,
+    };
+    const said = jobsFrom({ projects: [project()], reports: [{ project: "Cap5", title: "Board", text }], digests: [digest], runs: [run({ status: "needs_decision", question: "Waiting on your go-ahead." })], now: NOW }).jobs[0]!;
+    expect(said).toMatchObject({ group: "needs", domainRun: "run-1", choices: ["Merge"], recommended: "Merge" });
+    const asked = jobsFrom({ runs: [run({ status: "needs_decision", question: "Should I merge now or wait for checks?" })], now: NOW }).jobs[0]!;
+    expect(asked.choices).toEqual(["Merge now", "Wait for checks"]);
+    const open = jobsFrom({ runs: [run({ status: "needs_decision", question: "Which price should ship?" })], now: NOW }).jobs[0]!;
+    expect(open.choices).toBeUndefined();
+  });
+
   it("gives a card the reading of its own item, never another item's in the same project", () => {
     // The Week page PR and the WhatsApp card are both Flyd work; the WhatsApp reading is newer.
     const week = "The Week page now shows each hour's changes when you hover a bar. ".repeat(6);
