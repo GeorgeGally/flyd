@@ -2331,7 +2331,7 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
     document.getElementById("flip")!.click();
     const meta = document.getElementById("scene-meta")!;
-    expect(meta.querySelector(".closed")!.textContent).toBe("The review page for this has closed");
+    expect(meta.querySelector(".closed")!.textContent).toBe("The review page is offline right now");
     expect([...meta.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["https://github.com/o/flyd/pull/9"]);
     const chat = document.querySelector<HTMLTextAreaElement>(".scene-ask .art-chat-input")!;
     expect(chat.placeholder).toBe("Say something about this…");

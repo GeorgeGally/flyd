@@ -40,6 +40,9 @@ export function toYou(text: string): string {
     .replace(new RegExp(`${HIM}['’]s\\b`, "g"), (found) => capital("your", found))
     .replace(new RegExp(`${HIM}\\s+(${VERBS})\\b`, "g"), (found, verb: string) => capital(`you ${AGREE[verb.toLowerCase()] ?? verb}`, found))
     .replace(new RegExp(HIM, "g"), (found) => capital("you", found))
+    // "captain calls on V5", "captain's picks": a bare "captain" owning a decision is him too.
+    .replace(/\b[Cc]aptain['’]s (calls?|picks?|decisions?|choices?|answers?)\b/g, (_found, thing: string) => `your ${thing}`)
+    .replace(/\b[Cc]aptain calls (?=on\b)/g, "your calls ")
     .replace(new RegExp(`\\b([Hh])is (${HIS_THINGS})\\b`, "g"), (_found, _h: string, thing: string) => `your ${thing}`)
     .replace(new RegExp(`\\b([Hh])e (${VERBS})\\b`, "g"), (_found, _h: string, verb: string) => `you ${AGREE[verb.toLowerCase()] ?? verb}`)
     .replace(/\b(for|to|ask|tell|show|give|from|with|remind|let) him\b/gi, (_found, word: string) => `${word} you`)

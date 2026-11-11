@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bannedFor, forHim, PA_VOICE, statusSaid, withoutInformAsk } from "../pa-voice.js";
+import { bannedFor, forHim, PA_VOICE, shortHeadline, staffStatusLine, statusSaid, withoutInformAsk } from "../pa-voice.js";
 
 // Real lines Flyd showed George (data/flyd-voice-you/corpus.md), and what they read as now.
 const REAL: Array<[string, string]> = [
@@ -57,5 +57,21 @@ describe("the banned phrases", () => {
     expect(PA_VOICE).toMatch(/"I"/);
     expect(PA_VOICE).toMatch(/"you"/);
     expect(PA_VOICE).toMatch(/Changed, Means, Needed/);
+  });
+});
+
+describe("shortHeadline", () => {
+  it("is a short complete phrase, never a cut copy", () => {
+    expect(shortHeadline("Pierre: hardware-style redesign lab on a Liesel board (Codex): Choose the Pierre hardware … Choose the Pierre…")).toBe("Pierre: hardware-style redesign lab");
+    expect(shortHeadline("Earlier report: DIR: 5 Rams / Teenage Engineering options for like/dislike/request con…")).toBe("DIR: 5 Rams / Teenage Engineering options for like/dislike/request");
+    expect(shortHeadline("Week view")).toBe("Week view");
+    for (const head of [shortHeadline("A very long label that goes on and on about many many things past ten words easily"), shortHeadline("Thing: cut here…")]) expect(head).not.toMatch(/…|\.\.\./);
+  });
+});
+
+describe("staffStatusLine", () => {
+  it("knows a worker's status line from a plain sentence", () => {
+    expect(staffStatusLine("Captain's Live now note applied in place (Request key -> Eject #8d9aa6, white mark), verified headless 1440/834/390 and frame serves r=9")).toBe(true);
+    expect(staffStatusLine("I changed the Request key to match Eject.")).toBe(false);
   });
 });

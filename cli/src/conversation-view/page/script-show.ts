@@ -127,8 +127,12 @@ export const SHOW_SCRIPT = `
     var wrap = el("div", "screen-body");
     var known = {};
     (box.links || []).forEach(function (link) { known[link.url] = true; });
+    if (box.open) known[box.open.url] = true;
+    // Several questions are listed one per line by the ask below: the body never says them again.
+    var listed = !!(box.decision && box.decision.decisions && box.decision.decisions.length > 1);
     screen.blocks.forEach(function (block) {
       if (block.kind === "choices") return;
+      if (listed && block.kind === "question") return;
       if (block.kind === "question" || block.kind === "document" || block.kind === "recommendation" || block.kind === "operation") {
         var text = String(block.text || "").trim();
         if (!text) return;
@@ -242,7 +246,9 @@ export const SHOW_SCRIPT = `
     var said = [];
     unsaid(headed.head, said);
     unsaid(box.title, said);
-    var line = !hasDocument ? unsaid(box.line, said) : "";
+    // Several questions listed one per line below: a line restating them would say them twice.
+    var listedAsks = !!(box.decision && box.decision.decisions && box.decision.decisions.length > 1);
+    var line = !hasDocument && !listedAsks ? unsaid(box.line, said) : "";
     sceneLine.textContent = line ? sentence(capital(line)) : "";
     var oldOpen = sceneEl.querySelector(".scene-open");
     if (oldOpen) oldOpen.remove();
@@ -269,9 +275,15 @@ export const SHOW_SCRIPT = `
     if (word) sceneMeta.appendChild(el("span", "kind", word));
     if (box.project) sceneMeta.appendChild(el("span", "project", box.project));
     if (box.status && box.status !== word) sceneMeta.appendChild(el("span", "status", box.status));
+    var shownLinks = {};
+    if (box.open) { shownLinks["url:" + box.open.url] = true; shownLinks["label:" + box.open.label] = true; }
     (box.links || []).forEach(function (link) {
+      // Two links that do the same thing are one: the same address, or the same words.
+      if (shownLinks["url:" + link.url] || shownLinks["label:" + link.label]) return;
+      shownLinks["url:" + link.url] = true;
+      shownLinks["label:" + link.label] = true;
       // A page on this machine that stopped answering is said in words, never a dead link.
-      if (link.closed) { sceneMeta.appendChild(el("span", "closed", "The review page for this has closed")); return; }
+      if (link.closed) { sceneMeta.appendChild(el("span", "closed", "The review page is offline right now")); return; }
       var a = el("a", "", link.label);
       a.href = link.url;
       a.target = "_blank";
@@ -846,7 +858,7 @@ export const SHOW_SCRIPT = `
       if (call.detail && call.detail !== call.headline) item.appendChild(el("p", "call-question", sentence(capital(call.detail))));
       else if (question && question !== call.headline) item.appendChild(el("p", "call-question", sentence(capital(question))));
       (call.links || []).forEach(function (link) {
-        if (link.closed) { item.appendChild(el("p", "call-link closed", "The review page for this has closed")); return; }
+        if (link.closed) { item.appendChild(el("p", "call-link closed", "The review page is offline right now")); return; }
         var a = el("a", "call-link", link.label + " ↗");
         a.href = link.url;
         a.target = "_blank";

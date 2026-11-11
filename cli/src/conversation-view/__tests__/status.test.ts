@@ -204,3 +204,12 @@ describe("IslandRung", () => {
     expect(new IslandRung(file).once({ working: false, reply: { id: "decision:old", headline: "Old ask", asks: true } }).reply).toBeUndefined();
   });
 });
+
+describe("what rings him", () => {
+  it("never rings for a vague follow-up note, only for a question he can answer", async () => {
+    const { ringsHim } = await import("../status.js");
+    expect(ringsHim({ label: "Flyd UI", question: "Next: which Flyd screens Loose leaf reaches next" })).toBe(false);
+    expect(ringsHim({ label: "Pierre", question: "Choose the Pierre hardware direction", choices: ["Monza", "Radio"] })).toBe(true);
+    expect(ringsHim({ label: "Jev", question: "Remove Jev or keep it?" })).toBe(true);
+  });
+});

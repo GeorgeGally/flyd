@@ -1,3 +1,4 @@
+import { forHim } from "../lib/pa-voice.js";
 import { plainLinks } from "./line-links.js";
 import { answeredForHim, choiceTarget, openChoice } from "./choices.js";
 import { asksIn, brief, decisionOf, handledBy, statusHeadline, withoutStubs } from "./executive.js";
@@ -125,11 +126,22 @@ export function statusOf(snapshot: ConversationSnapshot, now = Date.now()): Conv
   };
 }
 
+/**
+ * Whether an open call is worth ringing him for: a real question he can answer now. A vague
+ * follow-up written as a note ("Next: which Flyd screens Loose leaf reaches next"), with no
+ * question and nothing to pick, waits on the board instead. Pure.
+ */
+export function ringsHim(row: { label: string; question?: string; choices?: string[]; decisions?: unknown[] }): boolean {
+  const said = (row.question ?? row.label).trim();
+  if (/^(?:next|later|follow[- ]?up|someday|eventually|backlog)\b\s*[:-]/i.test(said)) return false;
+  return Boolean(row.choices?.length || row.decisions?.length || /\?/.test(said));
+}
+
 export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefact): ConversationStatus {
-  const ask = fleet?.calls.find((row) => !row.ledgerOnly);
+  const ask = fleet?.calls.find((row) => !row.ledgerOnly && ringsHim(row));
   const notable = fleet?.landed.find((row) => row.notable);
   const reply = ask
-    ? { id: `decision:${ask.executiveDecisionId ?? ask.task ?? ask.label}`, headline: ask.question ?? ask.label, asks: true }
+    ? { id: `decision:${ask.executiveDecisionId ?? ask.task ?? ask.label}`, headline: forHim(ask.question ?? ask.label), asks: true }
     : notable
       ? { id: `outcome:${notable.executiveDecisionId ?? notable.task ?? notable.label}`, headline: notable.label, asks: false }
       : current.reply?.asks || current.reply?.id.startsWith("answer:") ? current.reply : undefined;

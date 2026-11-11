@@ -29,6 +29,37 @@ export function statusSaid(line: string, what: string): string | null {
   return name ? `${name.charAt(0).toUpperCase()}${name.slice(1)} is finished and ready for you to land.` : "It is finished and ready for you to land.";
 }
 
+/**
+ * A headline Flyd can stand behind when no better one was written: a short
+ * complete phrase, never a cut copy with an ellipsis. "Pierre: hardware-style
+ * redesign lab on a Liesel board (Codex): Choose the Pierre hardware …" reads
+ * "Pierre: hardware-style redesign lab". Pure.
+ */
+export function shortHeadline(text: string, words = 10): string {
+  const flat = text.replace(/\s+/g, " ").trim()
+    .replace(/^earlier report:\s*/i, "")
+    .replace(/\s*\([^)]*\)/g, "")
+    .replace(/\s+on an? (?:Liesel|Lavish) board\b/gi, "")
+    .replace(/https?:\/\/\S+/g, "");
+  const kept: string[] = [];
+  for (const part of flat.split(/:\s+/)) {
+    const cut = /\s*(?:…|\.\.\.)/.exec(part);
+    const whole = (cut ? part.slice(0, cut.index) : part).trim();
+    // A segment cut short loses its last, partial word.
+    const clean = cut ? whole.replace(/\s+\S*$/, "") || whole : whole;
+    if (clean) kept.push(clean);
+    if (cut || kept.length === 2) break;
+  }
+  const list = kept.join(": ").split(" ");
+  const head = list.length > words ? list.slice(0, words).join(" ").replace(/\s+(?:the|a|an|of|to|and|or|for|with|on|in|at|by|from)$/i, "") : list.join(" ");
+  return head.replace(/[\s,;:/–—-]+$/, "");
+}
+
+/** A worker's status line to its supervisor: ids, verification sizes, "applied in place". Never shown as what changed. */
+export function staffStatusLine(text: string): boolean {
+  return STATUS_LINE.test(text) || /\bverif(?:ied|y)\s+headless\b|\b\d{3,4}\/\d{3,4}\/\d{3,4}\b|\br=\d+\b|#[0-9a-f]{6}\b|\bapplied in place\b|\bnote applied\b/i.test(text);
+}
+
 /** Questions that only ask leave to tell him something: Flyd always tells him, so it never asks. */
 const INFORM_ASK = /(?:^|(?<=[.!?]\s+))(?:do you want|would you like|want|shall|should)\s+(?:me|I)\s+(?:to\s+)?(?:pass (?:along|on)|let you know|tell you|update you|report back|ping you|keep you (?:posted|updated)|send you (?:the|a) (?:confirmation|update|note))\b([^?]*)\?/gim;
 
