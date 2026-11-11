@@ -10,7 +10,7 @@ import type { DomainRun } from "../types.js";
 import { dispatchBrief, type Dispatch, type Dispatched, type SentBrief } from "./dispatch.js";
 import { intakeObjective, readRun, type Complete } from "./intake.js";
 import { cosEnabled, listObjectives, mutateObjective, readObjective } from "./objectives.js";
-import { isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, requeue, sinks } from "./plan.js";
+import { awaitsDecision, isActive, isGone, isValid, maxActive, planFromBrief, planOf, planRequestId, releasable, requeue, sinks } from "./plan.js";
 import type { Adaptation, CosReport, CosReportKind, Objective, PlannedRun, RunBrief, WaitKind } from "./types.js";
 
 // The Chief of Staff's tick (split plan Phase 3, v8 Phase 6; behind FLYD_COS=1). Called from the command tick, and
@@ -105,11 +105,11 @@ async function report(objective: Objective, made: CosReport, deps: CosTickDeps, 
   });
 }
 
-async function blocked(objective: Objective, reason: string, deps: CosTickDeps, store: IntelligenceEventStore, key = "intake"): Promise<void> {
+async function blocked(objective: Objective, reason: string, deps: CosTickDeps, store: IntelligenceEventStore, kind: "intake" | "retry", key: string): Promise<void> {
   if (readObjective(objective.id)?.status === "cancelled") return;
   // One plain sentence: what happened. The reason stays on the record.
   const made = { ...plainReport(objective, "blocked", `I couldn't get “${shortWords(objective.words)}” started; tell me a bit more and I'll set it going.`, key), detail: reason };
-  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: key === "intake" ? "intake" : "retry" });
+  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind });
 }
 
 /** Under the objective's lock: the plan as it is now, changed; null writes nothing. The first write keeps an older objective's plan. */
@@ -153,7 +153,7 @@ async function intake(objective: Objective, deps: CosTickDeps, store: Intelligen
   let brief = claimed.brief;
   if (!brief) {
     const read = await intakeObjective(claimed, deps.complete ?? defaultComplete).catch((error: unknown) => ({ refused: error instanceof Error ? error.message : String(error) }));
-    if ("refused" in read) return blocked(claimed, read.refused, deps, store);
+    if ("refused" in read) return blocked(claimed, read.refused, deps, store, "intake", `intake:${claimed.progressAt ?? ""}`);
     brief = read;
   }
   // The plan is kept with the brief, every run queued under its own request id; release dispatches them.
@@ -220,7 +220,8 @@ async function dispatched(id: string, key: string, answer: Dispatched, deps: Cos
     return;
   }
   const refused = changeRun(id, key, () => ({ state: "failed", dispatching: undefined, failure: answer.refused }));
-  if (refused) await blocked(refused, answer.refused, deps, store, `dispatch:${key}`);
+  const attempt = refused && planOf(refused).find((run) => run.key === key)?.attempt;
+  if (refused) await blocked(refused, answer.refused, deps, store, "retry", `dispatch:${key}:${attempt ?? ""}`);
 }
 
 const SETTLED = new Set<DomainRun["status"]>(["completed", "failed", "needs_decision"]);
@@ -249,7 +250,7 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
     // Back at work after his decision: the objective is working again unless something else still waits on him.
     if (AT_WORK.has(domain.status) && run.reviewed?.includes(":needs_decision:")) {
       changeRun(objective.id, run.key, () => ({ reviewed: undefined }), (current) => (
-        current.status === "needs_george" && !planOf(current).some((other) => other.state === "failed")
+        current.status === "needs_george" && !planOf(current).some((other) => other.state === "failed") && !awaitsDecision(current)
           ? { status: "working", waitingOn: undefined, snooze: undefined } : {}
       ));
     }

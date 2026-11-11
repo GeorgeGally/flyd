@@ -7,7 +7,7 @@ import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decis
 import type { Dispatch } from "../cos/dispatch.js";
 import { mutateObjective, openObjective, readObjective } from "../cos/objectives.js";
 import { planOf } from "../cos/plan.js";
-import { plainStatus, snoozeUntil, tellWork, workStatus } from "../cos/steer.js";
+import { plainStatus, tellWork, workStatus } from "../cos/steer.js";
 import { cosTick, STUCK_MS } from "../cos/tick.js";
 import type { CosReport, PlannedRun } from "../cos/types.js";
 import type { sendRunMessage } from "../messages.js";
@@ -84,7 +84,8 @@ describe("snooze", () => {
     expect([readObjective(id)?.status, h.said.map((report) => report.kind)]).toEqual(["needs_george", ["decision"]]);
 
     const outcome = await tellWork({ message: "remind me tomorrow morning", kind: "snooze", until: "tomorrow_morning" }, h.deps.send, h.clock());
-    expect(outcome).toEqual({ delivered: true, objectiveId: id, until: snoozeUntil("tomorrow_morning", h.clock())!.toISOString() });
+    const today = h.clock();
+    expect(outcome).toEqual({ delivered: true, objectiveId: id, until: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 8).toISOString() });
     expect(workStatus()).toContain(`snoozed until ${outcome.until}`);
     // The other branch finishes meanwhile, and nothing is raised again.
     h.finishRun(`${id}-r2`);
@@ -129,7 +130,12 @@ describe("stuck work", () => {
     await cosTick(h.deps);
     await cosTick(h.deps);
     expect(h.said.map((report) => [report.outcome, report.options])).toEqual([["“book the table” has gone quiet and I can't tell why. Nudge it, park it, or is it meant to keep running?", ["Nudge", "Park it", "It's ongoing"]]]);
-    expect(await tellWork({ message: "park it, the restaurant hasn't replied", kind: "decision", objectiveId: quiet }, h.deps.send, h.clock())).toEqual({ delivered: true, objectiveId: quiet });
+    const before = readObjective(quiet);
+    const unclear = { delivered: false, objectiveId: quiet, reason: "not_steerable", ask: "Nudge it, park it, or is it meant to keep running?" };
+    expect(await tellWork({ message: "hmm, not sure", kind: "decision", objectiveId: quiet }, h.deps.send, h.clock())).toEqual(unclear);
+    expect(await tellWork({ message: "don't nudge it, park it", kind: "decision", objectiveId: quiet }, h.deps.send, h.clock())).toEqual(unclear);
+    expect(readObjective(quiet)).toEqual(before);
+    expect(await tellWork({ message: "the restaurant hasn't replied", choice: "Park it", kind: "decision", objectiveId: quiet }, h.deps.send, h.clock())).toEqual({ delivered: true, objectiveId: quiet });
     h.later(3 * STUCK_MS);
     await cosTick(h.deps);
     expect([readObjective(quiet)?.status, readObjective(quiet)?.parked?.reason, h.said.length]).toEqual(["working", "he parked it", 1]);
@@ -153,6 +159,28 @@ describe("every wait carries a question", () => {
     expect(h.said.at(-1)?.outcome).toBe("I couldn't get “do the thing” started; tell me a bit more and I'll set it going.");
     await tellWork({ message: "compare Stripe and Paddle fees for the print shop", kind: "decision" }, h.deps.send, h.clock());
     expect([readObjective(vague)?.status, readObjective(vague)?.flydNotes]).toEqual(["intake", "His answer when asked for more: compare Stripe and Paddle fees for the print shop"]);
+    // Refused again: told again, and it waits on him rather than briefing every tick.
+    h.later(1_000);
+    await cosTick(h.deps);
+    await cosTick(h.deps);
+    expect([readObjective(vague)?.status, readObjective(vague)?.waitingOn?.kind, h.said.filter((report) => report.kind === "blocked").length]).toEqual(["needs_george", "intake", 2]);
+    h.store.close();
+  });
+});
+
+describe("a one-off job's retry", () => {
+  it("asks before his words alone run it again", async () => {
+    const h = harness("{}");
+    const id = openObjective({ words: "book the table", flydNotes: "", origin: { surface: "chat" } }).id;
+    const plan: PlannedRun[] = [{ key: "r1", team: "life", outcome: "Book the table for Friday", doneWhen: ["booked"], state: "failed", attempt: 1, validFor: 0, ref: "job:j1", reviewed: "job:j1:failed" }];
+    mutateObjective(id, (current) => current && {
+      ...current, status: "needs_george", runs: ["job:j1"], plan,
+      waitingOn: { reportId: `${id}:job:j1:failed`, kind: "retry", question: "Book the table didn't finish.", options: ["Try another way", "Drop it"], at: new Date().toISOString() },
+    });
+    const before = readObjective(id);
+    expect(await tellWork({ message: "try the other restaurant", kind: "decision" }, h.deps.send, h.clock()))
+      .toEqual({ delivered: false, objectiveId: id, reason: "not_steerable", ask: "“Book the table for Friday” already ran; run it again with this?" });
+    expect(readObjective(id)).toEqual(before);
     h.store.close();
   });
 });
