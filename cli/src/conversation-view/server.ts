@@ -64,6 +64,7 @@ import { answered, answeredForHim, choiceOf, choiceTarget, labelOf, openChoice, 
 import { PreviewProbe } from "./preview-probe.js";
 import type { MachinesBoard } from "./machines.js";
 import { MachineSetupReader, type MachineSetup } from "./machine-setup.js";
+import { toolsWords } from "./machine-words.js";
 import type { WeatherReader } from "./weather.js";
 import type { WeekReader } from "./week.js";
 import { ComposerPredictions, eligibleDraft, boundedPredictionMessages } from "./composer-predictions.js";
@@ -2198,7 +2199,9 @@ export class ConversationViewServer {
   private async machineAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method === "GET") {
       const setup = await this.machineSetup().catch(() => null);
-      sendJson(res, 200, { ...(this.machines?.view() ?? { machines: [] }), ...(setup ? { setup } : {}) });
+      const view = this.machines?.view() ?? { machines: [] };
+      const tools = setup?.latest ? toolsWords(view.machines, setup.latest) : undefined;
+      sendJson(res, 200, { ...view, ...(setup ? { setup } : {}), ...(tools ? { tools } : {}) });
       return;
     }
     const origin = req.headers.origin;

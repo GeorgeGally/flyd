@@ -4933,7 +4933,7 @@ describe("the Todo tab", () => {
 
   it("sits beside the other tabs and is remembered, with no count on it", async () => {
     await opened();
-    expect(Array.from(document.querySelectorAll(".rtab")).map((tab) => tab.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Machines", "Todo"]);
+    expect(Array.from(document.querySelectorAll(".rtab")).map((tab) => tab.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Todo"]);
     document.querySelector<HTMLElement>('.rtab[data-rtab="todo"]')!.click();
     expect(document.documentElement.getAttribute("data-rtab")).toBe("todo");
     load("");
@@ -5116,15 +5116,17 @@ describe("project threads", () => {
   });
 });
 
-describe("the Machines tab", () => {
+describe("the Machines screen", () => {
   const GB = 1073741824;
   const ONLINE = {
     id: "@local", name: "Mac", local: true, state: "online",
     reading: { cores: 10, load: [2.5, 2, 1], memory: { used: 18 * GB, total: 32 * GB }, swap: { used: 0, total: 0 }, disk: { used: 240 * GB, total: 2048 * GB },
       running: [{ name: "node <42>", cpu: 42.4, memory: 3 }, { name: "launchd", cpu: 0, memory: 0.1 }] },
+    say: "Chrome <b> is holding 15 GB across 186 processes, and swap is nearly full.",
+    action: { label: "Free up memory", ask: "The Mac is short of memory. Find what can safely close." },
   };
-  const OFFLINE = { id: "85.155.185.63", name: "Server", alias: "85.155.185.63", local: false, state: "offline", reason: "It did not answer.", seenAt: new Date(Date.now() - 12 * 60_000).toISOString() };
-  const CHECKING = { id: "radarboy3k", name: "PC", alias: "radarboy3k", local: false, state: "checking" };
+  const OFFLINE = { id: "85.155.185.63", name: "Server", alias: "85.155.185.63", local: false, state: "offline", reason: "It did not answer.", say: "The Server is not answering.", seenAt: new Date(Date.now() - 12 * 60_000).toISOString() };
+  const CHECKING = { id: "radarboy3k", name: "PC", alias: "radarboy3k", local: false, state: "checking", say: "Checking it now." };
 
   function serve(respond: (init?: RequestInit) => unknown): ReturnType<typeof vi.fn> {
     const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
@@ -5138,10 +5140,9 @@ describe("the Machines tab", () => {
     return fetcher;
   }
   const reads = (fetcher: ReturnType<typeof vi.fn>) => fetcher.mock.calls.filter(([url]) => url.startsWith("/api/machines?")).length;
-  const tab = () => document.querySelector('.rtab[data-rtab="machines"]') as HTMLElement;
+  const tab = () => document.querySelector('.ctab[data-centre="machines"]') as HTMLElement;
 
-  it("waits for the initial view token before reading machines on phone", async () => {
-    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+  it("waits for the initial view token before reading machines", async () => {
     let provideToken!: (response: Response) => void;
     const fetcher = vi.fn(async (url: string) => {
       if (url === "/api/token") return new Promise<Response>((resolve) => { provideToken = resolve; });
@@ -5151,6 +5152,8 @@ describe("the Machines tab", () => {
     vi.stubGlobal("fetch", fetcher);
     load("", renderPage({ assistantLabel: "firstmate", sendToken: "a".repeat(48) }).replace('data-send-token="' + "a".repeat(48) + '"', 'data-send-token=""'));
     await settle();
+    tab().click();
+    await settle();
     expect(reads(fetcher)).toBe(0);
     expect(document.getElementById("machines-list")!.textContent).not.toContain("No machines yet");
     provideToken(json({ token: "b".repeat(48) }));
@@ -5159,19 +5162,22 @@ describe("the Machines tab", () => {
     expect(document.querySelector(".machine-name")!.textContent).toBe("Mac");
   });
 
-  it("sits with the other tabs and reads nothing until it is open", async () => {
+  it("is a tab beside Today, News and Week, off the right column, and reads nothing until it is open", async () => {
     const fetcher = serve(() => ({ machines: [ONLINE] }));
     load("");
     await settle();
-    expect(Array.from(document.querySelectorAll(".rtab")).map((one) => one.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Machines", "Todo"]);
+    expect(Array.from(document.querySelectorAll(".ctab")).map((one) => one.textContent)).toEqual(["Today", "News", "Week", "Machines"]);
+    expect(Array.from(document.querySelectorAll(".rtab")).map((one) => one.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Todo"]);
     expect(reads(fetcher)).toBe(0);
     tab().click();
     await settle();
     expect(reads(fetcher)).toBe(1);
-    expect(document.documentElement.dataset.rtab).toBe("machines");
+    expect(document.documentElement.dataset.centre).toBe("machines");
+    expect(tab().getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector('.ctab[data-centre="today"]')!.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("shows load, memory, swap, disk and what is running, escaped", async () => {
+  it("shows each machine's one sentence and one button, escaped, and no numbers of its own", async () => {
     serve(() => ({ machines: [ONLINE] }));
     load("");
     await settle();
@@ -5179,18 +5185,20 @@ describe("the Machines tab", () => {
     await settle();
     const row = document.querySelector(".machine.online")!;
     expect(row.querySelector(".machine-name")?.textContent).toBe("Mac");
-    expect(row.querySelector(".machine-state")?.textContent).toBe("Online");
-    expect(Array.from(row.querySelectorAll(".machine-value")).map((one) => one.textContent)).toEqual(["2.5 on 10 cores", "18 of 32 GB", "None", "0.2 of 2 TB"]);
-    expect(row.querySelector(".machine-running")?.textContent).toBe("node <42> 42%, launchd");
+    expect(row.querySelector(".machine-say")?.textContent).toBe("Chrome <b> is holding 15 GB across 186 processes, and swap is nearly full.");
+    expect(row.querySelector(".machine-say b")).toBeNull();
+    expect(row.querySelectorAll(".mach-btn")).toHaveLength(1);
+    expect(row.querySelector(".mach-btn")?.textContent).toBe("Free up memory");
+    expect(row.querySelector(".machine-stats")).toBeNull();
   });
 
-  it("shows the models, Claude's spend and the usage left under the machines, a used-up plan in words", async () => {
+  it("shows which model does each job, Claude's spend in a sentence and the usage left, a used-up plan in words", async () => {
     const noonTomorrow = new Date();
     noonTomorrow.setDate(noonTomorrow.getDate() + 1);
     noonTomorrow.setHours(12, 0, 0, 0);
     const soon = noonTomorrow.toISOString();
     serve(() => ({ machines: [ONLINE], setup: {
-      models: [{ role: "Chat", model: "claude-sonnet-5-5" }, { role: "Coding crews", model: "gpt-6-luna" }],
+      models: [{ role: "Chat", model: "Claude Sonnet 5.5" }, { role: "Quick jobs", model: "Claude Haiku 5.5" }, { role: "Coding crews", model: "GPT-6 Luna through OpenCode Go" }, { role: "LIVE voice", model: "gpt-realtime-2.1" }],
       spend: { usd: 1.789, cap: 100, calls: 1036, capped: false },
       usageAt: new Date(Date.now() - 12 * 60_000).toISOString(),
       usage: [{ provider: "Claude", left: 69, resetsAt: soon }, { provider: "OpenCode Go", left: 0, resetsAt: soon }, { provider: "Codex", left: 24, resetsAt: soon, runsOutAt: soon }],
@@ -5199,15 +5207,115 @@ describe("the Machines tab", () => {
     await settle();
     tab().click();
     await settle();
-    const setup = document.querySelector(".machine-setup")!;
-    expect([...setup.querySelectorAll(".setup-models dt, .setup-models dd")].map((one) => one.textContent)).toEqual(["Chat", "claude-sonnet-5-5", "Coding crews", "gpt-6-luna"]);
-    expect(setup.querySelector(".setup-spend")!.textContent).toBe("Claude this month: $1.79 of $100, 1036 calls.");
+    const setup = document.querySelector("#machines-side .machine-setup")!;
+    expect(document.getElementById("machines-side")!.hidden).toBe(false);
+    expect(setup.querySelector(".mach-models")!.textContent)
+      .toBe("Chat runs on Claude Sonnet 5.5, quick jobs on Claude Haiku 5.5, coding crews on GPT-6 Luna through OpenCode Go, and LIVE voice on gpt-realtime-2.1.");
+    expect(setup.querySelector(".setup-spend")!.textContent).toBe("Claude has cost $1.79 of your $100 this month, across 1,036 calls.");
     const usage = [...setup.querySelectorAll(".setup-usage li")];
-    expect(setup.querySelector(".setup-usage-read")!.textContent).toBe("Last read 12m ago");
+    expect(setup.querySelector(".setup-usage-read")!.textContent).toBe("Usage read 12m ago");
     expect(usage.map((one) => one.querySelector(".u-top")!.textContent)).toEqual(["Claude69% left", "OpenCode GoUsed up", "Codex24% left"]);
     expect(usage[0]!.querySelector<HTMLElement>(".u-bar i")!.style.width).toBe("69%");
     expect(usage[1]!.querySelector(".u-when")!.textContent).toMatch(/^Back tomorrow at /);
     expect(usage[2]!.querySelector(".u-when.out")!.textContent).toMatch(/^Runs out tomorrow at /);
+    expect(setup.querySelector("h2")).toBeNull();
+  });
+
+  it("asks Flyd in the conversation when a button is pressed, after asking him first for one that changes something", async () => {
+    const tools = { say: "Codex is behind on the Mac, 0.162 against 0.167.", action: { label: "Update Codex", confirm: "Update Codex on the Mac?", ask: "Update Codex on the Mac from 0.162.0 to 0.167.0." } };
+    const fetcher = serve(() => ({ machines: [ONLINE], tools }));
+    load("");
+    await settle();
+    FakeEventSource.instances.at(-1)!.emit("session", { id: "latest", title: "Latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    tab().click();
+    await settle();
+    const panel = document.getElementById("machines-tools")!;
+    expect(document.getElementById("machines-side")!.hidden).toBe(false);
+    expect(panel.querySelector(".mach-tools-say")!.textContent).toBe(tools.say);
+    const sends = () => fetcher.mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)).text);
+    (panel.querySelector(".mach-btn") as HTMLElement).click();
+    await settle();
+    expect(sends()).toEqual([]);
+    expect(panel.querySelector(".mach-confirm p")!.textContent).toBe("Update Codex on the Mac?");
+    (panel.querySelector("[data-mach-no]") as HTMLElement).click();
+    expect(panel.querySelector(".mach-confirm")).toBeNull();
+    expect(document.activeElement).toBe(panel.querySelector("[data-mach-act]"));
+    (panel.querySelector(".mach-btn") as HTMLElement).click();
+    (panel.querySelector("[data-mach-yes]") as HTMLElement).click();
+    await settle();
+    expect(sends()).toEqual(["Update Codex on the Mac from 0.162.0 to 0.167.0."]);
+    expect(document.documentElement.dataset.centre).toBe("talk");
+    tab().click();
+    await settle();
+    (document.querySelector(".machine .mach-btn") as HTMLElement).click();
+    await settle();
+    expect(sends().at(-1)).toBe("The Mac is short of memory. Find what can safely close.");
+  });
+
+  it("keeps a half-typed message and its attachment when a button asks Flyd", async () => {
+    const fetcher = serve(() => ({ machines: [ONLINE] }));
+    load("");
+    await settle();
+    FakeEventSource.instances.at(-1)!.emit("session", { id: "latest", title: "Latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    tab().click();
+    await settle();
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    input.value = "half a thought";
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    const paste = new Event("paste", { cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
+    input.dispatchEvent(paste);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment img"); i += 1) await settle();
+    (document.querySelector(".machine .mach-btn") as HTMLElement).click();
+    await settle();
+    const sent = fetcher.mock.calls.filter(([url]) => url === "/api/send").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(sent.map((one) => [one.text, one.images.length])).toEqual([["The Mac is short of memory. Find what can safely close.", 0]]);
+    expect(input.value).toBe("half a thought");
+    expect(document.querySelectorAll(".attachment img")).toHaveLength(1);
+  });
+
+  it("says so when a button could not ask Flyd, and leaves the message box alone", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const fetcher = serve(() => ({ machines: [ONLINE] }));
+      load("");
+      await vi.runOnlyPendingTimersAsync();
+      tab().click();
+      await vi.runOnlyPendingTimersAsync();
+      const input = document.getElementById("input") as HTMLTextAreaElement;
+      input.value = "half a thought";
+      (document.querySelector(".machine .mach-btn") as HTMLElement).click();
+      await vi.advanceTimersByTimeAsync(25_000);
+      expect(fetcher.mock.calls.some(([url]) => url === "/api/send")).toBe(false);
+      expect(input.value).toBe("half a thought");
+      const notice = document.getElementById("notice")!;
+      expect(notice.hidden).toBe(false);
+      expect(notice.textContent).toMatch(/could not ask that/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says which model does which job in a sentence that agrees with whichever job comes first", async () => {
+    serve(() => ({ machines: [ONLINE], setup: {
+      models: [{ role: "Coding crews", model: "GPT-6 Luna through OpenCode Go" }, { role: "Typing", model: "GPT-4o Mini Transcribe" }, { role: "LIVE voice", model: "gpt-realtime-2.1" }],
+      usage: [],
+    } }));
+    load("");
+    await settle();
+    tab().click();
+    await settle();
+    expect(document.querySelector("#machines-side .mach-models")!.textContent)
+      .toBe("Coding crews run on GPT-6 Luna through OpenCode Go, typing on GPT-4o Mini Transcribe, and LIVE voice on gpt-realtime-2.1.");
+  });
+
+  it("hides the right column when there are no versions, models or usage to show", async () => {
+    serve(() => ({ machines: [ONLINE] }));
+    load("");
+    await settle();
+    tab().click();
+    await settle();
+    expect(document.getElementById("machines-side")!.hidden).toBe(true);
   });
 
   it("says plainly when a machine is offline, with no numbers", async () => {
@@ -5217,14 +5325,13 @@ describe("the Machines tab", () => {
     tab().click();
     await settle();
     const row = document.querySelector(".machine.offline")!;
-    expect(row.querySelector(".machine-state")?.textContent).toBe("Offline");
-    expect(row.querySelector(".machine-why")?.textContent).toBe("It did not answer.");
+    expect(row.querySelector(".machine-say")?.textContent).toBe("The Server is not answering.");
     expect(row.querySelector(".machine-seen")?.textContent).toBe("Last seen 12m ago");
-    expect(row.querySelector(".machine-stats")).toBeNull();
-    expect(document.querySelector(".machine.checking .machine-state")?.textContent).toBe("Checking");
+    expect(row.querySelector(".mach-btn")).toBeNull();
+    expect(document.querySelector(".machine.checking .machine-say")?.textContent).toBe("Checking it now.");
   });
 
-  it("reads again on the interval only while the tab is open, and soon while one is being checked", async () => {
+  it("reads again on the interval only while the screen is up, and soon while one is being checked", async () => {
     let machines = [ONLINE, CHECKING];
     const fetcher = serve(() => ({ machines }));
     load("");
@@ -5243,7 +5350,7 @@ describe("the Machines tab", () => {
       expect(reads(fetcher)).toBe(3);
       await vi.advanceTimersByTimeAsync(1000);
       expect(reads(fetcher)).toBe(4);
-      (document.querySelector('.rtab[data-rtab="jobs"]') as HTMLElement).click();
+      (document.querySelector('.ctab[data-centre="today"]') as HTMLElement).click();
       await vi.advanceTimersByTimeAsync(120_000);
       expect(reads(fetcher)).toBe(4);
     } finally {
@@ -5360,6 +5467,7 @@ describe("the Machines tab", () => {
     const field = (document.getElementById("machine-form") as HTMLFormElement).elements.namedItem("name") as HTMLInputElement;
     field.value = "half typed";
     machines = [ONLINE];
+    (document.querySelector('.ctab[data-centre="today"]') as HTMLElement).click();
     tab().click();
     await settle();
     expect(document.querySelectorAll(".machine")).toHaveLength(1);

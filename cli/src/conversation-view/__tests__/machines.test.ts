@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FIRST_MACHINES, MachinesBoard, READ_SCRIPT, offlineReason, parseReading, sshArgs, validAlias } from "../machines.js";
+import { FIRST_MACHINES, MachinesBoard, READ_SCRIPT, RUNNING_TOTALS, TOOLS_SCRIPT, appOf, offlineReason, parseReading, parseTools, sshArgs, validAlias } from "../machines.js";
 import type { MachineRow } from "../machines.js";
 import { ConversationViewServer } from "../server.js";
 import type { ConversationSource } from "../types.js";
@@ -23,13 +23,13 @@ SwapFree:        6000000 kB
 Filesystem     1024-blocks      Used Available Capacity Mounted on
 /dev/nvme0n1p2  1000000000 400000000 550000000      43% /
 @@running
- 92.5  3.1 node
- 12.0  1.5 node
-  8.0  9.0 postgres
-  4.0  0.0 ps
-  1.0  0.1 kworker/0:1-events
-  0.5  0.1 sshd
-  0.2  0.1 systemd
+92.5 3.1 1 node
+12 1.5 1 node
+8 9 1 postgres
+4 0 1 ps
+1 0.1 1 kworker/0:1-events
+0.5 0.1 1 sshd
+0.2 0.1 1 systemd
 @@end
 `;
 
@@ -53,9 +53,8 @@ total = 2048.00M  used = 512.50M  free = 1535.50M  (encrypted)
 Filesystem    1024-blocks      Used Available Capacity  Mounted on
 /dev/disk3s5    494384795 300000000 150000000    67%   /System/Volumes/Data
 @@running
- 40.0  2.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
- 10.0  1.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-  9.0  4.0 /usr/local/bin/node
+50 3 2 Google Chrome
+9 4 1 node
 @@end
 `;
 
@@ -84,6 +83,93 @@ describe("a reading", () => {
     expect(parseReading(MAC)!.running).toEqual([{ name: "Google Chrome", cpu: 50, memory: 3 }, { name: "node", cpu: 9, memory: 4 }]);
   });
 
+  it("holds each app's processes together, flags test browsers, and reads the days up", () => {
+    const busy = MAC.replace("@@end", "").replace(/@@running[\s\S]*$/, `@@running
+2 30 2 Google Chrome Helper (Renderer)
+0.5 5 1 Google Chrome
+0.2 4 1 Google Chrome for Testing
+0.2 3 1 Google Chrome for Testing Helper (GPU)
+0.1 0 1 cron
+@@end
+`);
+    const reading = parseReading(busy)!;
+    expect(reading.upDays).toBe(3);
+    expect(reading.holding).toEqual([
+      { name: "Chrome", count: 3, memory: 35 },
+      { name: "Chrome for Testing", count: 2, memory: 7, test: true },
+    ]);
+    expect(parseReading(LINUX)!.upDays).toBe(2);
+    expect(parseReading(LINUX.replace("up 2 days,  8:51", "up  8:51"))!.upDays).toBe(0);
+    expect(appOf("headless_shell")).toBe("Headless Chromium");
+    expect(appOf("chrome")).toBe("Chrome");
+  });
+
+  it("flags only test browsers, on Linux's cut names too, never his own Chrome or Chromium", () => {
+    const linux = LINUX.replace(/@@running[\s\S]*$/, `@@running
+1 9 4 chrome-headless
+1 8 3 chromium
+1 7 2 chrome
+@@end
+`);
+    expect(parseReading(linux)!.holding).toEqual([
+      { name: "Headless Chromium", count: 4, memory: 9, test: true },
+      { name: "chromium", count: 3, memory: 8 },
+      { name: "Chrome", count: 2, memory: 7 },
+    ]);
+    const mixed = LINUX.replace(/@@running[\s\S]*$/, `@@running
+1 2 1 headless_shell
+1 3 1 chrome-headless-shell
+1 9 5 Google Chrome
+@@end
+`);
+    expect(parseReading(mixed)!.holding).toEqual([
+      { name: "Chrome", count: 5, memory: 9 },
+      { name: "Headless Chromium", count: 2, memory: 5, test: true },
+    ]);
+  });
+
+  it("adds up ps rows by program, cutting macOS paths to the program's name", () => {
+    const ps = [
+      " 40.0  2.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      " 10.0  1.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "  1.0 20.0 /Applications/Google Chrome.app/Contents/Frameworks/x/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)",
+      "  9.0  4.0 /usr/local/bin/node",
+      "  1.0  0.1 kworker/0:1-events",
+      "",
+    ].join("\n");
+    const { stdout } = spawnSync("awk", [RUNNING_TOTALS], { input: ps, encoding: "utf8", env: { LC_ALL: "C", PATH: process.env.PATH } });
+    expect(stdout.trim().split("\n").sort()).toEqual([
+      "1 0.1 1 kworker/0:1-events",
+      "1 20 1 Google Chrome Helper (Renderer)",
+      "50 3 2 Google Chrome",
+      "9 4 1 node",
+    ]);
+  });
+
+  it("reads the tool versions, and nothing when that read stopped short", () => {
+    expect(parseTools("banner\n@@tools\nclaude 2.1.318 (Claude Code)\ncodex codex-cli 0.167.0\n@@end\n")).toEqual({ claude: "2.1.318", codex: "0.167.0" });
+    expect(parseTools("@@tools\n@@end\n")).toEqual({});
+    expect(parseTools("@@tools\nclaude 2.1.318 (Claude Code)\n")).toBeNull();
+  });
+
+  it("asks each tool only for its version, from the usual install places", () => {
+    const dir = mkdtempSync(join(tmpdir(), "flyd-machines-"));
+    try {
+      const bin = join(dir, ".local", "bin");
+      mkdirSync(bin, { recursive: true });
+      for (const [tool, said] of [["claude", "2.1.318 (Claude Code)"], ["codex", "codex-cli 0.167.0"]]) {
+        writeFileSync(join(bin, tool!), `#!/bin/sh\necho "$@" >> "${dir}/${tool}.args"\necho "${said}"\n`);
+        chmodSync(join(bin, tool!), 0o755);
+      }
+      const { stdout } = spawnSync("sh", ["-s"], { input: TOOLS_SCRIPT, cwd: dir, encoding: "utf8", env: { HOME: dir, PATH: "/usr/bin:/bin" } });
+      expect(stdout).toBe("@@tools\nclaude 2.1.318 (Claude Code)\ncodex codex-cli 0.167.0\n@@end\n");
+      expect(readFileSync(join(dir, "claude.args"), "utf8")).toBe("--version\n");
+      expect(readFileSync(join(dir, "codex.args"), "utf8")).toBe("--version\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("reads a machine with no swap as none", () => {
     expect(parseReading(LINUX.replace(/SwapTotal.*\nSwapFree.*/, "SwapTotal: 0 kB\nSwapFree: 0 kB"))!.swap).toEqual({ used: 0, total: 0 });
   });
@@ -107,10 +193,11 @@ describe("a reading", () => {
         const script = READ_SCRIPT.replaceAll("/proc/meminfo", memory).replaceAll("/System/Volumes/Data", dataVolume)
           .replaceAll(" | ", " </dev/null; ");
         const { stderr } = spawnSync("sh", ["-x", "-s"], { input: script, cwd: dir, encoding: "utf8", env: { HOME: dir, PATH: process.env.PATH, PS4: "+ " } });
-        return stderr.split("\n").flatMap((line) => /^\++ '?([^\s']+)/.exec(line)?.[1] ?? []);
+        // Some shells also trace each assignment on its own line; those run nothing.
+        return stderr.split("\n").flatMap((line) => /^\++ '?([^\s'=]+)(?=[\s']|$)/.exec(line)?.[1] ?? []);
       };
       const ran = new Set([...commandsOn(meminfo, absent), ...commandsOn(absent, dir)]);
-      expect([...ran].sort()).toEqual(["[", "cat", "df", "echo", "export", "getconf", "head", "ps", "sort", "sysctl", "uptime", "vm_stat"]);
+      expect([...ran].sort()).toEqual(["[", "awk", "cat", "df", "echo", "export", "getconf", "head", "ps", "sort", "sysctl", "uptime", "vm_stat"]);
       expect(readdirSync(dir)).toEqual(before);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -120,7 +207,7 @@ describe("a reading", () => {
   it("reads this computer for real", async () => {
     const dir = mkdtempSync(join(tmpdir(), "flyd-machines-"));
     try {
-      const board = new MachinesBoard({ path: join(dir, "machines.json"), first: [], localName: "Here" });
+      const board = new MachinesBoard({ path: join(dir, "machines.json"), first: [], localName: "Here", toolsFreshMs: Number.POSITIVE_INFINITY });
       board.view();
       await vi.waitFor(() => expect(board.view().machines[0]!.state).toBe("online"), { timeout: 8000, interval: 50 });
       const [row] = board.view().machines;
@@ -166,7 +253,8 @@ describe("the offline reason", () => {
   });
 });
 
-describe("the board, with a fake ssh", () => {
+// Generous timeouts: these spawn real processes and must hold up on a loaded machine.
+describe("the board, with a fake ssh", { timeout: 30_000 }, () => {
   let dir: string;
   let path: string;
   let ssh: string;
@@ -182,10 +270,21 @@ describe("the board, with a fake ssh", () => {
 for arg; do last2=$last; last=$arg; done
 alias=$last2
 printf '%s\\n' "$@" > "${dir}/$alias.args"
-cat > "${dir}/$alias.stdin"
+cat > "${dir}/$alias.$$"
+if grep -q '^echo @@tools' "${dir}/$alias.$$"; then
+  mv "${dir}/$alias.$$" "${dir}/$alias.tools"
+  echo x >> "${dir}/$alias.toolreads"
+  case "$alias" in
+    linux) cat "${dir}/tools.txt" ;;
+    stuck) exec sleep 30 ;;
+  esac
+  exit 0
+fi
+mv "${dir}/$alias.$$" "${dir}/$alias.stdin"
 case "$alias" in
   linux) cat "${dir}/linux.txt" ;;
   mac|local) cat "${dir}/mac.txt" ;;
+  stuck) cat "${dir}/linux.txt" ;;
   dead) exec sleep 30 ;;
   locked) echo "george@locked: Permission denied (publickey)." >&2; exit 255 ;;
   gibberish) echo "this is not a reading" ;;
@@ -194,10 +293,17 @@ esac
 `);
     chmodSync(ssh, 0o755);
   });
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  // A read started by the last view() can still be writing into dir by its old path. Move dir away first so a late
+  // write fails instead of landing in a directory being removed.
+  afterEach(() => {
+    const gone = `${dir}.gone`;
+    renameSync(dir, gone);
+    rmSync(gone, { recursive: true, force: true });
+  });
 
-  const board = (machines: Array<{ name: string; alias: string }>, freshMs = 60_000) =>
-    new MachinesBoard({ path, ssh, first: machines, freshMs, timeoutMs: 700, localName: "Here" });
+  // Tool versions are left out unless a test asks: the local row would run this computer's own claude and codex.
+  const board = (machines: Array<{ name: string; alias: string }>, freshMs = 60_000, toolsFreshMs = Number.POSITIVE_INFINITY) =>
+    new MachinesBoard({ path, ssh, first: machines, freshMs, toolsFreshMs, timeoutMs: 3000, localName: "Here" });
   const row = (rows: MachineRow[], id: string) => rows.find((machine) => machine.id === id)!;
 
   it("reads each machine with the fixed script and shows the Mac and Linux rows", async () => {
@@ -207,12 +313,44 @@ esac
       const rows = machines.view().machines;
       expect(row(rows, "linux").state).toBe("online");
       expect(row(rows, "mac").state).toBe("online");
-    }, { timeout: 4000, interval: 20 });
+    }, { timeout: 10_000, interval: 20 });
     const rows = machines.view().machines;
     expect(row(rows, "linux").reading!.cores).toBe(12);
     expect(row(rows, "mac").reading!.running[0]!.name).toBe("Google Chrome");
     expect(readFileSync(join(dir, "linux.stdin"), "utf8")).toBe(READ_SCRIPT);
     expect(readFileSync(join(dir, "linux.args"), "utf8")).toContain("BatchMode=yes");
+  });
+
+  it("asks for the tool versions when they are due, keeps them between reads, and says what matters", async () => {
+    writeFileSync(join(dir, "tools.txt"), "@@tools\ncodex codex-cli 0.167.0\n@@end\n");
+    const machines = new MachinesBoard({ path, ssh, first: [{ name: "Box", alias: "linux" }], freshMs: 0, toolsFreshMs: 60_000, timeoutMs: 3000, localName: "Here" });
+    machines.view();
+    await vi.waitFor(() => expect(row(machines.view().machines, "linux").reading?.tools).toEqual({ codex: "0.167.0" }), { timeout: 10_000, interval: 20 });
+    expect(readFileSync(join(dir, "linux.tools"), "utf8")).toBe(TOOLS_SCRIPT);
+    expect(readFileSync(join(dir, "linux.stdin"), "utf8")).toBe(READ_SCRIPT);
+    rmSync(join(dir, "linux.stdin"));
+    await vi.waitFor(() => {
+      machines.view();
+      expect(readFileSync(join(dir, "linux.stdin"), "utf8")).toBe(READ_SCRIPT);
+    }, { timeout: 10_000, interval: 20 });
+    expect(readFileSync(join(dir, "linux.toolreads"), "utf8")).toBe("x\n");
+    const box = row(machines.view().machines, "linux");
+    expect(box.reading?.tools).toEqual({ codex: "0.167.0" });
+    expect(box.say).toMatch(/^All well: up 2 days/);
+    expect(box.action).toBeUndefined();
+  });
+
+  it("keeps a machine online when its tools never answer, and does not ask them again until they are due", async () => {
+    const machines = new MachinesBoard({ path, ssh, first: [{ name: "Box", alias: "stuck" }], freshMs: 0, toolsFreshMs: 60_000, timeoutMs: 2000, localName: "Here" });
+    machines.view();
+    await vi.waitFor(() => expect(row(machines.view().machines, "stuck").state).toBe("online"), { timeout: 10_000, interval: 20 });
+    const started = Date.now();
+    while (Date.now() - started < 3000) {
+      expect(row(machines.view().machines, "stuck").state).toBe("online");
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    expect(readFileSync(join(dir, "stuck.toolreads"), "utf8")).toBe("x\n");
+    expect(row(machines.view().machines, "stuck").reading?.tools).toBeUndefined();
   });
 
   it("marks a dead machine offline without holding up the others or the answer", async () => {
@@ -221,9 +359,9 @@ esac
     const first = machines.view().machines;
     expect(Date.now() - started).toBeLessThan(200);
     expect(row(first, "dead").state).toBe("checking");
-    await vi.waitFor(() => expect(row(machines.view().machines, "linux").state).toBe("online"), { timeout: 600, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "linux").state).toBe("online"), { timeout: 2000, interval: 20 });
     expect(row(machines.view().machines, "dead").state).toBe("checking");
-    await vi.waitFor(() => expect(row(machines.view().machines, "dead").state).toBe("offline"), { timeout: 3000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "dead").state).toBe("offline"), { timeout: 10_000, interval: 20 });
     const dead = row(machines.view().machines, "dead");
     expect(dead.reason).toBe("It did not answer.");
     expect(dead.reading).toBeUndefined();
@@ -236,40 +374,40 @@ esac
       const rows = machines.view().machines;
       expect(row(rows, "locked").state).toBe("offline");
       expect(row(rows, "gibberish").state).toBe("offline");
-    }, { timeout: 4000, interval: 20 });
+    }, { timeout: 10_000, interval: 20 });
     expect(row(machines.view().machines, "locked").reason).toMatch(/could not log in/);
     expect(JSON.stringify(machines.view())).not.toContain("george@locked");
   });
 
   it("goes offline, remembers when it was last seen, and comes back", async () => {
     const machines = board([{ name: "Flaky", alias: "flaky" }], 0);
-    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("online"), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("online"), { timeout: 10_000, interval: 20 });
     writeFileSync(join(dir, "down"), "");
-    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("offline"), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("offline"), { timeout: 10_000, interval: 20 });
     const offline = row(machines.view().machines, "flaky");
     expect(offline.seenAt).toBeTruthy();
     expect(offline.reading).toBeUndefined();
     rmSync(join(dir, "down"));
-    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("online"), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "flaky").state).toBe("online"), { timeout: 10_000, interval: 20 });
   });
 
   it("says so when this computer has no ssh", async () => {
-    const machines = new MachinesBoard({ path, ssh: join(dir, "no-ssh-here"), first: [{ name: "Box", alias: "linux" }], timeoutMs: 700, localName: "Here" });
+    const machines = new MachinesBoard({ path, ssh: join(dir, "no-ssh-here"), first: [{ name: "Box", alias: "linux" }], toolsFreshMs: Number.POSITIVE_INFINITY, timeoutMs: 3000, localName: "Here" });
     machines.view();
-    await vi.waitFor(() => expect(row(machines.view().machines, "linux").reason).toBe("SSH is not installed here."), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "linux").reason).toBe("SSH is not installed here."), { timeout: 10_000, interval: 20 });
   });
 
   it("does not read a machine again while its reading is fresh", async () => {
     const machines = board([{ name: "Box", alias: "linux" }]);
-    await vi.waitFor(() => expect(row(machines.view().machines, "linux").state).toBe("online"), { timeout: 4000, interval: 20 });
+    await vi.waitFor(() => expect(row(machines.view().machines, "linux").state).toBe("online"), { timeout: 10_000, interval: 20 });
     rmSync(join(dir, "linux.stdin"));
     machines.view();
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(() => statSync(join(dir, "linux.stdin"))).toThrow();
   });
 
-  it("starts from the PC and the server when nothing is saved, leaving out the computer it runs on", () => {
-    expect(FIRST_MACHINES).toEqual([{ name: "PC", alias: "radarboy3k" }, { name: "Server", alias: "85.155.185.63" }]);
+  it("starts from the PC alone when nothing is saved, leaving out the computer it runs on", () => {
+    expect(FIRST_MACHINES).toEqual([{ name: "PC", alias: "pc-firstmate" }]);
     const self = hostname().split(".")[0]!;
     const rows = new MachinesBoard({ path, ssh, first: [{ name: "Self", alias: self }, { name: "Box", alias: "linux" }] }).saved();
     expect(rows).toEqual([{ name: "Box", alias: "linux" }]);
@@ -301,7 +439,7 @@ esac
   it("reads a saved machine called local over ssh, apart from this computer", async () => {
     const machines = board([{ name: "Box", alias: "local" }]);
     machines.view();
-    await vi.waitFor(() => expect(machines.view().machines.every((machine) => machine.state === "online")).toBe(true), { timeout: 8000, interval: 20 });
+    await vi.waitFor(() => expect(machines.view().machines.every((machine) => machine.state === "online")).toBe(true), { timeout: 10_000, interval: 20 });
     const [here, box] = machines.view().machines;
     expect(here).toMatchObject({ name: "Here", local: true });
     expect(box).toMatchObject({ name: "Box", alias: "local", local: false });

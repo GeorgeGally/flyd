@@ -2,7 +2,7 @@
  * Flyd today: the header's Today and News tabs, the Today feed of the day's
  * events as cards in two columns, the News page with its weather card, the job
  * cards (project and time along the top, the picture flush with the words, the
- * next step in real counts), and the Machines tab's models and usage.
+ * next step in real counts).
  * Comes last in the page's style, so it wins over the older front rules it
  * reshapes; the few layout properties those set with stronger selectors are
  * marked !important here.
@@ -81,7 +81,7 @@ button.ev:hover { background: var(--sheet); }
   padding: 0 0 40px; overflow-y: auto; scrollbar-width: none; animation: column-in .24s ease both;
 }
 @media (min-width: 761px) {
-  :root[data-layout="front"][data-centre="news"]:not([data-job]) :is(.rtabs, .jobs, .rail, .machines, .todos, .threads) { display: none !important; }
+  :root[data-layout="front"][data-centre="news"]:not([data-job]) :is(.rtabs, .jobs, .rail, .todos, .threads) { display: none !important; }
 }
 .wxcard { margin: 0 0 16px; padding: 16px 22px 24px; border-radius: 12px; background: var(--card); color: var(--ink); }
 .wxcard .wx-top { display: flex; justify-content: space-between; align-items: center; margin: 0 0 18px; }
@@ -123,25 +123,6 @@ button.ev:hover { background: var(--sheet); }
 .job .act { display: block; padding: 14px 22px 14px; font: 600 15px/1.35 var(--sans); color: var(--ink); }
 .job .act .fdot { margin-right: 9px; vertical-align: 2px; }
 
-/* Machines: under the machines, the models and how much use is left. */
-.machine-setup { display: grid; gap: 8px; margin: 8px 0 0; }
-.machine-setup section { padding: 20px 22px 22px; border-radius: 12px; background: var(--card); color: var(--ink); }
-.machine-setup h2 { margin: 0 0 12px; font: 600 17px/1.3 var(--sans); letter-spacing: -.01em; }
-.setup-models { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 16px; margin: 0; font: 400 15px/1.4 var(--sans); }
-.setup-models dt { color: var(--mute); }
-.setup-models dd { margin: 0; overflow-wrap: anywhere; }
-.setup-spend { margin: 14px 0 0; font: 400 15px/1.4 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
-.setup-usage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; margin: 0; padding: 0; list-style: none; }
-.setup-usage-read { margin: 0 0 14px; font: 400 13px/1.35 var(--sans); color: var(--mute); }
-.setup-usage li { min-width: 0; }
-.setup-usage .u-top { display: flex; justify-content: space-between; gap: 8px; font: 500 15px/1.3 var(--sans); }
-.setup-usage .u-top span { font-weight: 400; color: var(--mute); font-variant-numeric: tabular-nums; }
-.setup-usage .u-bar { height: 6px; margin: 8px 0 6px; border-radius: 3px; background: #d9d6ce; overflow: hidden; }
-:root[data-theme="dark"] .setup-usage .u-bar { background: var(--line); }
-.setup-usage .u-bar i { display: block; height: 100%; border-radius: 3px; background: var(--ink); }
-.setup-usage .u-when { font: 400 13px/1.35 var(--sans); color: var(--mute); }
-.setup-usage .u-when.out, .setup-usage .u-top .out { color: var(--hot); }
-
 @media (max-width: 1000px) {
   .feed { grid-template-columns: minmax(0, 1fr); }
   .ev.pic { grid-template-columns: minmax(0, 1fr); }
@@ -150,17 +131,18 @@ button.ev:hover { background: var(--sheet); }
   .wxcard .wx-ic.big { width: 70px; height: 70px; }
 }
 
-/* A phone: the wordmark, Today and News, people and preferences. The column's tabs stay, one open at a time;
+/* A phone: the wordmark, Today, News, Week and Machines, people and preferences. The column's tabs stay, one open at a time;
    Today's feed follows the jobs, and News puts the weather above the stories. */
 @media (max-width: 760px) {
   :root[data-layout="front"] header { gap: 14px; }
-  :root[data-layout="front"] .centre-tabs { margin-left: 0; }
+  :root[data-layout="front"] .centre-tabs { gap: 14px; margin-left: 0; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  :root[data-layout="front"] .centre-tabs::-webkit-scrollbar { display: none; }
+  :root[data-layout="front"] .ctab { flex: none; }
   :root[data-layout="front"] #flip { display: none !important; }
   :root[data-layout="front"] .rtabs { display: flex !important; position: static; width: auto; height: 48px; padding: 0 var(--gut); background: none; }
   :root[data-layout="front"][data-rtab]:not([data-rtab="jobs"]) .jobs,
   :root[data-layout="front"][data-rtab]:not([data-rtab="arts"]) .rail:not([hidden]),
   :root[data-layout="front"][data-rtab]:not([data-rtab="arts"]) .rail,
-  :root[data-layout="front"][data-rtab]:not([data-rtab="machines"]) .machines,
   :root[data-layout="front"][data-rtab]:not([data-rtab="todo"]) .todos,
   :root[data-layout="front"][data-rtab]:not([data-rtab="threads"]) .threads { display: none !important; }
   :root[data-layout="front"] .fstrip { display: block; margin: 0; padding: 0; overflow: visible; }
@@ -173,10 +155,9 @@ button.ev:hover { background: var(--sheet); }
   }
   :root[data-layout="front"][data-centre="today"]:not([data-rtab="jobs"]) .today-feed { display: none !important; }
   :root[data-layout="front"][data-centre="today"] .jobs { padding-bottom: 8px !important; }
-  :root[data-layout="front"][data-rtab][data-centre="news"]:not([data-job]) :is(.rtabs, .jobs, .rail, .rail:not([hidden]), .machines, .todos, .threads, .news-side) { display: none !important; }
+  :root[data-layout="front"][data-rtab][data-centre="news"]:not([data-job]) :is(.rtabs, .jobs, .rail, .rail:not([hidden]), .todos, .threads, .news-side) { display: none !important; }
   :root[data-layout="front"][data-centre="news"] .news-side-phone { display: block; margin: 0 0 36px; }
   .wxcard .wx-deg { font-size: 72px; }
   .wxcard .wx-ic.big { width: 62px; height: 62px; }
-  .setup-usage { grid-template-columns: minmax(0, 1fr); }
 }
 `;

@@ -21,7 +21,7 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
 <header>
   <span class="who">${label}</span>
   <span class="front-date" id="front-date"></span>
-  <nav class="centre-tabs" id="centre-tabs" aria-label="Today, news or the week"><button type="button" class="ctab" data-centre="today" aria-pressed="true">Today</button><button type="button" class="ctab" data-centre="news" aria-pressed="false">News</button><button type="button" class="ctab" data-centre="week" aria-pressed="false">Week</button></nav>
+  <nav class="centre-tabs" id="centre-tabs" aria-label="Today, news, the week or machines"><button type="button" class="ctab" data-centre="today" aria-pressed="true">Today</button><button type="button" class="ctab" data-centre="news" aria-pressed="false">News</button><button type="button" class="ctab" data-centre="week" aria-pressed="false">Week</button><button type="button" class="ctab" data-centre="machines" aria-pressed="false">Machines</button></nav>
   <span class="project-badge" id="project-badge" hidden></span>
   <span class="picker" id="conversation-title" aria-label="Current conversation"></span>
   <a class="article-back" id="article-back" hidden target="_blank" rel="noopener noreferrer"></a>
