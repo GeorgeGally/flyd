@@ -2,7 +2,7 @@
  * The front page's own places: the right column's tabs, the jobs list and the
  * project threads (the page's artefact column #rail is the third), the machines,
  * the todo list, the open job's heading and the open job, the Today feed, and
- * the News page with its weather column. The conversation itself (#stream and the message
+ * the News page with its weather column, and the Week: eight days, hour by hour. The conversation itself (#stream and the message
  * box) is the page's own and sits in the middle, on the paper.
  */
 export const FRONT_HTML = `<nav class="rtabs" id="rtabs" aria-label="Right column"><button type="button" class="rtab" data-rtab="jobs" aria-pressed="false">Jobs<span class="fdot" id="rtab-dot" hidden aria-label="something needs you"></span></button><button type="button" class="rtab" data-rtab="threads" aria-pressed="false">Projects<span class="thread-dot" id="rtab-threads-dot" hidden aria-label="something unread"></span></button><button type="button" class="rtab" data-rtab="arts" aria-pressed="false">Artefacts</button><button type="button" class="rtab" data-rtab="machines" aria-pressed="false">Machines</button><button type="button" class="rtab" data-rtab="todo" aria-pressed="false">Todo</button></nav>
@@ -14,4 +14,5 @@ export const FRONT_HTML = `<nav class="rtabs" id="rtabs" aria-label="Right colum
 <section class="job-view" id="job-view" aria-label="The open job"></section>
 <section class="today-feed" id="today-feed" aria-label="Today"><div class="feed" id="feed"></div></section>
 <section class="news-page" id="news-page" aria-label="News"><div class="news-side-phone" id="news-side-phone"></div><p class="news-when" id="news-when" hidden></p><div class="news-cols" id="news-cols"></div></section>
-<aside class="news-side" id="news-side" aria-label="Weather"></aside>`;
+<aside class="news-side" id="news-side" aria-label="Weather"></aside>
+<section class="week-page" id="week-page" aria-label="The week"><div class="wk-top"><h1 class="wk-head">Eight days, hour by hour</h1><p class="wk-key" id="wk-key"></p></div><div class="wk-chart"><div class="wk-axis" aria-hidden="true"><span style="top:0%">00:00</span><span style="top:25%">06:00</span><span style="top:50%">12:00</span><span style="top:75%">18:00</span><span style="top:100%">00:00</span></div><div class="wk-days" id="wk-days"></div></div><section class="wk-tell" id="wk-tell" aria-live="polite"></section></section>`;

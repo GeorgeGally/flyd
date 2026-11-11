@@ -4130,6 +4130,35 @@ describe("the front page", () => {
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
   });
 
+  it("shows the Week as eight day strips coloured by project, and tells the day picked", async () => {
+    const hours = (at: number, n = 1) => Array.from({ length: 24 }, (_, h) => (h === at ? n : 0));
+    const days = ["2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08", "2026-11-09", "2026-11-10", "2026-11-11"].map((day) => ({ day, hours: {}, changes: 0, head: "", lines: [] as string[] }));
+    days[6] = { day: "2026-11-10", hours: { Flyd: hours(9, 2), Bloom: hours(9) } as never, changes: 3, head: "Add the Week tab", lines: ["Bloom: Track creators."] };
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (String(url).startsWith("/api/week") ? json({ week: { days, lead: ["Flyd", "Logan", "DIR"], read: "" } }) : json({ assistantLabel: "firstmate", sessions: SESSIONS })));
+    const stream = await opened();
+    stream.emit("update", { order: [], messages: [], working: false, show: SHOW, live: { known: true, counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="week"]')!.click();
+    await settle();
+    expect(document.documentElement.getAttribute("data-centre")).toBe("week");
+    expect(document.querySelector('.ctab[data-centre="week"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(document.getElementById("wk-key")!.textContent).toBe("FlydLoganDIREverything else");
+    const strips = [...document.querySelectorAll<HTMLElement>(".wk-day")];
+    expect(strips).toHaveLength(8);
+    // The latest day with work is picked first; Flyd takes two thirds of 09:00, Bloom (not one of the three) the rest in the neutral.
+    expect(strips[6]!.getAttribute("aria-pressed")).toBe("true");
+    const segs = [...strips[6]!.querySelectorAll<HTMLElement>(".wk-lane i")];
+    expect(segs.map((seg) => seg.className)).toEqual(["k1", "k0"]);
+    expect(parseFloat(segs[0]!.style.top)).toBe(37.5);
+    expect(strips[7]!.querySelector(".wk-lane em")).not.toBeNull();
+    const tell = document.getElementById("wk-tell")!;
+    expect(tell.querySelector("h3")!.textContent).toBe("Add the Week tab");
+    expect(tell.querySelector("time")!.textContent).toBe("Tuesday 10 November, 3 changes");
+    expect(tell.querySelector("p")!.textContent).toBe("Bloom: Track creators.");
+    strips[1]!.click();
+    expect(tell.querySelector("h3")!.textContent).toBe("A quiet day");
+    expect(tell.querySelector("time")!.textContent).toBe("Thursday 5 November, no changes");
+  });
+
   it("shows News as stories in columns, leaves filler out, and the box asks about the story in view", async () => {
     const stream = await opened();
     const stories = [

@@ -72,6 +72,12 @@ export function threadCatalogue(registry: string, projects: Array<{ id: string; 
   return out;
 }
 
+/** The name George uses for a project known by any of these keys (a registry slug, a folder), when it is one of the older names above. */
+export function knownProjectName(keys: string[]): string | undefined {
+  const asked = keys.map(norm);
+  return KNOWN.find((project) => project.keys.some((key) => asked.includes(key)))?.name;
+}
+
 const escaped = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Reads project names out of text. Built once per catalogue: the same words are read for every message. */
