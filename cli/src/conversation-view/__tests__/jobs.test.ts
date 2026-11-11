@@ -313,6 +313,11 @@ describe("jobsFrom", () => {
     expect(job.threads[0]!.full).toBe(outcome);
   });
 
+  it("keeps a run's numbered answers to one question as one question", () => {
+    const job = jobsFrom({ runs: [run({ status: "needs_decision", question: "Which direction should I build? 1. Departures 2. Picture desk 3. Notch" })], now: NOW }).jobs[0]!;
+    expect(job.decisions).toBeUndefined();
+  });
+
   it("gives a card the reading of its own item, never another item's in the same project", () => {
     // The Week page PR and the WhatsApp card are both Flyd work; the WhatsApp reading is newer.
     const week = "The Week page now shows each hour's changes when you hover a bar. ".repeat(6);

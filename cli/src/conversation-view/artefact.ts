@@ -932,8 +932,9 @@ function decisionFrom(body: string): HoldDecision | undefined {
       // "…, or drop?": the last alternative carries the sentence's "or" and its question mark.
       const option = raw.replace(/\s*\([^)]*\)/g, "").replace(/^or\s+/i, "").replace(/[.;,?]+$/, "").trim();
       if (!option) continue;
-      options.push(option.charAt(0).toUpperCase() + option.slice(1));
-      if (!recommended && RECOMMENDS.test(raw)) { recommended = option; note = aside(raw); }
+      const named = option.charAt(0).toUpperCase() + option.slice(1);
+      options.push(named);
+      if (!recommended && RECOMMENDS.test(raw)) { recommended = named; note = aside(raw); }
     }
   }
   const question = asked
@@ -961,9 +962,17 @@ export function holdDecisions(hold: string): HoldDecision[] {
   // "Review and 1. Opinion section: …? 2. Reports band heading: …? 3. …": numbered the other way.
   if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|\s)\d\.\s+([\s\S]*?)(?=\s+\d\.\s|$)/g)].map((match) => match[1]!);
   // "Three calls: 1) WhatsApp card: remove it, or keep it; 2) horoscope source: …": numbered with a bracket only.
-  if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|[\s:;,])\d+\)\s+([\s\S]*?)(?=[\s;,]+\d+\)\s|$)/g)].map((match) => match[1]!);
-  const bodies = numbered.length >= 2 ? numbered : [hold];
-  return bodies.map((body) => decisionFrom(body.replace(/^[\s;,-]+/, ""))).filter((decision): decision is HoldDecision => Boolean(decision));
+  const bracketed = numbered.length < 2;
+  if (bracketed) numbered = [...hold.matchAll(/(?:^|[\s:;,])\d+\)\s+([\s\S]*?)(?=[\s;,]+\d+\)\s|$)/g)].map((match) => match[1]!);
+  const decisions = (bodies: string[]): HoldDecision[] => bodies.map((body) => decisionFrom(body.replace(/^[\s;,-]+/, ""))).filter((decision): decision is HoldDecision => Boolean(decision));
+  const split = numbered.length >= 2 ? decisions(numbered) : [];
+  // "Pick one: 1) Departures 2) Picture desk" numbers answers, not questions: it stays one decision.
+  return numbered.length >= 2 && (!bracketed || (split.length >= 2 && split.every(asksSomething))) ? split : decisions([hold]);
+}
+
+/** Whether a decision asks something: it names answers, or it ends on a question mark. Pure. */
+export function asksSomething(decision: HoldDecision): boolean {
+  return decision.options.length > 0 || /\?$/.test(decision.question);
 }
 
 /** Whether two lines share a run of words specific enough to say they are about the same thing. Pure. */

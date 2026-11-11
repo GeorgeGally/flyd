@@ -486,7 +486,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
   }
   // One of several questions, as its own card: the question, its answers one tap each (the
   // recommended one first), and a line for his own words. Each answer names its question.
-  function questionCard(chat, key, one) {
+  function questionCard(chat, key, decision, one) {
     var item = el("li", "art-decision");
     item.appendChild(el("p", "art-decision-q", one.question));
     if (one.done) {
@@ -495,14 +495,15 @@ export const ARTEFACT_CHAT_SCRIPT = `
       return item;
     }
     if (one.note && one.recommended) item.appendChild(el("p", "art-decision-rec", one.note));
-    var pendingKey = key + "\\n" + one.question;
+    var asked = (decision.questionIdentity || decision.question || "") + "\\n" + one.question;
+    var pendingKey = key + "\\n" + asked;
     if (!chat.state.answers || typeof chat.state.answers !== "object") chat.state.answers = {};
     function answer(text) {
-      if (chat.state.answers[one.question] || choicePending[pendingKey]) return;
+      if (chat.state.answers[asked] || choicePending[pendingKey]) return;
       choicePending[pendingKey] = text;
       chat.deliver('On "' + one.question + '": ' + text, function () {
         delete choicePending[pendingKey];
-        chat.state.answers[one.question] = text;
+        chat.state.answers[asked] = text;
         chat.save();
         paint();
       });
@@ -545,7 +546,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     item.appendChild(sent);
     // Once answered, this card's buttons and words are done; the other questions stay open.
     function paint() {
-      var chosen = chat.state.answers[one.question] || choicePending[pendingKey] || "";
+      var chosen = chat.state.answers[asked] || choicePending[pendingKey] || "";
       buttons.forEach(function (button, index) {
         button.setAttribute("aria-pressed", String(chosen === ordered[index]));
         button.disabled = !!chosen;
@@ -553,8 +554,8 @@ export const ARTEFACT_CHAT_SCRIPT = `
       words.disabled = !!chosen;
       go.disabled = !!chosen;
       own.hidden = !!chosen && ordered.indexOf(chosen) !== -1;
-      sent.textContent = chat.state.answers[one.question] ? (ordered.indexOf(chosen) === -1 ? "Sent: " + chosen : "Sent") : choicePending[pendingKey] ? "Sending…" : "";
-      item.classList.toggle("art-decision--answered", !!chat.state.answers[one.question]);
+      sent.textContent = chat.state.answers[asked] ? (ordered.indexOf(chosen) === -1 ? "Sent: " + chosen : "Sent") : choicePending[pendingKey] ? "Sending…" : "";
+      item.classList.toggle("art-decision--answered", !!chat.state.answers[asked]);
     }
     paint();
     return item;
@@ -594,7 +595,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     if (several) {
       var askList = el("ol", "art-decisions");
       decision.decisions.forEach(function (one) {
-        askList.appendChild(questionCard(chat, key, one));
+        askList.appendChild(questionCard(chat, key, decision, one));
       });
       wrap.appendChild(askList);
     }

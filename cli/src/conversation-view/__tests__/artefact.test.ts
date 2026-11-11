@@ -1447,6 +1447,16 @@ describe("a hold that puts several decisions to him", () => {
     ]);
   });
 
+  it("keeps a hold that numbers its answers, not its questions, as one decision", () => {
+    expect(holdDecisions("Pick one: 1) Departures 2) Picture desk")).toHaveLength(1);
+  });
+
+  it("marks the recommended answer with the same words its button shows", () => {
+    expect(holdDecisions("1) WhatsApp card: keep it (recommended), or remove it; 2) News tab: anything else?")[0]).toEqual(
+      { question: "WhatsApp card", options: ["Keep it", "Remove it"], recommended: "Keep it" },
+    );
+  });
+
   it("drops only a trailing board or lab location, never a plain word after board or lab", () => {
     expect(holdDecisions("(1) keep the lab version - yes/no; (2) which to keep: the old one, the new lab design. Lab data/x/lab.html, board http://127.0.0.1:4387/session/1")).toEqual([
       { question: "Keep the lab version", options: ["Yes", "No"] },
