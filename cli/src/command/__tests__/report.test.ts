@@ -101,6 +101,27 @@ describe("the report record", () => {
     expect(shownLine(readDomainRun(id)!)).toBe(LINE);
   });
 
+  it("tells a later outcome of the same run on its own, and never records it shown when it was not said", async () => {
+    const id = "domain-second-outcome";
+    saveDomainRun(run(id, "Captain, done.", { report: dueReport("completed", "2026-11-10T09:00:00.000Z") }));
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    await tellDue({ decide: async () => finished(id), attention: now, notify });
+    expect(sent).toEqual([LINE]);
+
+    // He sends a correction; FirstMate comes back completed again with a new result: a new outcome, due.
+    const second = "Done again: the island is quiet on every screen.";
+    updateDomainRun(id, (current) => ({ ...current, report: dueReport("completed", "2026-11-10T11:00:00.000Z") }));
+    const again = (): ExecutiveDecisionRecord => {
+      const base = finished(id);
+      return { ...base, decisionId: "decision-again", summary: second, delivery: { ...base.delivery!, line: second } };
+    };
+    await tellDue({ decide: async () => again(), attention: now, notify: async (title, message) => { await notify(title, message); return "kept"; } });
+    expect(sent).toHaveLength(2);
+    expect(readDomainRun(id)?.report?.state).toBe("screened");
+    expect(shownLine(readDomainRun(id)!)).toBeUndefined();
+  });
+
   it("never treats a line the notification gate screened out as sent: it stays out of the next chat turn", async () => {
     const screened = run("domain-screened-1", "Captain, done.", { report: dueReport("completed", "2026-11-10T09:00:00.000Z") });
     const shown = run("domain-shown-1", "Captain, done.", { report: dueReport("completed", "2026-11-10T09:00:00.000Z") });

@@ -386,7 +386,7 @@ export function markBriefed(keys: string[], options: { store?: IntelligenceEvent
   }
 }
 
-/** One key per piece of finished work: the id of the run Core announces it for. */
-export function finishedKey(id: string): string {
-  return `work:${id}`;
+/** One key per outcome of finished work: the run Core announces it for, and when that outcome came (its report's since). */
+export function finishedKey(id: string, since?: string): string {
+  return since ? `work:${id}:${since}` : `work:${id}`;
 }

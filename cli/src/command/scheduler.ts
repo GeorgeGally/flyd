@@ -17,7 +17,7 @@ import { authorityForStaffRun, processFirstmateChange } from "../intelligence/ex
 import { standingPreferences } from "../intelligence/executive/standing-rules.js";
 import type { ExecutiveDecisionRecord, ExecutiveInternalAction } from "../intelligence/executive/decision-step.js";
 import { deliverOnce, deliverOwed, deliveryState, finishedKey, heldReports, holdReport, markTold, seedOnce, withdrawReport, type DeliveryOutcome, type DeliveryReport, type DeliveryState } from "../runtime/delivered.js";
-import { MAX_REVIEW_TRIES, reportDue, sameReport } from "./report.js";
+import { MAX_REVIEW_TRIES, OPEN_REPORT_STATES, reportDue, sameReport } from "./report.js";
 import type { RunReport } from "./types.js";
 import { batch, callKind, readFocus, readSignals, released, sameProject, timing, type Focus, type Timing } from "../runtime/attention.js";
 import { windowOpen } from "../conversation-view/window-presence.js";
@@ -172,7 +172,7 @@ export async function notifyRun(
   // Flyd's own note to the staff, and its own fixes, are backstage: their replies settle them and are never his to hear.
   if (quietRun(run, windowIsOpen)) {
     // Recorded as handled, so nothing tells it later either.
-    if (run.status === "completed") markTold([finishedKey(run.id)]);
+    if (run.status === "completed") markTold([finishedKey(run.id, from?.since)]);
     mutateDomainRun(run.id, (current) => {
       const { told: _told, ...rest } = current ?? run;
       return { ...rest, notified: true };
@@ -238,7 +238,7 @@ export async function tellRun(
   run: DomainRun,
   decision: ExecutiveDecisionRecord,
   options: { notify?: Notify; attention?: ReadAttention; key?: string } = {},
-): Promise<{ notice: string | null; owed: boolean; waiting: boolean; shown: boolean }> {
+): Promise<{ notice: string | null; owed: boolean; waiting: boolean }> {
   // Settled once George was told, or quietly when nothing is left for him or Flyd; otherwise Flyd holds it in view.
   const notice = noticeForDecision(run, decision);
   const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
@@ -247,12 +247,11 @@ export async function tellRun(
   const from = run.report;
   let owed = false;
   let waiting = false;
-  let shown = false;
   if (notice) {
     const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
-    // A run's finished work is one report, whatever its domain; anything else is one per decision. A restart never says either twice.
+    // A run's finished work is one report per outcome, whatever its domain; anything else is one per decision. A restart never says either twice.
     const report: DeliveryReport = {
-      key: options.key ?? (decision.delivery ? finishedKey(run.id) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`),
+      key: options.key ?? (decision.delivery ? finishedKey(run.id, from?.since) : `run:${run.id}:${createHash("sha256").update(notice).digest("hex").slice(0, 16)}`),
       line: notice, kind, work: run.request.intendedOutcome, evidenceRefs: decision.evidenceRefs,
     };
     const told: Partial<RunReport> = { key: report.key, line: notice, kind, work: report.work!, evidenceRefs: report.evidenceRefs ?? [], decisionId: decision.decisionId };
@@ -270,9 +269,7 @@ export async function tellRun(
       moveReport(run.id, from, { ...told, state: "sending" });
       const delivered = await deliverOnce([report], { ...(options.notify ? { say: (title, message, said) => options.notify!(title, message, said) } : {}) });
       owed = delivered.owed.length > 0;
-      const state = reportState(delivered.states[report.key]);
-      shown = state === "shown";
-      moveReport(run.id, from, { ...told, state });
+      moveReport(run.id, from, { ...told, state: reportState(delivered.states[report.key]) });
     }
   } else {
     if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
@@ -286,7 +283,7 @@ export async function tellRun(
       return { ...rest, notified: true, ...(notice && !waiting ? { told: { line: notice, decisionId: decision.decisionId } } : {}) };
     });
   }
-  return { notice, owed, waiting, shown };
+  return { notice, owed, waiting };
 }
 
 /** Whether a report held for a break is still worth telling: its run has not moved on, and he has not answered it since. */
@@ -350,7 +347,7 @@ export async function tellDue(options: { notify?: Notify; runs?: DomainRun[]; de
 export async function settleReports(runs: DomainRun[] = listDomainRuns(), notify?: Notify): Promise<void> {
   for (const run of runs) {
     const report = run.report;
-    if (!report?.key || !["held", "sending", "owed"].includes(report.state)) continue;
+    if (!report?.key || !OPEN_REPORT_STATES.includes(report.state)) continue;
     let state = deliveryState(report.key);
     if (report.state === "sending" && state === undefined && report.line) {
       // Cut off between being recorded as sending and being claimed: said now, once.
