@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SnapshotDiffer } from "../server.js";
 import { digestHash } from "../job-digest.js";
-import { editJob, jobRunFromDomain, jobsFrom, type JobRun } from "../jobs.js";
+import { editJob, jobRunFromDomain, jobsFrom, runTitle, type JobRun } from "../jobs.js";
 import { heldItems, parseBearings } from "../artefact.js";
 import type { DomainRun } from "../../command/types.js";
 import { applyProjectOps, readProjects, type Project } from "../../council/projects.js";
@@ -313,6 +313,10 @@ describe("jobsFrom", () => {
     const card = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, now: NOW }).jobs.find((job) => job.title === "Flyd")!;
     expect(card.ask).toBe("The Week page is finished and ready for you to land.");
     expect(`${card.ask} ${card.next}`).not.toMatch(/Checks green|monitoring|PR ready/i);
+  });
+
+  it("takes a card's title only from Flyd's own hand-off, never from his request", () => {
+    expect(runTitle("Remove the card titled “Stale tasks” from the Week page")).toBe("Remove the card titled “Stale tasks” from the Week page");
   });
 
   it("names a passed-on question by its subject, says it once and never cuts it mid-word", () => {

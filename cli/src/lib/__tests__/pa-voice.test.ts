@@ -42,6 +42,8 @@ describe("statusSaid", () => {
   it("turns a staff status line into what it means for him", () => {
     expect(statusSaid("Checks green: PR ready for review (still monitoring for merge/close):…", "The Week page")).toBe("The Week page is finished and ready for you to land.");
     expect(statusSaid("I added hover details to the Week page.", "Week")).toBeNull();
+    expect(statusSaid("Tests passed, but should the hero use v2 or v3?", "Hero")).toBeNull();
+    expect(statusSaid("The PR is ready for review but should the hero use v2 or v3?", "Hero")).toBeNull();
   });
 });
 
@@ -49,6 +51,8 @@ describe("withoutInformAsk", () => {
   it("never asks leave to tell him", () => {
     expect(withoutInformAsk("Want me to let you know when it lands?")).toBe("I'll let you know when it lands.");
     expect(withoutInformAsk("Should I send the link?")).toBe("Should I send the link?");
+    expect(withoutInformAsk("Want me to tell you what changed after the merge?")).toBe("Want me to tell you what changed after the merge?");
+    expect(withoutInformAsk("Shall I tell you what happened when the deploy failed?")).toBe("Shall I tell you what happened when the deploy failed?");
     expect(withoutInformAsk("Do you want me to tell you more about the Reports heading options?")).toBe("Do you want me to tell you more about the Reports heading options?");
   });
 });
@@ -79,5 +83,7 @@ describe("staffStatusLine", () => {
   it("knows a worker's status line from a plain sentence", () => {
     expect(staffStatusLine("Captain's Live now note applied in place (Request key -> Eject #8d9aa6, white mark), verified headless 1440/834/390 and frame serves r=9")).toBe(true);
     expect(staffStatusLine("I changed the Request key to match Eject.")).toBe(false);
+    expect(staffStatusLine("I matched the key to #8d9aa6.")).toBe(false);
+    expect(staffStatusLine("Tests passed, but should the hero use v2 or v3?")).toBe(false);
   });
 });

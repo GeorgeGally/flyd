@@ -19,11 +19,11 @@ export const PA_VOICE = [
 ].join("\n");
 
 /** Status lines the staff write for each other. "Checks green: PR ready for review (still monitoring for merge/close):…" */
-const STATUS_LINE = /^\s*(?:(?:done|working|paused|blocked|needs-decision|ready)\s*(?:\[[^\]]*\]\s*)*:\s*)?(?:checks?|ci|tests?)\s+(?:are\s+)?(?:green|passed|passing)\b|\bPR\b[^.]*\bready for review\b|\b(?:still )?monitoring for merge\b/i;
+const STATUS_LINE = /^\s*(?:(?:done|working|paused|blocked|needs-decision|ready)\s*(?:\[[^\]]*\]\s*)*:\s*)?(?:(?:checks?|ci|tests?)\s+(?:are\s+)?(?:green|passed|passing)\b|(?:the\s+)?PR\b[^.?]*\bready for review\b|(?:still )?monitoring for merge\b)/i;
 
 /** What a raw staff status line means for him, about the named work; null when the line is not one. Pure. */
 export function statusSaid(line: string, what: string): string | null {
-  if (!STATUS_LINE.test(line)) return null;
+  if (line.includes("?") || !STATUS_LINE.test(line)) return null;
   // "Flyd CoS 13c: explicit waits (audit #2)": the staff's own numbering in brackets is not the work's name.
   const name = what.replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+/g, " ").trim().replace(/[.:…]+$/, "");
   return name ? `${name.charAt(0).toUpperCase()}${name.slice(1)} is finished and ready for you to land.` : "It is finished and ready for you to land.";
@@ -57,7 +57,7 @@ export function shortHeadline(text: string, words = 10): string {
 
 /** A worker's status line to its supervisor: ids, verification sizes, "applied in place". Never shown as what changed. */
 export function staffStatusLine(text: string): boolean {
-  return STATUS_LINE.test(text) || /\bverif(?:ied|y)\s+headless\b|\b\d{3,4}\/\d{3,4}\/\d{3,4}\b|\br=\d+\b|#[0-9a-f]{6}\b|\bapplied in place\b|\bnote applied\b/i.test(text);
+  return !text.includes("?") && (STATUS_LINE.test(text) || /\bverif(?:ied|y)\s+headless\b|\b\d{3,4}\/\d{3,4}\/\d{3,4}\b|\br=\d+\b|\bapplied in place\b|\bnote applied\b/i.test(text));
 }
 
 /** Questions that only ask leave to tell him something: Flyd always tells him, so it never asks. */
@@ -66,7 +66,7 @@ const INFORM_ASK = /(?:^|(?<=[.!?]\s+))(?:do you want|would you like|want|shall|
 /** The leave-to-tell question said as what Flyd will do. "Do you want me to pass along the confirmation once the screenshot is in?" → "I'll let you know once the screenshot is in." An offer with no event to wait for is left as asked. Pure. */
 export function withoutInformAsk(text: string): string {
   return text.replace(INFORM_ASK, (found, rest: string) => {
-    const when = /\b(?:once|when|as soon as|after)\b.*$/i.exec(rest)?.[0];
+    const when = /^\s*(?:(?:the|a|an)\s+)?(?:(?!(?:what|how|why|which|where|who|whether|more|about)\b)[\w-]+\s+)?((?:once|when|as soon as|after)\b.*)$/i.exec(rest)?.[1];
     return when ? `I'll let you know ${when.trim()}.` : found;
   });
 }

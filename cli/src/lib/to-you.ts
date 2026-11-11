@@ -36,7 +36,7 @@ export function toYou(text: string): string {
     // Questions brought to him: from where he sits, Flyd has them for him.
     .replace(new RegExp(`${HIM}\\s+(?:has|have)\\s+(?:posted|raised|left|sent|opened|asked)(?=\\s+(?:\\w+\\s+){0,3}(?:questions?|calls?|decisions?)\\b)`, "g"), (found) => capital("I have", found))
     // "is George" → "are you" in a question.
-    .replace(new RegExp(`\\b([Ii]s|[Hh]as|[Dd]oes|[Ww]as) ${HIM}(?!['’]s)`, "g"), (found, verb: string) => capital(`${AGREE[verb.toLowerCase()]!.replace(/n't$/, "")} you`, found))
+    .replace(new RegExp(`(?<=^\\s*|[.!?:]\\s+|\\n\\s*)([Ii]s|[Hh]as|[Dd]oes|[Ww]as) ${HIM}(?!['’]s)(?=[^.!?\\n]*\\?)`, "g"), (found, verb: string) => capital(`${AGREE[verb.toLowerCase()]!.replace(/n't$/, "")} you`, found))
     .replace(new RegExp(`${HIM}['’]s\\b`, "g"), (found) => capital("your", found))
     .replace(new RegExp(`${HIM}\\s+(${VERBS})\\b`, "g"), (found, verb: string) => capital(`you ${AGREE[verb.toLowerCase()] ?? verb}`, found))
     .replace(new RegExp(HIM, "g"), (found) => capital("you", found))

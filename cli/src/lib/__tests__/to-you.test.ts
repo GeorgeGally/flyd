@@ -39,5 +39,8 @@ describe("toYou grammar seen in real cards", () => {
   it("never says 'is you' or 'you acts'", () => {
     expect(toYou("Question: is George done looking, so it can be stopped?")).toBe("Question: are you done looking, so it can be stopped?");
     expect(toYou("It cannot launch until George acts on it.")).toBe("It cannot launch until you act on it.");
+    expect(toYou("Mark has George on the guest list.")).toBe("Mark has you on the guest list.");
+    expect(toYou("The invite was George and Pierre.")).toBe("The invite was you and Pierre.");
+    expect(toYou("Is George happy with v2?")).toBe("Are you happy with v2?");
   });
 });

@@ -66,6 +66,7 @@ export function plainQuestionFor(text: string, tasks?: string | readonly string[
     .replace(PATH, "");
   // Said about him, turned to him: "George's three calls" reads "your three calls".
   said = toYou(said)
+    .replace(/\bhis (word|review|look|ok|okay)\b/gi, "your $1")
     // Brackets and punctuation the cuts left empty or dangling.
     .replace(/\(\s*[;,:]*\s*/g, "(")
     .replace(/\s*[;,:]*\s*\)/g, ")")

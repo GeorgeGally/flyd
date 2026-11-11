@@ -146,7 +146,7 @@ const BRIEF_FRAME = /^(?:answer (?:george's|your|the captain's|his) question\b[^
  */
 export function runTitle(outcome: string): string {
   let text = outcome.replace(/\s+/g, " ").trim();
-  const card = /\bcard titled\s+["“]([^"”]+)/i.exec(text);
+  const card = BRIEF_FRAME.test(text) ? /\bcard titled\s+["“]([^"”]+)/i.exec(text) : null;
   if (card) text = card[1]!;
   for (let pass = 0; pass < 3 && BRIEF_FRAME.test(text); pass += 1) text = text.replace(BRIEF_FRAME, "");
   text = forHim(plainTitle(text)).replace(/…$/, "");

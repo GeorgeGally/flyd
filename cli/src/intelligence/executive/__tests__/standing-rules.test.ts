@@ -81,6 +81,7 @@ describe("a staff question in George's words", () => {
   it("strips paths, task ids and pipeline words, and speaks to him", () => {
     expect(plainQuestionFor("Waiting on George's picks for items 2 and 4 (board http://127.0.0.1:4387/session/dedc9b5c4dff0b4d).", "cleanx-redo")).toBe("Waiting on your picks for items 2 and 4.");
     expect(plainQuestionFor("Is George done looking, so it can be stopped?")).toBe("Are you done looking, so it can be stopped?");
+    expect(plainQuestionFor("Waiting on his review of the deck: ship it?")).toBe("Waiting on your review of the deck: ship it?");
     expect(plainQuestionFor("parked at review: 1 finding(s) · ask-user: authority decision")).toBeNull();
     expect(plainQuestionFor("needs-decision [at=1794019232]: still waiting on server window (wip/logan-pages-p2 a6bc66c…")).toBeNull();
     expect(showsMachinery("Review data/cap5/report.md")).toBe(true);
