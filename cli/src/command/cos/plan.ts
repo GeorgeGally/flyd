@@ -71,8 +71,9 @@ export function planFromBrief(objective: Pick<Objective, "brief" | "briefRevisio
 /** States that hold one of the active slots. */
 const ACTIVE = new Set<PlannedRunState>(["dispatching", "dispatched"]);
 
+/** Holds an active slot; a run handed to the compatibility crew is never settled here, so it holds none. */
 export function isActive(run: PlannedRun): boolean {
-  return ACTIVE.has(run.state);
+  return ACTIVE.has(run.state) && !run.ref?.startsWith("crew:");
 }
 
 /** Runs no longer part of the work. */

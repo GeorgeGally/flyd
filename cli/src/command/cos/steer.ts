@@ -53,6 +53,13 @@ function steerable(run: PlannedRun): DomainRun | null {
   return found && STEERABLE.has(found.status) ? found : null;
 }
 
+/** Started one-off job states a correction would re-run or leave stale. */
+const LIFE_STARTED = new Set<PlannedRun["state"]>(["dispatching", "dispatched", "completed", "failed"]);
+
+function isJob(run: PlannedRun): boolean {
+  return run.team === "life" || Boolean(run.ref?.startsWith("job:"));
+}
+
 async function correct(objective: Objective, message: string, team: DomainId | undefined, send: typeof sendRunMessage): Promise<SteerOutcome> {
   const plan = planOf(objective);
   const target = correctionTarget(plan, team);
@@ -60,16 +67,20 @@ async function correct(objective: Objective, message: string, team: DomainId | u
     const live = plan.filter((run) => !isGone(run));
     return { delivered: false, objectiveId: objective.id, reason: "ambiguous", ask: `Which part is this for: ${live.map((run) => `“${short(run.outcome, 40)}”`).join(" or ")}?` };
   }
+  const affected = downstreamOf(objective.after ?? {}, target.key);
+  // A one-off job may have booked, sent or paid: a correction never runs it again on its own, so he decides.
+  const gone = plan.find((run) => affected.has(run.key) && isJob(run) && LIFE_STARTED.has(run.state));
+  if (gone) {
+    return { delivered: false, objectiveId: objective.id, reason: "not_steerable", ask: `“${short(gone.outcome, 40)}” has already gone ahead, so I can't change it. Want it done again with this?` };
+  }
   // Under way: the team gets it first, and nothing changes when it can't be passed on.
   const active = steerable(target);
   if (active) {
     const outcome = await send({ run: active, kind: "correction", body: message }).catch(() => ({ delivered: false }));
     if (!outcome.delivered) return { delivered: false, objectiveId: objective.id, reason: "delivery_failed" };
-  } else if (target.state === "dispatched" || target.state === "dispatching" || target.state === "unknown") {
-    // Running where a message can't reach it (a one-off job, the crew): its result is kept but run again with this.
-    if (target.ref?.startsWith("crew:") || target.state === "unknown") return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };
+  } else if (target.ref?.startsWith("crew:") || target.state === "unknown") {
+    return { delivered: false, objectiveId: objective.id, reason: "not_steerable" };
   }
-  const affected = downstreamOf(objective.after ?? {}, target.key);
   const downstream: DomainRun[] = [];
   const saved = mutateObjective(objective.id, (current) => {
     if (!current || !OPEN.has(current.status)) return null;

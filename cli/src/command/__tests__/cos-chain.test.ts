@@ -227,6 +227,21 @@ describe("corrections", () => {
       .toEqual(["ambiguous", "Which part is this for: “Research three competitor pricing pages” or “Design the pricing page” or “Build the pricing page”?", [], 0]);
     h.store.close();
   });
+
+  it("never re-runs a one-off job that has gone ahead; he is asked instead and nothing changes", async () => {
+    const h = harness(JSON.stringify({ team: "life", outcome: "Book a table for four on Friday", done_when: ["booked"] }));
+    const { id } = openObjective({ words: "book us a table friday", flydNotes: "", origin: { surface: "chat" } });
+    await cosTick(h.deps);
+    const before = readObjective(id)!;
+    const { got, send } = messages();
+    const outcome = await tellWork({ message: "make it Saturday", kind: "correction", objectiveId: id }, send);
+    const after = readObjective(id)!;
+    expect([outcome, got, after.briefRevision ?? 0, after.plan, after.corrections]).toEqual([
+      { delivered: false, objectiveId: id, reason: "not_steerable", ask: "“Book a table for four on Friday” has already gone ahead, so I can't change it. Want it done again with this?" },
+      [], 0, before.plan, before.corrections,
+    ]);
+    h.store.close();
+  });
 });
 
 describe("adapting before escalating", () => {
@@ -269,6 +284,38 @@ describe("adapting before escalating", () => {
     h.finishRun(`${id}-r1-2`);
     await cosTick(h.deps);
     expect([h.told.length, readObjective(id)?.status]).toEqual([1, "done"]);
+    h.store.close();
+  });
+
+  it("asks him once when it is still short after the re-brief, and never checks or delivers it again while he decides", async () => {
+    const short = JSON.stringify({ met: false, missing: "Paddle's fee table has no source" });
+    const h = harness(JSON.stringify({ team: "knowledge", outcome: "Compare Stripe and Paddle", done_when: ["both fee tables are sourced"] }), { acceptance: [short, short] });
+    const { id } = openObjective({ words: "stripe or paddle?", flydNotes: "", origin: { surface: "chat" } });
+    await cosTick(h.deps);
+    h.finishRun(`${id}-r1`);
+    await cosTick(h.deps);
+    h.finishRun(`${id}-r1-2`);
+    await cosTick(h.deps);
+    const checks = h.asked.length;
+    await cosTick(h.deps);
+    await cosTick(h.deps);
+    expect([h.asked.length, h.said.map((report) => report.kind), h.told, readObjective(id)?.status]).toEqual([checks, ["decision"], [], "needs_george"]);
+    h.store.close();
+  });
+});
+
+describe("the active-run limit", () => {
+  it("doesn't count work handed to the crew, which is never settled here", async () => {
+    process.env.FLYD_COS_MAX_ACTIVE = "1";
+    const h = harness(JSON.stringify({ team: "knowledge", outcome: "Compare Stripe and Paddle", done_when: ["sourced"] }));
+    const crewed = openObjective({ words: "fix the footer", flydNotes: "", origin: { surface: "chat" } }).id;
+    mutateObjective(crewed, (current) => current && {
+      ...current, status: "working", runs: ["crew:footer"],
+      plan: [{ key: "r1", team: "coding", outcome: "Fix the footer", doneWhen: ["it is fixed"], state: "dispatched", attempt: 1, ref: "crew:footer", validFor: 0 }],
+    });
+    const { id } = openObjective({ words: "stripe or paddle?", flydNotes: "", origin: { surface: "chat" } });
+    await cosTick(h.deps);
+    expect(h.ids()).toEqual([`${id}-r1`]);
     h.store.close();
   });
 });

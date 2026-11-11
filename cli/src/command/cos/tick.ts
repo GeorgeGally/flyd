@@ -452,7 +452,8 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   if (!live.length || !live.every((run) => isValid(run, objective))) return;
   const finals = sinks(objective);
   const reportId = `${id}:${finals.map((run) => run.reviewed).join("+")}`;
-  if (objective.reportIds.includes(reportId)) return;
+  const shortKey = `short:${finals.map((run) => run.reviewed).join("+")}`;
+  if (objective.reportIds.includes(reportId) || objective.reportIds.includes(`${id}:${shortKey}`)) return;
   const verdict = await accept(objective, finals, deps);
   if (!verdict.met) {
     const retry = finals.find((run) => !run.adapted && !run.ref?.startsWith("job:"));
@@ -463,7 +464,7 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
       }));
       return;
     }
-    const made: CosReport = { ...plainReport(objective, "decision", `${workOf(objective)} is close but not there: ${missing}. Take it as it is, or try another way?`, `short:${finals.map((run) => run.reviewed).join("+")}`), options: ["Take it as it is", "Try another way"], evidenceRefs: finals.map((run) => linkOf(run.ref!)) };
+    const made: CosReport = { ...plainReport(objective, "decision", `${workOf(objective)} is close but not there: ${missing}. Take it as it is, or try another way?`, shortKey), options: ["Take it as it is", "Try another way"], evidenceRefs: finals.map((run) => linkOf(run.ref!)) };
     await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george");
     return;
   }
