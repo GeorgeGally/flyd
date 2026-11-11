@@ -19,27 +19,11 @@ const AGREE: Record<string, string> = {
 };
 const VERBS = Object.keys(AGREE).join("|");
 
-/** His decisions: a bare "his" before one of these is him even with no name in the sentence ("Still open: his picks"). */
+/** His decisions: a bare "his" before one of these is him ("Still open: his picks"). A "his" before anything else may be someone else's. */
 const HIS_CALLS = "picks?|calls?|choices?|decisions?|answers?|approval|go-ahead";
-
-/** Things of his that "his" names once he is named earlier in the sentence. A "his" before anything else may be someone else's. */
-const HIS_THINGS = "picks?|calls?|choices?|go-ahead|ok|okay|approval|answers?|decisions?|word|review|look|sign-off|input|feedback|reply|replies|preferences?|taste|eye|attention|say|own|inbox|desk|time|questions?|call|pick|tab|screen|phone|mac|laptop|computer|browser|calendar|email";
 
 /** Lower case unless the word was "I": the last pass capitalises whatever now starts a sentence. */
 const capital = (word: string, _like: string): string => (word.startsWith("I ") ? word : word.toLowerCase());
-
-/** "he", "his", "him" said after he is named in the same sentence, with nobody else named after him: "George needs … which will reload his tab". */
-function afterHim(sentence: string): string {
-  const named = new RegExp(HIM).exec(sentence);
-  if (!named) return sentence;
-  const at = named.index + named[0].length;
-  if (/\b(?!I\b)[A-Z][\w-]*\b(?!['’]s)/.test(sentence.slice(at).replace(new RegExp(HIM, "g"), ""))) return sentence;
-  const rest = sentence.slice(at)
-    .replace(new RegExp(`\\b([Hh])is (${HIS_THINGS})\\b`, "g"), (_found, _h: string, thing: string) => `your ${thing}`)
-    .replace(new RegExp(`\\b([Hh])e (${VERBS})\\b`, "g"), (_found, _h: string, verb: string) => `you ${AGREE[verb.toLowerCase()] ?? verb}`)
-    .replace(/\b(for|to|ask|tell|show|give|from|with|remind|let) him\b/gi, (_found, word: string) => `${word} you`);
-  return sentence.slice(0, at) + rest;
-}
 
 /**
  * The same words said to him. "The CapFive lab round 5 captain has posted three
@@ -49,7 +33,6 @@ function afterHim(sentence: string): string {
 export function toYou(text: string): string {
   if (!text) return text;
   const said = text
-    .replace(/[^.!?\n]+[.!?]*/g, afterHim)
     // Questions brought to him: from where he sits, Flyd has them for him.
     .replace(new RegExp(`${HIM}\\s+(?:has|have)\\s+(?:posted|raised|left|sent|opened|asked)(?=\\s+(?:\\w+\\s+){0,3}(?:questions?|calls?|decisions?)\\b)`, "g"), (found) => capital("I have", found))
     // "is George" → "are you" in a question.

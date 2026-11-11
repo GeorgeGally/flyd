@@ -14,7 +14,7 @@ const REAL: Array<[string, string]> = [
   ["**Changed** The deck dropped the third tier.\n**Needed** Send it.", "The deck dropped the third tier.\nSend it."],
   ["Means: Design decisions are pending.", "Design decisions are pending."],
   ["The page isn't broken.\n\nDo you want me to pass along the confirmation once the screenshot is in?", "The page isn't broken.\n\nI'll let you know once the screenshot is in."],
-  ["George needs to give firstmate a time for Logan's restart, which will reload his tab.", "You need to give firstmate a time for Logan's restart, which will reload your tab."],
+  ["George needs to give firstmate a time for Logan's restart, which will reload his tab.", "You need to give firstmate a time for Logan's restart, which will reload his tab."],
 ];
 
 describe("forHim", () => {
@@ -49,6 +49,7 @@ describe("withoutInformAsk", () => {
   it("never asks leave to tell him", () => {
     expect(withoutInformAsk("Want me to let you know when it lands?")).toBe("I'll let you know when it lands.");
     expect(withoutInformAsk("Should I send the link?")).toBe("Should I send the link?");
+    expect(withoutInformAsk("Do you want me to tell you more about the Reports heading options?")).toBe("Do you want me to tell you more about the Reports heading options?");
   });
 });
 
