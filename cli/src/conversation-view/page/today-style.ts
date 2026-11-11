@@ -40,6 +40,14 @@ export const TODAY_STYLE = `
 .today-feed::-webkit-scrollbar, .news-page::-webkit-scrollbar, .news-side::-webkit-scrollbar { display: none; }
 :root[data-screen="show"] .today-feed, :root[data-screen="show"] .news-page, :root[data-screen="show"] .news-side { display: none !important; }
 
+/* Whether the news is working, over the day's cards: one line, and what stopped when something did. */
+.news-status { margin: 0 0 16px; }
+.news-status[hidden] { display: none; }
+.news-status p { margin: 0; font: 400 15px/1.45 var(--sans); color: var(--mute); text-wrap: pretty; }
+.news-status .news-status-warn { margin-top: 4px; color: var(--hot); }
+.news-status .news-status-warn::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
+.news-status .news-status-warn[hidden] { display: none; }
+
 /* Today: the day's events as cards, two across. */
 .feed { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .ev { display: block; width: 100%; margin: 0; padding: 14px 18px 16px; border: 0; border-radius: 12px; background: var(--card); color: var(--ink); font: inherit; text-align: left; }

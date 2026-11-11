@@ -462,6 +462,7 @@ export const MESSAGES_SCRIPT = `
     conversationConfirm = update.confirm;
     if (typeof paintConfirm === "function" && centre !== "news") paintConfirm(conversationConfirm);
     isWorking = update.working;
+    if (typeof voiceWaitSeen === "function") voiceWaitSeen(update);
     var projectBadge = document.getElementById("project-badge");
     if (projectBadge.textContent !== (update.project || "")) {
       projectBadge.textContent = update.project || "";

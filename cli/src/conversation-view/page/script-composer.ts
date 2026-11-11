@@ -474,9 +474,47 @@ export const COMPOSER_SCRIPT = `
     voiceBase = null;
     voiceInput = null;
   }
+  // After he stops talking the box shows the island's loader: his words being written down, then
+  // the wait for the reply, until the reply starts. Driven by the voice events and the
+  // conversation's own updates, never by a timer: a failed or cancelled recording, a send that
+  // did not go, or a reply that shows elsewhere takes it away.
+  var voiceWait = document.getElementById("voice-wait");
+  var voiceWaitSaid = document.getElementById("voice-wait-said");
+  // The message being answered: its id once it is sent, the session it went to, whether Flyd started on it.
+  var voiceWaitFor = null;
+  var voiceSending = false;
+  function showVoiceWait(words) {
+    voiceWait.hidden = false;
+    composer.classList.add("voice-waiting");
+    if (voiceWaitSaid.textContent !== words) voiceWaitSaid.textContent = words;
+  }
+  function endVoiceWait() {
+    voiceWaitFor = null;
+    voiceSending = false;
+    if (!voiceWait) return;
+    voiceWait.hidden = true;
+    composer.classList.remove("voice-waiting");
+    voiceWaitSaid.textContent = "";
+  }
+  /** Each conversation update: the loader goes once the reply to his spoken message starts. */
+  function voiceWaitSeen(update) {
+    if (!voiceWaitFor || !voiceWaitFor.id) return;
+    if (drawnFrom !== voiceWaitFor.session) { endVoiceWait(); return; }
+    var order = update.order || [];
+    var at = order.indexOf(voiceWaitFor.id);
+    if (at === -1) return;
+    if (update.working) voiceWaitFor.started = true;
+    var replied = order.slice(at + 1).some(function (id) {
+      var node = nodes.get(id);
+      return node && !node.classList.contains("user");
+    });
+    // A turn that ended without a reply he can see also ends the wait.
+    if (replied || (voiceWaitFor.started && update.working === false)) endVoiceWait();
+  }
   window.flydVoice = {
     start: function () {
       typingPredictions.reset();
+      endVoiceWait();
       var active = document.activeElement;
       voiceInput = active && active.classList && active.classList.contains("reply-input") ? active : null;
       // Speaking is conversation: the terminal comes back for it, this once.
@@ -498,6 +536,7 @@ export const COMPOSER_SCRIPT = `
       if (voiceInput) return;
       composer.classList.remove("listening");
       composer.classList.add("transcribing");
+      showVoiceWait("Writing down what you said");
     },
     send: function (text) {
       var field = voiceField();
@@ -510,20 +549,23 @@ export const COMPOSER_SCRIPT = `
         return;
       }
       grow();
-      if (!input.value) return;
+      if (!input.value) { endVoiceWait(); return; }
+      showVoiceWait("Waiting for " + assistant + " to answer");
+      voiceWaitFor = { id: "", session: null, started: false };
       // A window that was never shown may still be connecting: wait for the
       // session before sending, rather than dropping the message.
       var tries = 0;
       (function submitWhenReady() {
-        if (current) { composer.requestSubmit(); return; }
+        if (current) { voiceSending = true; composer.requestSubmit(); return; }
         if (tries++ < 100) setTimeout(submitWhenReady, 200);
-        else problem.textContent = "Not sent: the conversation did not load";
+        else { endVoiceWait(); problem.textContent = "Not sent: the conversation did not load"; }
       })();
     },
     cancel: function (message) {
       var field = voiceField();
       if (voiceBase !== null) { field.value = voiceBase; voiceShow(); }
       endVoice();
+      endVoiceWait();
       if (message) problem.textContent = message;
     },
   };
@@ -558,11 +600,16 @@ export const COMPOSER_SCRIPT = `
   composer.addEventListener("submit", function (event) {
     event.preventDefault();
     noteRefusal("");
+    // Sent by voice: the box's loader waits on this message's reply.
+    var spoken = voiceSending ? voiceWaitFor : null;
+    voiceSending = false;
     var text = input.value.trim();
     var sending = attachments.slice();
-    if (!text && !sending.length) return;
-    if (centre === "news" && newsPicked && VIEW_TOKEN) { newsSubmit(newsPicked, text, sending); return; }
-    if (!current) return;
+    if (!text && !sending.length) { if (spoken) endVoiceWait(); return; }
+    // A story's answer is drawn under the story itself, with its own "reading" line.
+    if (centre === "news" && newsPicked && VIEW_TOKEN) { if (spoken) endVoiceWait(); newsSubmit(newsPicked, text, sending); return; }
+    if (!current) { if (spoken) endVoiceWait(); return; }
+    if (spoken) spoken.session = current;
     if (aboutInfo && text) {
       text = "About “" + aboutInfo.title + "”" + (aboutInfo.detail && aboutInfo.detail !== aboutInfo.title ? " (" + aboutInfo.detail + ")" : "") + ":\\n\\n" + text;
       chatAbout(null);
@@ -591,6 +638,9 @@ export const COMPOSER_SCRIPT = `
       el.sentAt = Date.now();
       deliver(payload).then(function (sent) {
         sendsInFlight -= 1;
+        var waiting = spoken && voiceWaitFor === spoken;
+        if (waiting && (sent.unsure || (!answersInSession && !inThread() && latestSession && current !== latestSession))) endVoiceWait();
+        else if (waiting) spoken.id = sent.id;
         if (sent.unsure) {
           if (arrived(el)) {
             if (!input.value && !attachments.length) saveDraftNow();
@@ -644,6 +694,7 @@ export const COMPOSER_SCRIPT = `
         carried.set(sent.id, state.dataset.line || state.textContent);
       }).catch(function (error) {
         sendsInFlight -= 1;
+        if (spoken && voiceWaitFor === spoken) endVoiceWait();
         el.classList.add("failed");
         // The server's reason is Flyd's to read; he sees one plain line, and his words are back in the box to send again.
         el.querySelector(".state").textContent = "Not sent. It's back in the box to try again (click to dismiss)";

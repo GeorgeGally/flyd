@@ -1117,6 +1117,14 @@ export class ConversationViewServer {
       await this.artefactShot(res, url.searchParams.get("task") ?? "", url.searchParams.get("file") ?? "");
       return;
     }
+    if (url.pathname === "/api/board-shot") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
+      await this.boardShot(res, url.searchParams.get("board") ?? "");
+      return;
+    }
     if (url.pathname.startsWith("/rail-file/")) {
       const [, , token = "", ...rest] = url.pathname.split("/");
       if (!sameToken(token, this.token)) {
@@ -1267,6 +1275,22 @@ export class ConversationViewServer {
       return;
     }
     res.writeHead(200, { "content-type": type, "cache-control": "private, max-age=300", "x-content-type-options": "nosniff" });
+    res.end(data);
+  }
+
+  /** The picture Flyd took of a Liesel board a card names; nothing else. */
+  private async boardShot(res: ServerResponse, board: string): Promise<void> {
+    const path = this.feed.boardShotPath(board);
+    let data: Buffer;
+    try {
+      if (!path) throw new Error("not listed");
+      data = await readFile(path);
+    } catch {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    // Each new picture has its own address (?v=), so one address always means the same picture.
+    res.writeHead(200, { "content-type": "image/png", "cache-control": "private, max-age=86400", "x-content-type-options": "nosniff" });
     res.end(data);
   }
 

@@ -85,6 +85,23 @@ export const COMPOSER_STYLE = `
 .composer.listening .field, .composer.transcribing .field { background: color-mix(in srgb, var(--accent) 12%, var(--tint)); }
 .composer.listening .hint::before { content: "● listening   "; color: var(--accent); animation: breathe 1.4s ease-in-out infinite; }
 .composer.transcribing .hint::before { content: "… writing it down   "; color: var(--accent); }
+/* Once he stops talking, the island's loader in the box too: his words being written down, then the
+   wait for the reply, until the reply starts. The same orange spokes, stepping round. */
+.composer.voice-waiting .field { background: color-mix(in srgb, var(--accent) 12%, var(--tint)); }
+.composer .voice-wait { flex: none; align-self: center; position: relative; width: 18px; height: 18px; margin: 0 4px; }
+.composer .voice-wait[hidden] { display: none; }
+.composer .voice-wait .spokes { position: absolute; inset: 0; animation: voice-spin 0.8s steps(8, end) infinite; }
+.composer .voice-wait .spokes i { position: absolute; left: 50%; top: 1.5px; width: 2.4px; height: 5px; margin-left: -1.2px; border-radius: 1.2px; background: #ff8c00; transform-origin: 50% 7.5px; }
+.composer .voice-wait .spokes i:nth-child(1) { transform: rotate(0deg); }
+.composer .voice-wait .spokes i:nth-child(2) { transform: rotate(-45deg); opacity: 0.915; }
+.composer .voice-wait .spokes i:nth-child(3) { transform: rotate(-90deg); opacity: 0.83; }
+.composer .voice-wait .spokes i:nth-child(4) { transform: rotate(-135deg); opacity: 0.745; }
+.composer .voice-wait .spokes i:nth-child(5) { transform: rotate(-180deg); opacity: 0.66; }
+.composer .voice-wait .spokes i:nth-child(6) { transform: rotate(-225deg); opacity: 0.575; }
+.composer .voice-wait .spokes i:nth-child(7) { transform: rotate(-270deg); opacity: 0.49; }
+.composer .voice-wait .spokes i:nth-child(8) { transform: rotate(-315deg); opacity: 0.405; }
+.composer .voice-wait-said { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@keyframes voice-spin { to { transform: rotate(360deg); } }
 /* "/" lists the assistant's skills and commands, like Claude Code's prompt. */
 .commands {
   position: absolute; left: 1.875em; right: 1.875em; bottom: calc(100% + 0.4em); z-index: 6;
@@ -120,7 +137,7 @@ export const COMPOSER_STYLE = `
   header .site-kind, header .site-host { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .msg.fresh, .working i { animation: none; }
+  .msg.fresh, .working i, .composer .voice-wait .spokes { animation: none; }
   html { scroll-behavior: auto; }
 }
 `;

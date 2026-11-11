@@ -115,6 +115,7 @@ ${FRONT_HTML}
         <div class="prediction-layer" id="prediction-layer" aria-hidden="true" hidden><span class="prediction-prefix" id="prediction-prefix"></span><span class="prediction-suffix" id="prediction-suffix"></span></div>
         <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>
       </div>
+      <span class="voice-wait" id="voice-wait" role="status" hidden><span class="spokes" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="voice-wait-said" id="voice-wait-said"></span></span>
       <button class="prediction-toggle" id="prediction-toggle" type="button" aria-label="Toggle typing suggestions" aria-pressed="true">↹</button>
       <button id="send" type="submit" disabled aria-label="Send to ${label}">Send</button>
     </div>

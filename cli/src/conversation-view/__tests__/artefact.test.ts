@@ -11,6 +11,7 @@ import { readyItems,
   callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, holdDecisions, decisionProgress, reviewLinks, proseLinks, type FleetArtefact,
 } from "../artefact.js";
 import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
+import { BoardShots, captureArgs, lieselBoardKey } from "../board-shots.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
 const BEARINGS = {
@@ -1494,5 +1495,88 @@ describe("the CapFive lab questions artefact", () => {
   it("links the Pierre board itself, not the board with the colon after it", () => {
     const hold = "Choose the Pierre hardware design direction on http://127.0.0.1:4747/board/e4dc64c8844fac7a: Monza, Receiver, Sleeve, Studio, or Radio.";
     expect(reviewLinks(proseLinks(hold))).toEqual([{ label: "Open board", url: "http://127.0.0.1:4747/board/e4dc64c8844fac7a" }]);
+  });
+
+  it("shows the Pierre pick with a picture of its board as it stands, ahead of the lab's older shots", () => {
+    const hold = "Choose the Pierre hardware design direction on http://127.0.0.1:4747/board/e4dc64c8844fac7a: Monza, Receiver, Sleeve, Studio, or Radio.";
+    const fleet = parseBearings({ decisions_open: [{ id: "pierre-hardware-lab", summary: "Pierre: hardware-style redesign lab" }] });
+    const backlog = parseBacklog(`- [ ] pierre-hardware-lab - Pierre: hardware-style redesign lab (since 2026-11-06) (hold: fm-hold-v1:${Buffer.from(hold).toString("base64")})`);
+    const extras = new Map([["pierre-hardware-lab", { at: "2026-11-08T03:00:00Z", shots: ["board.png", "reference.png"] }]]);
+    const [row] = enrichFleet(fleet, backlog, extras, Date.parse("2026-11-09T00:00:00Z")).calls;
+    expect(row!.board).toBe("e4dc64c8844fac7a");
+    // Not pictured yet: the card keeps the lab's own shots and its link.
+    expect(callItems({ ...fleet, calls: [row!] })[0]!.shots!.map((shot) => shot.label)).toEqual(["board.png", "reference.png"]);
+    const [item] = callItems({ ...fleet, calls: [{ ...row!, boardShot: 1794000000000 }] });
+    expect(item!.shots).toEqual([{ src: "/api/board-shot?board=e4dc64c8844fac7a&v=1794000000000", label: "The board" }]);
+    expect(item!.links).toContainEqual({ label: "Open board", url: "http://127.0.0.1:4747/board/e4dc64c8844fac7a" });
+  });
+
+  it("pictures a card's board in the background and serves only boards a card names", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-board-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    mkdirSync(join(home, "data"));
+    const hold = "Choose the Pierre hardware design direction on http://127.0.0.1:4747/board/e4dc64c8844fac7a: Monza or Radio.";
+    writeFileSync(join(home, "data", "backlog.md"), `- [ ] pierre-hardware-lab - Pierre: hardware-style redesign lab (since 2026-11-06) (hold: fm-hold-v1:${Buffer.from(hold).toString("base64")}) (hold-kind: decision)\n`);
+    writeFileSync(join(home, "state", "pierre-hardware-lab.status"), "needs-decision: pick a direction\n");
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\necho '${JSON.stringify({ decisions_open: [{ id: "pierre-hardware-lab", summary: "Pierre: hardware-style redesign lab" }] })}'\n`, { mode: 0o755 });
+    const taken: string[] = [];
+    const boards = new BoardShots({
+      root: join(home, "shots"),
+      capture: async (key, png) => {
+        taken.push(key);
+        writeFileSync(png, "png");
+        return true;
+      },
+    });
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none"), boards });
+    const pictured = new Promise<void>((resolve) => feed.onRefresh(() => { if (feed.current().fleet?.calls[0]?.boardShot) resolve(); }));
+    await feed.refresh();
+    await pictured;
+    expect(taken).toEqual(["e4dc64c8844fac7a"]);
+    expect(feed.boardShotPath("e4dc64c8844fac7a")).toBe(join(home, "shots", "e4dc64c8844fac7a.png"));
+    expect(feed.boardShotPath("someotherboard")).toBeNull();
+  });
+});
+
+describe("board pictures", () => {
+  it("knows a Liesel board from its link, and nothing else", () => {
+    expect(lieselBoardKey("http://127.0.0.1:4747/board/e4dc64c8844fac7a")).toBe("e4dc64c8844fac7a");
+    expect(lieselBoardKey("http://localhost:4747/board/e4dc64c8844fac7a:")).toBe("e4dc64c8844fac7a");
+    expect(lieselBoardKey("http://127.0.0.1:4387/session/abc123")).toBeUndefined();
+    expect(lieselBoardKey("https://example.com/board/e4dc64c8844fac7a")).toBeUndefined();
+  });
+
+  it("opens the board headless on a throwaway profile, never his browser or keychain", () => {
+    const args = captureArgs("http://127.0.0.1:4747/board/abc123", "/tmp/out.png", "/tmp/profile");
+    expect(args).toEqual(expect.arrayContaining(["--headless=new", "--user-data-dir=/tmp/profile", "--use-mock-keychain", "--password-store=basic", "--screenshot=/tmp/out.png"]));
+    expect(args.at(-1)).toBe("http://127.0.0.1:4747/board/abc123");
+  });
+
+  it("takes a board again once its picture is old, and rests one Chrome could not picture", async () => {
+    const root = mkdtempSync(join(tmpdir(), "board-shots-"));
+    let now = 1_000_000;
+    let works = false;
+    const asked: string[] = [];
+    const boards = new BoardShots({ root, now: () => now, capture: async (key, png) => { asked.push(key); if (works) writeFileSync(png, "png"); return works; } });
+    expect(boards.want("abc123")).toBeNull();
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    // Failed: not asked again while it rests.
+    expect(boards.want("abc123")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(asked).toHaveLength(1);
+    now += 11 * 60_000;
+    works = true;
+    const changed = new Promise<void>((resolve) => boards.onChange(resolve));
+    boards.want("abc123");
+    await changed;
+    const picture = boards.picture("abc123")!;
+    expect(readFileSync(picture.path, "utf8")).toBe("png");
+    // Fresh: shown as it is, not taken again.
+    now = picture.at + 60_000;
+    expect(boards.want("abc123")).toEqual(picture);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(asked).toHaveLength(2);
+    expect(boards.want("../etc")).toBeNull();
   });
 });

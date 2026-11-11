@@ -98,8 +98,23 @@ export const TODAY_SCRIPT = `
     if (event.shot) return open + '<img src="' + frontEsc(event.shot) + '" alt="" loading="lazy"><div>' + time + text + '</div></' + tag + '>';
     return open + time + text + '</' + tag + '>';
   }
+  // Whether the news is working, said on the front page without his asking.
+  var newsStatusEl = document.getElementById("news-status");
+  var newsStatusDrawn = "";
+  function drawNewsStatus(news) {
+    var signature = JSON.stringify(news || null);
+    if (signature === newsStatusDrawn) return;
+    newsStatusDrawn = signature;
+    newsStatusEl.hidden = !(news && news.line);
+    if (newsStatusEl.hidden) return;
+    document.getElementById("news-status-line").textContent = news.line;
+    var warn = document.getElementById("news-status-warn");
+    warn.textContent = news.warning || "";
+    warn.hidden = !news.warning;
+  }
   function drawToday() {
     if (!todayUpdate) return;
+    if (todayUpdate.leftColumn) drawNewsStatus(todayUpdate.leftColumn.news);
     var live = todayUpdate.live || {};
     var events = todayEvents(todayUpdate);
     var html = events.length ? events.map(todayCard).join("")
