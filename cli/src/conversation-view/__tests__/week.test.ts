@@ -23,6 +23,7 @@ describe("week", () => {
   it("says a change in plain words and short", () => {
     expect(plainSubject("fix(mac-adapter): one session owns the mic (#272)")).toBe("One session owns the mic");
     expect(plainSubject("feat!: big change.")).toBe("Big change");
+    expect(plainSubject("no-mistakes(review): Fix week colours")).toBe("Fix week colours");
     expect(firstClause("A drag on a big page does less per frame: a layer's outermost group is kept")).toBe("A drag on a big page does less per frame");
     expect(firstClause("x".repeat(20) + " " + "word ".repeat(30)).endsWith("…")).toBe(true);
   });
@@ -46,9 +47,15 @@ describe("week", () => {
     expect(tuesday.hours.Logan![21]).toBe(1);
     expect(tuesday.head).toBe("Add the Week tab");
     expect(tuesday.lines).toEqual(["Logan: Keep the canvas still."]);
+    // Each change, oldest first and in plain words, with its PR where the subject names one: what a block's card lists.
+    expect(tuesday.work).toEqual([
+      { project: "Flyd", at: at("2026-11-10", 9, 5), title: "Tidy" },
+      { project: "Flyd", at: at("2026-11-10", 9, 40), title: "Add the Week tab", ref: "#300" },
+      { project: "Logan", at: at("2026-11-10", 21, 0), title: "Keep the canvas still" },
+    ]);
     expect(week.days[0]!.hours.DIR![0]).toBe(1);
     expect(week.days[7]!.changes).toBe(1);
-    expect(week.days[1]).toMatchObject({ changes: 0, head: "", lines: [] });
+    expect(week.days[1]).toMatchObject({ changes: 0, head: "", lines: [], work: [] });
     expect(week.lead).toEqual(["Flyd", "Logan", "DIR"]);
   });
 

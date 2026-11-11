@@ -39,6 +39,18 @@ export interface WeekDay {
   /** The day's story: what led it, then a line for each of the next projects. Empty on a day with no changes. */
   head: string;
   lines: string[];
+  /** Every change that day, oldest first, told in plain words: what a block on the strip was. */
+  work: WeekWork[];
+}
+
+/** One change as a block's card tells it: its project, when, its plain title, and its PR where the subject names one. */
+export interface WeekWork {
+  project: string;
+  /** Author time, epoch milliseconds. */
+  at: number;
+  title: string;
+  /** "#272" when the subject ends with a PR number. */
+  ref?: string;
 }
 
 export interface WeekHistory {
@@ -84,10 +96,18 @@ export function weekStart(now: number): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (DAYS - 1)).getTime();
 }
 
-/** A change's subject in plain words: no conventional-commit type or scope, no PR number, a capital first. */
+/** The PR a subject names at its end ("… (#272)"), as "#272". */
+export function subjectRef(subject: string): string | undefined {
+  const pr = /\(#(\d+)\)\s*$/.exec(subject)?.[1];
+  return pr ? `#${pr}` : undefined;
+}
+
+/** A change's subject in plain words: no conventional-commit (or tool) type or scope, no PR number, a capital first. */
 export function plainSubject(subject: string): string {
   const words = subject
     .replace(/^[a-z]+(?:\([^)]*\))?!?:\s*/i, "")
+    // A tool's own hyphenated type, such as "no-mistakes(review): ".
+    .replace(/^[a-z0-9]+(?:-[a-z0-9]+)+(?:\([^)]*\))?:\s*/, "")
     .replace(/\s*\(#\d+\)\s*$/, "")
     .replace(/\s+/g, " ")
     .trim()
@@ -124,7 +144,7 @@ export function buildWeek(changes: WeekChange[], now: number): WeekHistory {
   const days: WeekDay[] = [];
   for (let i = 0; i < DAYS; i += 1) {
     const d = new Date(start);
-    days.push({ day: localDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, 12).getTime()), hours: {}, changes: 0, head: "", lines: [] });
+    days.push({ day: localDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, 12).getTime()), hours: {}, changes: 0, head: "", lines: [], work: [] });
   }
   const byDay = new Map<string, WeekChange[]>();
   // The same change can sit on two branches (a rebase, a copy): it is counted once.
@@ -144,6 +164,10 @@ export function buildWeek(changes: WeekChange[], now: number): WeekHistory {
   }
   for (const day of days) {
     const list = byDay.get(day.day) ?? [];
+    day.work = [...list].sort((a, b) => a.at - b.at).map((change) => {
+      const ref = subjectRef(change.subject);
+      return { project: change.project, at: change.at, title: firstClause(plainSubject(change.subject)) || change.subject.trim(), ...(ref ? { ref } : {}) };
+    });
     const projects = Object.keys(day.hours)
       .map((project) => ({ project, changes: list.filter((change) => change.project === project) }))
       .sort((a, b) => b.changes.length - a.changes.length || a.project.localeCompare(b.project));
