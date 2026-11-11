@@ -4,7 +4,7 @@ import XCTest
 
 final class MicSessionTests: XCTestCase {
     func testOneSessionHoldsTheMicAtATime() {
-        var machine = MicSessionMachine()
+        var machine = InvocationSessionMachine()
 
         let live = machine.begin(.live)
         XCTAssertNotNil(live)
@@ -13,18 +13,18 @@ final class MicSessionTests: XCTestCase {
     }
 
     func testOnlyTheHoldersTokenEndsTheSession() {
-        var machine = MicSessionMachine()
+        var machine = InvocationSessionMachine()
         let first = machine.begin(.voice)!
         XCTAssertTrue(machine.beginEnding(first))
         machine.finish(first)
 
         let second = machine.begin(.live)!
         XCTAssertFalse(machine.beginEnding(first), "a stale token cannot end the next session")
-        XCTAssertEqual(machine.phase, .active(second))
+        XCTAssertEqual(machine.session, .live(second))
     }
 
     func testStartsAreRefusedWhileEnding() {
-        var machine = MicSessionMachine()
+        var machine = InvocationSessionMachine()
         let token = machine.begin(.dictation)!
         XCTAssertTrue(machine.beginEnding(token))
 
@@ -112,16 +112,18 @@ final class MicSessionTests: XCTestCase {
         for dropped in [LiveAudioBridge.ConnectionState.failed, .disconnected] {
             var stops = 0
             let mic = MicSession(stopCapture: { stops += 1 })
-            let controller = LiveSessionController(mic: mic)
+            let flyd = FlydState(mic: mic)
+            let controller = LiveSessionController(state: flyd)
             let token = controller.claimMic()!
-            FlydState.shared.transition(to: .live)
+            XCTAssertEqual(flyd.mode, .live, "\(dropped)")
 
             controller.handleBridgeState(dropped, for: token)
 
             XCTAssertNil(mic.holder, "\(dropped)")
             XCTAssertEqual(stops, 1, "\(dropped)")
             XCTAssertEqual(controller.state, .failed, "\(dropped)")
-            XCTAssertEqual(FlydState.shared.mode, .present, "\(dropped)")
+            XCTAssertEqual(flyd.mode, .present, "\(dropped)")
+            XCTAssertNil(flyd.invocationId, "\(dropped)")
         }
     }
 
@@ -129,7 +131,7 @@ final class MicSessionTests: XCTestCase {
     func testAConnectingLiveBridgeKeepsTheMic() {
         var stops = 0
         let mic = MicSession(stopCapture: { stops += 1 })
-        let controller = LiveSessionController(mic: mic)
+        let controller = LiveSessionController(state: FlydState(mic: mic))
         let token = controller.claimMic()!
 
         controller.handleBridgeState(.ready, for: token)
@@ -144,7 +146,7 @@ final class MicSessionTests: XCTestCase {
     func testAStaleBridgeEventLeavesTheNextSessionAlone() {
         var stops = 0
         let mic = MicSession(stopCapture: { stops += 1 })
-        let controller = LiveSessionController(mic: mic)
+        let controller = LiveSessionController(state: FlydState(mic: mic))
         let first = controller.claimMic()!
         controller.handleBridgeState(.failed, for: first)
         let second = controller.claimMic()!

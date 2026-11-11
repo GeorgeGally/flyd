@@ -79,4 +79,87 @@ final class PrivacyInvariantTests: XCTestCase {
         let (passed, _) = PrivacyInvariants.verifyErasureCompleteness()
         XCTAssertFalse(passed)
     }
+
+    // MARK: - Mic only during explicit user action: one session owns it
+
+    /// Every kind of session turns the mic off when it ends and returns Flyd to present.
+    func testEndingAnySessionTurnsTheMicOffAndReturnsToPresent() {
+        for kind in [InvocationSessionKind.text, .voice, .dictation, .live] {
+            var stops = 0
+            let flyd = FlydState(mic: MicSession(stopCapture: { stops += 1 }))
+            let session = flyd.begin(kind)!
+            XCTAssertEqual(flyd.mode, kind == .live ? .live : .invoked, "\(kind)")
+            XCTAssertEqual(flyd.invocationId, session.id, "\(kind)")
+
+            flyd.end(session)
+
+            XCTAssertEqual(stops, 1, "\(kind)")
+            XCTAssertNil(flyd.mic.holder, "\(kind)")
+            XCTAssertEqual(flyd.mode, .present, "\(kind)")
+            XCTAssertEqual(flyd.phase, .idle, "\(kind)")
+            XCTAssertNil(flyd.invocationId, "\(kind)")
+        }
+    }
+
+    /// A second session can't start while one holds the mic.
+    func testASessionIsRefusedWhileAnotherHoldsTheMic() {
+        let flyd = FlydState(mic: MicSession(stopCapture: {}))
+        let live = flyd.begin(.live)!
+        XCTAssertNil(flyd.begin(.dictation))
+        XCTAssertNil(flyd.begin(.voice))
+        XCTAssertNil(flyd.begin(.text))
+        XCTAssertEqual(flyd.invocationId, live.id)
+    }
+
+    /// A late LIVE teardown (its session already ended) can't reset push-to-talk that
+    /// began after it: the hold keeps its mic and stays listening, so its release is seen.
+    func testAStaleLiveEndLeavesAVoiceHoldListening() {
+        var stops = 0
+        let flyd = FlydState(mic: MicSession(stopCapture: { stops += 1 }))
+        let live = flyd.begin(.live)!
+        flyd.end(live)
+        let voice = flyd.begin(.voice)!
+
+        flyd.end(live)
+        flyd.transition(to: .idle, session: live)
+
+        XCTAssertEqual(stops, 1)
+        XCTAssertEqual(flyd.mic.holder, voice)
+        XCTAssertEqual(flyd.mode, .invoked)
+        XCTAssertEqual(flyd.phase, .listening)
+    }
+
+    /// A cancelled text invocation finishing late (its resolve/executing/present writes)
+    /// can't move the phase of the voice hold that replaced it.
+    func testACancelledInvocationFinishingLateCannotMoveTheNextSessionsPhase() {
+        let flyd = FlydState(mic: MicSession(stopCapture: {}))
+        let text = flyd.begin(.text)!
+        flyd.transition(to: .resolving, session: text)
+        flyd.end(text)
+        let voice = flyd.begin(.voice)!
+
+        flyd.transition(to: .executing, session: text)
+        flyd.end(text)
+
+        XCTAssertEqual(flyd.invocationId, voice.id)
+        XCTAssertEqual(flyd.phase, .listening)
+        flyd.transition(to: .transcribing, session: voice)
+        XCTAssertEqual(flyd.phase, .transcribing, "the holder still moves its own phase")
+    }
+
+    /// Dictation's capture stops at release while its session runs on through
+    /// transcription; only the holder can stop capture.
+    func testOnlyTheHolderCanStopCaptureMidSession() {
+        var stops = 0
+        let flyd = FlydState(mic: MicSession(stopCapture: { stops += 1 }))
+        let stale = InvocationSessionToken(kind: .dictation)
+        let dictation = flyd.begin(.dictation)!
+
+        flyd.mic.stopCapture(for: stale)
+        XCTAssertEqual(stops, 0)
+        flyd.mic.stopCapture(for: dictation)
+        XCTAssertEqual(stops, 1)
+        XCTAssertEqual(flyd.mic.holder, dictation, "the session outlives its capture")
+        XCTAssertEqual(flyd.invocationId, dictation.id)
+    }
 }

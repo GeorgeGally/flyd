@@ -1,3 +1,5 @@
+import Foundation
+
 enum VoiceStartupPolicy {
     enum ReleaseAction: Equatable {
         case finishRecording
@@ -36,5 +38,31 @@ enum VoiceStartupPolicy {
         }
 
         return .ignore
+    }
+}
+
+/// Core's health as last seen by the adapter. Each change (including the first answer)
+/// starts a new generation and says what to do with the cached voice status; a fetch
+/// that finishes after a newer change is dropped by `isCurrent`.
+struct CoreHealthWatch: Equatable {
+    static let pollInterval: TimeInterval = 15
+
+    enum Refresh: Equatable {
+        case fetch(generation: Int)
+        case clear(generation: Int)
+    }
+
+    private(set) var lastHealthy: Bool?
+    private(set) var generation = 0
+
+    mutating func observe(healthy: Bool) -> Refresh? {
+        guard healthy != lastHealthy else { return nil }
+        lastHealthy = healthy
+        generation += 1
+        return healthy ? .fetch(generation: generation) : .clear(generation: generation)
+    }
+
+    func isCurrent(_ generation: Int) -> Bool {
+        generation == self.generation
     }
 }

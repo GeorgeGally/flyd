@@ -28,8 +28,10 @@ final class DictationController {
     private let pill = DictationPill.shared
     private var timeout: DispatchWorkItem?
     private var recordingCap: DispatchWorkItem?
-    /// Held from capture start until capture stops; released by `stopCapture()`.
-    private var micToken: MicSessionToken?
+    /// This dictation's session, from start until the text is in (or it is dropped).
+    /// Every phase write and the end carry it, so a late completion can't reset the
+    /// phase of whoever holds Flyd next.
+    private var session: InvocationSessionToken?
     /// The last dictated text, so a paste that landed in the wrong place can be redone.
     /// Memory only: never written to disk, the journal or Flyd's memory.
     private var lastText: String?
@@ -45,12 +47,12 @@ final class DictationController {
     @discardableResult
     func start() -> Bool {
         guard case .idle = phase else { return false }
-        guard let token = MicSession.shared.begin(.dictation) else {
+        guard let token = state.begin(.dictation) else {
             pill.show(.failed("Microphone is busy"))
             return false
         }
-        micToken = token
-        let (invocationId, _) = state.startInvocation()
+        self.session = token
+        let invocationId = token.id
         let previousCorrection = DictationEditMonitor.shared.stop(send: false)
         let app = NSWorkspace.shared.frontmostApplication
         let session = Session(
@@ -60,7 +62,6 @@ final class DictationController {
             target: DictationContextCapture(pid: app?.processIdentifier ?? 0, bundleId: app?.bundleIdentifier ?? "unknown")
         )
         phase = .recording(session)
-        state.transition(to: .listening)
         pill.show(.listening)
 
         relay.connect(sessionId: stateMachine.nextTranscriptionSessionId()) {
@@ -110,7 +111,7 @@ final class DictationController {
             return
         }
         phase = .transcribing(session)
-        state.transition(to: .transcribing)
+        if let token = self.session { state.transition(to: .transcribing, session: token) }
         pill.show(.working)
 
         let timeout = DispatchWorkItem { [weak self] in self?.fail("Dictation did not finish — try again") }
@@ -127,7 +128,7 @@ final class DictationController {
         case .recording, .transcribing:
             teardown()
             pill.hide()
-            state.cancelInvocation()
+            endSession()
             phase = .idle
         }
     }
@@ -168,8 +169,12 @@ final class DictationController {
         teardown()
 
         lastText = text
+        guard let token = self.session else {
+            phase = .idle
+            return
+        }
         phase = .inserting
-        state.transition(to: .executing)
+        state.transition(to: .executing, session: token)
         Task { @MainActor in
             let expectedValue = DictationEditMonitor.expectedValue(text: text, target: session.target)
             // A moved window or field counts as a changed target: pid -1 never matches the
@@ -186,7 +191,8 @@ final class DictationController {
                 contextSources: ["dictation", "app:\(session.bundleId)", "outcome:\(Self.auditName(outcome))"]
             )
             self.pill.show(Self.pillPhase(for: outcome))
-            self.state.transition(to: .present)
+            self.state.end(token)
+            if self.session == token { self.session = nil }
             self.phase = .idle
         }
     }
@@ -198,7 +204,7 @@ final class DictationController {
         )
         teardown()
         pill.show(.notice("No speech"))
-        state.cancelInvocation()
+        endSession()
         phase = .idle
     }
 
@@ -216,22 +222,25 @@ final class DictationController {
         teardown()
         stateMachine.endDictationGesture()
         pill.show(.failed(message))
-        state.cancelInvocation()
+        endSession()
         phase = .idle
     }
 
     private func stopCapture() {
         recordingCap?.cancel()
         recordingCap = nil
-        capture.stop()
-        if let micToken {
-            MicSession.shared.end(micToken)
-            self.micToken = nil
-        }
+        if let session { state.mic.stopCapture(for: session) }
         capture.onAudioChunk = nil
         capture.onLevel = nil
         capture.onSpectrum = nil
         capture.onError = nil
+    }
+
+    /// Ends this dictation's session (mic off, Flyd back to present).
+    private func endSession() {
+        guard let token = session else { return }
+        session = nil
+        state.end(token)
     }
 
     private func teardown() {

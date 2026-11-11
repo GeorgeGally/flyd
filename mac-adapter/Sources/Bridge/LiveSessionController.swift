@@ -13,7 +13,7 @@ enum LiveSessionState: Equatable {
 final class LiveSessionController {
     static let shared = LiveSessionController()
 
-    private let mic: MicSession
+    private let flydState: FlydState
     private let bridge = LiveAudioBridge.shared
     private let voiceCapture = VoiceCapture.shared
     private let audioPlayer = StreamingAudioPlayer()
@@ -21,13 +21,13 @@ final class LiveSessionController {
     private var sessionId: String = ""
     private var startedAt: Date?
     private var observedTargets: [String: ObservedTarget] = [:]
-    private var micToken: MicSessionToken?
+    private var session: InvocationSessionToken?
 
     var isActive: Bool { state != .disconnected && state != .failed }
     private(set) var state: LiveSessionState = .disconnected
 
-    init(mic: MicSession = .shared) {
-        self.mic = mic
+    init(state: FlydState = .shared) {
+        self.flydState = state
     }
 
     func handleToggle() {
@@ -42,7 +42,6 @@ final class LiveSessionController {
         guard let token = claimMic() else { return }
         startedAt = Date()
 
-        FlydState.shared.transition(to: .live)
         AuditRecorder.shared.recordLiveSessionStart(sessionId: sessionId)
 
         bridge.onStateChange = { [weak self] bridgeState in
@@ -78,17 +77,17 @@ final class LiveSessionController {
 
     /// Takes the mic for a new session. When refused, the "busy" cue shows only if no
     /// dictation or push-to-talk cue is on screen, so a recording mic stays visible.
-    func claimMic() -> MicSessionToken? {
+    func claimMic() -> InvocationSessionToken? {
         guard state == .disconnected || state == .failed else { return nil }
-        guard let token = mic.begin(.live) else {
-            switch mic.holder?.kind {
+        guard let token = flydState.begin(.live) else {
+            switch flydState.mic.holder?.kind {
             case .dictation, .voice: break
-            case .live, nil: DictationPill.shared.show(.failed("Microphone is busy"))
+            case .live, .text, nil: DictationPill.shared.show(.failed("Microphone is busy"))
             }
             return nil
         }
-        micToken = token
-        sessionId = UUID().uuidString
+        session = token
+        sessionId = token.id
         observedTargets = [:]
         state = .connecting
         return token
@@ -96,8 +95,8 @@ final class LiveSessionController {
 
     /// A bridge that failed or disconnected ends the session, which turns the mic off.
     /// Events delivered after the session ended are ignored.
-    func handleBridgeState(_ bridgeState: LiveAudioBridge.ConnectionState, for token: MicSessionToken) {
-        guard micToken == token else { return }
+    func handleBridgeState(_ bridgeState: LiveAudioBridge.ConnectionState, for token: InvocationSessionToken) {
+        guard session == token else { return }
         switch bridgeState {
         case .active:
             state = .active
@@ -115,14 +114,15 @@ final class LiveSessionController {
     }
 
     /// Every way out of a session: the mic goes off, the mode returns to present, and the
-    /// session lands in `.disconnected` (stopped) or `.failed` (dropped).
+    /// session lands in `.disconnected` (stopped) or `.failed` (dropped). Ending with the
+    /// session's own token means a late teardown can't reset whoever holds Flyd next.
     private func end(as finalState: LiveSessionState) {
         state = .disconnecting
         sessionTask?.cancel()
         sessionTask = nil
-        if let micToken {
-            mic.end(micToken)
-            self.micToken = nil
+        if let ending = session {
+            session = nil
+            flydState.end(ending)
         }
         voiceCapture.onAudioChunk = nil
         bridge.onStateChange = nil
@@ -141,7 +141,6 @@ final class LiveSessionController {
         }
 
         state = finalState
-        FlydState.shared.transition(to: .present)
     }
 
     private func handleObservationRequest(_ json: [String: Any]) {
@@ -169,7 +168,7 @@ final class LiveSessionController {
         )
 
         let observationId = UUID().uuidString
-        let revision = FlydState.shared.revision + 1
+        let revision = flydState.revision + 1
         let target = ObservedTarget(
             observationId: observationId, revision: revision,
             element: element, descriptor: descriptor, fingerprint: fingerprint

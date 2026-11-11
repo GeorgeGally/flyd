@@ -12,6 +12,87 @@ struct ShortcutConfiguration {
     )
 }
 
+/// What an invocation session is doing with Flyd's one invocation slot and the mic.
+enum InvocationSessionKind: String, Equatable {
+    case text       // double-tap fn text bar (no mic)
+    case voice      // Fn+Control push-to-talk
+    case dictation  // fn tap / hold
+    case live       // Ctrl×3 realtime session
+}
+
+/// Proof of holding the session. Its id is also the invocation id, so only the holder
+/// can move Flyd's phase or end the session; a late callback from a finished session
+/// can never reset or turn off someone else's.
+struct InvocationSessionToken: Equatable {
+    let id: String
+    let kind: InvocationSessionKind
+
+    init(id: String = UUID().uuidString, kind: InvocationSessionKind) {
+        self.id = id
+        self.kind = kind
+    }
+}
+
+/// The one session enum: idle → text | voice | dictation | live → ending → idle.
+/// `ending` always turns the mic off before the session returns to idle.
+enum InvocationSession: Equatable {
+    case idle
+    case text(InvocationSessionToken)
+    case voice(InvocationSessionToken)
+    case dictation(InvocationSessionToken)
+    case live(InvocationSessionToken)
+    case ending(InvocationSessionToken)
+
+    static func active(_ token: InvocationSessionToken) -> InvocationSession {
+        switch token.kind {
+        case .text: return .text(token)
+        case .voice: return .voice(token)
+        case .dictation: return .dictation(token)
+        case .live: return .live(token)
+        }
+    }
+
+    /// The session's token while it is active (not idle, not ending).
+    var active: InvocationSessionToken? {
+        switch self {
+        case .idle, .ending: return nil
+        case .text(let token), .voice(let token), .dictation(let token), .live(let token): return token
+        }
+    }
+
+    var holder: InvocationSessionToken? {
+        if case .ending(let token) = self { return token }
+        return active
+    }
+}
+
+/// One session at a time; a start while one is held (or ending) is refused so the caller
+/// can say so instead of failing silently. Only the holder's token moves it.
+struct InvocationSessionMachine: Equatable {
+    private(set) var session: InvocationSession = .idle
+
+    var holder: InvocationSessionToken? { session.holder }
+
+    mutating func begin(_ kind: InvocationSessionKind, id: String = UUID().uuidString) -> InvocationSessionToken? {
+        guard case .idle = session else { return nil }
+        let token = InvocationSessionToken(id: id, kind: kind)
+        session = .active(token)
+        return token
+    }
+
+    /// Moves the holder's session to `ending`. False for a stale or unknown token.
+    mutating func beginEnding(_ token: InvocationSessionToken) -> Bool {
+        guard session.active == token else { return false }
+        session = .ending(token)
+        return true
+    }
+
+    mutating func finish(_ token: InvocationSessionToken) {
+        guard case .ending(let current) = session, current == token else { return }
+        session = .idle
+    }
+}
+
 final class InvocationStateMachine {
     static let shared = InvocationStateMachine()
 
@@ -152,8 +233,6 @@ final class InvocationStateMachine {
     }
 
     func startPrewarm() {
-        let state = FlydState.shared
-        state.transition(to: .capturing)
         prewarmTask?.cancel()
 
         let appInfo = ApplicationMonitor.shared.foregroundApp

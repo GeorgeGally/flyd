@@ -50,7 +50,7 @@ struct ScrawlTests {
     @Test @MainActor func cancellingAnIdleRecorderDoesNotCancelAnotherInvocation() {
         let state = FlydState.shared
         let invocation = state.startInvocation().invocationId
-        defer { state.cancelInvocation() }
+        defer { state.cancelInvocation(invocation) }
         ScrawlRecorder.shared.cancel()
         #expect(state.invocationId == invocation)
         #expect(state.mode == .invoked)

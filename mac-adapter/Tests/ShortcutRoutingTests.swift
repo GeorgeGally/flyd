@@ -223,4 +223,30 @@ final class ShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(coordinator.phase, .idle)
         XCTAssertFalse(coordinator.isActive)
     }
+
+    // MARK: - A refused start answers the router
+
+    /// An fn tap while LIVE holds the mic is refused by the session owner, and the router
+    /// hears it: the next tap (after LIVE ends) starts dictation instead of being eaten as
+    /// "stop" for a dictation that never began.
+    func testDictationRefusedBecauseTheMicIsHeldDoesNotEatTheNextTap() {
+        let flyd = FlydState(mic: MicSession(stopCapture: {}))
+        let live = flyd.begin(.live)!
+        let machine = InvocationStateMachine()
+        machine.onDictationStart = { flyd.begin(.dictation) != nil }
+        let fn: CGEventFlags = [.maskSecondaryFn]
+        func edge(_ flags: CGEventFlags, at time: TimeInterval) -> [ShortcutRouteEvent] {
+            ShortcutRouter.route(eventType: .flagsChanged, flags: flags, state: &machine.shortcutRoutingState, now: time)
+        }
+
+        XCTAssertEqual(edge(fn, at: 0.0), [.dictationStart])
+        machine.startDictationGesture()
+        XCTAssertEqual(edge([], at: 0.05), [])
+        XCTAssertEqual(flyd.mode, .live, "the refused tap left LIVE alone")
+
+        flyd.end(live)
+        XCTAssertEqual(edge(fn, at: 3.0), [.dictationStart])
+        machine.startDictationGesture()
+        XCTAssertEqual(flyd.mic.holder?.kind, .dictation)
+    }
 }
