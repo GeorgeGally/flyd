@@ -920,7 +920,7 @@ describe("ConversationViewServer", () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     // A decision answer is checked against a fresh fleet read first, and that read can take a minute.
-    Object.assign(server!, { cardNotes: new CardNotes({ root: join(dir!, "card-notes"), acceptMs: 50 }), liveCall: async () => { await gate; return undefined; } });
+    Object.assign(server!, { cardNotes: new CardNotes({ acceptMs: 50 }), liveCall: async () => { await gate; return undefined; } });
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
     const answer = (text: string, clientId: string) => post(port, JSON.stringify({ decision: "logan-chat", decisionTask: "logan-chat", jobTitle: "Logan chat", questionText: "Go-ahead to land Logan chat?", text, clientId }), headers);
     const first = JSON.parse((await answer("This, I think, has also been completed.", "note-a")).body);
@@ -944,7 +944,7 @@ describe("ConversationViewServer", () => {
     const port = await start(inbox);
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    Object.assign(server!, { cardNotes: new CardNotes({ root: join(dir!, "card-notes"), acceptMs: 50 }), liveCall: async () => { await gate; return undefined; } });
+    Object.assign(server!, { cardNotes: new CardNotes({ acceptMs: 50 }), liveCall: async () => { await gate; return undefined; } });
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
     const slow = JSON.parse((await post(port, JSON.stringify({ decision: "logan-chat", decisionTask: "logan-chat", jobTitle: "Logan chat", questionText: "Go-ahead to land Logan chat?", text: "Yes", clientId: "note-a" }), headers)).body);
     expect(slow.id).toMatch(/^pending:/);
@@ -957,9 +957,9 @@ describe("ConversationViewServer", () => {
   it("returns what a slow route said about a note, not only its id", async () => {
     const inbox = new MemoryInbox();
     const port = await start(inbox);
-    const notes = new CardNotes({ root: join(dir!, "card-notes"), acceptMs: 20 });
+    const notes = new CardNotes({ acceptMs: 20 });
     Object.assign(server!, { cardNotes: notes });
-    const accepted = await notes.accept({}, "note-f", "card", async (res) => {
+    const accepted = await notes.accept("note-f", "card", async (res) => {
       await new Promise((resolve) => setTimeout(resolve, 60));
       res.writeHead(200).end(JSON.stringify({ id: "note:1", followUp: "exec-1" }));
     });
@@ -968,10 +968,10 @@ describe("ConversationViewServer", () => {
     expect(JSON.parse((await get(port, `/api/note?id=${encodeURIComponent(String(accepted.body.id))}&token=${viewToken}`)).body)).toMatchObject({ id: "note:1", followUp: "exec-1" });
   });
 
-  it("lets a note go again after a route that threw when it could not be kept on disk", async () => {
-    const notes = new CardNotes({ root: "/dev/null/card-notes" });
-    await expect(notes.accept({}, "note-x", "card", async () => { throw new Error("down"); })).resolves.toMatchObject({ status: 502 });
-    await expect(notes.accept({}, "note-x", "card", async (res) => { res.writeHead(200).end(JSON.stringify({ id: "note:2" })); })).resolves.toMatchObject({ status: 200, body: { id: "note:2" } });
+  it("lets a note go again after a route that threw", async () => {
+    const notes = new CardNotes();
+    await expect(notes.accept("note-x", "card", async () => { throw new Error("down"); })).resolves.toMatchObject({ status: 502 });
+    await expect(notes.accept("note-x", "card", async (res) => { res.writeHead(200).end(JSON.stringify({ id: "note:2" })); })).resolves.toMatchObject({ status: 200, body: { id: "note:2" } });
   });
 
   it("tells the card a note it accepted could not be delivered, and lets the same note go again", async () => {
@@ -980,7 +980,7 @@ describe("ConversationViewServer", () => {
     let fail = true;
     const send = inbox.send.bind(inbox);
     inbox.send = async (...args: Parameters<MemoryInbox["send"]>) => { await new Promise((resolve) => setTimeout(resolve, 100)); if (fail) throw new Error("inbox down"); return send(...args); };
-    Object.assign(server!, { cardNotes: new CardNotes({ root: join(dir!, "card-notes"), acceptMs: 20 }) });
+    Object.assign(server!, { cardNotes: new CardNotes({ acceptMs: 20 }) });
     const headers = { "content-type": "application/json", "x-flyd-view-token": viewToken! };
     const about = () => post(port, JSON.stringify({ about: { title: "Logan chat" }, text: "Make it calmer", clientId: "note-c" }), headers);
     const accepted = JSON.parse((await about()).body);

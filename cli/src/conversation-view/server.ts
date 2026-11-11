@@ -863,8 +863,6 @@ export class ConversationViewServer {
       });
     });
     this.port = (server.address() as AddressInfo).port;
-    // Notes he was told were accepted before a restart still go where they were meant to.
-    this.cardNotes.resume((payload, held) => this.routeNote(payload as SendPayload, held as unknown as ServerResponse));
     return this.port;
   }
 
@@ -1754,7 +1752,7 @@ export class ConversationViewServer {
     const clientId = typeof payload.clientId === "string" && payload.clientId.length <= 100 ? payload.clientId : undefined;
     if (payload.domainRun !== undefined || payload.decision !== undefined || payload.decisionFollowUp !== undefined || payload.about !== undefined || (payload.replyTo !== undefined && clientId)) {
       const { clientId: _client, ...note } = payload;
-      const result = await this.cardNotes.accept(note, clientId, cardOf(note), (held) => this.routeNote(note, held as unknown as ServerResponse));
+      const result = await this.cardNotes.accept(clientId, cardOf(note), (held) => this.routeNote(note, held as unknown as ServerResponse));
       sendJson(res, result.status, result.body);
       return;
     }

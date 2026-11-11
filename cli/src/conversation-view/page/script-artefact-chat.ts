@@ -74,7 +74,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
       var mine = state.thread || [];
       var after = -1;
       (Array.isArray(stored) ? stored : []).forEach(function (other) {
-        if (!other || !(other.id || other.key)) return;
+        if (!other || !other.id) return;
         var at = -1;
         mine.forEach(function (entry, index) { if ((other.id && entry.id === other.id) || (other.key && entry.key === other.key)) at = index; });
         if (at === -1) { mine.splice(after + 1, 0, Object.assign({}, other)); after += 1; return; }
@@ -85,9 +85,10 @@ export const ARTEFACT_CHAT_SCRIPT = `
         after = Math.max(after, at);
       });
       state.thread = mine.slice(-50);
-      // A note still on its way is kept as well, so a reload sends it rather than losing it; pictures stay in memory.
-      store(key, JSON.stringify(state.thread.filter(function (entry) { return entry.id || entry.key; }).map(function (entry) {
+      // What a note carries on its way stays with the copy that sent it: only that copy can send it again.
+      store(key, JSON.stringify(state.thread.filter(function (entry) { return entry.id; }).map(function (entry) {
         var kept = Object.assign({}, entry);
+        delete kept.body;
         delete kept.images;
         return kept;
       })));
@@ -159,7 +160,6 @@ export const ARTEFACT_CHAT_SCRIPT = `
       (state.thread || []).forEach(function (entry) {
         var box = el("div", "art-entry");
         box.appendChild(el("p", "art-msg art-msg--you", entry.text));
-        if (entry.picturesLost) box.appendChild(el("p", "art-msg art-failed", "Picture not sent - attach it again"));
         if (!entry.id) {
           box.appendChild(unsentLine(entry));
         } else if (entry.answer) {
@@ -304,15 +304,17 @@ export const ARTEFACT_CHAT_SCRIPT = `
     var after = {};
     var inFlight = null;
     function sendingKey() { return inFlight ? inFlight.key : ""; }
-    function unsent() { return (state.thread || []).filter(function (entry) { return entry.key && !entry.id; }); }
+    var typedHere = {};
+    function unsent() { return (state.thread || []).filter(function (entry) { return typedHere[entry.key] && !entry.id; }); }
     // The line under a note that has not gone yet: on its way, waiting its turn, or not delivered with a way to try again.
     function unsentLine(entry) {
       var line = el("p", "art-msg art-working");
       line.setAttribute("role", "status");
       line.setAttribute("aria-live", "polite");
-      if (entry.failed) {
+      if (entry.failed || !typedHere[entry.key]) {
         line.classList.add("art-failed");
         line.appendChild(el("span", "", "Not delivered"));
+        if (!typedHere[entry.key]) return line;
         var again = el("button", "art-retry", "Try again");
         again.type = "button";
         again.addEventListener("click", function () {
@@ -366,7 +368,8 @@ export const ARTEFACT_CHAT_SCRIPT = `
       var sending = takesImages ? images.slice() : [];
       // His words stand in the card's own thread the moment he sends them, not when a reply comes.
       // Only the newest few dozen are kept: old ones have long scrolled off the card anyway.
-      var entry = { text: text, key: "note-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10), body: bodyFor(text, []), images: sending, pictures: sending.length };
+      var entry = { text: text, key: "note-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10), body: bodyFor(text, []), images: sending };
+      typedHere[entry.key] = true;
       if (done) after[entry.key] = done;
       state.thread = (state.thread || []).concat([entry]).slice(-50);
       // The box empties as he sends, and so does the saved draft. A picture that went with this note
@@ -394,8 +397,6 @@ export const ARTEFACT_CHAT_SCRIPT = `
       paintThread();
       paint();
       var sending = entry.images || [];
-      // Pictures stay in memory only: a note brought back by a reload goes without them, and he is told.
-      if (entry.pictures && !sending.length) entry.picturesLost = true;
       var body = Object.assign({}, entry.body, { clientId: entry.key });
       if (sending.length) body.images = sending.map(function (image) { return { mediaType: image.mediaType, data: image.data }; });
       var controller = typeof AbortController === "function" ? new AbortController() : null;
@@ -458,8 +459,6 @@ export const ARTEFACT_CHAT_SCRIPT = `
     paintThread();
     paint();
     watch();
-    // A note he sent before a reload that never got through goes now, in its turn.
-    pump();
     return chat;
   }
   // A scene's foot: a question's options, one tap each, then the chat box.

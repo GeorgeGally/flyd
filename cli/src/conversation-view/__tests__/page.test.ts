@@ -2359,23 +2359,9 @@ describe("header and artefact view", () => {
     }
   });
 
-  it("says a picture did not go when a reload sends its note without it", async () => {
-    localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "Like this", key: "note-left", pictures: 1, body: { text: "Like this", session: "latest", decision: "visuals", decisionTask: "visuals", questionText: "Choose from the lab" } }]));
-    vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "note:pins" } : {}));
-    load("");
-    await settle();
-    const stream = open("latest", []);
-    const show: ShowScreen = { title: "Choose", summary: "", live: false, counts: { call: 1 }, items: [{ id: "call:visuals", kind: "call", headline: "Pick the Christmas direction for the site", why: "", task: "visuals", decision: { task: "visuals", question: "Choose from the lab", choices: ["Evergreen luxe"] } }] };
-    stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
-    document.getElementById("flip")!.click();
-    await settle();
-    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
-    expect(ask.querySelector(".art-entry .art-failed")!.textContent).toBe("Picture not sent - attach it again");
-  });
-
-  it("sends a note left unsent by a reload when the card comes back", async () => {
+  it("never sends a note again from a reload; only the copy that took it can resend it", async () => {
     localStorage.setItem("flyd-decision:visuals:Choose from the lab", JSON.stringify([{ text: "Make the pins bigger", key: "note-left", body: { text: "Make the pins bigger", session: "latest", decision: "visuals", decisionTask: "visuals", questionText: "Choose from the lab" } }]));
-    vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "note:pins" } : {}));
+    vi.mocked(fetch).mockImplementation(async (url) => json(url === "/api/send" ? { id: "pending:1", waiting: "Sent to Flyd" } : {}));
     load("");
     await settle();
     const stream = open("latest", []);
@@ -2383,8 +2369,20 @@ describe("header and artefact view", () => {
     stream.emit("update", { order: [], messages: [], working: false, show, boxes: boxesOf(show) });
     document.getElementById("flip")!.click();
     await settle();
-    const sends = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)));
-    expect(sends).toEqual([expect.objectContaining({ text: "Make the pins bigger", clientId: "note-left", decision: "visuals" })]);
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send")).toHaveLength(0);
+    const ask = document.querySelector<HTMLElement>(".scene-ask")!;
+    expect(ask.querySelector(".art-failed")!.textContent).toBe("Not delivered");
+    expect(ask.querySelector(".art-retry")).toBeNull();
+    const chat = ask.querySelector<HTMLTextAreaElement>(".art-chat-input")!;
+    chat.value = "Like this";
+    chat.dispatchEvent(new Event("input"));
+    ask.querySelector(".art-chat")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    // Accepted, still routing: kept with the card by its id, without what only this copy may send again.
+    const kept = JSON.parse(localStorage.getItem("flyd-decision:visuals") || "[]");
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/send").map(([, options]) => JSON.parse(String(options!.body)).text)).toEqual(["Like this"]);
+    expect(kept).toEqual([expect.objectContaining({ text: "Like this", id: "pending:1" })]);
+    expect(kept[0].body).toBeUndefined();
   });
 
   it("shows a card's thread again after a reload, answers and all", async () => {

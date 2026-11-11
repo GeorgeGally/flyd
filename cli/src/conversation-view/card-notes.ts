@@ -1,21 +1,16 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { FLYD_DIR } from "../lib/config.js";
 
 /**
  * His notes from the chat box under an artefact. Routing one (a decision answer is checked
  * against a fresh fleet read first) can take a minute and more, and he must never wait on
- * that: a note is accepted the moment Core has it on disk, routed in the order he sent it,
+ * that: a note is accepted the moment Core has it, routed in the order he sent it,
  * and the card learns where it went by asking after its accepted id.
  */
 
 /** How long a note may take to route before he is told it was accepted and routing goes on behind. */
 export const NOTE_ACCEPT_MS = 2_500;
-/** How long a settled note's outcome is kept for a card still asking after it. */
-const SETTLED_KEEP_MS = 24 * 60 * 60_000;
-/** Most client ids remembered, so a resend of the same note never routes it twice. */
-const CLIENT_IDS = 500;
+/** Most client ids and settled outcomes remembered, so a resend never routes twice and a card still asking is told. */
+const REMEMBERED = 500;
 
 /** What routing a note said: the HTTP status and JSON body the card would have been told. */
 export interface NoteResult {
@@ -51,8 +46,6 @@ export class HeldResponse {
 /** The plain line a card shows when a note it was told was accepted could not be delivered after all. */
 export const NOT_DELIVERED = "Not delivered. Try again.";
 
-type Spooled = { payload: unknown; card?: string; at: number } | { outcome: NoteOutcome; at: number };
-
 /** Routes one note into a held response; a route that throws is a failed delivery, never a rejection. */
 async function routed(route: (res: HeldResponse) => Promise<void>): Promise<NoteResult> {
   const res = new HeldResponse();
@@ -61,15 +54,14 @@ async function routed(route: (res: HeldResponse) => Promise<void>): Promise<Note
 }
 
 export class CardNotes {
-  private readonly root: string;
   private readonly acceptMs: number;
   /** Each card's notes route one at a time, in the order they came: a later one never overtakes an earlier one, and cards never wait on each other. */
   private readonly chains = new Map<string, Promise<unknown>>();
   private readonly byClient = new Map<string, Promise<NoteResult>>();
   private readonly settled = new Map<string, NoteOutcome>();
+  private readonly pending = new Set<string>();
 
-  constructor(options: { root?: string; acceptMs?: number } = {}) {
-    this.root = options.root ?? join(FLYD_DIR, "view", "card-notes");
+  constructor(options: { acceptMs?: number } = {}) {
     this.acceptMs = options.acceptMs ?? NOTE_ACCEPT_MS;
   }
 
@@ -78,62 +70,34 @@ export class CardNotes {
    * quickly, else with an accepted receipt while routing goes on. The same client id sent again
    * (a resend after a timeout, a second copy of the card) gets the same answer, never a second route.
    */
-  accept(payload: unknown, clientId: string | undefined, card: string, route: (res: HeldResponse) => Promise<void>): Promise<NoteResult> {
+  accept(clientId: string | undefined, card: string, route: (res: HeldResponse) => Promise<void>): Promise<NoteResult> {
     const known = clientId ? this.byClient.get(clientId) : undefined;
     if (known) return known;
     // Only a note that went is remembered: a failure, told now or after it was accepted, is his to send again, and that must route.
     const forget = () => { if (clientId && this.byClient.get(clientId) === result) this.byClient.delete(clientId); };
-    const result: Promise<NoteResult> = this.take(payload, card, route, forget).then((outcome) => {
+    const result: Promise<NoteResult> = this.take(card, route, forget).then((outcome) => {
       if (outcome.status >= 400) forget();
       return outcome;
     });
     if (clientId) {
       this.byClient.set(clientId, result);
-      while (this.byClient.size > CLIENT_IDS) this.byClient.delete(this.byClient.keys().next().value!);
+      while (this.byClient.size > REMEMBERED) this.byClient.delete(this.byClient.keys().next().value!);
     }
     return result;
   }
 
   /** Where an accepted note stands: undefined while it is still routing or unknown. */
   outcome(id: string): NoteOutcome | undefined {
-    const held = this.settled.get(id);
-    if (held) return held;
-    const spooled = this.read(id);
-    return spooled && "outcome" in spooled ? spooled.outcome : undefined;
+    return this.settled.get(id);
   }
 
   /** Whether an accepted note is still on its way. */
   routing(id: string): boolean {
-    if (this.settled.has(id)) return false;
-    const spooled = this.read(id);
-    return Boolean(spooled && "payload" in spooled);
+    return this.pending.has(id);
   }
 
-  /** Notes accepted before a restart and never routed go now, oldest first; old outcomes are dropped. */
-  resume(route: (payload: unknown, res: HeldResponse) => Promise<void>): void {
-    let names: string[] = [];
-    try { names = readdirSync(this.root).filter((name) => name.endsWith(".json")).sort(); } catch { return; }
-    for (const name of names) {
-      const id = `pending:${name.slice(0, -5)}`;
-      const spooled = this.read(id);
-      if (!spooled) continue;
-      if ("outcome" in spooled) {
-        if (Date.now() - spooled.at > SETTLED_KEEP_MS) rmSync(this.path(id), { force: true });
-        continue;
-      }
-      void this.queue(id, spooled.card ?? "", (res) => route(spooled.payload, res));
-    }
-  }
-
-  private async take(payload: unknown, card: string, route: (res: HeldResponse) => Promise<void>, forget: () => void): Promise<NoteResult> {
-    // Ids sort in the order notes came, so a restart replays them in that order too.
-    const id = `pending:${Date.now().toString().padStart(15, "0")}-${randomBytes(6).toString("hex")}`;
-    try {
-      this.write(id, { payload, card, at: Date.now() });
-    } catch {
-      // Nowhere to keep it: routed in place, and he waits for the answer as before.
-      return this.serial(card, () => routed(route));
-    }
+  private async take(card: string, route: (res: HeldResponse) => Promise<void>, forget: () => void): Promise<NoteResult> {
+    const id = `pending:${randomBytes(9).toString("hex")}`;
     const delivered = this.queue(id, card, route).then((result) => {
       if (result.status >= 400) forget();
       return result;
@@ -146,16 +110,18 @@ export class CardNotes {
     return { status: 200, body: { id, timestamp: new Date().toISOString(), waiting: "Sent to Flyd" } };
   }
 
-  /** Routes one spooled note in its turn and records where it went. */
+  /** Routes one accepted note in its turn and records where it went. */
   private queue(id: string, card: string, route: (res: HeldResponse) => Promise<void>): Promise<NoteResult> {
+    this.pending.add(id);
     return this.serial(card, async () => {
       const result = await routed(route);
       const { followUp, pictureFailed, warning } = result.body;
       const outcome: NoteOutcome = result.status < 400 && typeof result.body.id === "string"
         ? { id: result.body.id, ...(followUp ? { followUp } : {}), ...(pictureFailed === true ? { pictureFailed: true as const } : {}), ...(warning ? { warning } : {}) }
         : { failed: NOT_DELIVERED };
+      this.pending.delete(id);
       this.settled.set(id, outcome);
-      try { this.write(id, { outcome, at: Date.now() }); } catch { /* kept in memory for this run */ }
+      while (this.settled.size > REMEMBERED) this.settled.delete(this.settled.keys().next().value!);
       return result;
     });
   }
@@ -166,27 +132,4 @@ export class CardNotes {
     this.chains.set(card, tail);
     return next;
   }
-
-  private path(id: string): string {
-    return join(this.root, `${id.slice("pending:".length).replace(/[^0-9a-z-]/gi, "")}.json`);
-  }
-
-  private read(id: string): Spooled | undefined {
-    if (!id.startsWith("pending:")) return undefined;
-    try {
-      const spooled = JSON.parse(readFileSync(this.path(id), "utf8")) as Spooled;
-      return spooled && typeof spooled === "object" ? spooled : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private write(id: string, value: Spooled): void {
-    mkdirSync(this.root, { recursive: true, mode: 0o700 });
-    const path = this.path(id);
-    const temp = `${path}.${process.pid}.tmp`;
-    writeFileSync(temp, JSON.stringify(value), { mode: 0o600 });
-    renameSync(temp, path);
-  }
 }
-
