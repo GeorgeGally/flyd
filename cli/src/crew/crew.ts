@@ -1244,6 +1244,10 @@ export function deployCommand(repo: string): string | null {
 async function runAfterLandStep(task: CrewTask, step: AfterLandStep, run: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>): Promise<NonNullable<CrewTask["afterLandResults"]>[number]> {
   const command = step === "push" ? `git push origin ${task.baseBranch}` : deployCommand(task.repo);
   if (!command) return { step, ok: false, detail: "this repo declares no deploy command (package.json \"deploy\" script or a Makefile deploy target)" };
+  if (step !== "push") {
+    const unsafe = await checkLandable(task).then(() => null, (error: unknown) => error instanceof Error ? error.message : String(error));
+    if (unsafe) return { step, ok: false, detail: `${unsafe}; ${step} not run` };
+  }
   const result = await run(command, task.repo);
   return { step, ok: result.ok, detail: `${command}: ${result.output.trim().split("\n").slice(-3).join(" ").slice(0, 300)}` };
 }

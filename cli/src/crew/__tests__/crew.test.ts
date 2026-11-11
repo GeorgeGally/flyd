@@ -765,6 +765,19 @@ describe("crew landing and the task state machine", () => {
     await expect(discardCrewTask(task.id)).rejects.toThrow("is landed; it can't be discarded");
   });
 
+  it("never deploys from a checkout that moved off the base branch while a landing was stranded", async () => {
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { deploy: "vercel --prod" } }));
+    git(repo, "add", "."); git(repo, "commit", "-qm", "add deploy script");
+    const task = await readyTask(["push", "deploy"]);
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    saveTask({ ...task, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    git(repo, "checkout", "-qb", "elsewhere");
+    const ran: string[] = [];
+    const landed = await landCrewTask(task.id, undefined, async (command) => { ran.push(command); return { ok: true, output: "done" }; });
+    expect(ran).toEqual(["git push origin main"]);
+    expect(landed.afterLandResults?.[1]).toMatchObject({ step: "deploy", ok: false, detail: expect.stringContaining("is on elsewhere") });
+  });
+
   it("resumes a claimed landing: merges once, and skips the merge when the crash came just after it", async () => {
     const first = await readyTask();
     saveTask({ ...first, status: "landing", landingStep: "claimed", landerPid: DEAD });
