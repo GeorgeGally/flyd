@@ -161,7 +161,15 @@ export const WEEK_SCRIPT = `
     if (seg && seg !== weekLit) weekShow(seg);
     else if (!seg && !weekPinned && !weekKeyed) weekHide();
   });
-  weekDays.addEventListener("mouseleave", function () { if (!weekPinned && !weekKeyed) weekHide(); });
+  weekDays.addEventListener("mouseleave", function () {
+    if (weekKeyed) {
+      var focused = document.activeElement;
+      var visible = false;
+      try { visible = !!focused && weekDays.contains(focused) && focused.matches(":focus-visible"); } catch (error) { visible = false; }
+      if (!visible) weekKeyed = false;
+    }
+    if (!weekPinned && !weekKeyed) weekHide();
+  });
   // A tap (or a click) on a block keeps its card until the next tap elsewhere.
   weekDays.addEventListener("click", function (event) {
     var one = event.target.closest(".wk-day"); if (one) weekPick(one.dataset.day);
@@ -184,7 +192,7 @@ export const WEEK_SCRIPT = `
   // On a focused day, up and down walk its blocks (the card follows), left and right step between days.
   weekDays.addEventListener("keydown", function (event) {
     var one = event.target.closest(".wk-day"); if (!one) return;
-    if (event.key === "Escape") { weekHide(); return; }
+    if (event.key === "Escape") { weekKeyed = false; weekHide(); return; }
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       var next = event.key === "ArrowLeft" ? one.previousElementSibling : one.nextElementSibling;
       if (next) { event.preventDefault(); next.focus(); }

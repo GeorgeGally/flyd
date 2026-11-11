@@ -24,6 +24,9 @@ describe("week", () => {
     expect(plainSubject("fix(mac-adapter): one session owns the mic (#272)")).toBe("One session owns the mic");
     expect(plainSubject("feat!: big change.")).toBe("Big change");
     expect(plainSubject("no-mistakes(review): Fix week colours")).toBe("Fix week colours");
+    expect(plainSubject("no-mistakes: tidy the gate")).toBe("Tidy the gate");
+    expect(plainSubject("fm/flyd-week-hover: centre the week")).toBe("Centre the week");
+    expect(plainSubject("re-run: the check")).toBe("Re-run: the check");
     expect(firstClause("A drag on a big page does less per frame: a layer's outermost group is kept")).toBe("A drag on a big page does less per frame");
     expect(firstClause("x".repeat(20) + " " + "word ".repeat(30)).endsWith("…")).toBe(true);
   });

@@ -106,8 +106,7 @@ export function subjectRef(subject: string): string | undefined {
 export function plainSubject(subject: string): string {
   const words = subject
     .replace(/^[a-z]+(?:\([^)]*\))?!?:\s*/i, "")
-    // A tool's own hyphenated type, such as "no-mistakes(review): ".
-    .replace(/^[a-z0-9]+(?:-[a-z0-9]+)+(?:\([^)]*\))?:\s*/, "")
+    .replace(/^(?:no-mistakes|fm\/[^\s:()]+)(?:\([^)]*\))?:\s*/, "")
     .replace(/\s*\(#\d+\)\s*$/, "")
     .replace(/\s+/g, " ")
     .trim()
