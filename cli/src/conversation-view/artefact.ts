@@ -958,21 +958,49 @@ function decisionFrom(body: string): HoldDecision | undefined {
  * is two decisions, each with its own alternatives. A hold that numbers nothing is one decision. Pure.
  */
 export function holdDecisions(hold: string): HoldDecision[] {
-  let numbered = [...hold.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\s*\(\d+\)\s|$)/g)].map((match) => match[2]!);
-  // "Review and 1. Opinion section: …? 2. Reports band heading: …? 3. …": numbered the other way.
-  if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|\s)\d\.\s+([\s\S]*?)(?=\s+\d\.\s|$)/g)].map((match) => match[1]!);
-  // "Three calls: 1) WhatsApp card: remove it, or keep it; 2) horoscope source: …": numbered with a bracket only.
-  const bracketed = numbered.length < 2;
-  if (bracketed) numbered = [...hold.matchAll(/(?:^|[\s:;,])\d+\)\s+([\s\S]*?)(?=[\s;,]+\d+\)\s|$)/g)].map((match) => match[1]!);
   const decisions = (bodies: string[]): HoldDecision[] => bodies.map((body) => decisionFrom(body.replace(/^[\s;,-]+/, ""))).filter((decision): decision is HoldDecision => Boolean(decision));
-  const split = numbered.length >= 2 ? decisions(numbered) : [];
-  // "Pick one: 1) Departures 2) Picture desk" numbers answers, not questions: it stays one decision.
-  return numbered.length >= 2 && (!bracketed || (split.length >= 2 && split.some(asksSomething))) ? split : decisions([hold]);
+  const asked = numberedChoice(hold);
+  if (asked) return [asked];
+  const numbered = numberedItems(hold);
+  if (numbered.length < 2) return decisions([hold]);
+  const split = decisions(numbered.map((item) => item.body));
+  // A numbered list nothing in which asks is answers too; the last item's "?" ends the sentence, not a question of its own.
+  const asks = split.some((decision, index) => decision.options.length > 0 || (index < split.length - 1 && /\?$/.test(decision.question)));
+  return split.length >= 2 && asks ? split : decisions([hold]);
 }
 
-/** Whether a decision asks something: it names answers, or it ends on a question mark. Pure. */
-export function asksSomething(decision: HoldDecision): boolean {
-  return decision.options.length > 0 || /\?$/.test(decision.question);
+/** A hold's numbered items, each with where it starts. Pure. */
+function numberedItems(hold: string): Array<{ at: number; body: string }> {
+  let numbered = [...hold.matchAll(/\((\d+)\)\s*([\s\S]*?)(?=\s*\(\d+\)\s|$)/g)].map((match) => ({ at: match.index, body: match[2]! }));
+  // "Review and 1. Opinion section: …? 2. Reports band heading: …? 3. …": numbered the other way.
+  if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|\s)\d\.\s+([\s\S]*?)(?=\s+\d\.\s|$)/g)].map((match) => ({ at: match.index, body: match[1]! }));
+  // "Three calls: 1) WhatsApp card: remove it, or keep it; 2) horoscope source: …": numbered with a bracket only.
+  if (numbered.length < 2) numbered = [...hold.matchAll(/(?:^|[\s:;,])\d+\)\s+([\s\S]*?)(?=[\s;,]+\d+\)\s|$)/g)].map((match) => ({ at: match.index, body: match[1]! }));
+  return numbered;
+}
+
+/**
+ * One question whose answers are numbered: "Which should I build? 1. Departures 2. Notch?" or
+ * "Pick one: 1) Departures 2) Picture desk". Undefined when the numbers are questions of their own. Pure.
+ */
+export function numberedChoice(hold: string): HoldDecision | undefined {
+  const numbered = numberedItems(hold);
+  if (numbered.length < 2) return undefined;
+  const lead = hold.slice(0, numbered[0]!.at).trim().split(/[.!?]\s+(?=\S)/).at(-1) ?? "";
+  if (!/[?:]$/.test(lead) || !/\b(?:which|what|pick|choose|select|want me to|should i)\b/i.test(lead)) return undefined;
+  const options: string[] = [];
+  let recommended: string | undefined;
+  for (const { body } of numbered) {
+    // "Departures: big type, quiet" describes the answer; its name is the button.
+    const option = body.replace(/:[\s\S]*$/, "").replace(/\s*\([^)]*\)/g, "").replace(/(?:[\s,;]+or)?[\s.;,?]*$/i, "").replace(/^or\s+/i, "").trim();
+    if (!option) continue;
+    const named = option.charAt(0).toUpperCase() + option.slice(1);
+    options.push(named);
+    if (!recommended && RECOMMENDS.test(body)) recommended = named;
+  }
+  if (options.length < 2) return undefined;
+  const question = lead.replace(/[\s:]+$/, "");
+  return { question: question.charAt(0).toUpperCase() + question.slice(1), options, ...(recommended ? { recommended } : {}) };
 }
 
 /** Whether two lines share a run of words specific enough to say they are about the same thing. Pure. */

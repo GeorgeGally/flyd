@@ -1451,6 +1451,14 @@ describe("a hold that puts several decisions to him", () => {
     expect(holdDecisions("Pick one: 1) Departures 2) Picture desk")).toHaveLength(1);
   });
 
+  it("keeps a numbered answer list under one question as one decision with those answers, whatever its punctuation", () => {
+    expect(holdDecisions("Pick one: 1) Departures 2) Picture desk?")).toEqual([{ question: "Pick one", options: ["Departures", "Picture desk"] }]);
+    expect(holdDecisions("Pick one: (1) Departures, (2) Picture desk, or (3) Notch?")).toEqual([{ question: "Pick one", options: ["Departures", "Picture desk", "Notch"] }]);
+    expect(holdDecisions("Which direction? 1. Departures: big type, quiet 2. Picture desk (recommended)")).toEqual([
+      { question: "Which direction?", options: ["Departures", "Picture desk"], recommended: "Picture desk" },
+    ]);
+  });
+
   it("puts a bracketed hold's instruction on its own card beside the question it is numbered with", () => {
     expect(holdDecisions("Two calls: 1) keep the lab version - yes/no; 2) tell me the new tab's name").map((decision) => decision.question)).toEqual([
       "Keep the lab version",

@@ -318,6 +318,16 @@ describe("jobsFrom", () => {
     expect(job.decisions).toBeUndefined();
   });
 
+  it("gives a run's numbered answers to one question as that question's buttons", () => {
+    const asked = (question: string) => jobsFrom({ runs: [run({ status: "needs_decision", question })], now: NOW }).jobs[0]!;
+    const trailing = asked("Which should I build? 1. Departures 2. Picture desk 3. Notch?");
+    expect(trailing.decisions).toBeUndefined();
+    expect(trailing.choices).toEqual(["Departures", "Picture desk", "Notch"]);
+    const described = asked("Which direction? 1. Departures: big type, quiet 2. Picture desk");
+    expect(described.decisions).toBeUndefined();
+    expect(described.choices).toEqual(["Departures", "Picture desk"]);
+  });
+
   it("puts a run's numbered instruction on its own card beside the question it is numbered with", () => {
     const job = jobsFrom({ runs: [run({ status: "needs_decision", question: "(1) keep the lab version - yes/no; (2) tell me the new tab's name" })], now: NOW }).jobs[0]!;
     expect(job.decisions?.map((decision) => decision.question)).toEqual(["Keep the lab version", "Tell me the new tab's name"]);

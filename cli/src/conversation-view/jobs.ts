@@ -8,7 +8,7 @@ import { forHim, statusSaid } from "../lib/pa-voice.js";
 import { plainTitle } from "./plain-words.js";
 import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import { namedAnswers, type NamedAnswers } from "./choices.js";
-import { asksSomething, holdDecisions, type HoldDecision } from "./artefact.js";
+import { holdDecisions, numberedChoice, type HoldDecision } from "./artefact.js";
 import type { ShowItem, ShowScreen } from "./show.js";
 
 /**
@@ -443,9 +443,9 @@ export function jobsFrom(input: {
     const digestSaid = digestView(digest, lead.ask);
     // A run that asks several numbered questions at once puts each to him on its own card.
     const numbered = lead.group === "needs" && !lead.decision && lead.ask ? holdDecisions(lead.ask) : [];
-    // Numbered answers ("Which direction? 1. Departures 2. Picture desk") are one question, not several.
-    const several = numbered.length > 1 && numbered.some(asksSomething) ? numbered : null;
-    const answers = lead.group === "needs" && !several ? answersOf(lead, digestSaid) : null;
+    const several = numbered.length > 1 ? numbered : null;
+    const listed = lead.group === "needs" && !lead.decision && lead.ask ? numberedChoice(lead.ask) : undefined;
+    const answers = lead.group === "needs" && !several ? (listed ?? answersOf(lead, digestSaid)) : null;
     jobs.push({
       id: bucket.id,
       group: lead.group,
