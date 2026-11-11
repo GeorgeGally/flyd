@@ -1085,7 +1085,11 @@ async function superviseSettled(changed: CrewTask[], deps: SuperviseDependencies
   for (const task of changed.filter((item) => item.status !== "running" && !item.notified && deps.notify)) {
     if (task.status === "landed") {
       const uncertain = (task.afterLandResults ?? []).filter((result) => result.uncertain).map((result) => result.step);
-      if (uncertain.length) {
+      const failed = (task.afterLandResults ?? []).filter((result) => !result.ok && !result.uncertain);
+      if (failed.length) {
+        const problem = `${plainOutcome(task)} is merged into main, but ${failed.map((result) => `its ${result.step} didn't go through (${result.detail})`).join("; ")}; it won't be run again on its own, so run it yourself once that's sorted.`;
+        await deps.notify!("Flyd", problem, "blocker").catch(() => undefined);
+      } else if (uncertain.length) {
         const question = `${plainOutcome(task)} is merged into main, but I can't tell whether its ${uncertain.join(" and ")} went through: it was running when I stopped, and I won't run it again on my own. Can you check whether it happened?`;
         await deps.notify!("Flyd", question, "blocker").catch(() => undefined);
       } else if (task.source !== "self-improvement") {

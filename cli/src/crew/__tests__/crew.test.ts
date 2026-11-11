@@ -778,6 +778,20 @@ describe("crew landing and the task state machine", () => {
     expect(landed.afterLandResults?.[1]).toMatchObject({ step: "deploy", ok: false, detail: expect.stringContaining("is on elsewhere") });
   });
 
+  it("tells George, as a blocker, when a resumed landing's deploy didn't run", async () => {
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { deploy: "vercel --prod" } }));
+    git(repo, "add", "."); git(repo, "commit", "-qm", "add deploy script");
+    const task = await readyTask(["push", "deploy"]);
+    git(repo, "merge", "--no-ff", "-qm", "merge", task.branch);
+    saveTask({ ...task, status: "landing", landingStep: "claimed", landerPid: DEAD });
+    git(repo, "checkout", "-qb", "elsewhere");
+    const notify = vi.fn(async () => {});
+    await superviseCrew({ alive: () => false, runCommand: passing, notify });
+    expect(readTask(task.id)?.status).toBe("landed");
+    expect(notify).toHaveBeenCalledWith("Flyd", expect.stringContaining("its deploy didn't go through"), "blocker");
+    expect(notify).not.toHaveBeenCalledWith("Flyd", expect.stringContaining("does everything you asked"), expect.anything());
+  });
+
   it("resumes a claimed landing: merges once, and skips the merge when the crash came just after it", async () => {
     const first = await readyTask();
     saveTask({ ...first, status: "landing", landingStep: "claimed", landerPid: DEAD });
