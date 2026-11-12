@@ -10,6 +10,7 @@ import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import { namedAnswers, type NamedAnswers } from "./choices.js";
 import { holdDecisions, numberedChoice, type HoldDecision } from "./artefact.js";
 import type { ShowItem, ShowScreen } from "./show.js";
+import { cardSource, fallbackWords, type CardSource, type CardWords } from "./card-words.js";
 
 /**
  * A job is a project George is moving, not one delegated run. Runs, conversations
@@ -121,6 +122,8 @@ export interface JobBoard {
   inferred: Array<{ name: string; kind: ProjectKind }>;
   /** Artefacts with no stored reading. The column does not distil these while drawing. */
   pending: DigestSource[];
+  /** Cards built from a worker's status line with no plain words stored yet: the server has them said, never while drawing. */
+  untranslated: CardSource[];
 }
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -131,6 +134,8 @@ const REPORT_CHARS = 240;
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
 const STATE: Record<JobGroup, string> = { needs: "Needs you", working: "Working", waiting: "Waiting", done: "Done" };
+/** Finished work waiting on his look, in his words: never "ready to land". */
+const READY = "Ready for you";
 
 export function jobKey(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -212,13 +217,23 @@ interface Signal {
   handled?: Job["handled"];
   /** The hash of this signal's own report, so its card reads its own digest and never another item's. */
   reportHash?: string;
+  /** The staff's own words this card came from (a worker's status line), when it is not his decision: said plainly before he reads it. */
+  raw?: { title: string; line: string };
 }
 
 function rank(group: JobGroup): number {
   return group === "needs" ? 0 : group === "working" ? 1 : group === "waiting" ? 2 : 3;
 }
 
+/** A run's card; anything but his decision carries its staff words, to be said plainly. */
 function runSignal(run: JobRun, now: number): Signal | null {
+  const signal = runSignalOf(run, now);
+  if (!signal || signal.because.endsWith("waiting on a decision")) return signal;
+  const line = run.outcome || signal.next;
+  return line ? { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line } } : signal;
+}
+
+function runSignalOf(run: JobRun, now: number): Signal | null {
   const at = run.updatedAt;
   // Where the work stands is the one work state its reply was read into; its status alone says how it is held.
   const read = run.work ?? workStateOfRun(run.status as DomainRunStatus);
@@ -239,7 +254,7 @@ function runSignal(run: JobRun, now: number): Signal | null {
   }
   if (work === "ready") {
     if (run.source === "flyd") return null;
-    return { group: "needs", state: "Ready to land", at, next: run.outcome || "Ready to land", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is ready to land` };
+    return { group: "needs", state: READY, at, next: run.outcome || READY, owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is ready to land` };
   }
   if (work === "landed") return { group: "done", at, next: run.outcome || "Landed", owner: "", ask: "", because: `Run ${run.id} completed` };
   return null;
@@ -256,7 +271,7 @@ function itemGroup(kind: ShowItem["kind"]): JobGroup | null {
 
 /** The word a show item has for itself on the board: finished work is ready, not a question; queued is not waiting on him. */
 function itemState(item: ShowItem): string | undefined {
-  if (item.kind === "ready") return item.status === "report available" ? "Report ready" : "Ready to land";
+  if (item.kind === "ready") return item.status === "report available" ? "Report ready" : READY;
   if (item.kind === "next") return "Queued";
   if (item.kind === "waiting" && item.status === "paused") return "Paused";
   return undefined;
@@ -272,6 +287,8 @@ interface Bucket {
   id: string;
   title: string;
   project: string;
+  /** The project's own name, when the card belongs to one: what its plain words lead with. */
+  name?: string;
   signals: Signal[];
   shots: Job["shots"];
   links: Job["links"];
@@ -287,6 +304,8 @@ export function jobsFrom(input: {
   reports?: JobReport[];
   show?: ShowScreen;
   digests?: JobDigest[];
+  /** Plain words stored for cards built from staff status lines (card-words.ts). Given, every such card is said plainly or generically, never as written. */
+  cardWords?: Map<string, CardWords>;
   exists?: (path: string) => boolean;
   now?: number;
 }): JobBoard {
@@ -312,7 +331,7 @@ export function jobsFrom(input: {
     if (bucket) return bucket;
     const title = project?.name || fallbackTitle || name;
     const id = project?.id || key;
-    bucket = { id, title, project: project ? labelOf(project) : "", signals: [], shots: [], links: [], files: [], threads: [], reports: [] };
+    bucket = { id, title, project: project ? labelOf(project) : "", ...(project || !fallbackTitle ? { name: project?.name ?? basename(name) } : {}), signals: [], shots: [], links: [], files: [], threads: [], reports: [] };
     buckets.set(project ? jobKey(project.id) : key, bucket);
     // A fallback title is a worker's headline, not a project's name: it may label the card but never registers a project.
     if (!project && !fallbackTitle && !seenInferred.has(key) && key) {
@@ -344,7 +363,7 @@ export function jobsFrom(input: {
     const bucket = (signal.group === "working" || signal.group === "needs")
       ? lone(buckets, `run:${run.id}`, title)
       : name ? bucketFor(name) : lone(buckets, run.id, title);
-    if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; markActive(name, bucket); }
+    if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; bucket.name = name; markActive(name, bucket); }
     bucket.signals.push(signal);
     const full = runSentence(run.outcome);
     bucket.threads.push({ id: run.id, title, at: run.updatedAt, kind: "run", ...(full && full !== title ? { full } : {}) });
@@ -372,7 +391,7 @@ export function jobsFrom(input: {
     // A call Flyd answered for him is its own quiet line, so his take-back reaches that one answer.
     const handled = item.kind === "landed" && item.status === "handled" && item.executiveDecisionId ? { decisionId: item.executiveDecisionId, task: item.task ?? "" } : undefined;
     const bucket = name && item.kind !== "live" && !handled ? bucketFor(name, item.headline) : lone(buckets, item.id, item.headline);
-    if (item.kind === "live" && name) { bucket.project = basename(name); markActive(bucket.project, bucket); }
+    if (item.kind === "live" && name) { bucket.project = basename(name); bucket.name ??= projectOfRepo(name) ?? basename(name); markActive(bucket.project, bucket); }
     // A staff status line ("Checks green: PR ready for review…") is said as what it means for him.
     const detail = item.detail && (statusSaid(item.detail, item.headline) ?? item.detail);
     const ask = group === "needs" ? (item.decision?.question || detail || item.headline) : "";
@@ -388,6 +407,8 @@ export function jobsFrom(input: {
       because: `Fleet ${item.kind}: ${item.id}`,
       ...(group === "needs" && item.decision ? { decision: item.decision } : {}),
       ...(handled ? { handled } : {}),
+      // A call is his decision and keeps its question; a handled line is Flyd's own. Anything else is the staff's words.
+      ...(item.kind !== "call" && !handled ? { raw: { title: item.headline, line: item.detail || item.headline } } : {}),
     };
     bucket.signals.push(signal);
     for (const shot of item.shots ?? []) if (shot.src) bucket.shots.push({ src: shot.src, label: shot.label });
@@ -422,6 +443,7 @@ export function jobsFrom(input: {
   const stored = new Set((input.digests ?? []).map((digest) => digest.hash));
   const jobs: Job[] = [];
   const pending: DigestSource[] = [];
+  const untranslated: CardSource[] = [];
   for (const bucket of buckets.values()) {
     const project = projects.find((item) => item.id === bucket.id);
     if (!bucket.signals.length && activeProjects.has(jobKey(bucket.id))) continue;
@@ -446,18 +468,24 @@ export function jobsFrom(input: {
     const several = numbered.length > 1 ? numbered : null;
     const listed = lead.group === "needs" && !lead.decision && lead.ask ? numberedChoice(lead.ask) : undefined;
     const answers = lead.group === "needs" && !several ? (listed ?? answersOf(lead, digestSaid)) : null;
+    const shownState = paused && (paused > 1 || state !== "Paused") ? `${state === "Paused" ? "" : `${state} · `}${paused} paused` : state;
+    // A card built from the staff's status line is said in his words, once (card-words.ts); until then, generically. The line itself stays in the Timeline.
+    const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line) : undefined;
+    const words = raw ? input.cardWords!.get(raw.key) ?? fallbackWords(raw.project) : undefined;
+    if (raw && !input.cardWords!.has(raw.key) && !untranslated.some((item) => item.key === raw.key)) untranslated.push(raw);
+    if (raw) bucket.threads.push({ id: `note:${raw.key}`, title: one(raw.line, 140), at: lead.at || at, kind: "run", ...(raw.line.length > 140 ? { full: raw.line } : {}) });
     jobs.push({
       id: bucket.id,
       group: lead.group,
-      state: paused && (paused > 1 || state !== "Paused") ? `${state === "Paused" ? "" : `${state} · `}${paused} paused` : state,
-      title: bucket.title,
+      state: shownState,
+      title: words ? words.title : bucket.title,
       project: bucket.project,
       at,
       ...(lead.started ? { started: lead.started } : {}),
       // The question is said once: a next line that only repeats it is left out.
-      next: sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, lead.group),
+      next: words ? (lead.group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, lead.group),
       owner: lead.owner,
-      ask: lead.ask && forHim(plainSaid(lead.ask)),
+      ask: words ? (lead.group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: bucket.shots.slice(0, 4),
@@ -473,7 +501,7 @@ export function jobsFrom(input: {
     });
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));
-  return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8) };
+  return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8), untranslated };
 }
 
 /**
@@ -529,7 +557,8 @@ function shownLine(line: string, group: JobGroup): string {
 
 function labelOf(project: Project): string {
   if (project.kind === "client") return "Client";
-  return project.what && project.what.length <= 42 ? project.what : project.kind;
+  // A bare kind ("product") says nothing to him: the card names the project instead.
+  return project.what && project.what.length <= 42 ? project.what : "";
 }
 
 function idleSignal(project: Project): Signal {

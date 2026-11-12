@@ -205,7 +205,7 @@ describe("jobsFrom", () => {
   it("says finished work is ready and a finished report is a report", () => {
     const item = (id: string, status: string) => ({ id: `ready:${id}`, kind: "ready", headline: id, why: "", task: id, status });
     const board = jobsFrom({ show: { ...screen, ready: [item("lab", "on its branch"), item("scout", "report available")] } as unknown as ShowScreen, now: NOW });
-    expect(board.jobs.map((job) => [job.id, job.group, job.state])).toEqual(expect.arrayContaining([["ready:lab", "needs", "Ready to land"], ["ready:scout", "needs", "Report ready"]]));
+    expect(board.jobs.map((job) => [job.id, job.group, job.state])).toEqual(expect.arrayContaining([["ready:lab", "needs", "Ready for you"], ["ready:scout", "needs", "Report ready"]]));
   });
 
   it("keeps an active project with no run as waiting, and does not treat project.now as status", () => {
