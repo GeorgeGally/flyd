@@ -180,8 +180,8 @@ function readingJargonIn(text: string): string | null {
 const SOFTER: Array<[RegExp, string | ((found: string, ...groups: string[]) => string)]> = [
   [/\s*#\d+\b/g, ""],
   [/\b(?:the\s+)?(?:PRs?|pull requests?|merge requests?)\b/gi, "the change"],
-  [/\b(merg(?:e|ing)|land(?:ing)?|ship(?:ping)?|deploy(?:ing)?)(?:\s+(it|this|that|them|the change))?(?:\s+(?:in|on)?to\s+(?:the\s+)?main(?:\s+branch)?\b)?/gi,
-    (_found, verb: string, what?: string) => `${/^[A-Z]/.test(verb) ? "P" : "p"}${/ing$/i.test(verb) ? "utting" : "ut"} ${what ?? "it"} live`],
+  [/\b(merge|land|ship|deploy)\b(\s+(?!now\b)[^,.?!]*?)?(?:\s+(?:in|on)?to\s+(?:the\s+)?main(?:\s+branch)?\b)?(?=\s+(?:now|today|first|later)\b|\s*[,.?!]|\s*$)/gi,
+    (_found, verb: string, what?: string) => `${/^[A-Z]/.test(verb) ? "P" : "p"}ut ${what?.trim() || "it"} live`],
   [/\b(?:merged|landed|shipped|deployed)\b/gi, "put live"],
   [/\b(on|to|into|onto|from|off)\s+(?:the\s+)?main(?:\s+branch)?\b/gi, "$1 the live version"],
   [/\bmain\s+branch\b/gi, "the live version"],
@@ -191,7 +191,9 @@ const SOFTER: Array<[RegExp, string | ((found: string, ...groups: string[]) => s
   [/\bcommit(?:s|ted)?\b/gi, "change"],
   [/\b(?:the\s+)?workers?\b/gi, "my team"],
   [/\bdeployments?\b/gi, "release"],
-  [/\bbuilds?\b/gi, "version"],
+  [/\b(the|a|this|that|each|every|new|last|latest)\s+build\b/gi, "$1 version"],
+  [/\bbuilds\b/gi, "versions"],
+  [/\bbuild\b/gi, (found: string) => (/^B/.test(found) ? "Make" : "make")],
   [/\bsatisf(?:y|ied|ies)\b/gi, "done"],
 ];
 

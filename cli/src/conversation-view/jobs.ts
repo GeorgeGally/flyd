@@ -511,7 +511,7 @@ export function jobsFrom(input: {
     const fallback = fallbackWords(bucket.name ?? "", lead.group, state);
     const named = raw ? input.cardWords!.get(raw.key) ?? fallback : undefined;
     // A question with its own answers keeps its words while they are plain; asked in developer words, it is said plainly and its answers stay.
-    const unread = Boolean(raw && asks && !input.cardWords!.has(raw.key) && input.exhausted?.has(raw.key));
+    const unread = Boolean(raw && lead.group === "needs" && lead.ask && !input.cardWords!.has(raw.key) && input.exhausted?.has(raw.key));
     const words = lead.raw?.keep || unread || (asks && !jargonIn(lead.ask)) ? undefined : named;
     // Its answers wait for a stored reading that puts the question to him: never buttons without the question they answer.
     const blind = Boolean(words && asks && !input.cardWords!.has(raw!.key));

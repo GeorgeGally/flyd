@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cardSource, cardWordsFromModel, cardWordsPrompt, exhaustedCardWords, translateCard, fallbackWords, jargonIn, MAX_TRIES, readCardWords, scheduleCardWords } from "../card-words.js";
+import { cardSource, cardWordsFromModel, cardWordsPrompt, exhaustedCardWords, softened, translateCard, fallbackWords, jargonIn, MAX_TRIES, readCardWords, scheduleCardWords } from "../card-words.js";
 import { jobsFrom, plainAnswer } from "../jobs.js";
 import type { Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
@@ -460,5 +460,33 @@ describe("a question the model could never say plainly", () => {
     expect(jargonIn(card.ask)).toBeNull();
     expect(card.choices).toEqual(["Merge PR #41 into main now", "Wait"]);
     expect(card.labels).toEqual({ "Merge PR #41 into main now": "Go ahead now", Wait: "Wait" });
+  });
+});
+
+describe("softened", () => {
+  it("says a developer question's object where it belongs, and leaves plain words alone", () => {
+    expect(softened("Should I merge the hotfix now, or wait?")).toBe("Should I put the hotfix live now, or wait?");
+    expect(softened("Merge Anna's edits into main now, or wait?")).toBe("Put Anna's edits live now, or wait?");
+    expect(softened("Ship the new landing page now, or wait?")).toBe("Put the new landing page live now, or wait?");
+    expect(softened("Build the gallery now, or wait?")).toBe("Make the gallery now, or wait?");
+    expect(softened("Is the build ready?")).toBe("Is the version ready?");
+    for (const said of ["Should I put the hotfix live now, or wait?", "Make the gallery now, or wait?"]) expect(jargonIn(said)).toBeNull();
+  });
+});
+
+describe("an open question in developer words the model could never say plainly", () => {
+  it("is put to him softened once the tries run out", async () => {
+    const run = { id: "run-o", status: "needs_decision", project: "Easel", outcome: "", question: "Which branch should the hotfix go on?", owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "needs_you" as const };
+    const path = pathFor();
+    const first = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map(), exhausted: exhaustedCardWords(path), now: NOW });
+    expect(first.jobs.find((job) => job.group === "needs")!.ask).toBe(fallbackWords("Easel", "needs").body);
+    let now = NOW;
+    const failing = vi.fn(async () => { throw new Error("model down"); });
+    for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
+      await scheduleCardWords(first.untranslated, { path, ask: failing, now: () => now });
+      now += 31 * 60_000;
+    }
+    const card = jobsFrom({ projects: [easel], runs: [run], cardWords: readCardWords(path), exhausted: exhaustedCardWords(path), now: NOW }).jobs.find((job) => job.group === "needs")!;
+    expect(card.ask).toBe("Which version should the hotfix go on?");
   });
 });
