@@ -225,10 +225,10 @@ function rank(group: JobGroup): number {
   return group === "needs" ? 0 : group === "working" ? 1 : group === "waiting" ? 2 : 3;
 }
 
-/** A run's card; anything but his decision carries its staff words, to be said plainly. */
+/** A run's card; anything but a question for him carries its staff words, to be said plainly. */
 function runSignal(run: JobRun, now: number): Signal | null {
   const signal = runSignalOf(run, now);
-  if (!signal || signal.because.endsWith("waiting on a decision")) return signal;
+  if (!signal || run.question || signal.because.endsWith("waiting on a decision")) return signal;
   const line = run.outcome || signal.next;
   return line ? { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line } } : signal;
 }
@@ -407,8 +407,8 @@ export function jobsFrom(input: {
       because: `Fleet ${item.kind}: ${item.id}`,
       ...(group === "needs" && item.decision ? { decision: item.decision } : {}),
       ...(handled ? { handled } : {}),
-      // A call is his decision and keeps its question; a handled line is Flyd's own. Anything else is the staff's words.
-      ...(item.kind !== "call" && !handled ? { raw: { title: item.headline, line: item.detail || item.headline } } : {}),
+      // A call or a decision is his and keeps its question; a handled line is Flyd's own. Anything else is the staff's words.
+      ...(item.kind !== "call" && !item.decision && !handled ? { raw: { title: item.headline, line: item.detail || item.headline } } : {}),
     };
     bucket.signals.push(signal);
     for (const shot of item.shots ?? []) if (shot.src) bucket.shots.push({ src: shot.src, label: shot.label });
@@ -471,7 +471,7 @@ export function jobsFrom(input: {
     const shownState = paused && (paused > 1 || state !== "Paused") ? `${state === "Paused" ? "" : `${state} · `}${paused} paused` : state;
     // A card built from the staff's status line is said in his words, once (card-words.ts); until then, generically. The line itself stays in the Timeline.
     const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line) : undefined;
-    const words = raw ? input.cardWords!.get(raw.key) ?? fallbackWords(raw.project) : undefined;
+    const words = raw ? input.cardWords!.get(raw.key) ?? fallbackWords(raw.project, lead.group) : undefined;
     if (raw && !input.cardWords!.has(raw.key) && !untranslated.some((item) => item.key === raw.key)) untranslated.push(raw);
     if (raw) bucket.threads.push({ id: `note:${raw.key}`, title: one(raw.line, 140), at: lead.at || at, kind: "run", ...(raw.line.length > 140 ? { full: raw.line } : {}) });
     jobs.push({

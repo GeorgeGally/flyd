@@ -95,9 +95,10 @@ function named(project: string): string {
 }
 
 /** What a card says while its own words are not ready, or could not be said plainly. Never the raw line. Pure. */
-export function fallbackWords(project: string): CardWords {
+export function fallbackWords(project: string, group: "needs" | "working" | "waiting" | "done"): CardWords {
   const name = named(project);
-  return { title: name ? `${name}: an update is ready` : "An update is ready", body: "Open to see details." };
+  const said = group === "working" ? "work is under way" : group === "waiting" ? "waiting for now" : group === "done" ? "finished" : "an update is ready";
+  return { title: name ? `${name}: ${said}` : said.charAt(0).toUpperCase() + said.slice(1), body: "Open to see details." };
 }
 
 /**
