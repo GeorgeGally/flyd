@@ -57,6 +57,8 @@ describe("statusSaid", () => {
     expect(statusSaid("working: tests passing on the first half")).toBe("I'm still working on this.");
     expect(statusSaid("tests passing")).toBe("I'm still working on this.");
     expect(statusSaid("Tests passing on the export branch")).toBe("I'm still working on this.");
+    expect(statusSaid("done: tests passing, notes sent")).toBe("This is finished and ready for you to look over.");
+    expect(statusSaid("ready: monitoring for merge")).toBe("This is finished and ready for you to look over.");
     for (const line of ["blocked: tests passing but the deploy key is missing", "paused [at=1]: checks green", "working: CI green so far", "tests passing"]) {
       expect(statusSaid(line) ?? "").not.toMatch(/finished/i);
     }
@@ -67,7 +69,13 @@ describe("withoutInformAsk", () => {
   it("says a bare leave-to-tell question as what Flyd will do", () => {
     expect(withoutInformAsk("It's booked. Want me to let you know?")).toBe("It's booked. I'll let you know.");
     expect(withoutInformAsk("Mark replied. Shall I pass that on?")).toBe("Mark replied. I'll pass that on.");
-    expect(withoutInformAsk("Do you want me to pass along the confirmation?")).toBe("I'll pass along the confirmation.");
+    expect(withoutInformAsk("Do you want me to pass it along?")).toBe("I'll pass it along.");
+    expect(withoutInformAsk("Shall I pass on?")).toBe("I'll pass it on.");
+    // Anything more than the bare question is his to answer.
+    for (const asked of ["The proofs are back. Shall I pass them on for sign-off?", "Shall I pass this along, or hold it?", "Do you want me to pass along the confirmation?"]) {
+      expect(withoutInformAsk(asked)).toBe(asked);
+      expect(forHim(asked)).toBe(asked);
+    }
     expect(withoutInformAsk("Should I keep you posted?")).toBe("I'll keep you posted.");
     for (const said of ["It's booked. Want me to let you know?", "Mark replied. Shall I pass that on?"]) {
       expect(bannedFor(forHim(said))).toBeNull();
@@ -112,7 +120,7 @@ describe("the banned-phrase check on what is shown", () => {
 
 describe("the banned phrases", () => {
   it("catch what George called out", () => {
-    for (const line of ["George needs to answer.", "his picks for v01", "The CapFive lab round 5 captain has posted", "Changed The card stays.", "Checks green: PR ready for review", "Do you want me to pass along the confirmation?"]) {
+    for (const line of ["George needs to answer.", "his picks for v01", "The CapFive lab round 5 captain has posted", "Changed The card stays.", "Checks green: PR ready for review", "Shall I pass that on?"]) {
       expect(bannedFor(line)).not.toBeNull();
     }
   });

@@ -38,7 +38,7 @@ export function statusSaid(line: string): string | null {
   if (state === "paused") return "This is paused for now.";
   if (state === "working") return "I'm still working on this.";
   if (state === "needs-decision") return null;
-  return FINISHED.test(line) ? "This is finished and ready for you to look over." : "I'm still working on this.";
+  return state === "done" || state === "ready" || FINISHED.test(line) ? "This is finished and ready for you to look over." : "I'm still working on this.";
 }
 
 /**
@@ -88,12 +88,11 @@ const WILL: Record<string, string> = { "let you know": "let you know", "update y
  */
 export function withoutInformAsk(text: string): string {
   return text.replace(INFORM_ASK, (found, act: string, rest: string) => {
-    if (/^pass\b/i.test(act) && /\bto (?!you\b)/i.test(rest)) return found;
     const when = /^\s*(?:(?:the|a|an)\s+)?(?:(?!(?:what|how|why|which|where|who|whether|more|about)\b)[\w-]+\s+)?((?:once|when|as soon as|after)\b.*)$/i.exec(rest)?.[1];
     if (when) return `I'll let you know ${when.trim()}.`;
     const action = act.toLowerCase();
     const what = rest.trim();
-    if (action.startsWith("pass")) return /^pass (?:along|on)$/.test(action) ? `I'll pass ${what ? `${action.slice(5)} ${what}` : "it on"}.` : `I'll ${action}${what ? ` ${what}` : ""}.`;
+    if (action.startsWith("pass")) return /^(?:to you)?$/i.test(what) ? `I'll ${action === "pass on" || action === "pass along" ? "pass it on" : action}${what ? ` ${what}` : ""}.` : found;
     const will = WILL[action];
     return will && !what ? `I'll ${will}.` : found;
   });
@@ -150,7 +149,7 @@ export const BANNED_FOR_HIM: RegExp[] = [
   /\bChecks green\b/i,
   /\bmonitoring for merge\b/i,
   /\bready for you to land\b/i,
-  /\b(?:do you want|would you like|want|shall|should) (?:me|I) (?:to )?(?:pass (?:(?:it|that|this|them) )?(?:along|on)\b(?![^?]*\bto (?!you\b))|let you know|keep you (?:posted|updated))/i,
+  /\b(?:do you want|would you like|want|shall|should) (?:me|I) (?:to )?(?:pass (?:(?:it|that|this|them) )?(?:along|on)(?: to you)?\s*\?|let you know|keep you (?:posted|updated))/i,
 ];
 
 /** The first banned phrase in Flyd's own words to him (someone else's quoted words aside), or null. */
