@@ -142,7 +142,35 @@ describe("board cards from staff status lines", () => {
     expect(board.untranslated.map((source) => source.line)).toEqual(["Crop images on the canvas"]);
     const card = board.jobs.find((job) => job.id === "easel")!;
     expect(card.threads).toHaveLength(1);
-    expect(card.threads[0]).toMatchObject({ id: "run-1", title: "Easel: finished", full: "Open to see details." });
+    expect(card.threads[0]).toMatchObject({ id: "run-1", title: "Easel: finished" });
+    expect(card.threads[0]!.full).toBeUndefined();
+  });
+
+  it("queues only Timeline entries that are shown: not runs past the first eight, nor long-finished cards", () => {
+    const runs = Array.from({ length: 10 }, (_, index) => ({
+      id: `run-${index}`, status: "completed", project: "Easel", outcome: `Brief number ${index}`, owner: "FirstMate",
+      updatedAt: new Date(NOW - (index + 1) * 60_000).toISOString(), artifacts: [], work: "landed" as const,
+    }));
+    const old = { id: "run-old", status: "completed", project: "Garden", outcome: "Old garden brief", owner: "FirstMate", updatedAt: "2026-09-01T00:00:00.000Z", artifacts: [], work: "landed" as const };
+    const board = jobsFrom({ projects: [easel], runs: [...runs, old], cardWords: new Map(), now: NOW });
+    const lines = board.untranslated.map((source) => source.line);
+    expect(lines).toHaveLength(8);
+    expect(lines).not.toContain("Brief number 8");
+    expect(lines).not.toContain("Brief number 9");
+    expect(lines).not.toContain("Old garden brief");
+  });
+
+  it("names an unregistered repo's card after the repo, so two such cards are told apart", () => {
+    const show = {
+      ...screen,
+      ready: [
+        { id: "ready:garden", kind: "ready", headline: "Garden beds", why: "", task: "garden-1", project: "/code/garden", detail: "007 satisfied in abc1234f", at: "2026-11-12T11:00:00.000Z" },
+        { id: "ready:notes", kind: "ready", headline: "Notes sync", why: "", task: "notes-1", project: "/code/notes", detail: "008 satisfied in def5678a", at: "2026-11-12T11:00:00.000Z" },
+      ],
+    } as unknown as ShowScreen;
+    const board = jobsFrom({ projects: [], show, cardWords: new Map(), now: NOW });
+    expect(board.jobs.map((job) => job.title).sort()).toEqual(["Garden: an update is ready", "Notes: an update is ready"]);
+    expect(board.untranslated.map((source) => source.project).sort()).toEqual(["garden", "notes"]);
   });
 });
 
