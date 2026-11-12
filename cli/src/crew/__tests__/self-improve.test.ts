@@ -187,7 +187,51 @@ describe("domain handoffs as improvement evidence", () => {
 
     const evidence = gatherEvidence({ flydDir: home, now: NOW });
     expect(evidence.find((item) => item.id === "domain:domain-a")?.text).toContain("handoff broke");
+    // Never re-requested: the raw-result notice it always had, not the missing-layer failure.
     expect(evidence.find((item) => item.id === "domain-result:domain-b")?.text).toContain("unstructured domain handoff");
+  });
+
+  it("names the missing layer after the one re-request, and stays quiet while it is still being retried", () => {
+    const result = {
+      format: "structured" as const, brief: "Fixed the call site.", detailedReport: "Changed the caller and ran the suite.", decisionsMade: [],
+      unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: ["{}"], informationLossRisk: "low" as const,
+    };
+    const run = (id: string, handoffRetry?: DomainRun["handoffRetry"]): DomainRun => ({
+      id, request: { id, domain: "coding", originalMessage: "fix it", intendedOutcome: "fix it", doneWhen: ["works"], createdAt: "2026-09-26T10:00:00Z", source: "chat" },
+      owner: "FirstMate", status: "completed", createdAt: "2026-09-26T10:00:00Z", updatedAt: "2026-09-26T11:00:00Z",
+      transport: { kind: "firstmate", requestId: id }, result, ...(handoffRetry ? { handoffRetry } : {}),
+    });
+    saveDomainRun(run("domain-retried", { askedAt: "2026-09-26T11:00:00Z", missing: ["evidence"], answeredAt: "2026-09-26T11:30:00Z" }), join(home, "command"));
+    saveDomainRun(run("domain-pending", { askedAt: new Date(NOW.getTime() - 60_000).toISOString(), missing: ["evidence"] }), join(home, "command"));
+    saveDomainRun({ ...run("domain-normalised"), result: { ...result, evidence: ["https://github.com/george/flyd/pull/9"] } }, join(home, "command"));
+
+    const evidence = gatherEvidence({ flydDir: home, now: NOW });
+    expect(evidence.find((item) => item.id === "domain-result:domain-retried")?.text).toBe(
+      `FirstMate's domain handoff still missed the evidence layer: evidence (no link, commit, file, id or command output to check it against), after one structured re-request, for: "fix it"`,
+    );
+    expect(evidence.find((item) => item.id === "domain-result:domain-pending")).toBeUndefined();
+    expect(evidence.find((item) => item.id === "domain-result:domain-normalised")).toBeUndefined();
+  });
+
+  it("never logs a missing-layer failure for a structured return that was not re-requested", () => {
+    const result = {
+      format: "structured" as const, brief: "Fixed the call site.", detailedReport: "Changed the caller and ran the suite.", decisionsMade: [],
+      unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: ["{}"], informationLossRisk: "low" as const,
+    };
+    const run = (id: string, extra: Partial<DomainRun> = {}): DomainRun => ({
+      id, request: { id, domain: "coding", originalMessage: "fix it", intendedOutcome: "fix it", doneWhen: ["works"], createdAt: "2026-09-26T10:00:00Z", source: "chat" },
+      owner: "FirstMate", status: "completed", createdAt: "2026-09-26T10:00:00Z", updatedAt: "2026-09-26T11:00:00Z",
+      transport: { kind: "firstmate", requestId: id }, result, ...extra,
+    });
+    const answered = { askedAt: "2026-09-26T11:00:00Z", missing: ["evidence" as const], answeredAt: "2026-09-26T11:30:00Z" };
+    saveDomainRun(run("domain-check-in", { request: { id: "domain-check-in", domain: "coding", originalMessage: "check in", intendedOutcome: "check in", doneWhen: ["works"], createdAt: "2026-09-26T10:00:00Z", source: "flyd" }, handoffRetry: answered }), join(home, "command"));
+    saveDomainRun(run("domain-native", { transport: { kind: "native", requestId: "domain-native" }, handoffRetry: answered }), join(home, "command"));
+    saveDomainRun(run("domain-undelivered"), join(home, "command"));
+
+    const ids = gatherEvidence({ flydDir: home, now: NOW }).map((item) => item.id);
+    expect(ids).not.toContain("domain-result:domain-check-in");
+    expect(ids).not.toContain("domain-result:domain-native");
+    expect(ids).not.toContain("domain-result:domain-undelivered");
   });
 });
 

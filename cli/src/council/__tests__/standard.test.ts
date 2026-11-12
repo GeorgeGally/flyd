@@ -340,7 +340,8 @@ describe("before display", () => {
   });
 
   it("brings George the boss's next reply after sending it back, even the same question again", async () => {
-    const ask = JSON.stringify({ status: "needs_decision", brief: INTERNAL_DECISION });
+    // A reply meeting the handoff contract, so the only note Flyd sends is the send-back itself.
+    const ask = JSON.stringify({ status: "needs_decision", brief: INTERNAL_DECISION, detailed_report: "The work is verified and waits on this call.", evidence: ["https://github.com/george/flyd/pull/9"] });
     const original = { id: "note-1", request_id: "domain-cos-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-14T01:00:00.000Z", body: ask, cursor: "000000000001" } };
     const handled: unknown[] = [original];
     const sentNotes: string[] = [];

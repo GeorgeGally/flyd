@@ -53,6 +53,27 @@ describe("key/value replies", () => {
     }
   });
 
+  it("keeps the value exactly as written, stripping emphasis only from the key", () => {
+    expect(parseDomainResult("status: completed\nreport: Fixed the import in __init__.py").result.detailedReport).toBe("Fixed the import in __init__.py");
+    const dressed = parseDomainResult("- **Status:** completed\n- **Brief:** Patched __main__.py");
+    expect(dressed.status).toBe("completed");
+    expect(dressed.result.brief).toBe("Patched __main__.py");
+  });
+
+  it("keeps the value as written when the key closes its own emphasis before the colon", () => {
+    expect(parseDomainResult("status: completed\nbrief: Fixed the import.\n**Evidence**: __init__.py").result.evidence).toEqual(["__init__.py"]);
+    expect(parseDomainResult("status: completed\n*Brief*: _private helper removed").result.brief).toBe("_private helper removed");
+    expect(parseDomainResult("status: completed\n**Brief:** Shipped the fix.").result.brief).toBe("Shipped the fix.");
+  });
+
+  it("reads an emphasised status, and single-emphasis keys, as the same structured reply", () => {
+    for (const reply of ["**Status:** **Completed**\n**Brief:** Shipped the fix.", "Status: **completed**\nBrief: Shipped the fix.", "*Status:* completed\n*Brief:* Shipped the fix."]) {
+      const parsed = parseDomainResult(reply);
+      expect(parsed.status).toBe("completed");
+      expect(parsed.result).toMatchObject({ format: "structured", brief: "Shipped the fix." });
+    }
+  });
+
   it("takes a named PR, commit or URL as the evidence layer", () => {
     const pr = parseDomainResult("status: completed\nbrief: Sidebar done.\ndetailed_report: See https://github.com/GeorgeGally/flyd/pull/167");
     expect(validateDomainHandoff(pr.result)).toEqual({ ok: true });
@@ -65,6 +86,38 @@ describe("key/value replies", () => {
     expect(status).toBe("completed");
     expect(result.format).toBe("structured");
     expect(validateDomainHandoff(result)).toEqual({ ok: false, missing: ["evidence"], reason: "domain handoff contract unmet: missing evidence" });
+  });
+});
+
+describe("JSON inside prose", () => {
+  it("leaves a prose reply quoting an API error body raw, so the judge decides how it ended", () => {
+    for (const body of [
+      'Couldn\'t deploy, the API returned {"detail":"Not Found"}. Which region should I use?',
+      'The service answered {"data":{"summary":"rate limited"}} and I stopped there.',
+      'Got {"output":{"report":"quota exceeded"}} back from the build.',
+    ]) {
+      const parsed = parseDomainResult(body);
+      expect(parsed.result.format).toBe("raw");
+      expect(parsed.status).toBeUndefined();
+    }
+  });
+
+  it("leaves a quoted object with its own status raw, so a pasted CI body is not read as the handoff", () => {
+    for (const body of [
+      'CI is red: {"status":"completed","conclusion":"failure","output":{"summary":"3 tests failed"}}. Should I fix them?',
+      'Handoff: {"Status": "failed", "result": {"summary": "The deploy failed."}}',
+      'CI is red:\n```json\n{"status":"completed","conclusion":"failure","output":{"summary":"3 tests failed"}}\n```\nShould I fix them?',
+      'Deploy stopped:\n```json\n{"detail":"Not Found"}\n```\nWhich region should I use?',
+    ]) {
+      const parsed = parseDomainResult(body);
+      expect(parsed.result.format).toBe("raw");
+      expect(parsed.status).toBeUndefined();
+    }
+  });
+
+  it("reads a whole-body object through its wrapper, and a quoted object through the contract's own keys", () => {
+    expect(parseDomainResult(JSON.stringify({ data: { summary: "Fixed the call site." } })).result).toMatchObject({ format: "structured", brief: "Fixed the call site." });
+    expect(parseDomainResult('Handoff: {"status": "failed", "brief": "The deploy failed."}')).toMatchObject({ status: "failed", result: { format: "structured", brief: "The deploy failed." } });
   });
 });
 

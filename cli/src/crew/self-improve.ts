@@ -4,7 +4,7 @@ import { FLYD_APPLICATION_ROOT, FLYD_DIR } from "../lib/config.js";
 import { readAdvisories } from "../council/advisors.js";
 import { recentJournal } from "../council/journal.js";
 import { localDay } from "../council/memory-store.js";
-import { normalizeCriteria } from "../runtime/acceptance.js";
+import { domainHandoffShortfall, normalizeCriteria } from "../runtime/acceptance.js";
 import { dispatchCrewTask, listTasks, type CrewTask } from "./crew.js";
 import { listDomainRuns } from "../command/store.js";
 import { isSettled } from "../command/run-state.js";
@@ -212,7 +212,17 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
       });
       continue;
     }
-    if (run.result?.format === "raw" && ["completed", "incomplete", "needs_decision"].includes(run.status)) {
+    if (!run.result || !["completed", "incomplete", "needs_decision"].includes(run.status)) continue;
+    // Only a FirstMate return that was asked once to restate itself is judged against the layered contract.
+    if (run.handoffRetry && run.transport.kind === "firstmate" && run.request.source !== "flyd") {
+      const shortfall = domainHandoffShortfall(run, now);
+      if (shortfall) {
+        evidence.push({
+          id: `domain-result:${run.id}`, kind: "domain", at: run.updatedAt,
+          text: `${run.owner}'s domain handoff ${shortfall}, for: "${run.request.intendedOutcome.slice(0, 220)}"`,
+        });
+      }
+    } else if (run.result.format === "raw") {
       evidence.push({
         id: `domain-result:${run.id}`, kind: "domain", at: run.updatedAt,
         text: `${run.owner} returned an unstructured domain handoff. Flyd preserved the raw detail, but the layered brief/report/evidence contract was not met for: "${run.request.intendedOutcome.slice(0, 220)}"`,

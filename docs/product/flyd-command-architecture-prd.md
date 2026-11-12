@@ -147,7 +147,7 @@ L3 evidence / artifacts / raw result
 
 The stored object carries all levels together.
 
-A domain boss that returns only prose is not rejected. Flyd preserves the full raw reply and marks the result as an unstructured/high-information-loss-risk handoff so the system can improve without losing the work.
+A domain boss that returns only prose is not rejected. Flyd preserves the full raw reply and marks the result as an unstructured/high-information-loss-risk handoff so the system can improve without losing the work. A settled FirstMate return that misses the brief/report/evidence layers (after light normalisation in `command/result.ts`) gets exactly one structured re-request (`command/firstmate.ts`, `handoffRetry`); only if the answer still misses a layer, or the re-request goes unanswered for 24h, does self-improvement record a `domain-result` notice naming each missing layer (`runtime/acceptance.ts` `domainHandoffShortfall`).
 
 ## 5. Coding domain: FirstMate
 

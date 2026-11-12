@@ -2,6 +2,9 @@
 // verdict on each point after it. Shared by background jobs and the crew:
 // the worker that built something never grades it.
 
+import { validateDomainHandoff, type HandoffLayer } from "../command/result.js";
+import type { DomainResult, DomainRun } from "../command/types.js";
+
 export interface AcceptanceCheck {
   criterion: string;
   met: boolean;
@@ -209,4 +212,72 @@ export function checkDomainHandoff(detail: unknown): DomainHandoffCheck {
   if (!evidence.some((item) => item.trim())) missing.push("evidence");
   const fragment = !report || /^(-{1,2}|\/)\S*/.test(report);
   return missing.length ? { ok: false, missing, reason: `handoff:missing ${missing.join(",")}`, ...(fragment ? { fragment } : {}) } : { ok: true, missing: [] };
+}
+
+const LAYERS: HandoffLayer[] = ["brief", "report", "evidence"];
+
+/** What each layer of the contract is, said when it is missing. */
+const LAYER_GAPS: Record<HandoffLayer, string> = {
+  brief: "brief (no one-line outcome)",
+  report: "report (no prose account of what was done)",
+  evidence: "evidence (no link, commit, file, id or command output to check it against)",
+};
+
+/**
+ * A FirstMate return, after parseDomainResult's light normalisation (key
+ * casing, wrapped or fenced JSON, "key: value" lines), checked against both
+ * definitions of the brief/report/evidence contract: a layer is there only
+ * when validateDomainHandoff finds it and checkDomainHandoff does not refuse
+ * it (a report that is a shell flag, or only the reply itself, is no report;
+ * prose is never re-requested for its choice of verb). Evidence counts when
+ * either finds it: a PR URL in the brief, or an artefact pointer, stands in for it.
+ */
+export function validateFirstmateReturn(result: DomainResult): { ok: true; missing: [] } | { ok: false; missing: HandoffLayer[] } {
+  const layered = validateDomainHandoff(result);
+  const strict = checkDomainHandoff(result);
+  const layeredMisses = (layer: HandoffLayer) => !layered.ok && layered.missing.includes(layer);
+  // A structured reply that named no report carries the whole reply as one (parseDomainResult): no report was written.
+  const noReport = result.format === "structured" && result.detailedReport.trim() === (result.raw[0] ?? "").trim();
+  const missing = LAYERS.filter((layer) => layer === "evidence"
+    ? layeredMisses(layer) && strict.missing.includes(layer)
+    : layeredMisses(layer) || strict.missing.includes(layer) && (layer !== "report" || Boolean(strict.fragment)) || (layer === "report" && noReport));
+  return missing.length ? { ok: false, missing } : { ok: true, missing: [] };
+}
+
+/** "the brief and evidence layers" */
+function layerNames(missing: HandoffLayer[]): string {
+  const names = missing.length > 1 ? `${missing.slice(0, -1).join(", ")} and ${missing.at(-1)}` : missing[0] ?? "";
+  return `the ${names} layer${missing.length > 1 ? "s" : ""}`;
+}
+
+/** Flyd's one structured re-request to FirstMate when its return missed the contract: which layers, and the shape to answer in. */
+export function handoffReRequest(missing: HandoffLayer[]): string {
+  return [
+    `Flyd recorded your last reply, but it misses ${layerNames(missing)} of the handoff contract: ${missing.map((layer) => LAYER_GAPS[layer]).join("; ")}.`,
+    'Reply once more with one JSON object and nothing else: {"status": "completed|needs_decision|failed", "brief": "the outcome in one line", "detailed_report": "what was done and verified, in prose", "evidence": ["PR URL, commit, file path or command output"]}',
+    "Keep the same outcome; this only restates it in the contract's shape. Flyd asks once.",
+  ].join("\n");
+}
+
+/** Why a FirstMate return still misses the contract after Flyd's one re-request, naming each missing layer. */
+export function handoffFailureReason(missing: HandoffLayer[]): string {
+  return `handoff contract unmet after one structured re-request: missing ${missing.map((layer) => LAYER_GAPS[layer]).join("; ")}`;
+}
+
+/** How long the one re-request may go unanswered before the run counts as a contract failure. */
+export const HANDOFF_RETRY_WAIT_MS = 24 * 60 * 60_000;
+
+/**
+ * What a run's recorded handoff still misses after its one structured re-request, as one clause naming each
+ * missing layer, or undefined when it met the contract, was never re-requested, or is still waiting on the
+ * answer: a return that was normalised, or is being retried, is not a failure.
+ */
+export function domainHandoffShortfall(run: DomainRun, now: Date = new Date()): string | undefined {
+  const retry = run.handoffRetry;
+  if (!run.result || !retry) return undefined;
+  const check = validateFirstmateReturn(run.result);
+  if (check.ok) return undefined;
+  const gaps = `${layerNames(check.missing)}: ${check.missing.map((layer) => LAYER_GAPS[layer]).join("; ")}`;
+  if (retry.answeredAt) return `still missed ${gaps}, after one structured re-request`;
+  return now.getTime() - Date.parse(retry.askedAt) < HANDOFF_RETRY_WAIT_MS ? undefined : `missed ${gaps}, and the one structured re-request went unanswered`;
 }
