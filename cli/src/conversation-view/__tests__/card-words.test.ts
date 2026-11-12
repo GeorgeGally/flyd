@@ -509,3 +509,37 @@ describe("a plain question whose card line the model gave up on", () => {
     expect(card.ask).toBe("Which price should ship?");
   });
 });
+
+describe("softened, every shape of a go-ahead question", () => {
+  const cases: Array<[string, string]> = [
+    ["Merge?", "Put it live?"],
+    ["Merge or wait?", "Put it live or wait?"],
+    ["Land or wait for checks?", "Put it live or wait for the automatic tests?"],
+    ["Merge or close the PR?", "Put it live or close the change?"],
+    ["Merge then deploy?", "Put it live then put it live?"],
+    ["Ship and tell Anna?", "Put it live and tell Anna?"],
+    ["Merge the hotfix?", "Put the hotfix live?"],
+    ["Merge the hotfix or wait?", "Put the hotfix live or wait?"],
+    ["Merge the hotfix and tell Anna?", "Put the hotfix live and tell Anna?"],
+    ["Merge it or wait?", "Put it live or wait?"],
+    ["Merge the PR or wait?", "Put the change live or wait?"],
+    ["Merge PR #41 and tell Anna?", "Put the change live and tell Anna?"],
+    ["Merge now?", "Put it live now?"],
+    ["Merge now, or wait?", "Put it live now, or wait?"],
+    ["Ship it now and tell Anna?", "Put it live now and tell Anna?"],
+    ["Should I merge the hotfix now, or wait?", "Should I put the hotfix live now, or wait?"],
+    ["Merge Anna's edits into main now, or wait?", "Put Anna's edits live now, or wait?"],
+    ["Ship the new landing page now, or wait?", "Put the new landing page live now, or wait?"],
+    ["Build the gallery now, or wait?", "Make the gallery now, or wait?"],
+    ["Is the build ready?", "Is the version ready?"],
+    ["Which price should ship?", "Which price should go live?"],
+    ["Is it ready to deploy?", "Is it ready to go live?"],
+    ["Merge PR #41 or wait for CI?", "Put the change live or wait for the automatic tests?"],
+    ["Should I merge PR #41 or close it?", "Should I put the change live or close it?"],
+    ["Land it on main or wait for checks?", "Put it live or wait for the automatic tests?"],
+  ];
+  it.each(cases)("%s", (asked, said) => {
+    expect(softened(asked)).toBe(said);
+    expect(jargonIn(said)).toBeNull();
+  });
+});
