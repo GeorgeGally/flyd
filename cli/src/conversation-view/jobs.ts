@@ -5,13 +5,13 @@ import type { DomainRun, DomainRunStatus } from "../command/types.js";
 import { workStateOfRun, type WorkState } from "../lib/work-state.js";
 import { namesBackstage } from "../runtime/honesty-check.js";
 import { plainSaid } from "../lib/backstage.js";
-import { forHim, statusSaid } from "../lib/pa-voice.js";
+import { bannedFor, forHim, statusSaid } from "../lib/pa-voice.js";
 import { plainTitle } from "./plain-words.js";
 import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import { namedAnswers, type NamedAnswers } from "./choices.js";
 import { holdDecisions, numberedChoice, type HoldDecision } from "./artefact.js";
 import type { ShowItem, ShowScreen } from "./show.js";
-import { cardSource, fallbackWords, type CardSource, type CardWords } from "./card-words.js";
+import { cardSource, fallbackWords, jargonIn, placeholderLine, type CardSource, type CardWords } from "./card-words.js";
 
 /**
  * A job is a project George is moving, not one delegated run. Runs, conversations
@@ -226,13 +226,20 @@ function rank(group: JobGroup): number {
   return group === "needs" ? 0 : group === "working" ? 1 : group === "waiting" ? 2 : 3;
 }
 
-/** A run's card carries its staff words, to be said plainly; a question for him keeps its own words and only its title is said. */
+/**
+ * A run's card carries its staff words, to be said plainly. A question for him
+ * in plain words keeps them and only its title is said; a decision with no
+ * question of its own, or one asked in developer words, is said plainly too,
+ * so the Needs you column never shows the staff's line. A run with no words of
+ * its own sends nothing to be said: the board's placeholder is not a line.
+ */
 function runSignal(run: JobRun, now: number): Signal | null {
   const signal = runSignalOf(run, now);
-  if (!signal) return signal;
-  const keep = Boolean(run.question) || signal.because.endsWith("waiting on a decision");
-  const line = run.outcome || signal.next;
-  return line ? { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line, thread: run.id, ...(keep ? { keep } : {}) } } : signal;
+  if (!signal || !run.outcome) return signal;
+  const question = run.question?.trim() ?? "";
+  const keep = Boolean(question) && !jargonIn(question);
+  const line = question && !keep ? question : run.outcome;
+  return { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line, thread: run.id, ...(keep ? { keep } : {}) } };
 }
 
 function runSignalOf(run: JobRun, now: number): Signal | null {
@@ -356,7 +363,8 @@ export function jobsFrom(input: {
     active.push(bucket);
     activeProjects.set(projectKey, active);
   };
-  const runThreads = new Map<JobThread, { group: JobGroup; project: string; state: string; title: string; line: string }>();
+  // Its bucket, not its name now: a card's name may be settled later, and its Timeline entry must ask for the same words as the card.
+  const runThreads = new Map<JobThread, { group: JobGroup; bucket: Bucket; state: string; title: string; line: string }>();
   for (const run of input.runs ?? []) {
     const signal = runSignal(run, now);
     if (!signal) continue;
@@ -371,7 +379,7 @@ export function jobsFrom(input: {
     const full = runSentence(run.outcome);
     const thread: JobThread = { id: run.id, title, at: run.updatedAt, kind: "run", ...(full && full !== title ? { full } : {}) };
     bucket.threads.push(thread);
-    if (run.outcome) runThreads.set(thread, { group: signal.group, project: bucket.name ?? "", state: signal.state ?? STATE[signal.group], title: runTitle(run.outcome) || run.project || "", line: run.outcome });
+    if (signal.raw) runThreads.set(thread, { group: signal.group, bucket, state: signal.state ?? STATE[signal.group], title: signal.raw.title, line: signal.raw.line });
     for (const artifact of artifactsOf(run.artifacts, exists)) {
       if (artifact.href) bucket.links.push(viaOpener({ label: artifact.label, url: artifact.href }));
       else bucket.files.push({ label: artifact.label });
@@ -399,7 +407,7 @@ export function jobsFrom(input: {
     if (name) bucket.name ??= projectOfRepo(name) ?? basename(name);
     if (item.kind === "live" && name) { bucket.project = basename(name); markActive(bucket.project, bucket); }
     // A staff status line ("Checks green: PR ready for review…") is said as what it means for him.
-    const detail = item.detail && (statusSaid(item.detail, item.headline) ?? item.detail);
+    const detail = item.detail && (statusSaid(item.detail) ?? item.detail);
     const ask = group === "needs" ? (item.decision?.question || detail || item.headline) : "";
     const state = handled ? "Handled for you" : itemState(item);
     const signal: Signal = {
@@ -414,7 +422,7 @@ export function jobsFrom(input: {
       ...(group === "needs" && item.decision ? { decision: item.decision } : {}),
       ...(handled ? { handled } : {}),
       // A call or a decision is his and keeps its question, with only its title said plainly; a handled line is Flyd's own.
-      ...(!handled ? { raw: { title: item.headline, line: item.detail || item.headline, ...(item.kind === "call" || item.decision ? { keep: true } : {}) } } : {}),
+      ...(!handled ? { raw: { title: item.headline, line: (item.detail && !placeholderLine(item.detail) ? item.detail : "") || item.headline, ...(item.kind === "call" || item.decision ? { keep: true } : {}) } } : {}),
     };
     bucket.signals.push(signal);
     for (const shot of item.shots ?? []) if (shot.src) bucket.shots.push({ src: shot.src, label: shot.label });
@@ -455,11 +463,12 @@ export function jobsFrom(input: {
   const said = (thread: JobThread): JobThread => {
     const item = input.cardWords && runThreads.get(thread);
     if (!item) return thread;
-    const source = cardSource(item.project, item.state, item.title, item.line);
+    const project = item.bucket.name ?? "";
+    const source = cardSource(project, item.state, item.title, item.line);
     const stored = input.cardWords!.get(source.key);
     if (!stored) timeline.push(source);
     const { full: _full, ...rest } = thread;
-    return { ...rest, title: (stored ?? fallbackWords(item.project, item.group)).title, ...(stored ? { full: stored.body } : {}) };
+    return { ...rest, title: (stored ?? fallbackWords(project, item.group, item.state)).title, ...(stored ? { full: stored.body } : {}) };
   };
   for (const bucket of buckets.values()) {
     const project = projects.find((item) => item.id === bucket.id);
@@ -489,11 +498,13 @@ export function jobsFrom(input: {
     // A card built from the staff's status line is said in his words, once (card-words.ts); until then, generically, and its Timeline entry says the same. A card with its own question and answers keeps them together.
     const asks = Boolean(several || listed || answers?.options.length);
     const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line) : undefined;
-    const named = raw ? input.cardWords!.get(raw.key) ?? fallbackWords(raw.project, lead.group) : undefined;
-    const words = asks || lead.raw?.keep ? undefined : named;
+    const fallback = fallbackWords(bucket.name ?? "", lead.group, state);
+    const named = raw ? input.cardWords!.get(raw.key) ?? fallback : undefined;
+    // A question with its own answers keeps its words while they are plain; asked in developer words, it is said plainly and its answers stay.
+    const words = lead.raw?.keep || (asks && !jargonIn(lead.ask)) ? undefined : named;
     if (raw && !input.cardWords!.has(raw.key) && !untranslated.some((item) => item.key === raw.key)) untranslated.push(raw);
     if (raw && words && !lead.raw!.thread) bucket.threads.push({ id: `note:${raw.key}`, title: words.title, ...(input.cardWords!.has(raw.key) ? { full: words.body } : {}), at: lead.at || at, kind: "run" });
-    jobs.push({
+    jobs.push(shownPlainly({
       id: bucket.id,
       group: lead.group,
       state: shownState,
@@ -517,7 +528,7 @@ export function jobsFrom(input: {
       ...(answers ? { choices: answers.options, ...(answers.recommended ? { recommended: answers.recommended } : {}) } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
       ...(lead.handled ? { handled: lead.handled } : {}),
-    });
+    }, fallback));
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));
   return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8), untranslated: [...untranslated, ...timeline].filter((source, index, all) => all.findIndex((item) => item.key === source.key) === index) };
@@ -562,6 +573,43 @@ function sameWords(a: string, b: string): boolean {
   const x = words(a);
   const y = words(b);
   return Boolean(x && y) && (x === y || x.startsWith(y) || y.startsWith(x));
+}
+
+/** Developer words or a banned phrase in a line he would read, or null. Pure. */
+function unfit(text: string | undefined): string | null {
+  return text ? jargonIn(text) ?? bannedFor(text) : null;
+}
+
+/**
+ * The card as he reads it, checked once more on what is shown: a title, line,
+ * question or Timeline entry that still carries developer words or a banned
+ * phrase is said with its state's plain line instead. A fleet decision is
+ * drawn from its own question, so its ask is left to it. Pure but for the log.
+ */
+function shownPlainly(job: Job, fallback: CardWords): Job {
+  const caught: string[] = [];
+  const check = <T extends string | undefined>(text: T, instead: string): T | string => {
+    const found = unfit(text);
+    if (!found) return text;
+    caught.push(found);
+    return instead;
+  };
+  const answered = Boolean(job.decisions?.length || job.decision);
+  const shown: Job = {
+    ...job,
+    title: check(job.title, fallback.title) as string,
+    next: check(job.next, job.group === "needs" ? "" : fallback.body) as string,
+    ask: answered ? job.ask : check(job.ask, job.group === "needs" ? fallback.body : "") as string,
+    threads: job.threads.map((thread) => {
+      if (thread.kind !== "run") return thread;
+      const title = check(thread.title, fallback.title) as string;
+      const full = thread.full && unfit(thread.full) ? (caught.push(unfit(thread.full)!), undefined) : thread.full;
+      const { full: _full, ...rest } = thread;
+      return { ...rest, title, ...(full ? { full } : {}) };
+    }),
+  };
+  if (caught.length) console.warn(`[jobs] said plainly instead of showing: ${caught.map((word) => JSON.stringify(word)).join(", ")}`);
+  return shown;
 }
 
 /** What a card says when its own words would name the staff or how the work is run. */

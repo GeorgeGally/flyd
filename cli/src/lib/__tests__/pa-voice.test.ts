@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { interpretPrompt } from "../../conversation-view/interpret.js";
 import { bannedFor, forHim, PA_VOICE, shortHeadline, staffStatusLine, statusSaid, withoutInformAsk } from "../pa-voice.js";
 
@@ -39,21 +39,60 @@ describe("forHim", () => {
 });
 
 describe("statusSaid", () => {
-  it("turns a staff status line into what it means for him", () => {
-    expect(statusSaid("Checks green: PR ready for review (still monitoring for merge/close):…", "The Week page")).toBe("The Week page is finished and ready for you to land.");
-    expect(statusSaid("I added hover details to the Week page.", "Week")).toBeNull();
-    expect(statusSaid("Tests passed, but should the hero use v2 or v3?", "Hero")).toBeNull();
-    expect(statusSaid("The PR is ready for review but should the hero use v2 or v3?", "Hero")).toBeNull();
+  it("turns a staff status line into what it means for him, in his words and not the staff's headline", () => {
+    expect(statusSaid("Checks green: PR ready for review (still monitoring for merge/close):…")).toBe("This is finished and ready for you to look over.");
+    expect(statusSaid("I added hover details to the Week page.")).toBeNull();
+    expect(statusSaid("Tests passed, but should the hero use v2 or v3?")).toBeNull();
+    expect(statusSaid("The PR is ready for review but should the hero use v2 or v3?")).toBeNull();
+    for (const line of ["Checks green: PR ready for review", "done: checks green"]) {
+      const said = statusSaid(line)!;
+      expect(said).not.toMatch(/\bland\b|PR|checks|CoS|13c/i);
+      expect(bannedFor(said)).toBeNull();
+    }
+  });
+
+  it("never says blocked, paused or unfinished work is finished", () => {
+    expect(statusSaid("blocked: tests passing but the deploy key is missing")).toBe("This is held up. I'm working out what it needs and will tell you if it needs you.");
+    expect(statusSaid("paused: checks green, waiting on the font licence")).toBe("This is paused for now.");
+    expect(statusSaid("working: tests passing on the first half")).toBe("I'm still working on this.");
+    expect(statusSaid("tests passing")).toBeNull();
+    for (const line of ["blocked: tests passing but the deploy key is missing", "paused [at=1]: checks green", "working: CI green so far", "tests passing"]) {
+      expect(statusSaid(line) ?? "").not.toMatch(/finished/i);
+    }
   });
 });
 
 describe("withoutInformAsk", () => {
+  it("says a bare leave-to-tell question as what Flyd will do", () => {
+    expect(withoutInformAsk("It's booked. Want me to let you know?")).toBe("It's booked. I'll let you know.");
+    expect(withoutInformAsk("Mark replied. Shall I pass that on?")).toBe("Mark replied. I'll pass that on.");
+    expect(withoutInformAsk("Do you want me to pass along the confirmation?")).toBe("I'll pass along the confirmation.");
+    expect(withoutInformAsk("Should I keep you posted?")).toBe("I'll keep you posted.");
+    for (const said of ["It's booked. Want me to let you know?", "Mark replied. Shall I pass that on?"]) {
+      expect(bannedFor(forHim(said))).toBeNull();
+    }
+  });
+
   it("never asks leave to tell him", () => {
     expect(withoutInformAsk("Want me to let you know when it lands?")).toBe("I'll let you know when it lands.");
     expect(withoutInformAsk("Should I send the link?")).toBe("Should I send the link?");
     expect(withoutInformAsk("Want me to tell you what changed after the merge?")).toBe("Want me to tell you what changed after the merge?");
     expect(withoutInformAsk("Shall I tell you what happened when the deploy failed?")).toBe("Shall I tell you what happened when the deploy failed?");
     expect(withoutInformAsk("Do you want me to tell you more about the Reports heading options?")).toBe("Do you want me to tell you more about the Reports heading options?");
+  });
+});
+
+describe("the banned-phrase check on what is shown", () => {
+  it("holds back a sentence that still carries a banned phrase, and says so in the log", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    expect(forHim("The Week page is done. Checks green on everything.")).toBe("The Week page is done.");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Checks green"));
+    warn.mockRestore();
+  });
+
+  it("leaves someone else's quoted words alone", () => {
+    expect(bannedFor("Anna wrote: \"George needs the deck by Friday.\"")).toBeNull();
+    expect(forHim("Anna wrote: \"George needs the deck by Friday.\"")).toBe("Anna wrote: \"George needs the deck by Friday.\"");
   });
 });
 

@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cardSource, cardWordsFromModel, fallbackWords, readCardWords, scheduleCardWords } from "../card-words.js";
+import { cardSource, cardWordsFromModel, fallbackWords, MAX_TRIES, readCardWords, scheduleCardWords } from "../card-words.js";
 import { jobsFrom } from "../jobs.js";
 import type { Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
@@ -30,7 +30,7 @@ describe("board cards from staff status lines", () => {
   it("never shows the raw line or 'Ready to land in product': a card waits on its plain words with a generic line", () => {
     const board = jobsFrom({ projects: [easel], show: readyShow, cardWords: new Map(), now: NOW });
     const card = board.jobs.find((job) => job.id === "easel")!;
-    expect(card).toMatchObject({ title: "Easel: an update is ready", ask: "Open to see details.", state: "Ready for you", project: "" });
+    expect(card).toMatchObject({ title: "Easel: ready for you to look over", ask: "This is finished. Have a look when you can and tell me if anything should change.", state: "Ready for you", project: "" });
     const shown = JSON.stringify([card.title, card.state, card.project, card.next, card.ask]);
     expect(shown).not.toMatch(/satisfied|6d98921|main|land|product/i);
     // The rewrite is asked for once, with the raw line and the project.
@@ -38,7 +38,7 @@ describe("board cards from staff status lines", () => {
     // The raw line is nowhere on the job, its Timeline included: the Timeline says the same plain words.
     expect(JSON.stringify(card)).not.toContain("6d98921");
     expect(JSON.stringify(card)).not.toMatch(/satisfied/i);
-    expect(card.threads.map((thread) => thread.title)).toContain("Easel: an update is ready");
+    expect(card.threads.map((thread) => thread.title)).toContain("Easel: ready for you to look over");
   });
 
   it("shows the stored plain words once the model has said them, and asks for nothing more", () => {
@@ -61,7 +61,7 @@ describe("board cards from staff status lines", () => {
     const card = board.jobs.find((job) => job.id === "easel")!;
     expect(card.choices?.length).toBeGreaterThan(0);
     expect(card.ask).toContain("crop tool");
-    expect(card.title).toBe("Easel: an update is ready");
+    expect(card.title).toBe("Easel: ready for you to look over");
   });
 
   it("leaves a decision's own question alone", () => {
@@ -71,11 +71,11 @@ describe("board cards from staff status lines", () => {
         decision: { task: "pick", question: "Which hero image?", choices: ["A", "B"] } }],
     } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [easel], show, cardWords: new Map(), now: NOW });
-    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: an update is ready", ask: "Which hero image?", choices: ["A", "B"] });
+    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: needs your answer", ask: "Which hero image?", choices: ["A", "B"] });
     expect(board.untranslated.map((source) => source.line)).toEqual(["Pick A or B"]);
   });
 
-  it("keeps a ready run's question with its answers instead of rewriting it", () => {
+  it("says a ready run's question asked in developer words plainly, and keeps its answers", () => {
     const question = "Say merge to ship the crop tool, or tell me to wait";
     const board = jobsFrom({
       projects: [easel],
@@ -83,17 +83,17 @@ describe("board cards from staff status lines", () => {
       cardWords: new Map(),
       now: NOW,
     });
-    const card = board.jobs.find((job) => job.ask.includes("crop tool"))!;
-    expect(card).toMatchObject({ title: "Easel: an update is ready", ask: question });
+    const card = board.jobs.find((job) => job.group === "needs")!;
+    expect(card).toMatchObject({ title: "Easel: ready for you to look over", ask: "This is finished. Have a look when you can and tell me if anything should change." });
     expect(card.choices?.length).toBeGreaterThan(0);
-    expect(board.untranslated.map((source) => source.line)).toEqual(["Crop images on the canvas"]);
+    expect(board.untranslated.map((source) => source.line)).toEqual([question]);
     const said = jobsFrom({
       projects: [easel],
       runs: [{ id: "run-q", status: "completed", project: "Easel", outcome: "Crop images on the canvas", question, owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "ready" }],
       cardWords: new Map([[board.untranslated[0]!.key, PLAIN]]),
       now: NOW,
-    }).jobs.find((job) => job.ask.includes("crop tool"))!;
-    expect(said).toMatchObject({ title: PLAIN.title, ask: question, choices: card.choices });
+    }).jobs.find((job) => job.group === "needs")!;
+    expect(said).toMatchObject({ title: PLAIN.title, ask: PLAIN.body, choices: card.choices });
   });
 
   it("keeps a ready fleet item's decision question instead of rewriting it", () => {
@@ -103,7 +103,7 @@ describe("board cards from staff status lines", () => {
         decision: { task: "easel-crop", question: "Try the crop tool now?", choices: ["Yes", "Later"] } }],
     } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [easel], show, cardWords: new Map(), now: NOW });
-    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: an update is ready", ask: "Try the crop tool now?", choices: ["Yes", "Later"] });
+    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: ready for you to look over", ask: "Try the crop tool now?", choices: ["Yes", "Later"] });
     expect(board.untranslated.map((source) => source.line)).toEqual([RAW]);
   });
 
@@ -115,7 +115,7 @@ describe("board cards from staff status lines", () => {
       now: NOW,
     });
     const card = board.jobs.find((job) => job.group === "working")!;
-    expect(card).toMatchObject({ title: "Easel: work is under way", next: "Open to see details." });
+    expect(card).toMatchObject({ title: "Easel: work is under way", next: "I'm working on this now." });
   });
 
   it("says every run's Timeline entry plainly, not only the lead's", () => {
@@ -146,7 +146,7 @@ describe("board cards from staff status lines", () => {
       cardWords: new Map(),
       now: NOW,
     });
-    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: finished", next: "Open to see details." });
+    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: finished", next: "This is done." });
     expect(board.untranslated.map((source) => source.line)).toEqual(["Crop images on the canvas"]);
     const card = board.jobs.find((job) => job.id === "easel")!;
     expect(card.threads).toHaveLength(1);
@@ -177,7 +177,7 @@ describe("board cards from staff status lines", () => {
       ],
     } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [], show, cardWords: new Map(), now: NOW });
-    expect(board.jobs.map((job) => job.title).sort()).toEqual(["Garden: an update is ready", "Notes: an update is ready"]);
+    expect(board.jobs.map((job) => job.title).sort()).toEqual(["Garden: ready for you to look over", "Notes: ready for you to look over"]);
     expect(board.untranslated.map((source) => source.project).sort()).toEqual(["garden", "notes"]);
   });
 });
@@ -201,12 +201,19 @@ describe("card words", () => {
     }
   });
 
-  it("falls back to a generic plain line, never the raw one", () => {
-    expect(fallbackWords("easel", "needs")).toEqual({ title: "Easel: an update is ready", body: "Open to see details." });
-    expect(fallbackWords("easel", "working")).toEqual({ title: "Easel: work is under way", body: "Open to see details." });
-    expect(fallbackWords("easel", "waiting")).toEqual({ title: "Easel: waiting for now", body: "Open to see details." });
-    expect(fallbackWords("easel", "done")).toEqual({ title: "Easel: finished", body: "Open to see details." });
-    expect(fallbackWords("", "needs")).toEqual({ title: "An update is ready", body: "Open to see details." });
+  it("falls back to a plain line for its state, never the raw one, and says what a card needing him needs", () => {
+    expect(fallbackWords("easel", "needs")).toEqual({ title: "Easel: needs your answer", body: "I need your answer on this before it can go any further." });
+    expect(fallbackWords("easel", "needs", "Ready for you")).toEqual({ title: "Easel: ready for you to look over", body: "This is finished. Have a look when you can and tell me if anything should change." });
+    expect(fallbackWords("easel", "working")).toEqual({ title: "Easel: work is under way", body: "I'm working on this now." });
+    expect(fallbackWords("easel", "waiting")).toEqual({ title: "Easel: waiting for now", body: "Nothing needs you on this yet." });
+    expect(fallbackWords("easel", "waiting", "Blocked")).toEqual({ title: "Easel: held up for now", body: "This is held up. I'll tell you if it needs you." });
+    expect(fallbackWords("easel", "done")).toEqual({ title: "Easel: finished", body: "This is done." });
+    expect(fallbackWords("", "needs")).toEqual({ title: "Needs your answer", body: "I need your answer on this before it can go any further." });
+    for (const group of ["needs", "working", "waiting", "done"] as const) {
+      for (const state of ["", "Ready for you", "Report ready", "Blocked", "Paused", "Queued"]) {
+        expect(JSON.stringify(fallbackWords("easel", group, state))).not.toMatch(/an update is ready|Open to see details/i);
+      }
+    }
   });
 
   it("asks the model once per raw line, with the line and project, and caches the reading on disk", async () => {
@@ -235,12 +242,93 @@ describe("card words", () => {
     expect(failing).toHaveBeenCalledTimes(1);
     expect(readCardWords(path).has(source.key)).toBe(false);
     const board = jobsFrom({ projects: [easel], show: readyShow, cardWords: readCardWords(path), now: NOW });
-    expect(board.jobs.find((job) => job.id === "easel")!.ask).toBe("Open to see details.");
+    expect(board.jobs.find((job) => job.id === "easel")!.ask).toBe("This is finished. Have a look when you can and tell me if anything should change.");
 
     now += 31 * 60_000;
     const working = vi.fn(async () => JSON.stringify(PLAIN));
     await scheduleCardWords([source], { path, ask: working, now: () => now });
     expect(working).toHaveBeenCalledTimes(1);
     expect(readCardWords(path).get(source.key)).toEqual(PLAIN);
+  });
+});
+
+describe("what the review found still reaching him", () => {
+  const needsRun = { id: "run-41", status: "needs_decision", project: "Easel", owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "needs_you" as const };
+
+  it("never shows a decision run's raw line as its ask when it has no question of its own", () => {
+    const outcome = "005 blocked: needs PR #41 rebased onto main before deploy";
+    const board = jobsFrom({ projects: [easel], runs: [{ ...needsRun, outcome }], cardWords: new Map(), now: NOW });
+    const card = board.jobs.find((job) => job.group === "needs")!;
+    expect(card.ask).toBe("I need your answer on this before it can go any further.");
+    expect(JSON.stringify([card.title, card.ask, card.next, card.threads])).not.toMatch(/PR|#41|rebase|main|deploy|005/);
+    expect(board.untranslated.map((source) => source.line)).toContain(outcome);
+    const said = { title: "Easel: one call before it goes live", body: "I need you to say whether the new crop tool can go live." };
+    const plain = jobsFrom({ projects: [easel], runs: [{ ...needsRun, outcome }], cardWords: new Map([[board.untranslated[0]!.key, said]]), now: NOW });
+    expect(plain.jobs.find((job) => job.group === "needs")).toMatchObject({ title: said.title, ask: said.body });
+  });
+
+  it("says a decision asked in developer words plainly, and keeps one asked in plain words", () => {
+    const jargon = jobsFrom({ projects: [easel], runs: [{ ...needsRun, outcome: "Crop images on the canvas", question: "Should I rebase onto main first?" }], cardWords: new Map(), now: NOW });
+    expect(jargon.jobs.find((job) => job.group === "needs")!.ask).not.toMatch(/rebase|main/);
+    expect(jargon.untranslated.map((source) => source.line)).toContain("Should I rebase onto main first?");
+    const plain = jobsFrom({ projects: [easel], runs: [{ ...needsRun, outcome: "Crop images on the canvas", question: "Which price should go live?" }], cardWords: new Map(), now: NOW });
+    expect(plain.jobs.find((job) => job.group === "needs")!.ask).toBe("Which price should go live?");
+  });
+
+  it("never titles a decision card 'an update is ready' or asks 'Open to see details'", () => {
+    const show = { ...screen, calls: [{ id: "call:pierre", kind: "call", headline: "Pierre lab", why: "", task: "pierre", project: "/code/pierre", detail: "Pick V1 or V2",
+      decision: { task: "pierre", question: "Which Pierre version?", choices: ["V1", "V2"] } }] } as unknown as ShowScreen;
+    const board = jobsFrom({ projects: [], show, cardWords: new Map(), now: NOW });
+    const card = board.jobs.find((job) => job.group === "needs")!;
+    expect(card.title).toBe("Pierre: needs your answer");
+    expect(JSON.stringify(card)).not.toMatch(/an update is ready|Open to see details/i);
+  });
+
+  it("refuses a reading that merges, checks, builds, deploys, ships or names a worker", () => {
+    expect(cardWordsFromModel(JSON.stringify({ title: "Flyd: ready to merge", body: "All checks passed; the worker finished the build." }))).toBeNull();
+    for (const developer of ["The tests pass now.", "It shipped this morning.", "I deployed it.", "The build is green.", "It is merged."]) {
+      expect(cardWordsFromModel(JSON.stringify({ title: "Easel: a small change", body: developer }))).toBeNull();
+    }
+    expect(cardWordsFromModel(JSON.stringify({ title: "Easel: photos combined", body: "You can merge the two photos now." }))).not.toBeNull();
+  });
+
+  it("stops asking the model for a line it keeps failing on", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const path = pathFor();
+    const source = cardSource("Easel", "Ready for you", "Easel", RAW);
+    let now = NOW;
+    const always = vi.fn(async () => JSON.stringify({ title: "Easel: PR ready", body: "Merge the PR." }));
+    for (let round = 0; round < 6; round += 1) {
+      await scheduleCardWords([source], { path, ask: always, now: () => now });
+      now += 31 * 60_000;
+    }
+    expect(always).toHaveBeenCalledTimes(MAX_TRIES);
+  });
+
+  it("never sends a board placeholder to the model, and asks once for a card and its Timeline entry", () => {
+    const board = jobsFrom({
+      projects: [easel],
+      runs: [
+        { id: "run-empty", status: "running", project: "Easel", outcome: "", owner: "FirstMate", updatedAt: "2026-11-12T11:59:00.000Z", artifacts: [], work: "moving" },
+        { id: "run-q", status: "queued", project: "Easel", outcome: "", owner: "FirstMate", updatedAt: "2026-11-12T11:58:00.000Z", artifacts: [] },
+        { id: "run-done", status: "completed", project: "Easel", outcome: "Crop images on the canvas", owner: "FirstMate", updatedAt: "2026-11-12T11:00:00.000Z", artifacts: [], work: "landed" },
+      ],
+      show: { ...screen, underway: [{ id: "live:easel", kind: "live", headline: "Easel", why: "", task: "easel", project: "/code/easel", detail: "Under way", at: "2026-11-12T11:59:30.000Z" }] } as unknown as ShowScreen,
+      cardWords: new Map(),
+      now: NOW,
+    });
+    const lines = board.untranslated.map((source) => source.line);
+    for (const placeholder of ["Under way", "Queued", "Landed", "Not finished yet"]) expect(lines).not.toContain(placeholder);
+    expect(new Set(board.untranslated.map((source) => source.key)).size).toBe(board.untranslated.length);
+    expect(lines.filter((line) => line === "Crop images on the canvas")).toHaveLength(1);
+  });
+
+  it("asks once for a run's card and its Timeline entry: both are said from the same line", () => {
+    const board = jobsFrom({ projects: [easel], runs: [{ ...needsRun, outcome: "Crop images on the canvas", question: "Should I rebase onto main first?" }], cardWords: new Map(), now: NOW });
+    expect(board.untranslated).toHaveLength(1);
+    const words = new Map([[board.untranslated[0]!.key, { title: "Easel: one question first", body: "Do you want the crop tool tidied up before you see it?" }]]);
+    const said = jobsFrom({ projects: [easel], runs: [{ ...needsRun, outcome: "Crop images on the canvas", question: "Should I rebase onto main first?" }], cardWords: words, now: NOW });
+    expect(said.untranslated).toEqual([]);
+    expect(said.jobs.find((job) => job.group === "needs")!.threads[0]).toMatchObject({ title: "Easel: one question first" });
   });
 });

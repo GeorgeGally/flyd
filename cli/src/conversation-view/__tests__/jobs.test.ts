@@ -363,14 +363,14 @@ describe("jobsFrom", () => {
     const whatsapp = { hash: "e5230039a9902629", project: "Flyd", changed: "WhatsApp is still unlinked, so the 'Link WhatsApp' card stays on screen.", needed: "Link WhatsApp on your phone.", at: "2026-11-09T02:50:35.212Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0 };
     const card = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, digests: [whatsapp], now: NOW }).jobs.find((job) => job.title === "Flyd")!;
     expect(card.digest).toBeNull();
-    expect(card.ask).toBe("Flyd CoS 13c: explicit waits is finished and ready for you to land.");
+    expect(card.ask).toBe("This is finished and ready for you to look over.");
   });
 
   it("never heads a ready card with the staff's status line", () => {
     const show = { ...screen, ready: [{ id: "ready:week", kind: "ready", headline: "The Week page", detail: "Checks green: PR ready for review (still monitoring for merge/close): https://example.com/pull/274", why: "", task: "week", project: "Flyd" }] } as unknown as ShowScreen;
     const card = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, now: NOW }).jobs.find((job) => job.title === "Flyd")!;
-    expect(card.ask).toBe("The Week page is finished and ready for you to land.");
-    expect(`${card.ask} ${card.next}`).not.toMatch(/Checks green|monitoring|PR ready/i);
+    expect(card.ask).toBe("This is finished and ready for you to look over.");
+    expect(`${card.ask} ${card.next}`).not.toMatch(/Checks green|monitoring|PR ready|\bland\b/i);
   });
 
   it("takes a card's title only from Flyd's own hand-off, never from his request", () => {

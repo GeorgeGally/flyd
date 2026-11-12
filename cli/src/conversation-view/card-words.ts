@@ -12,8 +12,10 @@ import { forHim, PA_VOICE } from "../lib/pa-voice.js";
  * a plain outcome (what changed, what he can do now), and the reading is kept
  * on disk by the raw line so the card is rewritten once, never per render.
  * Until a reading is stored, and whenever the model fails or says it in
- * developer words, the card says a generic plain line instead. Render never
- * calls the model; the server schedules the rewrite.
+ * developer words, the card says a plain line for its state instead: what he
+ * needs to do when it needs him, never "an update is ready". Render never
+ * calls the model; the server schedules the rewrite, and gives up on a line
+ * after a few failed tries.
  */
 
 export interface CardWords {
@@ -38,15 +40,19 @@ interface StoredWords extends Partial<CardWords> {
   key: string;
   at: string;
   failed?: boolean;
+  /** How many times the rewrite has failed for this line. */
+  tries?: number;
 }
 
 const KEEP = 400;
 /** A failed rewrite is asked again after this long, so an outage does not leave a card generic for good. */
 const RETRY_MS = 30 * 60_000;
+/** A line the model has failed on this many times is not asked again: the card keeps its plain line for its state. */
+export const MAX_TRIES = 3;
 const TITLE_CHARS = 90;
 const BODY_CHARS = 260;
 /** Bumped when the prompt changes, so readings from an older prompt are asked again. */
-const PROMPT_VERSION = "1";
+const PROMPT_VERSION = "2";
 
 export function cardWordsPath(): string {
   return process.env.FLYD_CARD_WORDS_PATH?.trim() || join(FLYD_DIR, "card-words.json");
@@ -94,17 +100,41 @@ function named(project: string): string {
   return name ? name.charAt(0).toUpperCase() + name.slice(1) : "";
 }
 
-/** What a card says while its own words are not ready, or could not be said plainly. Never the raw line. Pure. */
-export function fallbackWords(project: string, group: "needs" | "working" | "waiting" | "done"): CardWords {
+/**
+ * What a card says while its own words are not ready, or could not be said
+ * plainly: never the raw line, and never more than its state says. A card
+ * that needs him says what it needs (his look, or his answer); held-up or
+ * waiting work is never called finished. Pure.
+ */
+export function fallbackWords(project: string, group: "needs" | "working" | "waiting" | "done", state = ""): CardWords {
   const name = named(project);
-  const said = group === "working" ? "work is under way" : group === "waiting" ? "waiting for now" : group === "done" ? "finished" : "an update is ready";
-  return { title: name ? `${name}: ${said}` : said.charAt(0).toUpperCase() + said.slice(1), body: "Open to see details." };
+  const lead = (said: string) => (name ? `${name}: ${said}` : said.charAt(0).toUpperCase() + said.slice(1));
+  if (group === "needs") {
+    if (/^report ready$/i.test(state)) return { title: lead("a report is ready for you"), body: "I have a report for you to read when you can." };
+    if (/^ready for you$/i.test(state)) return { title: lead("ready for you to look over"), body: "This is finished. Have a look when you can and tell me if anything should change." };
+    return { title: lead("needs your answer"), body: "I need your answer on this before it can go any further." };
+  }
+  if (group === "working") return { title: lead("work is under way"), body: "I'm working on this now." };
+  if (group === "done") return { title: lead("finished"), body: "This is done." };
+  if (/^blocked$/i.test(state)) return { title: lead("held up for now"), body: "This is held up. I'll tell you if it needs you." };
+  if (/^paused$/i.test(state)) return { title: lead("paused for now"), body: "This is paused for now." };
+  if (/^queued$/i.test(state)) return { title: lead("next in line"), body: "This starts once the work ahead of it is done." };
+  return { title: lead("waiting for now"), body: "Nothing needs you on this yet." };
+}
+
+/**
+ * A board's own placeholder for an empty line ("Under way", "Queued"): there
+ * is nothing in it for the model to say plainly. Pure.
+ */
+export function placeholderLine(line: string): boolean {
+  return /^\s*(?:under way|queued|landed|not finished yet|waiting|done|closed|ready for you|a decision is open)\.?\s*$/i.test(line);
 }
 
 /**
  * Developer words that must never reach him on a card: commit hashes, file
- * names, note numbers, branches, landing, "satisfied", PRs. A reading that
- * still carries one is treated as no reading. Pure.
+ * names, note numbers, branches, landing, merging, "satisfied", PRs, checks,
+ * workers, tests, builds, deploys and shipping. A reading that still carries
+ * one is treated as no reading, and the board checks what it shows with it. Pure.
  */
 const JARGON: RegExp[] = [
   /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/i,
@@ -116,11 +146,28 @@ const JARGON: RegExp[] = [
   /\b(?:branch(?:es)?|worktree|repo(?:sitory)?|rebase[ds]?|cherry-pick\w*)\b/i,
   /\bHEAD\b/,
   /\b(?:on|to|into|from|off)\s+(?:the\s+)?main\b(?!\s+(?:menu|screen|page|window|image|photo|room|view|picture)s?\b)|\bmain\s+branch\b/i,
-  /\blanded\b|\b(?:to|will|can|did|and)\s+land\b|\blands?\s+(?:on|in|into)\b/i,
+  /\blanded\b|\b(?:to|will|can|did|and)\s+land\b|\blands?\s+(?:on|in|into)\b|\bland(?:ing)?\s+(?:it|this|that|them)\b/i,
   /\bsatisf(?:y|ied|ies)\b/i,
-  /\bmerg(?:e[ds]?|ing)\s+(?:in)?to\b/i,
+  // "merge the two photos" is his own word for photos; merging work is not.
+  /\bmerg(?:e[ds]?|ing)\s+(?:in)?to\b|\b(?:ready|safe|okay|ok|go|clear|approved?)\s+(?:to|for)\s+merg(?:e|ing)\b|\bmerg(?:ed|ing)\b(?!\s+(?:the\s+)?(?:\w+\s+)?(?:photos?|images?|pictures?|layers?|cells?|files?|pdfs?|documents?))|\bmerge\s*$/i,
   /\b(?:PRs?|pull requests?|merge\s+requests?|commit(?:s|ted)?|diff|CI|no-mistakes|crewmate|firstmate)\b/i,
+  /\b(?:checks|workers?|builds?|deploy(?:s|ed|ing|ment)?)\b/i,
 ];
+
+/**
+ * Words the model must not use in a reading, though his own question may:
+ * "Which price should ship?" is his to ask, while a reading that says the
+ * tests passed or the work shipped is the staff talking. Pure.
+ */
+const READING_JARGON: RegExp[] = [/\b(?:tests|test suite|ship(?:s|ped|ping)?)\b/i];
+
+function readingJargonIn(text: string): string | null {
+  for (const pattern of READING_JARGON) {
+    const found = pattern.exec(text);
+    if (found) return found[0];
+  }
+  return jargonIn(text);
+}
 
 export function jargonIn(text: string): string | null {
   for (const pattern of JARGON) {
@@ -134,7 +181,8 @@ const PROMPT = [
   "You are Flyd, George's assistant. One card on his screen comes from a developer's status note about his work. George is not a developer.",
   PA_VOICE,
   "Rewrite it as a plain-English outcome: what changed for him, and what he can do now.",
-  "Never use commit hashes, file names, code names, note or task numbers, branch, main, land, landed, satisfied, merge, commit, PR, pull request, CI, checks, worker or any developer jargon.",
+  "If its state says it needs him, the body says plainly what he needs to decide or do. Never say blocked, paused or unfinished work is finished.",
+  "Never use commit hashes, file names, code names, note or task numbers, branch, main, land, landed, satisfied, merge, commit, PR, pull request, CI, checks, tests, worker, build, deploy, ship, rebase or any developer jargon.",
   "Name things by what he sees on screen (the Edit button, the image cropper), not by how they are built.",
   "If the note says something was already done, say it is done, not that it was satisfied.",
   "title: start with the project name and a colon, then what changed, at most 10 words.",
@@ -173,7 +221,7 @@ export function cardWordsFromModel(text: string): CardWords | null {
   const title = tidy(record.title, TITLE_CHARS);
   const said = tidy(record.body, BODY_CHARS);
   if (!title || !said) return null;
-  if (jargonIn(title) || jargonIn(said)) return null;
+  if (readingJargonIn(title) || readingJargonIn(said)) return null;
   return { title, body: said };
 }
 
@@ -209,15 +257,17 @@ export function scheduleCardWords(
   const now = options.now ?? Date.now;
   const stored = new Map(readStored(path).map((entry) => [entry.key, entry]));
   const wanted = [...new Map(sources.map((source) => [source.key, source])).values()].filter((source) => {
+    if (placeholderLine(source.line)) return false;
     const entry = stored.get(source.key);
-    return !entry || (entry.failed && now() - Date.parse(entry.at) >= RETRY_MS);
+    return !entry || (entry.failed && (entry.tries ?? 1) < MAX_TRIES && now() - Date.parse(entry.at) >= RETRY_MS);
   });
   if (!wanted.length) return;
   const job = (async () => {
     for (const source of wanted) {
       const words = await translateCard(source, options.ask);
-      remember(words ? { key: source.key, ...words, at: new Date(now()).toISOString() } : { key: source.key, at: new Date(now()).toISOString(), failed: true }, path);
-      console.info(`[card-words] key=${source.key} outcome=${words ? "ok" : "failed"}`);
+      const tries = (stored.get(source.key)?.tries ?? (stored.has(source.key) ? 1 : 0)) + 1;
+      remember(words ? { key: source.key, ...words, at: new Date(now()).toISOString() } : { key: source.key, at: new Date(now()).toISOString(), failed: true, tries }, path);
+      console.info(`[card-words] key=${source.key} outcome=${words ? "ok" : tries >= MAX_TRIES ? "failed, not asked again" : "failed"}`);
       if (words) options.onStored?.();
     }
   })().catch(() => undefined).finally(() => {

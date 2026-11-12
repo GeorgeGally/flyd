@@ -66,3 +66,23 @@ describe("toYou grammar seen in real cards", () => {
     expect(toYou("If v2 works, does the captain want v3 too?")).toBe("If v2 works, do you want v3 too?");
   });
 });
+
+describe("toYou for every way he is named", () => {
+  it("turns he, him and his to you and your once he is named, when no one else is", () => {
+    expect(toYou("George said he wants the blue one before his trip.")).toBe("You said you want the blue one before your trip.");
+    expect(toYou("George told me he's flying out, so book him a car.")).toBe("You told me you're flying out, so book you a car.");
+    expect(toYou("George needs the deck before he leaves, and he'll sign it himself.")).toBe("You need the deck before you leave, and you'll sign it yourself.");
+    // Someone else named in the sentence may be who "he" is.
+    expect(toYou("George asked Pierre to send his feedback, and he wants a call with him.")).toBe("You asked Pierre to send his feedback, and he wants a call with him.");
+    expect(toYou("Anna told George he could call.")).toBe("Anna told you he could call.");
+    // A "he" before he is named is someone else's.
+    expect(toYou("He said George wants the blue one.")).toBe("He said you want the blue one.");
+  });
+
+  it("never rewrites someone else's message to him or his full name", () => {
+    expect(toYou("Anna: Hi George, can you call?")).toBe("Anna: Hi George, can you call?");
+    expect(toYou("Invoice to George Gally for the March work.")).toBe("Invoice to George Gally for the March work.");
+    expect(toYou("Mark wrote \"George needs to sign\" and George has not yet.")).toBe("Mark wrote \"George needs to sign\" and you have not yet.");
+    expect(aboutHim("Anna: Hi George, can you call?")).toBe(false);
+  });
+});
