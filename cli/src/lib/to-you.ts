@@ -8,7 +8,7 @@
 /** "the CapFive lab round 5 captain": a captain qualified only by names, numbers and lab words is still him. */
 const QUALIFIED_CAPTAIN = String.raw`\b[Tt]he\s+(?:(?:[A-Z][\w-]*|\d+|lab|round|design|project|client|site)\s+){1,6}captain\b`;
 /** "George", never "George Gally": his full name is a name on a document, not Flyd talking about him. */
-const HIM = String.raw`(?:${QUALIFIED_CAPTAIN}|\bGeorge\b(?!\s+[A-Z][a-z])|\b[Tt]he captain\b|\b[Oo]ur captain\b)`;
+const HIM = String.raw`(?:${QUALIFIED_CAPTAIN}|\bGeorge\b(?![ \t]+[A-Z][a-z])|\b[Tt]he captain\b|\b[Oo]ur captain\b)`;
 
 /** Verbs whose third-person form follows "you" once he is the subject. */
 const AGREE: Record<string, string> = {

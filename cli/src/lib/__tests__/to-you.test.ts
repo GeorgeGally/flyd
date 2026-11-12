@@ -92,6 +92,7 @@ describe("toYou for every way he is named", () => {
   it("never rewrites someone else's message to him or his full name", () => {
     expect(toYou("Anna: Hi George, can you call?")).toBe("Anna: Hi George, can you call?");
     expect(toYou("Invoice to George Gally for the March work.")).toBe("Invoice to George Gally for the March work.");
+    expect(toYou("Waiting on George\nThe picks are in")).toBe("Waiting on you\nThe picks are in");
     expect(toYou("Mark wrote \"George needs to sign\" and George has not yet.")).toBe("Mark wrote \"George needs to sign\" and you have not yet.");
     expect(aboutHim("Anna: Hi George, can you call?")).toBe(false);
   });

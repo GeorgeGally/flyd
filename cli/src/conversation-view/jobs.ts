@@ -11,7 +11,7 @@ import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import { namedAnswers, type NamedAnswers } from "./choices.js";
 import { holdDecisions, numberedChoice, type HoldDecision } from "./artefact.js";
 import type { ShowItem, ShowScreen } from "./show.js";
-import { cardSource, fallbackWords, jargonIn, placeholderLine, type CardSource, type CardWords } from "./card-words.js";
+import { cardSource, fallbackWords, jargonIn, placeholderLine, softened, type CardSource, type CardWords } from "./card-words.js";
 
 /**
  * A job is a project George is moving, not one delegated run. Runs, conversations
@@ -318,6 +318,8 @@ export function jobsFrom(input: {
   digests?: JobDigest[];
   /** Plain words stored for cards built from staff status lines (card-words.ts). Given, every such card is said plainly or generically, never as written. */
   cardWords?: Map<string, CardWords>;
+  /** Lines the model has given up on: a question among them is said with its developer words softened, with its answers. */
+  exhausted?: Set<string>;
   exists?: (path: string) => boolean;
   now?: number;
 }): JobBoard {
@@ -509,7 +511,8 @@ export function jobsFrom(input: {
     const fallback = fallbackWords(bucket.name ?? "", lead.group, state);
     const named = raw ? input.cardWords!.get(raw.key) ?? fallback : undefined;
     // A question with its own answers keeps its words while they are plain; asked in developer words, it is said plainly and its answers stay.
-    const words = lead.raw?.keep || (asks && !jargonIn(lead.ask)) ? undefined : named;
+    const unread = Boolean(raw && asks && !input.cardWords!.has(raw.key) && input.exhausted?.has(raw.key));
+    const words = lead.raw?.keep || unread || (asks && !jargonIn(lead.ask)) ? undefined : named;
     // Its answers wait for a stored reading that puts the question to him: never buttons without the question they answer.
     const blind = Boolean(words && asks && !input.cardWords!.has(raw!.key));
     const labels = blind ? {} : { ...decisionLabels, ...Object.assign({}, ...(severalLabels ?? []).map((said) => said ?? {})), ...shownAnswers };
@@ -526,7 +529,7 @@ export function jobsFrom(input: {
       // The question is said once: a next line that only repeats it is left out.
       next: words ? (lead.group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, lead.group),
       owner: lead.owner,
-      ask: words ? (lead.group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
+      ask: words ? (lead.group === "needs" ? words.body : "") : lead.ask && (unread ? softened(forHim(plainSaid(lead.ask))) : forHim(plainSaid(lead.ask))),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: bucket.shots.slice(0, 4),

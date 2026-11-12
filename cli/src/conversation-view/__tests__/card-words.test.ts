@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cardSource, cardWordsFromModel, cardWordsPrompt, translateCard, fallbackWords, MAX_TRIES, readCardWords, scheduleCardWords } from "../card-words.js";
+import { cardSource, cardWordsFromModel, cardWordsPrompt, exhaustedCardWords, translateCard, fallbackWords, jargonIn, MAX_TRIES, readCardWords, scheduleCardWords } from "../card-words.js";
 import { jobsFrom, plainAnswer } from "../jobs.js";
 import type { Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
@@ -437,5 +437,28 @@ describe("a reading that asks about passing something on to someone else", () =>
     const card = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map([[source.key, reading]]), now: NOW }).jobs.find((job) => job.group === "needs")!;
     expect(card.ask).toBe(reading.body);
     expect(card.choices).toEqual(["Merge PR #41 into main now", "Wait"]);
+  });
+});
+
+describe("a question the model could never say plainly", () => {
+  it("is put to him with its developer words softened, and its buttons, once the tries run out", async () => {
+    const run = { id: "run-x", status: "needs_decision", project: "Easel", outcome: "", question: "Merge PR #41 into main now, or wait?", owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "needs_you" as const };
+    const path = pathFor();
+    const first = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map(), exhausted: exhaustedCardWords(path), now: NOW });
+    const before = first.jobs.find((job) => job.group === "needs")!;
+    expect(before.choices).toBeUndefined();
+    let now = NOW;
+    const failing = vi.fn(async () => { throw new Error("model down"); });
+    for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
+      const midway = jobsFrom({ projects: [easel], runs: [run], cardWords: readCardWords(path), exhausted: exhaustedCardWords(path), now: NOW }).jobs.find((job) => job.group === "needs")!;
+      expect(midway.choices).toBeUndefined();
+      await scheduleCardWords(first.untranslated, { path, ask: failing, now: () => now });
+      now += 31 * 60_000;
+    }
+    const card = jobsFrom({ projects: [easel], runs: [run], cardWords: readCardWords(path), exhausted: exhaustedCardWords(path), now: NOW }).jobs.find((job) => job.group === "needs")!;
+    expect(card.ask).toBe("Put the change live now, or wait?");
+    expect(jargonIn(card.ask)).toBeNull();
+    expect(card.choices).toEqual(["Merge PR #41 into main now", "Wait"]);
+    expect(card.labels).toEqual({ "Merge PR #41 into main now": "Go ahead now", Wait: "Wait" });
   });
 });
