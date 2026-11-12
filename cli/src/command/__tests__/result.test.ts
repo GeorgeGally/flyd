@@ -60,6 +60,14 @@ describe("key/value replies", () => {
     expect(dressed.result.brief).toBe("Patched __main__.py");
   });
 
+  it("reads an emphasised status, and single-emphasis keys, as the same structured reply", () => {
+    for (const reply of ["**Status:** **Completed**\n**Brief:** Shipped the fix.", "Status: **completed**\nBrief: Shipped the fix.", "*Status:* completed\n*Brief:* Shipped the fix."]) {
+      const parsed = parseDomainResult(reply);
+      expect(parsed.status).toBe("completed");
+      expect(parsed.result).toMatchObject({ format: "structured", brief: "Shipped the fix." });
+    }
+  });
+
   it("takes a named PR, commit or URL as the evidence layer", () => {
     const pr = parseDomainResult("status: completed\nbrief: Sidebar done.\ndetailed_report: See https://github.com/GeorgeGally/flyd/pull/167");
     expect(validateDomainHandoff(pr.result)).toEqual({ ok: true });
@@ -92,6 +100,8 @@ describe("JSON inside prose", () => {
     for (const body of [
       'CI is red: {"status":"completed","conclusion":"failure","output":{"summary":"3 tests failed"}}. Should I fix them?',
       'Handoff: {"Status": "failed", "result": {"summary": "The deploy failed."}}',
+      'CI is red:\n```json\n{"status":"completed","conclusion":"failure","output":{"summary":"3 tests failed"}}\n```\nShould I fix them?',
+      'Deploy stopped:\n```json\n{"detail":"Not Found"}\n```\nWhich region should I use?',
     ]) {
       const parsed = parseDomainResult(body);
       expect(parsed.result.format).toBe("raw");

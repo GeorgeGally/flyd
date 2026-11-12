@@ -52,11 +52,11 @@ function keyValueFields(raw: string): Record<string, unknown> | undefined {
   const fields: Record<string, string> = {};
   for (const line of raw.split("\n")) {
     // "- **Brief:** …" is the same field as "brief: …": list markers and the key's emphasis are dressing; the value stays as written.
-    const match = /^\s*(?:[-*>#]+\s+)*((?:\*\*|__)?[A-Za-z_][\w _-]*?(?:\*\*|__)?)\s*:\s*(.+?)\s*$/.exec(line);
+    const match = /^\s*(?:[-*>#]+\s+)*((?:\*{1,2}|_{1,2})?[A-Za-z_][\w _-]*?(?:\*{1,2}|_{1,2})?)\s*:\s*(.+?)\s*$/.exec(line);
     if (!match) continue;
-    const key = match[1]!.replace(/\*\*|__/g, "").toLowerCase().replace(/[\s_-]/g, "");
+    const key = match[1]!.replace(/\*/g, "").toLowerCase().replace(/[\s_-]/g, "");
     if (!STRUCTURED_KEYS.has(key) || fields[key] !== undefined) continue;
-    const value = /^(?:\*\*|__)/.test(match[1]!) ? match[2]!.replace(/^(?:\*\*|__)\s*/, "") : match[2]!;
+    const value = /^[*_]/.test(match[1]!) ? match[2]!.replace(/^(?:\*{1,2}|_{1,2})\s*/, "") : match[2]!;
     if (value) fields[key] = value;
   }
   const first = (...keys: string[]): string => keys.map((key) => fields[key]).find((value) => value?.trim())?.trim() ?? "";
@@ -75,7 +75,7 @@ function keyValueFields(raw: string): Record<string, unknown> | undefined {
 
 /** A reply's own status in any spelling ("Completed", "needs decision", "done"), or undefined when it names none Flyd knows. */
 function knownStatus(value: unknown): "completed" | "needs_decision" | "failed" | "working" | undefined {
-  const status = String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const status = String(value ?? "").trim().replace(/^[*_]+|[*_]+$/g, "").trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (status === "done" || status === "finished") return "completed";
   return status === "needs_decision" || status === "failed" || status === "completed" || status === "working" ? status : undefined;
 }
@@ -135,10 +135,9 @@ function structuredResult(raw: string, record: Record<string, unknown>, widened 
   };
 }
 
-/** The JSON a reply carries, and whether it is the whole reply (alone, the reply's one fenced block, or an encoded string) or an object found inside prose. */
+/** The JSON a reply carries, and whether it is the whole reply (alone, in one fence, or as an encoded string) or an object found inside prose. */
 function jsonObject(raw: string): { object: Record<string, unknown>; whole: boolean } | undefined {
-  const fences = [...raw.matchAll(/```[\w-]*[ \t]*\n([\s\S]*?)\n?```/g)];
-  const fenced = fences.length === 1 ? fences[0]![1]?.trim() : undefined;
+  const fenced = /^```[\w-]*\s*\n([\s\S]*?)\n?```$/.exec(raw)?.[1]?.trim();
   for (const candidate of [raw, fenced]) {
     if (!candidate) continue;
     try {

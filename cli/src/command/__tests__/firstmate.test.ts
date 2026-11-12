@@ -548,9 +548,8 @@ describe("FirstMate domain transport", () => {
 
   it("accepts a FirstMate return that meets the contract after light normalisation, without a re-request", async () => {
     saveDomainRun({ ...queuedRun(), status: "accepted" });
-    // Wrapped in a fence and an outer object, keys in other casings, evidence as one string.
+    // The whole reply one fence around an outer object, keys in other casings, evidence as one string.
     const body = [
-      "Here is the handoff:",
       "```json",
       JSON.stringify({ Status: "Completed", Result: { Brief: "  Fixed the call site.  ", "Detailed Report": "Routed the caller through the existing abstraction and ran the suite.", Evidence: "https://github.com/george/flyd/pull/12" } }),
       "```",
