@@ -218,19 +218,20 @@ interface Signal {
   /** The hash of this signal's own report, so its card reads its own digest and never another item's. */
   reportHash?: string;
   /** The staff's own words this card came from (a worker's status line), when it is not his decision: said plainly before he reads it. */
-  raw?: { title: string; line: string; thread?: string };
+  raw?: { title: string; line: string; thread?: string; keep?: boolean };
 }
 
 function rank(group: JobGroup): number {
   return group === "needs" ? 0 : group === "working" ? 1 : group === "waiting" ? 2 : 3;
 }
 
-/** A run's card; anything but a question for him carries its staff words, to be said plainly. */
+/** A run's card carries its staff words, to be said plainly; a question for him keeps its own words and only its title is said. */
 function runSignal(run: JobRun, now: number): Signal | null {
   const signal = runSignalOf(run, now);
-  if (!signal || run.question || signal.because.endsWith("waiting on a decision")) return signal;
+  if (!signal) return signal;
+  const keep = Boolean(run.question) || signal.because.endsWith("waiting on a decision");
   const line = run.outcome || signal.next;
-  return line ? { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line, thread: run.id } } : signal;
+  return line ? { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line, thread: run.id, ...(keep ? { keep } : {}) } } : signal;
 }
 
 function runSignalOf(run: JobRun, now: number): Signal | null {
@@ -411,8 +412,8 @@ export function jobsFrom(input: {
       because: `Fleet ${item.kind}: ${item.id}`,
       ...(group === "needs" && item.decision ? { decision: item.decision } : {}),
       ...(handled ? { handled } : {}),
-      // A call or a decision is his and keeps its question; a handled line is Flyd's own. Anything else is the staff's words.
-      ...(item.kind !== "call" && !item.decision && !handled ? { raw: { title: item.headline, line: item.detail || item.headline } } : {}),
+      // A call or a decision is his and keeps its question, with only its title said plainly; a handled line is Flyd's own.
+      ...(!handled ? { raw: { title: item.headline, line: item.detail || item.headline, ...(item.kind === "call" || item.decision ? { keep: true } : {}) } } : {}),
     };
     bucket.signals.push(signal);
     for (const shot of item.shots ?? []) if (shot.src) bucket.shots.push({ src: shot.src, label: shot.label });
@@ -486,15 +487,16 @@ export function jobsFrom(input: {
     const shownState = paused && (paused > 1 || state !== "Paused") ? `${state === "Paused" ? "" : `${state} · `}${paused} paused` : state;
     // A card built from the staff's status line is said in his words, once (card-words.ts); until then, generically, and its Timeline entry says the same. A card with its own question and answers keeps them together.
     const asks = Boolean(several || listed || answers?.options.length);
-    const raw = input.cardWords && lead.raw && !asks ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line) : undefined;
-    const words = raw ? input.cardWords!.get(raw.key) ?? fallbackWords(raw.project, lead.group) : undefined;
+    const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line) : undefined;
+    const named = raw ? input.cardWords!.get(raw.key) ?? fallbackWords(raw.project, lead.group) : undefined;
+    const words = asks || lead.raw?.keep ? undefined : named;
     if (raw && !input.cardWords!.has(raw.key) && !untranslated.some((item) => item.key === raw.key)) untranslated.push(raw);
     if (raw && words && !lead.raw!.thread) bucket.threads.push({ id: `note:${raw.key}`, title: words.title, ...(input.cardWords!.has(raw.key) ? { full: words.body } : {}), at: lead.at || at, kind: "run" });
     jobs.push({
       id: bucket.id,
       group: lead.group,
       state: shownState,
-      title: words ? words.title : bucket.title,
+      title: named ? named.title : bucket.title,
       project: bucket.project,
       at,
       ...(lead.started ? { started: lead.started } : {}),

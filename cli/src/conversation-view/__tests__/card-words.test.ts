@@ -61,7 +61,7 @@ describe("board cards from staff status lines", () => {
     const card = board.jobs.find((job) => job.id === "easel")!;
     expect(card.choices?.length).toBeGreaterThan(0);
     expect(card.ask).toContain("crop tool");
-    expect(board.untranslated).toEqual([]);
+    expect(card.title).toBe("Easel: an update is ready");
   });
 
   it("leaves a decision's own question alone", () => {
@@ -71,8 +71,8 @@ describe("board cards from staff status lines", () => {
         decision: { task: "pick", question: "Which hero image?", choices: ["A", "B"] } }],
     } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [easel], show, cardWords: new Map(), now: NOW });
-    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel", ask: "Which hero image?" });
-    expect(board.untranslated).toEqual([]);
+    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: an update is ready", ask: "Which hero image?", choices: ["A", "B"] });
+    expect(board.untranslated.map((source) => source.line)).toEqual(["Pick A or B"]);
   });
 
   it("keeps a ready run's question with its answers instead of rewriting it", () => {
@@ -84,8 +84,16 @@ describe("board cards from staff status lines", () => {
       now: NOW,
     });
     const card = board.jobs.find((job) => job.ask.includes("crop tool"))!;
-    expect(card.ask).not.toBe("Open to see details.");
+    expect(card).toMatchObject({ title: "Easel: an update is ready", ask: question });
+    expect(card.choices?.length).toBeGreaterThan(0);
     expect(board.untranslated.map((source) => source.line)).toEqual(["Crop images on the canvas"]);
+    const said = jobsFrom({
+      projects: [easel],
+      runs: [{ id: "run-q", status: "completed", project: "Easel", outcome: "Crop images on the canvas", question, owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "ready" }],
+      cardWords: new Map([[board.untranslated[0]!.key, PLAIN]]),
+      now: NOW,
+    }).jobs.find((job) => job.ask.includes("crop tool"))!;
+    expect(said).toMatchObject({ title: PLAIN.title, ask: question, choices: card.choices });
   });
 
   it("keeps a ready fleet item's decision question instead of rewriting it", () => {
@@ -95,8 +103,8 @@ describe("board cards from staff status lines", () => {
         decision: { task: "easel-crop", question: "Try the crop tool now?", choices: ["Yes", "Later"] } }],
     } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [easel], show, cardWords: new Map(), now: NOW });
-    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ ask: "Try the crop tool now?" });
-    expect(board.untranslated).toEqual([]);
+    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: an update is ready", ask: "Try the crop tool now?", choices: ["Yes", "Later"] });
+    expect(board.untranslated.map((source) => source.line)).toEqual([RAW]);
   });
 
   it("says a working card is under way while its plain words are pending", () => {
