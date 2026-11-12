@@ -35,15 +35,32 @@ describe("board cards from staff status lines", () => {
     expect(shown).not.toMatch(/satisfied|6d98921|main|land|product/i);
     // The rewrite is asked for once, with the raw line and the project.
     expect(board.untranslated).toEqual([expect.objectContaining({ project: "Easel", line: RAW })]);
-    // The raw line stays behind the open card's Timeline.
-    expect(card.threads.map((thread) => thread.title)).toContain(RAW);
+    // The raw line is nowhere on the job, its Timeline included: the Timeline says the same plain words.
+    expect(JSON.stringify(card)).not.toContain("6d98921");
+    expect(JSON.stringify(card)).not.toMatch(/satisfied/i);
+    expect(card.threads.map((thread) => thread.title)).toContain("Easel: an update is ready");
   });
 
   it("shows the stored plain words once the model has said them, and asks for nothing more", () => {
     const first = jobsFrom({ projects: [easel], show: readyShow, cardWords: new Map(), now: NOW });
     const words = new Map([[first.untranslated[0]!.key, PLAIN]]);
     const board = jobsFrom({ projects: [easel], show: readyShow, cardWords: words, now: NOW });
-    expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: PLAIN.title, ask: PLAIN.body });
+    const card = board.jobs.find((job) => job.id === "easel")!;
+    expect(card).toMatchObject({ title: PLAIN.title, ask: PLAIN.body });
+    expect(card.threads).toContainEqual(expect.objectContaining({ title: PLAIN.title, full: PLAIN.body }));
+    expect(JSON.stringify(card)).not.toContain(RAW);
+    expect(board.untranslated).toEqual([]);
+  });
+
+  it("keeps a ready item's own yes/no question with its buttons instead of rewriting it", () => {
+    const show = {
+      ...screen,
+      ready: [{ id: "ready:easel-try", kind: "ready", headline: "Easel", why: "", task: "easel-try", project: "/code/easel", detail: "Say yes to try the crop tool now, or tell me to wait.", at: "2026-11-12T11:00:00.000Z" }],
+    } as unknown as ShowScreen;
+    const board = jobsFrom({ projects: [easel], show, cardWords: new Map(), now: NOW });
+    const card = board.jobs.find((job) => job.id === "easel")!;
+    expect(card.choices?.length).toBeGreaterThan(0);
+    expect(card.ask).toContain("crop tool");
     expect(board.untranslated).toEqual([]);
   });
 
@@ -102,6 +119,9 @@ describe("board cards from staff status lines", () => {
     });
     expect(board.jobs.find((job) => job.id === "easel")).toMatchObject({ title: "Easel: finished", next: "Open to see details." });
     expect(board.untranslated.map((source) => source.line)).toEqual(["Crop images on the canvas"]);
+    const card = board.jobs.find((job) => job.id === "easel")!;
+    expect(card.threads).toHaveLength(1);
+    expect(card.threads[0]).toMatchObject({ id: "run-1", title: "Easel: finished", full: "Open to see details." });
   });
 });
 

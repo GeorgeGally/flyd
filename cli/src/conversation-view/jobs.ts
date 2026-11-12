@@ -218,7 +218,7 @@ interface Signal {
   /** The hash of this signal's own report, so its card reads its own digest and never another item's. */
   reportHash?: string;
   /** The staff's own words this card came from (a worker's status line), when it is not his decision: said plainly before he reads it. */
-  raw?: { title: string; line: string };
+  raw?: { title: string; line: string; thread?: string };
 }
 
 function rank(group: JobGroup): number {
@@ -230,7 +230,7 @@ function runSignal(run: JobRun, now: number): Signal | null {
   const signal = runSignalOf(run, now);
   if (!signal || run.question || signal.because.endsWith("waiting on a decision")) return signal;
   const line = run.outcome || signal.next;
-  return line ? { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line } } : signal;
+  return line ? { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line, thread: run.id } } : signal;
 }
 
 function runSignalOf(run: JobRun, now: number): Signal | null {
@@ -469,11 +469,16 @@ export function jobsFrom(input: {
     const listed = lead.group === "needs" && !lead.decision && lead.ask ? numberedChoice(lead.ask) : undefined;
     const answers = lead.group === "needs" && !several ? (listed ?? answersOf(lead, digestSaid)) : null;
     const shownState = paused && (paused > 1 || state !== "Paused") ? `${state === "Paused" ? "" : `${state} · `}${paused} paused` : state;
-    // A card built from the staff's status line is said in his words, once (card-words.ts); until then, generically. The line itself stays in the Timeline.
-    const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line) : undefined;
+    // A card built from the staff's status line is said in his words, once (card-words.ts); until then, generically, and its Timeline entry says the same. A card with its own question and answers keeps them together.
+    const asks = Boolean(several || listed || answers?.options.length);
+    const raw = input.cardWords && lead.raw && !asks ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line) : undefined;
     const words = raw ? input.cardWords!.get(raw.key) ?? fallbackWords(raw.project, lead.group) : undefined;
     if (raw && !input.cardWords!.has(raw.key) && !untranslated.some((item) => item.key === raw.key)) untranslated.push(raw);
-    if (raw) bucket.threads.push({ id: `note:${raw.key}`, title: one(raw.line, 140), at: lead.at || at, kind: "run", ...(raw.line.length > 140 ? { full: raw.line } : {}) });
+    if (raw && words) {
+      const own = lead.raw?.thread ? bucket.threads.find((thread) => thread.id === lead.raw!.thread) : undefined;
+      if (own) { own.title = words.title; own.full = words.body; }
+      else bucket.threads.push({ id: `note:${raw.key}`, title: words.title, full: words.body, at: lead.at || at, kind: "run" });
+    }
     jobs.push({
       id: bucket.id,
       group: lead.group,
