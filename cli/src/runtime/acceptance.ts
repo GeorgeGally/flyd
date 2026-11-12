@@ -268,17 +268,16 @@ export function handoffFailureReason(missing: HandoffLayer[]): string {
 export const HANDOFF_RETRY_WAIT_MS = 24 * 60 * 60_000;
 
 /**
- * What a run's recorded handoff still misses, as one clause naming each missing layer, or undefined when it
- * met the contract or is still waiting on its one re-request: a return that was normalised, or is being
- * retried, is not a failure.
+ * What a run's recorded handoff still misses after its one structured re-request, as one clause naming each
+ * missing layer, or undefined when it met the contract, was never re-requested, or is still waiting on the
+ * answer: a return that was normalised, or is being retried, is not a failure.
  */
 export function domainHandoffShortfall(run: DomainRun, now: Date = new Date()): string | undefined {
-  if (!run.result) return undefined;
+  const retry = run.handoffRetry;
+  if (!run.result || !retry) return undefined;
   const check = validateFirstmateReturn(run.result);
   if (check.ok) return undefined;
   const gaps = `${layerNames(check.missing)}: ${check.missing.map((layer) => LAYER_GAPS[layer]).join("; ")}`;
-  const retry = run.handoffRetry;
-  if (retry?.answeredAt) return `still missed ${gaps}, after one structured re-request`;
-  if (retry) return now.getTime() - Date.parse(retry.askedAt) < HANDOFF_RETRY_WAIT_MS ? undefined : `missed ${gaps}, and the one structured re-request went unanswered`;
-  return `missed ${gaps}`;
+  if (retry.answeredAt) return `still missed ${gaps}, after one structured re-request`;
+  return now.getTime() - Date.parse(retry.askedAt) < HANDOFF_RETRY_WAIT_MS ? undefined : `missed ${gaps}, and the one structured re-request went unanswered`;
 }

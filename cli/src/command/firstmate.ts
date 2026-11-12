@@ -813,7 +813,7 @@ export async function syncFirstmateDomainRuns(options: {
     return [];
   }
   // A settled run still waiting on the answer to its one structured re-request is read until that answer comes.
-  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && (!isSettled(run.status) || (run.handoffRetry && !run.handoffRetry.answeredAt)));
+  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && (!isSettled(run.status) || (run.handoffRetry && !run.handoffRetry.answeredAt && run.status !== "cancelled")));
   if (readiness) {
     if (readiness.canReceive === false && !readiness.liveHarness) {
       const pending = receipts.pending ?? [];
@@ -891,44 +891,49 @@ export async function syncFirstmateDomainRuns(options: {
       // never a fresh decision for George.
       const predates = Boolean(reply.at) && Date.parse(reply.at!) < Date.parse(run.createdAt);
       const status: DomainRunStatus = outcome === "unclear" ? "working" : predates && outcome === "needs_decision" ? "cancelled" : outcome;
-      // The contract after light normalisation (parseDomainResult): a return that meets it is taken as is. One that
-      // misses it, on an outcome Flyd can act on, is recorded and asked once to restate itself in the contract's shape;
-      // the answer to that ask is never asked again, and if it still misses, the reason names each missing layer.
-      const contract = validateFirstmateReturn(parsed.result);
-      // Only an outcome answers the re-request; "still working" leaves it open.
-      const answering = Boolean(run.handoffRetry && !run.handoffRetry.answeredAt) && cameBack(status);
-      if (!contract.ok && !run.handoffRetry && !predates && cameBack(status) && run.request.source !== "flyd") {
-        reRequest = { missing: contract.missing, ...(reply.cursor ? { cursor: reply.cursor } : {}) };
-      }
-      const stillShort = answering && !contract.ok ? handoffFailureReason(contract.missing) : undefined;
-      const { notified, failure, incompleteReason: _previous, launchRetry: _retry, statusAskedAt, ...rest } = next;
-      // The answer to the re-request restating the same outcome is the same news, never told twice.
-      const restated = answering && status === run.status;
-      const news = !predates && !restated && (status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result));
-      const settledAt = reply.at ?? (options.now ?? (() => new Date()))().toISOString();
-      next = {
-        ...rest,
-        status,
-        result: parsed.result,
-        updatedAt: reply.at ?? (options.now ?? (() => new Date()))().toISOString(),
-        transport: { ...next.transport, replyCursor: reply.cursor },
-        // A new outcome is announced again; the same one is not, nor an old reply replayed.
-        ...(predates ? { notified: true } : notified !== undefined && !news ? { notified } : {}),
-        // The outcome's report, in the same commit as the outcome: a restart can never lose it (command/report.ts).
-        // A reply after work was sent back to its boss is reviewed afresh even when it says the same (as is one on a run
-        // recorded before the report record that was never announced).
-        ...(cameBack(status) && (predates || news || (run.report ? run.report.sentBack : !notified))
-          ? { report: predates ? quietReport(status, settledAt) : dueReport(status, settledAt) } : {}),
-        ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
-        ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
-        ...(stillShort ? { incompleteReason: stillShort } : {}),
-        ...(strict.fragment ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
-        ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
-        ...(answering ? { handoffRetry: { ...run.handoffRetry!, answeredAt: settledAt } } : {}),
-      };
-      if (outcome === "unclear") {
-        statusUnclear = true;
-        unclearFrom = reply.cursor;
+      if (isSettled(run.status) && !cameBack(status)) {
+        // A settled run read only for its re-request's answer takes nothing short of an outcome: it stays as it was.
+        next = { ...next, transport: { ...next.transport, replyCursor: reply.cursor } };
+      } else {
+        // The contract after light normalisation (parseDomainResult): a return that meets it is taken as is. One that
+        // misses it, on an outcome Flyd can act on, is recorded and asked once to restate itself in the contract's shape;
+        // the answer to that ask is never asked again, and if it still misses, the reason names each missing layer.
+        const contract = validateFirstmateReturn(parsed.result);
+        // Only an outcome answers the re-request; "still working" leaves it open.
+        const answering = Boolean(run.handoffRetry && !run.handoffRetry.answeredAt) && cameBack(status);
+        if (!contract.ok && !run.handoffRetry && !predates && cameBack(status) && run.request.source !== "flyd") {
+          reRequest = { missing: contract.missing, ...(reply.cursor ? { cursor: reply.cursor } : {}) };
+        }
+        const stillShort = answering && !contract.ok ? handoffFailureReason(contract.missing) : undefined;
+        const { notified, failure, incompleteReason: _previous, launchRetry: _retry, statusAskedAt, ...rest } = next;
+        // The answer to the re-request restating the same outcome is the same news, never told twice.
+        const restated = answering && status === run.status;
+        const news = !predates && !restated && (status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result));
+        const settledAt = reply.at ?? (options.now ?? (() => new Date()))().toISOString();
+        next = {
+          ...rest,
+          status,
+          result: parsed.result,
+          updatedAt: reply.at ?? (options.now ?? (() => new Date()))().toISOString(),
+          transport: { ...next.transport, replyCursor: reply.cursor },
+          // A new outcome is announced again; the same one is not, nor an old reply replayed.
+          ...(predates ? { notified: true } : notified !== undefined && !news ? { notified } : {}),
+          // The outcome's report, in the same commit as the outcome: a restart can never lose it (command/report.ts).
+          // A reply after work was sent back to its boss is reviewed afresh even when it says the same (as is one on a run
+          // recorded before the report record that was never announced).
+          ...(cameBack(status) && (predates || news || (run.report ? run.report.sentBack : !notified))
+            ? { report: predates ? quietReport(status, settledAt) : dueReport(status, settledAt) } : {}),
+          ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
+          ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
+          ...(stillShort ? { incompleteReason: stillShort } : {}),
+          ...(strict.fragment ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
+          ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
+          ...(answering ? { handoffRetry: { ...run.handoffRetry!, answeredAt: settledAt } } : {}),
+        };
+        if (outcome === "unclear") {
+          statusUnclear = true;
+          unclearFrom = reply.cursor;
+        }
       }
     } else if (run.status === "incomplete" && run.result) {
       // Recorded before prose counted as an outcome: read again what it said.

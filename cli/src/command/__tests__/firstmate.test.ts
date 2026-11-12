@@ -482,6 +482,46 @@ describe("FirstMate domain transport", () => {
     expect(notes).toHaveLength(1);
   });
 
+  it("leaves a settled run as it was when the answer to its re-request is not an outcome", async () => {
+    saveDomainRun({ ...queuedRun(), status: "accepted" });
+    const notes: string[] = [];
+    const handled: unknown[] = [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T01:00:00.000Z", body: "Done and merged.", cursor: "000000000001" } }];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: `note-${notes.length + 1}`, saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled }), stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+    let verdict: "completed" | "working" | "unclear" = "completed";
+    const sent: string[] = [];
+    const sync = () => syncFirstmateDomainRuns({
+      transport, judge: async () => verdict,
+      onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }),
+    });
+
+    const [first] = await sync();
+    expect(first!.status).toBe("completed");
+    expect(notes).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+
+    const reRequest = listDomainRuns().find((run) => run.id === "domain-test-1")!.messages!.find((message) => message.from === "flyd")!;
+    for (const [cursor, answer, judged] of [["000000000002", "Still working on it.", "working"], ["000000000003", "Hmm, let me look.", "unclear"]] as const) {
+      verdict = judged;
+      handled.push({ id: `note-${cursor}`, request_id: reRequest.id, acknowledged: true, reply: { id: `note-${cursor}`, at: "2026-10-09T02:00:00.000Z", body: answer, cursor } });
+      await sync();
+      const run = listDomainRuns().find((item) => item.id === "domain-test-1")!;
+      expect(run.status).toBe("completed");
+      expect(run.notified).toBe(first!.notified);
+      expect(run.report).toEqual(first!.report);
+      expect(run.result).toEqual(first!.result);
+      expect(run.statusAskedAt).toBeUndefined();
+      expect(run.handoffRetry).toEqual(first!.handoffRetry);
+      expect(run.transport.replyCursor).toBe(cursor);
+    }
+    // No clear-status ask and no second re-request, and nothing told to George again.
+    expect(notes).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+  });
+
   it("accepts a FirstMate return that meets the contract after light normalisation, without a re-request", async () => {
     saveDomainRun({ ...queuedRun(), status: "accepted" });
     // Wrapped in a fence and an outer object, keys in other casings, evidence as one string.

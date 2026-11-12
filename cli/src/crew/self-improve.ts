@@ -212,11 +212,20 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
       });
       continue;
     }
-    const shortfall = run.result && ["completed", "incomplete", "needs_decision"].includes(run.status) ? domainHandoffShortfall(run, now) : undefined;
-    if (shortfall) {
+    if (!run.result || !["completed", "incomplete", "needs_decision"].includes(run.status)) continue;
+    // Only a FirstMate return that was asked once to restate itself is judged against the layered contract.
+    if (run.handoffRetry && run.transport.kind === "firstmate" && run.request.source !== "flyd") {
+      const shortfall = domainHandoffShortfall(run, now);
+      if (shortfall) {
+        evidence.push({
+          id: `domain-result:${run.id}`, kind: "domain", at: run.updatedAt,
+          text: `${run.owner}'s domain handoff ${shortfall}, for: "${run.request.intendedOutcome.slice(0, 220)}"`,
+        });
+      }
+    } else if (run.result.format === "raw") {
       evidence.push({
         id: `domain-result:${run.id}`, kind: "domain", at: run.updatedAt,
-        text: `${run.owner}'s domain handoff ${shortfall}, for: "${run.request.intendedOutcome.slice(0, 220)}"`,
+        text: `${run.owner} returned an unstructured domain handoff. Flyd preserved the raw detail, but the layered brief/report/evidence contract was not met for: "${run.request.intendedOutcome.slice(0, 220)}"`,
       });
     }
   }
