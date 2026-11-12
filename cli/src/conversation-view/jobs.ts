@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { viaOpener } from "./liesel.js";
 import { applyProjectOps, projectId, readProjects, type Project, type ProjectKind } from "../council/projects.js";
 import type { DomainRun, DomainRunStatus } from "../command/types.js";
 import { workStateOfRun, type WorkState } from "../lib/work-state.js";
@@ -372,7 +373,7 @@ export function jobsFrom(input: {
     bucket.threads.push(thread);
     if (run.outcome) runThreads.set(thread, { group: signal.group, project: bucket.name ?? "", state: signal.state ?? STATE[signal.group], title: runTitle(run.outcome) || run.project || "", line: run.outcome });
     for (const artifact of artifactsOf(run.artifacts, exists)) {
-      if (artifact.href) bucket.links.push({ label: artifact.label, url: artifact.href });
+      if (artifact.href) bucket.links.push(viaOpener({ label: artifact.label, url: artifact.href }));
       else bucket.files.push({ label: artifact.label });
     }
     if ((run.report?.length ?? 0) >= REPORT_CHARS) {

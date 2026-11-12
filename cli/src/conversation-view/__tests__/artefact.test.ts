@@ -1558,17 +1558,17 @@ describe("the CapFive lab questions artefact", () => {
     expect(callItems({ ...fleet, calls: [row!] })[0]!.shots!.map((shot) => shot.label)).toEqual(["board.png", "reference.png"]);
     const [item] = callItems({ ...fleet, calls: [{ ...row!, boardShot: 1794000000000 }] });
     expect(item!.shots).toEqual([{ src: "/api/board-shot?board=e4dc64c8844fac7a&v=1794000000000", label: "The board" }]);
-    expect(item!.links).toContainEqual({ label: "Open board", url: "http://macbook-pro-3.tail46029c.ts.net:4747/board/e4dc64c8844fac7a" });
+    expect(item!.links).toContainEqual({ label: "Open board", url: "/open-board/e4dc64c8844fac7a" });
   });
 
-  it("gives an update that names its board only in its words a picture of the board and a link the phone opens", () => {
+  it("gives an update that names its board only in its words a picture of the board, Flyd's opener and words the phone opens", () => {
     const fleet = parseBearings({ in_flight: [{ id: "deck-bar", state: "working", name: "Move the deck bar", doing: "harness busy" }] });
     const note = "Deck bar is above the tracklist at 1440 and 390, reply posted on http://127.0.0.1:4747/board/ceecabda1bfc42e7";
     const [row] = enrichFleet(fleet, new Map(), new Map([["deck-bar", { at: "2026-11-12T03:00:00Z", note }]])).live;
     expect(row!.board).toBe("ceecabda1bfc42e7");
     const [item] = underwayItems({ ...fleet, live: [{ ...row!, boardShot: 1794000000000 }] });
     expect(item!.shots).toEqual([{ src: "/api/board-shot?board=ceecabda1bfc42e7&v=1794000000000", label: "The board" }]);
-    expect(item!.links).toEqual([{ label: "Open board", url: "http://macbook-pro-3.tail46029c.ts.net:4747/board/ceecabda1bfc42e7" }]);
+    expect(item!.links).toEqual([{ label: "Open board", url: "/open-board/ceecabda1bfc42e7" }]);
     expect(item!.detail).toBe("Deck bar is above the tracklist at 1440 and 390, reply posted on http://macbook-pro-3.tail46029c.ts.net:4747/board/ceecabda1bfc42e7");
   });
 

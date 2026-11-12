@@ -25,7 +25,8 @@ import type { ShowItem, ShowKind } from "./show.js";
 import { plainTitle, saysNothing } from "./plain-words.js";
 import { forHim, shortHeadline, staffStatusLine } from "../lib/pa-voice.js";
 import { SnapshotGate, type SnapshotGateOptions } from "./snapshot-gate.js";
-import { BoardShots, boardShotSrc, lieselBoardKey, publicBoardUrl } from "./board-shots.js";
+import { BoardShots, boardShotSrc, publicBoardUrl } from "./board-shots.js";
+import { boardKeyOf, ProjectBoards, viaOpener } from "./liesel.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
 // fleet snapshot (the authoritative "everything going on"), Flyd's own memory,
@@ -601,10 +602,10 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     // An update that names its board only in its words ("reply posted on http://127.0.0.1:4747/board/…") links it too.
     const linked = new Set([next.url, ...(next.references ?? []).map((link) => link.url)]);
     const spoken = proseLinks(next.detail ?? "").find((url) => LIESEL_BOARD.test(url) && !linked.has(url));
-    if (spoken && ![...linked].some((url) => lieselBoardKey(url) === lieselBoardKey(spoken))) {
+    if (spoken && ![...linked].some((url) => boardKeyOf(url) === boardKeyOf(spoken))) {
       next.references = [...(next.references ?? []), { label: "Open board", url: spoken }];
     }
-    const board = [next.url, ...(next.references ?? []).map((link) => link.url)].map(lieselBoardKey).find(Boolean);
+    const board = [next.url, ...(next.references ?? []).map((link) => link.url)].map(boardKeyOf).find(Boolean);
     if (board) next.board = board;
     return next;
   };
@@ -1336,14 +1337,17 @@ function withoutProject(label: string, names: string[]): string {
   return label;
 }
 
-/** A row's card with every board link it shows (its buttons and its words) on the address the phone opens. Pure. */
+/**
+ * A row's card: a board named in its words reads on the address the phone opens, and its
+ * "Open board" button goes through Flyd's opener, which starts Liesel first when it is down. Pure.
+ */
 function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeOptions): ShowItem | undefined {
   const item = loopbackRowItem(kind, id, row, options);
   if (!item) return undefined;
   return {
     ...item,
     ...(item.detail ? { detail: publicBoardUrl(item.detail) } : {}),
-    ...(item.links ? { links: item.links.map((link) => ({ ...link, url: publicBoardUrl(link.url) })) } : {}),
+    ...(item.links ? { links: item.links.map(viaOpener) } : {}),
   };
 }
 
@@ -1407,7 +1411,8 @@ export function proseLinks(text: string): string[] {
 }
 
 /** A Liesel board (its own review surface) and a Lavish review page. */
-const LIESEL_BOARD = /^https?:\/\/(?:127\.0\.0\.1|localhost):4747\/board\//i;
+/** A board on this Mac's Liesel, on loopback or the tailnet origin a board was published on. */
+const LIESEL_BOARD = /^https?:\/\/[^/\s]+:4747\/board\//i;
 const LAVISH_REVIEW = /^https?:\/\/(?:127\.0\.0\.1|localhost):4387\/session\//i;
 
 /**
@@ -1899,6 +1904,8 @@ export class ArtefactFeed {
   private gate?: SnapshotGate<FleetRead>;
   /** Pictures of the Liesel boards the cards name; under vitest none unless a test passes them. */
   private boardShots?: BoardShots | null;
+  /** The boards projects keep in their own `.liesel` folders; none under vitest unless a test passes them. */
+  private projectBoards?: ProjectBoards | null;
   /** The boards a card names now: only their pictures are ever served. */
   private boardKeys = new Set<string>();
 
@@ -1933,6 +1940,8 @@ export class ArtefactFeed {
       fleetGate?: SnapshotGate<FleetRead>;
       /** Pictures of the boards cards name; by default ~/.flyd/view/board-shots, none under vitest. */
       boards?: BoardShots;
+      /** The boards projects keep in `.liesel`; by default from ~/.easel/state.json, none under vitest. */
+      projectBoards?: ProjectBoards;
     } = {},
   ) {}
 
@@ -1950,7 +1959,8 @@ export class ArtefactFeed {
   }
 
   /** Each card that names a board carries when its picture was taken; a missing or old picture is taken again. */
-  private withBoards(fleet: FleetArtefact): FleetArtefact {
+  private withBoards(given: FleetArtefact): FleetArtefact {
+    const fleet = this.withProjectBoards(given);
     const boards = this.boards();
     if (!boards || fleet.unavailable) return fleet;
     const keys = new Set<string>();
@@ -1962,6 +1972,28 @@ export class ArtefactFeed {
     };
     this.boardKeys = keys;
     return { ...fleet, calls: fleet.calls.map(pictured), live: fleet.live.map(pictured), ready: fleet.ready.map(pictured), landed: fleet.landed.map(pictured), held: fleet.held.map(pictured), next: fleet.next.map(pictured) };
+  }
+
+  /**
+   * A card on a project that keeps a Liesel board (`<project>/.liesel/board.json`) links that
+   * board when it names none of its own; the board is the design review, so a Lavish page is dropped.
+   * A card whose own link is already a board keeps it.
+   */
+  private withProjectBoards(fleet: FleetArtefact): FleetArtefact {
+    if (fleet.unavailable) return fleet;
+    if (this.projectBoards === undefined) this.projectBoards = this.options.projectBoards ?? (process.env.VITEST ? null : new ProjectBoards());
+    const projects = this.projectBoards;
+    if (!projects) return fleet;
+    const linked = (row: ArtefactRow): ArtefactRow => {
+      if (row.board || !row.repo || (row.url && LIESEL_BOARD.test(row.url))) return row;
+      const key = projects.keyFor(row.repo);
+      if (!key) return row;
+      const references = (row.references ?? []).filter((link) => !LAVISH_REVIEW.test(link.url) && !LIESEL_BOARD.test(link.url));
+      const { url, ...rest } = row;
+      // Only the link: the card keeps its own pictures, since the board is the project's, not this card's.
+      return { ...rest, ...(url && !LAVISH_REVIEW.test(url) ? { url } : {}), references: [{ label: "Open board", url: `http://127.0.0.1:4747/board/${key}` }, ...references] };
+    };
+    return { ...fleet, calls: fleet.calls.map(linked), live: fleet.live.map(linked), ready: fleet.ready.map(linked), landed: fleet.landed.map(linked), held: fleet.held.map(linked), next: fleet.next.map(linked) };
   }
 
   /** The absolute path of a board's picture a card names, or null for anything else. */
