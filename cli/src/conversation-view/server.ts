@@ -44,6 +44,7 @@ import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from 
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
 import { liveActivityOf, type LiveActivity } from "./live-activity.js";
 import { readDigests, scheduleDigest } from "./job-digest.js";
+import { readCardWords, scheduleCardWords } from "./card-words.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs, type ArtefactRow } from "./artefact.js";
 import type { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { boxesOf, closedLinks, withClosedLinks, type Box, type BoxReadings } from "./boxes.js";
@@ -2357,12 +2358,14 @@ export class ConversationViewServer {
       }));
       const reports = this.jobReports(snapshot);
       const exists = (ref: string) => this.jobFileExists(ref);
-      let board = jobsFrom({ projects, runs, sessions, reports, show, digests: readDigests(), exists });
+      let board = jobsFrom({ projects, runs, sessions, reports, show, digests: readDigests(), cardWords: readCardWords(), exists });
       if (!process.env.VITEST && board.inferred.length) {
         applyProjectOps(board.inferred.map((item) => ({ op: "upsert", name: item.name, kind: item.kind, status: "active", what: "" })), { knownRepos: [] });
-        board = jobsFrom({ projects: readProjects(), runs, sessions, reports, show, digests: readDigests(), exists });
+        board = jobsFrom({ projects: readProjects(), runs, sessions, reports, show, digests: readDigests(), cardWords: readCardWords(), exists });
       }
       scheduleDigest(board.pending, { onStored: () => { for (const wake of this.jobWake) wake(); } });
+      // A card from a staff status line is said in his words once; render never asks the model.
+      scheduleCardWords(board.untranslated, { onStored: () => { for (const wake of this.jobWake) wake(); } });
       return { jobs: board.jobs, fleetKnown: board.fleetKnown };
     } catch (error) {
       console.error(`[jobs] ${error instanceof Error ? error.message : String(error)}`);

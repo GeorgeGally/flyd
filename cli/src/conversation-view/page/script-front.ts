@@ -139,7 +139,7 @@ export const FRONT_SCRIPT = `
     if (!text || !head || text.toLowerCase().indexOf(head.toLowerCase()) !== 0) return text;
     return text.slice(head.length).replace(/^[\\s:.–—-]+/, "");
   }
-  var FRONT_WORKING = { live: "Working", ready: "Ready to land", waiting: "Waiting", next: "Queued" };
+  var FRONT_WORKING = { live: "Working", ready: "Ready for you", waiting: "Waiting", next: "Queued" };
   var FRONT_PHASE = { needs_you: "needs", ready: "working", working: "working", queued: "working", paused: "working", finished: "done" };
 
   // The same test Core uses for "needs George" (semantic.ts needsGeorge).
@@ -216,7 +216,7 @@ export const FRONT_SCRIPT = `
     landed.forEach(function (item) {
       // A call Flyd answered for him by one of his rules: one quiet line, and his own answer takes it back.
       var handled = item.status === "handled" && item.executiveDecisionId ? { decisionId: item.executiveDecisionId, task: item.task || "" } : null;
-      add({ id: item.id, group: "done", state: handled ? "Handled for you" : "Landed", title: frontHeading(item.headline, frontProject(item.project)), project: frontProject(item.project), at: item.at,
+      add({ id: item.id, group: "done", state: handled ? "Handled for you" : "Finished", title: frontHeading(item.headline, frontProject(item.project)), project: frontProject(item.project), at: item.at,
         shots: frontShots(item.shots), previews: frontPreviews(item.previews), detail: frontText(item.detail || item.why), links: item.links || [], decision: null, task: item.task || "",
         handled: handled, fresh: isNew(item, doneSeen) });
     });
