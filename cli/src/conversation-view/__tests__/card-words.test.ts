@@ -427,3 +427,15 @@ describe("a reading made without a card's answers", () => {
     expect(board.untranslated).toEqual([expect.objectContaining({ line: run.question, answers: ["Go ahead now", "Wait"] })]);
   });
 });
+
+describe("a reading that asks about passing something on to someone else", () => {
+  it("is stored and shown with its buttons", () => {
+    const run = { id: "run-p", status: "needs_decision", project: "Easel", outcome: "", question: "Merge PR #41 into main now, or wait?", owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "needs_you" as const };
+    const reading = { title: "Easel: proofs are back", body: "Should I pass this to the printer now?" };
+    expect(cardWordsFromModel(JSON.stringify(reading))).toEqual(reading);
+    const source = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map(), now: NOW }).untranslated[0]!;
+    const card = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map([[source.key, reading]]), now: NOW }).jobs.find((job) => job.group === "needs")!;
+    expect(card.ask).toBe(reading.body);
+    expect(card.choices).toEqual(["Merge PR #41 into main now", "Wait"]);
+  });
+});

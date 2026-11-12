@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { quickQuery } from "../lib/llm.js";
-import { forHim, PA_VOICE } from "../lib/pa-voice.js";
+import { bannedFor, forHim, PA_VOICE } from "../lib/pa-voice.js";
 
 /**
  * A board card's words, said for George. A card built from a worker's status
@@ -227,7 +227,7 @@ export function cardWordsFromModel(text: string): CardWords | null {
   const title = tidy(record.title, TITLE_CHARS);
   const said = tidy(record.body, BODY_CHARS);
   if (!title || !said) return null;
-  if (readingJargonIn(title) || readingJargonIn(said)) return null;
+  if (readingJargonIn(title) || readingJargonIn(said) || bannedFor(title) || bannedFor(said)) return null;
   return { title, body: said };
 }
 

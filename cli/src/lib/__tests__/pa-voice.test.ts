@@ -73,6 +73,15 @@ describe("withoutInformAsk", () => {
     }
   });
 
+  it("keeps a real question about passing something to someone else", () => {
+    const said = "The proofs are back. Should I pass them to Anna for sign-off?";
+    expect(bannedFor(said)).toBeNull();
+    expect(forHim(said)).toBe(said);
+    expect(bannedFor("Shall I pass that on?")).not.toBeNull();
+    expect(bannedFor("Should I pass it along?")).not.toBeNull();
+    expect(bannedFor("Shall I pass it on to Anna?")).toBeNull();
+  });
+
   it("never asks leave to tell him", () => {
     expect(withoutInformAsk("Want me to let you know when it lands?")).toBe("I'll let you know when it lands.");
     expect(withoutInformAsk("Should I send the link?")).toBe("Should I send the link?");
