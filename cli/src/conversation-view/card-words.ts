@@ -180,7 +180,7 @@ function readingJargonIn(text: string): string | null {
 const SOFTER: Array<[RegExp, string | ((found: string, ...groups: string[]) => string)]> = [
   [/\s*#\d+\b/g, ""],
   [/\b(?:the\s+)?(?:PRs?|pull requests?|merge requests?)\b/gi, "the change"],
-  [/\b(merge|land|ship|deploy)\b(\s+(?!now\b)[^,.?!]*?)?(?:\s+(?:in|on)?to\s+(?:the\s+)?main(?:\s+branch)?\b)?(?=\s+(?:now|today|first|later)\b|\s*[,.?!]|\s*$)/gi,
+  [/\b(merge|land|ship|deploy)\b(\s+(?!now\b)[^,.?!]*?)?(?:\s+(?:(?:in|on)?to|on)\s+(?:the\s+)?main(?:\s+branch)?\b)?(?=\s+(?:now|today|first|later|or|and|then)\b|\s*[,.?!]|\s*$)/gi,
     (_found, verb: string, what?: string) => `${/^[A-Z]/.test(verb) ? "P" : "p"}ut ${what?.trim() || "it"} live`],
   [/\b(?:merged|landed|shipped|deployed)\b/gi, "put live"],
   [/\b(on|to|into|onto|from|off)\s+(?:the\s+)?main(?:\s+branch)?\b/gi, "$1 the live version"],

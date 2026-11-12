@@ -470,6 +470,9 @@ describe("softened", () => {
     expect(softened("Ship the new landing page now, or wait?")).toBe("Put the new landing page live now, or wait?");
     expect(softened("Build the gallery now, or wait?")).toBe("Make the gallery now, or wait?");
     expect(softened("Is the build ready?")).toBe("Is the version ready?");
+    expect(softened("Merge PR #41 or wait for CI?")).toBe("Put the change live or wait for the automatic tests?");
+    expect(softened("Should I merge PR #41 or close it?")).toBe("Should I put the change live or close it?");
+    expect(softened("Land it on main or wait for checks?")).toBe("Put it live or wait for the automatic tests?");
     for (const said of ["Should I put the hotfix live now, or wait?", "Make the gallery now, or wait?"]) expect(jargonIn(said)).toBeNull();
   });
 });
@@ -488,5 +491,21 @@ describe("an open question in developer words the model could never say plainly"
     }
     const card = jobsFrom({ projects: [easel], runs: [run], cardWords: readCardWords(path), exhausted: exhaustedCardWords(path), now: NOW }).jobs.find((job) => job.group === "needs")!;
     expect(card.ask).toBe("Which version should the hotfix go on?");
+  });
+});
+
+describe("a plain question whose card line the model gave up on", () => {
+  it("is asked as written, never softened", async () => {
+    const run = { id: "run-price", status: "needs_decision", project: "Easel", outcome: "Pricing page with three tiers in 6d98921", question: "Which price should ship?", owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "needs_you" as const };
+    const path = pathFor();
+    const first = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map(), exhausted: exhaustedCardWords(path), now: NOW });
+    let now = NOW;
+    const failing = vi.fn(async () => { throw new Error("model down"); });
+    for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
+      await scheduleCardWords(first.untranslated, { path, ask: failing, now: () => now });
+      now += 31 * 60_000;
+    }
+    const card = jobsFrom({ projects: [easel], runs: [run], cardWords: readCardWords(path), exhausted: exhaustedCardWords(path), now: NOW }).jobs.find((job) => job.group === "needs")!;
+    expect(card.ask).toBe("Which price should ship?");
   });
 });
