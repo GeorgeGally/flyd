@@ -60,6 +60,12 @@ describe("key/value replies", () => {
     expect(dressed.result.brief).toBe("Patched __main__.py");
   });
 
+  it("keeps the value as written when the key closes its own emphasis before the colon", () => {
+    expect(parseDomainResult("status: completed\nbrief: Fixed the import.\n**Evidence**: __init__.py").result.evidence).toEqual(["__init__.py"]);
+    expect(parseDomainResult("status: completed\n*Brief*: _private helper removed").result.brief).toBe("_private helper removed");
+    expect(parseDomainResult("status: completed\n**Brief:** Shipped the fix.").result.brief).toBe("Shipped the fix.");
+  });
+
   it("reads an emphasised status, and single-emphasis keys, as the same structured reply", () => {
     for (const reply of ["**Status:** **Completed**\n**Brief:** Shipped the fix.", "Status: **completed**\nBrief: Shipped the fix.", "*Status:* completed\n*Brief:* Shipped the fix."]) {
       const parsed = parseDomainResult(reply);

@@ -56,7 +56,7 @@ function keyValueFields(raw: string): Record<string, unknown> | undefined {
     if (!match) continue;
     const key = match[1]!.replace(/\*/g, "").toLowerCase().replace(/[\s_-]/g, "");
     if (!STRUCTURED_KEYS.has(key) || fields[key] !== undefined) continue;
-    const value = /^[*_]/.test(match[1]!) ? match[2]!.replace(/^(?:\*{1,2}|_{1,2})\s*/, "") : match[2]!;
+    const value = /^[*_]/.test(match[1]!) && !/[*_]$/.test(match[1]!) ? match[2]!.replace(/^(?:\*{1,2}|_{1,2})\s*/, "") : match[2]!;
     if (value) fields[key] = value;
   }
   const first = (...keys: string[]): string => keys.map((key) => fields[key]).find((value) => value?.trim())?.trim() ?? "";
