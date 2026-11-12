@@ -80,6 +80,13 @@ describe("withoutInformAsk", () => {
     for (const said of ["It's booked. Want me to let you know?", "Mark replied. Shall I pass that on?"]) {
       expect(bannedFor(forHim(said))).toBeNull();
     }
+    expect(forHim("It's booked. Want me to let you know?")).toBe("It's booked. I'll let you know.");
+    expect(bannedFor("Want me to let you know?")).not.toBeNull();
+    expect(bannedFor("Should I keep you posted?")).not.toBeNull();
+    // A real offer to tell him something more is kept as asked.
+    for (const offer of ["Anna replied. Want me to let you know what she said?", "Should I keep you posted on the price?"]) {
+      expect(forHim(offer)).toBe(offer);
+    }
   });
 
   it("keeps a real question about passing something to someone else", () => {

@@ -149,7 +149,7 @@ export const BANNED_FOR_HIM: RegExp[] = [
   /\bChecks green\b/i,
   /\bmonitoring for merge\b/i,
   /\bready for you to land\b/i,
-  /\b(?:do you want|would you like|want|shall|should) (?:me|I) (?:to )?(?:pass (?:(?:it|that|this|them) )?(?:along|on)(?: to you)?\s*\?|let you know|keep you (?:posted|updated))/i,
+  /\b(?:do you want|would you like|want|shall|should) (?:me|I) (?:to )?(?:pass (?:(?:it|that|this|them) )?(?:along|on)(?: to you)?|let you know|keep you (?:posted|updated))\s*\?/i,
 ];
 
 /** The first banned phrase in Flyd's own words to him (someone else's quoted words aside), or null. */
