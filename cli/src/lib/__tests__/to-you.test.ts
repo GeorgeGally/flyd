@@ -66,3 +66,34 @@ describe("toYou grammar seen in real cards", () => {
     expect(toYou("If v2 works, does the captain want v3 too?")).toBe("If v2 works, do you want v3 too?");
   });
 });
+
+describe("toYou for every way he is named", () => {
+  it("turns he, him and his to you and your once he is named, when no one else is", () => {
+    expect(toYou("George said he wants the blue one before his trip.")).toBe("You said you want the blue one before your trip.");
+    expect(toYou("George told me he's flying out, so book him a car.")).toBe("You told me you're flying out, so book you a car.");
+    expect(toYou("George needs the deck before he leaves, and he'll sign it himself.")).toBe("You need the deck before you leave, and you'll sign it yourself.");
+    // Someone else named in the sentence may be who "he" is.
+    expect(toYou("George asked Pierre to send his feedback, and he wants a call with him.")).toBe("You asked Pierre to send his feedback, and he wants a call with him.");
+    expect(toYou("Anna told George he could call.")).toBe("Anna told you he could call.");
+    // A thing is no one: "he" is still him.
+    expect(toYou("George moved the dinner because he has a call.")).toBe("You moved the dinner because you have a call.");
+    expect(toYou("George is away for a month after he lands.")).toBe("You are away for a month after you land.");
+    // Someone named by a role may be who "he" is.
+    expect(toYou("George asked the plumber whether he can come tomorrow.")).toBe("You asked the plumber whether he can come tomorrow.");
+    expect(toYou("George told the plumber he needs to come back.")).toBe("You told the plumber he needs to come back.");
+    expect(toYou("George met the new accountant and liked his plan.")).toBe("You met the new accountant and liked his plan.");
+    // Someone of his named by a relation or role may be who "he" is.
+    expect(toYou("George's brother called and he wants a lift.")).toBe("Your brother called and he wants a lift.");
+    expect(toYou("George's client said he will pay on Friday.")).toBe("Your client said he will pay on Friday.");
+    // A "he" before he is named is someone else's.
+    expect(toYou("He said George wants the blue one.")).toBe("He said you want the blue one.");
+  });
+
+  it("never rewrites someone else's message to him or his full name", () => {
+    expect(toYou("Anna: Hi George, can you call?")).toBe("Anna: Hi George, can you call?");
+    expect(toYou("Invoice to George Gally for the March work.")).toBe("Invoice to George Gally for the March work.");
+    expect(toYou("Waiting on George\nThe picks are in")).toBe("Waiting on you\nThe picks are in");
+    expect(toYou("Mark wrote \"George needs to sign\" and George has not yet.")).toBe("Mark wrote \"George needs to sign\" and you have not yet.");
+    expect(aboutHim("Anna: Hi George, can you call?")).toBe(false);
+  });
+});

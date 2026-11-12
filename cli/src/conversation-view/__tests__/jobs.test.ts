@@ -294,9 +294,10 @@ describe("jobsFrom", () => {
       at: "2026-10-26T10:00:00.000Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0,
     };
     const said = jobsFrom({ projects: [project()], reports: [{ project: "Cap5", title: "Board", text }], digests: [digest], runs: [run({ status: "needs_decision", question: "Waiting on your go-ahead." })], now: NOW }).jobs[0]!;
-    expect(said).toMatchObject({ group: "needs", domainRun: "run-1", choices: ["Merge"], recommended: "Merge" });
-    const asked = jobsFrom({ runs: [run({ status: "needs_decision", question: "Should I merge now or wait for checks?" })], now: NOW }).jobs[0]!;
-    expect(asked.choices).toEqual(["Merge now", "Wait for checks"]);
+    expect(said).toMatchObject({ group: "needs", domainRun: "run-1", choices: ["Merge"], recommended: "Merge", labels: { Merge: "Go ahead" } });
+    const asked = jobsFrom({ runs: [run({ status: "needs_decision", question: "Should I merge now or wait?" })], now: NOW }).jobs[0]!;
+    expect(asked.choices).toEqual(["Merge now", "Wait"]);
+    expect(asked.labels).toEqual({ "Merge now": "Go ahead now", Wait: "Wait" });
     const open = jobsFrom({ runs: [run({ status: "needs_decision", question: "Which price should ship?" })], now: NOW }).jobs[0]!;
     expect(open.choices).toBeUndefined();
   });
@@ -320,7 +321,7 @@ describe("jobsFrom", () => {
 
   it("gives a run's numbered answers to one question as that question's buttons", () => {
     const asked = (question: string) => jobsFrom({ runs: [run({ status: "needs_decision", question })], now: NOW }).jobs[0]!;
-    const trailing = asked("Which should I build? 1. Departures 2. Picture desk 3. Notch?");
+    const trailing = asked("Which should I make? 1. Departures 2. Picture desk 3. Notch?");
     expect(trailing.decisions).toBeUndefined();
     expect(trailing.choices).toEqual(["Departures", "Picture desk", "Notch"]);
     const described = asked("Which direction? 1. Departures: big type, quiet 2. Picture desk");
@@ -363,14 +364,14 @@ describe("jobsFrom", () => {
     const whatsapp = { hash: "e5230039a9902629", project: "Flyd", changed: "WhatsApp is still unlinked, so the 'Link WhatsApp' card stays on screen.", needed: "Link WhatsApp on your phone.", at: "2026-11-09T02:50:35.212Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0 };
     const card = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, digests: [whatsapp], now: NOW }).jobs.find((job) => job.title === "Flyd")!;
     expect(card.digest).toBeNull();
-    expect(card.ask).toBe("Flyd CoS 13c: explicit waits is finished and ready for you to land.");
+    expect(card.ask).toBe("This is finished and ready for you to look over.");
   });
 
   it("never heads a ready card with the staff's status line", () => {
     const show = { ...screen, ready: [{ id: "ready:week", kind: "ready", headline: "The Week page", detail: "Checks green: PR ready for review (still monitoring for merge/close): https://example.com/pull/274", why: "", task: "week", project: "Flyd" }] } as unknown as ShowScreen;
     const card = jobsFrom({ projects: [project({ id: "flyd", name: "Flyd", kind: "product" })], show, now: NOW }).jobs.find((job) => job.title === "Flyd")!;
-    expect(card.ask).toBe("The Week page is finished and ready for you to land.");
-    expect(`${card.ask} ${card.next}`).not.toMatch(/Checks green|monitoring|PR ready/i);
+    expect(card.ask).toBe("This is finished and ready for you to look over.");
+    expect(`${card.ask} ${card.next}`).not.toMatch(/Checks green|monitoring|PR ready|\bland\b/i);
   });
 
   it("takes a card's title only from Flyd's own hand-off, never from his request", () => {
