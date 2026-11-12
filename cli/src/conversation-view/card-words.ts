@@ -176,35 +176,6 @@ function readingJargonIn(text: string): string | null {
   return jargonIn(text);
 }
 
-/** Developer words said in his, by a fixed map: what a question reads when no reading could be had. */
-const SOFTER: Array<[RegExp, string | ((found: string, ...groups: string[]) => string)]> = [
-  [/\s*#\d+\b/g, ""],
-  [/\b(?:the\s+)?(?:PRs?|pull requests?|merge requests?)\b/gi, "the change"],
-  [/\b(should|can|will|could|would|might|must|to)\s+(?:ship|deploy|land)\b(?=\s*[,.?!]|\s*$)/gi, "$1 go live"],
-  [/\b(merge|land|ship|deploy)\b(\s+(?!(?:now|today|first|later|or|and|then)\b)[^,.?!]*?)?(?:\s+(?:(?:in|on)?to|on)\s+(?:the\s+)?main(?:\s+branch)?\b)?(?=\s+(?:now|today|first|later|or|and|then)\b|\s*[,.?!]|\s*$)/gi,
-    (_found, verb: string, what?: string) => `${/^[A-Z]/.test(verb) ? "P" : "p"}ut ${what?.trim() || "it"} live`],
-  [/\b(?:merged|landed|shipped|deployed)\b/gi, "put live"],
-  [/\b(on|to|into|onto|from|off)\s+(?:the\s+)?main(?:\s+branch)?\b/gi, "$1 the live version"],
-  [/\bmain\s+branch\b/gi, "the live version"],
-  [/\bbranch(es)?\b/gi, (_found, many?: string) => (many ? "versions" : "version")],
-  [/\brebas(?:e[ds]?|ing)\b/gi, "update"],
-  [/\b(?:the\s+)?(?:checks|CI)\b/gi, "the automatic tests"],
-  [/\bcommit(?:s|ted)?\b/gi, "change"],
-  [/\b(?:the\s+)?workers?\b/gi, "my team"],
-  [/\bdeployments?\b/gi, "release"],
-  [/\b(the|a|this|that|each|every|new|last|latest)\s+build\b/gi, "$1 version"],
-  [/\bbuilds\b/gi, "versions"],
-  [/\bbuild\b/gi, (found: string) => (/^B/.test(found) ? "Make" : "make")],
-  [/\bsatisf(?:y|ied|ies)\b/gi, "done"],
-];
-
-/** A question asked in developer words, said with a fixed map instead: nothing in it is jargon, and nothing is made up. Pure. */
-export function softened(text: string): string {
-  let said = SOFTER.reduce((line, [pattern, instead]) => line.replace(pattern, instead as string), text);
-  for (const pattern of JARGON) said = said.replace(new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`), "");
-  return said.replace(/\s+([,.?!])/g, "$1").replace(/\s{2,}/g, " ").trim();
-}
-
 export function jargonIn(text: string): string | null {
   for (const pattern of JARGON) {
     const found = pattern.exec(text);

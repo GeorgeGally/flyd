@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cardSource, cardWordsFromModel, cardWordsPrompt, exhaustedCardWords, softened, translateCard, fallbackWords, jargonIn, MAX_TRIES, readCardWords, scheduleCardWords } from "../card-words.js";
+import { cardSource, cardWordsFromModel, cardWordsPrompt, exhaustedCardWords, translateCard, fallbackWords, MAX_TRIES, readCardWords, scheduleCardWords } from "../card-words.js";
 import { jobsFrom, plainAnswer } from "../jobs.js";
 import type { Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
@@ -441,7 +441,7 @@ describe("a reading that asks about passing something on to someone else", () =>
 });
 
 describe("a question the model could never say plainly", () => {
-  it("is put to him with its developer words softened, and its buttons, once the tries run out", async () => {
+  it("is put to him exactly as asked, with its buttons, once the tries run out", async () => {
     const run = { id: "run-x", status: "needs_decision", project: "Easel", outcome: "", question: "Merge PR #41 into main now, or wait?", owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "needs_you" as const };
     const path = pathFor();
     const first = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map(), exhausted: exhaustedCardWords(path), now: NOW });
@@ -456,29 +456,15 @@ describe("a question the model could never say plainly", () => {
       now += 31 * 60_000;
     }
     const card = jobsFrom({ projects: [easel], runs: [run], cardWords: readCardWords(path), exhausted: exhaustedCardWords(path), now: NOW }).jobs.find((job) => job.group === "needs")!;
-    expect(card.ask).toBe("Put the change live now, or wait?");
-    expect(jargonIn(card.ask)).toBeNull();
+    expect(card.ask).toBe("Merge the pull request into main now, or wait?");
     expect(card.choices).toEqual(["Merge PR #41 into main now", "Wait"]);
     expect(card.labels).toEqual({ "Merge PR #41 into main now": "Go ahead now", Wait: "Wait" });
   });
 });
 
-describe("softened", () => {
-  it("says a developer question's object where it belongs, and leaves plain words alone", () => {
-    expect(softened("Should I merge the hotfix now, or wait?")).toBe("Should I put the hotfix live now, or wait?");
-    expect(softened("Merge Anna's edits into main now, or wait?")).toBe("Put Anna's edits live now, or wait?");
-    expect(softened("Ship the new landing page now, or wait?")).toBe("Put the new landing page live now, or wait?");
-    expect(softened("Build the gallery now, or wait?")).toBe("Make the gallery now, or wait?");
-    expect(softened("Is the build ready?")).toBe("Is the version ready?");
-    expect(softened("Merge PR #41 or wait for CI?")).toBe("Put the change live or wait for the automatic tests?");
-    expect(softened("Should I merge PR #41 or close it?")).toBe("Should I put the change live or close it?");
-    expect(softened("Land it on main or wait for checks?")).toBe("Put it live or wait for the automatic tests?");
-    for (const said of ["Should I put the hotfix live now, or wait?", "Make the gallery now, or wait?"]) expect(jargonIn(said)).toBeNull();
-  });
-});
 
 describe("an open question in developer words the model could never say plainly", () => {
-  it("is put to him softened once the tries run out", async () => {
+  it("is put to him exactly as asked once the tries run out", async () => {
     const run = { id: "run-o", status: "needs_decision", project: "Easel", outcome: "", question: "Which branch should the hotfix go on?", owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "needs_you" as const };
     const path = pathFor();
     const first = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map(), exhausted: exhaustedCardWords(path), now: NOW });
@@ -490,12 +476,12 @@ describe("an open question in developer words the model could never say plainly"
       now += 31 * 60_000;
     }
     const card = jobsFrom({ projects: [easel], runs: [run], cardWords: readCardWords(path), exhausted: exhaustedCardWords(path), now: NOW }).jobs.find((job) => job.group === "needs")!;
-    expect(card.ask).toBe("Which version should the hotfix go on?");
+    expect(card.ask).toBe("Which branch should the hotfix go on?");
   });
 });
 
 describe("a plain question whose card line the model gave up on", () => {
-  it("is asked as written, never softened", async () => {
+  it("is asked as written", async () => {
     const run = { id: "run-price", status: "needs_decision", project: "Easel", outcome: "Pricing page with three tiers in 6d98921", question: "Which price should ship?", owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "needs_you" as const };
     const path = pathFor();
     const first = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map(), exhausted: exhaustedCardWords(path), now: NOW });
@@ -510,36 +496,3 @@ describe("a plain question whose card line the model gave up on", () => {
   });
 });
 
-describe("softened, every shape of a go-ahead question", () => {
-  const cases: Array<[string, string]> = [
-    ["Merge?", "Put it live?"],
-    ["Merge or wait?", "Put it live or wait?"],
-    ["Land or wait for checks?", "Put it live or wait for the automatic tests?"],
-    ["Merge or close the PR?", "Put it live or close the change?"],
-    ["Merge then deploy?", "Put it live then put it live?"],
-    ["Ship and tell Anna?", "Put it live and tell Anna?"],
-    ["Merge the hotfix?", "Put the hotfix live?"],
-    ["Merge the hotfix or wait?", "Put the hotfix live or wait?"],
-    ["Merge the hotfix and tell Anna?", "Put the hotfix live and tell Anna?"],
-    ["Merge it or wait?", "Put it live or wait?"],
-    ["Merge the PR or wait?", "Put the change live or wait?"],
-    ["Merge PR #41 and tell Anna?", "Put the change live and tell Anna?"],
-    ["Merge now?", "Put it live now?"],
-    ["Merge now, or wait?", "Put it live now, or wait?"],
-    ["Ship it now and tell Anna?", "Put it live now and tell Anna?"],
-    ["Should I merge the hotfix now, or wait?", "Should I put the hotfix live now, or wait?"],
-    ["Merge Anna's edits into main now, or wait?", "Put Anna's edits live now, or wait?"],
-    ["Ship the new landing page now, or wait?", "Put the new landing page live now, or wait?"],
-    ["Build the gallery now, or wait?", "Make the gallery now, or wait?"],
-    ["Is the build ready?", "Is the version ready?"],
-    ["Which price should ship?", "Which price should go live?"],
-    ["Is it ready to deploy?", "Is it ready to go live?"],
-    ["Merge PR #41 or wait for CI?", "Put the change live or wait for the automatic tests?"],
-    ["Should I merge PR #41 or close it?", "Should I put the change live or close it?"],
-    ["Land it on main or wait for checks?", "Put it live or wait for the automatic tests?"],
-  ];
-  it.each(cases)("%s", (asked, said) => {
-    expect(softened(asked)).toBe(said);
-    expect(jargonIn(said)).toBeNull();
-  });
-});

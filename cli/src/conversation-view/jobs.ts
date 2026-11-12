@@ -11,7 +11,7 @@ import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import { namedAnswers, type NamedAnswers } from "./choices.js";
 import { holdDecisions, numberedChoice, type HoldDecision } from "./artefact.js";
 import type { ShowItem, ShowScreen } from "./show.js";
-import { cardSource, fallbackWords, jargonIn, placeholderLine, softened, type CardSource, type CardWords } from "./card-words.js";
+import { cardSource, fallbackWords, jargonIn, placeholderLine, type CardSource, type CardWords } from "./card-words.js";
 
 /**
  * A job is a project George is moving, not one delegated run. Runs, conversations
@@ -318,7 +318,7 @@ export function jobsFrom(input: {
   digests?: JobDigest[];
   /** Plain words stored for cards built from staff status lines (card-words.ts). Given, every such card is said plainly or generically, never as written. */
   cardWords?: Map<string, CardWords>;
-  /** Lines the model has given up on: a question among them is said with its developer words softened, with its answers. */
+  /** Lines the model has given up on: a question among them is put to him exactly as asked, with its answers. */
   exhausted?: Set<string>;
   exists?: (path: string) => boolean;
   now?: number;
@@ -529,7 +529,7 @@ export function jobsFrom(input: {
       // The question is said once: a next line that only repeats it is left out.
       next: words ? (lead.group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, lead.group),
       owner: lead.owner,
-      ask: words ? (lead.group === "needs" ? words.body : "") : lead.ask && (unread ? softened(forHim(plainSaid(lead.ask))) : forHim(plainSaid(lead.ask))),
+      ask: words ? (lead.group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: bucket.shots.slice(0, 4),
@@ -543,7 +543,7 @@ export function jobsFrom(input: {
       ...(Object.keys(labels).some((option) => labels[option] !== option) ? { labels } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
       ...(lead.handled ? { handled: lead.handled } : {}),
-    }, fallback));
+    }, fallback, unread));
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));
   return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8), untranslated: [...untranslated, ...timeline].filter((source, index, all) => all.findIndex((item) => item.key === source.key) === index) };
@@ -625,7 +625,7 @@ function unfit(text: string | undefined): string | null {
  * phrase is said with its state's plain line instead. A fleet decision is
  * drawn from its own question, so its ask is left to it. Pure but for the log.
  */
-function shownPlainly(job: Job, fallback: CardWords): Job {
+function shownPlainly(job: Job, fallback: CardWords, asked = false): Job {
   const caught: string[] = [];
   const check = <T extends string | undefined>(text: T, instead: string): T | string => {
     const found = unfit(text);
@@ -633,7 +633,7 @@ function shownPlainly(job: Job, fallback: CardWords): Job {
     caught.push(found);
     return instead;
   };
-  const answered = Boolean(job.decisions?.length || job.decision);
+  const answered = asked || Boolean(job.decisions?.length || job.decision);
   const ask = answered ? job.ask : check(job.ask, job.group === "needs" ? fallback.body : "") as string;
   const { choices: _choices, recommended: _recommended, labels: _labels, ...unasked } = job;
   const shown: Job = {
