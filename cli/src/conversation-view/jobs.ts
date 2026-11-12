@@ -221,7 +221,7 @@ interface Signal {
   /** The hash of this signal's own report, so its card reads its own digest and never another item's. */
   reportHash?: string;
   /** The staff's own words this card came from (a worker's status line), when it is not his decision: said plainly before he reads it. */
-  raw?: { title: string; line: string; thread?: string; keep?: boolean };
+  raw?: { title: string; line: string; thread?: string; keep?: boolean; asked?: boolean };
 }
 
 function rank(group: JobGroup): number {
@@ -242,7 +242,7 @@ function runSignal(run: JobRun, now: number): Signal | null {
   const keep = Boolean(question) && !jargonIn(question);
   const line = question && !keep ? question : run.outcome;
   if (!line) return signal;
-  return { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line, thread: run.id, ...(keep ? { keep } : {}) } };
+  return { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line, thread: run.id, ...(keep ? { keep } : {}), ...(line === question ? { asked: true } : {}) } };
 }
 
 function runSignalOf(run: JobRun, now: number): Signal | null {
@@ -510,8 +510,8 @@ export function jobsFrom(input: {
     const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line, shownAnswers ? answers!.options.map((option) => shownAnswers[option]!) : undefined) : undefined;
     const fallback = fallbackWords(bucket.name ?? "", lead.group, state);
     const named = raw ? input.cardWords!.get(raw.key) ?? fallback : undefined;
-    // A question with its own answers keeps its words while they are plain; asked in developer words, it is said plainly and its answers stay.
-    const unread = Boolean(raw && lead.group === "needs" && jargonIn(lead.ask) && !input.cardWords!.has(raw.key) && input.exhausted?.has(raw.key));
+    // A question with its own answers keeps its words while they are plain; asked in developer words, it is said plainly and its answers stay. Only a question the run put to him is ever shown as asked: a staff status line never is.
+    const unread = Boolean(raw && lead.group === "needs" && lead.raw?.asked && jargonIn(lead.ask) && !input.cardWords!.has(raw.key) && input.exhausted?.has(raw.key));
     const words = lead.raw?.keep || unread || (asks && !jargonIn(lead.ask)) ? undefined : named;
     // Its answers wait for a stored reading that puts the question to him: never buttons without the question they answer.
     const blind = Boolean(words && asks && !input.cardWords!.has(raw!.key));

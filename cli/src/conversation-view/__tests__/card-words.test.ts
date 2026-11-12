@@ -480,6 +480,26 @@ describe("an open question in developer words the model could never say plainly"
   });
 });
 
+describe("a decision with no question whose status line the model gave up on", () => {
+  it("never shows the staff line, before or after the tries run out", async () => {
+    const run = { id: "run-s", status: "needs_decision", project: "Easel", outcome: "005 blocked: needs PR #41 rebased onto main before deploy", question: "", owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "needs_you" as const };
+    const path = pathFor();
+    const plain = fallbackWords("Easel", "needs").body;
+    const first = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map(), exhausted: exhaustedCardWords(path), now: NOW });
+    expect(first.jobs.find((job) => job.group === "needs")!.ask).toBe(plain);
+    let now = NOW;
+    const failing = vi.fn(async () => { throw new Error("model down"); });
+    for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
+      await scheduleCardWords(first.untranslated, { path, ask: failing, now: () => now });
+      now += 31 * 60_000;
+    }
+    expect(exhaustedCardWords(path).size).toBe(1);
+    const card = jobsFrom({ projects: [easel], runs: [run], cardWords: readCardWords(path), exhausted: exhaustedCardWords(path), now: NOW }).jobs.find((job) => job.group === "needs")!;
+    expect(card.ask).toBe(plain);
+    expect(card.ask).not.toMatch(/rebase|pull request|deploy/i);
+  });
+});
+
 describe("a plain question whose card line the model gave up on", () => {
   it("is asked as written", async () => {
     const run = { id: "run-price", status: "needs_decision", project: "Easel", outcome: "Pricing page with three tiers in 6d98921", question: "Which price should ship?", owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "needs_you" as const };
