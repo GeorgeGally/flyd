@@ -1586,10 +1586,12 @@ describe("the CapFive lab questions artefact", () => {
 
   it("finds the screenshot a status line names among the task's own files, and nothing else", () => {
     const files = ["shots/after-390.png", "before.png"];
-    expect(namedShotIn("done: bar moved, shot at /home/x/firstmate/data/deck-bar/shots/after-390.png; reply posted", files)).toBe("shots/after-390.png");
-    expect(namedShotIn("done: see before.png", files)).toBe("before.png");
-    expect(namedShotIn("done: see /tmp/elsewhere/other.png", files)).toBeUndefined();
-    expect(namedShotIn("done: no picture named", files)).toBeUndefined();
+    expect(namedShotIn("done: bar moved, shot at /home/x/firstmate/data/deck-bar/shots/after-390.png; reply posted", "deck-bar", files)).toBe("shots/after-390.png");
+    expect(namedShotIn("done: see before.png", "deck-bar", files)).toBe("before.png");
+    expect(namedShotIn("done: see /tmp/elsewhere/other.png", "deck-bar", files)).toBeUndefined();
+    expect(namedShotIn("done: see /home/x/firstmate/data/lab-x/before.png", "deck-bar", files)).toBeUndefined();
+    expect(namedShotIn("done: see /home/x/firstmate/data/lab-x/shots/after-390.png", "deck-bar", files)).toBeUndefined();
+    expect(namedShotIn("done: no picture named", "deck-bar", files)).toBeUndefined();
   });
 
   it("puts the screenshot a worker's last line names first on its card", async () => {

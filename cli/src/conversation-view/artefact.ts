@@ -492,10 +492,10 @@ export interface TaskExtra {
 }
 
 /** The picture a worker's status line names by its path ("… shot at /…/data/task/after-390.png"), among the task's own files. Pure. */
-export function namedShotIn(line: string, files: readonly string[]): string | undefined {
+export function namedShotIn(line: string, task: string, files: readonly string[]): string | undefined {
   const named = line.match(/[^\s"'`<>()]+\.(?:png|jpe?g|webp|gif)\b/gi) ?? [];
   for (const path of named) {
-    const found = files.find((file) => path === file || path.endsWith(`/${file}`));
+    const found = files.find((file) => path === file || path.endsWith(`/${task}/${file}`));
     if (found) return found;
   }
   return undefined;
@@ -1336,7 +1336,6 @@ function withoutProject(label: string, names: string[]): string {
   return label;
 }
 
-/** One fleet row as a panel item; a call carries its question to answer. Pure. */
 /** A row's card with every board link it shows (its buttons and its words) on the address the phone opens. Pure. */
 function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeOptions): ShowItem | undefined {
   const item = loopbackRowItem(kind, id, row, options);
@@ -1348,6 +1347,7 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
   };
 }
 
+/** One fleet row as a panel item; a call carries its question to answer. Pure. */
 function loopbackRowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeOptions): ShowItem | undefined {
   const project = row.repo ? options.project?.(row.repo) ?? row.repo : undefined;
   const names = [project, row.repo].filter((name): name is string => Boolean(name));
@@ -2196,7 +2196,7 @@ export class ArtefactFeed {
           }));
         const picked = pickShots(files);
         // The picture his update names is the one it is about: first, even where the pick left it out.
-        const named = namedShotIn(last, files.map((file) => file.path));
+        const named = namedShotIn(last, task, files.map((file) => file.path));
         const shots = named ? [named, ...picked.filter((path) => path !== named)] : picked;
         if (named) extra.namedShot = named;
         if (shots.length) {
