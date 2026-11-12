@@ -72,6 +72,8 @@ export interface Job {
   choices?: string[];
   /** The answer Flyd recommends, when it names one. */
   recommended?: string;
+  /** How each answer reads on its button, by the answer it sends: "Merge" reads "Go ahead". An answer not in it reads as it is. */
+  labels?: Record<string, string>;
   /** Several numbered questions in one ask, each with its own answers: one card each on the open job. */
   decisions?: HoldDecision[];
   /** The domain run an answer given on this job reaches. Absent when the run has finished and cannot take one. */
@@ -494,16 +496,21 @@ export function jobsFrom(input: {
     const several = numbered.length > 1 ? numbered : null;
     const listed = lead.group === "needs" && !lead.decision && lead.ask ? numberedChoice(lead.ask) : undefined;
     const answers = lead.group === "needs" && !several ? (listed ?? answersOf(lead, digestSaid)) : null;
-    // The buttons he taps are in his words too: "Merge" reads "Go ahead"; answers that cannot be said plainly are left to his own words.
-    const shownAnswers = answers && plainAnswers(answers.options, answers.recommended);
+    // The buttons he taps read in his words ("Merge" reads "Go ahead") and still send the answer as named; answers that cannot be said plainly are left to his own words.
+    const shownAnswers = answers && plainAnswers(answers.options);
+    const decisionLabels = lead.decision?.choices.length ? plainAnswers(lead.decision.choices) : null;
+    const severalLabels = several?.map((decision) => plainAnswers(decision.options));
     const shownState = paused && (paused > 1 || state !== "Paused") ? `${state === "Paused" ? "" : `${state} · `}${paused} paused` : state;
     // A card built from the staff's status line is said in his words, once (card-words.ts); until then, generically, and its Timeline entry says the same. A card with its own question and answers keeps them together.
     const asks = Boolean(several || listed || answers?.options.length);
-    const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line) : undefined;
+    const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line, shownAnswers ? answers!.options.map((option) => shownAnswers[option]!) : undefined) : undefined;
     const fallback = fallbackWords(bucket.name ?? "", lead.group, state);
     const named = raw ? input.cardWords!.get(raw.key) ?? fallback : undefined;
     // A question with its own answers keeps its words while they are plain; asked in developer words, it is said plainly and its answers stay.
     const words = lead.raw?.keep || (asks && !jargonIn(lead.ask)) ? undefined : named;
+    // Its answers wait for a stored reading that puts the question to him: never buttons without the question they answer.
+    const blind = Boolean(words && asks && !input.cardWords!.has(raw!.key));
+    const labels = blind ? {} : { ...decisionLabels, ...Object.assign({}, ...(severalLabels ?? []).map((said) => said ?? {})), ...shownAnswers };
     if (raw && !input.cardWords!.has(raw.key) && !untranslated.some((item) => item.key === raw.key)) untranslated.push(raw);
     if (raw && words && !lead.raw!.thread) bucket.threads.push({ id: `note:${raw.key}`, title: words.title, ...(input.cardWords!.has(raw.key) ? { full: words.body } : {}), at: lead.at || at, kind: "run" });
     jobs.push(shownPlainly({
@@ -525,9 +532,10 @@ export function jobsFrom(input: {
       files: bucket.files.slice(0, 6),
       threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8).map(said),
       digest: digestSaid,
-      ...(lead.decision ? { decision: plainDecision(lead.decision) } : {}),
-      ...(several ? { decisions: several.map((decision) => ({ ...decision, ...(plainAnswers(decision.options, decision.recommended) ?? { options: [], recommended: undefined }) })) } : {}),
-      ...(shownAnswers ? { choices: shownAnswers.options, ...(shownAnswers.recommended ? { recommended: shownAnswers.recommended } : {}) } : {}),
+      ...(lead.decision ? { decision: blind || !decisionLabels ? { ...lead.decision, choices: [], recommended: undefined } : lead.decision } : {}),
+      ...(several && !blind ? { decisions: several.map((decision, index) => (severalLabels![index] ? decision : { ...decision, options: [], recommended: undefined })) } : {}),
+      ...(shownAnswers && !blind ? { choices: answers!.options, ...(answers!.recommended ? { recommended: answers!.recommended } : {}) } : {}),
+      ...(Object.keys(labels).some((option) => labels[option] !== option) ? { labels } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
       ...(lead.handled ? { handled: lead.handled } : {}),
     }, fallback));
@@ -577,36 +585,28 @@ function sameWords(a: string, b: string): boolean {
   return Boolean(x && y) && (x === y || x.startsWith(y) || y.startsWith(x));
 }
 
-/** An answer that goes ahead with the work, in the staff's word for it: "Merge", "Land it", "Ship now". */
-const GO_AHEAD = /^(?:yes[,.!]?\s+)?(?:merge|land|ship|deploy|release|push|rebase|publish)\b\s*(?:(?:it|this|that|them|the\s+pr|pr\s*#?\d*|(?:in)?to\s+main|onto\s+main|on\s+main)\b\s*)*/i;
+/** An answer that only goes ahead with the work, in the staff's word for it: "Merge", "Land it", "Ship now". Nothing else may follow. */
+const GO_AHEAD = /^(?:yes[,.!]?\s+)?(?:merge|land|ship)(?:\s+(?:it|this|that|them|the\s+pr|pr\s*#?\d*|(?:in)?to\s+main|onto\s+main|on\s+main))*(\s+now)?[.!]?$/i;
 
 /**
- * One answer button in his words: "Merge" reads "Go ahead", "Merge now" reads
- * "Go ahead now", "Wait for checks" reads "Wait". Null when it still talks like a developer. Pure.
+ * How one answer reads on its button: "Merge" reads "Go ahead", "Merge now"
+ * reads "Go ahead now", "Wait for checks" reads "Wait". Only the label: the
+ * button still sends the answer as named. Null when it still talks like a developer. Pure.
  */
 export function plainAnswer(option: string): string | null {
   const go = GO_AHEAD.exec(option.trim());
-  const said = go ? `Go ahead${option.trim().slice(go[0].length).trim() ? ` ${option.trim().slice(go[0].length).trim()}` : ""}` : option;
+  const said = go ? `Go ahead${go[1] ? " now" : ""}` : option;
   if (!jargonIn(said) && !bannedFor(said)) return said;
   // "Wait for checks" is still "Wait" to him.
-  const hold = /^(?:wait|hold off|not yet|no)\b/i.exec(said.trim())?.[0];
+  const hold = /^(?:wait|hold off|not yet)\b/i.exec(said.trim())?.[0];
   return hold ? hold.charAt(0).toUpperCase() + hold.slice(1) : null;
 }
 
-/** A set of answers in his words, the recommended one with them; null when any cannot be said plainly or two would read the same. Pure. */
-function plainAnswers(options: string[], recommended?: string): { options: string[]; recommended?: string } | null {
+/** Each answer's label, by the answer it sends; null when any cannot be said plainly or two would read the same. Pure. */
+function plainAnswers(options: string[]): Record<string, string> | null {
   const said = options.map(plainAnswer);
   if (said.some((option) => option === null) || new Set(said.map((option) => option!.toLowerCase())).size !== said.length) return null;
-  const pick = recommended ? said[options.indexOf(recommended)] : undefined;
-  return { options: said as string[], ...(pick ? { recommended: pick } : {}) };
-}
-
-/** A fleet decision drawn with buttons in his words; with none, when its answers cannot be said plainly. Pure. */
-function plainDecision(decision: NonNullable<ShowItem["decision"]>): NonNullable<ShowItem["decision"]> {
-  if (!decision.choices.length) return decision;
-  const said = plainAnswers(decision.choices, decision.recommended);
-  const { recommended: _recommended, ...rest } = decision;
-  return said ? { ...rest, choices: said.options, ...(said.recommended ? { recommended: said.recommended } : {}) } : { ...rest, choices: [] };
+  return Object.fromEntries(options.map((option, index) => [option, said[index]!]));
 }
 
 /** Developer words or a banned phrase in a line he would read, or null. Pure. */

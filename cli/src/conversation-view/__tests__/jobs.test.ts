@@ -294,9 +294,10 @@ describe("jobsFrom", () => {
       at: "2026-10-26T10:00:00.000Z", model: "m", inputTokens: 0, outputTokens: 0, usd: 0,
     };
     const said = jobsFrom({ projects: [project()], reports: [{ project: "Cap5", title: "Board", text }], digests: [digest], runs: [run({ status: "needs_decision", question: "Waiting on your go-ahead." })], now: NOW }).jobs[0]!;
-    expect(said).toMatchObject({ group: "needs", domainRun: "run-1", choices: ["Go ahead"], recommended: "Go ahead" });
+    expect(said).toMatchObject({ group: "needs", domainRun: "run-1", choices: ["Merge"], recommended: "Merge", labels: { Merge: "Go ahead" } });
     const asked = jobsFrom({ runs: [run({ status: "needs_decision", question: "Should I merge now or wait for checks?" })], now: NOW }).jobs[0]!;
-    expect(asked.choices).toEqual(["Go ahead now", "Wait"]);
+    expect(asked.choices).toEqual(["Merge now", "Wait for checks"]);
+    expect(asked.labels).toEqual({ "Merge now": "Go ahead now", "Wait for checks": "Wait" });
     const open = jobsFrom({ runs: [run({ status: "needs_decision", question: "Which price should ship?" })], now: NOW }).jobs[0]!;
     expect(open.choices).toBeUndefined();
   });

@@ -465,6 +465,10 @@ export const ARTEFACT_CHAT_SCRIPT = `
   // The answer a choice button sent on this page, by card key, while it is on its way: every
   // button for that card steps back at once, and nothing about it outlives the page.
   var choicePending = {};
+  // How an answer reads on its button; the button still sends the answer itself.
+  function choiceLabel(labels, choice) {
+    return labels && typeof labels[choice] === "string" ? labels[choice] : choice;
+  }
   // A choice button sends its words exactly as if he had typed them, through the card's own chat.
   function askedOf(decision) {
     return [decision.questionIdentity || decision.question || ""].concat(decision.choices || []).join("\\n");
@@ -516,7 +520,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
     var buttons = ordered.map(function (choice) {
       var button = el("button", "choice-pick" + (choice === one.recommended ? " primary" : ""));
       button.type = "button";
-      button.appendChild(el("span", "", choice));
+      button.appendChild(el("span", "", choiceLabel(decision.labels, choice)));
       if (choice === one.recommended) button.appendChild(el("small", "", "recommended"));
       button.addEventListener("click", function () { answer(choice); });
       picks.appendChild(button);
@@ -659,7 +663,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
       var buttons = ordered.map(function (choice) {
         var button = el("button", "choice-pick" + (choice === decision.recommended ? " primary" : ""));
         button.type = "button";
-        button.appendChild(el("span", "", choice));
+        button.appendChild(el("span", "", choiceLabel(decision.labels, choice)));
         if (choice === decision.recommended) button.appendChild(el("small", "", "recommended"));
         button.addEventListener("click", function () { pickChoice(chat, key, decision, choice, chat.onPaint); });
         choices.appendChild(button);

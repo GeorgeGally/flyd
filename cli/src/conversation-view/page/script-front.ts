@@ -252,7 +252,7 @@ export const FRONT_SCRIPT = `
     if (!decision) return "";
     var list = Array.isArray(decision.decisions) ? decision.decisions : [];
     if (list.length > 1) return list.filter(function (one) { return one && one.done; }).length + " of " + list.length + " decided";
-    return decision.recommended ? "Go with " + frontText(decision.recommended) : "";
+    return decision.recommended ? "Go with " + frontText(choiceLabel(job.labels, decision.recommended)) : "";
   }
   // A job card: the picture (work under way is words only), what it says, its next step, then the project and when in plain words; no label above it.
   // A decision with a few named answers takes them on the card itself, one tap each, the recommended one first.
@@ -262,7 +262,7 @@ export const FRONT_SCRIPT = `
     var buttons = choicesInOrder(job.choices, job.recommended).map(function (choice) {
       var on = picked && picked.choice === choice;
       return '<button type="button" class="jpick' + (choice === job.recommended ? " primary" : "") + '" data-pick-job="' + frontEsc(job.id) + '" data-pick="' + frontEsc(choice) + '"'
-        + ' aria-pressed="' + (on ? "true" : "false") + '"' + (picked ? " disabled" : "") + '>' + frontEsc(choice) + '</button>';
+        + ' aria-pressed="' + (on ? "true" : "false") + '"' + (picked ? " disabled" : "") + '>' + frontEsc(choiceLabel(job.labels, choice)) + '</button>';
     }).join("");
     return '<div class="jpicks" role="group" aria-label="Answers">' + buttons + '</div>'
       + (picked ? '<p class="jsent" role="status">' + frontEsc(picked.line) + '</p>' : "");
@@ -558,11 +558,12 @@ export const FRONT_SCRIPT = `
   // The decision the open job asks, with the answers the card offers; null when it names none and has no decision.
   function frontDecision(job) {
     var choices = job.choices && job.choices.length ? job.choices : null;
-    if (job.decision) return choices ? Object.assign({}, job.decision, { choices: choices, recommended: job.recommended || job.decision.recommended }) : job.decision;
+    var labels = job.labels || {};
+    if (job.decision) return Object.assign({}, job.decision, choices ? { choices: choices, recommended: job.recommended || job.decision.recommended } : {}, { labels: labels });
     // Several numbered questions from the run: one card each, answered on their own.
-    if (job.decisions && job.decisions.length > 1) return { question: job.ask || "", questionIdentity: job.questionIdentity || "", choices: [], decisions: job.decisions };
+    if (job.decisions && job.decisions.length > 1) return { question: job.ask || "", questionIdentity: job.questionIdentity || "", choices: [], decisions: job.decisions, labels: labels };
     if (!choices) return null;
-    return { question: job.ask || "", questionIdentity: job.questionIdentity || "", choices: choices, recommended: job.recommended || "" };
+    return { question: job.ask || "", questionIdentity: job.questionIdentity || "", choices: choices, recommended: job.recommended || "", labels: labels };
   }
   // What has become of an answer sent from a card's button: on its way, sent, or not delivered.
   function frontPicked(job) {
@@ -630,7 +631,7 @@ export const FRONT_SCRIPT = `
       at: job.at || "", next: job.next || "", owner: job.owner || "", ask: job.ask || "", questionIdentity: job.questionIdentity || "", because: job.because || "",
       digest: job.digest || null, shots: frontShots(job.shots), links: job.links || [], files: job.files || [],
       threads: job.threads || [], detail: job.detail || "", decision: job.decision || null, task: job.task || "", domainRun: job.domainRun || "",
-      choices: Array.isArray(job.choices) ? job.choices : [], recommended: job.recommended || "",
+      choices: Array.isArray(job.choices) ? job.choices : [], recommended: job.recommended || "", labels: job.labels && typeof job.labels === "object" ? job.labels : {},
       decisions: Array.isArray(job.decisions) ? job.decisions : [],
       handled: job.handled && job.handled.decisionId ? { decisionId: job.handled.decisionId, task: job.handled.task || "" } : null,
     };

@@ -65,6 +65,8 @@ function pronounsToYou(text: string): string {
     const head = sentence.slice(0, first.index + first[0].length);
     const tail = sentence.slice(head.length);
     if (!/\b(?:he|him|his|himself)\b/i.test(tail)) return sentence;
+    // "George's brother called and he wants a lift": someone of his is named, and may be who "he" is.
+    if (new RegExp(`${HIM}['’]s\\s+[a-z]`).test(sentence)) return sentence;
     // Anyone else named in the sentence may be who "he" is.
     const others = sentence.replace(new RegExp(HIM, "g"), " ").match(/\b[A-Z][\w'’-]*/g) ?? [];
     if (others.some((word) => !NO_ONE.test(word))) return sentence;

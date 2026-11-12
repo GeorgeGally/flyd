@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cardSource, cardWordsFromModel, fallbackWords, MAX_TRIES, readCardWords, scheduleCardWords } from "../card-words.js";
+import { cardSource, cardWordsFromModel, cardWordsPrompt, translateCard, fallbackWords, MAX_TRIES, readCardWords, scheduleCardWords } from "../card-words.js";
 import { jobsFrom, plainAnswer } from "../jobs.js";
 import type { Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
@@ -75,7 +75,7 @@ describe("board cards from staff status lines", () => {
     expect(board.untranslated.map((source) => source.line)).toEqual(["Pick A or B"]);
   });
 
-  it("says a ready run's question asked in developer words plainly, and keeps its answers", () => {
+  it("says a ready run's question asked in developer words plainly, and shows its answers only once the reading puts the question", () => {
     const question = "Say merge to ship the crop tool, or tell me to wait";
     const board = jobsFrom({
       projects: [easel],
@@ -85,16 +85,21 @@ describe("board cards from staff status lines", () => {
     });
     const card = board.jobs.find((job) => job.group === "needs")!;
     expect(card).toMatchObject({ title: "Easel: ready for you to look over", ask: "This is finished. Have a look when you can and tell me if anything should change." });
-    expect(card.choices?.length).toBeGreaterThan(0);
-    expect(JSON.stringify(card.choices)).not.toMatch(/merge|ship/i);
+    // No buttons while the card cannot yet say what they answer.
+    expect(card.choices).toBeUndefined();
+    expect(card.labels).toBeUndefined();
     expect(board.untranslated.map((source) => source.line)).toEqual([question]);
+    expect(board.untranslated[0]!.answers).toEqual(["Go ahead", "Wait"]);
+    const prompt = cardWordsPrompt(board.untranslated[0]!);
+    expect(prompt).toContain('"Go ahead", "Wait"');
     const said = jobsFrom({
       projects: [easel],
       runs: [{ id: "run-q", status: "completed", project: "Easel", outcome: "Crop images on the canvas", question, owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "ready" }],
       cardWords: new Map([[board.untranslated[0]!.key, PLAIN]]),
       now: NOW,
     }).jobs.find((job) => job.group === "needs")!;
-    expect(said).toMatchObject({ title: PLAIN.title, ask: PLAIN.body, choices: card.choices });
+    // The buttons read in his words and still send the answers as named.
+    expect(said).toMatchObject({ title: PLAIN.title, ask: PLAIN.body, choices: ["Merge", "Wait"], labels: { Merge: "Go ahead", Wait: "Wait" } });
   });
 
   it("keeps a ready fleet item's decision question instead of rewriting it", () => {
@@ -337,23 +342,50 @@ describe("what the review found still reaching him", () => {
     expect(plainAnswer("Merge")).toBe("Go ahead");
     expect(plainAnswer("Merge now")).toBe("Go ahead now");
     expect(plainAnswer("Yes, land it")).toBe("Go ahead");
-    expect(plainAnswer("Rebase onto main")).toBe("Go ahead");
     expect(plainAnswer("Wait")).toBe("Wait");
     expect(plainAnswer("Wait for checks")).toBe("Wait");
     expect(plainAnswer("V3 Notch")).toBe("V3 Notch");
     expect(plainAnswer("Keep the PR open")).toBeNull();
+    // Only a plain go-ahead reads "Go ahead": nothing that changes what is approved is kept or lost.
+    expect(plainAnswer("Rebase onto main")).toBeNull();
+    expect(plainAnswer("Rebase first")).toBeNull();
+    expect(plainAnswer("Merge after the rebase")).toBeNull();
+    expect(plainAnswer("Push back to Friday")).toBe("Push back to Friday");
+    expect(plainAnswer("Deploy to staging")).toBeNull();
+    expect(plainAnswer("No, close the PR")).toBeNull();
 
     const show = { ...screen, calls: [{ id: "call:week", kind: "call", headline: "Week page", why: "", task: "week", project: "/code/easel", detail: "Merge or wait",
       decision: { task: "week", question: "Is the Week page good to go live?", choices: ["Merge", "Wait"], recommended: "Merge" } }] } as unknown as ShowScreen;
     const card = jobsFrom({ projects: [easel], show, cardWords: new Map(), now: NOW }).jobs.find((job) => job.group === "needs")!;
-    expect(card.choices).toEqual(["Go ahead", "Wait"]);
-    expect(card.recommended).toBe("Go ahead");
-    expect(card.decision).toMatchObject({ choices: ["Go ahead", "Wait"], recommended: "Go ahead" });
+    expect(card.choices).toEqual(["Merge", "Wait"]);
+    expect(card.recommended).toBe("Merge");
+    expect(card.labels).toEqual({ Merge: "Go ahead", Wait: "Wait" });
+    expect(card.decision).toMatchObject({ choices: ["Merge", "Wait"], recommended: "Merge" });
+
+    // "Merge" beside "Rebase first": the second cannot be said plainly, so no buttons say either wrongly.
+    const rebase = { ...screen, calls: [{ id: "call:rb", kind: "call", headline: "Week page", why: "", task: "rb", project: "/code/easel", detail: "Merge or rebase",
+      decision: { task: "rb", question: "Is the Week page good to go live?", choices: ["Merge", "Rebase first"] } }] } as unknown as ShowScreen;
+    const both = jobsFrom({ projects: [easel], show: rebase, cardWords: new Map(), now: NOW }).jobs.find((job) => job.group === "needs")!;
+    expect(both.choices).toBeUndefined();
+    expect(both.decision?.choices).toEqual([]);
+    expect(both.labels).toBeUndefined();
 
     const unsaid = { ...screen, calls: [{ id: "call:pr", kind: "call", headline: "Week page", why: "", task: "pr", project: "/code/easel", detail: "Pick one",
       decision: { task: "pr", question: "Which one should go live?", choices: ["PR #41", "PR #42"] } }] } as unknown as ShowScreen;
     const open = jobsFrom({ projects: [easel], show: unsaid, cardWords: new Map(), now: NOW }).jobs.find((job) => job.group === "needs")!;
     expect(open.choices).toBeUndefined();
     expect(open.decision?.choices).toEqual([]);
+  });
+});
+
+describe("a card with answer buttons", () => {
+  it("asks the model for a reading that puts the question its buttons answer", async () => {
+    const source = cardSource("Easel", "Needs you", "Easel", "Merge PR #41 into main? Yes or no", ["Yes", "No"]);
+    expect(cardWordsPrompt(source)).toContain('"Yes", "No"');
+    expect(cardWordsPrompt(cardSource("Easel", "Needs you", "Easel", "Merge PR #41 into main? Yes or no"))).not.toContain("answer buttons");
+    const statement = JSON.stringify({ title: "Easel: the new page", body: "The new page is ready for you." });
+    const question = JSON.stringify({ title: "Easel: the new page", body: "Shall I put the new page live?" });
+    expect(await translateCard(source, async () => statement)).toBeNull();
+    expect(await translateCard(source, async () => question)).toEqual({ title: "Easel: the new page", body: "Shall I put the new page live?" });
   });
 });
