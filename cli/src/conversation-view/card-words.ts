@@ -60,14 +60,14 @@ export function cardWordsPath(): string {
   return process.env.FLYD_CARD_WORDS_PATH?.trim() || join(FLYD_DIR, "card-words.json");
 }
 
-/** One key per raw line (with the project and state it was said under). Pure. */
-export function cardWordsKey(project: string, state: string, title: string, line: string): string {
+/** One key per raw line (with the project and state it was said under, and the answers its buttons offer). Pure. */
+export function cardWordsKey(project: string, state: string, title: string, line: string, answers: string[] = []): string {
   const flat = (text: string) => text.replace(/\s+/g, " ").trim();
-  return createHash("sha256").update([PROMPT_VERSION, flat(project), flat(state), flat(title), flat(line)].join("\0")).digest("hex").slice(0, 20);
+  return createHash("sha256").update([PROMPT_VERSION, flat(project), flat(state), flat(title), flat(line), ...(answers.length ? [answers.map(flat).join("\u0001")] : [])].join("\0")).digest("hex").slice(0, 20);
 }
 
 export function cardSource(project: string, state: string, title: string, line: string, answers?: string[]): CardSource {
-  return { key: cardWordsKey(project, state, title, line), project, state, title, line, ...(answers?.length ? { answers } : {}) };
+  return { key: cardWordsKey(project, state, title, line, answers), project, state, title, line, ...(answers?.length ? { answers } : {}) };
 }
 
 function readStored(path: string): StoredWords[] {

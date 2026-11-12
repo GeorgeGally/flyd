@@ -463,11 +463,12 @@ export function jobsFrom(input: {
   const untranslated: CardSource[] = [];
   const timeline: CardSource[] = [];
   // A shown run's Timeline entry is said in his words too, never as the staff wrote it: a stored reading in full, else the generic line alone.
-  const said = (thread: JobThread): JobThread => {
+  const said = (thread: JobThread, card?: CardSource): JobThread => {
     const item = input.cardWords && runThreads.get(thread);
     if (!item) return thread;
     const project = item.bucket.name ?? "";
-    const source = cardSource(project, item.state, item.title, item.line);
+    const own = cardSource(project, item.state, item.title, item.line);
+    const source = card && cardSource(card.project, card.state, card.title, card.line).key === own.key ? card : own;
     const stored = input.cardWords!.get(source.key);
     if (!stored) timeline.push(source);
     const { full: _full, ...rest } = thread;
@@ -531,7 +532,7 @@ export function jobsFrom(input: {
       shots: bucket.shots.slice(0, 4),
       links: links.slice(0, 4),
       files: bucket.files.slice(0, 6),
-      threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8).map(said),
+      threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8).map((thread) => said(thread, raw)),
       digest: digestSaid,
       ...(lead.decision ? { decision: blind || !decisionLabels ? { ...lead.decision, choices: [], recommended: undefined } : lead.decision } : {}),
       ...(several && !blind ? { decisions: several.map((decision, index) => (severalLabels![index] ? decision : { ...decision, options: [], recommended: undefined })) } : {}),

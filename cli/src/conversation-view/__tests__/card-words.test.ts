@@ -414,3 +414,16 @@ describe("a decision run with a question in developer words and no outcome", () 
     expect(card.labels).toBeUndefined();
   });
 });
+
+describe("a reading made without a card's answers", () => {
+  it("never shows that card's buttons, and the card and its Timeline ask for one reading with the answers", () => {
+    const run = { id: "run-a", status: "needs_decision", project: "Easel", outcome: "", question: "Merge PR #41 into main now, or wait?", owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "needs_you" as const };
+    const withoutAnswers = cardSource("Easel", "Needs you", "Easel", run.question);
+    const words = new Map([[withoutAnswers.key, { title: "Easel: the new page is almost ready", body: "The new page is nearly done." }]]);
+    const board = jobsFrom({ projects: [easel], runs: [run], cardWords: words, now: NOW });
+    const card = board.jobs.find((job) => job.group === "needs")!;
+    expect(card.choices).toBeUndefined();
+    expect(card.labels).toBeUndefined();
+    expect(board.untranslated).toEqual([expect.objectContaining({ line: run.question, answers: ["Go ahead now", "Wait"] })]);
+  });
+});
