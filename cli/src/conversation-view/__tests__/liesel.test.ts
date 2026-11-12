@@ -105,19 +105,22 @@ describe("a project's own board", () => {
     expect(new ProjectBoards("/nowhere/state.json").keyFor("cap5")).toBeUndefined();
   });
 
-  it("links a project card to its board through the opener, and drops a Lavish review for it", async () => {
+  it("links a project card to its board through the opener, keeping its Lavish review", async () => {
     const home = mkdtempSync(join(tmpdir(), "artefact-project-board-"));
     mkdirSync(join(home, "bin"));
     mkdirSync(join(home, "state"));
-    const row = { id: "cap5-hero", state: "working", name: "Cap5 hero", doing: "harness busy", repo: "cap5", url: "http://127.0.0.1:4387/session/abcdef123" };
-    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\necho '${JSON.stringify({ in_flight: [row, { ...row, id: "other", name: "Other", repo: "flyd", url: undefined }] })}'\n`, { mode: 0o755 });
+    const row = { id: "cap5-hero", state: "working", name: "Cap5 hero", doing: "harness busy", repo: "cap5" };
+    const snapshot = { in_flight: [row, { ...row, id: "other", name: "Other", repo: "flyd" }], recorded_prs: [{ id: "cap5-hero", url: "http://127.0.0.1:4387/session/abcdef123" }] };
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\necho '${JSON.stringify(snapshot)}'\n`, { mode: 0o755 });
     const projectBoards = new ProjectBoards(stateWith({ "4a40bbcfafd89a95": { file: "/Users/g/Documents/cap5/.liesel/board.json", status: "open" } }));
     const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none"), projectBoards });
     await feed.refresh();
     const items = underwayItems(feed.current().fleet!);
     const cap5 = items.find((item) => item.task === "cap5-hero")!;
-    expect(cap5.links).toEqual([{ label: "Open board", url: "/open-board/4a40bbcfafd89a95" }]);
-    expect(JSON.stringify(cap5)).not.toContain(":4387");
+    expect(cap5.links).toEqual([
+      { label: "Open design review", url: "http://127.0.0.1:4387/session/abcdef123" },
+      { label: "Open board", url: "/open-board/4a40bbcfafd89a95" },
+    ]);
     const other = items.find((item) => item.task === "other")!;
     expect(JSON.stringify(other.links ?? [])).not.toContain("open-board");
   });

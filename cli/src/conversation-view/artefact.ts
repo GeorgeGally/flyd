@@ -1976,7 +1976,7 @@ export class ArtefactFeed {
 
   /**
    * A card on a project that keeps a Liesel board (`<project>/.liesel/board.json`) links that
-   * board when it names none of its own; the board is the design review, so a Lavish page is dropped.
+   * board when it names none of its own, beside any link it already has.
    * A card whose own link is already a board keeps it.
    */
   private withProjectBoards(fleet: FleetArtefact): FleetArtefact {
@@ -1988,10 +1988,8 @@ export class ArtefactFeed {
       if (row.board || !row.repo || (row.url && LIESEL_BOARD.test(row.url))) return row;
       const key = projects.keyFor(row.repo);
       if (!key) return row;
-      const references = (row.references ?? []).filter((link) => !LAVISH_REVIEW.test(link.url) && !LIESEL_BOARD.test(link.url));
-      const { url, ...rest } = row;
       // Only the link: the card keeps its own pictures, since the board is the project's, not this card's.
-      return { ...rest, ...(url && !LAVISH_REVIEW.test(url) ? { url } : {}), references: [{ label: "Open board", url: `http://127.0.0.1:4747/board/${key}` }, ...references] };
+      return { ...row, references: [{ label: "Open board", url: `http://127.0.0.1:4747/board/${key}` }, ...(row.references ?? [])] };
     };
     return { ...fleet, calls: fleet.calls.map(linked), live: fleet.live.map(linked), ready: fleet.ready.map(linked), landed: fleet.landed.map(linked), held: fleet.held.map(linked), next: fleet.next.map(linked) };
   }
