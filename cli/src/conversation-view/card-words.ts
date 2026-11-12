@@ -111,13 +111,15 @@ const JARGON: RegExp[] = [
   /\b[\w-]+\.(?:ts|tsx|js|jsx|mjs|swift|py|rb|go|rs|md|json|ya?ml|css|scss|html|sh|toml|lock)\b/i,
   /(?:^|\s)(?:\.{0,2}\/|~\/)[\w.-]+\/[\w./-]*/,
   /\b0\d{2}\b/,
-  /\b(?:notes?|tasks?|items?)\s*#?\d+\b/i,
+  /\b(?:notes?|tasks?|items?)\s*(?:#\d+|0\d+)\b/i,
   /#\d+\b/,
-  /\b(?:branch(?:es)?|master|HEAD|worktree|repo(?:sitory)?|rebase[ds]?|cherry-pick\w*)\b/i,
-  /\b(?:on|to|into|from|off)\s+(?:the\s+)?main\b|\bmain\s+branch\b/i,
+  /\b(?:branch(?:es)?|worktree|repo(?:sitory)?|rebase[ds]?|cherry-pick\w*)\b/i,
+  /\bHEAD\b/,
+  /\b(?:on|to|into|from|off)\s+(?:the\s+)?main\b(?!\s+(?:menu|screen|page|window|image|photo|room|view|picture)s?\b)|\bmain\s+branch\b/i,
   /\blanded\b|\b(?:to|will|can|did|and)\s+land\b|\blands?\s+(?:on|in|into)\b/i,
   /\bsatisf(?:y|ied|ies)\b/i,
-  /\b(?:PRs?|pull requests?|merge[ds]?|merging|commit(?:s|ted)?|diff|CI|no-mistakes|crewmate|firstmate)\b/i,
+  /\bmerg(?:e[ds]?|ing)\s+(?:in)?to\b/i,
+  /\b(?:PRs?|pull requests?|merge\s+requests?|commit(?:s|ted)?|diff|CI|no-mistakes|crewmate|firstmate)\b/i,
 ];
 
 export function jargonIn(text: string): string | null {

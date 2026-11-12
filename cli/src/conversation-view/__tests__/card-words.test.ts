@@ -185,6 +185,12 @@ describe("card words", () => {
     expect(cardWordsFromModel(JSON.stringify({ title: "Easel: the landing page has a new hero image", body: "Open the main menu to see it." }))).not.toBeNull();
     expect(cardWordsFromModel(JSON.stringify({ title: "Easel: crop tool is ready to land", body: "Try it now." }))).toBeNull();
     expect(cardWordsFromModel(JSON.stringify({ title: "Easel: crop tool", body: "It is now on main." }))).toBeNull();
+    for (const plain of ["Head to the gallery to try it.", "The master bedroom photo is brighter.", "Go back to the main menu to see it.", "You can merge the two photos now.", "Item 3 on the list is done."]) {
+      expect(cardWordsFromModel(JSON.stringify({ title: "Easel: a small change", body: plain }))).not.toBeNull();
+    }
+    for (const developer of ["It is ready to land.", "It is now on main.", "This was note 005.", "Done in 6d98921.", "It was merged into the release."]) {
+      expect(cardWordsFromModel(JSON.stringify({ title: "Easel: a small change", body: developer }))).toBeNull();
+    }
   });
 
   it("falls back to a generic plain line, never the raw one", () => {
