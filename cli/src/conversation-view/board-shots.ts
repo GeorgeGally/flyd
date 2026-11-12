@@ -20,6 +20,21 @@ export function lieselBoardKey(url: string | undefined): string | undefined {
   return url ? BOARD_LINK.exec(url.trim())?.[1] : undefined;
 }
 
+/** Where the phone reaches this Mac's Liesel: its tailnet name. `FLYD_LIESEL_URL` overrides it. */
+export const LIESEL_TAILNET_ORIGIN = "http://macbook-pro-3.tail46029c.ts.net:4747";
+
+/** The origin a card's board link opens on, from `FLYD_LIESEL_URL` or the tailnet name. */
+export function lieselPublicOrigin(env: NodeJS.ProcessEnv = process.env): string {
+  return (env.FLYD_LIESEL_URL?.trim() || LIESEL_TAILNET_ORIGIN).replace(/\/+$/, "");
+}
+
+const LOOPBACK_BOARD = /https?:\/\/(?:127\.0\.0\.1|localhost):4747(?=\/board\/)/gi;
+
+/** A board link (or a line of text naming one) as the phone can open it: this Mac's loopback Liesel on its public origin. Pure. */
+export function publicBoardUrl(text: string, origin = lieselPublicOrigin()): string {
+  return text.replace(LOOPBACK_BOARD, origin);
+}
+
 /** Where the page loads a board's picture from; the server serves only boards it has pictured. */
 export function boardShotSrc(key: string, version: number): string {
   return `/api/board-shot?board=${encodeURIComponent(key)}&v=${version}`;

@@ -8,10 +8,10 @@ import { semanticObjectFromShow } from "../semantic.js";
 import { readyItems,
   ArtefactFeed, composeArtefact, enrichFleet, fleetCounts, heldItems, holdReason, isCurrentDecision, landedByDay, memoryHighlights, newsHighlights, parseBacklog, parseBearings,
   adviceHighlights, pickShots, plainStep, readyStatus, statusNote, tasteHighlights, decisionChoices, plainQuestion, recommendedChoice, withVoice, deviceOf, recentlyFinished, landedRows, referencedDirs,
-  callItems, doneItems, underwayItems, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, holdDecisions, decisionProgress, reviewLinks, proseLinks, type FleetArtefact,
+  callItems, doneItems, underwayItems, namedShotIn, workerStarted, weekLandedRows, fleetReadTimeout, labPreviews, holdDecisions, decisionProgress, reviewLinks, proseLinks, type FleetArtefact,
 } from "../artefact.js";
 import { firstmateChangesFromFleet, projectFleetDecisions } from "../artefact.js";
-import { BoardShots, captureArgs, lieselBoardKey } from "../board-shots.js";
+import { BoardShots, LIESEL_TAILNET_ORIGIN, captureArgs, lieselBoardKey, lieselPublicOrigin, publicBoardUrl } from "../board-shots.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
 const BEARINGS = {
@@ -1558,7 +1558,57 @@ describe("the CapFive lab questions artefact", () => {
     expect(callItems({ ...fleet, calls: [row!] })[0]!.shots!.map((shot) => shot.label)).toEqual(["board.png", "reference.png"]);
     const [item] = callItems({ ...fleet, calls: [{ ...row!, boardShot: 1794000000000 }] });
     expect(item!.shots).toEqual([{ src: "/api/board-shot?board=e4dc64c8844fac7a&v=1794000000000", label: "The board" }]);
-    expect(item!.links).toContainEqual({ label: "Open board", url: "http://127.0.0.1:4747/board/e4dc64c8844fac7a" });
+    expect(item!.links).toContainEqual({ label: "Open board", url: "http://macbook-pro-3.tail46029c.ts.net:4747/board/e4dc64c8844fac7a" });
+  });
+
+  it("gives an update that names its board only in its words a picture of the board and a link the phone opens", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "deck-bar", state: "working", name: "Move the deck bar", doing: "harness busy" }] });
+    const note = "Deck bar is above the tracklist at 1440 and 390, reply posted on http://127.0.0.1:4747/board/ceecabda1bfc42e7";
+    const [row] = enrichFleet(fleet, new Map(), new Map([["deck-bar", { at: "2026-11-12T03:00:00Z", note }]])).live;
+    expect(row!.board).toBe("ceecabda1bfc42e7");
+    const [item] = underwayItems({ ...fleet, live: [{ ...row!, boardShot: 1794000000000 }] });
+    expect(item!.shots).toEqual([{ src: "/api/board-shot?board=ceecabda1bfc42e7&v=1794000000000", label: "The board" }]);
+    expect(item!.links).toEqual([{ label: "Open board", url: "http://macbook-pro-3.tail46029c.ts.net:4747/board/ceecabda1bfc42e7" }]);
+    expect(item!.detail).toBe("Deck bar is above the tracklist at 1440 and 390, reply posted on http://macbook-pro-3.tail46029c.ts.net:4747/board/ceecabda1bfc42e7");
+  });
+
+  it("leads with the screenshot an update names, ahead of the board's own picture", () => {
+    const fleet = parseBearings({ in_flight: [{ id: "deck-bar", state: "working", name: "Move the deck bar", doing: "harness busy" }] });
+    const note = "Deck bar is above the tracklist, reply posted on http://127.0.0.1:4747/board/ceecabda1bfc42e7";
+    const extras = new Map([["deck-bar", { note, shots: ["after-390.png", "after-1440.png"], namedShot: "after-390.png" }]]);
+    const [row] = enrichFleet(fleet, new Map(), extras).live;
+    const [item] = underwayItems({ ...fleet, live: [{ ...row!, boardShot: 1794000000000 }] });
+    expect(item!.shots!.map((shot) => shot.label)).toEqual(["after-390.png", "after-1440.png"]);
+    // Without a named picture, the board as it stands still comes first.
+    const [plain] = underwayItems({ ...fleet, live: [{ ...row!, namedShot: undefined, boardShot: 1794000000000 }] });
+    expect(plain!.shots).toEqual([{ src: "/api/board-shot?board=ceecabda1bfc42e7&v=1794000000000", label: "The board" }]);
+  });
+
+  it("finds the screenshot a status line names among the task's own files, and nothing else", () => {
+    const files = ["shots/after-390.png", "before.png"];
+    expect(namedShotIn("done: bar moved, shot at /home/x/firstmate/data/deck-bar/shots/after-390.png; reply posted", files)).toBe("shots/after-390.png");
+    expect(namedShotIn("done: see before.png", files)).toBe("before.png");
+    expect(namedShotIn("done: see /tmp/elsewhere/other.png", files)).toBeUndefined();
+    expect(namedShotIn("done: no picture named", files)).toBeUndefined();
+  });
+
+  it("puts the screenshot a worker's last line names first on its card", async () => {
+    const home = mkdtempSync(join(tmpdir(), "artefact-named-shot-"));
+    mkdirSync(join(home, "bin"));
+    mkdirSync(join(home, "state"));
+    mkdirSync(join(home, "data", "deck-bar"), { recursive: true });
+    const big = Buffer.alloc(20_000, 1);
+    writeFileSync(join(home, "data", "deck-bar", "after-1440.png"), big);
+    writeFileSync(join(home, "data", "deck-bar", "after-390.png"), Buffer.alloc(20_000, 2));
+    utimesSync(join(home, "data", "deck-bar", "after-390.png"), new Date("2026-11-01"), new Date("2026-11-01"));
+    writeFileSync(join(home, "state", "deck-bar.status"), `done: deck bar moved, shot at ${join(home, "data", "deck-bar", "after-390.png")}; reply posted on http://127.0.0.1:4747/board/ceecabda1bfc42e7\n`);
+    writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\necho '${JSON.stringify({ in_flight: [{ id: "deck-bar", state: "working", name: "Move the deck bar", doing: "harness busy" }] })}'\n`, { mode: 0o755 });
+    const feed = new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
+    await feed.refresh();
+    const [row] = feed.current().fleet!.live;
+    expect(row).toMatchObject({ namedShot: "after-390.png", board: "ceecabda1bfc42e7" });
+    expect(row!.shots![0]).toBe("after-390.png");
+    expect(feed.shotPath("deck-bar", "after-390.png")).toBe(join(home, "data", "deck-bar", "after-390.png"));
   });
 
   it("pictures a card's board in the background and serves only boards a card names", async () => {
@@ -1590,6 +1640,15 @@ describe("the CapFive lab questions artefact", () => {
 });
 
 describe("board pictures", () => {
+  it("opens a loopback board on the tailnet name, or the address FLYD_LIESEL_URL gives", () => {
+    expect(lieselPublicOrigin({})).toBe(LIESEL_TAILNET_ORIGIN);
+    expect(lieselPublicOrigin({ FLYD_LIESEL_URL: "https://liesel.example.ts.net/" })).toBe("https://liesel.example.ts.net");
+    expect(publicBoardUrl("on http://127.0.0.1:4747/board/abc123 and https://localhost:4747/board/def456.", "https://m.ts.net:4747"))
+      .toBe("on https://m.ts.net:4747/board/abc123 and https://m.ts.net:4747/board/def456.");
+    // Only board links move: other local pages, and other ports, stay as they are.
+    expect(publicBoardUrl("http://127.0.0.1:4387/session/abc http://127.0.0.1:4747/api/x", "https://m.ts.net:4747")).toBe("http://127.0.0.1:4387/session/abc http://127.0.0.1:4747/api/x");
+  });
+
   it("knows a Liesel board from its link, and nothing else", () => {
     expect(lieselBoardKey("http://127.0.0.1:4747/board/e4dc64c8844fac7a")).toBe("e4dc64c8844fac7a");
     expect(lieselBoardKey("http://localhost:4747/board/e4dc64c8844fac7a:")).toBe("e4dc64c8844fac7a");
