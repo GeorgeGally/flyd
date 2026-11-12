@@ -295,9 +295,9 @@ describe("jobsFrom", () => {
     };
     const said = jobsFrom({ projects: [project()], reports: [{ project: "Cap5", title: "Board", text }], digests: [digest], runs: [run({ status: "needs_decision", question: "Waiting on your go-ahead." })], now: NOW }).jobs[0]!;
     expect(said).toMatchObject({ group: "needs", domainRun: "run-1", choices: ["Merge"], recommended: "Merge", labels: { Merge: "Go ahead" } });
-    const asked = jobsFrom({ runs: [run({ status: "needs_decision", question: "Should I merge now or wait for checks?" })], now: NOW }).jobs[0]!;
-    expect(asked.choices).toEqual(["Merge now", "Wait for checks"]);
-    expect(asked.labels).toEqual({ "Merge now": "Go ahead now", "Wait for checks": "Wait" });
+    const asked = jobsFrom({ runs: [run({ status: "needs_decision", question: "Should I merge now or wait?" })], now: NOW }).jobs[0]!;
+    expect(asked.choices).toEqual(["Merge now", "Wait"]);
+    expect(asked.labels).toEqual({ "Merge now": "Go ahead now", Wait: "Wait" });
     const open = jobsFrom({ runs: [run({ status: "needs_decision", question: "Which price should ship?" })], now: NOW }).jobs[0]!;
     expect(open.choices).toBeUndefined();
   });
@@ -321,7 +321,7 @@ describe("jobsFrom", () => {
 
   it("gives a run's numbered answers to one question as that question's buttons", () => {
     const asked = (question: string) => jobsFrom({ runs: [run({ status: "needs_decision", question })], now: NOW }).jobs[0]!;
-    const trailing = asked("Which should I build? 1. Departures 2. Picture desk 3. Notch?");
+    const trailing = asked("Which should I make? 1. Departures 2. Picture desk 3. Notch?");
     expect(trailing.decisions).toBeUndefined();
     expect(trailing.choices).toEqual(["Departures", "Picture desk", "Notch"]);
     const described = asked("Which direction? 1. Departures: big type, quiet 2. Picture desk");

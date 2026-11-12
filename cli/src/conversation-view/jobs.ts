@@ -237,10 +237,11 @@ function rank(group: JobGroup): number {
  */
 function runSignal(run: JobRun, now: number): Signal | null {
   const signal = runSignalOf(run, now);
-  if (!signal || !run.outcome) return signal;
+  if (!signal) return signal;
   const question = run.question?.trim() ?? "";
   const keep = Boolean(question) && !jargonIn(question);
   const line = question && !keep ? question : run.outcome;
+  if (!line) return signal;
   return { ...signal, raw: { title: runTitle(run.outcome) || run.project || "", line, thread: run.id, ...(keep ? { keep } : {}) } };
 }
 
@@ -629,11 +630,13 @@ function shownPlainly(job: Job, fallback: CardWords): Job {
     return instead;
   };
   const answered = Boolean(job.decisions?.length || job.decision);
+  const ask = answered ? job.ask : check(job.ask, job.group === "needs" ? fallback.body : "") as string;
+  const { choices: _choices, recommended: _recommended, labels: _labels, ...unasked } = job;
   const shown: Job = {
-    ...job,
+    ...(ask === job.ask ? job : unasked),
     title: check(job.title, fallback.title) as string,
     next: check(job.next, job.group === "needs" ? "" : fallback.body) as string,
-    ask: answered ? job.ask : check(job.ask, job.group === "needs" ? fallback.body : "") as string,
+    ask,
     threads: job.threads.map((thread) => {
       if (thread.kind !== "run") return thread;
       const title = check(thread.title, fallback.title) as string;

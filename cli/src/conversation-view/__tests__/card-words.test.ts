@@ -389,3 +389,28 @@ describe("a card with answer buttons", () => {
     expect(await translateCard(source, async () => question)).toEqual({ title: "Easel: the new page", body: "Shall I put the new page live?" });
   });
 });
+
+describe("a decision run with a question in developer words and no outcome", () => {
+  it("shows no buttons until a stored reading puts the question, and has the question said", () => {
+    const run = { id: "run-merge", status: "needs_decision", project: "Easel", outcome: "", question: "Merge PR #41 into main now, or wait?", owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "needs_you" as const };
+    const board = jobsFrom({ projects: [easel], runs: [run], cardWords: new Map(), now: NOW });
+    const card = board.jobs.find((job) => job.group === "needs")!;
+    expect(card.choices).toBeUndefined();
+    expect(card.recommended).toBeUndefined();
+    expect(card.ask).not.toMatch(/PR|main|merge/i);
+    expect(board.untranslated.map((source) => source.line)).toEqual([run.question]);
+    const words = new Map([[board.untranslated[0]!.key, { title: "Easel: the new page", body: "Shall I put the new page live?" }]]);
+    const said = jobsFrom({ projects: [easel], runs: [run], cardWords: words, now: NOW }).jobs.find((job) => job.group === "needs")!;
+    expect(said.ask).toBe("Shall I put the new page live?");
+    expect(said.choices).toEqual(["Merge PR #41 into main now", "Wait"]);
+    expect(said.labels).toEqual({ "Merge PR #41 into main now": "Go ahead now", Wait: "Wait" });
+  });
+
+  it("drops the buttons wherever the question is said with the plain line instead", () => {
+    const run = { id: "run-merge", status: "needs_decision", project: "Easel", outcome: "", question: "Merge PR #41 into main now, or wait?", owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "needs_you" as const };
+    const card = jobsFrom({ projects: [easel], runs: [run], now: NOW }).jobs.find((job) => job.group === "needs")!;
+    expect(card.ask).toBe(fallbackWords("Easel", "needs").body);
+    expect(card.choices).toBeUndefined();
+    expect(card.labels).toBeUndefined();
+  });
+});
