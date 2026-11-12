@@ -25,7 +25,7 @@ import type { ShowItem, ShowKind } from "./show.js";
 import { plainTitle, saysNothing } from "./plain-words.js";
 import { forHim, shortHeadline, staffStatusLine } from "../lib/pa-voice.js";
 import { SnapshotGate, type SnapshotGateOptions } from "./snapshot-gate.js";
-import { BoardShots, boardShotSrc, lieselBoardKey } from "./board-shots.js";
+import { BoardShots, boardShotSrc, lieselBoardKey, publicBoardUrl } from "./board-shots.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
 // fleet snapshot (the authoritative "everything going on"), Flyd's own memory,
@@ -70,6 +70,8 @@ export interface ArtefactRow {
   shots?: string[];
   /** The data directory the screenshots are in, when it is not the task's own (a call's lab, say). */
   shotDir?: string;
+  /** The screenshot the task's own last report names, among `shots`: the card leads with it. */
+  namedShot?: string;
   /** The candidates a lab made to choose between, when the shots are one per version. */
   previews?: CandidatePreview[];
   /** The Liesel board it asks him to look at, by key, when it names one. */
@@ -485,6 +487,18 @@ export interface TaskExtra {
   previews?: CandidatePreview[];
   /** The task's own last status note, whole. */
   note?: string;
+  /** The screenshot that note names by its path, among `shots`. */
+  namedShot?: string;
+}
+
+/** The picture a worker's status line names by its path ("… shot at /…/data/task/after-390.png"), among the task's own files. Pure. */
+export function namedShotIn(line: string, task: string, files: readonly string[]): string | undefined {
+  const named = line.match(/[^\s"'`<>()]+\.(?:png|jpe?g|webp|gif)\b/gi) ?? [];
+  for (const path of named) {
+    const found = files.find((file) => path === file || path.endsWith(`/${task}/${file}`));
+    if (found) return found;
+  }
+  return undefined;
 }
 
 const NOTE_CHARS = 180;
@@ -573,8 +587,10 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     else if (call && entry?.since) next.at = entry.since;
     if (extra?.started) next.started = extra.started;
     if (extra?.note && next.detail && !call) next.detail = saysNoStep(next.detail) ? extra.note : wholeLabel(next.detail, extra.note);
-    if (extra?.shots?.length) next.shots = extra.shots;
-    else if (entry) {
+    if (extra?.shots?.length) {
+      next.shots = extra.shots;
+      if (extra.namedShot) next.namedShot = extra.namedShot;
+    } else if (entry) {
       // No pictures of its own: the lab or report its words point at has them.
       const dir = referencedDirs(entry).find((name) => name !== row.task && extras.get(name)?.shots?.length);
       if (dir) next = { ...next, shots: extras.get(dir)!.shots!, shotDir: dir };
@@ -582,6 +598,12 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     const previews = extra?.previews?.length ? extra.previews : next.shotDir ? extras.get(next.shotDir)?.previews : undefined;
     if (previews?.length) next.previews = previews;
     if (!next.url && entry?.url) next.url = entry.url;
+    // An update that names its board only in its words ("reply posted on http://127.0.0.1:4747/board/…") links it too.
+    const linked = new Set([next.url, ...(next.references ?? []).map((link) => link.url)]);
+    const spoken = proseLinks(next.detail ?? "").find((url) => LIESEL_BOARD.test(url) && !linked.has(url));
+    if (spoken && ![...linked].some((url) => lieselBoardKey(url) === lieselBoardKey(spoken))) {
+      next.references = [...(next.references ?? []), { label: "Open board", url: spoken }];
+    }
     const board = [next.url, ...(next.references ?? []).map((link) => link.url)].map(lieselBoardKey).find(Boolean);
     if (board) next.board = board;
     return next;
@@ -1314,8 +1336,19 @@ function withoutProject(label: string, names: string[]): string {
   return label;
 }
 
-/** One fleet row as a panel item; a call carries its question to answer. Pure. */
+/** A row's card with every board link it shows (its buttons and its words) on the address the phone opens. Pure. */
 function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeOptions): ShowItem | undefined {
+  const item = loopbackRowItem(kind, id, row, options);
+  if (!item) return undefined;
+  return {
+    ...item,
+    ...(item.detail ? { detail: publicBoardUrl(item.detail) } : {}),
+    ...(item.links ? { links: item.links.map((link) => ({ ...link, url: publicBoardUrl(link.url) })) } : {}),
+  };
+}
+
+/** One fleet row as a panel item; a call carries its question to answer. Pure. */
+function loopbackRowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeOptions): ShowItem | undefined {
   const project = row.repo ? options.project?.(row.repo) ?? row.repo : undefined;
   const names = [project, row.repo].filter((name): name is string => Boolean(name));
   // A worker's status line to its supervisor ("note applied in place (… #8d9aa6) verified headless 1440/834/390") is never what he reads.
@@ -1344,8 +1377,9 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
     ...(asked ? (several && !row.said?.line && !row.recommendation?.option ? {} : { detail: row.recommendation?.option ? recommendationText(row.recommendation) : row.said?.line || sourceHeadline }) : detail ? { detail } : {}),
     ...(row.at ? { at: row.at } : {}),
     ...(row.started ? { started: row.started } : {}),
-    // A board he is asked to look at is shown as it stands now; the task's own pictures of it are older.
-    ...(row.board && row.boardShot
+    // The picture its update names comes first; otherwise a board he is asked to look at is shown
+    // as it stands now, since the task's own pictures of it are older.
+    ...(row.board && row.boardShot && !(row.namedShot && row.shots?.includes(row.namedShot))
       ? { shots: [{ src: boardShotSrc(row.board, row.boardShot), label: "The board" }] }
       : (row.shotDir ?? row.task) && row.shots?.length
         ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
@@ -2141,9 +2175,10 @@ export class ArtefactFeed {
       } catch {
         // No record of the worker: no start time to show.
       }
+      let last = "";
       try {
         extra.at = (await stat(status)).mtime.toISOString();
-        const last = (await readFile(status, "utf8")).trim().split("\n").at(-1) ?? "";
+        last = (await readFile(status, "utf8")).trim().split("\n").at(-1) ?? "";
         if (last) extra.note = statusNote(last);
       } catch {
         // No status file: no time or note to show.
@@ -2159,7 +2194,11 @@ export class ArtefactFeed {
             const hash = info.size <= MAX_HASHED_SHOT_BYTES ? createHash("sha1").update(await readFile(join(dir, name))).digest("hex") : undefined;
             return { path: relative(dir, join(dir, name)).split(sep).join("/"), mtime: info.mtimeMs, size: info.size, ...(hash ? { hash } : {}) };
           }));
-        const shots = pickShots(files);
+        const picked = pickShots(files);
+        // The picture his update names is the one it is about: first, even where the pick left it out.
+        const named = namedShotIn(last, task, files.map((file) => file.path));
+        const shots = named ? [named, ...picked.filter((path) => path !== named)] : picked;
+        if (named) extra.namedShot = named;
         if (shots.length) {
           extra.shots = shots;
           // A lab's report names its versions; the shots alone would leave a choice between file names.
