@@ -51,12 +51,13 @@ const STRUCTURED_KEYS = new Set([
 function keyValueFields(raw: string): Record<string, unknown> | undefined {
   const fields: Record<string, string> = {};
   for (const line of raw.split("\n")) {
-    // "- **Brief:** …" is the same field as "brief: …": list markers and emphasis are dressing.
-    const match = /^\s*([A-Za-z_][\w _-]*?)\s*:\s*(.+?)\s*$/.exec(line.replace(/\*\*|__/g, "").replace(/^\s*(?:[-*>#]+\s*)+/, ""));
+    // "- **Brief:** …" is the same field as "brief: …": list markers and the key's emphasis are dressing; the value stays as written.
+    const match = /^\s*(?:[-*>#]+\s+)*((?:\*\*|__)?[A-Za-z_][\w _-]*?(?:\*\*|__)?)\s*:\s*(.+?)\s*$/.exec(line);
     if (!match) continue;
-    const key = match[1]!.toLowerCase().replace(/[\s_-]/g, "");
+    const key = match[1]!.replace(/\*\*|__/g, "").toLowerCase().replace(/[\s_-]/g, "");
     if (!STRUCTURED_KEYS.has(key) || fields[key] !== undefined) continue;
-    fields[key] = match[2]!;
+    const value = /^(?:\*\*|__)/.test(match[1]!) ? match[2]!.replace(/^(?:\*\*|__)\s*/, "") : match[2]!;
+    if (value) fields[key] = value;
   }
   const first = (...keys: string[]): string => keys.map((key) => fields[key]).find((value) => value?.trim())?.trim() ?? "";
   const status = knownStatus(first("status"));
@@ -103,9 +104,9 @@ const text = (value: unknown): string => typeof value === "string" ? value.trim(
 
 /**
  * A structured reply from its fields, or undefined when it names no brief and no report. Widened (the reply is
- * the object itself, or states a status), aliases and one wrapper level count; an object merely embedded in
- * prose (an API error body quoted in a question) counts only through the contract's own brief/detailed_report,
- * so the prose judge still reads what the reply says happened.
+ * the object itself, or a quoted object using the contract's own brief/detailed_report), aliases and one wrapper
+ * level count; any other object merely embedded in prose (an API or CI body quoted in a question, even one with
+ * its own status) is not the handoff, so the prose judge still reads what the reply says happened.
  */
 function structuredResult(raw: string, record: Record<string, unknown>, widened = true): { status?: "completed" | "needs_decision" | "failed" | "working"; result: DomainResult } | undefined {
   const parsed = widened ? unwrap(record) : canonicalKeys(record);
@@ -134,9 +135,10 @@ function structuredResult(raw: string, record: Record<string, unknown>, widened 
   };
 }
 
-/** The JSON a reply carries, and whether it is the whole reply (alone, in one fence, or as an encoded string) or an object found inside prose. */
+/** The JSON a reply carries, and whether it is the whole reply (alone, the reply's one fenced block, or an encoded string) or an object found inside prose. */
 function jsonObject(raw: string): { object: Record<string, unknown>; whole: boolean } | undefined {
-  const fenced = /^```[\w-]*\s*\n([\s\S]*?)\n?```$/.exec(raw)?.[1]?.trim();
+  const fences = [...raw.matchAll(/```[\w-]*[ \t]*\n([\s\S]*?)\n?```/g)];
+  const fenced = fences.length === 1 ? fences[0]![1]?.trim() : undefined;
   for (const candidate of [raw, fenced]) {
     if (!candidate) continue;
     try {
@@ -161,7 +163,7 @@ export function parseDomainResult(body: string): { status?: "completed" | "needs
   const raw = body.trim();
   const json = jsonObject(raw);
   // The durable raw reply still survives below when the object holds no handoff.
-  const built = json && structuredResult(raw, json.object, json.whole || Boolean(knownStatus(canonicalKeys(json.object).status)));
+  const built = json && structuredResult(raw, json.object, json.whole || ["brief", "detailedreport"].some((key) => canonicalKeys(json.object)[key] !== undefined));
   if (built) return built;
   const fields = keyValueFields(raw);
   const read = fields && structuredResult(raw, fields);

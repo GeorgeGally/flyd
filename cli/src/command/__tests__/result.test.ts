@@ -53,6 +53,13 @@ describe("key/value replies", () => {
     }
   });
 
+  it("keeps the value exactly as written, stripping emphasis only from the key", () => {
+    expect(parseDomainResult("status: completed\nreport: Fixed the import in __init__.py").result.detailedReport).toBe("Fixed the import in __init__.py");
+    const dressed = parseDomainResult("- **Status:** completed\n- **Brief:** Patched __main__.py");
+    expect(dressed.status).toBe("completed");
+    expect(dressed.result.brief).toBe("Patched __main__.py");
+  });
+
   it("takes a named PR, commit or URL as the evidence layer", () => {
     const pr = parseDomainResult("status: completed\nbrief: Sidebar done.\ndetailed_report: See https://github.com/GeorgeGally/flyd/pull/167");
     expect(validateDomainHandoff(pr.result)).toEqual({ ok: true });
@@ -81,9 +88,20 @@ describe("JSON inside prose", () => {
     }
   });
 
-  it("still reads a whole-body or status-bearing object through its aliases and wrapper", () => {
+  it("leaves a quoted object with its own status raw, so a pasted CI body is not read as the handoff", () => {
+    for (const body of [
+      'CI is red: {"status":"completed","conclusion":"failure","output":{"summary":"3 tests failed"}}. Should I fix them?',
+      'Handoff: {"Status": "failed", "result": {"summary": "The deploy failed."}}',
+    ]) {
+      const parsed = parseDomainResult(body);
+      expect(parsed.result.format).toBe("raw");
+      expect(parsed.status).toBeUndefined();
+    }
+  });
+
+  it("reads a whole-body object through its wrapper, and a quoted object through the contract's own keys", () => {
     expect(parseDomainResult(JSON.stringify({ data: { summary: "Fixed the call site." } })).result).toMatchObject({ format: "structured", brief: "Fixed the call site." });
-    expect(parseDomainResult('Handoff: {"Status": "failed", "result": {"summary": "The deploy failed."}}')).toMatchObject({ status: "failed", result: { format: "structured", brief: "The deploy failed." } });
+    expect(parseDomainResult('Handoff: {"status": "failed", "brief": "The deploy failed."}')).toMatchObject({ status: "failed", result: { format: "structured", brief: "The deploy failed." } });
   });
 });
 
