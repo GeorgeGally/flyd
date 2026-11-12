@@ -435,7 +435,73 @@ describe("FirstMate domain transport", () => {
     reply = { body: JSON.stringify({ status: "completed", brief: "Merged; the footer link works." }), cursor: "5" };
     await sync();
     expect(status()).toBe("completed");
-    expect(notes).toHaveLength(2);
+    // The outcome is taken; its missing report and evidence are asked for once, in the contract's shape.
+    expect(notes).toHaveLength(3);
+    expect(notes[2]).toContain("misses the report and evidence layers");
+  });
+
+  it("asks an unstructured FirstMate handoff exactly once to restate itself, then names the layer still missing", async () => {
+    saveDomainRun({ ...queuedRun(), status: "accepted" });
+    const prose = "Done and merged: the call site now goes through the existing abstraction.";
+    const notes: string[] = [];
+    const handled: unknown[] = [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-09T01:00:00.000Z", body: prose, cursor: "000000000001" } }];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: `note-${notes.length + 1}`, saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled }), stderr: "" };
+    };
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+    const sent: string[] = [];
+    const sync = () => syncFirstmateDomainRuns({
+      transport, judge: async () => "completed" as const,
+      onChanged: (run) => notifyWithTestDecision(run, async (_title, message) => { sent.push(message); }),
+    });
+
+    const [first] = await sync();
+    // The outcome is recorded and told once; the missing layers are asked for once, in the contract's shape.
+    expect(first!.status).toBe("completed");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain("misses the brief, report and evidence layers of the handoff contract");
+    expect(notes[0]).toContain('"detailed_report"');
+    expect(first!.handoffRetry).toMatchObject({ cursor: "000000000001", missing: ["brief", "report", "evidence"] });
+    expect(first!.handoffRetry?.answeredAt).toBeUndefined();
+    expect(sent).toHaveLength(1);
+
+    // FirstMate answers the re-request with a brief and report but still no evidence.
+    const reRequest = listDomainRuns().find((run) => run.id === "domain-test-1")!.messages!.find((message) => message.from === "flyd")!;
+    handled.push({ id: "note-2", request_id: reRequest.id, acknowledged: true, reply: { id: "note-2", at: "2026-10-09T02:00:00.000Z", body: JSON.stringify({ status: "completed", brief: "Fixed the call site.", detailed_report: "Routed the caller through the abstraction." }), cursor: "000000000002" } });
+    const [second] = await sync();
+    expect(second!.status).toBe("completed");
+    expect(second!.handoffRetry?.answeredAt).toBe("2026-10-09T02:00:00.000Z");
+    expect(second!.incompleteReason).toBe("handoff contract unmet after one structured re-request: missing evidence (no link, commit, file, id or command output to check it against)");
+    // Never a second re-request, and the restated outcome is not told to George again.
+    expect(notes).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+
+    // Read again later: nothing new, nothing sent.
+    expect(await sync()).toEqual([]);
+    expect(notes).toHaveLength(1);
+  });
+
+  it("accepts a FirstMate return that meets the contract after light normalisation, without a re-request", async () => {
+    saveDomainRun({ ...queuedRun(), status: "accepted" });
+    // Wrapped in a fence and an outer object, keys in other casings, evidence as one string.
+    const body = [
+      "Here is the handoff:",
+      "```json",
+      JSON.stringify({ Status: "Completed", Result: { Brief: "  Fixed the call site.  ", "Detailed Report": "Routed the caller through the existing abstraction and ran the suite.", Evidence: "https://github.com/george/flyd/pull/12" } }),
+      "```",
+    ].join("\n");
+    const notes: string[] = [];
+    const exec: FirstmateExec = async (_script, args, options) => {
+      if (args[0] === "note") { notes.push(String(options.input)); return { stdout: JSON.stringify({ id: "note-2", saved: true }), stderr: "" }; }
+      return { stdout: JSON.stringify({ pending: [], handled: [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", body, cursor: "1" } }] }), stderr: "" };
+    };
+    const [done] = await syncFirstmateDomainRuns({ transport: new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec }) });
+    expect(done!.status).toBe("completed");
+    expect(done!.result).toMatchObject({ format: "structured", brief: "Fixed the call site.", evidence: ["https://github.com/george/flyd/pull/12"] });
+    expect(done!.incompleteReason).toBeUndefined();
+    expect(done!.handoffRetry).toBeUndefined();
+    expect(notes).toEqual([]);
   });
 
   it("records a structured handoff with no evidence as done, noting the missing layer", async () => {

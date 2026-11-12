@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  checkDomainHandoff, citesEvidence, doneWhenStatus, evaluateDoneWhen, normalizeCriteria, parseVerdicts, shortfall, splitClauses, unresolvedItems,
+  checkDomainHandoff, citesEvidence, handoffFailureReason, validateFirstmateReturn, doneWhenStatus, evaluateDoneWhen, normalizeCriteria, parseVerdicts, shortfall, splitClauses, unresolvedItems,
 } from "../acceptance.js";
 import { captainNotice } from "../../command/notice.js";
+import { parseDomainResult } from "../../command/result.js";
 import type { DomainRun } from "../../command/types.js";
 
 describe("acceptance", () => {
@@ -122,5 +123,20 @@ describe("acceptance", () => {
     expect(handoff.ok).toBe(false);
     expect(notice).toContain("handoff:missing");
     expect(notice).not.toContain("/tmp/flyd-df.json");
+  });
+
+  it("validates a FirstMate return against the brief/report/evidence contract, naming each missing layer", () => {
+    expect(validateFirstmateReturn(parseDomainResult("Done and merged.").result)).toEqual({ ok: false, missing: ["brief", "report", "evidence"] });
+    // A brief alone: the reply itself stands in for the report, which is no report.
+    expect(validateFirstmateReturn(parseDomainResult(JSON.stringify({ status: "completed", brief: "Merged." })).result)).toEqual({ ok: false, missing: ["report", "evidence"] });
+    expect(validateFirstmateReturn(parseDomainResult(JSON.stringify({ brief: "Fixed.", detailed_report: "--body-file /tmp/x.json", evidence: ["commit abc1234"] })).result)).toEqual({ ok: false, missing: ["report"] });
+    expect(handoffFailureReason(["report", "evidence"])).toBe("handoff contract unmet after one structured re-request: missing report (no prose account of what was done); evidence (no link, commit, file, id or command output to check it against)");
+  });
+
+  it("normalises casing, wrapping and a single evidence string before judging the contract", () => {
+    const wrapped = "```json\n" + JSON.stringify({ handoff: { BRIEF: "Fixed the call site.", "detailed-report": "Routed the caller through the abstraction and ran the suite.", Evidence: "src/runtime/store.ts" } }) + "\n```";
+    expect(validateFirstmateReturn(parseDomainResult(wrapped).result)).toEqual({ ok: true, missing: [] });
+    const keyLines = "- **Status:** completed\n- **Brief:** Fixed the call site.\n- **Detailed report:** Routed the caller through the abstraction.\n- **Evidence:** https://github.com/george/flyd/pull/12";
+    expect(validateFirstmateReturn(parseDomainResult(keyLines).result)).toEqual({ ok: true, missing: [] });
   });
 });

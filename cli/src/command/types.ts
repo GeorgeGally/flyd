@@ -133,6 +133,12 @@ export interface DomainRun {
   launchRetry?: { attempts: number; nextAt: string };
   /** Which layers of the handoff contract the latest reply missed (see validateDomainHandoff); the reply still counts. */
   incompleteReason?: string;
+  /**
+   * The one structured re-request Flyd sent when a settled reply missed the brief/report/evidence
+   * contract (command/firstmate.ts): the reply it answered, the layers missing then, and once the
+   * next reply is read, when. Never sent twice for a run.
+   */
+  handoffRetry?: { askedAt: string; cursor?: string; missing: Array<"brief" | "report" | "evidence">; answeredAt?: string };
   /** When Flyd last asked the staff for a clear status; at most one such ask is open until a reply is read. */
   statusAskedAt?: string;
   /** What became of telling George this run's latest outcome (command/report.ts): the one record every reader uses. */

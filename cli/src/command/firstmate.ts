@@ -6,8 +6,8 @@ import { firstmateHome, firstmateInboxScript } from "../lib/firstmate-home.js";
 import { FLYD_DIR } from "../lib/config.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { createLaunchFailureCache, createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError, type LaunchFailureCache } from "../runtime/repeat-guard.js";
-import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type ProseJudge, type ProseOutcome } from "./result.js";
-import { checkDomainHandoff } from "../runtime/acceptance.js";
+import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type HandoffLayer, type ProseJudge, type ProseOutcome } from "./result.js";
+import { checkDomainHandoff, handoffFailureReason, handoffReRequest, validateFirstmateReturn } from "../runtime/acceptance.js";
 import { commandDir, commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
 import { cameBack, isSettled } from "./run-state.js";
 import { dueReport, quietReport } from "./report.js";
@@ -768,6 +768,18 @@ async function askForAClearStatus(run: DomainRun, cursor: string | undefined, tr
   return commitDomainRun(sent.run, { ...sent.run, statusAskedAt: now.toISOString() });
 }
 
+/**
+ * Flyd's one structured re-request for a settled reply that missed the handoff contract, through the run's own
+ * transport; the run as saved after it, carrying the record that it was asked. Undelivered, nothing is recorded.
+ */
+async function askForAStructuredHandoff(run: DomainRun, missing: HandoffLayer[], cursor: string | undefined, transport: FirstmateDomainTransport, now: Date): Promise<DomainRun> {
+  const { sendRunMessage } = await import("./messages.js");
+  const sent = await sendRunMessage({ run, kind: "question", body: handoffReRequest(missing), from: "flyd", transport })
+    .catch(() => ({ delivered: false, run: undefined }));
+  if (!sent.delivered || !sent.run) return sent.run ?? run;
+  return commitDomainRun(sent.run, { ...sent.run, handoffRetry: { askedAt: now.toISOString(), ...(cursor ? { cursor } : {}), missing } });
+}
+
 export async function syncFirstmateDomainRuns(options: {
   transport?: FirstmateDomainTransport;
   now?: () => Date;
@@ -800,11 +812,12 @@ export async function syncFirstmateDomainRuns(options: {
     stopHelper(idle, nowMs);
     return [];
   }
-  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && !isSettled(run.status));
+  // A settled run still waiting on the answer to its one structured re-request is read until that answer comes.
+  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && (!isSettled(run.status) || (run.handoffRetry && !run.handoffRetry.answeredAt)));
   if (readiness) {
     if (readiness.canReceive === false && !readiness.liveHarness) {
       const pending = receipts.pending ?? [];
-      const waitingRun = runs.find((run) => pending.some((note) => note.id === run.transport.externalId || note.request_id === run.transport.requestId));
+      const waitingRun = runs.find((run) => !isSettled(run.status) && pending.some((note) => note.id === run.transport.externalId || note.request_id === run.transport.requestId));
       const retry = runlessRetry.get(transport.home);
       const due = waitingRun
         ? !waitingRun.launchRetry || Date.parse(waitingRun.launchRetry.nextAt) <= nowMs
@@ -861,6 +874,8 @@ export async function syncFirstmateDomainRuns(options: {
     // A reply Flyd cannot read as done, failed or a decision leaves the run open.
     let statusUnclear = false;
     let unclearFrom: string | undefined;
+    // A settled reply that missed the contract gets one structured re-request (askForAStructuredHandoff).
+    let reRequest: { missing: HandoffLayer[]; cursor?: string } | undefined;
     if (reply && (!reply.cursor || !run.transport.replyCursor || cursorOrder(reply.cursor) > cursorOrder(run.transport.replyCursor))) {
       const parsed = parseDomainResult(reply.body!);
       // The staff often answers in prose: its words are the outcome. The layered
@@ -876,8 +891,20 @@ export async function syncFirstmateDomainRuns(options: {
       // never a fresh decision for George.
       const predates = Boolean(reply.at) && Date.parse(reply.at!) < Date.parse(run.createdAt);
       const status: DomainRunStatus = outcome === "unclear" ? "working" : predates && outcome === "needs_decision" ? "cancelled" : outcome;
+      // The contract after light normalisation (parseDomainResult): a return that meets it is taken as is. One that
+      // misses it, on an outcome Flyd can act on, is recorded and asked once to restate itself in the contract's shape;
+      // the answer to that ask is never asked again, and if it still misses, the reason names each missing layer.
+      const contract = validateFirstmateReturn(parsed.result);
+      // Only an outcome answers the re-request; "still working" leaves it open.
+      const answering = Boolean(run.handoffRetry && !run.handoffRetry.answeredAt) && cameBack(status);
+      if (!contract.ok && !run.handoffRetry && !predates && cameBack(status) && run.request.source !== "flyd") {
+        reRequest = { missing: contract.missing, ...(reply.cursor ? { cursor: reply.cursor } : {}) };
+      }
+      const stillShort = answering && !contract.ok ? handoffFailureReason(contract.missing) : undefined;
       const { notified, failure, incompleteReason: _previous, launchRetry: _retry, statusAskedAt, ...rest } = next;
-      const news = !predates && (status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result));
+      // The answer to the re-request restating the same outcome is the same news, never told twice.
+      const restated = answering && status === run.status;
+      const news = !predates && !restated && (status !== run.status || JSON.stringify(parsed.result) !== JSON.stringify(run.result));
       const settledAt = reply.at ?? (options.now ?? (() => new Date()))().toISOString();
       next = {
         ...rest,
@@ -894,8 +921,10 @@ export async function syncFirstmateDomainRuns(options: {
           ? { report: predates ? quietReport(status, settledAt) : dueReport(status, settledAt) } : {}),
         ...(status === "failed" ? { failure: parsed.result.brief } : failure !== undefined && !news ? { failure } : {}),
         ...(!handoff.ok ? { incompleteReason: handoff.reason } : {}),
+        ...(stillShort ? { incompleteReason: stillShort } : {}),
         ...(strict.fragment ? { incompleteReason: strict.reason, failure: strict.reason } : {}),
         ...(statusAskedAt && outcome === "unclear" ? { statusAskedAt } : {}),
+        ...(answering ? { handoffRetry: { ...run.handoffRetry!, answeredAt: settledAt } } : {}),
       };
       if (outcome === "unclear") {
         statusUnclear = true;
@@ -940,6 +969,7 @@ export async function syncFirstmateDomainRuns(options: {
     next = commitDomainRun(run, next);
     // Flyd's own notes (check-ins, closes) settle from their reply, but are never chased for a clearer one.
     if (statusUnclear && !next.statusAskedAt && next.request.source !== "flyd") next = await askForAClearStatus(next, unclearFrom, transport, (options.now ?? (() => new Date()))());
+    if (reRequest) next = await askForAStructuredHandoff(next, reRequest.missing, reRequest.cursor, transport, (options.now ?? (() => new Date()))());
     changed.push(next);
     await options.onChanged?.(next);
   }

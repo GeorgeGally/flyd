@@ -1,7 +1,8 @@
 import type { DomainResult, InformationLossRisk, SpecialistOutput } from "./types.js";
 
+/** A list field, or one string written where a list was asked for. */
 const strings = (value: unknown): string[] =>
-  Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : [];
+  Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : typeof value === "string" && value.trim() ? [value.trim()] : [];
 
 function recommendation(value: unknown): DomainResult["recommendation"] {
   if (!value || typeof value !== "object") return undefined;
@@ -50,7 +51,8 @@ const STRUCTURED_KEYS = new Set([
 function keyValueFields(raw: string): Record<string, unknown> | undefined {
   const fields: Record<string, string> = {};
   for (const line of raw.split("\n")) {
-    const match = /^\s*([A-Za-z_][\w _-]*?)\s*:\s*(.+?)\s*$/.exec(line);
+    // "- **Brief:** …" is the same field as "brief: …": list markers and emphasis are dressing.
+    const match = /^\s*([A-Za-z_][\w _-]*?)\s*:\s*(.+?)\s*$/.exec(line.replace(/\*\*|__/g, "").replace(/^\s*(?:[-*>#]+\s*)+/, ""));
     if (!match) continue;
     const key = match[1]!.toLowerCase().replace(/[\s_-]/g, "");
     if (!STRUCTURED_KEYS.has(key) || fields[key] !== undefined) continue;
@@ -77,12 +79,35 @@ function knownStatus(value: unknown): "completed" | "needs_decision" | "failed" 
   return status === "needs_decision" || status === "failed" || status === "completed" || status === "working" ? status : undefined;
 }
 
+/** "Detailed Report", "detailed-report" and "detailedReport" are one field: keys compared without case or separators. */
+function canonicalKeys(record: Record<string, unknown>): Record<string, unknown> {
+  const keys: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const name = key.toLowerCase().replace(/[\s_-]/g, "");
+    if (keys[name] === undefined) keys[name] = value;
+  }
+  return keys;
+}
+
+/** Where a reply wraps its handoff in one more object ({"result": {...}}), the handoff inside it. */
+const WRAPPERS = ["result", "handoff", "reply", "response", "data", "output"];
+
+function unwrap(record: Record<string, unknown>): Record<string, unknown> {
+  const fields = canonicalKeys(record);
+  if (fields.brief !== undefined || fields.summary !== undefined || fields.detailedreport !== undefined || fields.report !== undefined) return fields;
+  const inner = WRAPPERS.map((key) => fields[key]).find((value) => value && typeof value === "object" && !Array.isArray(value));
+  return inner ? { ...canonicalKeys(inner as Record<string, unknown>), ...(fields.status !== undefined ? { status: fields.status } : {}) } : fields;
+}
+
+const text = (value: unknown): string => typeof value === "string" ? value.trim() : "";
+
 /** A structured reply from its fields, or undefined when it names no brief and no report. */
-function structuredResult(raw: string, parsed: Record<string, unknown>): { status?: "completed" | "needs_decision" | "failed" | "working"; result: DomainResult } | undefined {
-  const brief = String(parsed.brief ?? "").trim();
-  const detailedReport = String(parsed.detailed_report ?? parsed.detailedReport ?? "").trim();
+function structuredResult(raw: string, record: Record<string, unknown>): { status?: "completed" | "needs_decision" | "failed" | "working"; result: DomainResult } | undefined {
+  const parsed = unwrap(record);
+  const brief = text(parsed.brief) || text(parsed.summary);
+  const detailedReport = text(parsed.detailedreport) || text(parsed.report) || text(parsed.detail);
   if (!brief && !detailedReport) return undefined;
-  const riskRaw = String(parsed.information_loss_risk ?? parsed.informationLossRisk ?? "low");
+  const riskRaw = String(parsed.informationlossrisk ?? "low").trim().toLowerCase();
   const risk: InformationLossRisk = riskRaw === "high" || riskRaw === "medium" ? riskRaw : "low";
   const status = knownStatus(parsed.status);
   return {
@@ -92,32 +117,46 @@ function structuredResult(raw: string, parsed: Record<string, unknown>): { statu
       brief: brief || detailedReport.split(/\n+/)[0]!.slice(0, 300),
       ...(recommendation(parsed.recommendation) ? { recommendation: recommendation(parsed.recommendation) } : {}),
       detailedReport: detailedReport || raw,
-      decisionsMade: strings(parsed.decisions_made ?? parsed.decisionsMade),
-      unresolvedQuestions: strings(parsed.unresolved_questions ?? parsed.unresolvedQuestions),
+      decisionsMade: strings(parsed.decisionsmade),
+      unresolvedQuestions: strings(parsed.unresolvedquestions),
       risks: strings(parsed.risks),
       evidence: strings(parsed.evidence),
       artifacts: strings(parsed.artifacts),
-      specialistOutputs: specialistOutputs(parsed.specialist_outputs ?? parsed.specialistOutputs),
+      specialistOutputs: specialistOutputs(parsed.specialistoutputs),
       raw: [raw],
       informationLossRisk: risk,
     },
   };
 }
 
+/** The JSON a reply carries: an object anywhere in it (fenced or not), or one sent as an encoded string. */
+function jsonObject(raw: string): Record<string, unknown> | undefined {
+  try {
+    const whole = JSON.parse(raw) as unknown;
+    if (typeof whole === "string") return jsonObject(whole.trim());
+    if (whole && typeof whole === "object" && !Array.isArray(whole)) return whole as Record<string, unknown>;
+  } catch {
+    // Prose around the object: take the object alone.
+  }
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return undefined;
+  try {
+    const parsed = JSON.parse(match[0]) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function parseDomainResult(body: string): { status?: "completed" | "needs_decision" | "failed" | "working"; result: DomainResult } {
   const raw = body.trim();
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (match) {
-    try {
-      const built = structuredResult(raw, JSON.parse(match[0]) as Record<string, unknown>);
-      if (built) return built;
-    } catch {
-      // The durable raw reply still survives below.
-    }
-  }
-  const fields = keyValueFields(raw);
-  const built = fields && structuredResult(raw, fields);
+  const json = jsonObject(raw);
+  // The durable raw reply still survives below when the object holds no handoff.
+  const built = json && structuredResult(raw, json);
   if (built) return built;
+  const fields = keyValueFields(raw);
+  const read = fields && structuredResult(raw, fields);
+  if (read) return read;
 
   const brief = raw.split(/\n+/).map((line) => line.trim()).find(Boolean)?.slice(0, 300) || "Domain work returned no readable summary.";
   return {

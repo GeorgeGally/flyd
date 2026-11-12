@@ -4,7 +4,7 @@ import { FLYD_APPLICATION_ROOT, FLYD_DIR } from "../lib/config.js";
 import { readAdvisories } from "../council/advisors.js";
 import { recentJournal } from "../council/journal.js";
 import { localDay } from "../council/memory-store.js";
-import { normalizeCriteria } from "../runtime/acceptance.js";
+import { domainHandoffShortfall, normalizeCriteria } from "../runtime/acceptance.js";
 import { dispatchCrewTask, listTasks, type CrewTask } from "./crew.js";
 import { listDomainRuns } from "../command/store.js";
 import { isSettled } from "../command/run-state.js";
@@ -212,10 +212,11 @@ export function gatherEvidence(sources: EvidenceSources = {}): Evidence[] {
       });
       continue;
     }
-    if (run.result?.format === "raw" && ["completed", "incomplete", "needs_decision"].includes(run.status)) {
+    const shortfall = run.result && ["completed", "incomplete", "needs_decision"].includes(run.status) ? domainHandoffShortfall(run, now) : undefined;
+    if (shortfall) {
       evidence.push({
         id: `domain-result:${run.id}`, kind: "domain", at: run.updatedAt,
-        text: `${run.owner} returned an unstructured domain handoff. Flyd preserved the raw detail, but the layered brief/report/evidence contract was not met for: "${run.request.intendedOutcome.slice(0, 220)}"`,
+        text: `${run.owner}'s domain handoff ${shortfall}, for: "${run.request.intendedOutcome.slice(0, 220)}"`,
       });
     }
   }

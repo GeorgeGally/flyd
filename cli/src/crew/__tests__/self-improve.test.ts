@@ -187,7 +187,32 @@ describe("domain handoffs as improvement evidence", () => {
 
     const evidence = gatherEvidence({ flydDir: home, now: NOW });
     expect(evidence.find((item) => item.id === "domain:domain-a")?.text).toContain("handoff broke");
-    expect(evidence.find((item) => item.id === "domain-result:domain-b")?.text).toContain("unstructured domain handoff");
+    // The notice names each missing layer, never a generic "preserved the raw detail".
+    const unstructured = evidence.find((item) => item.id === "domain-result:domain-b")?.text;
+    expect(unstructured).toContain("FirstMate's domain handoff missed the brief, report and evidence layers");
+    expect(unstructured).not.toContain("preserved the raw detail");
+  });
+
+  it("names the missing layer after the one re-request, and stays quiet while it is still being retried", () => {
+    const result = {
+      format: "structured" as const, brief: "Fixed the call site.", detailedReport: "Changed the caller and ran the suite.", decisionsMade: [],
+      unresolvedQuestions: [], risks: [], evidence: [], artifacts: [], specialistOutputs: [], raw: ["{}"], informationLossRisk: "low" as const,
+    };
+    const run = (id: string, handoffRetry?: DomainRun["handoffRetry"]): DomainRun => ({
+      id, request: { id, domain: "coding", originalMessage: "fix it", intendedOutcome: "fix it", doneWhen: ["works"], createdAt: "2026-09-26T10:00:00Z", source: "chat" },
+      owner: "FirstMate", status: "completed", createdAt: "2026-09-26T10:00:00Z", updatedAt: "2026-09-26T11:00:00Z",
+      transport: { kind: "firstmate", requestId: id }, result, ...(handoffRetry ? { handoffRetry } : {}),
+    });
+    saveDomainRun(run("domain-retried", { askedAt: "2026-09-26T11:00:00Z", missing: ["evidence"], answeredAt: "2026-09-26T11:30:00Z" }), join(home, "command"));
+    saveDomainRun(run("domain-pending", { askedAt: new Date(NOW.getTime() - 60_000).toISOString(), missing: ["evidence"] }), join(home, "command"));
+    saveDomainRun({ ...run("domain-normalised"), result: { ...result, evidence: ["https://github.com/george/flyd/pull/9"] } }, join(home, "command"));
+
+    const evidence = gatherEvidence({ flydDir: home, now: NOW });
+    expect(evidence.find((item) => item.id === "domain-result:domain-retried")?.text).toBe(
+      `FirstMate's domain handoff still missed the evidence layer: evidence (no link, commit, file, id or command output to check it against), after one structured re-request, for: "fix it"`,
+    );
+    expect(evidence.find((item) => item.id === "domain-result:domain-pending")).toBeUndefined();
+    expect(evidence.find((item) => item.id === "domain-result:domain-normalised")).toBeUndefined();
   });
 });
 
