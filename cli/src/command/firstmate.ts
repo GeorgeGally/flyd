@@ -7,7 +7,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { openCodePathCandidates } from "../runtime/opencode-adapter.js";
 import { createLaunchFailureCache, createRepeatGuard, MAX_IDENTICAL_LAUNCH_FAILURES, RepeatedLoopError, type LaunchFailureCache } from "../runtime/repeat-guard.js";
 import { defaultProseJudge, parseDomainResult, proseOutcomeByWords, validateDomainHandoff, type HandoffLayer, type ProseJudge, type ProseOutcome } from "./result.js";
-import { checkDomainHandoff, handoffFailureReason, handoffReRequest, validateFirstmateReturn } from "../runtime/acceptance.js";
+import { checkDomainHandoff, HANDOFF_RETRY_WAIT_MS, handoffFailureReason, handoffReRequest, validateFirstmateReturn } from "../runtime/acceptance.js";
 import { commandDir, commitDomainRun, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
 import { cameBack, isSettled } from "./run-state.js";
 import { dueReport, quietReport } from "./report.js";
@@ -812,8 +812,9 @@ export async function syncFirstmateDomainRuns(options: {
     stopHelper(idle, nowMs);
     return [];
   }
-  // A settled run still waiting on the answer to its one structured re-request is read until that answer comes.
-  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && (!isSettled(run.status) || (run.handoffRetry && !run.handoffRetry.answeredAt && run.status !== "cancelled")));
+  // A settled run still waiting on the answer to its one structured re-request is read until that answer comes,
+  // or until the wait after which it counts as unanswered (acceptance.ts) has passed.
+  const runs = listDomainRuns().filter((run) => run.transport.kind === "firstmate" && (!isSettled(run.status) || (run.handoffRetry && !run.handoffRetry.answeredAt && run.status !== "cancelled" && nowMs - Date.parse(run.handoffRetry.askedAt) <= HANDOFF_RETRY_WAIT_MS)));
   if (readiness) {
     if (readiness.canReceive === false && !readiness.liveHarness) {
       const pending = receipts.pending ?? [];

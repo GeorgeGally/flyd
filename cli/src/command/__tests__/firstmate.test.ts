@@ -503,23 +503,47 @@ describe("FirstMate domain transport", () => {
     expect(notes).toHaveLength(1);
     expect(sent).toHaveLength(1);
 
-    const reRequest = listDomainRuns().find((run) => run.id === "domain-test-1")!.messages!.find((message) => message.from === "flyd")!;
+    // The run as stored once George was told: what every later read must leave as it was.
+    const settled = listDomainRuns().find((run) => run.id === "domain-test-1")!;
+    expect(settled.notified).toBe(true);
+    const reRequest = settled.messages!.find((message) => message.from === "flyd")!;
     for (const [cursor, answer, judged] of [["000000000002", "Still working on it.", "working"], ["000000000003", "Hmm, let me look.", "unclear"]] as const) {
       verdict = judged;
       handled.push({ id: `note-${cursor}`, request_id: reRequest.id, acknowledged: true, reply: { id: `note-${cursor}`, at: "2026-10-09T02:00:00.000Z", body: answer, cursor } });
       await sync();
       const run = listDomainRuns().find((item) => item.id === "domain-test-1")!;
       expect(run.status).toBe("completed");
-      expect(run.notified).toBe(first!.notified);
-      expect(run.report).toEqual(first!.report);
-      expect(run.result).toEqual(first!.result);
+      expect(run.notified).toBe(true);
+      expect(run.report).toEqual(settled.report);
+      expect(run.result).toEqual(settled.result);
       expect(run.statusAskedAt).toBeUndefined();
-      expect(run.handoffRetry).toEqual(first!.handoffRetry);
+      expect(run.handoffRetry).toEqual(settled.handoffRetry);
       expect(run.transport.replyCursor).toBe(cursor);
     }
     // No clear-status ask and no second re-request, and nothing told to George again.
     expect(notes).toHaveLength(1);
     expect(sent).toHaveLength(1);
+  });
+
+  it("stops reading a settled run once its re-request has gone unanswered past the wait", async () => {
+    const askedAt = "2026-10-09T01:00:00.000Z";
+    const result = parseDomainResult("Done and merged.").result;
+    saveDomainRun({
+      ...queuedRun(), status: "completed", updatedAt: askedAt, result, notified: true,
+      transport: { kind: "firstmate", requestId: "domain-test-1", externalId: "note-1", replyCursor: "000000000001" },
+      handoffRetry: { askedAt, cursor: "000000000001", missing: ["brief", "report", "evidence"] },
+    });
+    // A late outcome reply on the original note, weeks after the re-request.
+    const handled = [{ id: "note-1", request_id: "domain-test-1", acknowledged: true, reply: { id: "note-1", at: "2026-10-30T00:00:00.000Z", body: JSON.stringify({ status: "failed", brief: "Rolled it back." }), cursor: "000000000002" } }];
+    const exec: FirstmateExec = async () => ({ stdout: JSON.stringify({ pending: [], handled }), stderr: "" });
+    const transport = new FirstmateDomainTransport({ script: "/fake/fm-inbox.sh", exec });
+
+    // Within 24 hours of the ask the run is still read; past it, never again.
+    const late = await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-11T01:00:00.000Z") });
+    expect(late).toEqual([]);
+    expect(listDomainRuns().find((run) => run.id === "domain-test-1")).toMatchObject({ status: "completed", transport: { replyCursor: "000000000001" } });
+    const [inTime] = await syncFirstmateDomainRuns({ transport, now: () => new Date("2026-10-09T12:00:00.000Z") });
+    expect(inTime!.status).toBe("failed");
   });
 
   it("accepts a FirstMate return that meets the contract after light normalisation, without a re-request", async () => {

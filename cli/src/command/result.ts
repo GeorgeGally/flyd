@@ -101,11 +101,16 @@ function unwrap(record: Record<string, unknown>): Record<string, unknown> {
 
 const text = (value: unknown): string => typeof value === "string" ? value.trim() : "";
 
-/** A structured reply from its fields, or undefined when it names no brief and no report. */
-function structuredResult(raw: string, record: Record<string, unknown>): { status?: "completed" | "needs_decision" | "failed" | "working"; result: DomainResult } | undefined {
-  const parsed = unwrap(record);
-  const brief = text(parsed.brief) || text(parsed.summary);
-  const detailedReport = text(parsed.detailedreport) || text(parsed.report) || text(parsed.detail);
+/**
+ * A structured reply from its fields, or undefined when it names no brief and no report. Widened (the reply is
+ * the object itself, or states a status), aliases and one wrapper level count; an object merely embedded in
+ * prose (an API error body quoted in a question) counts only through the contract's own brief/detailed_report,
+ * so the prose judge still reads what the reply says happened.
+ */
+function structuredResult(raw: string, record: Record<string, unknown>, widened = true): { status?: "completed" | "needs_decision" | "failed" | "working"; result: DomainResult } | undefined {
+  const parsed = widened ? unwrap(record) : canonicalKeys(record);
+  const brief = text(parsed.brief) || (widened ? text(parsed.summary) : "");
+  const detailedReport = text(parsed.detailedreport) || (widened ? text(parsed.report) || text(parsed.detail) : "");
   if (!brief && !detailedReport) return undefined;
   const riskRaw = String(parsed.informationlossrisk ?? "low").trim().toLowerCase();
   const risk: InformationLossRisk = riskRaw === "high" || riskRaw === "medium" ? riskRaw : "low";
@@ -129,20 +134,24 @@ function structuredResult(raw: string, record: Record<string, unknown>): { statu
   };
 }
 
-/** The JSON a reply carries: an object anywhere in it (fenced or not), or one sent as an encoded string. */
-function jsonObject(raw: string): Record<string, unknown> | undefined {
-  try {
-    const whole = JSON.parse(raw) as unknown;
-    if (typeof whole === "string") return jsonObject(whole.trim());
-    if (whole && typeof whole === "object" && !Array.isArray(whole)) return whole as Record<string, unknown>;
-  } catch {
-    // Prose around the object: take the object alone.
+/** The JSON a reply carries, and whether it is the whole reply (alone, in one fence, or as an encoded string) or an object found inside prose. */
+function jsonObject(raw: string): { object: Record<string, unknown>; whole: boolean } | undefined {
+  const fenced = /^```[\w-]*\s*\n([\s\S]*?)\n?```$/.exec(raw)?.[1]?.trim();
+  for (const candidate of [raw, fenced]) {
+    if (!candidate) continue;
+    try {
+      const whole = JSON.parse(candidate) as unknown;
+      if (typeof whole === "string") return jsonObject(whole.trim());
+      if (whole && typeof whole === "object" && !Array.isArray(whole)) return { object: whole as Record<string, unknown>, whole: true };
+    } catch {
+      // Prose around the object: take the object alone.
+    }
   }
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) return undefined;
   try {
     const parsed = JSON.parse(match[0]) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { object: parsed as Record<string, unknown>, whole: false } : undefined;
   } catch {
     return undefined;
   }
@@ -152,7 +161,7 @@ export function parseDomainResult(body: string): { status?: "completed" | "needs
   const raw = body.trim();
   const json = jsonObject(raw);
   // The durable raw reply still survives below when the object holds no handoff.
-  const built = json && structuredResult(raw, json);
+  const built = json && structuredResult(raw, json.object, json.whole || Boolean(knownStatus(canonicalKeys(json.object).status)));
   if (built) return built;
   const fields = keyValueFields(raw);
   const read = fields && structuredResult(raw, fields);

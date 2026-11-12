@@ -68,6 +68,25 @@ describe("key/value replies", () => {
   });
 });
 
+describe("JSON inside prose", () => {
+  it("leaves a prose reply quoting an API error body raw, so the judge decides how it ended", () => {
+    for (const body of [
+      'Couldn\'t deploy, the API returned {"detail":"Not Found"}. Which region should I use?',
+      'The service answered {"data":{"summary":"rate limited"}} and I stopped there.',
+      'Got {"output":{"report":"quota exceeded"}} back from the build.',
+    ]) {
+      const parsed = parseDomainResult(body);
+      expect(parsed.result.format).toBe("raw");
+      expect(parsed.status).toBeUndefined();
+    }
+  });
+
+  it("still reads a whole-body or status-bearing object through its aliases and wrapper", () => {
+    expect(parseDomainResult(JSON.stringify({ data: { summary: "Fixed the call site." } })).result).toMatchObject({ format: "structured", brief: "Fixed the call site." });
+    expect(parseDomainResult('Handoff: {"Status": "failed", "result": {"summary": "The deploy failed."}}')).toMatchObject({ status: "failed", result: { format: "structured", brief: "The deploy failed." } });
+  });
+});
+
 describe("prose replies", () => {
   it("never classifies a reply by its words: the plain-words fallback only says it could not tell", () => {
     for (const reply of [
