@@ -38,7 +38,7 @@ export function statusSaid(line: string): string | null {
   if (state === "paused") return "This is paused for now.";
   if (state === "working") return "I'm still working on this.";
   if (state === "needs-decision") return null;
-  return FINISHED.test(line) ? "This is finished and ready for you to look over." : null;
+  return FINISHED.test(line) ? "This is finished and ready for you to look over." : "I'm still working on this.";
 }
 
 /**
@@ -88,6 +88,7 @@ const WILL: Record<string, string> = { "let you know": "let you know", "update y
  */
 export function withoutInformAsk(text: string): string {
   return text.replace(INFORM_ASK, (found, act: string, rest: string) => {
+    if (/^pass\b/i.test(act) && /\bto (?!you\b)/i.test(rest)) return found;
     const when = /^\s*(?:(?:the|a|an)\s+)?(?:(?!(?:what|how|why|which|where|who|whether|more|about)\b)[\w-]+\s+)?((?:once|when|as soon as|after)\b.*)$/i.exec(rest)?.[1];
     if (when) return `I'll let you know ${when.trim()}.`;
     const action = act.toLowerCase();

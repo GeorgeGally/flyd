@@ -55,7 +55,8 @@ describe("statusSaid", () => {
     expect(statusSaid("blocked: tests passing but the deploy key is missing")).toBe("This is held up. I'm working out what it needs and will tell you if it needs you.");
     expect(statusSaid("paused: checks green, waiting on the font licence")).toBe("This is paused for now.");
     expect(statusSaid("working: tests passing on the first half")).toBe("I'm still working on this.");
-    expect(statusSaid("tests passing")).toBeNull();
+    expect(statusSaid("tests passing")).toBe("I'm still working on this.");
+    expect(statusSaid("Tests passing on the export branch")).toBe("I'm still working on this.");
     for (const line of ["blocked: tests passing but the deploy key is missing", "paused [at=1]: checks green", "working: CI green so far", "tests passing"]) {
       expect(statusSaid(line) ?? "").not.toMatch(/finished/i);
     }
@@ -80,6 +81,10 @@ describe("withoutInformAsk", () => {
     expect(bannedFor("Shall I pass that on?")).not.toBeNull();
     expect(bannedFor("Should I pass it along?")).not.toBeNull();
     expect(bannedFor("Shall I pass it on to Anna?")).toBeNull();
+    for (const asked of ["The proofs are back. Should I pass them on to Anna for sign-off?", "Anna emailed. Shall I pass it along to the printer?", "Do you want me to pass along the invoice to Mark?"]) {
+      expect(forHim(asked)).toBe(asked);
+    }
+    expect(withoutInformAsk("Mark replied. Shall I pass it on to you?")).toBe("Mark replied. I'll pass it on to you.");
   });
 
   it("never asks leave to tell him", () => {

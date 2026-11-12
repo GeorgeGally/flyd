@@ -75,6 +75,10 @@ describe("toYou for every way he is named", () => {
     // Someone else named in the sentence may be who "he" is.
     expect(toYou("George asked Pierre to send his feedback, and he wants a call with him.")).toBe("You asked Pierre to send his feedback, and he wants a call with him.");
     expect(toYou("Anna told George he could call.")).toBe("Anna told you he could call.");
+    // Someone named by a role may be who "he" is.
+    expect(toYou("George asked the plumber whether he can come tomorrow.")).toBe("You asked the plumber whether he can come tomorrow.");
+    expect(toYou("George told the plumber he needs to come back.")).toBe("You told the plumber he needs to come back.");
+    expect(toYou("George met the new accountant and liked his plan.")).toBe("You met the new accountant and liked his plan.");
     // Someone of his named by a relation or role may be who "he" is.
     expect(toYou("George's brother called and he wants a lift.")).toBe("Your brother called and he wants a lift.");
     expect(toYou("George's client said he will pay on Friday.")).toBe("Your client said he will pay on Friday.");
