@@ -70,6 +70,6 @@ describe("a run's work state", () => {
       now,
     });
     const states = board.jobs.map((job) => [job.group, job.state]);
-    expect(states).toEqual(expect.arrayContaining([["needs", "Ready to land"], ["waiting", "Blocked"]]));
+    expect(states).toEqual(expect.arrayContaining([["needs", "Ready for you"], ["waiting", "Blocked"]]));
   });
 });
