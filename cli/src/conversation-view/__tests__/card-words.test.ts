@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cardSource, cardWordsFromModel, fallbackWords, MAX_TRIES, readCardWords, scheduleCardWords } from "../card-words.js";
-import { jobsFrom } from "../jobs.js";
+import { jobsFrom, plainAnswer } from "../jobs.js";
 import type { Project } from "../../council/projects.js";
 import type { ShowScreen } from "../show.js";
 
@@ -86,6 +86,7 @@ describe("board cards from staff status lines", () => {
     const card = board.jobs.find((job) => job.group === "needs")!;
     expect(card).toMatchObject({ title: "Easel: ready for you to look over", ask: "This is finished. Have a look when you can and tell me if anything should change." });
     expect(card.choices?.length).toBeGreaterThan(0);
+    expect(JSON.stringify(card.choices)).not.toMatch(/merge|ship/i);
     expect(board.untranslated.map((source) => source.line)).toEqual([question]);
     const said = jobsFrom({
       projects: [easel],
@@ -330,5 +331,29 @@ describe("what the review found still reaching him", () => {
     const said = jobsFrom({ projects: [easel], runs: [{ ...needsRun, outcome: "Crop images on the canvas", question: "Should I rebase onto main first?" }], cardWords: words, now: NOW });
     expect(said.untranslated).toEqual([]);
     expect(said.jobs.find((job) => job.group === "needs")!.threads[0]).toMatchObject({ title: "Easel: one question first" });
+  });
+
+  it("says the answer buttons he taps in his words", () => {
+    expect(plainAnswer("Merge")).toBe("Go ahead");
+    expect(plainAnswer("Merge now")).toBe("Go ahead now");
+    expect(plainAnswer("Yes, land it")).toBe("Go ahead");
+    expect(plainAnswer("Rebase onto main")).toBe("Go ahead");
+    expect(plainAnswer("Wait")).toBe("Wait");
+    expect(plainAnswer("Wait for checks")).toBe("Wait");
+    expect(plainAnswer("V3 Notch")).toBe("V3 Notch");
+    expect(plainAnswer("Keep the PR open")).toBeNull();
+
+    const show = { ...screen, calls: [{ id: "call:week", kind: "call", headline: "Week page", why: "", task: "week", project: "/code/easel", detail: "Merge or wait",
+      decision: { task: "week", question: "Is the Week page good to go live?", choices: ["Merge", "Wait"], recommended: "Merge" } }] } as unknown as ShowScreen;
+    const card = jobsFrom({ projects: [easel], show, cardWords: new Map(), now: NOW }).jobs.find((job) => job.group === "needs")!;
+    expect(card.choices).toEqual(["Go ahead", "Wait"]);
+    expect(card.recommended).toBe("Go ahead");
+    expect(card.decision).toMatchObject({ choices: ["Go ahead", "Wait"], recommended: "Go ahead" });
+
+    const unsaid = { ...screen, calls: [{ id: "call:pr", kind: "call", headline: "Week page", why: "", task: "pr", project: "/code/easel", detail: "Pick one",
+      decision: { task: "pr", question: "Which one should go live?", choices: ["PR #41", "PR #42"] } }] } as unknown as ShowScreen;
+    const open = jobsFrom({ projects: [easel], show: unsaid, cardWords: new Map(), now: NOW }).jobs.find((job) => job.group === "needs")!;
+    expect(open.choices).toBeUndefined();
+    expect(open.decision?.choices).toEqual([]);
   });
 });

@@ -494,6 +494,8 @@ export function jobsFrom(input: {
     const several = numbered.length > 1 ? numbered : null;
     const listed = lead.group === "needs" && !lead.decision && lead.ask ? numberedChoice(lead.ask) : undefined;
     const answers = lead.group === "needs" && !several ? (listed ?? answersOf(lead, digestSaid)) : null;
+    // The buttons he taps are in his words too: "Merge" reads "Go ahead"; answers that cannot be said plainly are left to his own words.
+    const shownAnswers = answers && plainAnswers(answers.options, answers.recommended);
     const shownState = paused && (paused > 1 || state !== "Paused") ? `${state === "Paused" ? "" : `${state} · `}${paused} paused` : state;
     // A card built from the staff's status line is said in his words, once (card-words.ts); until then, generically, and its Timeline entry says the same. A card with its own question and answers keeps them together.
     const asks = Boolean(several || listed || answers?.options.length);
@@ -523,9 +525,9 @@ export function jobsFrom(input: {
       files: bucket.files.slice(0, 6),
       threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8).map(said),
       digest: digestSaid,
-      ...(lead.decision ? { decision: lead.decision } : {}),
-      ...(several ? { decisions: several } : {}),
-      ...(answers ? { choices: answers.options, ...(answers.recommended ? { recommended: answers.recommended } : {}) } : {}),
+      ...(lead.decision ? { decision: plainDecision(lead.decision) } : {}),
+      ...(several ? { decisions: several.map((decision) => ({ ...decision, ...(plainAnswers(decision.options, decision.recommended) ?? { options: [], recommended: undefined }) })) } : {}),
+      ...(shownAnswers ? { choices: shownAnswers.options, ...(shownAnswers.recommended ? { recommended: shownAnswers.recommended } : {}) } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
       ...(lead.handled ? { handled: lead.handled } : {}),
     }, fallback));
@@ -573,6 +575,38 @@ function sameWords(a: string, b: string): boolean {
   const x = words(a);
   const y = words(b);
   return Boolean(x && y) && (x === y || x.startsWith(y) || y.startsWith(x));
+}
+
+/** An answer that goes ahead with the work, in the staff's word for it: "Merge", "Land it", "Ship now". */
+const GO_AHEAD = /^(?:yes[,.!]?\s+)?(?:merge|land|ship|deploy|release|push|rebase|publish)\b\s*(?:(?:it|this|that|them|the\s+pr|pr\s*#?\d*|(?:in)?to\s+main|onto\s+main|on\s+main)\b\s*)*/i;
+
+/**
+ * One answer button in his words: "Merge" reads "Go ahead", "Merge now" reads
+ * "Go ahead now", "Wait for checks" reads "Wait". Null when it still talks like a developer. Pure.
+ */
+export function plainAnswer(option: string): string | null {
+  const go = GO_AHEAD.exec(option.trim());
+  const said = go ? `Go ahead${option.trim().slice(go[0].length).trim() ? ` ${option.trim().slice(go[0].length).trim()}` : ""}` : option;
+  if (!jargonIn(said) && !bannedFor(said)) return said;
+  // "Wait for checks" is still "Wait" to him.
+  const hold = /^(?:wait|hold off|not yet|no)\b/i.exec(said.trim())?.[0];
+  return hold ? hold.charAt(0).toUpperCase() + hold.slice(1) : null;
+}
+
+/** A set of answers in his words, the recommended one with them; null when any cannot be said plainly or two would read the same. Pure. */
+function plainAnswers(options: string[], recommended?: string): { options: string[]; recommended?: string } | null {
+  const said = options.map(plainAnswer);
+  if (said.some((option) => option === null) || new Set(said.map((option) => option!.toLowerCase())).size !== said.length) return null;
+  const pick = recommended ? said[options.indexOf(recommended)] : undefined;
+  return { options: said as string[], ...(pick ? { recommended: pick } : {}) };
+}
+
+/** A fleet decision drawn with buttons in his words; with none, when its answers cannot be said plainly. Pure. */
+function plainDecision(decision: NonNullable<ShowItem["decision"]>): NonNullable<ShowItem["decision"]> {
+  if (!decision.choices.length) return decision;
+  const said = plainAnswers(decision.choices, decision.recommended);
+  const { recommended: _recommended, ...rest } = decision;
+  return said ? { ...rest, choices: said.options, ...(said.recommended ? { recommended: said.recommended } : {}) } : { ...rest, choices: [] };
 }
 
 /** Developer words or a banned phrase in a line he would read, or null. Pure. */
