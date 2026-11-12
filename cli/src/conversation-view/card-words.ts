@@ -113,10 +113,11 @@ const JARGON: RegExp[] = [
   /\b0\d{2}\b/,
   /\b(?:notes?|tasks?|items?)\s*#?\d+\b/i,
   /#\d+\b/,
-  /\b(?:branch(?:es)?|main|master|HEAD|worktree|repo(?:sitory)?|rebase[ds]?|cherry-pick\w*)\b/i,
-  /\b(?:land|lands|landed|landing)\b/i,
+  /\b(?:branch(?:es)?|master|HEAD|worktree|repo(?:sitory)?|rebase[ds]?|cherry-pick\w*)\b/i,
+  /\b(?:on|to|into|from|off)\s+(?:the\s+)?main\b|\bmain\s+branch\b/i,
+  /\blanded\b|\b(?:to|will|can|did|and)\s+land\b|\blands?\s+(?:on|in|into)\b/i,
   /\bsatisf(?:y|ied|ies)\b/i,
-  /\b(?:PRs?|pull requests?|merge[ds]?|merging|commit(?:s|ted)?|diff|CI|pipeline|no-mistakes|crewmate|firstmate|worker)\b/i,
+  /\b(?:PRs?|pull requests?|merge[ds]?|merging|commit(?:s|ted)?|diff|CI|no-mistakes|crewmate|firstmate)\b/i,
 ];
 
 export function jargonIn(text: string): string | null {

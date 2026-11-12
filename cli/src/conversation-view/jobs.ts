@@ -354,6 +354,7 @@ export function jobsFrom(input: {
     active.push(bucket);
     activeProjects.set(projectKey, active);
   };
+  const runThreads: Array<{ thread: JobThread; group: JobGroup; project: string; state: string; title: string; line: string }> = [];
   for (const run of input.runs ?? []) {
     const signal = runSignal(run, now);
     if (!signal) continue;
@@ -366,7 +367,9 @@ export function jobsFrom(input: {
     if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; bucket.name = name; markActive(name, bucket); }
     bucket.signals.push(signal);
     const full = runSentence(run.outcome);
-    bucket.threads.push({ id: run.id, title, at: run.updatedAt, kind: "run", ...(full && full !== title ? { full } : {}) });
+    const thread: JobThread = { id: run.id, title, at: run.updatedAt, kind: "run", ...(full && full !== title ? { full } : {}) };
+    bucket.threads.push(thread);
+    if (run.outcome) runThreads.push({ thread, group: signal.group, project: bucket.name ?? "", state: signal.state ?? STATE[signal.group], title: runTitle(run.outcome) || run.project || "", line: run.outcome });
     for (const artifact of artifactsOf(run.artifacts, exists)) {
       if (artifact.href) bucket.links.push({ label: artifact.label, url: artifact.href });
       else bucket.files.push({ label: artifact.label });
@@ -444,6 +447,15 @@ export function jobsFrom(input: {
   const jobs: Job[] = [];
   const pending: DigestSource[] = [];
   const untranslated: CardSource[] = [];
+  // Every run's Timeline entry is said in his words too, never as the staff wrote it.
+  const timeline: CardSource[] = [];
+  for (const item of input.cardWords ? runThreads : []) {
+    const source = cardSource(item.project, item.state, item.title, item.line);
+    const words = input.cardWords!.get(source.key) ?? fallbackWords(item.project, item.group);
+    if (!input.cardWords!.has(source.key)) timeline.push(source);
+    item.thread.title = words.title;
+    item.thread.full = words.body;
+  }
   for (const bucket of buckets.values()) {
     const project = projects.find((item) => item.id === bucket.id);
     if (!bucket.signals.length && activeProjects.has(jobKey(bucket.id))) continue;
@@ -474,11 +486,7 @@ export function jobsFrom(input: {
     const raw = input.cardWords && lead.raw && !asks ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line) : undefined;
     const words = raw ? input.cardWords!.get(raw.key) ?? fallbackWords(raw.project, lead.group) : undefined;
     if (raw && !input.cardWords!.has(raw.key) && !untranslated.some((item) => item.key === raw.key)) untranslated.push(raw);
-    if (raw && words) {
-      const own = lead.raw?.thread ? bucket.threads.find((thread) => thread.id === lead.raw!.thread) : undefined;
-      if (own) { own.title = words.title; own.full = words.body; }
-      else bucket.threads.push({ id: `note:${raw.key}`, title: words.title, full: words.body, at: lead.at || at, kind: "run" });
-    }
+    if (raw && words && !lead.raw!.thread) bucket.threads.push({ id: `note:${raw.key}`, title: words.title, full: words.body, at: lead.at || at, kind: "run" });
     jobs.push({
       id: bucket.id,
       group: lead.group,
@@ -506,7 +514,7 @@ export function jobsFrom(input: {
     });
   }
   jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));
-  return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8), untranslated };
+  return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8), untranslated: [...untranslated, ...timeline].filter((source, index, all) => all.findIndex((item) => item.key === source.key) === index) };
 }
 
 /**

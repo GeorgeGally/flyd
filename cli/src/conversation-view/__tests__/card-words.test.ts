@@ -85,7 +85,7 @@ describe("board cards from staff status lines", () => {
     });
     const card = board.jobs.find((job) => job.ask.includes("crop tool"))!;
     expect(card.ask).not.toBe("Open to see details.");
-    expect(board.untranslated).toEqual([]);
+    expect(board.untranslated.map((source) => source.line)).toEqual(["Crop images on the canvas"]);
   });
 
   it("keeps a ready fleet item's decision question instead of rewriting it", () => {
@@ -108,6 +108,27 @@ describe("board cards from staff status lines", () => {
     });
     const card = board.jobs.find((job) => job.group === "working")!;
     expect(card).toMatchObject({ title: "Easel: work is under way", next: "Open to see details." });
+  });
+
+  it("says every run's Timeline entry plainly, not only the lead's", () => {
+    const older = "Wiring 005 into mode-pill.tsx";
+    const newer = "Crop images on the canvas";
+    const board = jobsFrom({
+      projects: [easel],
+      runs: [
+        { id: "run-a", status: "completed", project: "Easel", outcome: newer, owner: "FirstMate", updatedAt: "2026-11-12T11:00:00.000Z", artifacts: [], work: "landed" },
+        { id: "run-b", status: "completed", project: "Easel", outcome: older, owner: "FirstMate", updatedAt: "2026-11-12T10:00:00.000Z", artifacts: [], work: "landed" },
+      ],
+      cardWords: new Map(),
+      now: NOW,
+    });
+    const card = board.jobs.find((job) => job.id === "easel")!;
+    expect(card.threads).toHaveLength(2);
+    const shown = JSON.stringify(card.threads);
+    expect(shown).not.toContain("mode-pill");
+    expect(shown).not.toContain("005");
+    expect(shown).not.toContain("Crop images");
+    expect(board.untranslated.map((source) => source.line).sort()).toEqual([newer, older].sort());
   });
 
   it("rewrites a finished run's card too, with its brief as the raw line", () => {
@@ -133,6 +154,9 @@ describe("card words", () => {
     expect(cardWordsFromModel(JSON.stringify({ title: "Easel: note 005 satisfied", body: "Nothing to do." }))).toBeNull();
     expect(cardWordsFromModel(JSON.stringify({ title: "Easel: tidied", body: "I changed mode-pill.tsx." }))).toBeNull();
     expect(cardWordsFromModel("not json")).toBeNull();
+    expect(cardWordsFromModel(JSON.stringify({ title: "Easel: the landing page has a new hero image", body: "Open the main menu to see it." }))).not.toBeNull();
+    expect(cardWordsFromModel(JSON.stringify({ title: "Easel: crop tool is ready to land", body: "Try it now." }))).toBeNull();
+    expect(cardWordsFromModel(JSON.stringify({ title: "Easel: crop tool", body: "It is now on main." }))).toBeNull();
   });
 
   it("falls back to a generic plain line, never the raw one", () => {
