@@ -7,6 +7,8 @@ import { appendConfirmedTodos } from "../work/work-hypothesis/confirmed-todos.js
 import { MAX_TODO_CHARS, readTodos, tickTodo, type TodoRow } from "./todos.js";
 import { renderRoutinesPage } from "./routines-page.js";
 import { renderWhatsAppPage } from "./whatsapp-page.js";
+import { boardUrls, isBoardKey, LieselLauncher } from "./liesel.js";
+import { renderOpenBoardPage } from "./open-board-page.js";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
@@ -823,6 +825,8 @@ export class ConversationViewServer {
   private boardJobs: Job[] = [];
   /** His notes from cards: accepted at once, routed in order behind. */
   private readonly cardNotes = new CardNotes();
+  /** Opens a card's Liesel board, starting Liesel first when it is down. Tests replace it. */
+  lieselBoards = new LieselLauncher();
 
   constructor(
     private readonly source: ConversationSource,
@@ -1010,6 +1014,25 @@ export class ConversationViewServer {
     }
     if (req.method !== "GET") {
       sendJson(res, 405, { error: "method not allowed" });
+      return;
+    }
+    if (url.pathname.startsWith("/open-board/")) {
+      // The "Open board" button's page: a calm loader while Flyd makes sure Liesel serves the board.
+      let key = "";
+      try { key = decodeURIComponent(url.pathname.slice("/open-board/".length)); } catch { /* not a key */ }
+      if (!isBoardKey(key)) { sendJson(res, 404, { error: "not found" }); return; }
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'", "referrer-policy": "no-referrer" });
+      res.end(renderOpenBoardPage(key, this.token));
+      return;
+    }
+    if (url.pathname === "/api/open-board") {
+      if (!sameToken(url.searchParams.get("token") ?? undefined, this.token)) {
+        sendJson(res, 403, { error: "missing or wrong token" });
+        return;
+      }
+      const key = url.searchParams.get("board") ?? "";
+      const outcome = await this.lieselBoards.open(key);
+      sendJson(res, 200, outcome.state === "ready" ? { ...outcome, ...boardUrls(key) } : outcome);
       return;
     }
     if (url.pathname === "/whatsapp") {
