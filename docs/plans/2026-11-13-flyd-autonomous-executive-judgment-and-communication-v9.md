@@ -1,11 +1,21 @@
 # Flyd v9 — Autonomous Executive Judgment, Natural Communication, and Personal Care
 
-**Status:** Proposed implementation plan; committed for implementation, **not implemented**.
+**Status:** Release A/B implementation merged to `main` on 13 November 2026 (PR #292, `bb559977aa753f5bc4a93bc839b3beb19ad3d0c9`); Release C proactive personal care and live Mac/provider verification remain **not complete**.
 **Date:** 13 November 2026
 **Repository reviewed:** GeorgeGally/flyd, main at 2880b4bcc32bc8652c3447285018e96e0c7f8fef
 **Owner:** Flyd product, for George
 **Supersedes as a forward implementation priority:** v8's *one adaptation then ask George* behavior and the current split/voice work's product assumptions where contradicted below. **Does not replace** v8's cross-domain graphs, request-id reconciliation, correction invalidation, domain ownership, or durable delivery machinery.
 **Highest authority:** `docs/product/flyd-personal-intelligence-prd.md`. Where this proposal requires a policy change, update that PRD first and get the requisite authorization before changing execution behavior. A plan is not a capability grant.
+
+## Implementation record — 13 November 2026
+
+**Merged:** [PR #292](https://github.com/GeorgeGally/flyd/pull/292), commit `bb559977aa753f5bc4a93bc839b3beb19ad3d0c9`.
+
+**CI:** GitHub Actions run `43421955219` passed all six jobs (Core TypeScript check, unit/integration tests and build; mac-adapter; routing-learning; evidence; planning; dependency-audit). This validates committed source and mocked provider contracts; it does **not** verify the installed Mac, the active `FLYD_COS` setting, real Gemini API performance or production interruptions.
+
+**Implemented in source:** CoS fast executive predicate and Gemini/Jev abstraction; scoped operational disposition and private higher-reasoning escalation; bounded internal recovery and unknown-external-effect holds; Flyd-owned routing in project conversations; removal of mandatory delegation narration; grounded gallery and briefing manifestations; revised source-backed tests and governing authority language.
+
+**Not implemented or not proven:** Full proactive relationship/calendar preparation and ambient design anticipation (P5); real-world 100-case Jev-versus-Gemini benchmark; installed Mac/live credential/provider verification; expansion of standing grants beyond existing permitted internal effects. Those are **open acceptance gates**, not completed work. The plan should not be marked fully shipped until they pass.
 
 ## 0. Executive decision
 
