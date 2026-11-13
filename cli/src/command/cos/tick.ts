@@ -261,8 +261,11 @@ async function confirm(objective: Objective, run: PlannedRun, deps: CosTickDeps,
   if (now.getTime() - since < UNCONFIRMED_MS) return;
   const current = readObjective(objective.id);
   if (!current || current.waitingOn || !["working", "needs_george"].includes(current.status)) return;
-  const made: CosReport = { ...plainReport(current, "decision", `I can't tell whether “${shortWords(run.outcome)}” was handed over. Send it again, or drop it?`, `unconfirmed:${run.key}:${run.attempt}:${current.reportIds.length}`), detail: run.failure ?? "", options: [...WAIT_ANSWERS.unconfirmed] };
-  await report(current, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "unconfirmed" });
+  const made: CosReport = { ...plainReport(current, "blocked", `I could not verify whether “${shortWords(run.outcome)}” was handed over, so I held it to avoid duplicating the action.`, `unconfirmed:${run.key}:${run.attempt}`), detail: run.failure ?? "" };
+  await report(current, made, deps, store, async () => (deps.say ?? defaultSay)(made), "working");
+  mutateObjective(current.id, (latest) => latest && ({
+    ...latest, parked: { at: now.toISOString(), reason: "Unconfirmed handoff: do not resend without evidence" },
+  }));
 }
 
 
@@ -729,9 +732,16 @@ async function attend(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   }
   const at = now.toISOString();
   if (cannotTell) {
-    const made: CosReport = { ...plainReport(objective, "decision", `“${work}” has gone quiet and I can't tell why. Nudge it, park it, or is it meant to keep running?`, `stuck:${at}`), options: [...WAIT_ANSWERS.stuck] };
-    mutateObjective(id, (current) => current && { ...current, triage: [...(current.triage ?? []), { at, choice: "asked", reason: cannotTell }] });
-    return report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "stuck" });
+    // An unknown lifecycle is an operator problem, not a choice for George.
+    // Park the specific uncertainty for investigation; never re-dispatch an
+    // action whose external effect might already have happened.
+    const made: CosReport = { ...plainReport(objective, "blocked", `“${work}” is held up while I verify its status.`, `stuck:${at}`), detail: cannotTell };
+    await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "working");
+    mutateObjective(id, (current) => current && ({
+      ...current, triage: [...(current.triage ?? []), { at, choice: "park", reason: cannotTell }],
+      parked: { at, reason: cannotTell },
+    }));
+    return;
   }
   const choice = nudged ? "nudge" : parked ? "park" : null;
   if (!choice) return;
