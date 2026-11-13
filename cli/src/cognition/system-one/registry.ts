@@ -491,6 +491,19 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
   },
 
   {
+    id: "cos_operational_disposition", family: "executive", type: "choice",
+    instructions: "An existing domain team is asking about its implementation of an accepted objective. The Chief of Staff owns routine operational choices. Read the source question and options in context. Select the best next internal action. This classification confers NO authorization for external or destructive effects.",
+    criteria: {
+      use_recommendation: "The domain's grounded, specific recommendation is adequate to proceed safely with an internal implementation choice within the accepted objective.",
+      ask_team_for_evidence: "The team should investigate, compare options or make its own informed technical recommendation before proceeding; no user interruption is warranted.",
+      escalate_to_flyd: "The issue is strategically consequential or irreducibly ambiguous and needs Flyd's deeper private reasoning; this is NOT a reason to contact George automatically.",
+    },
+    threshold: 0.75, use: "choice", failureMode: "fallback_heuristic",
+    projection: EXECUTIVE_PROJECTION, evaluatorVersion: "cos_operational_disposition.v1", status: "production",
+    consumer: "command/cos/operational-judgment.ts: chooses internal response or exceptional Flyd reasoning; deterministic policy vetoes unauthorized effects",
+  },
+
+  {
     id: "executive_outcome_notable", family: "executive", type: "noul",
     instructions: "Does this verified outcome materially change George's immediate priorities, a time-sensitive commitment, money or a significant risk enough to interrupt him now? Routine completed work and staff/process changes are not interruptions. Without evidence of consequence, answer false.",
     criteria: { true: "A verified result has an explicit significant, time-sensitive consequence for George or his goal.", false: "Routine completion, internal mechanics, an unverified claim, a question, or no concrete timely consequence." },
