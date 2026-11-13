@@ -7,6 +7,7 @@ import { TEAMS } from "../../runtime/turn-plan.js";
 import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
 import { judgeOperationalQuestion, operationalQuestionKey, type OperationalQuestion, type OperationalDisposition } from "./operational-judgment.js";
+import { judgeRecovery, type RecoveryInput, type RecoveryDisposition } from "./recovery.js";
 import { cameBack, isAtWork } from "../run-state.js";
 import { shownLine } from "../report.js";
 import type { DomainRun } from "../types.js";
@@ -40,6 +41,8 @@ export interface CosTickDeps {
   dispatch?: Dispatch;
   /** Fast, authority-vetted operational judgment, injectable for offline tests. */
   operationalJudge?: (question: OperationalQuestion) => Promise<OperationalDisposition>;
+  /** Bounded recovery judgment, injectable for offline tests. */
+  recoveryJudge?: (input: RecoveryInput) => Promise<RecoveryDisposition>;
   /** The executive review of a settled run (scheduler.ts `decideRun`). */
   decide?: (run: DomainRun) => Promise<ExecutiveDecisionRecord>;
   /** Tells George a reviewed run's report (scheduler.ts `tellRun`). */
@@ -370,24 +373,43 @@ function completed(objective: Objective, run: PlannedRun, key: string): void {
 }
 
 /**
- * A failed run gets one alternative: re-briefed to its team with why it failed. A second failure, a run that may have
- * acted outside (a one-off job), or a crew run, becomes one decision for George; nothing is tried a third time.
+ * Recovery is an executive judgment, not an arbitrary "second failure → George"
+ * rule. No possible outward effect or one-off job is retried blindly.
+ * When exhausted, preserve a truthful blocked result and park the objective;
+ * never ask George to pick a debugging tactic.
  */
 async function failed(objective: Objective, run: PlannedRun, key: string, why: string, detail: string, deps: CosTickDeps, store: IntelligenceEventStore, retryable: boolean): Promise<void> {
   const reason = why && !unfitForHim(why).length ? why : "";
-  if (retryable && !run.adapted) {
-    changeRun(objective.id, run.key, (current) => current.reviewed === key ? null : requeue(current, { adapted: true, failure: reason ? `it didn't finish (${reason})` : "it didn't finish" }), (current) => ({
-      adaptations: [...(current.adaptations ?? []), adaptation(run.key, "rebrief", `It didn't finish${reason ? ` (${reason})` : ""}, so it was briefed again once with that.`)],
-    }));
+  const recovery = await (deps.recoveryJudge ?? judgeRecovery)({
+    objective, run,
+    failure: reason || "A team could not finish the work.",
+    retryable,
+    effectKnownInternal: retryable && !run.ref?.includes(":"),
+  });
+  if (recovery.action === "rebrief") {
+    changeRun(objective.id, run.key,
+      (current) => current.reviewed === key ? null : requeue(current, {
+        adapted: true,
+        failure: recovery.reason + (reason ? " Last failure: " + reason : ""),
+      }),
+      (current) => ({
+        adaptations: [...(current.adaptations ?? []), adaptation(run.key, "rebrief", recovery.reason)],
+      }));
     return;
   }
   const work = shortWords(run.outcome);
-  const outcome = run.adapted
-    ? `${work} didn't finish on the second try either${reason ? `: ${reason}` : ""}. Try another way, or drop it?`
-    : reason ? `${work} didn't finish: ${reason}` : `${work} didn't finish.`;
-  const made: CosReport = { ...plainReport(objective, "decision", outcome, key), detail, evidenceRefs: [linkOf(run.ref!)], options: [...WAIT_ANSWERS.retry] };
+  const outcome = reason ? `${work} could not be completed: ${reason}.` : `${work} could not be completed.`;
+  const made: CosReport = {
+    ...plainReport(objective, "blocked", outcome, key), detail,
+    evidenceRefs: run.ref ? [linkOf(run.ref)] : [],
+  };
   changeRun(objective.id, run.key, () => ({ state: "failed", reviewed: key }));
-  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "retry" });
+  // The result remains inspectable in Jobs. There is no "Try another way?"
+  // prompt: the safe recovery budget is exhausted, not George's judgment.
+  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "working");
+  mutateObjective(objective.id, (current) => current && ({
+    ...current, parked: { at: new Date().toISOString(), reason: recovery.reason },
+  }));
 }
 
 /** Runs dispatched and not yet settled, across every open objective. */
