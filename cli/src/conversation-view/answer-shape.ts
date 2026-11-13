@@ -66,5 +66,15 @@ export async function reshapeAnswer(
   ].join("\n\n");
   const parsed = json(await ask(prompt).catch(() => ""));
   const shaped = answerBody(parsed && typeof parsed === "object" ? { ...parsed, form } : parsed);
+  // A reshaping model cannot invent image links or personal facts while
+  // claiming to keep the answer's evidence intact.
+  if (shaped.form === "gallery" && form === "gallery") {
+    if (shaped.items.some((item) => !answer.includes(item.imageUrl)
+      || Boolean(item.sourceUrl && !answer.includes(item.sourceUrl)))) return null;
+  }
+  if (shaped.form === "briefing" && form === "briefing") {
+    const normalized = answer.toLowerCase().replace(/\\s+/g, " ");
+    if (shaped.facts.some((fact) => !normalized.includes(fact.value.toLowerCase().replace(/\\s+/g, " ")))) return null;
+  }
   return shaped.form === form ? shaped : null;
 }
