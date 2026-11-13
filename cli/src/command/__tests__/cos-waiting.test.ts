@@ -115,7 +115,7 @@ describe("snooze", () => {
 });
 
 describe("stuck work", () => {
-  it("chases a quiet run whose owner can be chased without telling George, and asks him once when it can't tell", async () => {
+  it("chases responsive teams but parks a genuinely unknown quiet job without a user retry choice", async () => {
     const h = harness(JSON.stringify({ team: "knowledge", outcome: "Compare Stripe and Paddle", done_when: ["sourced"] }));
     const chased = openObjective({ words: "stripe or paddle?", flydNotes: "", origin: { surface: "chat" } }).id;
     await cosTick(h.deps);
@@ -124,27 +124,22 @@ describe("stuck work", () => {
     await cosTick(h.deps);
     expect([h.said, h.asked.map((message) => [message.run, message.kind]), readObjective(chased)?.triage?.map((item) => item.choice)])
       .toEqual([[], [[`${chased}-r1`, "question"]], ["nudge"]]);
-    expect(workStatus(chased)).toContain("How it went: still finishing (gone quiet; the chaser is on it)");
     mutateObjective(chased, (current) => current && { ...current, status: "done" });
 
-    // A one-off job gone quiet can't be asked where it stands: one decision, and his answer settles it.
     const quiet = openObjective({ words: "book the table", flydNotes: "", origin: { surface: "chat" } }).id;
     mutateObjective(quiet, (current) => current && { ...current, status: "working", runs: ["job:j9"] });
     h.later(STUCK_MS + 60_000);
     await cosTick(h.deps);
     await cosTick(h.deps);
-    expect(h.said.map((report) => [report.outcome, report.options])).toEqual([["“book the table” has gone quiet and I can't tell why. Nudge it, park it, or is it meant to keep running?", ["Nudge", "Park it", "It's ongoing"]]]);
-    const before = readObjective(quiet);
-    const unclear = { delivered: false, objectiveId: quiet, reason: "not_steerable", ask: "Nudge it, park it, or is it meant to keep running?" };
-    expect(await tellWork({ message: "hmm, not sure", kind: "decision", objectiveId: quiet }, h.deps.send, h.clock())).toEqual(unclear);
-    expect(await tellWork({ message: "don't nudge it, park it", kind: "decision", objectiveId: quiet }, h.deps.send, h.clock())).toEqual(unclear);
-    expect(readObjective(quiet)).toEqual(before);
-    expect(await tellWork({ message: "the restaurant hasn't replied", choice: "Park it", kind: "decision", objectiveId: quiet }, h.deps.send, h.clock())).toEqual({ delivered: true, objectiveId: quiet });
-    h.later(3 * STUCK_MS);
+    expect(h.said.map((report) => [report.kind, report.options])).toEqual([["blocked", undefined]]);
+    expect(readObjective(quiet)?.status).toBe("working");
+    expect(readObjective(quiet)?.waitingOn).toBeUndefined();
+    expect(readObjective(quiet)?.parked?.reason).toContain("one-off job");
     await cosTick(h.deps);
-    expect([readObjective(quiet)?.status, readObjective(quiet)?.parked?.reason, h.said.length]).toEqual(["working", "he parked it", 1]);
+    expect(h.said).toHaveLength(1);
     h.store.close();
   });
+
 });
 
 describe("every wait carries a question", () => {
@@ -251,7 +246,7 @@ describe("a result that fell short", () => {
 });
 
 describe("a hand-over that was never confirmed", () => {
-  it("looks for it again, then asks once after the bound, and sends it again only on his word", async () => {
+  it("looks up unknown handoffs, then parks without automatically repeating side effects", async () => {
     const h = harness("{}");
     const replays: string[] = [];
     const dispatch: Dispatch = async (objective, brief, requestId, options) => {
@@ -264,102 +259,39 @@ describe("a hand-over that was never confirmed", () => {
     mutateObjective(id, (current) => current && { ...current, status: "working", plan, brief: { team: "life", outcome: "Book the table", doneWhen: ["booked"], decisions: { comesBack: [], settledByPolicy: [] } } });
     await cosTick(deps);
     await cosTick(deps);
-    // Reconciled, then looked for once more each pass; never sent again, and nothing raised yet.
     expect([planOf(readObjective(id)!)[0]?.state, h.said.length, replays.length]).toEqual(["unknown", 0, 3]);
 
-    // Past the bound: one call, with the two answers it takes.
     h.later(UNCONFIRMED_MS + 1_000);
     await cosTick(deps);
     await cosTick(deps);
-    expect(h.said.map((report) => [report.outcome, report.options])).toEqual([["I can't tell whether “Book the table for Friday” was handed over. Send it again, or drop it?", ["Send it again", "Drop it"]]]);
-    expect([readObjective(id)?.status, readObjective(id)?.waitingOn?.kind, readObjective(id)?.waitingOn?.options]).toEqual(["needs_george", "unconfirmed", ["Send it again", "Drop it"]]);
-
-    // His words alone never send a one-off job again.
-    const before = readObjective(id);
-    expect(await tellWork({ message: "hmm, did it go?", kind: "decision" }, h.deps.send, h.clock())).toEqual({ delivered: false, objectiveId: id, reason: "not_steerable", ask: "Send it again, or drop it?" });
-    expect(readObjective(id)).toEqual(before);
-    expect(await tellWork({ message: "yes", choice: "Send it again", kind: "decision" }, h.deps.send, h.clock())).toEqual({ delivered: true, objectiveId: id });
-    await cosTick(deps);
-    expect([readObjective(id)?.status, planOf(readObjective(id)!)[0]?.state, planOf(readObjective(id)!)[0]?.ref]).toEqual(["working", "dispatched", `${id}-r1-2`]);
+    expect(h.said.map((report) => [report.kind, report.options])).toEqual([["blocked", undefined]]);
+    expect([readObjective(id)?.status, readObjective(id)?.waitingOn]).toEqual(["working", undefined]);
+    expect(readObjective(id)?.parked?.reason).toContain("Unconfirmed handoff");
+    expect(planOf(readObjective(id)!)[0]?.state).toBe("unknown");
     h.store.close();
   });
 
-  it("settles as dispatched when a later look finds it, ending the wait", async () => {
+  it("reconciles a late receipt even after CoS parked an uncertain dispatch", async () => {
     const h = harness("{}");
     let found = false;
-    const dispatch: Dispatch = async (_objective, _brief, requestId, options) => (options?.replay && found ? { ref: `job:${requestId}` } : { unknown: "not found" });
+    const dispatch: Dispatch = async (_objective, _brief, requestId, options) =>
+      (options?.replay && found ? { ref: `job:${requestId}` } : { unknown: "not found" });
     const deps = { ...h.deps, dispatch };
     const id = openObjective({ words: "book the table", flydNotes: "", origin: { surface: "chat" } }).id;
     const plan: PlannedRun[] = [{ key: "r1", team: "life", outcome: "Book the table for Friday", doneWhen: ["booked"], state: "unknown", attempt: 1, validFor: 0 }];
     mutateObjective(id, (current) => current && { ...current, status: "working", plan });
     await cosTick(deps);
-    expect(planOf(readObjective(id)!)[0]?.unknownAt).toBeTruthy();
     h.later(UNCONFIRMED_MS + 1_000);
     await cosTick(deps);
-    expect(readObjective(id)?.waitingOn?.kind).toBe("unconfirmed");
+    expect(readObjective(id)?.parked).toBeDefined();
     found = true;
     await cosTick(deps);
-    expect([readObjective(id)?.status, readObjective(id)?.waitingOn, planOf(readObjective(id)!)[0]?.state, readObjective(id)?.runs]).toEqual(["working", undefined, "dispatched", [`job:${id}-r1`]]);
+    expect([readObjective(id)?.status, planOf(readObjective(id)!)[0]?.state, readObjective(id)?.runs])
+      .toEqual(["working", "dispatched", [`job:${id}-r1`]]);
     h.store.close();
   });
 
-  it("holds the unconfirmed call while another wait is open, and asks it once that wait is answered", async () => {
-    const h = harness("{}");
-    const dispatch: Dispatch = async () => ({ unknown: "not found" });
-    const deps = { ...h.deps, dispatch };
-    const id = openObjective({ words: "book the table and compare banks", flydNotes: "", origin: { surface: "chat" } }).id;
-    const old = h.clock().toISOString();
-    const plan: PlannedRun[] = [
-      { key: "r1", team: "life", outcome: "Book the table for Friday", doneWhen: ["booked"], state: "unknown", attempt: 1, validFor: 0, unknownAt: old },
-      { key: "r2", team: "knowledge", outcome: "Compare the banks", doneWhen: ["compared"], state: "failed", attempt: 2, validFor: 0, adapted: true, ref: `${id}-r2-2`, reviewed: "r2-failed" },
-    ];
-    const retryId = `${id}:r2-failed`;
-    mutateObjective(id, (current) => current && {
-      ...current, status: "needs_george", plan, reportIds: [retryId],
-      waitingOn: { reportId: retryId, kind: "retry", question: "Compare the banks didn't finish.", options: ["Try another way", "Drop it"], at: old },
-    });
-    h.later(UNCONFIRMED_MS + 1_000);
-    await cosTick(deps);
-    // The open retry wait stands: nothing overwrites it.
-    expect([readObjective(id)?.waitingOn?.kind, h.said.length]).toEqual(["retry", 0]);
-
-    expect(await tellWork({ message: "drop it", choice: "Drop it", kind: "decision" }, h.deps.send, h.clock())).toEqual({ delivered: true, objectiveId: id });
-    expect(planOf(readObjective(id)!).map((run) => run.state)).toEqual(["unknown", "dropped"]);
-    await cosTick(deps);
-    expect([readObjective(id)?.status, readObjective(id)?.waitingOn?.kind, h.said.map((report) => report.options)]).toEqual(["needs_george", "unconfirmed", [["Send it again", "Drop it"]]]);
-    h.store.close();
-  });
-
-  it("asks the unconfirmed call again when another wait replaced it and the run is still unconfirmed", async () => {
-    const h = harness("{}");
-    const dispatch: Dispatch = async () => ({ unknown: "not found" });
-    const deps = { ...h.deps, dispatch };
-    const id = openObjective({ words: "book the table and compare banks", flydNotes: "", origin: { surface: "chat" } }).id;
-    const plan: PlannedRun[] = [
-      { key: "r1", team: "life", outcome: "Book the table for Friday", doneWhen: ["booked"], state: "unknown", attempt: 1, validFor: 0, unknownAt: h.clock().toISOString() },
-      { key: "r2", team: "knowledge", outcome: "Compare the banks", doneWhen: ["compared"], state: "queued", attempt: 0, validFor: 0 },
-    ];
-    mutateObjective(id, (current) => current && { ...current, status: "working", plan });
-    h.later(UNCONFIRMED_MS + 1_000);
-    await cosTick(deps);
-    expect([readObjective(id)?.waitingOn?.kind, h.said.length]).toEqual(["unconfirmed", 1]);
-
-    // A later wait on another run replaces it.
-    const retryId = `${id}:r2-failed`;
-    mutateObjective(id, (current) => current && {
-      ...current, reportIds: [...current.reportIds, retryId],
-      plan: planOf(current).map((run) => run.key === "r2" ? { ...run, state: "failed" as const, attempt: 2, adapted: true, reviewed: "r2-failed" } : run),
-      waitingOn: { reportId: retryId, kind: "retry", question: "Compare the banks didn't finish.", options: ["Try another way", "Drop it"], at: h.clock().toISOString() },
-    });
-    expect(await tellWork({ message: "drop it", choice: "Drop it", kind: "decision" }, h.deps.send, h.clock())).toEqual({ delivered: true, objectiveId: id });
-    await cosTick(deps);
-    expect([readObjective(id)?.status, readObjective(id)?.waitingOn?.kind, h.said.length]).toEqual(["needs_george", "unconfirmed", 2]);
-    await cosTick(deps);
-    expect(h.said.length).toBe(2);
-    h.store.close();
-  });
-
-  it("never reopens an objective he cancelled while the look for its hand-over was under way", async () => {
+  it("never reopens an objective cancelled during reconciliation", async () => {
     const h = harness("{}");
     let id = "";
     let cancelNow = false;
@@ -374,7 +306,6 @@ describe("a hand-over that was never confirmed", () => {
     mutateObjective(id, (current) => current && { ...current, status: "working", plan });
     h.later(UNCONFIRMED_MS + 1_000);
     await cosTick(deps);
-    expect(readObjective(id)?.waitingOn?.kind).toBe("unconfirmed");
     cancelNow = true;
     await cosTick(deps);
     expect([readObjective(id)?.status, planOf(readObjective(id)!)[0]?.state]).toEqual(["cancelled", "dispatched"]);
@@ -413,7 +344,7 @@ describe("a run handed to the crew", () => {
     h.store.close();
   });
 
-  it("makes a failed crew task his call, never sent again on its own", async () => {
+  it("parks an unverified failed crew task without rerunning it", async () => {
     const h = harness("{}");
     const id = openObjective({ words: "fix the footer", flydNotes: "", origin: { surface: "chat" } }).id;
     const plan: PlannedRun[] = [{ key: "r1", team: "coding", outcome: "Fix the footer", doneWhen: ["footer fixed"], state: "dispatched", attempt: 1, validFor: 0, ref: "crew:t3" }];
@@ -423,11 +354,12 @@ describe("a run handed to the crew", () => {
     await cosTick(h.deps);
     const run = planOf(readObjective(id)!)[0];
     expect([readObjective(id)?.status, readObjective(id)?.waitingOn?.kind, run?.state, run?.attempt, h.said.map((report) => report.options)])
-      .toEqual(["needs_george", "retry", "failed", 1, [["Try another way", "Drop it"]]]);
+      .toEqual(["working", undefined, "failed", 1, [undefined]]);
+    expect(readObjective(id)?.parked).toBeDefined();
     h.store.close();
   });
 
-  it("makes a ready crew result that falls short his call, never sent again on its own", async () => {
+  it("parks a short crew result without asking George for testing tactics", async () => {
     const h = harness("{}");
     const deps = { ...h.deps, complete: async () => JSON.stringify({ met: false, missing: "the mobile footer is untouched" }) };
     const id = openObjective({ words: "fix the footer", flydNotes: "", origin: { surface: "chat" } }).id;
@@ -438,7 +370,8 @@ describe("a run handed to the crew", () => {
     await cosTick(deps);
     const run = planOf(readObjective(id)!)[0];
     expect([readObjective(id)?.status, readObjective(id)?.waitingOn?.kind, run?.state, run?.attempt, h.said.map((report) => report.options)])
-      .toEqual(["needs_george", "accept", "completed", 1, [["Take it as it is", "Try another way"]]]);
+      .toEqual(["working", undefined, "completed", 1, [undefined]]);
+    expect(readObjective(id)?.parked).toBeDefined();
     h.store.close();
   });
 
