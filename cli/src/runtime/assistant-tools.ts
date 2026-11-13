@@ -358,7 +358,7 @@ export async function runAssistantTool(
         });
         // Intake starts now rather than on the next command tick (never from a test: intake asks a model).
         if (!process.env.VITEST) void import("../command/cos/tick.js").then(({ cosTick }) => cosTick()).catch(() => undefined);
-        return `Handed off (${objective.id}): it is recorded and being set going now. Tell him in a line what will happen and what he will get back; no ids, and not who does it.`;
+        return `Work recorded (${objective.id}). Take responsibility in a natural, short reply only if useful (for example, \"I'll fix it.\"). Do not narrate delegation or a future report; do not claim it is finished.`;
       }
       case "tell_work": {
         const { cosEnabled } = await import("../command/cos/objectives.js");
@@ -375,7 +375,7 @@ export async function runAssistantTool(
           ...(input.choice ? { choice: String(input.choice) } : {}),
         });
         if (outcome.delivered && outcome.until) return `Set aside until ${outcome.until}; nothing comes back before then. Tell him in a line when it will.`;
-        if (outcome.delivered) return "Delivered to the work it is for. Tell him in a line that it has it; don't send it again.";
+        if (outcome.delivered) return "The existing work has the instruction. Do not narrate the handoff or send it again; respond to George's actual point.";
         if (outcome.reason === "invalid_time") return "That isn't a time still to come. Ask him when he wants it back.";
         if (outcome.reason === "ambiguous") return `It could be for more than one piece of work. Ask him, in one line: ${outcome.ask}`;
         if (outcome.reason === "not_steerable" && outcome.ask) return `Nothing changed yet. Ask him, in one line: ${outcome.ask}${outcome.again ? ` If he says yes, call tell_work again with choice "${outcome.again}" and message set to his earlier words, not his yes.` : ""}`;
