@@ -6,6 +6,7 @@ import { plainLine } from "../../lib/reaches-george.js";
 import { TEAMS } from "../../runtime/turn-plan.js";
 import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
+import { judgeOperationalQuestion, operationalQuestionKey, type OperationalQuestion, type OperationalDisposition } from "./operational-judgment.js";
 import { cameBack, isAtWork } from "../run-state.js";
 import { shownLine } from "../report.js";
 import type { DomainRun } from "../types.js";
@@ -37,6 +38,8 @@ export interface CosTickDeps {
   /** One JSON query: intake, a join's brief, and the acceptance check. */
   complete?: Complete;
   dispatch?: Dispatch;
+  /** Fast, authority-vetted operational judgment, injectable for offline tests. */
+  operationalJudge?: (question: OperationalQuestion) => Promise<OperationalDisposition>;
   /** The executive review of a settled run (scheduler.ts `decideRun`). */
   decide?: (run: DomainRun) => Promise<ExecutiveDecisionRecord>;
   /** Tells George a reviewed run's report (scheduler.ts `tellRun`). */
@@ -310,6 +313,38 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
   const decision = told ? null : await (deps.decide ?? defaultDecide)(domain);
   // Sent back to its boss: it stays working, and the boss's next reply is reviewed afresh.
   if (decision?.action && decision.verification.status === "verified") return;
+  // A domain's needs_decision is NOT evidence that George must decide. CoS
+  // first attempts a grounded, authorized internal answer or investigation.
+  // A model's disposition is never an execution grant, and unknown outward
+  // effects are not retried here. Exact delivered messages are idempotent.
+  if (domain.status === "needs_decision" && !told) {
+    const question: OperationalQuestion = {
+      domain: run.team,
+      goal: objective.brief?.outcome ?? objective.words,
+      question: decision?.disposition === "ask_george" ? decision.question : domain.result?.unresolvedQuestions[0] ?? domain.result?.brief ?? "",
+      options: decision?.disposition === "ask_george" ? decision.options : [],
+      ...(decision?.disposition === "ask_george" && decision.recommendation.option ? { recommendation: decision.recommendation.option } : {}),
+      evidenceRefs: decision?.evidenceRefs ?? [],
+    };
+    const currentQuestionKey = operationalQuestionKey(question);
+    const resolution = await (deps.operationalJudge ?? judgeOperationalQuestion)({
+      ...question,
+      previousResolution: run.operationalQuestionId === currentQuestionKey,
+    });
+    if (resolution.kind === "internal") {
+      const sent = await (deps.send ?? sendRunMessage)({ run: domain, kind: "decision", from: "flyd", body: resolution.message })
+        .catch(() => ({ delivered: false }));
+      if (sent.delivered) {
+        changeRun(objective.id, run.key, () => ({
+          operationalQuestionId: currentQuestionKey,
+          reviewed: `${ref}:${domain.status}:${sent.run?.updatedAt ?? domain.updatedAt}`,
+        }));
+        return;
+      }
+      // A failed send is retried through its stable message id. No user question.
+      return;
+    }
+  }
   if (decision) decisions.set(ref, decision);
   if (domain.status === "completed") return completed(objective, run, key);
   if (domain.status === "failed") return failed(objective, run, key, plainLine(domain.failure ?? domain.result.brief ?? ""), domain.result.brief, deps, store, true);
