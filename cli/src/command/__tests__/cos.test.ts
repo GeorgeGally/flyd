@@ -184,7 +184,7 @@ describe("hand_off", () => {
     expect(await runAssistantTool("hand_off", { words: "three gallery versions", notes: "cap5" }, context)).toMatch(/not available/);
     expect(chatToolSet(null, false).map((tool) => tool.name)).not.toContain("hand_off");
     process.env.FLYD_COS = "1";
-    expect(await runAssistantTool("hand_off", { words: "three gallery versions", notes: "He liked the dark one last time", urgency: "today" }, context)).toMatch(/^Handed off/);
+    expect(await runAssistantTool("hand_off", { words: "three gallery versions", notes: "He liked the dark one last time", urgency: "today" }, context)).toMatch(/^Work recorded/);
     const [objective] = listObjectives();
     expect([objective?.words, objective?.flydNotes, objective?.status, objective?.urgency, objective?.project]).toEqual(["Make me three versions of the gallery page", "He liked the dark one last time", "intake", "today", { name: "cap5", root: "/tmp/cap5" }]);
     expect([...planTurn({ route: "delegate", source: "jev", domain: "creative" })!.handoffs]).toEqual(["hand_off", "tell_work"]);
