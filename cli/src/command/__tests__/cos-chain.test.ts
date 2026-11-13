@@ -282,7 +282,7 @@ describe("adapting before escalating", () => {
     await cosTick(h.deps);
     h.finishRun(`${id}-r1`);
     await cosTick(h.deps);
-    expect([h.told, h.sent.find((item) => item.id === `${id}-r1-2`)?.brief.outcome.includes("Last attempt: it fell short of done: Paddle's fee table has no source.")]).toEqual([[], true]);
+    expect([h.told, Boolean(h.sent.find((item) => item.id === `${id}-r1-2`)?.brief.outcome.includes("Shortfall: Paddle's fee table has no source"))]).toEqual([[], true]);
     h.finishRun(`${id}-r1-2`);
     await cosTick(h.deps);
     expect([h.told.length, readObjective(id)?.status]).toEqual([1, "done"]);
