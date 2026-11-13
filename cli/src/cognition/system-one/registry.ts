@@ -504,6 +504,18 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
   },
 
   {
+    id: "cos_recovery_tactic", family: "executive", type: "choice",
+    instructions: "A domain's internal attempt to fulfill a previously authorized objective has failed. Is there enough bounded evidence to justify a different internal implementation tactic, or should CoS safely hold work for more evidence or higher-level review? This is not permission to re-run any external effect.",
+    criteria: {
+      rebrief_with_different_tactic: "An internal technical alternative is plausible and a bounded rebrief can get it attempted without repeating outward effects.",
+      hold_for_evidence: "The failure may be systemic, uncertain, repeating a side effect, or no justified alternative is available; stop retries and keep the evidence.",
+    },
+    threshold: 0.80, use: "choice", failureMode: "fallback_heuristic",
+    projection: EXECUTIVE_PROJECTION, evaluatorVersion: "cos_recovery_tactic.v1", status: "production",
+    consumer: "command/cos/recovery.ts: only selects among preauthorized bounded recovery and holding; code vetoes outward effects",
+  },
+
+  {
     id: "executive_outcome_notable", family: "executive", type: "noul",
     instructions: "Does this verified outcome materially change George's immediate priorities, a time-sensitive commitment, money or a significant risk enough to interrupt him now? Routine completed work and staff/process changes are not interruptions. Without evidence of consequence, answer false.",
     criteria: { true: "A verified result has an explicit significant, time-sensitive consequence for George or his goal.", false: "Routine completion, internal mechanics, an unverified claim, a question, or no concrete timely consequence." },
