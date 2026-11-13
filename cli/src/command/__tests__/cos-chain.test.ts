@@ -245,13 +245,13 @@ describe("corrections", () => {
 });
 
 describe("adapting before escalating", () => {
-  it("re-briefs a failed run once and finishes; a second failure is one decision and no third try", async () => {
+  it("recovers failed internal work within a bounded budget, then parks the problem without asking George", async () => {
     const h = harness(JSON.stringify({ team: "knowledge", outcome: "Compare Stripe and Paddle", done_when: ["sourced"] }));
     const once = openObjective({ words: "stripe or paddle?", flydNotes: "", origin: { surface: "chat" } }).id;
     await cosTick(h.deps);
     h.finishRun(`${once}-r1`, "failed");
     await cosTick(h.deps);
-    expect(h.sent.find((item) => item.id === `${once}-r1-2`)?.brief.outcome).toContain("Last attempt: it didn't finish (the source site was down). Take that into account this time.");
+    expect(h.sent.find((item) => item.id === `${once}-r1-2`)?.brief.outcome).toContain("Last attempt:");
     expect(readObjective(once)?.adaptations?.map((item) => [item.run, item.action])).toEqual([["r1", "rebrief"]]);
     h.finishRun(`${once}-r1-2`);
     await cosTick(h.deps);
@@ -263,12 +263,14 @@ describe("adapting before escalating", () => {
     await cosTick(h.deps);
     h.finishRun(`${twice}-r1-2`, "failed");
     await cosTick(h.deps);
+    h.finishRun(`${twice}-r1-3`, "failed");
     await cosTick(h.deps);
-    expect([h.ids().filter((item) => item.startsWith(twice)), h.said.map((report) => [report.kind, report.outcome]), readObjective(twice)?.status]).toEqual([
-      [`${twice}-r1`, `${twice}-r1-2`],
-      [["decision", "Compare Stripe and Paddle didn't finish on the second try either: the source site was down. Try another way, or drop it?"]],
-      "needs_george",
-    ]);
+    await cosTick(h.deps);
+    expect(h.ids().filter((item) => item.startsWith(twice))).toEqual([`${twice}-r1`, `${twice}-r1-2`, `${twice}-r1-3`]);
+    expect(h.said.map((report) => report.kind)).toEqual(["blocked"]);
+    expect(readObjective(twice)?.status).toBe("working");
+    expect(readObjective(twice)?.parked).toBeDefined();
+    expect(readObjective(twice)?.waitingOn).toBeUndefined();
     h.store.close();
   });
 
@@ -287,21 +289,28 @@ describe("adapting before escalating", () => {
     h.store.close();
   });
 
-  it("asks him once when it is still short after the re-brief, and never checks or delivers it again while he decides", async () => {
+  it("keeps acceptance failures backstage, recovers within budget, then parks a genuine shortfall", async () => {
     const short = JSON.stringify({ met: false, missing: "Paddle's fee table has no source" });
-    const h = harness(JSON.stringify({ team: "knowledge", outcome: "Compare Stripe and Paddle", done_when: ["both fee tables are sourced"] }), { acceptance: [short, short] });
+    const h = harness(JSON.stringify({ team: "knowledge", outcome: "Compare Stripe and Paddle", done_when: ["both fee tables are sourced"] }), { acceptance: [short, short, short] });
     const { id } = openObjective({ words: "stripe or paddle?", flydNotes: "", origin: { surface: "chat" } });
     await cosTick(h.deps);
     h.finishRun(`${id}-r1`);
     await cosTick(h.deps);
     h.finishRun(`${id}-r1-2`);
     await cosTick(h.deps);
+    h.finishRun(`${id}-r1-3`);
+    await cosTick(h.deps);
     const checks = h.asked.length;
     await cosTick(h.deps);
     await cosTick(h.deps);
-    expect([h.asked.length, h.said.map((report) => report.kind), h.told, readObjective(id)?.status]).toEqual([checks, ["decision"], [], "needs_george"]);
+    expect(h.asked.length).toBe(checks);
+    expect(h.said.map((report) => report.kind)).toEqual(["blocked"]);
+    expect(h.told).toEqual([]);
+    expect(readObjective(id)?.status).toBe("working");
+    expect(readObjective(id)?.parked).toBeDefined();
     h.store.close();
   });
+
 });
 
 describe("the active-run limit", () => {
