@@ -46,6 +46,7 @@ function askDecision(question: string): ExecutiveDecisionRecord {
 function harness(question: string) {
   const store = new IntelligenceEventStore({ path: join(home, "intelligence.sqlite") });
   const said: CosReport[] = [];
+  const told: string[] = [];
   const sent: string[] = [];
   const answer = "Use Vitest; carry on. This instruction grants no permission to push.";
   const dispatch: Dispatch = async (objective, brief, requestId) => {
@@ -76,10 +77,10 @@ function harness(question: string) {
     operationalJudge: async () => ({
       kind: "internal" as const, message: answer, reason: "internal test choice",
     }),
-    tell: async () => { throw new Error("A routine decision must not reach George"); },
+    tell: async () => { told.push("asked"); },
     say: async (report: CosReport) => { said.push(report); },
   };
-  return { store, sent, said, deps };
+  return { store, sent, said, told, deps };
 }
 
 describe("CoS internal decision flow", () => {
@@ -96,6 +97,7 @@ describe("CoS internal decision flow", () => {
     expect(h.sent).toHaveLength(1);
     expect(h.sent[0]).toContain("Vitest");
     expect(h.said).toEqual([]);
+    expect(h.told).toEqual([]);
     expect(readObjective(objective.id)?.status).toBe("working");
     expect(planOf(readObjective(objective.id)!)[0].operationalQuestionId).toBeTruthy();
     await cosTick(h.deps);
@@ -117,6 +119,7 @@ describe("CoS internal decision flow", () => {
     const real = { ...h.deps, operationalJudge: undefined };
     await cosTick(real);
     expect(h.sent).toHaveLength(0);
+    expect(h.told).toEqual(["asked"]);
     expect(readObjective(objective.id)?.status).toBe("needs_george");
     h.store.close();
   });
