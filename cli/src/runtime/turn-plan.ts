@@ -116,7 +116,7 @@ function basePlan(reading: Pick<RouteReading, "route" | "source" | "domain"> | n
       return {
         route, source, cover, allows: new Set(["read"]), handoffs: new Set(PASS_ON), budget: null,
         hidden: new Set(CHANGE_ONLY.filter((name) => !PASS_ON.includes(name))),
-        instruction: "This turn is an answer. Look up what you need with your tools now, then answer him in full. Never offer to look something up or ask whether to: look. If your tools can't get the answer, pass it on in this turn with pass_on_question, then tell him in a line that it's being looked into. Don't start work or change anything; if doing something beyond his ask would clearly help, offer it in one line. Never ask whether to take the obvious next step of what he asked.",
+        instruction: "This turn is an answer. Look up what you need with your tools now, then answer him in full. Never offer to look something up or ask whether to: look. If your tools can't get the answer, pass it on in this turn with pass_on_question, then give a short natural acknowledgment only if useful; do not explain the handoff. Don't start work or change anything; if doing something beyond his ask would clearly help, offer it in one line. Never ask whether to take the obvious next step of what he asked.",
       };
     case "clarify":
       return {
@@ -129,7 +129,7 @@ function basePlan(reading: Pick<RouteReading, "route" | "source" | "domain"> | n
       if (process.env.FLYD_COS === "1") {
         return {
           route, source, cover, allows: new Set(), handoffs: new Set(["hand_off"]), budget: { iterations: 3, toolCalls: 2 }, hidden: null,
-          instruction: "This is work to hand off now, not to do or research inline. Hand it to his Chief of Staff with hand_off in your first step: his exact words, and what you know that the brief needs (project, people, taste, urgency). Then tell him in a line what will happen and what he will get back. A message about work already under way goes to tell_work instead.",
+          instruction: "This is work to hand off now, not to do or research inline. Hand it to his Chief of Staff with hand_off in your first step: his exact words, and what you know that the brief needs (project, people, taste, urgency). Then acknowledge the accepted work only if useful, in one natural sentence of ownership (for example, \"I'll fix it.\"). Do not narrate delegation, management, or promise a future report. A message about work already under way goes to tell_work instead.",
         };
       }
       // Reading the code is the crewmate's job, not the dispatcher's: given
@@ -147,7 +147,7 @@ function basePlan(reading: Pick<RouteReading, "route" | "source" | "domain"> | n
                 ? new Set(["background_task"])
               : new Set(HANDOFFS), budget: { iterations: 3, toolCalls: 2 },
         hidden: null,
-        instruction: "This is work to hand off now, not to do or research inline: whoever takes it reads the code and does the work. Turn what he asked into a clear outcome and done_when points that can be checked, in his terms, and hand it off in your first step: a change to code in one of his repos goes to start_coding_task (repo = that project's path); substantial research, retrieval, fact-checking or synthesis goes to start_knowledge_task; a design lab, N versions or a redesign of a page, screen or component goes to start_design_task; other one-off work goes to background_task. Then tell him in a line what you started.",
+        instruction: "This is work to hand off now, not to do or research inline: whoever takes it reads the code and does the work. Turn what he asked into a clear outcome and done_when points that can be checked, in his terms, and hand it off in your first step: a change to code in one of his repos goes to start_coding_task (repo = that project's path); substantial research, retrieval, fact-checking or synthesis goes to start_knowledge_task; a design lab, N versions or a redesign of a page, screen or component goes to start_design_task; other one-off work goes to background_task. Acknowledge briefly only when useful; do not narrate delegation, staff, or what will be reported.",
       };
     case "act":
       return {
