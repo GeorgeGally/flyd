@@ -3,7 +3,7 @@ import { predicateThreshold, questionFor } from "../cognition/system-one/registr
 import { answerBody, type AnswerBody } from "./answer-form.js";
 
 /** The two shapes worth reshaping a flat answer into; prose needs no work. */
-export type AnswerForm = "diagnosis" | "comparison";
+export type AnswerForm = "diagnosis" | "comparison" | "gallery" | "briefing";
 
 const EGRESS = { purpose: "presentation", allowedFields: ["utterance", "answer"] } as const;
 
@@ -26,7 +26,7 @@ export async function answerForm(
   ).catch(() => null);
   const read = evaluation?.ok ? evaluation.answers.answer_form : undefined;
   if (!read?.choice || read.probability < predicateThreshold("answer_form")) return null;
-  return read.choice === "diagnosis" || read.choice === "comparison" ? read.choice : null;
+  return read.choice === "diagnosis" || read.choice === "comparison" || read.choice === "gallery" || read.choice === "briefing" ? read.choice : null;
 }
 
 export type Ask = (prompt: string) => Promise<string>;
@@ -34,6 +34,8 @@ export type Ask = (prompt: string) => Promise<string>;
 const SHAPE_PROMPT: Record<AnswerForm, string> = {
   diagnosis: `Return only JSON: {"lead":"the outcome in one line","parts":[{"label":"Expected","text":"..."},{"label":"Observed","text":"..."},{"label":"Cause","text":"..."},{"label":"Evidence","text":"..."},{"label":"Next","text":"..."}],"next":"one next action or question, or omit"}`,
   comparison: `Return only JSON: {"lead":"the choice in one line","criteria":["..."],"alternatives":[{"name":"...","values":["..."]}],"next":"one next action or question, or omit"} with 2-4 criteria and 2-4 named options, each option's values in criteria order, each value at most 12 words`,
+  gallery: `Return only JSON: {"lead":"one clear takeaway","items":[{"title":"...","imageUrl":"https://...","description":"visual reason it matters","sourceUrl":"https://..."}]}. Include 2-8 distinct real images whose URLs are explicitly present in Flyd's answer. Do not invent URLs, images or sources; if there are not at least two grounded image links, return {}.`,
+  briefing: `Return only JSON: {"lead":"one useful line","facts":[{"label":"...","value":"...","source":"...","asOf":"..."}]}. Include 1-12 facts supported by Flyd's answer, with source and date when known. Do not invent names, birthdays, relationships or personal details; if unsupported, return {}.`,
 };
 
 function json(text: string): unknown {
@@ -64,5 +66,15 @@ export async function reshapeAnswer(
   ].join("\n\n");
   const parsed = json(await ask(prompt).catch(() => ""));
   const shaped = answerBody(parsed && typeof parsed === "object" ? { ...parsed, form } : parsed);
+  // A reshaping model cannot invent image links or personal facts while
+  // claiming to keep the answer's evidence intact.
+  if (shaped.form === "gallery" && form === "gallery") {
+    if (shaped.items.some((item) => !answer.includes(item.imageUrl)
+      || Boolean(item.sourceUrl && !answer.includes(item.sourceUrl)))) return null;
+  }
+  if (shaped.form === "briefing" && form === "briefing") {
+    const normalized = answer.toLowerCase().replace(/\\s+/g, " ");
+    if (shaped.facts.some((fact) => !normalized.includes(fact.value.toLowerCase().replace(/\\s+/g, " ")))) return null;
+  }
   return shaped.form === form ? shaped : null;
 }

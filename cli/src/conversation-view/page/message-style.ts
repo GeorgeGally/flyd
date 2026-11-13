@@ -67,6 +67,21 @@ export const MESSAGE_STYLE = `
 .answer-form .answer-compare th, .answer-form .answer-compare td { padding: 0.5em 0.7em 0.5em 0; text-align: left; vertical-align: top; border-top: 1px solid var(--faint); }
 .answer-form .answer-compare th { font-weight: 600; color: var(--strong); }
 .answer-form .answer-compare thead th, .answer-form .answer-compare thead td { border-top: 0; font-weight: 600; color: var(--muted); }
+
+.answer-form .answer-gallery-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 0.9em; align-items: start; }
+.answer-form .answer-gallery-item { margin: 0; min-width: 0; }
+.answer-form .answer-gallery-item img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 0.45em; background: var(--faint); }
+.answer-form .answer-gallery-item figcaption { display: grid; gap: 0.25em; padding: 0.5em 0.1em 0; }
+.answer-form .answer-gallery-item figcaption strong { font: 600 0.9em/1.35 var(--sans); color: var(--strong); }
+.answer-form .answer-gallery-item figcaption span { font: 0.85em/1.45 var(--sans); color: var(--muted); }
+.answer-form .answer-gallery-item figcaption a { font: 0.78em/1.4 var(--sans); color: var(--muted); text-decoration: underline; text-underline-offset: 0.15em; }
+.answer-form .answer-briefing-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 0.8em; margin: 0; }
+.answer-form .answer-briefing-fact { display: flex; flex-direction: column; gap: 0.2em; padding: 0.8em; border: 1px solid var(--faint); border-radius: 0.45em; }
+.answer-form .answer-briefing-fact dt { display: block; color: var(--muted); font: 500 0.75em/1.35 var(--sans); }
+.answer-form .answer-briefing-fact dt::after { content: ""; }
+.answer-form .answer-briefing-fact dd { display: block; color: var(--strong); font: 500 0.98em/1.4 var(--sans); }
+.answer-form .answer-briefing-fact small { color: var(--muted); font: 0.72em/1.35 var(--sans); }
+
 .body > :first-child { margin-top: 0; }
 .body > :last-child { margin-bottom: 0; }
 .body p { margin: 0 0 0.85em; }

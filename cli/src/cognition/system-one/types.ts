@@ -36,7 +36,7 @@ export interface PredicateAnswer {
 
 export interface PredicateEvaluation {
   ok: boolean;
-  evaluator: "jev" | "none";
+  evaluator: "jev" | "gemini" | "none";
   model?: string;
   rubricVersion: string;
   projectionHash: string;

@@ -74,6 +74,20 @@ Model and network egress is governed separately from action: an action grant nev
 
 Autonomous high-impact effects (sending, purchasing, publishing, account changes, legal/medical advice, destructive deletion) are outside this product's identity.
 
+### 4.1 Delegated operational judgment (November 2026)
+
+**The owner of a decision is not automatically the user.** For an accepted objective, the domain boss resolves technical/implementation choices within its granted scope. The Chief of Staff (CoS) owns multi-team objectives, priority arbitration, bounded recovery and routine unresolved questions. Flyd privately resolves exceptional strategic ambiguities using available evidence and stronger reasoning. George is consulted only when a personal choice or an effect requiring his explicit authority remains.
+
+**Fast decisions are first-class.** A bounded decision model can compare grounded, permitted tactics, assess evidence sufficiency and decide whether deeper investigation is needed. Model confidence does not constitute action authority: the existing effect-scoped grant, egress, privacy, idempotency and verifier rules still govern every execution. An abstention normally prompts evidence gathering or deeper reasoning, not an interrupt.
+
+**Standing mandates are grants, not slogans.** George may explicitly pre-authorize a *defined* recurring class of effects with fixed targets, costs/resources, expiration, revocation and verification. The sentence "don't bother me unless it's really important" is an attention preference, not approval to send messages, pay people, publish, expose confidential data or repeat an uncertain transaction. The high-impact exclusions in §4 remain in force unless the product authority is deliberately amended through a separate review.
+
+**Uncertainty is retained, not replayed.** If a previous operation may have sent, published, booked or paid, CoS must first reconcile its request ID/effect receipt. An unknown outcome cannot be assumed to be a failure and retried automatically. Internal code/design/research recovery may use a bounded number of attempts and changes of tactic; exhaustion is recorded as a truthful blocked outcome, not converted into a user request for a debugging choice.
+
+**Personal attention is its own governed effect.** Routine team management, successful internal decisions, retries and staffing updates should not become conversation or interrupt notifications. Important, time-critical approvals remain available, with accurate context and action-backed controls. Flyd's words should express ownership and outcomes rather than narration of the delegation hierarchy.
+
+**No new orchestration runtime.** Use the existing CoS objective graph, domain ownership, System-1 registry, canonical events and delivery surface. Preserve original user intent and evidence with each delegation.
+
 ## 5. Executive behaviour
 
 A durable executive cycle forms ranked opportunities and records **why it chose silence, notification, proposal, or permitted action** — every decision carries a concise why-now/why-me trace. Attention budgets, cost budgets, quiet hours, cooldowns, and kill switches are enforced, not aspirational.

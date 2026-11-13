@@ -6,6 +6,9 @@ import { plainLine } from "../../lib/reaches-george.js";
 import { TEAMS } from "../../runtime/turn-plan.js";
 import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
+import { judgeOperationalQuestion, operationalQuestionKey, type OperationalQuestion, type OperationalDisposition } from "./operational-judgment.js";
+import { judgeRecovery, type RecoveryInput, type RecoveryDisposition } from "./recovery.js";
+import { resolveStrategicQuestion, type StrategicDecision } from "./strategic-judgment.js";
 import { cameBack, isAtWork } from "../run-state.js";
 import { shownLine } from "../report.js";
 import type { DomainRun } from "../types.js";
@@ -37,6 +40,12 @@ export interface CosTickDeps {
   /** One JSON query: intake, a join's brief, and the acceptance check. */
   complete?: Complete;
   dispatch?: Dispatch;
+  /** Fast, authority-vetted operational judgment, injectable for offline tests. */
+  operationalJudge?: (question: OperationalQuestion) => Promise<OperationalDisposition>;
+  /** Flyd's private higher-reasoning review for exceptional internal ambiguity. */
+  strategicJudge?: (question: OperationalQuestion, reason: string) => Promise<StrategicDecision>;
+  /** Bounded recovery judgment, injectable for offline tests. */
+  recoveryJudge?: (input: RecoveryInput) => Promise<RecoveryDisposition>;
   /** The executive review of a settled run (scheduler.ts `decideRun`). */
   decide?: (run: DomainRun) => Promise<ExecutiveDecisionRecord>;
   /** Tells George a reviewed run's report (scheduler.ts `tellRun`). */
@@ -223,7 +232,8 @@ async function dispatched(id: string, key: string, answer: Dispatched, deps: Cos
       const runs = objective.runs.includes(ref) ? objective.runs : [...objective.runs, ref];
       // Found after all: a wait on whether it was handed over is over once nothing else is unconfirmed.
       const settled = objective.status === "needs_george" && objective.waitingOn?.kind === "unconfirmed" && !planOf(objective).some((run) => run.key !== key && run.state === "unknown");
-      return settled ? { runs, status: backTo(objective), waitingOn: undefined, snooze: undefined } : { runs };
+      return settled ? { runs, status: backTo(objective), waitingOn: undefined, snooze: undefined, parked: undefined }
+        : objective.parked?.reason.startsWith("Unconfirmed handoff") ? { runs, parked: undefined } : { runs };
     });
     // He cancelled while it was being sent: the run is stopped as well.
     const run = recorded?.status === "cancelled" && !ref.includes(":") ? readDomainRun(ref) : null;
@@ -231,7 +241,7 @@ async function dispatched(id: string, key: string, answer: Dispatched, deps: Cos
     return;
   }
   if ("unknown" in answer) {
-    // Never sent again on its own: each pass looks for it again, and past UNCONFIRMED_MS he decides (`confirm`).
+    // Never sent again on its own: each pass looks for it again, and past UNCONFIRMED_MS it is parked (`confirm`).
     changeRun(id, key, () => ({ state: "unknown", dispatching: undefined, failure: answer.unknown, unknownAt: new Date().toISOString() }));
     return;
   }
@@ -242,8 +252,8 @@ async function dispatched(id: string, key: string, answer: Dispatched, deps: Cos
 
 /**
  * A run whose hand-over was never confirmed: looked for again by its request id each pass (never sent again on its
- * own), and, once it has stayed unconfirmed for UNCONFIRMED_MS, one call for George: send it again, or drop it. The call
- * waits while another wait is open, and is asked again once that one is answered, if the run is still unconfirmed.
+ * own), and once it has stayed unconfirmed for UNCONFIRMED_MS, it is parked with a truthful status.
+ * A late receipt still unblocks the same objective, without ever blindly repeating an external effect.
  */
 async function confirm(objective: Objective, run: PlannedRun, deps: CosTickDeps, store: IntelligenceEventStore, now: Date): Promise<void> {
   const answer = await (deps.dispatch ?? dispatchBrief)(objective, sentBrief(objective, run), planRequestId(objective.id, run), { replay: true })
@@ -255,8 +265,11 @@ async function confirm(objective: Objective, run: PlannedRun, deps: CosTickDeps,
   if (now.getTime() - since < UNCONFIRMED_MS) return;
   const current = readObjective(objective.id);
   if (!current || current.waitingOn || !["working", "needs_george"].includes(current.status)) return;
-  const made: CosReport = { ...plainReport(current, "decision", `I can't tell whether “${shortWords(run.outcome)}” was handed over. Send it again, or drop it?`, `unconfirmed:${run.key}:${run.attempt}:${current.reportIds.length}`), detail: run.failure ?? "", options: [...WAIT_ANSWERS.unconfirmed] };
-  await report(current, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "unconfirmed" });
+  const made: CosReport = { ...plainReport(current, "blocked", `I could not verify whether “${shortWords(run.outcome)}” was handed over, so I held it to avoid duplicating the action.`, `unconfirmed:${run.key}:${run.attempt}`), detail: run.failure ?? "" };
+  await report(current, made, deps, store, async () => (deps.say ?? defaultSay)(made), "working");
+  mutateObjective(current.id, (latest) => latest && ({
+    ...latest, parked: { at: now.toISOString(), reason: "Unconfirmed handoff: do not resend without evidence" },
+  }));
 }
 
 
@@ -310,6 +323,55 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
   const decision = told ? null : await (deps.decide ?? defaultDecide)(domain);
   // Sent back to its boss: it stays working, and the boss's next reply is reviewed afresh.
   if (decision?.action && decision.verification.status === "verified") return;
+  // A domain's needs_decision is NOT evidence that George must decide. CoS
+  // first attempts a grounded, authorized internal answer or investigation.
+  // A model's disposition is never an execution grant, and unknown outward
+  // effects are not retried here. Exact delivered messages are idempotent.
+  if (domain.status === "needs_decision" && !told) {
+    const question: OperationalQuestion = {
+      domain: run.team,
+      goal: objective.brief?.outcome ?? objective.words,
+      question: decision?.disposition === "ask_george" ? decision.question : domain.result?.unresolvedQuestions[0] ?? domain.result?.brief ?? "",
+      options: decision?.disposition === "ask_george" ? decision.options : [],
+      ...(decision?.disposition === "ask_george" && decision.recommendation.option ? { recommendation: decision.recommendation.option } : {}),
+      evidenceRefs: decision?.evidenceRefs ?? [],
+    };
+    const currentQuestionKey = operationalQuestionKey(question);
+    const resolution = await (deps.operationalJudge ?? judgeOperationalQuestion)({
+      ...question,
+      previousResolution: run.operationalQuestionId === currentQuestionKey,
+    });
+    const strategic = resolution.kind === "reason"
+      ? await (deps.strategicJudge ?? resolveStrategicQuestion)(question, resolution.reason)
+      : undefined;
+    const internal = resolution.kind === "internal" ? resolution : strategic?.kind === "internal" ? strategic : null;
+    if (internal) {
+      const sent = await (deps.send ?? sendRunMessage)({ run: domain, kind: "decision", from: "flyd", body: internal.message })
+        .catch(() => ({ delivered: false, run: undefined }));
+      if (sent.delivered) {
+        changeRun(objective.id, run.key, () => ({
+          operationalQuestionId: currentQuestionKey,
+          reviewed: `${ref}:${domain.status}:${sent.run?.updatedAt ?? domain.updatedAt}`,
+        }));
+        return;
+      }
+      // A failed send is retried by its stable message ID, not as user approval.
+      return;
+    }
+    if (strategic?.kind === "hold") {
+      // A failed private reasoning attempt does not become a technical
+      // implementation decision for George. Keep the objective inspectable.
+      const made = { ...plainReport(objective, "blocked",
+        `I could not safely resolve “${shortWords(question.question)}”.`,
+        `strategic:${currentQuestionKey}`), detail: strategic.reason };
+      changeRun(objective.id, run.key, () => ({ reviewed: key }));
+      await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "working");
+      mutateObjective(objective.id, (current) => current && ({
+        ...current, parked: { at: new Date().toISOString(), reason: strategic.reason },
+      }));
+      return;
+    }
+  }
   if (decision) decisions.set(ref, decision);
   if (domain.status === "completed") return completed(objective, run, key);
   if (domain.status === "failed") return failed(objective, run, key, plainLine(domain.failure ?? domain.result.brief ?? ""), domain.result.brief, deps, store, true);
@@ -335,24 +397,43 @@ function completed(objective: Objective, run: PlannedRun, key: string): void {
 }
 
 /**
- * A failed run gets one alternative: re-briefed to its team with why it failed. A second failure, a run that may have
- * acted outside (a one-off job), or a crew run, becomes one decision for George; nothing is tried a third time.
+ * Recovery is an executive judgment, not an arbitrary "second failure → George"
+ * rule. No possible outward effect or one-off job is retried blindly.
+ * When exhausted, preserve a truthful blocked result and park the objective;
+ * never ask George to pick a debugging tactic.
  */
 async function failed(objective: Objective, run: PlannedRun, key: string, why: string, detail: string, deps: CosTickDeps, store: IntelligenceEventStore, retryable: boolean): Promise<void> {
   const reason = why && !unfitForHim(why).length ? why : "";
-  if (retryable && !run.adapted) {
-    changeRun(objective.id, run.key, (current) => current.reviewed === key ? null : requeue(current, { adapted: true, failure: reason ? `it didn't finish (${reason})` : "it didn't finish" }), (current) => ({
-      adaptations: [...(current.adaptations ?? []), adaptation(run.key, "rebrief", `It didn't finish${reason ? ` (${reason})` : ""}, so it was briefed again once with that.`)],
-    }));
+  const recovery = await (deps.recoveryJudge ?? judgeRecovery)({
+    objective, run,
+    failure: reason || "A team could not finish the work.",
+    retryable,
+    effectKnownInternal: retryable && !run.ref?.includes(":"),
+  });
+  if (recovery.action === "rebrief") {
+    changeRun(objective.id, run.key,
+      (current) => current.reviewed === key ? null : requeue(current, {
+        adapted: true,
+        failure: recovery.reason + (reason ? " Last failure: " + reason : ""),
+      }),
+      (current) => ({
+        adaptations: [...(current.adaptations ?? []), adaptation(run.key, "rebrief", recovery.reason)],
+      }));
     return;
   }
   const work = shortWords(run.outcome);
-  const outcome = run.adapted
-    ? `${work} didn't finish on the second try either${reason ? `: ${reason}` : ""}. Try another way, or drop it?`
-    : reason ? `${work} didn't finish: ${reason}` : `${work} didn't finish.`;
-  const made: CosReport = { ...plainReport(objective, "decision", outcome, key), detail, evidenceRefs: [linkOf(run.ref!)], options: [...WAIT_ANSWERS.retry] };
+  const outcome = reason ? `${work} could not be completed: ${reason}.` : `${work} could not be completed.`;
+  const made: CosReport = {
+    ...plainReport(objective, "blocked", outcome, key), detail,
+    evidenceRefs: run.ref ? [linkOf(run.ref)] : [],
+  };
   changeRun(objective.id, run.key, () => ({ state: "failed", reviewed: key }));
-  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "retry" });
+  // The result remains inspectable in Jobs. There is no "Try another way?"
+  // prompt: the safe recovery budget is exhausted, not George's judgment.
+  await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "working");
+  mutateObjective(objective.id, (current) => current && ({
+    ...current, parked: { at: new Date().toISOString(), reason: recovery.reason },
+  }));
 }
 
 /** Runs dispatched and not yet settled, across every open objective. */
@@ -518,16 +599,31 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   if (!taken && objective.reportIds.includes(`${id}:${shortKey}`)) return;
   const verdict = taken ? { met: true, missing: "", checked: true } : await accept(objective, finals, deps);
   if (!verdict.met) {
-    const retry = finals.find((run) => !run.adapted && !run.ref?.startsWith("job:") && !run.ref?.startsWith("crew:"));
-    const missing = verdict.missing || "it doesn't yet meet what done means";
+    const missing = verdict.missing || "it does not yet meet what done means";
+    const retry = finals.find((run) => run.ref && !run.ref.startsWith("job:") && !run.ref.startsWith("crew:"));
     if (retry) {
-      changeRun(id, retry.key, (current) => current.state === "completed" ? requeue(current, { adapted: true, failure: `it fell short of done: ${missing}` }) : null, (current) => ({
-        adaptations: [...(current.adaptations ?? []), adaptation(retry.key, "rebrief", `The result fell short (${missing}), so it was briefed again once with that.`)],
-      }));
-      return;
+      const resolution = await (deps.recoveryJudge ?? judgeRecovery)({
+        objective, run: retry, failure: "Acceptance shortfall: " + missing,
+        retryable: true, effectKnownInternal: !retry.ref?.includes(":"),
+      });
+      if (resolution.action === "rebrief") {
+        changeRun(id, retry.key, (current) => current.state === "completed"
+          ? requeue(current, { adapted: true, failure: resolution.reason + " Shortfall: " + missing })
+          : null,
+        (current) => ({
+          adaptations: [...(current.adaptations ?? []), adaptation(retry.key, "rebrief", resolution.reason)],
+        }));
+        return;
+      }
     }
-    const made: CosReport = { ...plainReport(objective, "decision", `${workOf(objective)} is close but not there: ${missing}. Take it as it is, or try another way?`, shortKey), options: [...WAIT_ANSWERS.accept], evidenceRefs: finals.map((run) => linkOf(run.ref!)) };
-    await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "accept" });
+    const made: CosReport = {
+      ...plainReport(objective, "blocked", `${workOf(objective)} is still incomplete: ${missing}.`, shortKey),
+      evidenceRefs: finals.map((run) => linkOf(run.ref!)),
+    };
+    await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "working");
+    mutateObjective(id, (current) => current && ({
+      ...current, parked: { at: new Date().toISOString(), reason: "Acceptance shortfall: " + missing },
+    }));
     return;
   }
   const unchecked = verdict.checked ? "" : "Not checked against done_when (the check couldn't be read).";
@@ -657,9 +753,16 @@ async function attend(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   }
   const at = now.toISOString();
   if (cannotTell) {
-    const made: CosReport = { ...plainReport(objective, "decision", `“${work}” has gone quiet and I can't tell why. Nudge it, park it, or is it meant to keep running?`, `stuck:${at}`), options: [...WAIT_ANSWERS.stuck] };
-    mutateObjective(id, (current) => current && { ...current, triage: [...(current.triage ?? []), { at, choice: "asked", reason: cannotTell }] });
-    return report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "stuck" });
+    // An unknown lifecycle is an operator problem, not a choice for George.
+    // Park the specific uncertainty for investigation; never re-dispatch an
+    // action whose external effect might already have happened.
+    const made: CosReport = { ...plainReport(objective, "blocked", `“${work}” is held up while I verify its status.`, `stuck:${at}`), detail: cannotTell };
+    await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "working");
+    mutateObjective(id, (current) => current && ({
+      ...current, triage: [...(current.triage ?? []), { at, choice: "park", reason: cannotTell }],
+      parked: { at, reason: cannotTell },
+    }));
+    return;
   }
   const choice = nudged ? "nudge" : parked ? "park" : null;
   if (!choice) return;
@@ -675,7 +778,7 @@ const defaultTell = async (run: DomainRun, decision: ExecutiveDecisionRecord, ke
 
 /** A report with no run behind it, told once as its own line. */
 const defaultSay = async (made: CosReport): Promise<unknown> => (await import("../../runtime/delivered.js")).deliverOnce([{
-  key: `cos:${made.id}`, line: made.outcome, kind: made.kind === "done" ? "deliverable" : "blocker", evidenceRefs: made.evidenceRefs,
+  key: `cos:${made.id}`, line: made.outcome, kind: made.kind === "done" ? "deliverable" : made.kind === "blocked" ? "status" : "decision", evidenceRefs: made.evidenceRefs,
 }]);
 
 let ticking = false;

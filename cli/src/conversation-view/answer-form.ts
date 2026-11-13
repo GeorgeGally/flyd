@@ -75,6 +75,39 @@ export function answerBody(value: unknown): AnswerBody {
     const evidence = evidenceFrom(record.evidence);
     if (parts.length) return { lead, form: "diagnosis", parts, ...(evidence.length ? { evidence } : {}), ...(next ? { next } : {}), ...(record.askedWhy === true ? { askedWhy: true } : {}) };
   }
+  if (record.form === "gallery") {
+    const originals = Array.isArray(record.items) ? record.items : [];
+    const items = originals.flatMap((raw) => {
+      const item = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const title = said(item.title);
+      const imageUrl = said(item.imageUrl);
+      const description = said(item.description);
+      const sourceUrl = said(item.sourceUrl);
+      // Render only sourced HTTPS images. Missing/malformed images leave the
+      // original answer untouched rather than inventing a visual.
+      if (!title || !description || !/^https:\/\/[^\s<>"']+$/i.test(imageUrl)) return [];
+      if (sourceUrl && !/^https:\/\/[^\s<>"']+$/i.test(sourceUrl)) return [];
+      return [{ title, imageUrl, description, ...(sourceUrl ? { sourceUrl } : {}) }];
+    });
+    if (items.length >= 2 && items.length <= 8 && items.length === originals.length) {
+      return { form: "gallery", lead, items };
+    }
+  }
+  if (record.form === "briefing") {
+    const originals = Array.isArray(record.facts) ? record.facts : [];
+    const facts = originals.flatMap((raw) => {
+      const item = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const label = said(item.label);
+      const value = said(item.value);
+      const source = said(item.source);
+      const asOf = said(item.asOf);
+      if (!label || !value) return [];
+      return [{ label, value, ...(source ? { source } : {}), ...(asOf ? { asOf } : {}) }];
+    });
+    if (facts.length >= 1 && facts.length <= 12 && facts.length === originals.length) {
+      return { form: "briefing", lead, facts };
+    }
+  }
   if (record.form === "comparison") {
     const criteria = Array.isArray(record.criteria) ? record.criteria.map(said) : [];
     const rawAlternatives = Array.isArray(record.alternatives) ? record.alternatives : [];
@@ -94,6 +127,14 @@ export function answerBody(value: unknown): AnswerBody {
 
 /** The body as one string: what history, search and every prose reader keep. */
 export function plainAnswer(body: AnswerBody): string {
+  if (body.form === "gallery") {
+    return [body.lead, ...body.items.map((item) =>
+      [item.title, item.description, item.sourceUrl ?? item.imageUrl].join(" — "))].join("\n\n");
+  }
+  if (body.form === "briefing") {
+    return [body.lead, ...body.facts.map((fact) =>
+      [fact.label + ": " + fact.value, fact.source ? "Source: " + fact.source : "", fact.asOf ? "As of: " + fact.asOf : ""].filter(Boolean).join(" — "))].join("\n");
+  }
   if (body.form === "comparison") {
     return [
       body.lead,
@@ -136,6 +177,26 @@ export function workingReply(body: AnswerBody): string | null {
 /** The body as the page shows it; prose is exactly the markdown it has always been. */
 export function answerHtml(body: AnswerBody): string {
   if (body.form === "prose") return renderMarkdown(body.lead);
+  if (body.form === "gallery") {
+    const items = body.items.map((item) => [
+      '<figure class="answer-gallery-item">',
+      '<img loading="lazy" referrerpolicy="no-referrer" src="' + escapeHtml(item.imageUrl) + '" alt="' + escapeHtml(item.title) + '">',
+      '<figcaption><strong>' + escapeHtml(item.title) + '</strong><span>' + escapeHtml(item.description) + '</span>',
+      item.sourceUrl ? '<a href="' + escapeHtml(item.sourceUrl) + '" rel="noreferrer noopener" target="_blank">Source</a>' : '',
+      '</figcaption></figure>',
+    ].join("")).join("");
+    return '<section class="answer-form answer-gallery" data-form="gallery"><p class="answer-lead">'
+      + escapeHtml(body.lead) + '</p><div class="answer-gallery-grid">' + items + '</div></section>';
+  }
+  if (body.form === "briefing") {
+    const facts = body.facts.map((fact) =>
+      '<div class="answer-briefing-fact"><dt>' + escapeHtml(fact.label) + '</dt><dd>'
+      + escapeHtml(fact.value) + '</dd>'
+      + (fact.source || fact.asOf ? '<small>' + escapeHtml([fact.source, fact.asOf].filter(Boolean).join(" · ")) + '</small>' : '')
+      + '</div>').join("");
+    return '<section class="answer-form answer-briefing" data-form="briefing"><p class="answer-lead">'
+      + escapeHtml(body.lead) + '</p><dl class="answer-briefing-facts">' + facts + '</dl></section>';
+  }
   const reply = workingReply(body);
   if (reply !== null) return renderMarkdown(reply);
   if (body.form === "comparison") {

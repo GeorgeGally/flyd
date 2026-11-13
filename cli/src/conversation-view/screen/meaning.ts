@@ -25,6 +25,8 @@ export function isScreenMeaning(value: string): value is ScreenMeaning {
  */
 export function meaningOf(object: SemanticObject, plan?: ManifestationPlan, named?: ScreenMeaning): ScreenMeaning {
   if (named) return named;
+  if (plan?.form === "gallery") return "artefact";
+  if (plan?.form === "briefing") return "briefing";
   if (plan?.form === "comparison") return "comparison";
   if (plan?.form === "diagnosis") return "result";
   switch (object.kind) {

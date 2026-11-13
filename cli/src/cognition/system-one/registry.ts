@@ -435,14 +435,16 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
 
   {
     id: "answer_form", family: "presentation", type: "choice",
-    instructions: "George asked `utterance`, and Flyd has already answered it in plain prose in `answer`. Would a shaped answer serve him better than that prose? Choose diagnosis only when the answer explains why something did or did not work: an outcome, what was expected, what actually happened, the cause, and what to do next. Choose comparison only when it weighs two or more named options against the same criteria. Choose prose for everything else, including a list, steps, a report, an opinion or a single fact.",
+    instructions: "George asked `utterance`, and Flyd has already answered it in plain prose in `answer`. Would a shaped answer serve him better than that prose? Choose diagnosis only when the answer explains why something did or did not work: an outcome, what was expected, what actually happened, the cause, and what to do next. Choose comparison only when it weighs two or more named options against the same criteria. Choose gallery when two or more distinct, explicitly sourced images are already in the answer and visual scanning is more useful; choose briefing when it summarizes verified, time-sensitive personal context relevant to a person or meeting. Choose prose for everything else, including an ordinary list, steps, an opinion or a single fact.",
     criteria: {
       prose: "Plain prose is the right shape.",
       diagnosis: "The answer explains a cause and a next step, and labelled parts would make it easier to act on.",
       comparison: "The answer weighs two or more named options across shared criteria, and a table would be clearer.",
+      gallery: "The answer already contains two or more sourced, directly relevant images; visually displaying them makes the answer immediately useful.",
+      briefing: "The answer contains verified, directly useful contextual facts for an upcoming meeting or personal preparation; a compact readable card is better.",
     },
     threshold: 0.70, use: "choice", failureMode: "fallback_heuristic",
-    projection: ["utterance", "answer"], evaluatorVersion: "answer_form.v1", status: "production",
+    projection: ["utterance", "answer"], evaluatorVersion: "answer_form.v2", status: "production",
     consumer: "conversation-view/answer-shape.ts answerForm: asked only after the desk answerer returns prose; diagnosis or comparison at ≥ threshold is reshaped once, else prose stands",
   },
 
@@ -488,6 +490,31 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
     threshold: 0.8, use: "choice", failureMode: "skip_mutation",
     projection: EXECUTIVE_PROJECTION, evaluatorVersion: "executive_change_route.v1", status: "production",
     consumer: "intelligence/executive/firstmate-decision.ts: semantic disposition evidence; deterministic authority policy alone allows internal effects",
+  },
+
+  {
+    id: "cos_operational_disposition", family: "executive", type: "choice",
+    instructions: "An existing domain team is asking about its implementation of an accepted objective. The Chief of Staff owns routine operational choices. Read the source question and options in context. Select the best next internal action. This classification confers NO authorization for external or destructive effects.",
+    criteria: {
+      use_recommendation: "The domain's grounded, specific recommendation is adequate to proceed safely with an internal implementation choice within the accepted objective.",
+      ask_team_for_evidence: "The team should investigate, compare options or make its own informed technical recommendation before proceeding; no user interruption is warranted.",
+      escalate_to_flyd: "The issue is strategically consequential or irreducibly ambiguous and needs Flyd's deeper private reasoning; this is NOT a reason to contact George automatically.",
+    },
+    threshold: 0.75, use: "choice", failureMode: "fallback_heuristic",
+    projection: EXECUTIVE_PROJECTION, evaluatorVersion: "cos_operational_disposition.v1", status: "production",
+    consumer: "command/cos/operational-judgment.ts: chooses internal response or exceptional Flyd reasoning; deterministic policy vetoes unauthorized effects",
+  },
+
+  {
+    id: "cos_recovery_tactic", family: "executive", type: "choice",
+    instructions: "A domain's internal attempt to fulfill a previously authorized objective has failed. Is there enough bounded evidence to justify a different internal implementation tactic, or should CoS safely hold work for more evidence or higher-level review? This is not permission to re-run any external effect.",
+    criteria: {
+      rebrief_with_different_tactic: "An internal technical alternative is plausible and a bounded rebrief can get it attempted without repeating outward effects.",
+      hold_for_evidence: "The failure may be systemic, uncertain, repeating a side effect, or no justified alternative is available; stop retries and keep the evidence.",
+    },
+    threshold: 0.80, use: "choice", failureMode: "fallback_heuristic",
+    projection: EXECUTIVE_PROJECTION, evaluatorVersion: "cos_recovery_tactic.v1", status: "production",
+    consumer: "command/cos/recovery.ts: only selects among preauthorized bounded recovery and holding; code vetoes outward effects",
   },
 
   {
