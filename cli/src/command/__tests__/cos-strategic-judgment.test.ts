@@ -16,7 +16,7 @@ describe("Flyd private executive judgment", () => {
     });
     expect(result.kind).toBe("internal");
     if (result.kind === "internal") expect(result.message).toContain("Vitest");
-    expect(strategicPrompt(question, "fast model abstained")).toContain("not a conversation");
+    expect(strategicPrompt(question, "fast model abstained")).toContain("NOT a conversation");
   });
   it("investigates ambiguous implementation questions instead of asking George", async () => {
     const result = await resolveStrategicQuestion(question, "worker returned the same unresolved question", {
