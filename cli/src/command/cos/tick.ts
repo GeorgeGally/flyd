@@ -758,7 +758,7 @@ const defaultTell = async (run: DomainRun, decision: ExecutiveDecisionRecord, ke
 
 /** A report with no run behind it, told once as its own line. */
 const defaultSay = async (made: CosReport): Promise<unknown> => (await import("../../runtime/delivered.js")).deliverOnce([{
-  key: `cos:${made.id}`, line: made.outcome, kind: made.kind === "done" ? "deliverable" : "blocker", evidenceRefs: made.evidenceRefs,
+  key: `cos:${made.id}`, line: made.outcome, kind: made.kind === "done" ? "deliverable" : made.kind === "blocked" ? "status" : "decision", evidenceRefs: made.evidenceRefs,
 }]);
 
 let ticking = false;
