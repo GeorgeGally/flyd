@@ -77,41 +77,32 @@ const TWO_RESEARCH = JSON.stringify({
 });
 
 describe("snooze", () => {
-  it("raises nothing before his time while the rest finishes, comes back once, and his reply resumes the same objective", async () => {
+  it("defers a genuinely user-owned authorization until the chosen time while independent work continues", async () => {
     const h = harness(TWO_RESEARCH);
     const { id } = openObjective({ words: "compare banks and card providers for the shop", flydNotes: "", origin: { surface: "chat" } });
     await cosTick(h.deps);
-    h.finishRun(`${id}-r1`, "failed");
-    await cosTick(h.deps);
-    h.finishRun(`${id}-r1-2`, "failed");
-    await cosTick(h.deps);
-    expect([readObjective(id)?.status, h.said.map((report) => report.kind)]).toEqual(["needs_george", ["decision"]]);
-
+    // A real personal authorization can be held; routine failure recovery
+    // no longer creates this state.
+    mutateObjective(id, (current) => current && ({
+      ...current, status: "needs_george",
+      waitingOn: { reportId: "approval-real", kind: "run", question: "Approve the account authorization?", at: h.clock().toISOString() },
+    }));
     const outcome = await tellWork({ message: "remind me tomorrow morning", kind: "snooze", until: "tomorrow_morning" }, h.deps.send, h.clock());
     const today = h.clock();
     expect(outcome).toEqual({ delivered: true, objectiveId: id, until: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 8).toISOString() });
     expect(workStatus()).toContain(`snoozed until ${outcome.until}`);
-    // The other branch finishes meanwhile, and nothing is raised again.
     h.finishRun(`${id}-r2`);
     h.later(60 * 60_000);
     await cosTick(h.deps);
-    expect([planOf(readObjective(id)!).map((run) => run.state), h.said.length]).toEqual([["failed", "completed"], 1]);
-
-    // His time comes: raised once.
+    expect(h.said).toHaveLength(0);
     h.later(Date.parse(outcome.until!) - h.clock().getTime() + 1_000);
     await cosTick(h.deps);
     await cosTick(h.deps);
-    expect(h.said.map((report) => report.outcome).slice(1)).toEqual([`Back as you asked: ${h.said[0]!.outcome}`]);
-
-    // His answer resumes this objective: the run is tried again with his words, and he hears once when it's done.
-    expect(await tellWork({ message: "try their published fee pages instead", kind: "decision" }, h.deps.send, h.clock())).toEqual({ delivered: true, objectiveId: id });
-    await cosTick(h.deps);
-    expect(readDomainRun(`${id}-r1-3`)?.request.intendedOutcome).toContain("George said: try their published fee pages instead");
-    h.finishRun(`${id}-r1-3`);
-    await cosTick(h.deps);
-    expect([readObjective(id)?.status, h.said.filter((report) => report.kind === "done").length]).toEqual(["done", 1]);
+    expect(h.said.map((report) => report.outcome)).toEqual(["Back as you asked: Approve the account authorization?"]);
+    expect(readObjective(id)?.status).toBe("needs_george");
     h.store.close();
   });
+
 });
 
 describe("stuck work", () => {
@@ -221,7 +212,7 @@ describe("plain run statuses", () => {
 });
 
 describe("a result that fell short", () => {
-  it("delivers it once when he takes it as it is, without checking it again", async () => {
+  it("retains a verified acceptance shortfall and parks it after bounded recovery without asking George for testing tactics", async () => {
     const h = harness(JSON.stringify({ team: "knowledge", outcome: "Compare Stripe and Paddle", done_when: ["fees sourced"] }));
     let checks = 0;
     const deps = { ...h.deps, complete: async (prompt: string) => {
@@ -231,18 +222,19 @@ describe("a result that fell short", () => {
     } };
     const id = openObjective({ words: "stripe or paddle?", flydNotes: "", origin: { surface: "chat" } }).id;
     await cosTick(deps);
-    h.finishRun(`${id}-r1`);
+    for (const suffix of ["", "-2", "-3"]) {
+      h.finishRun(`${id}-r1${suffix}`);
+      await cosTick(deps);
+    }
     await cosTick(deps);
-    h.finishRun(`${id}-r1-2`);
-    await cosTick(deps);
-    expect([readObjective(id)?.waitingOn?.kind, readObjective(id)?.waitingOn?.options, checks]).toEqual(["accept", ["Take it as it is", "Try another way"], 2]);
-
-    expect(await tellWork({ message: "that's fine", choice: "Take it as it is", kind: "decision" }, h.deps.send, h.clock())).toEqual({ delivered: true, objectiveId: id });
-    await cosTick(deps);
-    await cosTick(deps);
-    expect([readObjective(id)?.status, readObjective(id)?.waitingOn, h.told.length, checks]).toEqual(["done", undefined, 1, 2]);
+    expect(checks).toBe(3);
+    expect(readObjective(id)?.status).toBe("working");
+    expect(readObjective(id)?.parked?.reason).toContain("Paddle's payout fees");
+    expect(readObjective(id)?.waitingOn).toBeUndefined();
+    expect(h.said.map((report) => report.kind)).toEqual(["blocked"]);
     h.store.close();
   });
+
 });
 
 describe("a hand-over that was never confirmed", () => {
