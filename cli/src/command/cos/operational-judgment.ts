@@ -22,6 +22,7 @@ export interface OperationalQuestion {
 }
 export type OperationalDisposition =
   | { kind: "internal"; message: string; reason: string; judgment?: PredicateEvaluation }
+  | { kind: "reason"; reason: string; judgment?: PredicateEvaluation }
   | { kind: "escalate"; reason: string; judgment?: PredicateEvaluation };
 
 const PROTECTED = /\b(?:merge|push|publish|post publicly|deploy|release to production|purchase|pay|payment|transfer money|invoice|charge|send (?:an? )?(?:email|message|whatsapp)|email (?:a|the|him|her|them)|whatsapp|contact (?:a|the|him|her|them)|delete|destroy|erase|revoke|credentials?|password|access token|secret key|permission|security|authorize|approval|sign[- ]?off|contract|legal|liability|personal data)\b/i;
@@ -66,7 +67,7 @@ export async function judgeOperationalQuestion(input: OperationalQuestion, deps:
     return { kind: "escalate", reason: "no evidence this is an internal technical choice" };
   }
   if (input.previousResolution) {
-    return { kind: "escalate", reason: "the domain could not resolve the same internal choice after an instruction" };
+    return { kind: "reason", reason: "the domain could not resolve the same internal choice after an instruction" };
   }
 
   const suggested = input.recommendation && input.options.includes(input.recommendation)
@@ -90,7 +91,7 @@ export async function judgeOperationalQuestion(input: OperationalQuestion, deps:
   const confident = result?.ok && choice?.confidence !== undefined && choice.confidence >= 0.75
     && choice.probability >= 0.75;
   if (confident && choice.choice === "escalate_to_flyd") {
-    return { kind: "escalate", reason: "fast judgment found a strategically consequential issue", judgment: result };
+    return { kind: "reason", reason: "fast judgment found a strategically consequential issue", judgment: result };
   }
 
   const decide = Boolean(confident && choice.choice === "use_recommendation" && suggested);
