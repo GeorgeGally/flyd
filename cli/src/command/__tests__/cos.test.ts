@@ -141,7 +141,7 @@ describe("Chief of Staff reports", () => {
     }
     await cosTick({ store, dispatch: (async () => ({ refused: "no" })) as Dispatch, say: async (report: CosReport) => { said.push(report); } });
     delete process.env.FLYD_BACKGROUND_JOBS_DIR;
-    expect(said.map((report) => report.outcome).sort()).toEqual(["book the table didn't finish.", "import the deck didn't finish: the deck is editable"]);
+    expect(said.map((report) => report.outcome).sort()).toEqual(["book the table could not be completed.", "import the deck could not be completed: the deck is editable."]);
     store.close();
   });
 
