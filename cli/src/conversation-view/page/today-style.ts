@@ -142,7 +142,7 @@ button.ev:hover { background: var(--sheet); }
 /* A phone: the wordmark, Today, News, Week and Machines, people and preferences. The column's tabs stay, one open at a time;
    Today's feed follows the jobs, and News puts the weather above the stories. */
 @media (max-width: 760px) {
-  :root[data-layout="front"] header { gap: 14px; }
+  :root[data-layout="front"] header { column-gap: 14px; }
   :root[data-layout="front"] .centre-tabs { gap: 14px; margin-left: 0; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   :root[data-layout="front"] .centre-tabs::-webkit-scrollbar { display: none; }
   :root[data-layout="front"] .ctab { flex: none; }

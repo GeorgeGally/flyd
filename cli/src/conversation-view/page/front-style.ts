@@ -409,7 +409,14 @@ button.jv-thread { cursor: pointer; }
   :root[data-layout="front"] { --gut: 28px; --card-pad: 24px; --mat-pad: 9px; }
 }
 /* A phone: one column. Jobs and artefacts run as strips of cards above the conversation. */
-/* An iPad: the larger top line keeps its size; the column's tabs sit closer so all four fit. */
+/* An iPad and a phone: the top line keeps its size over two rows, the wordmark and the day above, the tabs and controls below. */
+@media (max-width: 1100px) {
+  :root[data-layout="front"] { --head-h: 100px; }
+  :root[data-layout="front"] header { flex-wrap: wrap; align-content: center; row-gap: 0; }
+  :root[data-layout="front"] header::after { content: ""; order: 2; flex-basis: 100%; height: 0; margin-top: 14px; }
+  :root[data-layout="front"] .centre-tabs, :root[data-layout="front"] header .controls { order: 3; }
+  :root[data-layout="front"] header .centre-tabs { margin-left: 0; }
+}
 @media (min-width: 761px) and (max-width: 1100px) {
   :root[data-layout="front"] .rtabs { gap: 12px; padding-left: 12px; }
 }
@@ -419,8 +426,8 @@ button.jv-thread { cursor: pointer; }
   :root[data-layout="front"] .rtabs { display: none; }
   :root[data-layout="front"][data-rtab] .jobs, :root[data-layout="front"][data-rtab] .rail:not([hidden]) { display: block !important; }
   :root[data-layout="front"] body { font-size: 18px; background: var(--paper); }
-  :root[data-layout="front"] header { padding: 0 var(--gut); flex-wrap: nowrap; }
-  :root[data-layout="front"] header .controls { flex: none; margin-left: auto; }
+  :root[data-layout="front"] header { padding: 0 var(--gut); }
+  :root[data-layout="front"] header .controls { flex: none; margin-left: auto; order: 1; }
   :root[data-layout="front"] header .controls { gap: 0; }
   :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
