@@ -1,4 +1,4 @@
-import { plainNote } from "./rail.js";
+import { plainNote, railImageSrc } from "./rail.js";
 import { inFlydsVoice } from "./flyd-voice.js";
 import type { ProjectAsker } from "./project-asker.js";
 import { aboutOnly, askLine, nameReader, tagTurns, turnsOf, type ThreadProject, type Turn } from "./project-tags.js";
@@ -47,6 +47,8 @@ export interface ThreadSummary {
   at?: string;
   /** The newest thing said to him here, for the unread mark. */
   replyAt?: string;
+  /** The newest picture in the thread (an image or a kept screenshot), as a same-origin src; a screenshot's still needs the view token. */
+  picture?: string;
   count: number;
 }
 
@@ -90,14 +92,55 @@ const oneLine = (text: string, limit: number): string => {
   return flat.length > limit ? `${flat.slice(0, limit - 1).trimEnd()}…` : flat;
 };
 
+/** His words for a row: all of them when short, else their first sentence; never cut mid-thought with an ellipsis. */
+export function hisWords(text: string): string {
+  const flat = inline(text).replace(/^[-–]\s*/, "");
+  if (flat.length <= 110) return flat;
+  return /^.+?[.!?](?=\s|$)/.exec(flat)?.[0] ?? flat;
+}
+
+/** Room for one sentence of Flyd's in a row; a longer one stops at its last clause that fits. */
+const SAID_ROOM = 96;
+
+/**
+ * One line of Flyd's as a row says it: a short label before the point ("Added to the Liesel worker:", "Tabs:")
+ * says who, not what, so it goes when real words follow; an address reads as the words before it or its site's name.
+ */
+export function tidyLine(line: string): string {
+  let said = line;
+  const label = /^([^:.!?]{1,40}):\s+(?=\S)/.exec(said);
+  if (label && label[1]!.trim().split(/\s+/).length <= 6 && said.slice(label[0].length).trim().split(/\s+/).length >= 3) said = said.slice(label[0].length);
+  said = said
+    .replace(/\b(the (?:board|site|page|pull request|PR))\s*:\s*https?:\/\/\S+?(?=[.,;]?(?:\s|$))/gi, "$1")
+    .replace(/https?:\/\/([^/\s]+?)(?:\/\S*?)?(?=[.,;]?(?:\s|$))/g, (_, host: string) => host.replace(/^www\./, ""));
+  return said.trim();
+}
+
 /** A reply's opening thought for a row of the list: no salutation, no lead-in to a list, the project's own line when it has one. */
 function gist(text: string, own: (line: string) => boolean = () => false): string {
   const lines = text.replace(/```[\s\S]*?(?:```|$)/g, "").split("\n").map((line) => line.trim()).filter(Boolean);
   const said = lines.filter((line) => !line.endsWith(":"));
   const first = said.find(own) ?? said[0] ?? lines[0] ?? "";
-  const body = inline(first.replace(/^(?:[-*+]|\d+[.)])\s+/, "")).replace(SALUTATION, "");
-  const lead = oneLine(sentences(body)[0] ?? body, 160);
+  const body = tidyLine(inline(first.replace(/^(?:[-*+]|\d+[.)])\s+/, "")).replace(SALUTATION, ""));
+  let lead = sentences(body)[0] ?? body;
+  if (lead.length > SAID_ROOM) {
+    const comma = lead.slice(0, SAID_ROOM).lastIndexOf(","), aside = lead.indexOf(" (");
+    const cut = aside > 20 && (comma < 0 || aside < comma) ? aside : comma;
+    if (cut > 20) lead = `${lead.slice(0, cut)}.`;
+  }
   return lead ? `${lead.charAt(0).toUpperCase()}${lead.slice(1)}` : "";
+}
+
+/** The newest picture said in a thread, as a src the page can load. */
+function pictureOf(id: string, entries: Entry[]): string | undefined {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const { images, shots } = entries[i]!.message;
+    const image = images?.at(-1);
+    if (image) return `/api/image?session=${encodeURIComponent(id)}&id=${encodeURIComponent(image)}`;
+    const shot = shots?.at(-1);
+    if (shot) return railImageSrc(shot);
+  }
+  return undefined;
 }
 
 export class ProjectThreads {
@@ -277,12 +320,14 @@ export class ProjectThreads {
     const told = answer ?? (asked >= 0 ? undefined : newestReply);
     const reading = told && id !== ALL_THREAD && id !== OTHER_THREAD ? aboutOnly(told.text, name, this.read) : told?.text;
     const at = entries.at(-1)?.message.timestamp;
+    const picture = id !== ALL_THREAD && id !== OTHER_THREAD ? pictureOf(id, entries) : undefined;
     return {
       id, name, count: entries.length,
-      ...(question ? { question: oneLine(question.text, 200) } : {}),
+      ...(question ? { question: hisWords(question.text) } : {}),
       ...(reading ? { answer: gist(reading, (line) => this.read(line).includes(name)) } : {}),
       ...(at ? { at } : {}),
       ...(newestReply?.timestamp ? { replyAt: newestReply.timestamp } : {}),
+      ...(picture ? { picture } : {}),
     };
   }
 

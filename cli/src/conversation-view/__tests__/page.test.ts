@@ -5436,21 +5436,57 @@ describe("project threads", () => {
   };
   const seenFrom = (since: string) => localStorage.setItem("flyd-threads-seen", JSON.stringify({ since }));
 
-  it("lists each project's latest exchange, escaped, with All first", async () => {
+  it("lists each project's latest exchange, escaped, with every conversation under the list", async () => {
     listed(LIST);
     load("");
     await settle();
     const rows = Array.from(document.querySelectorAll(".thread"));
-    expect(rows.map((row) => row.querySelector(".thread-name")?.textContent)).toEqual(["All", "DIR", "Logan"]);
-    expect(rows[1]!.querySelector(".thread-q")?.textContent).toBe("the <ident>");
-    expect(rows[1]!.querySelector(".thread-a")?.textContent).toBe("It's smaller now.");
+    expect(rows.map((row) => row.querySelector(".thread-name")?.textContent)).toEqual(["DIR", "Logan"]);
+    expect(rows[0]!.querySelector(".thread-q")?.textContent).toBe("the <ident>");
+    expect(rows[0]!.querySelector(".thread-a")?.textContent).toBe("It's smaller now.");
+    expect(Array.from(document.querySelectorAll(".thread-more button")).map((link) => [link.textContent, (link as HTMLElement).dataset.thread])).toEqual([["All conversations", "project:all"]]);
   });
 
-  it("ends the list with what nothing could place", async () => {
+  it("ends with what nothing could place, beside every conversation", async () => {
     listed({ ...LIST, other: { id: "project:other", name: "Other", question: "smaller", at: "2026-10-05T18:00:00.000Z", count: 1 } });
     load("");
     await settle();
-    expect(Array.from(document.querySelectorAll(".thread-name")).map((row) => row.textContent)).toEqual(["All", "DIR", "Logan", "Other"]);
+    expect(Array.from(document.querySelectorAll(".thread-name")).map((row) => row.textContent)).toEqual(["DIR", "Logan"]);
+    expect(Array.from(document.querySelectorAll(".thread-more button")).map((link) => link.textContent)).toEqual(["All conversations", "Other"]);
+  });
+
+  it("leads with the newest project that has a picture, once, and never the one open in the middle", async () => {
+    const pictured = {
+      ...LIST,
+      projects: [
+        LIST.projects[0]!,
+        { ...LIST.projects[1]!, picture: "/api/rail-image?path=%2Fkept%2Flogan.png" },
+        { id: "project:hftw", name: "HFTW", question: "the hero", answer: "Swapped.", at: "2026-10-05T18:00:00.000Z", replyAt: "2026-10-05T18:00:00.000Z", count: 1, picture: "/api/image?session=project%3Ahftw&id=1" },
+      ],
+    };
+    listed(pictured);
+    load("");
+    await settle();
+    const lead = document.querySelector(".thread-lead")!;
+    expect(lead.querySelector(".thread-name")?.textContent).toBe("Logan");
+    expect(lead.querySelector("img")!.getAttribute("src")).toMatch(/^\/api\/rail-image\?path=%2Fkept%2Flogan\.png&token=/);
+    expect(Array.from(document.querySelectorAll(".thread-name")).map((row) => row.textContent)).toEqual(["Logan", "DIR", "HFTW"]);
+    (lead as HTMLElement).click();
+    await settle();
+    const next = document.querySelector(".thread-lead")!;
+    expect(next.querySelector(".thread-name")?.textContent).toBe("HFTW");
+    expect(next.querySelector("img")!.getAttribute("src")).toBe("/api/image?session=project%3Ahftw&id=1");
+    expect(document.querySelector('.thread.on[data-thread="project:logan"]')).not.toBeNull();
+  });
+
+  it("opens every conversation from the line under the list", async () => {
+    listed(LIST);
+    load("");
+    await settle();
+    document.querySelector<HTMLElement>('.thread-more [data-thread="project:all"]')!.click();
+    await settle();
+    expect(FakeEventSource.instances.at(-1)!.url).toContain("session=project%3Aall");
+    expect(document.querySelector('.thread-more [data-thread="project:all"]')!.getAttribute("aria-current")).toBe("true");
   });
 
   it("marks what came after his last look, on the project and its tab, never on All", async () => {

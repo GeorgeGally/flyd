@@ -92,7 +92,7 @@ describe("ProjectThreads", () => {
     expect(threads.snapshot(threadId("DIR")).messages[0]!.text).not.toContain("filters");
     expect(threads.snapshot(threadId("Logan")).messages[0]!.text).not.toContain("rendered");
     expect(threads.snapshot(ALL_THREAD).messages[0]!.text).toContain("filters");
-    expect(threads.list().projects.find((project) => project.name === "Logan")?.answer).toBe("Logan: filters have started.");
+    expect(threads.list().projects.find((project) => project.name === "Logan")?.answer).toBe("Filters have started.");
   });
 
   it("leads a row with what was said, not a lead-in or a code block", async () => {
@@ -102,6 +102,62 @@ describe("ProjectThreads", () => {
     ] } })], projects });
     await threads.refresh();
     expect(threads.list().projects[0]?.answer).toBe("Login page: example.com");
+  });
+
+  it("keeps his short words whole, and a long message to its first sentence, never cut with an ellipsis", async () => {
+    const long = "fill has also regressed. swatches should go at the top. and always be visible. we also need the smart swatches back on the DIR board";
+    const threads = new ProjectThreads({ feeds: [feed({ s: { updatedAt: "2026-11-06T10:00:00Z", messages: [
+      user("q1", "the DIR ident is too big", "2026-11-06T08:00:00Z"),
+      said("r1", "Smaller now.", "2026-11-06T08:01:00Z"),
+      user("q2", long, "2026-11-06T09:00:00Z"),
+    ] } })], projects });
+    await threads.refresh();
+    expect(threads.list().projects[0]?.question).toBe("fill has also regressed.");
+    const short = new ProjectThreads({ feeds: [feed({ s: { updatedAt: "2026-11-06T10:00:00Z", messages: [user("q", "the DIR ident is too big", "2026-11-06T09:00:00Z")] } })], projects });
+    await short.refresh();
+    expect(short.list().projects[0]?.question).toBe("the DIR ident is too big");
+  });
+
+  it("says Flyd's line without the worker label or a bare address, and stops a long sentence at a clause", async () => {
+    const replies = [
+      "Added to the DIR worker: the title, buttons and width will sit close together.",
+      "The new DIR key colours are also on the board: http://127.0.0.1:4747/board/97933d40aea87c36",
+      "The DIR power fix is merged and live on https://www.example.com/dir.",
+      "It's building the round 5 DIR design as the real Knowledge Hub on your local site, with real content in place of the sample stories and photos.",
+    ];
+    const answers: string[] = [];
+    for (const reply of replies) {
+      const threads = new ProjectThreads({ feeds: [feed({ s: { updatedAt: "2026-11-06T10:00:00Z", messages: [
+        user("q", "DIR?", "2026-11-06T09:00:00Z"), said("r", reply, "2026-11-06T09:01:00Z"),
+      ] } })], projects });
+      await threads.refresh();
+      answers.push(threads.list().projects[0]!.answer!);
+    }
+    expect(answers).toEqual([
+      "The title, buttons and width will sit close together.",
+      "The new DIR key colours are also on the board",
+      "The DIR power fix is merged and live on example.com.",
+      "It's building the round 5 DIR design as the real Knowledge Hub on your local site.",
+    ]);
+    expect(answers.join(" ")).not.toContain("…");
+  });
+
+  it("carries the newest picture said in a project, an image before an older screenshot", async () => {
+    const threads = new ProjectThreads({ feeds: [feed({ s: { updatedAt: "2026-11-06T10:00:00Z", messages: [
+      said("r1", "The DIR keys are on the board.", "2026-11-06T08:00:00Z", { shots: ["/kept/dir-keys.png"] }),
+      user("q", "the DIR swatches", "2026-11-06T09:00:00Z", ),
+      said("r2", "DIR swatches are back.", "2026-11-06T09:01:00Z", { images: ["7"] }),
+    ] } })], projects });
+    await threads.refresh();
+    const dir = threads.list().projects[0]!;
+    expect(dir.picture).toBe(`/api/image?session=project%3Adir&id=${encodeURIComponent("0|s|7")}`);
+    expect((await threads.image(decodeURIComponent(dir.picture!.split("id=")[1]!)))?.data.toString()).toBe("s:7");
+    const older = new ProjectThreads({ feeds: [feed({ s: { updatedAt: "2026-11-06T10:00:00Z", messages: [
+      said("r1", "The DIR keys are on the board.", "2026-11-06T08:00:00Z", { shots: ["/kept/dir-keys.png"] }),
+    ] } })], projects });
+    await older.refresh();
+    expect(older.list().projects[0]!.picture).toBe("/api/rail-image?path=%2Fkept%2Fdir-keys.png");
+    expect(older.list().all?.picture).toBeUndefined();
   });
 
   it("shows a message once when a resumed session repeats it", async () => {
