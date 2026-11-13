@@ -142,6 +142,22 @@ describe("ProjectThreads", () => {
     expect(answers.join(" ")).not.toContain("…");
   });
 
+  it("cuts a run-on at a word: his dictated words near 200 characters, Flyd's line near 160", async () => {
+    const dictated = `the DIR ${"header and the footer should both move ".repeat(16)}`.trim();
+    const reply = `The DIR ${"build now carries the new header and footer and spacing ".repeat(5)}`.trim() + ".";
+    const threads = new ProjectThreads({ feeds: [feed({ s: { updatedAt: "2026-11-06T10:00:00Z", messages: [
+      user("q", dictated, "2026-11-06T09:00:00Z"), said("r", reply, "2026-11-06T09:01:00Z"),
+    ] } })], projects });
+    await threads.refresh();
+    const { question, answer } = threads.list().projects[0]!;
+    expect(question!.length).toBeLessThanOrEqual(200);
+    expect(question!.length).toBeGreaterThan(150);
+    expect(question).toMatch(/^the DIR header .* (?:the|header|and|footer|should|both|move)…$/);
+    expect(answer!.length).toBeLessThanOrEqual(160);
+    expect(answer!.length).toBeGreaterThan(110);
+    expect(answer).toMatch(/^The DIR build .* (?:build|now|carries|the|new|header|and|footer|spacing)…$/);
+  });
+
   it("carries the newest picture said in a project, an image before an older screenshot", async () => {
     const threads = new ProjectThreads({ feeds: [feed({ s: { updatedAt: "2026-11-06T10:00:00Z", messages: [
       said("r1", "The DIR keys are on the board.", "2026-11-06T08:00:00Z", { shots: ["/kept/dir-keys.png"] }),

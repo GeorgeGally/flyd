@@ -5455,7 +5455,7 @@ describe("project threads", () => {
     expect(Array.from(document.querySelectorAll(".thread-more button")).map((link) => link.textContent)).toEqual(["All conversations", "Other"]);
   });
 
-  it("leads with the newest project that has a picture, once, and never the one open in the middle", async () => {
+  it("boxes the newest project that has a picture above the list, never the one open in the middle, and keeps the list newest first", async () => {
     const pictured = {
       ...LIST,
       projects: [
@@ -5470,13 +5470,16 @@ describe("project threads", () => {
     const lead = document.querySelector(".thread-lead")!;
     expect(lead.querySelector(".thread-name")?.textContent).toBe("Logan");
     expect(lead.querySelector("img")!.getAttribute("src")).toMatch(/^\/api\/rail-image\?path=%2Fkept%2Flogan\.png&token=/);
-    expect(Array.from(document.querySelectorAll(".thread-name")).map((row) => row.textContent)).toEqual(["Logan", "DIR", "HFTW"]);
+    expect(lead.closest(".thread-list")).toBeNull();
+    const listedNames = () => Array.from(document.querySelectorAll(".thread-list .thread-name")).map((row) => row.textContent);
+    expect(listedNames()).toEqual(["DIR", "Logan", "HFTW"]);
     (lead as HTMLElement).click();
     await settle();
     const next = document.querySelector(".thread-lead")!;
     expect(next.querySelector(".thread-name")?.textContent).toBe("HFTW");
     expect(next.querySelector("img")!.getAttribute("src")).toBe("/api/image?session=project%3Ahftw&id=1");
-    expect(document.querySelector('.thread.on[data-thread="project:logan"]')).not.toBeNull();
+    expect(document.querySelector('.thread-list .thread.on[data-thread="project:logan"]')).not.toBeNull();
+    expect(listedNames()).toEqual(["DIR", "Logan", "HFTW"]);
   });
 
   it("opens every conversation from the line under the list", async () => {

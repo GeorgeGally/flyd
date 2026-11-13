@@ -29,7 +29,7 @@ export const FRONT_STYLE = `
 .rtabs, .jobs, .stage-head, .job-view, .front-date { display: none; }
 :root[data-layout="front"] body { background: transparent; font-size: 20px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-wrap: pretty; }
 
-/* The top line: who and what day. The controls stay, smaller. */
+/* The top line: who and what day, with the controls beside them. */
 :root[data-layout="front"] header { height: var(--top); padding: 0 calc(var(--gut) + 4px); background: var(--paper); backdrop-filter: none; -webkit-backdrop-filter: none; gap: 20px; }
 :root[data-layout="front"] header .who { color: var(--ink); font-weight: 600; font-size: 20px; letter-spacing: -0.01em; }
 :root[data-layout="front"] .front-date { display: inline; color: var(--mute); font-size: 18px; font-weight: 400; white-space: nowrap; }
@@ -409,9 +409,8 @@ button.jv-thread { cursor: pointer; }
   :root[data-layout="front"] { --gut: 28px; --card-pad: 24px; --mat-pad: 9px; }
 }
 /* A phone: one column. Jobs and artefacts run as strips of cards above the conversation. */
-/* An iPad: the larger top line keeps its size; the date gives way and the column's tabs sit closer so all four fit. */
+/* An iPad: the larger top line keeps its size; the column's tabs sit closer so all four fit. */
 @media (min-width: 761px) and (max-width: 1100px) {
-  :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .rtabs { gap: 12px; padding-left: 12px; }
 }
 @media (max-width: 760px) {
@@ -424,9 +423,6 @@ button.jv-thread { cursor: pointer; }
   :root[data-layout="front"] header .controls { flex: none; margin-left: auto; }
   :root[data-layout="front"] header .controls { gap: 0; }
   :root[data-layout="front"] .front-date { display: none; }
-  /* His larger top line is for the desktop; a phone keeps the small controls so Today, News, Week and Machines fit. */
-  :root[data-layout="front"] header .controls > * { font-size: 13px !important; }
-  :root[data-layout="front"] header .who { font-size: 17px; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
   :root[data-layout="front"] .rail { display: block; margin-bottom: 24px; }
   :root[data-layout="front"] .rail .news .story-pic,

@@ -1,6 +1,6 @@
 /**
- * The Projects tab: each project's latest exchange as a contents page, the newest
- * with a picture leading like a title card, with a mark on what he has not read, and its thread in the middle once picked. A thread is a session to
+ * The Projects tab: each project's latest exchange as a contents page, newest first,
+ * under a box showing the newest project with a picture, with a mark on what he has not read, and its thread in the middle once picked. A thread is a session to
  * the stream ("project:dir"), so the conversation draws it as it draws any other.
  * What he has read is his browser's own. Borrows connect, explicit, current,
  * frontTab, frontSelect, frontEsc, frontWhen and frontRoot from the page's closure.
@@ -49,11 +49,11 @@ export const THREADS_SCRIPT = `
     var rows = (list.all ? [list.all] : []).concat(projects, list.other ? [list.other] : []);
     var open = rows.filter(function (thread) { return thread.id === explicit; })[0];
     if (open && open.replyAt && open.replyAt !== threadsSeen[open.id]) { threadsSeen[open.id] = open.replyAt; keepThreadsSeen(); }
-    // The newest project with a picture leads, unless it is already open in the middle.
+    // A box above the list shows the newest project with a picture, unless it is already open in the middle; the list keeps its order.
     var lead = projects.filter(function (thread) { return thread.picture && thread.id !== explicit; })[0];
     var more = (list.all ? threadLink(list.all, "All conversations") : "") + (list.other ? threadLink(list.other, "Other") : "");
     var html = projects.length
-      ? '<div class="thread-list">' + (lead ? threadRow(lead, true) : "") + projects.filter(function (thread) { return thread !== lead; }).map(function (thread) { return threadRow(thread); }).join("") + '</div>'
+      ? (lead ? threadRow(lead, true) : "") + '<div class="thread-list">' + projects.map(function (thread) { return threadRow(thread); }).join("") + '</div>'
         + (more ? '<p class="thread-more">' + more + '</p>' : "")
       : (more ? '<p class="thread-more">' + more + '</p>' : '<p class="fempty">' + (list.ready ? "Nothing said about a project yet." : "Reading your conversations.") + '</p>');
     threadsDot.hidden = !projects.some(function (thread) { return thread.id !== explicit && threadUnread(thread); });

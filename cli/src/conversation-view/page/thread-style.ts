@@ -31,9 +31,8 @@ export const THREAD_STYLE = `
 .thread-q { margin: 3px 0 6px; font: 400 18px/19px var(--sans); color: var(--mute); }
 .thread-a { margin: 3px 0 0; font: 400 18px/1.45 var(--sans); color: var(--ink2); }
 .thread.on .thread-a { color: var(--ink); }
-/* The project that moved last, with a picture, leads like a title card: framed picture, big name, the exchange. */
-.thread.thread-lead { padding: 6px var(--card-pad) 30px; }
-.thread-lead + .thread::before { display: none; }
+/* A box above the list: the newest project with a picture, like a title card: framed picture, big name, the exchange. */
+.thread.thread-lead { padding: 6px var(--card-pad) 30px; margin-bottom: 8px; }
 .thread-frame { display: block; padding: 10px; border-radius: 10px; background: var(--card); transition: background-color .2s ease; }
 .thread-lead:hover { background: none; }
 .thread-lead:hover .thread-frame { background: var(--sheet); }

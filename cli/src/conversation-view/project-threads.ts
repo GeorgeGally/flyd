@@ -92,11 +92,18 @@ const oneLine = (text: string, limit: number): string => {
   return flat.length > limit ? `${flat.slice(0, limit - 1).trimEnd()}…` : flat;
 };
 
-/** His words for a row: all of them when short, else their first sentence; never cut mid-thought with an ellipsis. */
+/** Text no longer than a limit, cut at a word when it runs over. */
+const upTo = (text: string, limit: number): string => {
+  if (text.length <= limit) return text;
+  const cut = text.lastIndexOf(" ", limit - 1);
+  return `${text.slice(0, cut > 0 ? cut : limit - 1).trimEnd()}…`;
+};
+
+/** His words for a row: all of them when short, else their first sentence; only a run-on is cut, at a word. */
 export function hisWords(text: string): string {
   const flat = inline(text).replace(/^[-–]\s*/, "");
   if (flat.length <= 110) return flat;
-  return /^.+?[.!?](?=\s|$)/.exec(flat)?.[0] ?? flat;
+  return upTo(/^.+?[.!?](?=\s|$)/.exec(flat)?.[0] ?? flat, 200);
 }
 
 /** Room for one sentence of Flyd's in a row; a longer one stops at its last clause that fits. */
@@ -128,6 +135,7 @@ function gist(text: string, own: (line: string) => boolean = () => false): strin
     const cut = aside > 20 && (comma < 0 || aside < comma) ? aside : comma;
     if (cut > 20) lead = `${lead.slice(0, cut)}.`;
   }
+  lead = upTo(lead, 160);
   return lead ? `${lead.charAt(0).toUpperCase()}${lead.slice(1)}` : "";
 }
 
