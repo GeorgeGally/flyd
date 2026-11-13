@@ -229,7 +229,8 @@ async function dispatched(id: string, key: string, answer: Dispatched, deps: Cos
       const runs = objective.runs.includes(ref) ? objective.runs : [...objective.runs, ref];
       // Found after all: a wait on whether it was handed over is over once nothing else is unconfirmed.
       const settled = objective.status === "needs_george" && objective.waitingOn?.kind === "unconfirmed" && !planOf(objective).some((run) => run.key !== key && run.state === "unknown");
-      return settled ? { runs, status: backTo(objective), waitingOn: undefined, snooze: undefined } : { runs };
+      return settled ? { runs, status: backTo(objective), waitingOn: undefined, snooze: undefined, parked: undefined }
+        : objective.parked?.reason.startsWith("Unconfirmed handoff") ? { runs, parked: undefined } : { runs };
     });
     // He cancelled while it was being sent: the run is stopped as well.
     const run = recorded?.status === "cancelled" && !ref.includes(":") ? readDomainRun(ref) : null;
@@ -237,7 +238,7 @@ async function dispatched(id: string, key: string, answer: Dispatched, deps: Cos
     return;
   }
   if ("unknown" in answer) {
-    // Never sent again on its own: each pass looks for it again, and past UNCONFIRMED_MS he decides (`confirm`).
+    // Never sent again on its own: each pass looks for it again, and past UNCONFIRMED_MS it is parked (`confirm`).
     changeRun(id, key, () => ({ state: "unknown", dispatching: undefined, failure: answer.unknown, unknownAt: new Date().toISOString() }));
     return;
   }
@@ -248,8 +249,8 @@ async function dispatched(id: string, key: string, answer: Dispatched, deps: Cos
 
 /**
  * A run whose hand-over was never confirmed: looked for again by its request id each pass (never sent again on its
- * own), and, once it has stayed unconfirmed for UNCONFIRMED_MS, one call for George: send it again, or drop it. The call
- * waits while another wait is open, and is asked again once that one is answered, if the run is still unconfirmed.
+ * own), and once it has stayed unconfirmed for UNCONFIRMED_MS, it is parked with a truthful status.
+ * A late receipt still unblocks the same objective, without ever blindly repeating an external effect.
  */
 async function confirm(objective: Objective, run: PlannedRun, deps: CosTickDeps, store: IntelligenceEventStore, now: Date): Promise<void> {
   const answer = await (deps.dispatch ?? dispatchBrief)(objective, sentBrief(objective, run), planRequestId(objective.id, run), { replay: true })
