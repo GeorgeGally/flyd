@@ -49,6 +49,8 @@ export interface PlannedRun extends Omit<RunBrief, "after"> {
   sent?: string;
   /** The objective's `briefRevision` this run's result holds for; an older one is kept and never delivered. */
   validFor: number;
+  /** Stable fingerprint of an internal question CoS already answered/sent back, so a second worker update cannot loop silently. */
+  operationalQuestionId?: string;
   /** Earlier results it was re-run over, attached as prior work. */
   prior?: string[];
   /** Why its last attempt failed, carried into its one re-brief. */
