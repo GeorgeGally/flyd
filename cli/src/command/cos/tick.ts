@@ -8,6 +8,7 @@ import { sendRunMessage } from "../messages.js";
 import { readDomainRun } from "../store.js";
 import { judgeOperationalQuestion, operationalQuestionKey, type OperationalQuestion, type OperationalDisposition } from "./operational-judgment.js";
 import { judgeRecovery, type RecoveryInput, type RecoveryDisposition } from "./recovery.js";
+import { resolveStrategicQuestion, type StrategicDecision } from "./strategic-judgment.js";
 import { cameBack, isAtWork } from "../run-state.js";
 import { shownLine } from "../report.js";
 import type { DomainRun } from "../types.js";
@@ -41,6 +42,8 @@ export interface CosTickDeps {
   dispatch?: Dispatch;
   /** Fast, authority-vetted operational judgment, injectable for offline tests. */
   operationalJudge?: (question: OperationalQuestion) => Promise<OperationalDisposition>;
+  /** Flyd's private higher-reasoning review for exceptional internal ambiguity. */
+  strategicJudge?: (question: OperationalQuestion, reason: string) => Promise<StrategicDecision>;
   /** Bounded recovery judgment, injectable for offline tests. */
   recoveryJudge?: (input: RecoveryInput) => Promise<RecoveryDisposition>;
   /** The executive review of a settled run (scheduler.ts `decideRun`). */
@@ -338,8 +341,12 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
       ...question,
       previousResolution: run.operationalQuestionId === currentQuestionKey,
     });
-    if (resolution.kind === "internal") {
-      const sent = await (deps.send ?? sendRunMessage)({ run: domain, kind: "decision", from: "flyd", body: resolution.message })
+    const strategic = resolution.kind === "reason"
+      ? await (deps.strategicJudge ?? resolveStrategicQuestion)(question, resolution.reason)
+      : undefined;
+    const internal = resolution.kind === "internal" ? resolution : strategic?.kind === "internal" ? strategic : null;
+    if (internal) {
+      const sent = await (deps.send ?? sendRunMessage)({ run: domain, kind: "decision", from: "flyd", body: internal.message })
         .catch(() => ({ delivered: false, run: undefined }));
       if (sent.delivered) {
         changeRun(objective.id, run.key, () => ({
@@ -348,7 +355,20 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
         }));
         return;
       }
-      // A failed send is retried through its stable message id. No user question.
+      // A failed send is retried by its stable message ID, not as user approval.
+      return;
+    }
+    if (strategic?.kind === "hold") {
+      // A failed private reasoning attempt does not become a technical
+      // implementation decision for George. Keep the objective inspectable.
+      const made = { ...plainReport(objective, "blocked",
+        `I could not safely resolve “${shortWords(question.question)}”.`,
+        `strategic:${currentQuestionKey}`), detail: strategic.reason };
+      changeRun(objective.id, run.key, () => ({ reviewed: key }));
+      await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "working");
+      mutateObjective(objective.id, (current) => current && ({
+        ...current, parked: { at: new Date().toISOString(), reason: strategic.reason },
+      }));
       return;
     }
   }
