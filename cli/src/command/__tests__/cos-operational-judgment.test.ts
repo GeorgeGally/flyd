@@ -44,7 +44,7 @@ describe("CoS operational decisions", () => {
     const result = await judgeOperationalQuestion(routine, {
       evaluate: async () => fake("escalate_to_flyd"),
     });
-    expect(result).toMatchObject({ kind: "escalate", reason: "fast judgment found a strategically consequential issue" });
+    expect(result).toMatchObject({ kind: "reason", reason: "fast judgment found a strategically consequential issue" });
   });
 
   it("declines high-impact and externally committed decisions before querying a model", async () => {
@@ -77,7 +77,7 @@ describe("CoS operational decisions", () => {
     const result = await judgeOperationalQuestion({ ...routine, previousResolution: true }, {
       evaluate: async () => fake("use_recommendation"),
     });
-    expect(result.kind).toBe("escalate");
+    expect(result.kind).toBe("reason");
     expect(operationalQuestionKey(routine)).toBe(operationalQuestionKey({ ...routine }));
   });
 
