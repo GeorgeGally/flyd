@@ -307,7 +307,12 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
       const last = this.exchanges().map((exchange) => exchange.question)
         .reduce<ConversationMessage | undefined>((newest, question) => (!newest || Date.parse(question.timestamp ?? "") > Date.parse(newest.timestamp ?? "") ? question : newest), undefined);
       const previous = last ? { owner: last.id.startsWith("ask:") ? "flyd" as const : "firstmate" as const, ...(last.timestamp ? { at: last.timestamp } : {}) } : undefined;
-      const route = to ?? await routeMessage(
+      // A Flyd-owned conversation must always reach Flyd's shared responder: with CoS enabled,
+      // the responder delegates code and cross-domain work through hand_off. A deliberately
+      // addressed FirstMate message or a slash command remains the explicit staff surface.
+      const route = to ?? (process.env.FLYD_COS === "1" && !command && !carriesCommand(text)
+        ? "flyd"
+        : await routeMessage(
         { text, files: files?.length ?? 0, ...(command ? { command: command.name } : {}), recent: this.latest.get(sessionId) ?? [], sessionId, ...(previous ? { previous } : {}) },
         process.env.FLYD_ROUTING_FALLBACK_MODEL && !process.env.VITEST
           ? async (prompt) => {
@@ -315,7 +320,7 @@ export class ClaudeCodeTranscriptSource implements ConversationSource {
             return query(prompt, process.env.FLYD_ROUTING_FALLBACK_MODEL);
           }
           : this.desk.complete,
-      );
+      ));
       if (route === "flyd") return this.desk.desk.ask(text, images, sessionId, files, scope);
       // Firstmate is one of Flyd's staff: his words go with Flyd's own brief. A slash command runs exactly as he typed it.
       const flydBrief = command || carriesCommand(text) ? undefined : await this.desk.brief?.(text, this.latest.get(sessionId) ?? []).catch(() => undefined);
