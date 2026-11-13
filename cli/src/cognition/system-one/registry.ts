@@ -435,14 +435,16 @@ export const PREDICATE_DEFINITIONS: readonly PredicateDefinition[] = [
 
   {
     id: "answer_form", family: "presentation", type: "choice",
-    instructions: "George asked `utterance`, and Flyd has already answered it in plain prose in `answer`. Would a shaped answer serve him better than that prose? Choose diagnosis only when the answer explains why something did or did not work: an outcome, what was expected, what actually happened, the cause, and what to do next. Choose comparison only when it weighs two or more named options against the same criteria. Choose prose for everything else, including a list, steps, a report, an opinion or a single fact.",
+    instructions: "George asked `utterance`, and Flyd has already answered it in plain prose in `answer`. Would a shaped answer serve him better than that prose? Choose diagnosis only when the answer explains why something did or did not work: an outcome, what was expected, what actually happened, the cause, and what to do next. Choose comparison only when it weighs two or more named options against the same criteria. Choose gallery when two or more distinct, explicitly sourced images are already in the answer and visual scanning is more useful; choose briefing when it summarizes verified, time-sensitive personal context relevant to a person or meeting. Choose prose for everything else, including an ordinary list, steps, an opinion or a single fact.",
     criteria: {
       prose: "Plain prose is the right shape.",
       diagnosis: "The answer explains a cause and a next step, and labelled parts would make it easier to act on.",
       comparison: "The answer weighs two or more named options across shared criteria, and a table would be clearer.",
+      gallery: "The answer already contains two or more sourced, directly relevant images; visually displaying them makes the answer immediately useful.",
+      briefing: "The answer contains verified, directly useful contextual facts for an upcoming meeting or personal preparation; a compact readable card is better.",
     },
     threshold: 0.70, use: "choice", failureMode: "fallback_heuristic",
-    projection: ["utterance", "answer"], evaluatorVersion: "answer_form.v1", status: "production",
+    projection: ["utterance", "answer"], evaluatorVersion: "answer_form.v2", status: "production",
     consumer: "conversation-view/answer-shape.ts answerForm: asked only after the desk answerer returns prose; diagnosis or comparison at ≥ threshold is reshaped once, else prose stands",
   },
 
