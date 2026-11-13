@@ -575,16 +575,31 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   if (!taken && objective.reportIds.includes(`${id}:${shortKey}`)) return;
   const verdict = taken ? { met: true, missing: "", checked: true } : await accept(objective, finals, deps);
   if (!verdict.met) {
-    const retry = finals.find((run) => !run.adapted && !run.ref?.startsWith("job:") && !run.ref?.startsWith("crew:"));
-    const missing = verdict.missing || "it doesn't yet meet what done means";
+    const missing = verdict.missing || "it does not yet meet what done means";
+    const retry = finals.find((run) => run.ref && !run.ref.startsWith("job:") && !run.ref.startsWith("crew:"));
     if (retry) {
-      changeRun(id, retry.key, (current) => current.state === "completed" ? requeue(current, { adapted: true, failure: `it fell short of done: ${missing}` }) : null, (current) => ({
-        adaptations: [...(current.adaptations ?? []), adaptation(retry.key, "rebrief", `The result fell short (${missing}), so it was briefed again once with that.`)],
-      }));
-      return;
+      const resolution = await (deps.recoveryJudge ?? judgeRecovery)({
+        objective, run: retry, failure: "Acceptance shortfall: " + missing,
+        retryable: true, effectKnownInternal: !retry.ref?.includes(":"),
+      });
+      if (resolution.action === "rebrief") {
+        changeRun(id, retry.key, (current) => current.state === "completed"
+          ? requeue(current, { adapted: true, failure: resolution.reason + " Shortfall: " + missing })
+          : null,
+        (current) => ({
+          adaptations: [...(current.adaptations ?? []), adaptation(retry.key, "rebrief", resolution.reason)],
+        }));
+        return;
+      }
     }
-    const made: CosReport = { ...plainReport(objective, "decision", `${workOf(objective)} is close but not there: ${missing}. Take it as it is, or try another way?`, shortKey), options: [...WAIT_ANSWERS.accept], evidenceRefs: finals.map((run) => linkOf(run.ref!)) };
-    await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "needs_george", { kind: "accept" });
+    const made: CosReport = {
+      ...plainReport(objective, "blocked", `${workOf(objective)} is still incomplete: ${missing}.`, shortKey),
+      evidenceRefs: finals.map((run) => linkOf(run.ref!)),
+    };
+    await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "working");
+    mutateObjective(id, (current) => current && ({
+      ...current, parked: { at: new Date().toISOString(), reason: "Acceptance shortfall: " + missing },
+    }));
     return;
   }
   const unchecked = verdict.checked ? "" : "Not checked against done_when (the check couldn't be read).";
