@@ -15,10 +15,10 @@ export const TODAY_STYLE = `
 
 /* The top line: the day in ink, then Today and News. */
 .centre-tabs, .today-feed, .news-page, .news-side, .news-side-phone { display: none; }
-:root[data-layout="front"] .front-date { color: var(--ink); font-size: 15px; }
+:root[data-layout="front"] .front-date { color: var(--ink); font-size: 18px; }
 :root[data-layout="front"]:not([data-theme="dark"]) .front-date { color: #000; }
 :root[data-layout="front"] .centre-tabs { display: flex; gap: 18px; margin-left: 12px; }
-.ctab { padding: 0; border: 0; background: none; cursor: pointer; font: 400 15px/1 var(--sans); color: var(--mute); transition: color .2s ease; }
+.ctab { padding: 0; border: 0; background: none; cursor: pointer; font: 400 18px/1 var(--sans); color: var(--mute); transition: color .2s ease; }
 .ctab:hover, .ctab[aria-pressed="true"] { color: var(--ink); }
 .ctab[aria-pressed="true"] { font-weight: 500; }
 .ctab:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 2px; }
@@ -142,7 +142,7 @@ button.ev:hover { background: var(--sheet); }
 /* A phone: the wordmark, Today, News, Week and Machines, people and preferences. The column's tabs stay, one open at a time;
    Today's feed follows the jobs, and News puts the weather above the stories. */
 @media (max-width: 760px) {
-  :root[data-layout="front"] header { gap: 14px; }
+  :root[data-layout="front"] header { column-gap: 14px; }
   :root[data-layout="front"] .centre-tabs { gap: 14px; margin-left: 0; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   :root[data-layout="front"] .centre-tabs::-webkit-scrollbar { display: none; }
   :root[data-layout="front"] .ctab { flex: none; }

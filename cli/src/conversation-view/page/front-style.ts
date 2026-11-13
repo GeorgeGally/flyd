@@ -29,14 +29,14 @@ export const FRONT_STYLE = `
 .rtabs, .jobs, .stage-head, .job-view, .front-date { display: none; }
 :root[data-layout="front"] body { background: transparent; font-size: 20px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-wrap: pretty; }
 
-/* The top line: who and what day. The controls stay, smaller. */
+/* The top line: who and what day, with the controls beside them. */
 :root[data-layout="front"] header { height: var(--top); padding: 0 calc(var(--gut) + 4px); background: var(--paper); backdrop-filter: none; -webkit-backdrop-filter: none; gap: 20px; }
-:root[data-layout="front"] header .who { color: var(--ink); font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
-:root[data-layout="front"] .front-date { display: inline; color: var(--mute); font-size: 15px; font-weight: 400; white-space: nowrap; }
+:root[data-layout="front"] header .who { color: var(--ink); font-weight: 600; font-size: 20px; letter-spacing: -0.01em; }
+:root[data-layout="front"] .front-date { display: inline; color: var(--mute); font-size: 18px; font-weight: 400; white-space: nowrap; }
 :root[data-layout="front"] header .picker, :root[data-layout="front"] .when, :root[data-layout="front"] #left-open, :root[data-layout="front"] #left-toggle { display: none !important; }
 :root[data-layout="front"] .project-badge { display: none; }
-:root[data-layout="front"] header .controls { margin-left: auto; font-size: 13px; }
-:root[data-layout="front"] header .controls > * { font-size: 13px !important; }
+:root[data-layout="front"] header .controls { margin-left: auto; font-size: 18px; }
+:root[data-layout="front"] header .controls > * { font-size: 18px !important; text-transform: capitalize; }
 
 /* The older left column gives way to the job cards. */
 :root[data-layout="front"] .left { display: none !important; }
@@ -49,7 +49,7 @@ export const FRONT_STYLE = `
 .rtabs::-webkit-scrollbar { display: none; }
 .rtab {
   flex: none; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0; border: 0; background: none; cursor: pointer;
-  font: 400 15px/1 var(--sans); color: var(--mute); transition: color .2s ease;
+  font: 400 18px/1 var(--sans); color: var(--mute); transition: color .2s ease;
 }
 .rtab:hover, .rtab[aria-pressed="true"] { color: var(--ink); }
 .rtab[aria-pressed="true"] { font-weight: 500; }
@@ -409,14 +409,25 @@ button.jv-thread { cursor: pointer; }
   :root[data-layout="front"] { --gut: 28px; --card-pad: 24px; --mat-pad: 9px; }
 }
 /* A phone: one column. Jobs and artefacts run as strips of cards above the conversation. */
+/* An iPad and a phone: the top line keeps its size over two rows, the wordmark and the day above, the tabs and controls below. */
+@media (max-width: 1100px) {
+  :root[data-layout="front"] { --head-h: 100px; }
+  :root[data-layout="front"] header { flex-wrap: wrap; align-content: center; row-gap: 0; }
+  :root[data-layout="front"] header::after { content: ""; order: 2; flex-basis: 100%; height: 0; margin-top: 14px; }
+  :root[data-layout="front"] .centre-tabs, :root[data-layout="front"] header .controls { order: 3; }
+  :root[data-layout="front"] header .centre-tabs { margin-left: 0; }
+}
+@media (min-width: 761px) and (max-width: 1100px) {
+  :root[data-layout="front"] .rtabs { gap: 12px; padding-left: 12px; }
+}
 @media (max-width: 760px) {
   :root[data-layout="front"] { --gut: 20px; --c-left: 0px; --c-right: 0px; --pad-x: var(--gut); --card-pad: 18px; --mat-pad: 8px; }
   /* No tabs on a phone: jobs and artefacts both run as strips above the conversation. */
   :root[data-layout="front"] .rtabs { display: none; }
   :root[data-layout="front"][data-rtab] .jobs, :root[data-layout="front"][data-rtab] .rail:not([hidden]) { display: block !important; }
   :root[data-layout="front"] body { font-size: 18px; background: var(--paper); }
-  :root[data-layout="front"] header { padding: 0 var(--gut); flex-wrap: nowrap; }
-  :root[data-layout="front"] header .controls { flex: none; margin-left: auto; }
+  :root[data-layout="front"] header { padding: 0 var(--gut); }
+  :root[data-layout="front"] header .controls { flex: none; margin-left: auto; order: 1; }
   :root[data-layout="front"] header .controls { gap: 0; }
   :root[data-layout="front"] .front-date { display: none; }
   :root[data-layout="front"] .jobs, :root[data-layout="front"] .rail { position: static; width: auto; overflow: visible; padding: 0; }
