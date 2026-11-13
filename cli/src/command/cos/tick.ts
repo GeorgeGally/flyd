@@ -333,7 +333,7 @@ async function settle(objective: Objective, run: PlannedRun, deps: CosTickDeps, 
     });
     if (resolution.kind === "internal") {
       const sent = await (deps.send ?? sendRunMessage)({ run: domain, kind: "decision", from: "flyd", body: resolution.message })
-        .catch(() => ({ delivered: false }));
+        .catch(() => ({ delivered: false, run: undefined }));
       if (sent.delivered) {
         changeRun(objective.id, run.key, () => ({
           operationalQuestionId: currentQuestionKey,
