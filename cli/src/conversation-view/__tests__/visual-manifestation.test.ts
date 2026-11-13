@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { answerBody, answerHtml, plainAnswer } from "../answer-form.js";
+import { reshapeAnswer } from "../answer-shape.js";
 import { meaningOf } from "../screen/meaning.js";
 import type { SemanticObject } from "../semantic.js";
 
@@ -52,6 +53,26 @@ describe("Flyd's context-appropriate presentation", () => {
     expect(answerHtml(body)).toContain("Verified notes");
     expect(plainAnswer(body)).toContain("Send the revised outline");
     expect(meaningOf(obj, body)).toBe("briefing");
+  });
+
+  it("refuses unsourced image links during model reshaping", async () => {
+    const answer = "Useful example: https://example.com/real.jpg";
+    const shaped = await reshapeAnswer("Show me examples", answer, "gallery", async () =>
+      JSON.stringify({ lead: "References", items: [
+        { title: "Real", imageUrl: "https://example.com/real.jpg", description: "real" },
+        { title: "Invented", imageUrl: "https://example.com/not-in-source.jpg", description: "fictional" },
+      ] }));
+    expect(shaped).toBeNull();
+  });
+
+  it("refuses personal facts invented during reshaping", async () => {
+    const answer = "You discussed the proposal last week.";
+    const shaped = await reshapeAnswer("Prepare my call", answer, "briefing", async () =>
+      JSON.stringify({ lead: "Before the call", facts: [
+        { label: "Last topic", value: "You discussed the proposal last week." },
+        { label: "Children", value: "Chris has three children." },
+      ] }));
+    expect(shaped).toBeNull();
   });
 
   it("escapes external text before it reaches the view", () => {
