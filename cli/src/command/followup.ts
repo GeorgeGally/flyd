@@ -71,9 +71,9 @@ export async function dispatchDomainFollowup(input: {
  * another round, with his words and the last lab as the new brief. `pick` says
  * which version he chose when that is already known (a version marked final on
  * the board), null when he chose none (notes only); left out, it is read from
- * his words, and failing that, when his words ask for a build, it is the version
+ * his words, and failing that, when his words ask to build it, it is the version
  * he marked final on the board, used once.
- * `project` is where to build when the lab named none. `requestId` makes a
+ * `project` is where to build when the lab named none; a round keeps the lab's own. `requestId` makes a
  * replayed answer the same run, not a second one.
  */
 export async function designFollowup(parent: DomainRun, question: string, options: { pick?: number | null; requestId?: string; project?: { name?: string; root?: string } } = {}): Promise<DomainRun> {
@@ -83,19 +83,19 @@ export async function designFollowup(parent: DomainRun, question: string, option
     : question.match(/\bv(?:ersion)?\s*([1-9])\b/i) ?? question.match(/\b(?:build|go with|take|use|pick|keep)\b[^.]*?\b([1-9])\b/i);
   const project = parent.request.project?.root ? parent.request.project : options.project ?? parent.request.project;
   const root = project?.root;
-  const fromPick = options.pick === undefined && !named && Boolean(root) && lab?.picked !== undefined && /\b(?:build|go with|use)\b/i.test(question);
+  const fromPick = options.pick === undefined && !named && Boolean(root) && lab?.picked !== undefined && /\b(?:build|go with|use)\s+(?:it|that|this|the one)\b/i.test(question);
   const chosen = options.pick !== undefined ? options.pick : named ? Number(named[1]) : fromPick ? lab!.picked! : null;
   const version = chosen === null ? undefined : lab?.versions.find((item) => item.n === chosen);
   const common = {
     originalMessage: question,
     parentRequestId: parent.id,
     contextRefs: [`domain:${parent.id}`],
-    ...(project ? { project } : {}),
     ...(options.requestId ? { requestId: options.requestId } : {}),
   };
   if (version && root) {
     const built = dispatchDesignMate({
       ...common,
+      project,
       intendedOutcome: `Build "${version.name}" (V${version.n} from the lab "${parent.request.intendedOutcome}") for real in the project. ${version.idea}`,
       doneWhen: [`the project shows ${version.name} as designed`, "the project's own checks still pass"],
       build: { reference: { page: join(labDir(parent.id), `v${version.n}.html`), shot: shotPaths(parent.id, version).desktop, name: version.name } },
@@ -105,6 +105,7 @@ export async function designFollowup(parent: DomainRun, question: string, option
   }
   return dispatchDesignMate({
     ...common,
+    ...(parent.request.project ? { project: parent.request.project } : {}),
     intendedOutcome: `${parent.request.intendedOutcome} - another round. George said: "${question}"${lab ? `\nLast round's brief: ${lab.brief}\nLast round: ${lab.versions.map((item) => `V${item.n} ${item.name} (${item.score}/10): ${item.idea}`).join("; ")}` : ""}`,
     doneWhen: parent.request.doneWhen,
   });

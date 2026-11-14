@@ -436,6 +436,12 @@ describe("Design Mate", () => {
       const noted = await dispatchDomainFollowup({ parentRunId: loose.id, question: "try a warmer palette", project: { root: project } }) as DomainRun;
       expect(readBuild(noted.id, labs)).toBeNull();
       expect(noted.phase).toBe("briefing");
+      expect(noted.request.project).toBeUndefined();
+      expect(readLab(loose.id, labs)!.picked).toBe(3);
+      const darker = await dispatchDomainFollowup({ parentRunId: loose.id, question: "use a darker background", project: { root: project } }) as DomainRun;
+      expect(readBuild(darker.id, labs)).toBeNull();
+      expect(darker.phase).toBe("briefing");
+      expect(darker.request.project).toBeUndefined();
       expect(readLab(loose.id, labs)!.picked).toBe(3);
 
       // Saying where later builds that pick, even when his words name no version; with nowhere to build, it is another round.
