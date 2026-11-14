@@ -6,7 +6,8 @@
  * Pointing at a block (hover, a tap, or the arrow keys on a focused day) opens
  * a small card beside its strip: the project, the hours, and what changed then.
  * The story keeps the room of the tallest day's at the width shown, so picking
- * another day never moves what sits under its headline. Data from /api/week (week.ts). Runs inside the page script's closure after
+ * another day never moves what sits under its headline. Data from /api/week
+ * (week.ts). Runs inside the page script's closure after
  * Today's script and borrows its helpers (frontEsc, withToken, centre).
  */
 export const WEEK_SCRIPT = `
