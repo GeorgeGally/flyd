@@ -52,7 +52,8 @@ export function isDesignLabRun(run: Pick<DomainRun, "request"> & { owner?: strin
  * on it (his pick, his notes for the next round) means he has reviewed it.
  */
 export function labAwaitingReview(run: DomainRun, runs: readonly DomainRun[]): boolean {
-  if (!isDesignLabRun(run) || run.status !== "completed") return false;
+  // A lab George said is old (command/run-closure.ts) is not waiting on him, whatever its status.
+  if (!isDesignLabRun(run) || run.status !== "completed" || run.closedBy) return false;
   return !runs.some((other) => other.request.parentRequestId === run.id);
 }
 

@@ -35,7 +35,7 @@ import { runTransitions } from "./commands/transitions.js";
 import { runDashboard, acceptSuggestion, dismissSuggestion, getActiveSuggestions, generateSuggestions } from "./commands/dashboard.js";
 import { runAgent, runCode } from "./commands/code.js";
 import { runFix } from "./commands/fix.js";
-import { runView } from "./commands/view.js";
+import { registerViewCommand } from "./commands/view.js";
 import {
   runTaskComplete,
   runTaskAcceptance,
@@ -204,14 +204,7 @@ program
   .argument("[feedback...]", "what was wrong with the preceding response")
   .action((feedback: string[] = []) => runFix(feedback.join(" ")));
 
-program
-  .command("view")
-  .description("Open a calm view of firstmate's conversation (your messages and its replies only), with a box to message firstmate")
-  .option("--session <id>", "session to show (default: the most recently active, followed live)")
-  .option("--project <dir>", "Claude Code project dir name under ~/.claude/projects, or an absolute path")
-  .option("--port <n>", "loopback port (default 4818)", (value: string) => Number.parseInt(value, 10))
-  .option("--no-open", "don't open the browser")
-  .action((opts: { session?: string; project?: string; port?: number; open?: boolean }) => runView(opts));
+registerViewCommand(program);
 
 program
   .command("dashboard")

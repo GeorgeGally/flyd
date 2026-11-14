@@ -23,6 +23,18 @@ export const assistantTools: AgentTool[] = [
   },
   workModelTool,
   {
+    name: "retire_card",
+    description: "George says a card, call, note or question on his screen is old, moot, done or should stop being raised: retire it, so it is never put to him again (a call's staff are told to close it with his words). Call this before you tell him you'll stop raising something; never promise that without it. If it returns a list, ask him which card he means.",
+    input_schema: {
+      type: "object",
+      properties: {
+        card: { type: "string", description: "Which card: its id when you know it (from a list this tool gave), else what the card is about in a few words" },
+        words: { type: "string", description: "What George said about it, in his words" },
+      },
+      required: ["card", "words"],
+    },
+  },
+  {
     name: "speaking_style",
     description: "Set how Flyd writes its replies. asd-ste100 = literal, plain Simplified Technical English (short sentences, one idea each, no idioms); default = normal style. Use when George asks Flyd to change how it talks.",
     input_schema: {
@@ -275,6 +287,25 @@ export async function runAssistantTool(
           return done ? `Completed: ${done.description}` : `Error: no open to-do matches "${String(input.query ?? "")}"`;
         }
         return "Error: todos action must be list, add, done, or replace";
+      }
+      case "retire_card": {
+        const [{ retireCard, shownCalls, askingRuns, retireNote, firstmateRecord }, { RetiredCards }, { listDomainRuns }, { FirstmateInbox }] = await Promise.all([
+          import("../conversation-view/retire.js"), import("../conversation-view/retired-cards.js"), import("../command/store.js"), import("../conversation-view/firstmate-inbox.js"),
+        ]);
+        const inbox = new FirstmateInbox();
+        const retired = new RetiredCards();
+        return retireCard({ card: String(input.card ?? ""), words: String(input.words ?? "") }, {
+          candidates: () => [...shownCalls(retired), ...askingRuns(listDomainRuns(), inbox.available() ? firstmateRecord(inbox.home) : new Map())],
+          retired,
+          ...(inbox.available() ? {
+            tellFirstmate: (call, words, requestId) => inbox.sendOwn(retireNote(call, words), requestId, {
+              outcome: `Close the call on ${call.id} that George called old`,
+              georgesWords: words,
+              doneWhen: ["the hold is closed with his words, or reopened with what changed if it is still a real decision", "what you did is replied to this note"],
+              contextRefs: [`task:${call.id}`],
+            }),
+          } : {}),
+        });
       }
       case "work_model": {
         const parsed = parseWorkModelArgs(input);

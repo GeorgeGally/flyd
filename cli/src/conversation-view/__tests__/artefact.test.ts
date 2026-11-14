@@ -350,7 +350,7 @@ describe("the backlog", () => {
       hold: "Review after ~20 real decisions; captain decides keep or remove",
       since: "2026-09-25",
     });
-    expect(entries.get("flyd-show-mode")).toEqual({ title: "Flyd: visual show mode", url: "https://github.com/GeorgeGally/flyd/pull/79", repo: "flyd", finished: "2026-10-09" });
+    expect(entries.get("flyd-show-mode")).toEqual({ title: "Flyd: visual show mode", url: "https://github.com/GeorgeGally/flyd/pull/79", repo: "flyd", finished: "2026-10-09", closed: true });
   });
 
   it("says bearings' shortened lines whole and puts the ask under a call", () => {
@@ -1149,25 +1149,33 @@ it("says each row in Flyd's own words when the executive decides what shows, as 
   expect(asked.join("\n")).toContain("station idents");
 });
 
-it("sends every current question and its original evidence to the production decision owner before legacy filtering", async () => {
+// 22 Oct to 14 Nov 2026 every call skipped the 3-day rule once Core decided calls, so old holds nobody had
+// touched kept reaching George. Core still gets the work's own evidence; it never weighs a call the rule drops.
+it("sends Core each current question with its original evidence, and never a call the 3-day rule drops", async () => {
   const home = mkdtempSync(join(tmpdir(), "artefact-decision-order-"));
   mkdirSync(join(home, "bin"));
+  mkdirSync(join(home, "data"));
   const original = "run cancelled during recovery; should I close the work, or finish the missing tools?";
   writeFileSync(join(home, "snapshot.json"), JSON.stringify({
-    decisions_open: [{ id: "scope", summary: "Close the review, or finish the missing tools?" }],
+    decisions_open: [{ id: "scope", summary: "Close the review, or finish the missing tools?" }, { id: "stale", summary: "Old ask" }],
     in_flight: [{ id: "cancelled", state: "unknown", name: "Review", doing: original }],
   }));
   writeFileSync(join(home, "bin", "fm-bearings-snapshot.sh"), `#!/bin/sh\ncat '${join(home, "snapshot.json")}'\n`, { mode: 0o700 });
-  const decideChanges = vi.fn(async () => []);
+  const today = new Date().toISOString().slice(0, 10);
+  writeFileSync(join(home, "data", "backlog.md"), [
+    `- [ ] scope - Close the review, or finish the missing tools? (since ${today}) (hold: fm-hold-v1:${Buffer.from("Close the review, or finish the missing tools?").toString("base64")}) (hold-kind: captain)`,
+    `- [ ] stale - Old ask (since 2026-09-01) (hold: fm-hold-v1:${Buffer.from("Which way should the old ask go?").toString("base64")}) (hold-kind: captain)`,
+    "",
+  ].join("\n"));
+  const decideChanges = vi.fn(async (_changes: unknown[]) => []);
   const feed = new ArtefactFeed({ home, decideChanges, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none") });
   await feed.refresh();
   expect(decideChanges).toHaveBeenCalledWith(expect.arrayContaining([
-    expect.objectContaining({ kind: "decision", taskId: "scope", detail: "Close the review, or finish the missing tools?" }),
+    expect.objectContaining({ kind: "decision", taskId: "scope", detail: expect.stringContaining("Close the review, or finish the missing tools?") }),
     expect.objectContaining({ kind: "fleet_state", taskId: "cancelled", detail: original }),
   ]));
+  expect((decideChanges.mock.calls[0]![0] as Array<{ kind: string; taskId?: string }>).filter((change) => change.kind === "decision").map((change) => change.taskId)).toEqual(["scope"]);
   expect(feed.current().fleet?.calls).toEqual([expect.objectContaining({ task: "scope", label: "Close the review, or finish the missing tools?" })]);
-  const legacy = enrichFleet(parseBearings({ decisions_open: [{ id: "scope", summary: "Close the review, or finish the missing tools?" }] }), new Map());
-  expect(legacy.calls).toEqual([]);
 });
 
 it("renders a Core-owned choice as a decision with its answer target, rather than an Activity", async () => {

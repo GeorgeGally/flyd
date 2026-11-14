@@ -23,7 +23,8 @@ export interface ConversationStatus {
   /** What the assistant is doing now, while working. */
   activity?: string;
   lastActivity?: string;
-  reply?: { id: string; headline: string; asks: boolean };
+  /** `lifecycle`: the id is the question's own lifecycle (a firstmate hold), so it rings once for that lifecycle whatever its wording. */
+  reply?: { id: string; headline: string; asks: boolean; lifecycle?: boolean };
   /** His newest message still waiting for its answer, and the line saying what is happening to it. */
   waiting?: { id: string; text: string; failed?: true };
 }
@@ -136,10 +137,14 @@ export function ringsHim(row: { label: string; question?: string }): boolean {
 }
 
 export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefact): ConversationStatus {
-  const ask = fleet?.calls.find((row) => !row.ledgerOnly && ringsHim(row));
+  // An old call firstmate still holds sits quietly in the list: it never rings him again.
+  const ask = fleet?.calls.find((row) => !row.ledgerOnly && !row.quiet && ringsHim(row));
   const notable = fleet?.landed.find((row) => row.notable);
+  // A call firstmate names the lifecycle of rings once for that lifecycle: a new decision id or new wording for the
+  // same open hold is the same question, and the hold raised again is a new one.
+  const lifecycle = ask?.task && ask.holdIdentity ? `hold:${ask.task}#${ask.holdIdentity}` : undefined;
   const reply = ask
-    ? { id: `decision:${ask.executiveDecisionId ?? ask.task ?? ask.label}`, headline: forHim(ask.question ?? ask.label), asks: true }
+    ? { id: `decision:${lifecycle ?? ask.executiveDecisionId ?? ask.task ?? ask.label}`, headline: forHim(ask.question ?? ask.label), asks: true, ...(lifecycle ? { lifecycle: true } : {}) }
     : notable
       ? { id: `outcome:${notable.executiveDecisionId ?? notable.task ?? notable.label}`, headline: notable.label, asks: false }
       : current.reply?.asks || current.reply?.id.startsWith("answer:") ? current.reply : undefined;
@@ -187,9 +192,10 @@ export class IslandRung {
     const reply = status.reply;
     if (!reply) return status;
     // The same ask comes back re-filed as a new decision with a new id, so the
-    // wording counts as well as the id.
+    // wording counts as well as the id. A lifecycle id is the question itself:
+    // only it counts, so a re-raised hold rings once more in words it used before.
     const worded = this.ringing(wordKey(reply.headline));
-    const fresh = this.ringing(reply.id) && worded;
+    const fresh = this.ringing(reply.id) && (reply.lifecycle === true || worded);
     if (fresh) return status;
     const { reply: _rung, ...rest } = status;
     return rest;

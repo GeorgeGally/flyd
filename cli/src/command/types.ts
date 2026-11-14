@@ -151,6 +151,19 @@ export interface DomainRun {
   told?: { line: string; decisionId: string };
   /** Bumped by every write (command/store.ts `mutateDomainRun`); absent on runs written before it. */
   revision?: number;
+  /**
+   * Why this run asks nothing of George any more (command/run-closure.ts): firstmate closed the task it was for, or
+   * George himself said it is old or moot. Set once; every surface that would put the run to him reads it.
+   */
+  closedBy?: RunClosure;
+}
+
+export interface RunClosure {
+  by: "firstmate" | "george";
+  /** In plain words: "its task flyd-held-up-redesign was closed", or his own words. */
+  reason: string;
+  evidenceRefs: string[];
+  at: string;
 }
 
 /**
