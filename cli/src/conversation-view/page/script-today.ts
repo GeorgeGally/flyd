@@ -184,7 +184,10 @@ export const TODAY_SCRIPT = `
     if (story.media === "stat" && story.figure) node.appendChild(el("p", "", story.figure));
     if (story.media === "quote" && story.quote) node.appendChild(el("p", "", "“" + story.quote + "”"));
     if (story.media === "quote" && story.attribution) node.appendChild(el("p", "", "— " + story.attribution));
-    if (story.gist && frontText(story.gist).toLowerCase() !== frontText(story.title).toLowerCase()) node.appendChild(el("p", "", story.gist));
+    // The gist only when it says something the headline or the quote has not already said.
+    var said = frontText(story.gist).toLowerCase();
+    var quoted = story.media === "quote" && story.quote ? frontText(story.quote).toLowerCase() : "";
+    if (said && said !== frontText(story.title).toLowerCase() && said !== quoted) node.appendChild(el("p", "", story.gist));
     // Where it came from, quietly after the story: never a label over the headline.
     if (story.source) node.appendChild(el("p", "src", story.source));
     var talk = newsTalks[story.url];
