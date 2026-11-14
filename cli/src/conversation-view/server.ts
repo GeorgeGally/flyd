@@ -2381,11 +2381,16 @@ export class ConversationViewServer {
       }));
       const reports = this.jobReports(snapshot);
       const exists = (ref: string) => this.jobFileExists(ref);
-      let board = jobsFrom({ projects, runs, sessions, reports, show, digests: readDigests(), cardWords: readCardWords(), exhausted: exhaustedCardWords(), exists });
+      const boardName = (key: string) => this.feed.boardName(key);
+      let runBoards = new Set<string>();
+      const boardPicture = (key: string) => { runBoards.add(key); return this.feed.boardPicture(key); };
+      let board = jobsFrom({ projects, runs, sessions, reports, show, digests: readDigests(), cardWords: readCardWords(), exhausted: exhaustedCardWords(), exists, boardName, boardPicture });
       if (!process.env.VITEST && board.inferred.length) {
         applyProjectOps(board.inferred.map((item) => ({ op: "upsert", name: item.name, kind: item.kind, status: "active", what: "" })), { knownRepos: [] });
-        board = jobsFrom({ projects: readProjects(), runs, sessions, reports, show, digests: readDigests(), cardWords: readCardWords(), exhausted: exhaustedCardWords(), exists });
+        runBoards = new Set<string>();
+        board = jobsFrom({ projects: readProjects(), runs, sessions, reports, show, digests: readDigests(), cardWords: readCardWords(), exhausted: exhaustedCardWords(), exists, boardName, boardPicture });
       }
+      this.feed.setRunBoards(runBoards);
       scheduleDigest(board.pending, { onStored: () => { for (const wake of this.jobWake) wake(); } });
       // A card from a staff status line is said in his words once; render never asks the model.
       scheduleCardWords(board.untranslated, { onStored: () => { for (const wake of this.jobWake) wake(); } });

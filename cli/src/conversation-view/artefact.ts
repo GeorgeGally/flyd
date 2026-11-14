@@ -26,7 +26,7 @@ import { plainTitle, saysNothing } from "./plain-words.js";
 import { forHim, shortHeadline, staffStatusLine } from "../lib/pa-voice.js";
 import { SnapshotGate, type SnapshotGateOptions } from "./snapshot-gate.js";
 import { BoardShots, boardShotSrc, publicBoardUrl } from "./board-shots.js";
-import { boardKeyOf, ProjectBoards, viaOpener } from "./liesel.js";
+import { BoardNames, boardKeyOf, boardTitle, isBoardKey, ProjectBoards, viaOpener } from "./liesel.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
 // fleet snapshot (the authoritative "everything going on"), Flyd's own memory,
@@ -79,6 +79,8 @@ export interface ArtefactRow {
   board?: string;
   /** When Flyd last pictured that board: the card shows the board itself, ahead of any older screenshot of it. */
   boardShot?: number;
+  /** The boards it names, each by its own name ("DIR start control"), by key: its picture and links say which board. */
+  boardNames?: Record<string, string>;
   /** Flyd's own words for it, once its model has said them. */
   said?: Said;
   /** The shared decision step's question and recommendation, when George owns it. */
@@ -1347,8 +1349,24 @@ function rowItem(kind: ShowKind, id: string, row: ArtefactRow, options: ComposeO
   return {
     ...item,
     ...(item.detail ? { detail: publicBoardUrl(item.detail) } : {}),
-    ...(item.links ? { links: item.links.map(viaOpener) } : {}),
+    ...(item.links ? { links: item.links.map((link) => namedBoardLink(link, row.boardNames)) } : {}),
   };
+}
+
+/** A board's picture, said by the board's own name; with none known, by the work it is for. Pure. */
+function boardLabel(key: string, names: Record<string, string> | undefined, headline: string): string {
+  const name = names?.[key];
+  if (name) return boardTitle(name);
+  const work = headline.length > 60 ? `${headline.slice(0, headline.lastIndexOf(" ", 59) > 30 ? headline.lastIndexOf(" ", 59) : 59)}…` : headline;
+  return `Board for ${work}`;
+}
+
+/** A card link as Flyd shows it: a board goes through Flyd's opener and says which board it opens. Pure. */
+function namedBoardLink(link: { label: string; url: string }, names: Record<string, string> | undefined): { label: string; url: string } {
+  const key = boardKeyOf(link.url);
+  const opened = viaOpener(link);
+  const name = key ? names?.[key] : undefined;
+  return name ? { ...opened, label: `Open ${boardTitle(name)}` } : opened;
 }
 
 /** One fleet row as a panel item; a call carries its question to answer. Pure. */
@@ -1384,7 +1402,7 @@ function loopbackRowItem(kind: ShowKind, id: string, row: ArtefactRow, options: 
     // The picture its update names comes first; otherwise a board he is asked to look at is shown
     // as it stands now, since the task's own pictures of it are older.
     ...(row.board && row.boardShot && !(row.namedShot && row.shots?.includes(row.namedShot))
-      ? { shots: [{ src: boardShotSrc(row.board, row.boardShot), label: "The board" }] }
+      ? { shots: [{ src: boardShotSrc(row.board, row.boardShot), label: boardLabel(row.board, row.boardNames, headline) }] }
       : (row.shotDir ?? row.task) && row.shots?.length
         ? { shots: row.shots.map((file) => ({ src: shotSrc(row.shotDir ?? row.task!, file), label: file.split("/").pop()! })) }
         : {}),
@@ -1908,6 +1926,10 @@ export class ArtefactFeed {
   private projectBoards?: ProjectBoards | null;
   /** The boards a card names now: only their pictures are ever served. */
   private boardKeys = new Set<string>();
+  /** The boards an open run's card names now (the jobs column's last render): their pictures are served too. */
+  private runBoardKeys = new Set<string>();
+  /** Each board's own name, from its board.json; none under vitest unless a test passes them. */
+  private boardNameSource?: BoardNames | null;
 
   /** Notices and replies use the same decision owner as polled fleet changes. */
   decide(changes: FirstmateChange[]): Promise<ExecutiveDecisionRecord[]> | null {
@@ -1942,6 +1964,8 @@ export class ArtefactFeed {
       boards?: BoardShots;
       /** The boards projects keep in `.liesel`; by default from ~/.easel/state.json, none under vitest. */
       projectBoards?: ProjectBoards;
+      /** Each board's own name; by default from the board files ~/.easel/state.json lists, none under vitest. */
+      boardNames?: BoardNames;
     } = {},
   ) {}
 
@@ -1958,9 +1982,39 @@ export class ArtefactFeed {
     return this.boardShots ?? undefined;
   }
 
+  /** A board's own name ("DIR start control"), by key, or undefined when it has none or none can be read. */
+  boardName(key: string): string | undefined {
+    if (this.boardNameSource === undefined) this.boardNameSource = this.options.boardNames ?? (process.env.VITEST ? null : new BoardNames());
+    return this.boardNameSource?.nameOf(key);
+  }
+
+  /** Where the page loads a picture of a board a run names; asks for one when it is missing or old. Undefined until pictured. */
+  boardPicture(key: string): string | undefined {
+    const boards = this.boards();
+    if (!boards || !isBoardKey(key)) return undefined;
+    const picture = boards.want(key);
+    return picture ? boardShotSrc(key, picture.at) : undefined;
+  }
+
+  /** The boards the jobs column's open runs name now: only their pictures are served, beside the cards' own. */
+  setRunBoards(keys: Iterable<string>): void {
+    this.runBoardKeys = new Set([...keys].filter(isBoardKey));
+  }
+
+  /** Each row's boards, by their own names, so its picture and links say which board. */
+  private withBoardNames(fleet: FleetArtefact): FleetArtefact {
+    if (fleet.unavailable) return fleet;
+    const named = (row: ArtefactRow): ArtefactRow => {
+      const keys = [row.board, ...[row.url, ...(row.references ?? []).map((link) => link.url)].map(boardKeyOf)].filter((key): key is string => Boolean(key));
+      const names = Object.fromEntries(keys.flatMap((key) => { const name = this.boardName(key); return name ? [[key, name]] : []; }));
+      return Object.keys(names).length ? { ...row, boardNames: names } : row;
+    };
+    return { ...fleet, calls: fleet.calls.map(named), live: fleet.live.map(named), ready: fleet.ready.map(named), landed: fleet.landed.map(named), held: fleet.held.map(named), next: fleet.next.map(named) };
+  }
+
   /** Each card that names a board carries when its picture was taken; a missing or old picture is taken again. */
   private withBoards(given: FleetArtefact): FleetArtefact {
-    const fleet = this.withProjectBoards(given);
+    const fleet = this.withBoardNames(this.withProjectBoards(given));
     const boards = this.boards();
     if (!boards || fleet.unavailable) return fleet;
     const keys = new Set<string>();
@@ -1996,7 +2050,7 @@ export class ArtefactFeed {
 
   /** The absolute path of a board's picture a card names, or null for anything else. */
   boardShotPath(key: string): string | null {
-    if (!this.boardKeys.has(key)) return null;
+    if (!this.boardKeys.has(key) && !this.runBoardKeys.has(key)) return null;
     return this.boards()?.picture(key)?.path ?? null;
   }
 

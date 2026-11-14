@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { viaOpener } from "./liesel.js";
+import { boardKeyOf, boardTitle, viaOpener } from "./liesel.js";
 import { applyProjectOps, projectId, readProjects, type Project, type ProjectKind } from "../council/projects.js";
 import type { DomainRun, DomainRunStatus } from "../command/types.js";
 import { workStateOfRun, type WorkState } from "../lib/work-state.js";
@@ -199,7 +199,8 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
     ...(question ? { question: one(question, 4_000) } : {}),
     questionIdentity: question ?? run.request.intendedOutcome ?? run.request.originalMessage,
     ...(report ? { report } : {}),
-    artifacts: run.result?.artifacts ?? [],
+    // A board its evidence names is where he looks at the options, so it is one of its links.
+    artifacts: [...new Set([...(run.result?.artifacts ?? []), ...(run.result?.evidence ?? []).filter((ref) => boardKeyOf(ref))])],
     ...(() => { const work = run.result?.workState ?? workStateOfRun(run.status, run.result); return work ? { work } : {}; })(),
   };
 }
@@ -222,6 +223,9 @@ interface Signal {
   reportHash?: string;
   /** The staff's own words this card came from (a worker's status line), when it is not his decision: said plainly before he reads it. */
   raw?: { title: string; line: string; thread?: string; keep?: boolean; asked?: boolean };
+  /** The pictures and links its own item or run carried: a decision card shows only these, never another item's. */
+  shots?: Job["shots"];
+  links?: Job["links"];
 }
 
 function rank(group: JobGroup): number {
@@ -321,6 +325,10 @@ export function jobsFrom(input: {
   /** Lines the model has given up on: a question among them is put to him exactly as asked, with its answers. */
   exhausted?: Set<string>;
   exists?: (path: string) => boolean;
+  /** A Liesel board's own name ("DIR start control"), by key, so its picture and link say which board it is. */
+  boardName?: (key: string) => string | undefined;
+  /** Where the page loads a picture of a board an open run names, by key; undefined until Flyd has pictured it. Never asked for finished work. */
+  boardPicture?: (key: string) => string | undefined;
   now?: number;
 }): JobBoard {
   const now = input.now ?? Date.now();
@@ -385,10 +393,22 @@ export function jobsFrom(input: {
     const thread: JobThread = { id: run.id, title, at: run.updatedAt, kind: "run", ...(full && full !== title ? { full } : {}) };
     bucket.threads.push(thread);
     if (signal.raw) runThreads.set(thread, { group: signal.group, bucket, state: signal.state ?? STATE[signal.group], title: signal.raw.title, line: signal.raw.line });
+    const ownShots: Job["shots"] = [];
+    const ownLinks: Job["links"] = [];
     for (const artifact of artifactsOf(run.artifacts, exists)) {
-      if (artifact.href) bucket.links.push(viaOpener({ label: artifact.label, url: artifact.href }));
-      else bucket.files.push({ label: artifact.label });
+      if (!artifact.href) { bucket.files.push({ label: artifact.label }); continue; }
+      // A board the run put its options on is named and pictured, so the card shows what he is choosing between.
+      const key = boardKeyOf(artifact.href);
+      const name = key ? input.boardName?.(key) : undefined;
+      const link = viaOpener({ label: artifact.label, url: artifact.href });
+      ownLinks.push(name ? { ...link, label: `Open ${boardTitle(name)}` } : link);
+      const picture = key && (signal.group === "needs" || signal.group === "working") ? input.boardPicture?.(key) : undefined;
+      if (picture) ownShots.push({ src: picture, label: name ? boardTitle(name) : `Board for ${title}` });
     }
+    bucket.shots.push(...ownShots);
+    bucket.links.push(...ownLinks);
+    signal.shots = ownShots;
+    signal.links = ownLinks;
     if ((run.report?.length ?? 0) >= REPORT_CHARS) {
       signal.reportHash = digestHash(run.report!);
       bucket.reports.push({ hash: signal.reportHash, project: bucket.title, title, text: run.report!, link: bucket.links[0]?.url });
@@ -430,11 +450,11 @@ export function jobsFrom(input: {
       ...(!handled ? { raw: { title: item.headline, line: (item.detail && !placeholderLine(item.detail) ? item.detail : "") || item.headline, ...(item.kind === "call" || item.decision ? { keep: true } : {}) } } : {}),
     };
     bucket.signals.push(signal);
-    for (const shot of item.shots ?? []) if (shot.src) bucket.shots.push({ src: shot.src, label: shot.label });
-    for (const link of [...(item.links ?? []), ...(item.open ? [item.open] : [])]) {
-      if (link.closed || !link.url) continue;
-      bucket.links.push({ label: link.label || "Open", url: link.url });
-    }
+    signal.shots = (item.shots ?? []).filter((shot) => shot.src).map((shot) => ({ src: shot.src, label: shot.label }));
+    signal.links = [...(item.links ?? []), ...(item.open ? [item.open] : [])]
+      .filter((link) => !link.closed && link.url).map((link) => ({ label: link.label || "Open", url: link.url }));
+    bucket.shots.push(...signal.shots);
+    bucket.links.push(...signal.links);
     if ((item.detail?.length ?? 0) >= REPORT_CHARS) {
       signal.reportHash = digestHash(item.detail!);
       bucket.reports.push({ hash: signal.reportHash, project: bucket.title, title: item.headline, text: item.detail!, link: bucket.links[0]?.url });
@@ -493,7 +513,7 @@ export function jobsFrom(input: {
     for (const source of bucket.reports) {
       if (!stored.has(source.hash) && !pending.some((item) => item.hash === source.hash)) pending.push(source);
     }
-    const links = uniqueLinks(bucket.links);
+    const { shots, links } = cardMedia(bucket, lead);
     const digestSaid = digestView(digest, lead.ask);
     // A run that asks several numbered questions at once puts each to him on its own card.
     const numbered = lead.group === "needs" && !lead.decision && lead.ask ? holdDecisions(lead.ask) : [];
@@ -532,7 +552,7 @@ export function jobsFrom(input: {
       ask: words ? (lead.group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
-      shots: bucket.shots.slice(0, 4),
+      shots: shots.slice(0, 4),
       links: links.slice(0, 4),
       files: bucket.files.slice(0, 6),
       threads: bucket.threads.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 8).map((thread) => said(thread, raw)),
@@ -717,6 +737,40 @@ function uniqueLinks(links: Job["links"]): Job["links"] {
     seen.add(link.url);
     return true;
   });
+}
+
+function uniqueShots(shots: Job["shots"]): Job["shots"] {
+  const seen = new Set<string>();
+  return shots.filter((shot) => {
+    if (seen.has(shot.src)) return false;
+    seen.add(shot.src);
+    return true;
+  });
+}
+
+/** Two things never read the same: a label said again is told apart by its place ("Open board", "Open board · 2"). Pure. */
+function distinctLabels<T extends { label: string }>(list: T[]): T[] {
+  const count = new Map<string, number>();
+  return list.map((entry) => {
+    const key = entry.label.trim().toLowerCase();
+    const seen = (count.get(key) ?? 0) + 1;
+    count.set(key, seen);
+    return seen > 1 ? { ...entry, label: `${entry.label} · ${seen}` } : entry;
+  });
+}
+
+/**
+ * The pictures and links a card shows. A decision shows only what its own question
+ * carried, the thing being decided first: another item on the same project (a
+ * finished lab, a paused job) is never pictured beside it, and a decision with no
+ * picture of its own shows none. Any other card leads with its own and then the
+ * project's. Each is shown once, and no two read the same. Pure.
+ */
+function cardMedia(bucket: Bucket, lead: Signal): { shots: Job["shots"]; links: Job["links"] } {
+  const own = lead.group === "needs";
+  const shots = uniqueShots(own ? lead.shots ?? [] : [...(lead.shots ?? []), ...bucket.shots]);
+  const links = uniqueLinks(own ? lead.links ?? [] : [...(lead.links ?? []), ...bucket.links]);
+  return { shots: distinctLabels(shots), links: distinctLabels(links) };
 }
 
 /**

@@ -1557,7 +1557,7 @@ describe("the CapFive lab questions artefact", () => {
     // Not pictured yet: the card keeps the lab's own shots and its link.
     expect(callItems({ ...fleet, calls: [row!] })[0]!.shots!.map((shot) => shot.label)).toEqual(["board.png", "reference.png"]);
     const [item] = callItems({ ...fleet, calls: [{ ...row!, boardShot: 1794000000000 }] });
-    expect(item!.shots).toEqual([{ src: "/api/board-shot?board=e4dc64c8844fac7a&v=1794000000000", label: "The board" }]);
+    expect(item!.shots).toEqual([{ src: "/api/board-shot?board=e4dc64c8844fac7a&v=1794000000000", label: "Board for Pierre: hardware-style redesign lab" }]);
     expect(item!.links).toContainEqual({ label: "Open board", url: "/open-board/e4dc64c8844fac7a" });
   });
 
@@ -1567,7 +1567,7 @@ describe("the CapFive lab questions artefact", () => {
     const [row] = enrichFleet(fleet, new Map(), new Map([["deck-bar", { at: "2026-11-12T03:00:00Z", note }]])).live;
     expect(row!.board).toBe("ceecabda1bfc42e7");
     const [item] = underwayItems({ ...fleet, live: [{ ...row!, boardShot: 1794000000000 }] });
-    expect(item!.shots).toEqual([{ src: "/api/board-shot?board=ceecabda1bfc42e7&v=1794000000000", label: "The board" }]);
+    expect(item!.shots).toEqual([{ src: "/api/board-shot?board=ceecabda1bfc42e7&v=1794000000000", label: "Board for Move the deck bar" }]);
     expect(item!.links).toEqual([{ label: "Open board", url: "/open-board/ceecabda1bfc42e7" }]);
     expect(item!.detail).toBe("Deck bar is above the tracklist at 1440 and 390, reply posted on http://macbook-pro-3.tail46029c.ts.net:4747/board/ceecabda1bfc42e7");
   });
@@ -1581,7 +1581,7 @@ describe("the CapFive lab questions artefact", () => {
     expect(item!.shots!.map((shot) => shot.label)).toEqual(["after-390.png", "after-1440.png"]);
     // Without a named picture, the board as it stands still comes first.
     const [plain] = underwayItems({ ...fleet, live: [{ ...row!, namedShot: undefined, boardShot: 1794000000000 }] });
-    expect(plain!.shots).toEqual([{ src: "/api/board-shot?board=ceecabda1bfc42e7&v=1794000000000", label: "The board" }]);
+    expect(plain!.shots).toEqual([{ src: "/api/board-shot?board=ceecabda1bfc42e7&v=1794000000000", label: "Board for Move the deck bar" }]);
   });
 
   it("finds the screenshot a status line names among the task's own files, and nothing else", () => {
@@ -1689,5 +1689,20 @@ describe("board pictures", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(asked).toHaveLength(2);
     expect(boards.want("../etc")).toBeNull();
+  });
+});
+
+describe("a call's board, said by its name", () => {
+  it("labels the start-button call's board picture and link with the board's own name, never 'The board'", () => {
+    const fleet = parseBearings({ decisions_open: [{ id: "dir-start-board-calls", summary: "Start buttons beyond approved Numbers and Terminal" }] });
+    const row = fleet.calls[0]!;
+    fleet.calls[0] = {
+      ...row, choices: ["Teletext", "Test card"], url: "http://127.0.0.1:4747/board/2f91aa58f2222856", board: "2f91aa58f2222856", boardShot: 7,
+      references: [{ label: "Open board", url: "http://127.0.0.1:4747/board/e9a23aab1684b277" }],
+      boardNames: { "2f91aa58f2222856": "DIR start control", e9a23aab1684b277: "dead-internet-radio" },
+    };
+    const [call] = callItems(fleet);
+    expect(call!.shots).toEqual([{ src: "/api/board-shot?board=2f91aa58f2222856&v=7", label: "DIR start control board" }]);
+    expect(call!.links!.map((link) => link.label)).toEqual(["Open DIR start control board", "Open dead-internet-radio board"]);
   });
 });

@@ -40,6 +40,12 @@ export function viaOpener<T extends { label: string; url: string }>(link: T): T 
   return key ? { ...link, label: "Open board", url: openBoardHref(key) } : link;
 }
 
+/** A board as he reads it, by its own name: "DIR start control" reads "DIR start control board". Pure. */
+export function boardTitle(name: string): string {
+  const said = name.trim().replace(/\s+/g, " ");
+  return /\bboard$/i.test(said) ? said : `${said} board`;
+}
+
 /** Where a board opens: on this Mac, and on the address the phone reaches. Pure. */
 export function boardUrls(key: string, publicOrigin = lieselPublicOrigin()): { local: string; public: string } {
   const path = `/board/${encodeURIComponent(key)}`;
@@ -85,6 +91,62 @@ export class ProjectBoards {
     }
     this.cache = { mtimeMs, boards };
     return boards;
+  }
+}
+
+/**
+ * Each board's own name, by key, as its `board.json` names it ("DIR start control"),
+ * from Liesel's saved state. Read only; a board with no name, or a file that cannot be
+ * read, has none. Each file is read again only when it changes.
+ */
+export class BoardNames {
+  private files?: { mtimeMs: number; byKey: Map<string, string> };
+  private readonly names = new Map<string, { mtimeMs: number; name?: string }>();
+
+  constructor(private readonly stateFile = join(EASEL_HOME, "state.json")) {}
+
+  nameOf(key: string): string | undefined {
+    const file = this.boardFiles().get(key);
+    if (!file) return undefined;
+    let mtimeMs: number;
+    try {
+      mtimeMs = statSync(file).mtimeMs;
+    } catch {
+      return undefined;
+    }
+    const cached = this.names.get(file);
+    if (cached?.mtimeMs === mtimeMs) return cached.name;
+    let name: string | undefined;
+    try {
+      const said = (JSON.parse(readFileSync(file, "utf8")) as { name?: unknown }).name;
+      name = typeof said === "string" && said.trim() ? said.trim().slice(0, 80) : undefined;
+    } catch {
+      name = undefined;
+    }
+    this.names.set(file, { mtimeMs, ...(name ? { name } : {}) });
+    return name;
+  }
+
+  private boardFiles(): Map<string, string> {
+    let mtimeMs: number;
+    try {
+      mtimeMs = statSync(this.stateFile).mtimeMs;
+    } catch {
+      return new Map();
+    }
+    if (this.files?.mtimeMs === mtimeMs) return this.files.byKey;
+    const byKey = new Map<string, string>();
+    try {
+      const sessions = (JSON.parse(readFileSync(this.stateFile, "utf8")) as { sessions?: Record<string, { key?: string; file?: string }> }).sessions ?? {};
+      for (const [id, session] of Object.entries(sessions)) {
+        const key = session.key ?? id;
+        if (isBoardKey(key) && typeof session.file === "string" && session.file.endsWith(".json")) byKey.set(key, session.file);
+      }
+    } catch {
+      // A state file mid-write reads as none; the next change is read again.
+    }
+    this.files = { mtimeMs, byKey };
+    return byKey;
   }
 }
 
