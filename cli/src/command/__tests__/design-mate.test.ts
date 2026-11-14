@@ -443,10 +443,11 @@ describe("Design Mate", () => {
       expect(darker.phase).toBe("briefing");
       expect(darker.request.project).toBeUndefined();
       expect(readLab(loose.id, labs)!.picked).toBe(3);
-      for (const note of ["use that blue on the buttons", "use this font for headings", "go with that colour"]) {
+      for (const note of ["use that blue on the buttons", "use this font for headings", "go with that colour", "use 2 columns on mobile", "take 3 more stabs at the hero"]) {
         const round = await dispatchDomainFollowup({ parentRunId: loose.id, question: note, project: { root: project } }) as DomainRun;
         expect(readBuild(round.id, labs)).toBeNull();
         expect(round.phase).toBe("briefing");
+        expect(round.request.project).toBeUndefined();
         expect(readLab(loose.id, labs)!.picked).toBe(3);
       }
 
