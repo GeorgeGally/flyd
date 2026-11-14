@@ -2381,10 +2381,12 @@ export class ConversationViewServer {
       }));
       const reports = this.jobReports(snapshot);
       const exists = (ref: string) => this.jobFileExists(ref);
-      let board = jobsFrom({ projects, runs, sessions, reports, show, digests: readDigests(), cardWords: readCardWords(), exhausted: exhaustedCardWords(), exists });
+      const boardName = (key: string) => this.feed.boardName(key);
+      const boardPicture = (key: string) => this.feed.boardPicture(key);
+      let board = jobsFrom({ projects, runs, sessions, reports, show, digests: readDigests(), cardWords: readCardWords(), exhausted: exhaustedCardWords(), exists, boardName, boardPicture });
       if (!process.env.VITEST && board.inferred.length) {
         applyProjectOps(board.inferred.map((item) => ({ op: "upsert", name: item.name, kind: item.kind, status: "active", what: "" })), { knownRepos: [] });
-        board = jobsFrom({ projects: readProjects(), runs, sessions, reports, show, digests: readDigests(), cardWords: readCardWords(), exhausted: exhaustedCardWords(), exists });
+        board = jobsFrom({ projects: readProjects(), runs, sessions, reports, show, digests: readDigests(), cardWords: readCardWords(), exhausted: exhaustedCardWords(), exists, boardName, boardPicture });
       }
       scheduleDigest(board.pending, { onStored: () => { for (const wake of this.jobWake) wake(); } });
       // A card from a staff status line is said in his words once; render never asks the model.

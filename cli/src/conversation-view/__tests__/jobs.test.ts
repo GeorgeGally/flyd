@@ -432,3 +432,87 @@ describe("editJob", () => {
     expect(editJob({ op: "close", id: "missing" }, { path, now: NOW }).error).toBe("That job is not on the list.");
   });
 });
+
+describe("a decision card's pictures and links", () => {
+  const dir = project({ id: "dir", name: "DIR", repos: ["/Users/g/Documents/dead-internet-radio"] });
+  const item = (kind: string, id: string, over = {}) => ({ id: `${kind}:${id}`, kind, headline: id, why: "", task: id, project: "/Users/g/Documents/dead-internet-radio", ...over });
+
+  it("shows only what the start-button question carries, its board first and named, never the project's other pictures", () => {
+    const show = {
+      ...screen,
+      calls: [item("call", "dir-start-board-calls", {
+        headline: "Start buttons beyond approved Numbers and Terminal",
+        decision: { task: "dir-start-board-calls", question: "Start buttons beyond approved Numbers and Terminal", choices: ["Teletext", "Test card"] },
+        shots: [{ src: "/api/board-shot?board=2f91aa58f2222856&v=1", label: "DIR start control board" }],
+        links: [{ label: "Open DIR start control board", url: "/open-board/2f91aa58f2222856" }, { label: "Open DIR start control board", url: "/open-board/2f91aa58f2222856" }],
+      })],
+      held: [item("waiting", "held-dir-key-labels", { status: "paused", shots: [{ src: "/api/board-shot?board=97933d40aea87c36&v=1", label: "Board for DIR key labels" }], links: [{ label: "Open board", url: "/open-board/97933d40aea87c36" }] })],
+      done: [item("landed", "landed-dir-signal-lab", {
+        shots: [{ src: "/api/artefact-shot?task=dir-signal-lab&file=review%2Fv0-live-now-desktop.png", label: "v0-live-now-desktop.png" }, { src: "/api/artefact-shot?task=dir-signal-lab&file=review%2Fv0-live-now-phone.png", label: "v0-live-now-phone.png" }],
+        links: [{ label: "dead-internet-radio #42", url: "https://github.com/GeorgeGally/dead-internet-radio/pull/42" }, { label: "Open board", url: "/open-board/e9a23aab1684b277" }],
+      })],
+    } as unknown as ShowScreen;
+    const job = jobsFrom({ projects: [dir], show, now: NOW }).jobs.find((one) => one.id === "dir")!;
+    expect(job.group).toBe("needs");
+    expect(job.shots).toEqual([{ src: "/api/board-shot?board=2f91aa58f2222856&v=1", label: "DIR start control board" }]);
+    expect(job.links).toEqual([{ label: "Open DIR start control board", url: "/open-board/2f91aa58f2222856" }]);
+  });
+
+  it("pictures the tracklist question with the tracklist board, never another DIR decision's board", () => {
+    const call = (id: string, at: string, board: string, name: string) => item("call", id, {
+      headline: id, at, decision: { task: id, question: id, choices: [] },
+      shots: [{ src: `/api/board-shot?board=${board}&v=1`, label: `${name} board` }],
+      links: [{ label: `Open ${name} board`, url: `/open-board/${board}` }],
+    });
+    const show = {
+      ...screen,
+      calls: [
+        call("Start buttons beyond approved Numbers and Terminal", "2026-10-26T09:00:00.000Z", "2f91aa58f2222856", "DIR start control"),
+        call("Which set tracklist should be built for the live player?", "2026-10-26T11:00:00.000Z", "ceecabda1bfc42e7", "DIR tracklist"),
+      ],
+    } as unknown as ShowScreen;
+    const job = jobsFrom({ projects: [dir], show, now: NOW }).jobs.find((one) => one.id === "dir")!;
+    expect(job.ask).toBe("Which set tracklist should be built for the live player?");
+    expect(job.shots).toEqual([{ src: "/api/board-shot?board=ceecabda1bfc42e7&v=1", label: "DIR tracklist board" }]);
+    expect(job.links).toEqual([{ label: "Open DIR tracklist board", url: "/open-board/ceecabda1bfc42e7" }]);
+  });
+
+  it("shows no picture rather than an unrelated one when the question carries none", () => {
+    const show = {
+      ...screen,
+      calls: [item("call", "flyd-design-team-call", { headline: "The Flyd design team has mostly failed, so I suggest cutting it.", decision: { task: "flyd-design-team-call", question: "Cut or keep?", choices: ["Cut", "Keep"] } })],
+      done: [item("landed", "flyd-ui-lab", { shots: [{ src: "/api/artefact-shot?task=flyd-ui-lab&file=board.png", label: "board.png" }], links: [{ label: "flyd #291", url: "https://github.com/GeorgeGally/flyd/pull/291" }] })],
+    } as unknown as ShowScreen;
+    const job = jobsFrom({ projects: [dir], show, now: NOW }).jobs.find((one) => one.id === "dir")!;
+    expect(job.shots).toEqual([]);
+    expect(job.links).toEqual([]);
+  });
+
+  it("leads any other card with its own pictures, each once, and never two labels alike", () => {
+    const show = {
+      ...screen,
+      held: [item("waiting", "held", { status: "paused", shots: [{ src: "/a.png", label: "Board" }], links: [{ label: "Open board", url: "/open-board/aaaaaaaa" }] })],
+      done: [item("landed", "lab", { shots: [{ src: "/b.png", label: "Board" }, { src: "/a.png", label: "Board" }], links: [{ label: "Open board", url: "/open-board/bbbbbbbb" }] })],
+    } as unknown as ShowScreen;
+    const job = jobsFrom({ projects: [dir], show, now: NOW }).jobs.find((one) => one.id === "dir")!;
+    expect(job.shots).toEqual([{ src: "/a.png", label: "Board" }, { src: "/b.png", label: "Board · 2" }]);
+    expect(job.links.map((link) => link.label)).toEqual(["Open board", "Open board · 2"]);
+  });
+
+  it("links and pictures the board a run's decision names in its evidence, by the board's name", () => {
+    const domain = {
+      id: "domain-hftw", status: "needs_decision", owner: "FirstMate", createdAt: "2026-11-11T04:23:33.219Z", updatedAt: "2026-11-11T12:18:22Z",
+      request: { id: "domain-hftw", domain: "coding", originalMessage: "HFTW heroes", intendedOutcome: "Replace the HFTW product-shot heroes", doneWhen: [], createdAt: "2026-11-11T04:23:33.219Z", source: "chat", project: { name: "HFTW" } },
+      transport: { kind: "firstmate", requestId: "domain-hftw" },
+      result: { format: "structured", brief: "Pick keep, A or B for each hero; the lab page only changes after you do.", evidence: ["http://127.0.0.1:4747/board/871dc848190e24e1"], artifacts: [], unresolvedQuestions: [] },
+    } as unknown as DomainRun;
+    const board = jobsFrom({
+      runs: [jobRunFromDomain(domain)], now: NOW,
+      boardName: (key) => (key === "871dc848190e24e1" ? "HFTW hero images" : undefined),
+      boardPicture: (key) => `/api/board-shot?board=${key}&v=1`,
+    });
+    const job = board.jobs.find((one) => one.group === "needs")!;
+    expect(job.links).toEqual([{ label: "Open HFTW hero images board", url: "/open-board/871dc848190e24e1" }]);
+    expect(job.shots).toEqual([{ src: "/api/board-shot?board=871dc848190e24e1&v=1", label: "HFTW hero images board" }]);
+  });
+});

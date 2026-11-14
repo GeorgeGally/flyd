@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ArtefactFeed, underwayItems } from "../artefact.js";
 import { ClaudeCodeTranscriptSource } from "../claude-code-source.js";
-import { boardKeyOf, boardUrls, LieselLauncher, lieselCommand, openBoardHref, ProjectBoards, viaOpener, type BoardAnswer } from "../liesel.js";
+import { BoardNames, boardKeyOf, boardTitle, boardUrls, LieselLauncher, lieselCommand, openBoardHref, ProjectBoards, viaOpener, type BoardAnswer } from "../liesel.js";
 import { ConversationViewServer } from "../server.js";
 
 /** A Liesel that answers each probe from a script: "down" until it is started, then what `after` says. */
@@ -91,6 +91,23 @@ describe("a project's own board", () => {
     writeFileSync(join(dir, "state.json"), JSON.stringify({ sessions }));
     return join(dir, "state.json");
   };
+
+  it("reads each board's own name from its board file, and none for a board it cannot read", () => {
+    const dir = mkdtempSync(join(tmpdir(), "liesel-names-"));
+    writeFileSync(join(dir, "start.json"), JSON.stringify({ format: 1, name: "DIR start control" }));
+    writeFileSync(join(dir, "blank.json"), JSON.stringify({ format: 1 }));
+    const names = new BoardNames(stateWith({
+      "2f91aa58f2222856": { key: "2f91aa58f2222856", file: join(dir, "start.json"), status: "open" },
+      e9a23aab1684b277: { key: "e9a23aab1684b277", file: join(dir, "blank.json"), status: "open" },
+      "97933d40aea87c36": { key: "97933d40aea87c36", file: join(dir, "gone.json"), status: "open" },
+    }));
+    expect(names.nameOf("2f91aa58f2222856")).toBe("DIR start control");
+    expect(names.nameOf("e9a23aab1684b277")).toBeUndefined();
+    expect(names.nameOf("97933d40aea87c36")).toBeUndefined();
+    expect(names.nameOf("unknown0")).toBeUndefined();
+    expect(boardTitle("DIR start control")).toBe("DIR start control board");
+    expect(boardTitle("Hero board")).toBe("Hero board");
+  });
 
   it("finds the board a project keeps in .liesel, never an ended one", () => {
     const boards = new ProjectBoards(stateWith({
