@@ -41,9 +41,10 @@ Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Cor
 
 ## Scout (`flyd scout [show|run|watch|evolve|more N|less N|sources|taste]`, `cli/src/council/scout.ts`)
 
-- Personal news: last30days topics + RSS + subreddits as an evolving source population with fitness; taste seeded from George's Hermes curator.
+- Personal news: last30days topics + RSS + subreddits as an evolving source population with fitness; taste, the 8 feeds and 35 subreddits seeded from George's Hermes curator.
+- Each edition reads feeds back 30 days, up to 12 subreddits, and 8 last30days searches (2 at a time, alongside the feeds; empty planner slots reuse topics a replan rested), then ranks up to 200 candidates into 16–24 picks. Seen links and headlines (case and punctuation ignored) never come back.
 - Daily edition, 3-hourly must-know watch, daily evolution (looks for up to 2 new sources from his profile and memory). Engine pinned at `~/.flyd/vendor/last30days-skill`.
-- The edition mixes articles with a stat, a GIF, a video, an image, a quote and a thread (`cli/src/council/inspiration.ts`). Terms come from a lexical digest of his open jobs, expanded by one cheap call (or an n-gram fallback) and fetched from HN, Wikimedia, Wikipedia, Wikiquote, plus Giphy, Pexels, Reddit, ZenQuotes, Google Trends, Brave and World Bank / Our World in Data when those need no secret or the key is set (`inspiration-sources.ts`). A shown-log recycles the oldest. No logged-in social search.
+- The edition seats a stat, a GIF, a video, an image, a quote and a thread between its ranked stories, never in place of one (`cli/src/council/inspiration.ts`). Terms come from a lexical digest of his open jobs, expanded by one cheap call (or an n-gram fallback) and fetched from HN, Wikimedia, Wikipedia, Wikiquote, plus Giphy, Pexels, Reddit, ZenQuotes, Google Trends, Brave and World Bank / Our World in Data when those need no secret or the key is set (`inspiration-sources.ts`). A shown-log recycles the oldest. No logged-in social search.
 - Reddit: `www.reddit.com/r/<sub>/.rss`, sequential, no bot UA.
 - Each run that calls the news writer's model is recorded in `scout/run-state.json` (`scout-run.ts`): when, whether it got through, and only the kind of trouble (out of credit, usage limit, refused, unreachable), never the provider's error text. The view's Today reads it to say whether the news is working.
 
