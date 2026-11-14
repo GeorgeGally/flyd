@@ -362,7 +362,7 @@ export function readLab(runId: string, root = labsDir()): Lab | null {
   }
 }
 
-function writeLab(runId: string, lab: Lab, root: string): void {
+export function writeLab(runId: string, lab: Lab, root: string): void {
   writeFileSync(labPath(runId, root), `${JSON.stringify(lab, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
 }
 

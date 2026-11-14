@@ -71,18 +71,20 @@ export async function dispatchDomainFollowup(input: {
  * another round, with his words and the last lab as the new brief. `pick` says
  * which version he chose when that is already known (a version marked final on
  * the board), null when he chose none (notes only); left out, it is read from
- * his words, and failing that it is the version he marked final on the board.
+ * his words, and failing that, when his words ask for a build, it is the version
+ * he marked final on the board, used once.
  * `project` is where to build when the lab named none. `requestId` makes a
  * replayed answer the same run, not a second one.
  */
 export async function designFollowup(parent: DomainRun, question: string, options: { pick?: number | null; requestId?: string; project?: { name?: string; root?: string } } = {}): Promise<DomainRun> {
-  const { dispatchDesignMate, labDir, readLab, shotPaths } = await import("./design-mate.js");
+  const { dispatchDesignMate, labDir, labsDir, readLab, shotPaths, writeLab } = await import("./design-mate.js");
   const lab = readLab(parent.id);
   const named = options.pick !== undefined ? null
     : question.match(/\bv(?:ersion)?\s*([1-9])\b/i) ?? question.match(/\b(?:build|go with|take|use|pick|keep)\b[^.]*?\b([1-9])\b/i);
   const project = parent.request.project?.root ? parent.request.project : options.project ?? parent.request.project;
   const root = project?.root;
-  const chosen = options.pick !== undefined ? options.pick : named ? Number(named[1]) : root ? lab?.picked ?? null : null;
+  const fromPick = options.pick === undefined && !named && Boolean(root) && lab?.picked !== undefined && /\b(?:build|go with|use)\b/i.test(question);
+  const chosen = options.pick !== undefined ? options.pick : named ? Number(named[1]) : fromPick ? lab!.picked! : null;
   const version = chosen === null ? undefined : lab?.versions.find((item) => item.n === chosen);
   const common = {
     originalMessage: question,
@@ -92,12 +94,14 @@ export async function designFollowup(parent: DomainRun, question: string, option
     ...(options.requestId ? { requestId: options.requestId } : {}),
   };
   if (version && root) {
-    return dispatchDesignMate({
+    const built = dispatchDesignMate({
       ...common,
       intendedOutcome: `Build "${version.name}" (V${version.n} from the lab "${parent.request.intendedOutcome}") for real in the project. ${version.idea}`,
       doneWhen: [`the project shows ${version.name} as designed`, "the project's own checks still pass"],
       build: { reference: { page: join(labDir(parent.id), `v${version.n}.html`), shot: shotPaths(parent.id, version).desktop, name: version.name } },
     });
+    if (fromPick) writeLab(parent.id, { ...lab!, picked: undefined }, labsDir());
+    return built;
   }
   return dispatchDesignMate({
     ...common,

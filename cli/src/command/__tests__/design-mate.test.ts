@@ -432,6 +432,12 @@ describe("Design Mate", () => {
       expect(listDomainRuns()).toHaveLength(before);
       expect(readLab(loose.id, labs)!.picked).toBe(3);
 
+      // Notes alone are another round, even from a project with a pick waiting.
+      const noted = await dispatchDomainFollowup({ parentRunId: loose.id, question: "try a warmer palette", project: { root: project } }) as DomainRun;
+      expect(readBuild(noted.id, labs)).toBeNull();
+      expect(noted.phase).toBe("briefing");
+      expect(readLab(loose.id, labs)!.picked).toBe(3);
+
       // Saying where later builds that pick, even when his words name no version; with nowhere to build, it is another round.
       const nowhere = await dispatchDomainFollowup({ parentRunId: loose.id, question: "build it into the site" }) as DomainRun;
       expect(readBuild(nowhere.id, labs)).toBeNull();
@@ -439,6 +445,11 @@ describe("Design Mate", () => {
       const placed = await dispatchDomainFollowup({ parentRunId: loose.id, question: "build it into the site", project: { root: project } }) as DomainRun;
       expect(placed.request.project?.root).toBe(project);
       expect(readBuild(placed.id, labs)?.reference?.name).toBe("Departure board");
+      // The pick builds once: later notes are another round, not the old pick again.
+      expect(readLab(loose.id, labs)!.picked).toBeUndefined();
+      const later = await dispatchDomainFollowup({ parentRunId: loose.id, question: "make the type bigger", project: { root: project } }) as DomainRun;
+      expect(readBuild(later.id, labs)).toBeNull();
+      expect(later.phase).toBe("briefing");
 
       // A project but no pick is still another round.
       const unpicked = await driveDesignRun(start(), staff([9]));
