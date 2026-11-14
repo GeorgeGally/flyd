@@ -132,7 +132,7 @@ const SEND_TIMEOUT_MS = 20_000;
 export const MAX_NOTE_CHARS = 8_000;
 
 /** How firstmate and its workers say work was stopped on purpose or taken over by other work. */
-const STOPPED_ON_PURPOSE = /\bstopp(?:ed|ing)\b[^.;\n]{0,60}?(?:\bon purpose\b|\bdeliberately\b|\bintentionally\b|\bper\b|\bby (?:firstmate|the captain|george)\b)|\bsupersed(?:ed|es)\b|\bovertaken\b|\breplaced by\b|\bno (?:more )?work(?:er)? (?:is )?needed\b|\bnot shipping\b/i;
+const STOPPED_ON_PURPOSE = /\bstopp(?:ed|ing)\b[^.;\n]{0,60}?(?:\bon purpose\b|\bdeliberately\b|\bintentionally\b|\bper(?:\s+[\w']+){0,3}?\s+(?:steer|direction)\b|\bby (?:firstmate|the captain|george)\b)|\bsuperseded\b|\bovertaken\b|\breplaced by\b|\bno (?:more )?work(?:er)? (?:is )?needed\b/i;
 
 /** A task id as a whole word: not part of a longer id, though a sentence's full stop may follow it. */
 function taskIdPattern(taskId: string): string {

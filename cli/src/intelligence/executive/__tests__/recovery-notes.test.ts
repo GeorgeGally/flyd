@@ -122,5 +122,12 @@ describe("recovery notes for work firstmate stopped on purpose", () => {
     expect(stoppedEvidence("dir-ident-rotation", { archive: "Supersedes dir-ident-rotation-live." })).toEqual([]);
     // A worker that is gone with no word of a stop is still recoverable work.
     expect(stoppedEvidence("gnm-7", { status: "working [at=1]: building\nblocked [at=2]: tests red\n" })).toEqual([]);
+    // The replacement task's own "Supersedes X" names the task it took over, not itself.
+    expect(stoppedEvidence("dir-dither-filter-land", { backlog: "- [ ] dir-dither-filter-land - DIR: land the dither filter\n  Carries commit 3e8cd32 forward. Supersedes dir-dither-filter.\n" })).toEqual([]);
+    // Ordinary progress that mentions stopping something, or not shipping yet, is not a stopped task.
+    expect(stoppedEvidence("gnm-7", { status: "working [at=1]: stopped the dev server per the brief; running tests\n" })).toEqual([]);
+    expect(stoppedEvidence("gnm-7", { status: "working [at=1]: not shipping until tests pass\n" })).toEqual([]);
+    expect(stoppedEvidence("flyd-picture-desk", { status: "needs-decision [at=1]: Picture desk conflicts with Today. Stopping per redesign steer.\n" }))
+      .toEqual(["firstmate-status-stopped:flyd-picture-desk"]);
   });
 });
