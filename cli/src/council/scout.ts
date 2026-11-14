@@ -293,8 +293,9 @@ export function parseLast30days(stdout: string, topic: string, sourceIdValue = s
 
 export async function fetchTopic(topic: string, script = last30daysScript()): Promise<ScoutCandidate[]> {
   if (!existsSync(script)) throw new Error(`last30days engine not found at ${script}`);
-  // A full pass (Reddit, Hacker News, YouTube, GitHub) over the past 30 days takes about two and a half minutes.
-  const { stdout } = await execFileAsync("python3", [script, "--emit=json", "--days", "30", topic], { timeout: 240_000, maxBuffer: 16 * 1024 * 1024 });
+  // A full pass over the past 30 days takes a minute or two. GitHub's hits are pull requests and issues that share a
+  // keyword, and Polymarket's are betting markets: neither is news, so the search keeps to the community sources.
+  const { stdout } = await execFileAsync("python3", [script, "--emit=json", "--days", "30", "--search", "reddit,hackernews,youtube", topic], { timeout: 240_000, maxBuffer: 16 * 1024 * 1024 });
   return parseLast30days(stdout, topic);
 }
 
@@ -336,12 +337,13 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
   });
   // Publisher feeds in parallel; Reddit one at a time, politely, stopping at the first rate limit.
   const queue = sources.filter((source) => source.status === "active" && source.kind === "rss");
+  const retry: ScoutSource[] = [];
   const workers = Array.from({ length: 6 }, async () => {
     for (let source = queue.shift(); source; source = queue.shift()) {
       try {
         candidates.push(...await fetchFeed(source.target, source, fetchFn, options.now));
       } catch (error) {
-        if (!(error instanceof RateLimited)) failed.push(source.id);
+        if (!(error instanceof RateLimited)) retry.push(source);
       }
     }
   });
@@ -370,6 +372,14 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
     }
   })();
   await Promise.all([...workers, reddit, ...topicWorkers]);
+  // A feed that failed in the first burst gets one more try once the rest is in: a passing network blip is not a failing feed.
+  for (const source of retry) {
+    try {
+      candidates.push(...await fetchFeed(source.target, source, fetchFn, options.now));
+    } catch (error) {
+      if (!(error instanceof RateLimited)) failed.push(source.id);
+    }
+  }
   return { candidates, failed };
 }
 

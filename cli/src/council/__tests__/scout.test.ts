@@ -430,6 +430,21 @@ describe("the edition draws on the whole day", () => {
     expect(prompts[0]).not.toContain("Last season");
   });
 
+  it("gives a feed that fails in the first burst one more try before counting it as failing", async () => {
+    onlySources([{ kind: "rss", name: "Hackaday", target: "https://hackaday.test/feed" }]);
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("fetch failed");
+      return new Response(rss([{ title: "A clamp meter runs DOOM", link: "https://hackaday.test/doom", date: recent }]), { status: 200 });
+    }) as typeof fetch;
+    const prompts: string[] = [];
+    const result = await runScout({ complete: rankerFor(prompts), fetchFn, dir, now: () => at("2026-11-14T07:00:00Z") });
+    expect(result.failedTopics).toEqual([]);
+    expect(prompts[0]).toContain("A clamp meter runs DOOM");
+    expect(readSources(dir)[0]).toMatchObject({ name: "Hackaday", failures: 0 });
+  });
+
   it("never repeats a headline from an earlier briefing, even under a new link", async () => {
     onlySources([
       { kind: "rss", name: "Waxy.org", target: "https://waxy.test/feed" },
