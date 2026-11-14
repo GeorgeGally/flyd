@@ -443,7 +443,7 @@ describe("Design Mate", () => {
       expect(darker.phase).toBe("briefing");
       expect(darker.request.project).toBeUndefined();
       expect(readLab(loose.id, labs)!.picked).toBe(3);
-      for (const note of ["use that blue on the buttons", "use this font for headings", "go with that colour", "use 2 columns on mobile", "take 3 more stabs at the hero"]) {
+      for (const note of ["use that blue on the buttons", "use this font for headings", "go with that colour", "use 2 columns on mobile", "take 3 more stabs at the hero", "build 3 more versions", "go with 2 columns on mobile", "pick 2 colours from the photo"]) {
         const round = await dispatchDomainFollowup({ parentRunId: loose.id, question: note, project: { root: project } }) as DomainRun;
         expect(readBuild(round.id, labs)).toBeNull();
         expect(round.phase).toBe("briefing");
@@ -473,6 +473,17 @@ describe("Design Mate", () => {
       const another = await dispatchDomainFollowup({ parentRunId: unpicked.id, question: "build it into the site", project: { root: project } }) as DomainRun;
       expect(readBuild(another.id, labs)).toBeNull();
       expect(another.phase).toBe("briefing");
+
+      // A count after the verb is a note, even on a lab with its own project; a bare version number is a build.
+      for (const note of ["build 3 more", "build 3 more versions", "go with 2 columns on mobile", "pick 2 colours from the photo"]) {
+        const round = await dispatchDomainFollowup({ parentRunId: lab.id, question: note }) as DomainRun;
+        expect(readBuild(round.id, labs)).toBeNull();
+        expect(round.phase).toBe("briefing");
+      }
+      const three = await dispatchDomainFollowup({ parentRunId: unpicked.id, question: "go with 3.", project: { root: project } }) as DomainRun;
+      expect(readBuild(three.id, labs)?.reference?.name).toBe("Departure board");
+      const two = await dispatchDomainFollowup({ parentRunId: unpicked.id, question: "build 2 into ~/site", project: { root: project } }) as DomainRun;
+      expect(readBuild(two.id, labs)?.reference?.name).toBe("Wall label");
     } finally {
       if (previous === undefined) delete process.env.FLYD_LABS_DIR;
       else process.env.FLYD_LABS_DIR = previous;

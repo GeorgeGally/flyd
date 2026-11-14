@@ -80,7 +80,7 @@ export async function designFollowup(parent: DomainRun, question: string, option
   const { dispatchDesignMate, labDir, labsDir, readLab, shotPaths, writeLab } = await import("./design-mate.js");
   const lab = readLab(parent.id);
   const named = options.pick !== undefined ? null
-    : question.match(/\bv(?:ersion)?\s*([1-9])\b/i) ?? question.match(/\b(?:build|go with|pick)\s+([1-9])\b/i);
+    : question.match(/\bv(?:ersion)?\s*([1-9])\b/i) ?? question.match(/\b(?:build|go with|pick)\s+([1-9])(?=\s*(?:$|[.,!?;:]|\s(?:into|in|to|for|on)\b))/i);
   const project = parent.request.project?.root ? parent.request.project : options.project ?? parent.request.project;
   const root = project?.root;
   const fromPick = options.pick === undefined && !named && Boolean(root) && lab?.picked !== undefined && /\b(?:build|go with)\s+(?:it|that|the one)(?=\s*(?:$|[.,!?;:]|\s(?:into|in|to|for|on)\b))/i.test(question);
