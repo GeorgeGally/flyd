@@ -904,7 +904,8 @@ async function advanceBuild(run: DomainRun, deps: DesignMateDeps, root: string, 
  * Creative Director's presentation, which is written to Flyd and talks about him in the third person.
  */
 export function boardNote(run: DomainRun, lab: Lab, best: LabVersion): string {
-  const versions = [...lab.versions].sort((a, b) => a.n - b.n).map((version) => `- V${version.n} · ${version.name}: ${version.idea.split(/(?<=\.)\s/)[0]!.slice(0, 160)}`);
+  const short = (text: string) => text.length > 160 ? `${text.slice(0, 160).replace(/\s+\S*$/, "")}…` : text;
+  const versions = [...lab.versions].sort((a, b) => a.n - b.n).map((version) => `- V${version.n} · ${version.name}: ${short(version.idea.split(/(?<=\.)\s/)[0]!)}`);
   const act = run.request.project?.root ? "Mark one as final to have it built, or pin notes for another round." : "Pin notes for another round, or mark one as final to settle on it.";
   return [`I'd take V${best.n} · ${best.name} forward.`, ...versions, act].join("\n");
 }
