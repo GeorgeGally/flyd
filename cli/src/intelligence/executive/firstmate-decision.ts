@@ -35,6 +35,8 @@ export interface FirstmateChange {
   request?: string;
   /** The result still carries open questions or risks: it is decided as a reply, so nothing George must decide is lost. */
   unresolved?: boolean;
+  /** Firstmate's own record that this task's worker was stopped on purpose, superseded or finished: its evidence refs. */
+  stopped?: string[];
 }
 
 export interface FirstmateDecisionOptions {
@@ -196,7 +198,7 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
   const ownsStore = options.store === undefined;
   const sourceId = change.sourceId ?? "firstmate.change";
   const finishedWork = reportsFinished(change);
-  const sourceEventId = createHash("sha256").update(`${change.eventId}\0${change.kind}\0${change.state}\0${change.label}\0${change.detail}\0${JSON.stringify([...change.evidenceRefs].sort())}${change.sentToBoss?.length ? `\0${[...change.sentToBoss].sort().join("\0")}` : ""}${finishedWork ? `\0${FINISHED_POLICY}` : ""}`).digest("hex");
+  const sourceEventId = createHash("sha256").update(`${change.eventId}\0${change.kind}\0${change.state}\0${change.label}\0${change.detail}\0${JSON.stringify([...change.evidenceRefs].sort())}${change.sentToBoss?.length ? `\0${[...change.sentToBoss].sort().join("\0")}` : ""}${finishedWork ? `\0${FINISHED_POLICY}` : ""}${change.stopped?.length ? `\0stopped:${[...change.stopped].sort().join("\0")}` : ""}`).digest("hex");
   const decisionId = createHash("sha256").update(`${sourceId}\0${sourceEventId}`).digest("hex").slice(0, 32);
   const existing = store.findByIdempotencyKey("executive.cycle", `step:${decisionId}`);
   if (existing?.payload?.decision && typeof existing.payload.decision === "object") {
@@ -228,7 +230,8 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
 
   try {
     const observed = { ...change, sourceText: [text(change.label, 160), text(change.detail, 1_200)].filter(Boolean).join(" — ") };
-    const lowLevel = change.kind === "fleet_state" && ["working", "paused", "queued"].includes(change.state);
+    // A worker firstmate stopped on purpose, superseded or saw finish is routine too, whatever its endpoint says now.
+    const lowLevel = change.kind === "fleet_state" && (["working", "paused", "queued"].includes(change.state) || Boolean(change.stopped?.length));
     let proposal: ExecutiveProposal;
     let finished: Awaited<ReturnType<typeof checkFinished>> | undefined;
     if (lowLevel) proposal = { kind: "routine", summary: "Routine employee lifecycle state stays backstage.", evidenceRefs: change.evidenceRefs };
@@ -266,7 +269,7 @@ export async function processFirstmateChange(change: FirstmateChange, options: F
       ...(verification ? { verification } : {}),
       ...(change.sentToBoss?.length ? { sentToBoss: change.sentToBoss } : {}),
       ...(change.requested ? { requested: true } : {}),
-      ...(change.state === "failed" ? { sourceFailed: true } : {}),
+      ...(change.state === "failed" && !change.stopped?.length ? { sourceFailed: true } : {}),
       ...(change.label ? { label: text(change.label, 160) } : {}),
       ...(change.openCalls?.length ? { openCalls: change.openCalls } : {}),
       ...(change.standing !== undefined ? { standing: change.standing, ...(change.taskId && tookBackOn(store, change.taskId) ? { takenBack: true } : {}) } : {}),

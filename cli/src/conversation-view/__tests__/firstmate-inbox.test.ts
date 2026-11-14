@@ -102,6 +102,14 @@ printf '{"id":"%s","saved":true,"acknowledged":false,"outcome":"queued"}\\n' "$3
       expect((await inbox.sendTaskNote("gnm-7", recover)).replayed).toBe(true);
       await inbox.sendTaskNote("gnm-8", recover);
       expect(readdirSync(join(home, "state", "inbox"))).toHaveLength(2);
+      // Keyed on the task's lifecycle, a gone worker is chased once whatever the note says.
+      mkdirSync(join(home, "data"), { recursive: true });
+      writeFileSync(join(home, "data", "backlog.md"), "- [ ] gnm-9 - Good Neighbours page (kind: ship) (since 2026-11-14)\n");
+      const life = inbox.taskLifecycle("gnm-9");
+      expect(life).toBe("gnm-9@2026-11-14");
+      expect((await inbox.sendTaskNote("gnm-9", recover, life)).replayed).toBe(false);
+      expect((await inbox.sendTaskNote("gnm-9", "Check the original request and current result.", life)).replayed).toBe(true);
+      expect(readdirSync(join(home, "state", "inbox"))).toHaveLength(3);
     } finally {
       if (previous === undefined) delete process.env.FLYD_COMMAND_DIR;
       else process.env.FLYD_COMMAND_DIR = previous;
