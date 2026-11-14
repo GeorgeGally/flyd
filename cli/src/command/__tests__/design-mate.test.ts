@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, startDesignRun, toldInChat, type DesignMateDeps } from "../design-mate.js";
+import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
 import { DesignModelError } from "../design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
 import { dispatchDomainFollowup } from "../followup.js";
@@ -443,6 +443,12 @@ describe("Design Mate", () => {
       expect(darker.phase).toBe("briefing");
       expect(darker.request.project).toBeUndefined();
       expect(readLab(loose.id, labs)!.picked).toBe(3);
+      for (const note of ["use that blue on the buttons", "use this font for headings", "go with that colour"]) {
+        const round = await dispatchDomainFollowup({ parentRunId: loose.id, question: note, project: { root: project } }) as DomainRun;
+        expect(readBuild(round.id, labs)).toBeNull();
+        expect(round.phase).toBe("briefing");
+        expect(readLab(loose.id, labs)!.picked).toBe(3);
+      }
 
       // Saying where later builds that pick, even when his words name no version; with nowhere to build, it is another round.
       const nowhere = await dispatchDomainFollowup({ parentRunId: loose.id, question: "build it into the site" }) as DomainRun;
@@ -452,6 +458,10 @@ describe("Design Mate", () => {
       expect(placed.request.project?.root).toBe(project);
       expect(readBuild(placed.id, labs)?.reference?.name).toBe("Departure board");
       // The pick builds once: later notes are another round, not the old pick again.
+      expect(readLab(loose.id, labs)!.picked).toBeUndefined();
+      writeLab(loose.id, { ...readLab(loose.id, labs)!, picked: 3 }, labs);
+      const theOne = await dispatchDomainFollowup({ parentRunId: loose.id, question: "go with the one.", project: { root: project } }) as DomainRun;
+      expect(readBuild(theOne.id, labs)?.reference?.name).toBe("Departure board");
       expect(readLab(loose.id, labs)!.picked).toBeUndefined();
       const later = await dispatchDomainFollowup({ parentRunId: loose.id, question: "make the type bigger", project: { root: project } }) as DomainRun;
       expect(readBuild(later.id, labs)).toBeNull();
