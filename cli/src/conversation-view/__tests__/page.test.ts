@@ -4612,6 +4612,20 @@ describe("the front page", () => {
     expect(input.placeholder).toBe("Message firstmate");
   });
 
+  it("shows a quote on News once, with who said it and where it came from", async () => {
+    const stream = await opened();
+    const words = "Confidence is not a guarantee of success, but a pattern of thinking that will improve your likelihood of success, a tenacious search for ways to make things work.";
+    const stories = [
+      { title: "John Eliot", url: "https://zenquotes.io/#00df0717c2a9", source: "ZenQuotes", media: "quote", quote: words, attribution: "John Eliot", gist: words },
+      { title: "Infinite Mac adds support for BeOS", url: "https://waxy.example/beos", source: "Waxy", gist: "Another dead operating system boots in a tab." },
+    ];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories, at: "2026-11-14T06:00:00.000Z" }], semantic: [] } });
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    const [quote, article] = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
+    expect([...quote!.querySelectorAll("p")].map((line) => line.textContent)).toEqual([`“${words}”`, "— John Eliot", "ZenQuotes"]);
+    expect([...article!.querySelectorAll("p")].map((line) => line.textContent)).toEqual(["Another dead operating system boots in a tab.", "Waxy"]);
+  });
+
   it("excludes named filler sources without filtering article URLs", async () => {
     const stream = await opened();
     const stories = [
