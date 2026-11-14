@@ -1,7 +1,7 @@
 import { sourceLabel } from "../lib/source-label.js";
 export { sourceLabel };
 import { execFile } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -64,8 +64,8 @@ export interface Edition { date: string; generatedAt: string; topics: string[]; 
 export interface ScoutFeedback { at: string; verdict: "more" | "less"; title: string; topic: string; source: string; sourceId?: string; why: string }
 
 /** How many picks a daily brief aims for; the model curates within this, a quiet day may be lean. */
-export const BRIEF_MIN = 10;
-export const BRIEF_MAX = 14;
+export const BRIEF_MIN = 16;
+export const BRIEF_MAX = 24;
 
 export function scoutDir(): string {
   return process.env.FLYD_SCOUT_DIR?.trim() || join(FLYD_DIR, "scout");
@@ -110,12 +110,13 @@ export const SEED_TASTE = [
   "Be opinionated: curate, don't list. One rabbit hole a day — deep, weird, inspiring, not a news article.",
 ].join("\n");
 
+// Hermes's curated briefing read all 35 of these subreddits and all 8 of its feeds (~/.hermes/scripts/reddit_curated.py).
 const SEED_SUBREDDITS: Record<string, string[]> = {
-  "Bitcoin & Crypto Art": ["ordinals", "Bitcoin", "CryptoArt", "GenerativeOrdinals"],
-  "AI Art": ["StableDiffusion", "comfyui", "aivideo", "Deforum"],
-  "Creative Coding": ["creativecoding", "generative", "p5js", "touchdesigner", "vjing", "vibecoding"],
+  "Bitcoin & Crypto Art": ["ordinals", "Bitcoin", "CryptoArt", "GenerativeOrdinals", "NFT"],
+  "AI Art": ["StableDiffusion", "comfyui", "aivideo", "Deforum", "aiArt"],
+  "Creative Coding": ["creativecoding", "generative", "p5js", "touchdesigner", "vjing", "vibecoding", "creativecode"],
   "Hardware Hacking": ["hardwarehacking", "esp32", "cyberDeck", "synthdiy"],
-  "AI & ML": ["LocalLLaMA", "generativeAI"],
+  "AI & ML": ["LocalLLaMA", "generativeAI", "MachineLearning", "artificial"],
   "Internet & Web": ["InternetIsBeautiful", "selfhosted", "DataHoarder"],
   "Startups": ["SideProject", "indiehackers", "SaaS"],
   "Deep Cuts": ["ReverseEngineering", "HobbyDrama", "electronics", "AskHistorians"],
@@ -128,9 +129,12 @@ const SEED_RSS: Array<[string, string, string]> = [
   ["Interconnected", "https://interconnected.org/home/feed", "Creative Tech"],
   ["Hackaday", "https://hackaday.com/blog/feed/", "Hardware Hacking"],
   ["Ars Technica", "https://feeds.arstechnica.com/arstechnica/index", "Technology"],
+  ["Daring Fireball", "https://daringfireball.net/feeds/main", "Technology"],
+  // Hermes read Two Minute Papers through a FeedBurner address that now 404s; this is the same channel's own feed.
+  ["Two Minute Papers", "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg", "AI & ML"],
 ];
 
-/** Untried feeds the evolve step can explore (from the old Discovery catalogue). */
+/** Untried feeds the evolve step can explore (from the old Discovery catalogue, legacy/rails/config/news_feeds.yml). */
 const RESERVE_RSS: Array<[string, string, string]> = [
   ["Information Is Beautiful", "https://feeds.feedburner.com/InformationIsBeautiful", "Design"],
   ["FlowingData", "https://flowingdata.com/feed", "Data visualisation"],
@@ -140,6 +144,10 @@ const RESERVE_RSS: Array<[string, string, string]> = [
   ["TechCrunch", "https://techcrunch.com/feed/", "Startups"],
   ["Creative Applications", "https://www.creativeapplications.net/feed/", "Creative Tech"],
   ["The Verge", "https://www.theverge.com/rss/index.xml", "Technology"],
+  ["Design Milk", "https://feeds.feedburner.com/design-milk", "Design"],
+  ["Uncrate", "https://feeds.feedburner.com/uncrate", "Design"],
+  ["Slashdot", "https://rss.slashdot.org/Slashdot/slashdot", "Technology"],
+  ["TechRadar", "https://www.techradar.com/feeds.xml", "Technology"],
 ];
 
 function sourceId(kind: SourceKind, target: string): string {
@@ -227,8 +235,15 @@ function feedbackDigest(feedback: ScoutFeedback[]): string {
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
 // Reddit gives an anonymous reader one feed per minute (x-ratelimit-reset ≈ 60s), so space them past that.
 const REDDIT_SPACING_MS = 61_000;
-/** Subreddits one run visits (oldest-fetched first); the 3-hourly watches rotate through the rest. */
-export const REDDIT_PER_RUN = 5;
+/** Subreddits one watch visits (oldest-fetched first); the 3-hourly watches rotate through the rest. */
+export const REDDIT_PER_RUN = 8;
+/** Subreddits the morning edition visits while its last30days searches run alongside. */
+export const REDDIT_PER_EDITION = 12;
+/** Feeds are read back this far, like last30days; seen links and headlines keep older items from repeating. */
+const FEED_WINDOW_DAYS = 30;
+/** last30days searches one edition runs, and how many at once. */
+export const TOPICS_PER_EDITION = 8;
+const TOPIC_CONCURRENCY = 2;
 /** One patient retry after a 429 before giving up on Reddit for this run. */
 const REDDIT_RETRY_AFTER_MS = 61_000;
 
@@ -241,7 +256,7 @@ async function fetchFeed(url: string, source: ScoutSource, fetchFn: typeof fetch
     return response;
   };
   const items = await new RssAdapter({ fetchFn: guarded, now: () => now }).read({ locator: url });
-  const cutoff = now.getTime() - 4 * 86_400_000;
+  const cutoff = now.getTime() - FEED_WINDOW_DAYS * 86_400_000;
   return items.flatMap((item) => {
     const link = item.locator ?? "";
     const title = (item.title ?? "").replace(/\s+/g, " ").trim();
@@ -251,7 +266,8 @@ async function fetchFeed(url: string, source: ScoutSource, fetchFn: typeof fetch
     return [{
       id: link, url: link, title, source: source.name, sourceId: source.id, topic: source.category ?? source.name,
       summary: item.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 280),
-      ...(item.publishedAt ? { published: item.publishedAt.slice(0, 10) } : {}),
+      // RSS dates read "Fri, 13 Nov 2026 …"; the ranker weighs freshness by the day itself.
+      ...(Number.isFinite(published) ? { published: new Date(published).toISOString().slice(0, 10) } : {}),
     }];
   }).slice(0, 12);
 }
@@ -277,8 +293,22 @@ export function parseLast30days(stdout: string, topic: string, sourceIdValue = s
 
 export async function fetchTopic(topic: string, script = last30daysScript()): Promise<ScoutCandidate[]> {
   if (!existsSync(script)) throw new Error(`last30days engine not found at ${script}`);
-  const { stdout } = await execFileAsync("python3", [script, topic, "--emit=json"], { timeout: 180_000, maxBuffer: 16 * 1024 * 1024 });
+  // A full pass over the past 30 days takes a minute or two. GitHub's hits are pull requests and issues that share a
+  // keyword, and Polymarket's are betting markets: neither is news, so the search keeps to the community sources.
+  const { stdout } = await execFileAsync("python3", [script, "--emit=json", "--days", "30", "--search", "reddit,hackernews,youtube", topic], { timeout: 240_000, maxBuffer: 16 * 1024 * 1024 });
   return parseLast30days(stdout, topic);
+}
+
+/**
+ * The topics one edition searches: the fittest active ones, then, while the
+ * planner has left slots empty, topics an earlier replan rested (newest first,
+ * never one George marked down).
+ */
+export function editionTopics(sources: ScoutSource[], limit = TOPICS_PER_EDITION): ScoutSource[] {
+  const active = sources.filter((source) => source.kind === "topic" && source.status === "active").sort((a, b) => fitness(b) - fitness(a));
+  const rested = sources.filter((source) => source.kind === "topic" && source.status === "paused" && source.dislikes === 0 && source.note?.startsWith("replanned"))
+    .sort((a, b) => Date.parse(b.pausedAt ?? b.addedAt) - Date.parse(a.pausedAt ?? a.addedAt));
+  return [...active, ...rested].slice(0, limit);
 }
 
 export interface FetchOptions {
@@ -292,19 +322,28 @@ export interface FetchOptions {
   redditSpacingMs?: number;
 }
 
-/** Fetch every active source: feeds in parallel (bounded), topic searches sequentially. Records failures. */
+/** Fetch every active source: feeds in parallel (bounded), Reddit politely, and last30days searches alongside, a few at once. Records failures. */
 export async function gatherCandidates(sources: ScoutSource[], options: FetchOptions): Promise<{ candidates: ScoutCandidate[]; failed: string[] }> {
   const fetchFn = options.fetchFn ?? fetch;
   const failed: string[] = [];
   const candidates: ScoutCandidate[] = [];
+  // Topic searches are slow, so they start with the feeds rather than after them.
+  const topicQueue = options.includeTopics ? editionTopics(sources) : [];
+  const fetchTopicFn = options.fetchTopicFn ?? ((topic: string) => fetchTopic(topic));
+  const topicWorkers = Array.from({ length: Math.min(TOPIC_CONCURRENCY, topicQueue.length) }, async () => {
+    for (let source = topicQueue.shift(); source; source = topicQueue.shift()) {
+      try { candidates.push(...(await fetchTopicFn(source.target)).map((candidate) => ({ ...candidate, sourceId: source.id }))); } catch { failed.push(source.id); }
+    }
+  });
   // Publisher feeds in parallel; Reddit one at a time, politely, stopping at the first rate limit.
   const queue = sources.filter((source) => source.status === "active" && source.kind === "rss");
+  const retry: ScoutSource[] = [];
   const workers = Array.from({ length: 6 }, async () => {
     for (let source = queue.shift(); source; source = queue.shift()) {
       try {
         candidates.push(...await fetchFeed(source.target, source, fetchFn, options.now));
       } catch (error) {
-        if (!(error instanceof RateLimited)) failed.push(source.id);
+        if (!(error instanceof RateLimited)) retry.push(source);
       }
     }
   });
@@ -332,13 +371,13 @@ export async function gatherCandidates(sources: ScoutSource[], options: FetchOpt
       }
     }
   })();
-  await Promise.all([...workers, reddit]);
-  if (options.includeTopics) {
-    const fetchTopicFn = options.fetchTopicFn ?? ((topic: string) => fetchTopic(topic));
-    // Topic searches are slow: take the fittest few.
-    const topics = sources.filter((source) => source.status === "active" && source.kind === "topic").sort((a, b) => fitness(b) - fitness(a)).slice(0, 4);
-    for (const source of topics) {
-      try { candidates.push(...(await fetchTopicFn(source.target)).map((candidate) => ({ ...candidate, sourceId: source.id }))); } catch { failed.push(source.id); }
+  await Promise.all([...workers, reddit, ...topicWorkers]);
+  // A feed that failed in the first burst gets one more try once the rest is in: a passing network blip is not a failing feed.
+  for (const source of retry) {
+    try {
+      candidates.push(...await fetchFeed(source.target, source, fetchFn, options.now));
+    } catch (error) {
+      if (!(error instanceof RateLimited)) failed.push(source.id);
     }
   }
   return { candidates, failed };
@@ -366,6 +405,7 @@ export function rankPrompt(
       "kind: 'must' for genuinely novel or important (Hot), 'relevant' for worth a look, 'rabbit_hole' for the one deep pick (exactly one).",
       "Be opinionated: curate, don't list, and mark a 'Skip' by omitting it. Write 'why' as one sharp sentence in your own voice on why this is worth his time, grounded in what the item actually says — never a stretch to his projects and never generic filler ('could inspire your work', 'can enhance your process'). Never a sentence that only names the item itself ('The thread itself.', 'Worth a read.'): say a real fact from it, or leave 'why' empty.",
       "Skip generic world or mainstream tech news, politics, crypto price talk and PFP/NFT market chatter: they do not clear the bar however fresh they are. Every pick must carry a working link.",
+      "Candidates reach back 30 days: favour what is new this week, and take an older one only when it is a real find he has not had yet.",
       `Spread it across his sources: at most ${EDITION_PER_SOURCE} picks from any one source (the name in brackets), so no single feed dominates.`,
     ];
   return [
@@ -414,6 +454,44 @@ export function interleaveBySource(candidates: ScoutCandidate[]): ScoutCandidate
 function seenUrls(dir: string): Set<string> {
   return new Set(readJsonl<{ url: string }>(join(dir, "seen.jsonl")).map((item) => item.url));
 }
+
+/** A headline as compared across briefings: case, punctuation and spacing do not make it new. */
+export function headlineKey(title: string): string {
+  return title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+/** Every headline George has already been given: the seen log, past editions and pushed must-knows. */
+function seenHeadlines(dir: string): Set<string> {
+  const editionsDir = join(dir, "editions");
+  const editions = existsSync(editionsDir)
+    ? readdirSync(editionsDir).filter((name) => name.endsWith(".json")).flatMap((name) => readJson<Edition | null>(join(editionsDir, name), null)?.items ?? [])
+    : [];
+  const titles = [
+    ...readJsonl<{ title?: string }>(join(dir, "seen.jsonl")),
+    ...readJsonl<{ title?: string }>(join(dir, "flash.jsonl")),
+    ...editions,
+  ].map((item) => headlineKey(String(item.title ?? "")));
+  return new Set(titles.filter(Boolean));
+}
+
+/** Candidates George has not been given yet, each link and headline once. */
+function unseenCandidates(candidates: ScoutCandidate[], dir: string, also: Set<string> = new Set()): ScoutCandidate[] {
+  const urls = seenUrls(dir);
+  const headlines = seenHeadlines(dir);
+  const keptUrls = new Set<string>();
+  const keptHeadlines = new Set<string>();
+  return candidates.filter((candidate) => {
+    const headline = headlineKey(candidate.title);
+    if (urls.has(candidate.url) || also.has(candidate.url) || keptUrls.has(candidate.url)) return false;
+    if (headline && (headlines.has(headline) || keptHeadlines.has(headline))) return false;
+    keptUrls.add(candidate.url);
+    if (headline) keptHeadlines.add(headline);
+    return true;
+  });
+}
+
+/** Candidates the morning edition shows the ranker, interleaved by source so none is starved. */
+export const EDITION_CANDIDATES = 200;
 
 /** Picks one source may have in a daily edition. */
 export const EDITION_PER_SOURCE = 3;
@@ -514,7 +592,7 @@ export async function planTopics(
   now: Date,
   options: { taste?: string; keep?: string[]; count?: number; feedback?: ScoutFeedback[] } = {},
 ): Promise<ScoutSource[]> {
-  const count = options.count ?? 4;
+  const count = options.count ?? TOPICS_PER_EDITION;
   if (count <= 0) return [];
   const prompt = [
     `Plan ${count} web/social search topics for George's daily news: things he would enjoy reading about, drawn from his taste below.`,
@@ -569,39 +647,36 @@ export interface ScoutRunResult {
   failedTopics: string[];
 }
 
+/** Seats beside the stories for a stat, a GIF, a video, an image, a quote and a thread. */
+export const INSPIRATION_SEATS = 6;
+/** One find after every few stories keeps the deck mixed without crowding the news. */
+const STORIES_PER_FIND = 3;
+
+/** Every story the ranker picked keeps its place; the inspiration finds take their own seats between them. */
 function blendEdition(ranked: EditionItem[], extras: InspirationItem[], focus: WorkFocus[], now: Date, dir: string): EditionItem[] {
-  const byUrl = new Map(ranked.map((item) => [item.url, item]));
-  const articles: InspirationItem[] = ranked.map((item) => ({
-    url: item.url,
-    title: item.title,
-    source: item.source,
-    sourceId: item.sourceId ?? item.source,
-    summary: item.why,
-    media: classifyMedia({ url: item.url, title: item.title, summary: item.why }),
-    published: now.toISOString(),
+  const picked = new Set(ranked.map((item) => item.url));
+  // The ranked stories are the articles; extras only fill the non-article seats.
+  const finds = mixInspiration(extras.filter((item) => item.media !== "article" && !picked.has(item.url)), focus, {
+    now: now.getTime(), seen: seenUrls(dir), lastShown: readShown(dir), limit: INSPIRATION_SEATS,
+  }).map((item): EditionItem => ({
+    n: 0, title: item.title, url: item.url, source: item.source, sourceId: item.sourceId,
+    topic: item.match ?? item.source, why: item.summary.slice(0, 280), kind: "relevant", media: item.media,
+    ...(item.figure ? { figure: item.figure } : {}),
+    ...(item.quote ? { quote: item.quote } : {}),
+    ...(item.attribution ? { attribution: item.attribution } : {}),
+    ...(item.mediaUrl ? { mediaUrl: item.mediaUrl } : {}),
   }));
-  const mixed = mixInspiration([...articles, ...extras], focus, { now: now.getTime(), seen: seenUrls(dir), lastShown: readShown(dir) });
-  const must = mixed.filter((item) => byUrl.get(item.url)?.kind === "must");
-  const rest = mixed.filter((item) => byUrl.get(item.url)?.kind !== "must");
-  return [...must, ...rest].map((item, index) => {
-    const prior = byUrl.get(item.url);
-    const media = item.media === "article" ? undefined : item.media;
-    const base: EditionItem = prior
-      ? { ...prior, ...(media ? { media } : {}) }
-      : {
-          n: index + 1, title: item.title, url: item.url, source: item.source, sourceId: item.sourceId,
-          topic: item.match ?? item.source, why: item.summary.slice(0, 280), kind: "relevant",
-          ...(media ? { media } : {}),
-        };
-    return {
-      ...base,
-      n: index + 1,
-      ...(item.figure ? { figure: item.figure } : {}),
-      ...(item.quote ? { quote: item.quote } : {}),
-      ...(item.attribution ? { attribution: item.attribution } : {}),
-      ...(item.mediaUrl ? { mediaUrl: item.mediaUrl } : {}),
-    };
+  const stories = ranked.map((item) => {
+    const media = classifyMedia({ url: item.url, title: item.title, summary: item.why });
+    return media === "article" ? item : { ...item, media };
   });
+  const ordered = [...stories.filter((item) => item.kind === "must"), ...stories.filter((item) => item.kind !== "must")];
+  const blended: EditionItem[] = [];
+  ordered.forEach((story, index) => {
+    blended.push(story);
+    if ((index + 1) % STORIES_PER_FIND === 0 && finds.length) blended.push(finds.shift()!);
+  });
+  return [...blended, ...finds].map((item, index) => ({ ...item, n: index + 1 }));
 }
 
 /** Build today's edition from every active source, ranked for George. */
@@ -620,19 +695,18 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
 
   // Everything the watches fetched since the last edition, plus this run's own fetch.
   const pooled = readPool(dir, now, latestEdition(dir)?.generatedAt);
-  const gathered = await gatherCandidates(sources, { fetchFn: deps.fetchFn, fetchTopicFn: deps.fetchTopicFn, includeTopics: true, now, redditLimit: REDDIT_PER_RUN, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
+  const gathered = await gatherCandidates(sources, { fetchFn: deps.fetchFn, fetchTopicFn: deps.fetchTopicFn, includeTopics: true, now, redditLimit: REDDIT_PER_EDITION, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
   const { failed } = gathered;
   const candidates = [...gathered.candidates, ...pooled];
   sources = recordFailures(sources, failed, now);
-  const seen = seenUrls(dir);
-  const fresh = interleaveBySource(candidates.filter((candidate, index) => !seen.has(candidate.url) && candidates.findIndex((other) => other.url === candidate.url) === index)).slice(0, 150);
+  const fresh = interleaveBySource(unseenCandidates(candidates, dir)).slice(0, EDITION_CANDIDATES);
   const ranked = fresh.length ? parsePicks(await deps.complete(rankPrompt(fresh, rankContext(dir, now, sources, "edition"))), fresh, BRIEF_MAX, EDITION_PER_SOURCE) : [];
   const focus = deps.focus ?? (process.env.VITEST ? [] : workFocusFromProjects(liveProjects()));
   let extras = deps.inspiration ?? [];
   if (!deps.inspiration && !process.env.VITEST) {
     try { extras = await gatherInspiration(dir, focus, { now, fetchImpl: deps.fetchFn }); } catch { extras = []; }
   }
-  const items = extras.length ? blendEdition(ranked, extras, focus, now, dir) : ranked;
+  const items = blendEdition(ranked, extras, focus, now, dir);
   const rotating = items.filter((item) => item.media).map((item) => item.url);
   if (rotating.length) markShown(dir, rotating, now);
 
@@ -642,7 +716,7 @@ export async function runScout(deps: ScoutDependencies): Promise<ScoutRunResult>
   const edition: Edition = { date: today, generatedAt: now.toISOString(), topics: [...new Set(items.map((item) => item.topic))], items };
   atomicWrite(join(dir, "editions", `${today}.json`), `${JSON.stringify(edition, null, 2)}\n`);
   atomicWrite(join(dir, "edition-latest.json"), `${JSON.stringify(edition, null, 2)}\n`);
-  appendJsonl(join(dir, "seen.jsonl"), items.map((item) => ({ url: item.url, date: today })));
+  appendJsonl(join(dir, "seen.jsonl"), items.map((item) => ({ url: item.url, title: item.title, date: today })));
   clearPool(dir, now);
   if (items.length) deps.record?.(edition);
   return { edition, failedTopics: failed };
@@ -681,9 +755,8 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   const { candidates, failed } = await gatherCandidates(sources, { fetchFn: deps.fetchFn, includeTopics: false, now, redditLimit: REDDIT_PER_RUN, ...(deps.redditSpacingMs !== undefined ? { redditSpacingMs: deps.redditSpacingMs } : {}) });
   sources = recordFailures(sources, failed, now);
   writeSources(sources, dir);
-  const seen = seenUrls(dir);
   const watched = new Set(readJsonl<{ url: string }>(join(dir, "watched.jsonl")).map((item) => item.url));
-  const fresh = interleaveBySource(candidates.filter((candidate, index) => !seen.has(candidate.url) && !watched.has(candidate.url) && candidates.findIndex((other) => other.url === candidate.url) === index)).slice(0, 80);
+  const fresh = interleaveBySource(unseenCandidates(candidates, dir, watched)).slice(0, 80);
   // Everything examined is remembered so the watch never re-reads the same item.
   appendJsonl(join(dir, "watched.jsonl"), fresh.map((candidate) => ({ url: candidate.url, date: today })));
   // …and kept for the next edition, which ranks from it.
@@ -697,7 +770,7 @@ export async function watchScout(deps: ScoutDependencies): Promise<EditionItem[]
   const rows = musts.map((item, index) => ({ ...item, date: today, notified: Boolean(deps.notify) && notifiedToday + index < WATCH_NOTIFICATIONS_PER_DAY }));
   for (const row of rows.filter((item) => item.notified)) await deps.notify!("Flyd", `${row.title} — ${row.why}`).catch(() => undefined);
   appendJsonl(join(dir, "flash.jsonl"), rows);
-  appendJsonl(join(dir, "seen.jsonl"), rows.map((item) => ({ url: item.url, date: today })));
+  appendJsonl(join(dir, "seen.jsonl"), rows.map((item) => ({ url: item.url, title: item.title, date: today })));
   return musts;
 }
 
@@ -814,7 +887,7 @@ export async function evolveScout(deps: ScoutDependencies): Promise<EvolutionCha
   // Replan search topics from his taste: keep the ones he added or liked, replace the rest.
   const activeTopics = sources.filter((source) => source.kind === "topic" && source.status === "active");
   const kept = activeTopics.filter(keepsTopic);
-  const planned = await planTopics(deps.complete, now, { taste, feedback, keep: kept.map((source) => source.target), count: 4 - kept.length });
+  const planned = await planTopics(deps.complete, now, { taste, feedback, keep: kept.map((source) => source.target), count: TOPICS_PER_EDITION - kept.length });
   if (planned.length) {
     const plannedIds = new Set(planned.map((source) => source.id));
     sources = sources.map((source) => {

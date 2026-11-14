@@ -1,11 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  editionActivityRecord, evolveScout, reviveFailedSources, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
-  runScout, scoutTick, SEED_TASTE, seedSources, takeEvolutionNotes, watchScout, writeSources, type Edition, type ScoutSource,
+  EDITION_CANDIDATES, editionActivityRecord, editionTopics, evolveScout, reviveFailedSources, fitness, latestEdition, parseLast30days, readSources, readTaste, recentFlashes, recordScoutFeedback,
+  runScout, scoutTick, SEED_TASTE, seedSources, takeEvolutionNotes, TOPICS_PER_EDITION, watchScout, writeSources, type Edition, type ScoutSource,
 } from "../scout.js";
+import type { InspirationItem } from "../inspiration.js";
 import { activityFromRecords } from "../../conversation-view/activity.js";
 import { providerTrouble, readScoutRun } from "../scout-run.js";
 
@@ -39,6 +40,22 @@ describe("scout sources", () => {
     expect(sources.some((source) => source.status === "reserve")).toBe(true);
     expect(readTaste(dir)).toBe(SEED_TASTE);
     expect(SEED_TASTE).toContain("Avoid: generic world news, politics, crypto price speculation");
+  });
+
+  it("carries every feed and subreddit Hermes's briefing read", () => {
+    const sources = readSources(dir, at("2026-11-14T08:00:00Z"));
+    for (const feed of ["Daring Fireball", "Ars Technica", "Hackaday", "Simon Willison", "Waxy.org", "Import AI", "Interconnected", "Two Minute Papers"]) {
+      expect(sources.find((source) => source.name === feed)).toMatchObject({ kind: "rss", status: "active" });
+    }
+    const hermes = [
+      "ordinals", "CryptoArt", "GenerativeOrdinals", "Bitcoin", "NFT", "StableDiffusion", "comfyui", "Deforum", "aiArt", "aivideo",
+      "creativecoding", "generative", "p5js", "vibecoding", "vjing", "touchdesigner", "creativecode", "hardwarehacking", "esp32", "cyberDeck",
+      "synthdiy", "MachineLearning", "generativeAI", "artificial", "LocalLLaMA", "internetisbeautiful", "selfhosted", "DataHoarder",
+      "SideProject", "indiehackers", "SaaS", "ReverseEngineering", "HobbyDrama", "AskHistorians", "electronics",
+    ];
+    expect(hermes).toHaveLength(35);
+    const subreddits = new Set(sources.filter((source) => source.kind === "reddit" && source.status === "active").map((source) => source.target.toLowerCase()));
+    expect(hermes.filter((sub) => !subreddits.has(sub.toLowerCase()))).toEqual([]);
   });
 
   it("unions defaults added later into the managed population without disturbing it", () => {
@@ -82,7 +99,7 @@ describe("edition, feedback, and watch", () => {
     });
     const prompts: string[] = [];
     const complete = vi.fn(async (prompt: string) => {
-      if (prompt.startsWith("Plan 4")) return '{"topics": []}';
+      if (prompt.startsWith("Plan ")) return '{"topics": []}';
       prompts.push(prompt);
       const indexOf = (title: string) => prompt.split("\n").find((line) => line.includes(title))?.match(/^\[(\d+)\]/)?.[1];
       return JSON.stringify({ picks: [
@@ -118,7 +135,7 @@ describe("edition, feedback, and watch", () => {
   });
 
   it("lets every source reach the ranker even when early feeds alone would fill the candidate cap", async () => {
-    const feeds = Array.from({ length: 14 }, (_, index) => ({ kind: "rss" as const, name: `Feed ${index}`, target: `https://feed${index}.test/rss` }));
+    const feeds = Array.from({ length: 18 }, (_, index) => ({ kind: "rss" as const, name: `Feed ${index}`, target: `https://feed${index}.test/rss` }));
     onlySources([...feeds, { kind: "reddit", name: "r/ordinals", target: "ordinals" }]);
     const fetchFn = fakeFetch({
       ...Object.fromEntries(feeds.map((_, index) => [`feed${index}.test`, rss(Array.from({ length: 12 }, (_, item) => ({ title: `Feed ${index} story ${item}`, link: `https://feed${index}.test/${item}` })))])),
@@ -126,13 +143,13 @@ describe("edition, feedback, and watch", () => {
     });
     const prompts: string[] = [];
     const complete = vi.fn(async (prompt: string) => {
-      if (prompt.startsWith("Plan 4")) return '{"topics": []}';
+      if (prompt.startsWith("Plan ")) return '{"topics": []}';
       prompts.push(prompt);
       return '{"picks": []}';
     });
     await runScout({ complete, fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-27T07:00:00Z") });
     const candidates = prompts[0]!.split("\n").filter((line) => /^\[\d+\]/.test(line));
-    expect(candidates).toHaveLength(150);
+    expect(candidates).toHaveLength(EDITION_CANDIDATES);
     expect(prompts[0]).toContain("A new recursive inscription technique");
     expect(feeds.every((_, index) => prompts[0]!.includes(`Feed ${index} story 0`))).toBe(true);
   });
@@ -196,10 +213,10 @@ describe("edition brief", () => {
     const fetchFn = fakeFetch({ "waxy.org": rss([{ title: "Story", link: "https://waxy.org/s" }]) });
     const planning = '{"topics": []}';
     const empty = vi.fn();
-    await runScout({ complete: vi.fn(async (prompt: string) => prompt.startsWith("Plan 4") ? planning : '{"picks": []}'), fetchFn, dir, record: empty, now: () => at("2026-09-26T07:00:00Z") });
+    await runScout({ complete: vi.fn(async (prompt: string) => prompt.startsWith("Plan ") ? planning : '{"picks": []}'), fetchFn, dir, record: empty, now: () => at("2026-09-26T07:00:00Z") });
     expect(empty).not.toHaveBeenCalled();
     const record = vi.fn();
-    await runScout({ complete: vi.fn(async (prompt: string) => prompt.startsWith("Plan 4") ? planning : '{"picks": [{"index": 0, "kind": "relevant", "why": "worth his time"}]}'), fetchFn, dir, record, force: true, now: () => at("2026-09-27T07:00:00Z") });
+    await runScout({ complete: vi.fn(async (prompt: string) => prompt.startsWith("Plan ") ? planning : '{"picks": [{"index": 0, "kind": "relevant", "why": "worth his time"}]}'), fetchFn, dir, record, force: true, now: () => at("2026-09-27T07:00:00Z") });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ date: "2026-09-27" }));
   });
 });
@@ -301,7 +318,7 @@ describe("evolution", () => {
     const prompts: string[] = [];
     const complete = vi.fn(async (prompt: string) => {
       prompts.push(prompt);
-      return prompt.startsWith("Plan 3") ? JSON.stringify({ topics: [
+      return prompt.startsWith("Plan ") ? JSON.stringify({ topics: [
         { topic: "touchdesigner audio reactive", why: "creative coding" },
         { topic: "ordinals recursion", why: "duplicate of a kept one" },
         { topic: "esp32 cyberdeck builds", why: "hardware hacking" },
@@ -358,7 +375,7 @@ describe("the edition draws on the whole day", () => {
     redditBlocked = true;
     const prompts: string[] = [];
     const complete = vi.fn(async (prompt: string) => {
-      if (prompt.startsWith("Plan 4")) return '{"topics": []}';
+      if (prompt.startsWith("Plan ")) return '{"topics": []}';
       prompts.push(prompt);
       return JSON.stringify({ picks: [{ index: indexOf(prompt, "Flow fields"), kind: "relevant", why: "Data as a brush." }] });
     });
@@ -382,7 +399,7 @@ describe("the edition draws on the whole day", () => {
       "waxy.test": rss([{ title: "Waxy link", link: "https://waxy.test/1" }]),
     });
     const complete = vi.fn(async (prompt: string) => {
-      if (prompt.startsWith("Plan 4")) return '{"topics": []}';
+      if (prompt.startsWith("Plan ")) return '{"topics": []}';
       expect(prompt).toContain("at most 3 picks from any one source");
       const picks = [...Array.from({ length: 6 }, (_, n) => `Hack ${n}`), "Waxy link"].map((title) => ({ index: indexOf(prompt, title), kind: "relevant", why: "good" }));
       return JSON.stringify({ picks });
@@ -390,6 +407,117 @@ describe("the edition draws on the whole day", () => {
     const result = await runScout({ complete, fetchFn, dir, redditSpacingMs: 0, now: () => at("2026-09-27T06:00:00Z") });
     expect(result.edition?.items.filter((item) => item.source === "Hackaday")).toHaveLength(3);
     expect(result.edition?.items.some((item) => item.source === "Waxy.org")).toBe(true);
+  });
+
+  const recent = "Thu, 12 Nov 2026 10:00:00 GMT";
+  const rankerFor = (prompts: string[], pick: (prompt: string) => Array<{ index: number; kind: string; why: string }> = () => []) => vi.fn(async (prompt: string) => {
+    if (prompt.startsWith("Plan ")) return '{"topics": []}';
+    prompts.push(prompt);
+    return JSON.stringify({ picks: pick(prompt) });
+  });
+
+  it("reads feeds back thirty days, as last30days does, and dates each candidate by its day", async () => {
+    onlySources([{ kind: "rss", name: "Import AI", target: "https://importai.test/feed" }]);
+    const fetchFn = fakeFetch({ "importai.test": rss([
+      { title: "This week in models", link: "https://importai.test/1", date: recent },
+      { title: "Three weeks back", link: "https://importai.test/2", date: "Fri, 23 Oct 2026 10:00:00 GMT" },
+      { title: "Last season", link: "https://importai.test/3", date: "Mon, 05 Oct 2026 10:00:00 GMT" },
+    ]) });
+    const prompts: string[] = [];
+    await runScout({ complete: rankerFor(prompts), fetchFn, dir, now: () => at("2026-11-14T07:00:00Z") });
+    expect(prompts[0]).toContain("This week in models");
+    expect(prompts[0]).toMatch(/· 2026-10-23\) Three weeks back/);
+    expect(prompts[0]).not.toContain("Last season");
+  });
+
+  it("gives a feed that fails in the first burst one more try before counting it as failing", async () => {
+    onlySources([{ kind: "rss", name: "Hackaday", target: "https://hackaday.test/feed" }]);
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("fetch failed");
+      return new Response(rss([{ title: "A clamp meter runs DOOM", link: "https://hackaday.test/doom", date: recent }]), { status: 200 });
+    }) as typeof fetch;
+    const prompts: string[] = [];
+    const result = await runScout({ complete: rankerFor(prompts), fetchFn, dir, now: () => at("2026-11-14T07:00:00Z") });
+    expect(result.failedTopics).toEqual([]);
+    expect(prompts[0]).toContain("A clamp meter runs DOOM");
+    expect(readSources(dir)[0]).toMatchObject({ name: "Hackaday", failures: 0 });
+  });
+
+  it("never repeats a headline from an earlier briefing, even under a new link", async () => {
+    onlySources([
+      { kind: "rss", name: "Waxy.org", target: "https://waxy.test/feed" },
+      { kind: "rss", name: "Kottke", target: "https://kottke.test/feed" },
+    ]);
+    // An edition from before headlines were logged.
+    mkdirSync(join(dir, "editions"), { recursive: true });
+    writeFileSync(join(dir, "editions", "2026-11-01.json"), JSON.stringify({ date: "2026-11-01", generatedAt: "2026-11-01T06:00:00Z", topics: [], items: [
+      { n: 1, title: "A 1990s demo, rebuilt", url: "https://old.test/demo", source: "Waxy.org", topic: "Internet", why: "", kind: "relevant" },
+    ] }));
+    const first = fakeFetch({
+      "waxy.test": rss([{ title: "The GeoCities art archive", link: "https://waxy.test/geo", date: recent }, { title: "Plotters, again", link: "https://waxy.test/plot", date: recent }]),
+      "kottke.test": rss([{ title: "A 1990s Demo — Rebuilt!", link: "https://kottke.test/demo", date: recent }, { title: "plotters again", link: "https://kottke.test/plot", date: recent }]),
+    });
+    const prompts: string[] = [];
+    const complete = rankerFor(prompts, (prompt) => {
+      const geo = indexOf(prompt, "GeoCities");
+      return Number.isFinite(geo) ? [{ index: geo, kind: "rabbit_hole", why: "Internet archaeology." }] : [];
+    });
+    await runScout({ complete, fetchFn: first, dir, now: () => at("2026-11-13T07:00:00Z") });
+    expect(prompts[0]).not.toContain("1990s Demo");
+    expect(prompts[0]!.split("\n").filter((line) => /plotters,? again/i.test(line))).toHaveLength(1);
+
+    // The next day the same story is back under another link.
+    const second = fakeFetch({ "waxy.test": rss([{ title: "The GeoCities Art Archive.", link: "https://waxy.test/geo?ref=rss", date: recent }, { title: "Plotters, again", link: "https://waxy.test/plot", date: recent }]) });
+    await runScout({ complete, fetchFn: second, dir, force: true, now: () => at("2026-11-14T07:00:00Z") });
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).not.toContain("GeoCities");
+  });
+
+  it("runs a full set of last30days searches each edition, topping up from topics a replan rested", async () => {
+    const topic = (target: string, extra: Partial<ScoutSource> = {}) => ({ kind: "topic" as const, name: target, target, addedBy: "evolution" as const, ...extra });
+    onlySources([
+      topic("p5.js generative sketches"),
+      topic("on-chain audio ordinals"),
+      topic("demoscene 64k intros", { status: "paused", note: "replanned 2026-11-10", pausedAt: "2026-11-10T00:00:00Z" }),
+      topic("pen plotter generative art", { status: "paused", note: "replanned 2026-11-12", pausedAt: "2026-11-12T00:00:00Z" }),
+      topic("tweet engagement prediction", { status: "paused", note: "paused 25 Oct: implementation phrase, not a news topic", pausedAt: "2026-10-25T00:00:00Z" }),
+      topic("bitcoin stamps protocol", { status: "paused", note: "replanned 2026-11-11", pausedAt: "2026-11-11T00:00:00Z", dislikes: 1 }),
+    ]);
+    expect(editionTopics(readSources(dir)).map((source) => source.target)).toEqual([
+      "p5.js generative sketches", "on-chain audio ordinals", "pen plotter generative art", "demoscene 64k intros",
+    ]);
+    const many = Array.from({ length: 12 }, (_, index) => ({ ...topic(`topic ${index}`), id: `topic:topic ${index}`, status: "active" as const, shown: 0, likes: 0, dislikes: 0, failures: 0, addedAt: "2026-11-01T00:00:00Z" }));
+    expect(editionTopics(many)).toHaveLength(TOPICS_PER_EDITION);
+
+    const searched: string[] = [];
+    const fetchTopicFn = vi.fn(async (target: string) => {
+      searched.push(target);
+      return [{ id: `https://hn.test/${searched.length}`, url: `https://hn.test/${searched.length}`, title: `Found for ${target}`, source: "Hacker News", sourceId: "", summary: "", topic: target }];
+    });
+    const prompts: string[] = [];
+    await runScout({ complete: rankerFor(prompts), fetchFn: fakeFetch({}), fetchTopicFn, dir, now: () => at("2026-11-14T07:00:00Z") });
+    expect([...searched].sort()).toEqual(["demoscene 64k intros", "on-chain audio ordinals", "p5.js generative sketches", "pen plotter generative art"]);
+    expect(prompts[0]).toContain("Found for pen plotter generative art");
+  });
+
+  it("keeps every story the ranker picked, seating a stat, a GIF and the like between them, never an extra article", async () => {
+    const feeds = ["hackaday", "waxy", "cdm"];
+    onlySources(feeds.map((name) => ({ kind: "rss" as const, name, target: `https://${name}.test/feed` })));
+    const fetchFn = fakeFetch(Object.fromEntries(feeds.map((name) => [`${name}.test`, rss(Array.from({ length: 3 }, (_, n) => ({ title: `${name} story ${n}`, link: `https://${name}.test/${n}`, date: recent })))])));
+    const inspiration: InspirationItem[] = [
+      { url: "https://en.wikipedia.org/wiki/Plotter", title: "Plotters sold", source: "Wikipedia", sourceId: "wiki", summary: "12% of plotters", media: "stat", figure: "12%" },
+      { url: "https://commons.wikimedia.org/wiki/File:Loop.gif", title: "Loop", source: "Wikimedia Commons", sourceId: "commons:gif", summary: "Loop", media: "gif", mediaUrl: "https://upload.wikimedia.org/loop.gif" },
+      { url: "https://news.example/celebrity", title: "A celebrity re-signs", source: "Google Trends", sourceId: "trends", summary: "Trending", media: "article" },
+    ];
+    const complete = rankerFor([], (prompt) => feeds.flatMap((name) => [0, 1, 2].map((n) => ({ index: indexOf(prompt, `${name} story ${n}`), kind: "relevant", why: "worth it" }))));
+    const result = await runScout({ complete, fetchFn, dir, now: () => at("2026-11-14T07:00:00Z"), focus: [], inspiration });
+    const items = result.edition!.items;
+    expect(items.filter((item) => item.source !== "Wikipedia" && item.source !== "Wikimedia Commons")).toHaveLength(9);
+    expect(items.map((item) => item.media ?? "story")).toEqual(["story", "story", "story", "stat", "story", "story", "story", "gif", "story", "story", "story"]);
+    expect(items.map((item) => item.n)).toEqual(items.map((_, index) => index + 1));
+    expect(items.some((item) => item.source === "Google Trends")).toBe(false);
   });
 
   it("names every subreddit r/<name>, whether seeded, bred by evolution, or stored before the fix", async () => {
