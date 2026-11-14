@@ -82,7 +82,7 @@ export function cardWordsKey(project: string, state: string, title: string, line
 
 export function cardSource(project: string, state: string, title: string, line: string, answers?: string[], named: CardIdentity = {}): CardSource {
   // A card that asks nothing is read under the rule that says so: its key says it, so no older reading stands in.
-  const asks = !named.wantsAnswer || Boolean(answers?.length) || !onlyTells([line, title]);
+  const asks = !named.wantsAnswer || Boolean(answers?.length) || !onlyTells(line) || asksSomething(title);
   const key = named.identity
     ? createHash("sha256").update([PROMPT_VERSION, "question", project.replace(/\s+/g, " ").trim(), state.trim(), named.identity, ...(answers?.length ? [answers.join("\u0001")] : [])].join("\0")).digest("hex").slice(0, 20)
     : asks ? cardWordsKey(project, state, title, line, answers) : cardWordsKey(project, `${state}\0notice`, title, line, answers);

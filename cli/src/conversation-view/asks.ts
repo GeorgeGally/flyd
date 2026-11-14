@@ -14,10 +14,18 @@ export function asksSomething(text: string, choices: readonly string[] = []): bo
   return choices.length > 0 || ASKS_HIM.test(text);
 }
 
+/** A clause that leads with something to do ("land PR #312", "restart it"): an instruction, so his call. */
+const DOES = /^(?:(?:please|then|now|so|and)\s+)*(?:land|merge|publish|ship|restart|review|deploy|approve|release|pick|choose|decide|send|run|re-?run|retry|rebase|build|fix|update|post|push|start|resume|cancel|close|reopen|delete|remove|add|create|check|test|verify|open|look|read|reply|answer)\b/i;
+
+/** A line's clauses: split at semicolons, colons, sentence ends, commas, dashes, "and" and "then". */
+const clauses = (text: string) => text.split(/[;:\n]|\.(?:\s|$)|,\s|\s[—–-]\s|\s(?:and|then)\s/i).map((clause) => clause.trim()).filter(Boolean);
+
 /**
- * Whether these lines only tell him something: none asks him anything and one clearly reports where something stands.
- * Such a line is never put to him as a call, and its plain words never invent a question it does not ask. Pure.
+ * Whether a line only tells him something: it asks nothing and every clause in it reports where something stands,
+ * none leading with something to do. Such a line is never put to him as a call, and its plain words never invent a
+ * question it does not ask. "Build done; land PR #312" still asks him to land it. Pure.
  */
-export function onlyTells(texts: readonly string[], choices: readonly string[] = []): boolean {
-  return !texts.some((text) => asksSomething(text, choices)) && texts.some((text) => REPORTS.test(text));
+export function onlyTells(text: string, choices: readonly string[] = []): boolean {
+  const parts = clauses(text);
+  return parts.length > 0 && !asksSomething(text, choices) && parts.every((clause) => REPORTS.test(clause) && !DOES.test(clause));
 }

@@ -28,7 +28,7 @@ import { SnapshotGate, type SnapshotGateOptions } from "./snapshot-gate.js";
 import { BoardShots, boardShotSrc, publicBoardUrl } from "./board-shots.js";
 import { BoardNames, boardKeyOf, boardTitle, isBoardKey, ProjectBoards, viaOpener } from "./liesel.js";
 import type { HoldCheck, HoldState } from "./hold-check.js";
-import { onlyTells } from "./asks.js";
+import { asksSomething, onlyTells } from "./asks.js";
 import type { RetiredCards } from "./retired-cards.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
@@ -553,7 +553,7 @@ function notADecision(row: ArtefactRow): boolean {
   if (NOT_A_DECISION.test(row.label) || Boolean(row.detail && NOT_A_DECISION.test(row.detail))) return true;
   // The hold's own reason is what it puts to him: a reason that only reports something is a notice, not a call.
   // (A settled row keeps the words he was last shown, which need not ask: it is judged by the read that settled it.)
-  return !row.ledgerOnly && Boolean(row.detail) && onlyTells([row.detail!, row.question ?? ""], row.choices ?? []);
+  return !row.ledgerOnly && Boolean(row.detail) && onlyTells(row.detail!, row.choices ?? []) && !asksSomething(row.question ?? "");
 }
 
 /** A hold nobody has touched for this long, with nothing to answer, is no longer a call. */
@@ -587,11 +587,17 @@ export function withCurrentCalls(fleet: FleetArtefact, now: number): FleetArtefa
   if (fleet.unavailable) return fleet;
   const confirmed = (row: ArtefactRow) => Boolean(row.holdIdentity) && !notADecision(row);
   const kept = (row: ArtefactRow) => row.ledgerOnly || isCurrentDecision(row, now) || confirmed(row);
-  const dropped = new Set(fleet.calls.filter((row) => !kept(row)).flatMap((row) => (row.task ? [row.task] : [])));
+  return withoutDroppedDecisions(fleet, fleet.calls.filter(kept).map((row) => (row.ledgerOnly || isCurrentDecision(row, now) ? row : { ...row, quiet: true })));
+}
+
+/** The fleet with these calls kept, and the decision change of every call it no longer holds gone with it, so Core never weighs one. Pure. */
+function withoutDroppedDecisions(fleet: FleetArtefact, calls: ArtefactRow[]): FleetArtefact {
+  const kept = new Set(calls.flatMap((row) => (row.task ? [row.task] : [])));
+  const dropped = new Set(fleet.calls.flatMap((row) => (row.task && !kept.has(row.task) ? [row.task] : [])));
   return {
     ...fleet,
-    calls: fleet.calls.filter(kept).map((row) => (row.ledgerOnly || isCurrentDecision(row, now) ? row : { ...row, quiet: true })),
-    ...(fleet.changes ? { changes: fleet.changes.filter((change) => !(change.kind === "decision" && change.taskId && dropped.has(change.taskId))) } : {}),
+    calls,
+    ...(fleet.changes && dropped.size ? { changes: fleet.changes.filter((change) => !(change.kind === "decision" && change.taskId && dropped.has(change.taskId))) } : {}),
   };
 }
 
@@ -669,8 +675,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
   };
   if (fleet.unavailable) return fleet;
   return {
-    ...fleet,
-    calls: fleet.calls.map((row) => (row.ledgerOnly ? row : enrich(row, true))).filter((row) => (row.ledgerOnly || options.keepStaleCalls ? !notADecision(row) : isCurrentDecision(row, now))),
+    ...withoutDroppedDecisions(fleet, fleet.calls.map((row) => (row.ledgerOnly ? row : enrich(row, true))).filter((row) => (row.ledgerOnly || options.keepStaleCalls ? !notADecision(row) : isCurrentDecision(row, now)))),
     live: fleet.live.map((row) => enrich(row)),
     ready: fleet.ready.map((row) => enrich(row)),
     landed: fleet.landed.map((row) => enrich(row)),

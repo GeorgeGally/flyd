@@ -156,8 +156,22 @@ describe("E4: 'The picture desk isn't shipping, and I'm replacing it', which ask
     expect(fleet.calls).toEqual([]);
   });
 
-  it("an instruction that reports nothing is still his call", () => {
-    for (const reason of ["Land PR #312 into main after the visual check", "Merge the redesign once CI is green", "Publish the HFTW launch post"]) {
+  it("never reaches Core as a decision", async () => {
+    const home = fleetHome([{ id: "flyd-picture-desk", summary: "Picture desk" }], [
+      `- [ ] flyd-picture-desk - Flyd picture desk (repo: flyd) (since ${new Date().toISOString().slice(0, 10)}) (hold: ${hold(NOTICE)}) (hold-kind: captain)`,
+    ]);
+    const decided: string[] = [];
+    const feed = feedIn(home, { decideChanges: async (changes) => { decided.push(...changes.filter((change) => change.kind === "decision").map((change) => change.taskId ?? "")); return []; } });
+    await feed.refresh();
+    expect(feed.current().fleet!.calls).toEqual([]);
+    expect(decided).toEqual([]);
+  });
+
+  it("an instruction is still his call, even beside a line that reports something", () => {
+    for (const reason of [
+      "Land PR #312 into main after the visual check", "Merge the redesign once CI is green", "Publish the HFTW launch post",
+      "Build done; land PR #312 after the visual check", "Worker stopped; restart it with the new spec", "Hero is live on staging: merge to main",
+    ]) {
       const entries = parseBacklog(`- [ ] flyd-instruction - Flyd instruction (repo: flyd) (since 2026-11-14) (hold: ${hold(reason)}) (hold-kind: captain)`);
       const fleet = withCurrentCalls(enrichFleet(emptyFleet({ calls: [{ label: "Instruction", task: "flyd-instruction" }] }), entries, new Map(), NOW, { keepStaleCalls: true }), NOW);
       expect(fleet.calls.map((row) => row.task), reason).toEqual(["flyd-instruction"]);
@@ -169,6 +183,7 @@ describe("E4: 'The picture desk isn't shipping, and I'm replacing it', which ask
   it("is never turned into a question in his words", async () => {
     const source = cardSource("Flyd", "Needs you", "Picture desk", NOTICE, undefined, { wantsAnswer: true });
     expect(source.asks).toBe(false);
+    expect(cardSource("Flyd", "Needs you", "Hero", "Hero is live on staging: merge to main", undefined, { wantsAnswer: true }).asks).toBeUndefined();
     const invented = await translateCard(source, async () => JSON.stringify({ title: "Flyd: the picture desk is on hold", body: "Tell me whether to keep that version or drop it." }));
     expect(invented).toBeNull();
     const told = await translateCard(source, async () => JSON.stringify({ title: "Flyd: the picture desk is being replaced", body: "Flyd today takes its place, and the finished version is kept." }));
