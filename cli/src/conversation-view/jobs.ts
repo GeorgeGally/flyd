@@ -327,7 +327,7 @@ export function jobsFrom(input: {
   exists?: (path: string) => boolean;
   /** A Liesel board's own name ("DIR start control"), by key, so its picture and link say which board it is. */
   boardName?: (key: string) => string | undefined;
-  /** Where the page loads a picture of a board a run names, by key; undefined until Flyd has pictured it. */
+  /** Where the page loads a picture of a board an open run names, by key; undefined until Flyd has pictured it. Never asked for finished work. */
   boardPicture?: (key: string) => string | undefined;
   now?: number;
 }): JobBoard {
@@ -402,7 +402,7 @@ export function jobsFrom(input: {
       const name = key ? input.boardName?.(key) : undefined;
       const link = viaOpener({ label: artifact.label, url: artifact.href });
       ownLinks.push(name ? { ...link, label: `Open ${boardTitle(name)}` } : link);
-      const picture = key ? input.boardPicture?.(key) : undefined;
+      const picture = key && (signal.group === "needs" || signal.group === "working") ? input.boardPicture?.(key) : undefined;
       if (picture) ownShots.push({ src: picture, label: name ? boardTitle(name) : `Board for ${title}` });
     }
     bucket.shots.push(...ownShots);

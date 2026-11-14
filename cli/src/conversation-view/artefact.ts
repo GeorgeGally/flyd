@@ -616,9 +616,8 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     ...fleet,
     calls: fleet.calls.map((row) => (row.ledgerOnly ? row : enrich(row, true))).filter((row) => (row.ledgerOnly ? !notADecision(row) : options.includeUnclassifiedCalls || isCurrentDecision(row, now))),
     live: fleet.live.map((row) => enrich(row)),
-    // Work the backlog has closed is finished, never still waiting on his look.
-    ready: fleet.ready.filter((row) => !closedIn(backlog, row)).map((row) => enrich(row)),
-    landed: [...fleet.ready.filter((row) => closedIn(backlog, row)).map((row) => ({ ...enrich(row), status: "landed" })), ...fleet.landed.map((row) => enrich(row))],
+    ready: fleet.ready.map((row) => enrich(row)),
+    landed: fleet.landed.map((row) => enrich(row)),
     held: fleet.held.map((row) => enrich(row)),
     next: fleet.next.map((row) => enrich(row)),
   };
@@ -793,11 +792,6 @@ export function projectFleetDecisions(fleet: FleetArtefact, decisions: readonly 
     landed: [...handled, ...verified, ...current(fleet.landed).filter((row) => !verifiedTasks.has(row.task)), ...finished],
     held: [...failed, ...paused, ...open],
   };
-}
-
-/** Whether the backlog has closed a row's task (ticked done, with the day it finished). Pure. */
-function closedIn(backlog: Map<string, BacklogEntry>, row: ArtefactRow): boolean {
-  return Boolean(row.task && backlog.get(row.task)?.finished);
 }
 
 /** The firstmate data directories a backlog row's words point at ("report data/gnm-lab/report.md"). Pure. */
@@ -1932,8 +1926,8 @@ export class ArtefactFeed {
   private projectBoards?: ProjectBoards | null;
   /** The boards a card names now: only their pictures are ever served. */
   private boardKeys = new Set<string>();
-  /** The boards a run's evidence names (asked for by the jobs column): their pictures are served too. */
-  private readonly runBoardKeys = new Set<string>();
+  /** The boards an open run's card names now (the jobs column's last render): their pictures are served too. */
+  private runBoardKeys = new Set<string>();
   /** Each board's own name, from its board.json; none under vitest unless a test passes them. */
   private boardNameSource?: BoardNames | null;
 
@@ -1998,9 +1992,13 @@ export class ArtefactFeed {
   boardPicture(key: string): string | undefined {
     const boards = this.boards();
     if (!boards || !isBoardKey(key)) return undefined;
-    this.runBoardKeys.add(key);
     const picture = boards.want(key);
     return picture ? boardShotSrc(key, picture.at) : undefined;
+  }
+
+  /** The boards the jobs column's open runs name now: only their pictures are served, beside the cards' own. */
+  setRunBoards(keys: Iterable<string>): void {
+    this.runBoardKeys = new Set([...keys].filter(isBoardKey));
   }
 
   /** Each row's boards, by their own names, so its picture and links say which board. */

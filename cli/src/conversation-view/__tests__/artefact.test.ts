@@ -1705,13 +1705,4 @@ describe("a call's board, said by its name", () => {
     expect(call!.shots).toEqual([{ src: "/api/board-shot?board=2f91aa58f2222856&v=7", label: "DIR start control board" }]);
     expect(call!.links!.map((link) => link.label)).toEqual(["Open DIR start control board", "Open dead-internet-radio board"]);
   });
-
-  it("moves work the backlog has closed out of ready and into finished", () => {
-    const fleet = parseBearings({ in_flight: [{ id: "mastercard-email", state: "done", name: "Mastercard email", doing: "exported and waiting on its branch" }] });
-    expect(fleet.ready.map((row) => row.task)).toEqual(["mastercard-email"]);
-    const backlog = new Map([["mastercard-email", { title: "Mastercard email", finished: "2026-11-14" }]]);
-    const enriched = enrichFleet(fleet, backlog, new Map(), Date.parse("2026-11-14T12:00:00Z"));
-    expect(enriched.ready).toEqual([]);
-    expect(enriched.landed.map((row) => [row.task, row.status])).toEqual([["mastercard-email", "landed"]]);
-  });
 });

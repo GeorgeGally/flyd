@@ -515,4 +515,18 @@ describe("a decision card's pictures and links", () => {
     expect(job.links).toEqual([{ label: "Open HFTW hero images board", url: "/open-board/871dc848190e24e1" }]);
     expect(job.shots).toEqual([{ src: "/api/board-shot?board=871dc848190e24e1&v=1", label: "HFTW hero images board" }]);
   });
+
+  it("never asks for a picture of a board a finished run names, but still links it", () => {
+    const run = { ...jobRunFromDomain({
+      id: "domain-old", status: "completed", owner: "FirstMate", createdAt: "2026-10-25T04:00:00Z", updatedAt: "2026-10-25T05:00:00Z",
+      request: { id: "domain-old", domain: "coding", originalMessage: "Old heroes", intendedOutcome: "Old hero pick", doneWhen: [], createdAt: "2026-10-25T04:00:00Z", source: "chat", project: { name: "HFTW" } },
+      transport: { kind: "firstmate", requestId: "domain-old" },
+      result: { format: "structured", brief: "Done.", evidence: ["http://127.0.0.1:4747/board/871dc848190e24e1"], artifacts: [], unresolvedQuestions: [] },
+    } as unknown as DomainRun), work: "landed" as const };
+    const asked: string[] = [];
+    const board = jobsFrom({ runs: [run], now: NOW, boardPicture: (key) => { asked.push(key); return `/api/board-shot?board=${key}&v=1`; } });
+    expect(asked).toEqual([]);
+    expect(board.jobs.flatMap((job) => job.shots)).toEqual([]);
+    expect(board.jobs.flatMap((job) => job.links.map((link) => link.url))).toContain("/open-board/871dc848190e24e1");
+  });
 });
