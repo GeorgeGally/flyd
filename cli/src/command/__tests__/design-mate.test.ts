@@ -2,12 +2,14 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, resumePhase, startDesignRun, toldInChat, type DesignMateDeps } from "../design-mate.js";
+import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, startDesignRun, toldInChat, type DesignMateDeps } from "../design-mate.js";
 import { DesignModelError } from "../design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
+import { dispatchDomainFollowup } from "../followup.js";
 import { dueReport } from "../report.js";
 import { notifyRun } from "../scheduler.js";
-import { listDomainRuns, readDomainRun, saveDomainRun, updateDomainRun } from "../store.js";
+import { listDomainRuns, readDomainRun, saveDomainRun } from "../store.js";
+import type { DomainRun } from "../types.js";
 
 let home: string;
 let labs: string;
@@ -379,26 +381,6 @@ describe("Design Mate", () => {
     expect(readDomainRun(old.id)!.report?.state).toBe("quiet");
   });
 
-  it("picks a stopped lab up again at the step it stopped on", async () => {
-    const calls: string[] = [];
-    const deps = staff([9], calls);
-    let fail = true;
-    const run = start();
-    const stopped = await driveDesignRun(run, { ...deps, complete: async (prompt, options) => {
-      if (fail && prompt.includes("judging one of the versions")) throw LIMIT;
-      return deps.complete(prompt, options);
-    } });
-    expect(stopped.status).toBe("failed");
-    expect(resumePhase(run.id, labs)).toBe("critiquing");
-    fail = false;
-    calls.length = 0;
-    updateDomainRun(run.id, (current) => ({ ...current, status: "working" }));
-    const done = await driveDesignRun(readDomainRun(run.id)!, deps);
-    expect(done.status).toBe("completed");
-    expect(done.failure).toBeUndefined();
-    expect(calls.filter((call) => call === "brief" || call === "build")).toEqual([]);
-  });
-
   it("keeps a second runner off a lab another live process is stepping", async () => {
     const run = start();
     const boot = Math.round((Date.now() - uptime() * 1000) / 60_000);
@@ -449,6 +431,20 @@ describe("Design Mate", () => {
       expect(await answerFromBoard(loose, { final: 3, notes: [], ids: ["p3"] })).toMatch(/^Marked V3 · Departure board as the one\. This lab has no project/);
       expect(listDomainRuns()).toHaveLength(before);
       expect(readLab(loose.id, labs)!.picked).toBe(3);
+
+      // Saying where later builds that pick, even when his words name no version; with nowhere to build, it is another round.
+      const nowhere = await dispatchDomainFollowup({ parentRunId: loose.id, question: "build it into the site" }) as DomainRun;
+      expect(readBuild(nowhere.id, labs)).toBeNull();
+      expect(nowhere.phase).toBe("briefing");
+      const placed = await dispatchDomainFollowup({ parentRunId: loose.id, question: "build it into the site", project: { root: project } }) as DomainRun;
+      expect(placed.request.project?.root).toBe(project);
+      expect(readBuild(placed.id, labs)?.reference?.name).toBe("Departure board");
+
+      // A project but no pick is still another round.
+      const unpicked = await driveDesignRun(start(), staff([9]));
+      const another = await dispatchDomainFollowup({ parentRunId: unpicked.id, question: "build it into the site", project: { root: project } }) as DomainRun;
+      expect(readBuild(another.id, labs)).toBeNull();
+      expect(another.phase).toBe("briefing");
     } finally {
       if (previous === undefined) delete process.env.FLYD_LABS_DIR;
       else process.env.FLYD_LABS_DIR = previous;

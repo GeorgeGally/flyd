@@ -677,9 +677,6 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
   const dir = labDir(run.id, root);
   const taste = tasteLines();
 
-  // A stopped lab set going again (George said try again) picks up at the step it stopped on, never from scratch.
-  if (run.phase === "done" && !terminal(run)) return save(run, { phase: resumePhase(run.id, root), failure: undefined });
-
   if (["making", "build-review", "build-flyd"].includes(run.phase ?? "")) return advanceBuild(run, deps, root, taste);
 
   if (run.phase === "briefing") {
@@ -780,16 +777,6 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
     return save(run, { phase: "building" });
   }
   return run;
-}
-
-/** Where a lab or build that stopped picks up again: the first step its saved record has not finished. */
-export function resumePhase(runId: string, root = labsDir()): string {
-  if (readBuild(runId, root)) return "making";
-  const lab = readLab(runId, root);
-  if (!lab) return "briefing";
-  if (lab.versions.some((version) => !version.built)) return "building";
-  if (lab.versions.some((version) => !version.judged)) return "critiquing";
-  return lab.presentation ? "flyd-review" : "presenting";
 }
 
 /** A rejected lab's pages and screenshots go before the new directions are built. */

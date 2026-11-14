@@ -19,6 +19,8 @@ export async function dispatchDomainFollowup(input: {
   parentRunId: string;
   question: string;
   background?: boolean;
+  /** The project George asked from, when the parent's own request named none. */
+  project?: { name?: string; root?: string };
 }): Promise<DomainRun | Extract<CodingDomainDispatch, { status: "refused" }>> {
   const parent = readDomainRun(input.parentRunId);
   if (!parent) throw new Error(`Unknown domain run ${input.parentRunId}`);
@@ -59,7 +61,7 @@ export async function dispatchDomainFollowup(input: {
       background: input.background,
     });
   }
-  if (parent.request.domain === "creative") return designFollowup(parent, question);
+  if (parent.request.domain === "creative") return designFollowup(parent, question, input.project ? { project: input.project } : {});
   throw new Error(`No domain boss supports follow-ups for ${parent.request.domain} yet`);
 }
 
@@ -69,21 +71,24 @@ export async function dispatchDomainFollowup(input: {
  * another round, with his words and the last lab as the new brief. `pick` says
  * which version he chose when that is already known (a version marked final on
  * the board), null when he chose none (notes only); left out, it is read from
- * his words. `requestId` makes a replayed answer the same run, not a second one.
+ * his words, and failing that it is the version he marked final on the board.
+ * `project` is where to build when the lab named none. `requestId` makes a
+ * replayed answer the same run, not a second one.
  */
-export async function designFollowup(parent: DomainRun, question: string, options: { pick?: number | null; requestId?: string } = {}): Promise<DomainRun> {
+export async function designFollowup(parent: DomainRun, question: string, options: { pick?: number | null; requestId?: string; project?: { name?: string; root?: string } } = {}): Promise<DomainRun> {
   const { dispatchDesignMate, labDir, readLab, shotPaths } = await import("./design-mate.js");
   const lab = readLab(parent.id);
   const named = options.pick !== undefined ? null
     : question.match(/\bv(?:ersion)?\s*([1-9])\b/i) ?? question.match(/\b(?:build|go with|take|use|pick|keep)\b[^.]*?\b([1-9])\b/i);
-  const chosen = options.pick !== undefined ? options.pick : named ? Number(named[1]) : null;
+  const project = parent.request.project?.root ? parent.request.project : options.project ?? parent.request.project;
+  const root = project?.root;
+  const chosen = options.pick !== undefined ? options.pick : named ? Number(named[1]) : root ? lab?.picked ?? null : null;
   const version = chosen === null ? undefined : lab?.versions.find((item) => item.n === chosen);
-  const root = parent.request.project?.root;
   const common = {
     originalMessage: question,
     parentRequestId: parent.id,
     contextRefs: [`domain:${parent.id}`],
-    ...(parent.request.project ? { project: parent.request.project } : {}),
+    ...(project ? { project } : {}),
     ...(options.requestId ? { requestId: options.requestId } : {}),
   };
   if (version && root) {

@@ -549,7 +549,7 @@ export async function runAssistantTool(
           if (!question) return "Error: domain_work ask needs a question";
           const { dispatchDomainFollowup } = await import("../command/followup.js");
           try {
-            const followup = await dispatchDomainFollowup({ parentRunId: id, question, background: context.background });
+            const followup = await dispatchDomainFollowup({ parentRunId: id, question, background: context.background, project: handOffProject(context) });
             if ("reason" in followup) return `Coding follow-up refused: ${followup.reason}`;
             if (followup.failure) return followup.failure;
             return `Follow-up accepted as domain run ${followup.id}. Flyd will retain the detailed answer when the domain boss returns.`;
