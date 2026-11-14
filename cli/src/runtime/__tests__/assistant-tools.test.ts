@@ -103,7 +103,7 @@ describe("assistant tools", () => {
     process.env.FLYD_LABS_DIR = join(dir, "labs");
     try {
       expect(await runAssistantTool("start_design_task", { outcome: "Five landing heroes", done_when: ["five versions"], repo: dir }))
-        .toMatch(/^Design lab started \(run lab-/);
+        .toMatch(/^Design lab queued \(run lab-.*not that it has started/);
       expect(existsSync(calls) ? readFileSync(calls, "utf8") : "").not.toContain("note");
     } finally {
       for (const [key, value] of [["FLYD_FIRSTMATE_HOME", saved.home], ["FLYD_COMMAND_DIR", saved.command], ["FLYD_LABS_DIR", saved.labs]] as const) {

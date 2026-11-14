@@ -66,19 +66,25 @@ export async function dispatchDomainFollowup(input: {
 /**
  * George's answer to a presented lab goes back to the Creative Director: naming
  * a version with the project known builds it for real; anything else is
- * another round, with his words and the last lab as the new brief.
+ * another round, with his words and the last lab as the new brief. `pick` says
+ * which version he chose when that is already known (a version marked final on
+ * the board), null when he chose none (notes only); left out, it is read from
+ * his words. `requestId` makes a replayed answer the same run, not a second one.
  */
-async function designFollowup(parent: DomainRun, question: string): Promise<DomainRun> {
+export async function designFollowup(parent: DomainRun, question: string, options: { pick?: number | null; requestId?: string } = {}): Promise<DomainRun> {
   const { dispatchDesignMate, labDir, readLab, shotPaths } = await import("./design-mate.js");
   const lab = readLab(parent.id);
-  const named = question.match(/\bv(?:ersion)?\s*([1-9])\b/i) ?? question.match(/\b(?:build|go with|take|use|pick|keep)\b[^.]*?\b([1-9])\b/i);
-  const version = lab?.versions.find((item) => item.n === Number(named?.[1]));
+  const named = options.pick !== undefined ? null
+    : question.match(/\bv(?:ersion)?\s*([1-9])\b/i) ?? question.match(/\b(?:build|go with|take|use|pick|keep)\b[^.]*?\b([1-9])\b/i);
+  const chosen = options.pick !== undefined ? options.pick : named ? Number(named[1]) : null;
+  const version = chosen === null ? undefined : lab?.versions.find((item) => item.n === chosen);
   const root = parent.request.project?.root;
   const common = {
     originalMessage: question,
     parentRequestId: parent.id,
     contextRefs: [`domain:${parent.id}`],
     ...(parent.request.project ? { project: parent.request.project } : {}),
+    ...(options.requestId ? { requestId: options.requestId } : {}),
   };
   if (version && root) {
     return dispatchDesignMate({

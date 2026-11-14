@@ -58,13 +58,18 @@ export function labAwaitingReview(run: DomainRun, runs: readonly DomainRun[]): b
 
 export type DesignDispatchInput = Omit<CodingDispatchInput, "skill" | "transport"> & { skill?: DomainRequest["skill"]; transport?: unknown };
 
-/** A design lab goes to Design Mate, whichever handoff started it; the review contract rides in done_when. */
-export async function dispatchDesignLab(input: DesignDispatchInput): Promise<{ status: "accepted"; run: DomainRun }> {
+export type DesignDispatch = { status: "accepted"; run: DomainRun } | { status: "refused"; reason: string };
+
+/**
+ * A design lab goes to Design Mate, whichever handoff started it; the review contract rides in done_when.
+ * It never throws: a hand-off that cannot be taken comes back refused with the reason in plain words, so
+ * the caller tells George instead of retrying into its tool limit (a 10-27 request died that way).
+ */
+export async function dispatchDesignLab(input: DesignDispatchInput): Promise<DesignDispatch> {
   const doneWhen = [...input.doneWhen, ...DESIGN_LAB_DONE_WHEN.filter((point) => !input.doneWhen.includes(point))];
-  const { dispatchDesignMate } = await import("./design-mate.js");
-  return {
-    status: "accepted",
-    run: dispatchDesignMate({
+  try {
+    const { dispatchDesignMate } = await import("./design-mate.js");
+    return { status: "accepted", run: dispatchDesignMate({
       originalMessage: input.originalMessage,
       intendedOutcome: input.intendedOutcome,
       doneWhen,
@@ -76,6 +81,19 @@ export async function dispatchDesignLab(input: DesignDispatchInput): Promise<{ s
       ...(input.decisions ? { decisions: input.decisions } : {}),
       ...(input.project ? { project: input.project } : {}),
       ...(input.now ? { now: input.now } : {}),
-    }),
-  };
+    }) };
+  } catch (error) {
+    return { status: "refused", reason: `the design team could not take it (${error instanceof Error ? error.message : String(error)})` };
+  }
+}
+
+/** What Flyd may say after handing a lab over: what really happened, in its own words for the chat. Pure. */
+export function designStartLine(start: { state: "started" | "failed" | "waiting"; run: DomainRun; failure?: string }): string {
+  if (start.state === "failed") {
+    return `Error: the design lab did not start. ${start.failure ?? ""} Tell George that in one plain line: it has not started, and why. Do not retry it this turn.`.replace(/\s+/g, " ").trim();
+  }
+  if (start.state === "waiting") {
+    return `Design lab queued (run ${start.run.id}); it has not confirmed it started yet. Tell George it is queued, not that it has started; if it fails he hears why. Do not say who builds it or the id.`;
+  }
+  return `Design lab started (run ${start.run.id}). When it is ready it lands on a board he can pin notes on, and shows in his column. Tell George only what you started, not who builds it or the id.`;
 }

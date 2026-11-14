@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { bossMessageKind, FENCE_HELD, HELD_FOR_ATTENTION, notesSentToBoss } from "../intelligence/executive/decision-step.js";
 import { recordHeld } from "../council/reply-review.js";
 import { syncFirstmateDomainRuns } from "./firstmate.js";
-import { syncDesignMateRuns } from "./design-mate.js";
+import { DESIGN_MATE, syncDesignBoards, syncDesignMateRuns } from "./design-mate.js";
 import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
 import { noticeKind } from "./notice.js";
@@ -155,7 +155,8 @@ export async function notifyRun(
   windowIsOpen: (session: string) => boolean = (session) => windowOpen(session),
   attention: ReadAttention = readAttention,
 ): Promise<void> {
-  if (!run.result || !cameBack(run.status)) return;
+  // A lab that stopped carries only its failure, no result: it is still his to hear.
+  if (!cameBack(run.status) || (!run.result && !designFailure(run))) return;
   // A run with a report record is reviewed only while it is due; one written before the record by its legacy flag.
   if (run.report ? !reportDue(run) : run.notified) return;
   const from = run.report;
@@ -178,6 +179,10 @@ export async function notifyRun(
       return { ...rest, notified: true };
     });
     if (from) moveReport(run.id, from, { state: "quiet" });
+    return;
+  }
+  if (designFailure(run)) {
+    await tellFailure(run, from, notify).catch(() => undefined);
     return;
   }
   // Under review: a restart that cuts it off leaves it "reviewing", and the next tick reviews it again.
@@ -204,6 +209,36 @@ export async function notifyRun(
     await tellRun(reviewing ?? run, decision, { ...(notify ? { notify } : {}), attention });
   } catch {
     // Left where it got to: a report "sending" is said again by the tick's sweep, one still "reviewing" reviewed again.
+  }
+}
+
+/** A failure older than this is not rung: he was not told when it happened, and a day late it is old news. */
+const STALE_FAILURE_MS = 24 * 60 * 60_000;
+
+/** A design lab or build that stopped. Its runner already retried what a retry could fix, so it goes to George, not back to the team. */
+function designFailure(run: DomainRun): boolean {
+  return run.status === "failed" && run.owner === DESIGN_MATE && Boolean(run.failure?.trim());
+}
+
+/**
+ * Tells George a stopped design lab now, in its own plain words (what stopped and why), once. Before this a
+ * failed lab had no result, the review step never read it, and nothing reached him.
+ */
+async function tellFailure(run: DomainRun, from: RunReport | undefined, notify?: Notify, now = new Date()): Promise<void> {
+  // A stop from days ago (one that settled before this path existed) is old news: recorded, never rung.
+  if (now.getTime() - Date.parse(from?.since ?? run.updatedAt) > STALE_FAILURE_MS) {
+    moveReport(run.id, from, { state: "quiet" });
+    return;
+  }
+  // Said as the failure says it; when its detail is not fit to show him (a path, say), the plain fact alone.
+  const line = deliver(reportFromRun(run), "notification").text ?? `The design ${run.phase === "making" || run.phase?.startsWith("build-") ? "build" : "lab"} for ${run.request.intendedOutcome.split(/[.\n]/)[0]!.trim().slice(0, 80)} stopped before it was ready.`;
+  const key = `run:${run.id}:failed:${from?.since ?? run.updatedAt}`;
+  const told = { key, line, kind: noticeKind(run), work: run.request.intendedOutcome, evidenceRefs: [`domain-run:${run.id}`] };
+  moveReport(run.id, from, { ...told, state: "sending" });
+  const delivered = await deliverOnce([told], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) });
+  moveReport(run.id, from, { ...told, state: reportState(delivered.states[key]) });
+  if (!delivered.owed.length) {
+    mutateDomainRun(run.id, (current) => current ? { ...current, notified: true, told: { line, decisionId: "" } } : null);
   }
 }
 
@@ -377,6 +412,8 @@ export async function commandTick(): Promise<void> {
       syncLibrarianDomainRuns(),
       syncDesignMateRuns(),
     ]);
+    // Every finished lab's board is listened to: a version marked final is built, pinned notes start another round.
+    try { syncDesignBoards(); } catch { /* Tried again next tick. */ }
     await tellDue().catch(() => undefined);
     // Every report still owed (left undelivered, or cut off mid-send) is said again, from the first tick at Core start on.
     await deliverOwed().catch(() => undefined);

@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, uptime } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
-import { query, type QueryOptions } from "../lib/llm.js";
 import { readTaste } from "../council/taste.js";
+import { BoardWatcher, putLabOnBoard, type BoardFeedback, type BoardInput, type BoardWatch, type LabBoard } from "./design-board.js";
+import { completeWithClaude, DesignModelError, makeWithClaude } from "./design-claude.js";
 import { designLabSkill, designTeamSkills } from "./design.js";
 import { dueReport } from "./report.js";
 import { createDomainRun, isDomainRunId, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
@@ -18,9 +19,12 @@ import { decisionsLines } from "./types.js";
 // from screenshots alone and presents it back to Flyd. Design Mate is the
 // producer: it runs the schedule, the files and the staff, and never draws.
 // A lab ends with the Creative Director presenting the versions for George
-// to pick from. A build (a picked version, or a design change to a real
-// project) has a Designer edit the project itself, in George's own copy;
-// the Creative Director reviews it and Design Mate commits what it made.
+// to pick from, on a Liesel board (command/design-board.ts) where he pins
+// notes or marks one final. A build (a picked version, or a design change to
+// a real project) has a Designer edit the project itself, in George's own
+// copy; the Creative Director reviews it and Design Mate commits what it made.
+// Every model call is Claude on George's subscription (command/design-claude.ts),
+// and a lab that stops reaches him in plain words (command/scheduler.ts).
 
 export const DESIGN_MATE = "Design Mate";
 export const CREATIVE_DIRECTOR = "Creative Director";
@@ -83,6 +87,10 @@ export interface Lab {
   sendbacks?: number;
   /** Directions left out after they would not build or be judged, with why. */
   dropped?: string[];
+  /** The Liesel board George reviews it on. */
+  board?: LabBoard;
+  /** The version George marked final on the board, when there was no project to build it into. */
+  picked?: number;
 }
 
 /** Times Flyd may send work back before it goes to George with the gap named. */
@@ -110,15 +118,33 @@ export interface Build {
   log: string[];
 }
 
+/** One call to the team's model. */
+export interface DesignCallOptions {
+  json?: boolean;
+  /** Screenshots to look at, as data URLs. */
+  images?: string[];
+  maxTokens?: number;
+  source?: string;
+  /** Called once the model starts answering. */
+  onStarted?: () => void;
+}
+
 export interface DesignMateDeps {
-  complete(prompt: string, options?: QueryOptions): Promise<string>;
+  complete(prompt: string, options?: DesignCallOptions): Promise<string>;
   shoot(page: string, png: string, viewport: { width: number; height: number; scale: number }): Promise<void>;
   /** Runs a Designer that edits files in `cwd` and returns what it says it did. */
   make?(cwd: string, prompt: string): Promise<string>;
   /** Runs git in the project; injectable for tests. */
   git?(cwd: string, args: string[]): Promise<string>;
+  /** Puts a finished lab on a Liesel board; injectable for tests. */
+  board?(input: BoardInput): Promise<LabBoard>;
   now?: () => Date;
   root?: string;
+}
+
+/** A model failure no retry will fix (a plan limit, a missing login): the lab stops on it at once. */
+function fatal(error: unknown): error is DesignModelError {
+  return error instanceof DesignModelError && !error.retryable;
 }
 
 function bestPaths(runId: string, version: LabVersion, root: string): Array<[string, string]> {
@@ -135,17 +161,23 @@ function restoreBest(runId: string, version: LabVersion, root: string): void {
   for (const [path, best] of bestPaths(runId, version, root)) if (existsSync(best)) copyFileSync(best, path);
 }
 
-/** Calls a model, retrying a thrown error (a dropped connection, a timeout) before giving up. */
-async function ask(deps: DesignMateDeps, prompt: string, options: QueryOptions): Promise<string> {
+/** Calls a model, retrying a thrown error (a dropped connection, a timeout) before giving up; a plan limit is never retried. */
+async function ask(deps: DesignMateDeps, prompt: string, options: DesignCallOptions): Promise<string> {
   let last: unknown;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-    try { return await deps.complete(prompt, options); } catch (error) { last = error; }
+    try { return await deps.complete(prompt, options); } catch (error) { if (fatal(error)) throw error; last = error; }
   }
   throw last;
 }
 
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return error instanceof DesignModelError ? error.plain : error instanceof Error ? error.message : String(error);
+}
+
+/** What George reads when a lab or build stops: that it stopped, and why, in plain words. */
+export function stoppedLine(cause: string, build = false): string {
+  const why = cause.trim().replace(/\.$/, "");
+  return `The design ${build ? "build" : "lab"} stopped before it was ready: ${why}.`;
 }
 
 /** A rebuild that cannot be made keeps the version's best build so far, already judged; true when there was one. */
@@ -187,6 +219,7 @@ async function buildVersion(run: DomainRun, lab: Lab, version: LabVersion, taste
       }
       problem = `No screenshots of V${version.n} · ${version.name}, so the critic could not see it.`;
     } catch (error) {
+      if (fatal(error)) throw error;
       problem = `V${version.n} · ${version.name} could not be built: ${messageOf(error)}`;
     }
     lab.log.push(`${problem} (try ${attempt})`);
@@ -203,6 +236,7 @@ async function judgeVersion(run: DomainRun, lab: Lab, version: LabVersion, taste
       json: true, source: "design", images: [asImage(shots.desktop), asImage(shots.phone)],
     }));
   } catch (error) {
+    if (fatal(error)) throw error;
     const problem = `V${version.n} · ${version.name} could not be judged: ${messageOf(error)}`;
     lab.log.push(problem);
     return keepLastBuild(run, lab, version, root) ? undefined : problem;
@@ -288,14 +322,7 @@ export function dispatchDesignMate(input: DesignMateDispatchInput, root = labsDi
     ...(input.objectiveId ? { objectiveId: input.objectiveId } : {}),
     ...(input.decisions ? { decisions: input.decisions } : {}),
   };
-  mkdirSync(join(labDir(request.id, root), "review"), { recursive: true, mode: 0o700 });
-  if (input.context && (input.context.shots?.length || input.context.content)) {
-    writeFileSync(join(labDir(request.id, root), "context.json"), `${JSON.stringify(input.context, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  }
-  if (input.build) {
-    const build: Build = { root: input.project!.root!, ...(input.build.reference ? { reference: input.build.reference } : {}), dirtyBefore: [], round: 1, log: [] };
-    writeFileSync(buildPath(request.id, root), `${JSON.stringify(build, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  }
+  labDir(request.id, root);
   const run: DomainRun = {
     id: request.id,
     request,
@@ -306,7 +333,21 @@ export function dispatchDesignMate(input: DesignMateDispatchInput, root = labsDi
     updatedAt: request.createdAt,
     transport: { kind: "native", requestId: request.id },
   };
-  return createDomainRun(run).run;
+  // On record first: from here the request cannot vanish. A folder that cannot be made fails the run, and George hears why.
+  const created = createDomainRun(run).run;
+  try {
+    mkdirSync(join(labDir(request.id, root), "review"), { recursive: true, mode: 0o700 });
+    if (input.context && (input.context.shots?.length || input.context.content)) {
+      writeFileSync(join(labDir(request.id, root), "context.json"), `${JSON.stringify(input.context, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    }
+    if (input.build) {
+      const build: Build = { root: input.project!.root!, ...(input.build.reference ? { reference: input.build.reference } : {}), dirtyBefore: [], round: 1, log: [] };
+      writeFileSync(buildPath(request.id, root), `${JSON.stringify(build, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    }
+  } catch (error) {
+    return save(created, { status: "failed", phase: "done", failure: stoppedLine(`its folder could not be made (${messageOf(error)})`, Boolean(input.build)) });
+  }
+  return created;
 }
 
 function labPath(runId: string, root: string): string {
@@ -626,6 +667,9 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
   const dir = labDir(run.id, root);
   const taste = tasteLines();
 
+  // A stopped lab set going again (George said try again) picks up at the step it stopped on, never from scratch.
+  if (run.phase === "done" && !terminal(run)) return save(run, { phase: resumePhase(run.id, root), failure: undefined });
+
   if (["making", "build-review", "build-flyd"].includes(run.phase ?? "")) return advanceBuild(run, deps, root, taste);
 
   if (run.phase === "briefing") {
@@ -642,7 +686,7 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
     const versions = (reply?.versions ?? []).filter((item) => item.name && item.idea).slice(0, MAX_VERSIONS)
       .map((item, index): LabVersion => ({ n: index + 1, name: String(item.name).trim(), idea: String(item.idea).trim(), seed: seeds[index]! }));
     if (!reply?.brief || versions.length < MIN_VERSIONS) {
-      return save(run, { status: "failed", phase: "done", failure: "The design brief came back without enough directions to build." });
+      return save(run, { status: "failed", phase: "done", failure: stoppedLine("the brief came back without enough directions to build") });
     }
     writeLab(run.id, {
       brief: reply.brief.trim(), versions, round: 1, images,
@@ -655,7 +699,7 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
   }
 
   const lab = readLab(run.id, root);
-  if (!lab) return save(run, { status: "failed", phase: "done", failure: "The lab's record is missing." });
+  if (!lab) return save(run, { status: "failed", phase: "done", failure: stoppedLine("its record is missing") });
 
   if (run.phase === "building") {
     // The designers work side by side; each writes only its own page.
@@ -664,7 +708,7 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
     const results = await Promise.all(pending.map(async (version) => ({ version, problem: await buildVersion(run, lab, version, taste, deps, root) })));
     const failure = dropBroken(lab, results);
     writeLab(run.id, lab, root);
-    if (failure) return save(run, { status: "failed", phase: "done", failure });
+    if (failure) return save(run, { status: "failed", phase: "done", failure: stoppedLine(failure) });
     return save(run, { phase: "critiquing" });
   }
 
@@ -674,7 +718,7 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
     const failure = dropBroken(lab, results);
     if (failure) {
       writeLab(run.id, lab, root);
-      return save(run, { status: "failed", phase: "done", failure });
+      return save(run, { status: "failed", phase: "done", failure: stoppedLine(failure) });
     }
     writeLab(run.id, lab, root);
     const short = lab.versions.filter((item) => (item.score ?? 0) < TARGET_SCORE);
@@ -709,7 +753,7 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
     if (review.verdict === "accept" || (lab.sendbacks ?? 0) >= MAX_SENDBACKS) {
       if (review.verdict !== "accept") lab.log.push(`Flyd still had notes after ${MAX_SENDBACKS} send-backs: ${review.notes.join(" ")}`);
       writeLab(run.id, lab, root);
-      return handOver(run, lab, root);
+      return handOver(run, lab, root, deps);
     }
     lab.sendbacks = (lab.sendbacks ?? 0) + 1;
     lab.flydNotes = [...(lab.flydNotes ?? []), ...review.notes];
@@ -726,6 +770,16 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
     return save(run, { phase: "building" });
   }
   return run;
+}
+
+/** Where a lab or build that stopped picks up again: the first step its saved record has not finished. */
+export function resumePhase(runId: string, root = labsDir()): string {
+  if (readBuild(runId, root)) return "making";
+  const lab = readLab(runId, root);
+  if (!lab) return "briefing";
+  if (lab.versions.some((version) => !version.built)) return "building";
+  if (lab.versions.some((version) => !version.judged)) return "critiquing";
+  return lab.presentation ? "flyd-review" : "presenting";
 }
 
 /** A rejected lab's pages and screenshots go before the new directions are built. */
@@ -758,9 +812,9 @@ async function changedFiles(git: NonNullable<DesignMateDeps["git"]>, cwd: string
 /** One step of a build: the Designer edits the project, the Creative Director reviews, Flyd accepts, Design Mate commits. */
 async function advanceBuild(run: DomainRun, deps: DesignMateDeps, root: string, taste: string): Promise<DomainRun> {
   const build = readBuild(run.id, root);
-  if (!build) return save(run, { status: "failed", phase: "done", failure: "The build's record is missing." });
+  if (!build) return save(run, { status: "failed", phase: "done", failure: stoppedLine("its record is missing", true) });
   const git = deps.git ?? runGit;
-  const make = deps.make ?? makeWithOpenCode;
+  const make = deps.make ?? makeWithClaude;
 
   if (run.phase === "making") {
     if (build.round === 1 && !build.report) build.dirtyBefore = await changedFiles(git, build.root, []);
@@ -791,7 +845,7 @@ async function advanceBuild(run: DomainRun, deps: DesignMateDeps, root: string, 
       return save(run, { phase: "making" });
     }
     writeBuild(run.id, build, root);
-    if (!files.length) return save(run, { status: "failed", phase: "done", failure: "The designer changed nothing in the project." });
+    if (!files.length) return save(run, { status: "failed", phase: "done", failure: stoppedLine("the designer changed nothing in the project", true) });
     return save(run, { phase: "build-flyd" });
   }
 
@@ -835,8 +889,8 @@ async function advanceBuild(run: DomainRun, deps: DesignMateDeps, root: string, 
   return save(run, { status: "completed", phase: "done", result });
 }
 
-/** Ready for George only when every page and screenshot is really on disk. */
-function handOver(run: DomainRun, lab: Lab, root: string): DomainRun {
+/** Ready for George only when every page and screenshot is really on disk, and on the board he reviews from. */
+async function handOver(run: DomainRun, lab: Lab, root: string, deps: DesignMateDeps): Promise<DomainRun> {
   const dir = labDir(run.id, root);
   const index = join(dir, "index.html");
   writeFileSync(index, labIndex(run, lab), { encoding: "utf8", mode: 0o600 });
@@ -844,24 +898,48 @@ function handOver(run: DomainRun, lab: Lab, root: string): DomainRun {
   const shots = ranked.flatMap((version) => { const paths = shotPaths(run.id, version, root); return [paths.desktop, paths.phone]; });
   const missing = [index, ...lab.versions.map((version) => join(dir, `v${version.n}.html`)), ...shots].filter((path) => !existsSync(path));
   if (missing.length) {
-    return save(run, { status: "failed", phase: "done", failure: `The lab is missing ${missing.length} file(s): ${missing.map((path) => basename(path)).join(", ")}` });
+    return save(run, { status: "failed", phase: "done", failure: stoppedLine(`${missing.length} of its file(s) are missing: ${missing.map((path) => basename(path)).join(", ")}`) });
   }
   const best = ranked.find((version) => version.n === lab.pick) ?? ranked[0]!;
+  // His review surface: every version as a desktop, iPad and phone frame he can pin notes on or mark final.
+  let boardProblem: string | undefined;
+  if (!lab.board) {
+    try {
+      lab.board = await (deps.board ?? putLabOnBoard)({
+        labDir: dir,
+        name: run.request.intendedOutcome.split(/[.\n]/)[0]!.trim().slice(0, 80) || "Design lab",
+        versions: [...lab.versions].sort((a, b) => a.n - b.n),
+        note: [lab.presentation, `I'd take V${best.n} · ${best.name} forward. ${run.request.project?.root ? "Mark one as final to have it built, or pin notes for another round." : "Pin notes for another round, or mark one as final to settle on it."}`].filter(Boolean).join("\n\n"),
+      });
+      lab.log.push(`On the board: ${lab.board.url}`);
+    } catch (error) {
+      boardProblem = messageOf(error);
+      lab.log.push(`Could not put it on a board: ${boardProblem}`);
+    }
+    writeLab(run.id, lab, root);
+  }
+  const board = lab.board;
   const short = ranked.filter((version) => (version.score ?? 0) < TARGET_SCORE);
   const lines = ranked.map((version) => `V${version.n} · ${version.name}: ${version.score}/10. ${version.idea}`);
   const result: DomainResult = {
     format: "structured",
-    brief: [lab.presentation || `${ranked.length} versions after ${lab.round} round${lab.round === 1 ? "" : "s"}.`, `${CREATIVE_DIRECTOR}'s pick: V${best.n} · ${best.name} at ${best.score}/10.`, ...lines].join("\n"),
+    brief: [
+      lab.presentation || `${ranked.length} versions after ${lab.round} round${lab.round === 1 ? "" : "s"}.`,
+      `${CREATIVE_DIRECTOR}'s pick: V${best.n} · ${best.name} at ${best.score}/10.`,
+      ...(board ? [`On the board: ${board.url}`] : []),
+      ...lines,
+    ].join("\n"),
     recommendation: { action: `Look at V${best.n} · ${best.name} first.`, reasoning: best.critique ?? "", confidence: (best.score ?? 0) / 10 },
     detailedReport: [lab.brief, "", ...ranked.map((version) => `V${version.n} · ${version.name} (${version.score}/10)\n${version.critique ?? ""}`), "", ...lab.log].join("\n"),
     decisionsMade: [],
-    unresolvedQuestions: ["Which version to build for real, or what to change for another round?"],
+    unresolvedQuestions: [board ? "Which version to build for real (mark it final on the board), or what to change for another round (pin notes)?" : "Which version to build for real, or what to change for another round?"],
     risks: [
       ...(short.length ? [`Still under ${TARGET_SCORE}/10: ${short.map((version) => `V${version.n} (${version.score})`).join(", ")}.`] : []),
       ...(lab.dropped?.length ? [`Left out: ${lab.dropped.join("; ")}.`] : []),
+      ...(boardProblem ? [`It could not be put on a board: ${boardProblem}.`] : []),
     ],
-    evidence: [],
-    artifacts: [index, ...shots],
+    evidence: board ? [`board ${board.url}`] : [],
+    artifacts: [...(board ? [board.url] : []), index, ...shots],
     specialistOutputs: ranked.map((version) => ({ specialist: `${CREATIVE_DIRECTOR} on V${version.n}`, outcome: `${version.score}/10`, ...(version.critique ? { raw: version.critique } : {}) })),
     raw: [],
     informationLossRisk: "low",
@@ -926,24 +1004,6 @@ function runGit(cwd: string, args: string[]): Promise<string> {
   });
 }
 
-/** How long a Designer may work on one round of a build. */
-const MAKE_TIMEOUT_MS = 45 * 60_000;
-
-/** The Designer that writes: OpenCode on the crew's model, run in George's own copy of the project. */
-async function makeWithOpenCode(cwd: string, prompt: string): Promise<string> {
-  if (process.env.VITEST) throw new Error("refusing to launch a real designer under tests");
-  const { crewModel, openCodePath } = await import("../crew/crew.js");
-  return new Promise((resolve, reject) => {
-    const child = spawn(openCodePath(), ["run", "--auto", "--model", crewModel(), prompt], { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let out = "";
-    child.stdout.on("data", (chunk) => { out += chunk; });
-    child.stderr.on("data", () => {});
-    const timer = setTimeout(() => child.kill("SIGKILL"), MAKE_TIMEOUT_MS);
-    child.on("error", (error) => { clearTimeout(timer); reject(error); });
-    child.on("exit", (code) => { clearTimeout(timer); code === 0 ? resolve(out) : reject(new Error(`The designer stopped (exit ${code})`)); });
-  });
-}
-
 const working = new Set<string>();
 
 function terminal(run: DomainRun): boolean {
@@ -951,29 +1011,95 @@ function terminal(run: DomainRun): boolean {
   return isSettled(run.status) || run.status === "needs_decision";
 }
 
-/** Steps one lab to its end in the background, at most one runner per lab in this process. */
+/** Whether a process is still running. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * One runner per lab across every Flyd process (Core's scheduler, a chat that started it): the lab's
+ * runner.lock names the process stepping it. A lock whose process has gone is taken over.
+ */
+function claimRunner(runId: string, root: string): boolean {
+  const path = join(labDir(runId, root), "runner.lock");
+  try { mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); } catch { return false; }
+  // When this Mac last started, to the minute: a lock from before a restart names a pid some other process may now have.
+  const boot = Math.round((Date.now() - uptime() * 1000) / 60_000);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync(path, JSON.stringify({ pid: process.pid, boot, at: new Date().toISOString() }), { flag: "wx", mode: 0o600 });
+      return true;
+    } catch {
+      let holder: { pid?: unknown; boot?: unknown } = {};
+      try { holder = JSON.parse(readFileSync(path, "utf8")) as typeof holder; } catch { /* Unreadable: taken over. */ }
+      const pid = Number(holder.pid);
+      const sameBoot = Math.abs(Number(holder.boot) - boot) <= 2;
+      if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && sameBoot && alive(pid)) return false;
+      rmSync(path, { force: true });
+    }
+  }
+  return false;
+}
+
+function releaseRunner(runId: string, root: string): void {
+  const path = join(labDir(runId, root), "runner.lock");
+  try {
+    if (Number((JSON.parse(readFileSync(path, "utf8")) as { pid?: unknown }).pid) === process.pid) rmSync(path, { force: true });
+  } catch { /* Already gone. */ }
+}
+
+/** The first time the team's model answers, the run is really under way: recorded once, for whoever said it started. */
+function markStarted(runId: string): void {
+  mutateDomainRun(runId, (current) => current && !current.startedAt ? { ...current, startedAt: new Date().toISOString() } : null);
+}
+
+/** Steps one lab to its end in the background, at most one runner per lab. */
 async function drive(run: DomainRun, deps: DesignMateDeps, onChanged?: (run: DomainRun) => Promise<void> | void): Promise<void> {
   if (working.has(run.id)) return;
+  const root = deps.root ?? labsDir();
   working.add(run.id);
+  if (!claimRunner(run.id, root)) { working.delete(run.id); return; }
+  let started = Boolean(run.startedAt);
+  const begin = () => { if (!started) { started = true; markStarted(run.id); } };
+  const watched: DesignMateDeps = {
+    ...deps,
+    complete: async (prompt, options) => {
+      const reply = await deps.complete(prompt, { ...options, onStarted: () => { options?.onStarted?.(); begin(); } });
+      begin();
+      return reply;
+    },
+  };
   try {
-    let current = run;
+    let current = readDomainRun(run.id) ?? run;
     while (!terminal(current)) {
       try {
-        current = await advanceDesignRun(current, deps);
+        current = await advanceDesignRun(current, watched);
       } catch (error) {
-        current = save(current, { status: "failed", phase: "done", failure: `The lab stopped: ${error instanceof Error ? error.message : String(error)}` });
+        current = save(current, { status: "failed", phase: "done", failure: stoppedLine(messageOf(error), current.phase === "making" || current.phase?.startsWith("build-")) });
       }
       if ((readDomainRun(current.id) ?? current).status === "cancelled") return;
     }
     await onChanged?.(current);
   } finally {
+    releaseRunner(run.id, root);
     working.delete(run.id);
   }
 }
 
 export const liveDesignDeps: DesignMateDeps = {
-  complete: (prompt, options) => query(prompt, undefined, undefined, undefined, undefined, options),
+  complete: (prompt, options = {}) => completeWithClaude(prompt, {
+    ...(options.images?.length ? { images: options.images } : {}),
+    ...(options.maxTokens ? { maxTokens: options.maxTokens } : {}),
+    ...(options.onStarted ? { onStarted: options.onStarted } : {}),
+  }),
   shoot: shootWithChrome,
+  make: (cwd, prompt) => makeWithClaude(cwd, prompt),
+  board: (input) => putLabOnBoard(input),
 };
 
 /** The scheduler's tick: start (or, after a restart, resume) every unfinished lab. Never waits on one. */
@@ -982,6 +1108,92 @@ export async function syncDesignMateRuns(options: { onChanged?: (run: DomainRun)
   const open = listDomainRuns().filter((run) => run.owner === DESIGN_MATE && !terminal(run));
   for (const run of open) void drive(run, options.deps ?? liveDesignDeps, options.onChanged);
   return open;
+}
+
+/** What starting a lab came to: really under way, stopped already (with why), or still waiting for its first answer. */
+export type DesignStart =
+  | { state: "started"; run: DomainRun }
+  | { state: "failed"; run: DomainRun; failure: string }
+  | { state: "waiting"; run: DomainRun };
+
+/**
+ * Starts a lab now rather than on the scheduler's next tick, and waits (briefly) to see it really
+ * start: the model answering, or the run stopping. Flyd says it started only on "started"; a lab
+ * that failed at once (a plan limit, no login) is said plainly, and one still waiting is said to be
+ * queued. Under tests nothing runs unless staff are given.
+ */
+export async function startDesignRun(run: DomainRun, options: { deps?: DesignMateDeps; waitMs?: number; pollMs?: number } = {}): Promise<DesignStart> {
+  if (process.env.VITEST && !options.deps) return { state: "waiting", run };
+  void drive(run, options.deps ?? liveDesignDeps);
+  const deadline = Date.now() + (options.waitMs ?? 45_000);
+  for (;;) {
+    const current = readDomainRun(run.id) ?? run;
+    if (current.status === "failed") return { state: "failed", run: current, failure: current.failure ?? stoppedLine("it stopped without saying why") };
+    if (current.startedAt || current.status === "completed" || current.status === "needs_decision") return { state: "started", run: current };
+    if (current.status === "cancelled" || Date.now() >= deadline) return { state: "waiting", run: current };
+    await new Promise((resolve) => setTimeout(resolve, options.pollMs ?? 500));
+  }
+}
+
+/** A lab that failed as it started was told to George in the chat that started it, so no notification says it again. */
+export function toldInChat(runId: string): void {
+  mutateDomainRun(runId, (current) => current?.status === "failed" && current.report?.state === "due"
+    ? { ...current, report: { ...current.report, state: "quiet", at: new Date().toISOString() } } : null);
+}
+
+const boards = new BoardWatcher();
+/** Boards are listened to this long after their lab finished; older ones are left. */
+const BOARD_WATCH_DAYS = 21;
+
+/**
+ * George's answer on a lab's board: a version marked final is built (with any notes he sent with it),
+ * notes alone go to another round. Both go through the lab's follow-up path, once per board message.
+ */
+export async function answerFromBoard(run: DomainRun, feedback: BoardFeedback): Promise<string> {
+  const lab = readLab(run.id);
+  const version = feedback.final !== undefined ? lab?.versions.find((item) => item.n === feedback.final) : undefined;
+  if (!version && !feedback.notes.length) return "Nothing to act on in that.";
+  // No project to build into: the pick is kept on the lab, and only notes start another round.
+  if (version && !run.request.project?.root && !feedback.notes.length) {
+    if (lab) { lab.picked = version.n; writeLab(run.id, lab, labsDir()); }
+    return `Marked V${version.n} · ${version.name} as the one. This lab has no project to build it into yet, so it waits here until you say where.`;
+  }
+  const { designFollowup } = await import("./followup.js");
+  const words = [
+    ...(version ? [`Build V${version.n} · ${version.name}.`] : []),
+    ...(feedback.notes.length ? ["His notes on the board:", ...feedback.notes.map((note) => `- ${note}`)] : []),
+  ].join("\n");
+  const id = feedback.ids.length ? `lab-${createHash("sha256").update(`${run.id}\0${feedback.ids.join(",")}`).digest("hex").slice(0, 32)}` : undefined;
+  const next = await designFollowup(run, words, { pick: version?.n ?? null, ...(id ? { requestId: id } : {}) });
+  void syncDesignMateRuns();
+  if (next.status === "failed") return `I couldn't start that: ${next.failure ?? "it stopped at once"}`;
+  if (next.request.project?.root && version && readBuild(next.id)) return `Building V${version.n} · ${version.name} into the project now. You'll hear when it's in.`;
+  return "Taking your notes into another round now. It comes back on a new board.";
+}
+
+/** The scheduler's tick: listens to the board of every recent finished lab that George has not ended. */
+export function syncDesignBoards(options: { watcher?: BoardWatcher; now?: Date } = {}): string[] {
+  if (process.env.VITEST && !options.watcher) return [];
+  const watcher = options.watcher ?? boards;
+  const since = (options.now ?? new Date()).getTime() - BOARD_WATCH_DAYS * 86_400_000;
+  const watches: BoardWatch[] = [];
+  for (const run of listDomainRuns()) {
+    if (run.owner !== DESIGN_MATE || run.status !== "completed" || Date.parse(run.updatedAt) < since) continue;
+    const lab = readLab(run.id);
+    if (!lab?.board || lab.board.ended) continue;
+    watches.push({
+      runId: run.id,
+      board: lab.board,
+      labDir: labDir(run.id),
+      onFeedback: (feedback) => answerFromBoard(readDomainRun(run.id) ?? run, feedback),
+      onEnded: () => {
+        const current = readLab(run.id);
+        if (current?.board) { current.board.ended = true; writeLab(run.id, current, labsDir()); }
+      },
+    });
+  }
+  watcher.sync(watches);
+  return watches.map((watch) => watch.runId);
 }
 
 /** For tests: wait for a lab to finish. */

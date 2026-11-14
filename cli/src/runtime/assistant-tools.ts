@@ -125,7 +125,7 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "start_design_task",
-    description: "Hand design work to Flyd's designers, in the background: a design lab (\"make a lab for X\"), N versions or redesigns of a page, section, screen or component, or design options to choose between. They run the lab process (distinct directions, a critic loop, real imagery) and the finished lab comes back to George to review and pick from. Returns immediately.",
+    description: "Hand design work to Flyd's designers, in the background: a design lab (\"make a lab for X\"), N versions or redesigns of a page, section, screen or component, or design options to choose between. They run the lab process (distinct directions, a critic loop, real imagery) and the finished lab lands on a board where George pins notes or marks one final to build. Returns once the team has really started, or says it is only queued, or why it could not start.",
     input_schema: {
       type: "object",
       properties: {
@@ -226,6 +226,21 @@ export interface AssistantToolContext {
 
 function lines(text: unknown): string[] {
   return String(text ?? "").split(/\n|;/).map((line) => line.replace(/^\s*[-*•\d.)]+\s*/, "").trim()).filter(Boolean);
+}
+
+/**
+ * Hands a lab to the design team and says only what really happened: started once its model has
+ * answered, queued while it has not yet, or not started and why. A lab that failed at once is told
+ * in this chat, so it is not told again as a notification.
+ */
+async function startDesignLab(input: import("../command/design.js").DesignDispatchInput, context: AssistantToolContext): Promise<string> {
+  const { dispatchDesignLab, designStartLine } = await import("../command/design.js");
+  const lab = await dispatchDesignLab(input);
+  if (lab.status === "refused") return `Error: the design lab did not start: ${lab.reason}. Tell George that in one plain line; do not retry it this turn.`;
+  const { startDesignRun, toldInChat } = await import("../command/design-mate.js");
+  const start = await startDesignRun(lab.run);
+  if (start.state === "failed" && !context.background) toldInChat(start.run.id);
+  return designStartLine(start);
 }
 
 export async function runAssistantTool(
@@ -398,15 +413,13 @@ export async function runAssistantTool(
 
         // A turn read as a design lab is Design Mate's, even when it arrived as code work.
         if (context.skill?.name === "design-lab") {
-          const { dispatchDesignLab } = await import("../command/design.js");
-          const lab = await dispatchDesignLab({
+          return startDesignLab({
             originalMessage: context.userMessage ?? outcome,
             intendedOutcome: outcome,
             doneWhen,
             source: "chat",
             project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo },
-          });
-          return `Design lab started (run ${lab.run.id}). When it is ready it shows in his column for review. Tell George only what you started, not who builds it or the id.`;
+          }, context);
         }
 
         // FirstMate is the coding-domain boss when installed. Flyd keeps the
@@ -465,15 +478,13 @@ export async function runAssistantTool(
         if (!doneWhen.length) return "Error: start_design_task needs done_when: the checkable points that mean the lab is ready";
         const repo = String(input.repo ?? "").trim() || context.situation?.projectRoot;
         // Design Mate owns labs: its own brief, designers and critic, beside the coding boss rather than through it.
-        const { dispatchDesignLab } = await import("../command/design.js");
-        const run = await dispatchDesignLab({
+        return startDesignLab({
           originalMessage: context.userMessage ?? outcome,
           intendedOutcome: outcome,
           doneWhen,
           source: "chat",
           ...(repo ? { project: { ...(context.situation?.project ? { name: context.situation.project } : {}), root: repo } } : {}),
-        });
-        return `Design lab started (run ${run.run.id}). When it is ready it shows in his column for review. Tell George only what you started, not who builds it or the id.`;
+        }, context);
       }
       case "pass_on_question": {
         const question = String(input.question ?? "").replace(/\s+/g, " ").trim();
