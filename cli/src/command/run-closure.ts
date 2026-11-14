@@ -4,7 +4,7 @@ import type { DomainRun, RunClosure } from "./types.js";
 
 // A run Flyd handed firstmate stops asking George once its question is closed.
 //
-// Firstmate answers a note once (`fm-inbox.sh`: "One reply per note"), so a run
+// Firstmate answers a note once (its inbox script: "One reply per note"), so a run
 // that came back `needs_decision` can never be told the call was answered,
 // overtaken or archived later: it froze there, and every surface kept putting it
 // to George (the 20 Oct "Held up" card, still asking on 14 Nov). Instead Flyd

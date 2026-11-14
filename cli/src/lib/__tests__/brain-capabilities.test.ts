@@ -9,6 +9,8 @@ describe("brain capability parity", () => {
     const commandIds = [...source.matchAll(/(?:^|=\s*)program\s*\n?\s*\.command\("([^" ]+)/gm)]
       .map((match) => match[1])
       .filter((id) => !["setup"].includes(id));
+    // Commands registered through a helper: `registerViewCommand(program)` adds `view`.
+    for (const match of source.matchAll(/^register(\w+)Command\(program\)/gm)) commandIds.push(match[1].toLowerCase());
     commandIds.push("capture");
 
     expect(BRAIN_CAPABILITIES.map((capability) => capability.id).sort()).toEqual(commandIds.sort());
