@@ -199,6 +199,7 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     // Building on its own branch is local; approving a push or deploy for when he lands it is not.
     case "start_coding_task": return Array.isArray(input.after_land) && input.after_land.length ? "outward" : "local";
     case "work_model": return workModelAction(input) === "show" ? "read" : "local";
+    case "retire_card":
     case "speaking_style":
     case "background_task":
     case "start_knowledge_task":

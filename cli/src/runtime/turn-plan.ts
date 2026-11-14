@@ -79,7 +79,8 @@ const PASS_ON = ["pass_on_question"];
 // recording it is hearing him, not changing anything, so wherever the tool is
 // in sight its correction runs. Blocked, the model went hunting through mail
 // and the shell for the same thing.
-const HEARS_HIM = new Set(["work_model"]);
+// Him saying a card is old is the same: retiring it keeps the promise to stop raising it, on any turn that hears it.
+const HEARS_HIM = new Set(["work_model", "retire_card"]);
 
 /** Who takes which work: the delegate route's hand-offs below, and the Chief of Staff's intake (command/cos/intake.ts). */
 export const TEAMS = {

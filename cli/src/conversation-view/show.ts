@@ -45,6 +45,8 @@ export interface ShowPreview {
 export interface ShowItem {
   /** Core decision that authorized this presentation. */
   executiveDecisionId?: string;
+  /** A call's one identity (artefact.ts `questionIdentityOf`): what its words and its ring are keyed on, whatever its wording. */
+  questionIdentity?: string;
   /**
    * A question only he can answer, with its options. A fleet hold names its
    * task; a question a reply put to him names where his answer goes (replyTo),

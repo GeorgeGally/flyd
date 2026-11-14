@@ -101,6 +101,8 @@ export interface JobRun {
   artifacts: string[];
   /** Where the work stands, as read once from its reply (lib/work-state.ts); from its status when it carries none. */
   work?: WorkState;
+  /** Why it asks nothing any more (command/run-closure.ts): firstmate closed its task, or George said it is old. */
+  closed?: string;
 }
 
 export interface JobSession {
@@ -131,6 +133,13 @@ export interface JobBoard {
 
 const DAY = 24 * 60 * 60 * 1000;
 const DONE_KEEP_DAYS = 21;
+/**
+ * A run's question goes unanswered this long and stops asking: whatever its record still says, a call nobody has
+ * touched in three days is no longer in front of him. Firstmate's record settling it is the real close; this is the backstop.
+ */
+export const NEEDS_YOU_TTL_MS = 3 * DAY;
+/** Finished work waits on his look for a day, then it is done work: the same for a fleet row as for a run. */
+export const READY_KEEP_MS = DAY;
 /** An open run that has not moved for this long is not work under way, whatever its record still says. */
 const QUIET_RUN_MS = DAY;
 const REPORT_CHARS = 240;
@@ -202,6 +211,7 @@ export function jobRunFromDomain(run: DomainRun): JobRun {
     // A board its evidence names is where he looks at the options, so it is one of its links.
     artifacts: [...new Set([...(run.result?.artifacts ?? []), ...(run.result?.evidence ?? []).filter((ref) => boardKeyOf(ref))])],
     ...(() => { const work = run.result?.workState ?? workStateOfRun(run.status, run.result); return work ? { work } : {}; })(),
+    ...(run.closedBy ? { closed: run.closedBy.reason } : {}),
   };
 }
 
@@ -254,9 +264,12 @@ function runSignalOf(run: JobRun, now: number): Signal | null {
   // Where the work stands is the one work state its reply was read into; its status alone says how it is held.
   const read = run.work ?? workStateOfRun(run.status as DomainRunStatus);
   // Finished work waits on him for a day from when it settled; after that it is done, PR or not.
-  const work = read === "ready" && now - Date.parse(run.settled ?? at) > DAY ? "landed" : read;
+  const work = read === "ready" && now - Date.parse(run.settled ?? at) > READY_KEEP_MS ? "landed" : read;
+  // Closed in firstmate's record, or retired by his own word: it never asks again.
+  if (run.closed) return work === "ready" || work === "landed" ? { group: "done", at, next: run.outcome || "Done", owner: "", ask: "", because: `Run ${run.id} was closed: ${run.closed}` } : null;
   if (work === "needs_you") {
     if (run.source === "flyd") return null;
+    if (now - Date.parse(at) > NEEDS_YOU_TTL_MS) return { group: "waiting", at, next: run.outcome || "Waiting", owner: "Flyd", ask: "", because: `Run ${run.id} asked over three days ago and has not moved` };
     return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
   // Who on the staff does the work is Flyd's business: the card says only whether it is his move or Flyd's.
@@ -422,7 +435,8 @@ export function jobsFrom(input: {
   }
 
   for (const item of showItems(input.show)) {
-    const group = itemGroup(item.kind);
+    // A finished worker's row waits on his look for a day, as a run does; after that it is done work, not his to do.
+    const group = item.kind === "ready" && item.at && now - Date.parse(item.at) > READY_KEEP_MS ? "done" : itemGroup(item.kind);
     if (!group) continue;
     // Every running worker is its own card: two on one project are two, and a project's open call never hides one.
     const name = item.project && (projectOfRepo(item.project) ?? item.project);
@@ -434,7 +448,7 @@ export function jobsFrom(input: {
     // A staff status line ("Checks green: PR ready for review…") is said as what it means for him.
     const detail = item.detail && (statusSaid(item.detail) ?? item.detail);
     const ask = group === "needs" ? (item.decision?.question || detail || item.headline) : "";
-    const state = handled ? "Handled for you" : itemState(item);
+    const state = handled ? "Handled for you" : group === "done" ? undefined : itemState(item);
     const signal: Signal = {
       group,
       ...(state ? { state } : {}),
@@ -445,6 +459,7 @@ export function jobsFrom(input: {
       ask,
       because: `Fleet ${item.kind}: ${item.id}`,
       ...(group === "needs" && item.decision ? { decision: item.decision } : {}),
+      ...(group === "needs" && item.questionIdentity ? { questionIdentity: item.questionIdentity } : {}),
       ...(handled ? { handled } : {}),
       // A call or a decision is his and keeps its question, with only its title said plainly; a handled line is Flyd's own.
       ...(!handled ? { raw: { title: item.headline, line: (item.detail && !placeholderLine(item.detail) ? item.detail : "") || item.headline, ...(item.kind === "call" || item.decision ? { keep: true } : {}) } } : {}),
@@ -527,8 +542,13 @@ export function jobsFrom(input: {
     const shownState = paused && (paused > 1 || state !== "Paused") ? `${state === "Paused" ? "" : `${state} · `}${paused} paused` : state;
     // A card built from the staff's status line is said in his words, once (card-words.ts); until then, generically, and its Timeline entry says the same. A card with its own question and answers keeps them together.
     const asks = Boolean(several || listed || answers?.options.length);
-    const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line, shownAnswers ? answers!.options.map((option) => shownAnswers[option]!) : undefined) : undefined;
-    const fallback = fallbackWords(bucket.name ?? "", lead.group, state);
+    // A call's words are its question's, read once per question (its hold's lifecycle), however it is reworded; a card
+    // where his answer is wanted that asks him nothing is read as the notice it is.
+    const identity = lead.questionIdentity && /^(?:hold|call):/.test(lead.questionIdentity) ? lead.questionIdentity : undefined;
+    // Only a call is put to him by its own words: a run waiting on him says so by its record, whatever its line says.
+    const wantsAnswer = lead.group === "needs" && Boolean(identity) && !/^(?:ready for you|report ready)$/i.test(state);
+    const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line, shownAnswers ? answers!.options.map((option) => shownAnswers[option]!) : undefined, { ...(identity ? { identity } : {}), wantsAnswer }) : undefined;
+    const fallback = fallbackWords(bucket.name ?? "", lead.group, state, raw?.asks !== false);
     const named = raw ? input.cardWords!.get(raw.key) ?? fallback : undefined;
     // A question with its own answers keeps its words while they are plain; asked in developer words, it is said plainly and its answers stay. Only a question the run put to him is ever shown as asked: a staff status line never is.
     const unread = Boolean(raw && lead.group === "needs" && lead.raw?.asked && jargonIn(lead.ask) && !input.cardWords!.has(raw.key) && input.exhausted?.has(raw.key));

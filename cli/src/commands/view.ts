@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import type { Command } from "commander";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PA_VOICE } from "../lib/pa-voice.js";
@@ -39,6 +40,9 @@ import { WhatsAppPairing } from "../connectors/whatsapp-pairing.js";
 import { MemoryReader } from "../conversation-view/memory.js";
 import { OvertakenCalls } from "../conversation-view/overtaken.js";
 import { StaleCallJudge } from "../conversation-view/stale-calls.js";
+import { FirstmateHoldCheck } from "../conversation-view/hold-check.js";
+import { RetiredCards } from "../conversation-view/retired-cards.js";
+import { settleClosedRuns } from "../command/run-closure.js";
 import { ConversationViewServer, DEFAULT_VIEW_PORT, VIEW_HOST } from "../conversation-view/server.js";
 import { LiveStaffSession, readStaffView } from "../command/fleet-monitor.js";
 import { listDomainRuns } from "../command/store.js";
@@ -232,6 +236,52 @@ function withThreads(source: ConversationSource, flyd: FlydConversationSource, i
   return withProjectThreads(source, threads);
 }
 
+/**
+ * The feed's safety checks, built whenever firstmate's inbox is there: never behind a flag the app does not pass.
+ * (22 Oct to 14 Nov they were built only with --session, which Flyd.app never passes, so none ever ran.)
+ * Overtaken calls are closed with the staff (FLYD_CLOSE_OVERTAKEN=0 off), old ones judged (FLYD_STALE_CALLS=0 off),
+ * every call checked against firstmate's open predicate, Flyd's runs settled when their task closed, and retired cards kept off.
+ */
+export function feedChecks(inbox: Pick<FirstmateInbox, "available" | "home" | "sendOwn">): Pick<ConstructorParameters<typeof ArtefactFeed>[0] & object, "overtaken" | "holds" | "settleRuns" | "retired"> {
+  const retired = { retired: new RetiredCards() };
+  if (!inbox.available()) return retired;
+  return {
+    ...retired,
+    holds: new FirstmateHoldCheck({ home: inbox.home }),
+    settleRuns: (entries) => settleClosedRuns(entries),
+    ...(process.env.FLYD_CLOSE_OVERTAKEN !== "0" ? {
+      overtaken: new OvertakenCalls({
+        send: (note, requestId, task) => inbox.sendOwn(note, requestId, {
+          outcome: `Close the overtaken call on ${task}`,
+          doneWhen: ["the hold is closed, or reopened with what changed if it is still a real decision", "what you did is replied to this note"],
+          contextRefs: [`task:${task}`],
+          // The call's own run, when one of Flyd's handoffs raised it.
+          ...(listDomainRuns().some((run) => run.id === task) ? { parentRequestId: task } : {}),
+        }),
+        // An old call the staff never closed is weighed against the repo and his project list (FLYD_STALE_CALLS=0 off).
+        ...(process.env.FLYD_STALE_CALLS !== "0" ? { stale: new StaleCallJudge({ complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }) }) } : {}),
+      }),
+    } : {}),
+  };
+}
+
+/** The view's one feed: what the app shows, with every safety check `feedChecks` builds, whatever flags it was started with. */
+export function viewFeed(inbox: Pick<FirstmateInbox, "available" | "home" | "sendOwn">, feed: Pick<ConstructorParameters<typeof ArtefactFeed>[0] & object, "voice" | "decideChanges" | "workers">): ArtefactFeed {
+  return new ArtefactFeed({ home: inbox.home, ...feed, ...feedChecks(inbox) });
+}
+
+/** `flyd view`'s command line, as index.ts registers it: the wiring test parses Flyd.app's own arguments through it. */
+export function registerViewCommand(program: Command, run: (options: ViewOptions) => Promise<void> = runView): Command {
+  return program
+    .command("view")
+    .description("Open a calm view of firstmate's conversation (your messages and its replies only), with a box to message firstmate")
+    .option("--session <id>", "session to show (default: the most recently active, followed live)")
+    .option("--project <dir>", "Claude Code project dir name under ~/.claude/projects, or an absolute path")
+    .option("--port <n>", "loopback port (default 4818)", (value: string) => Number.parseInt(value, 10))
+    .option("--no-open", "don't open the browser")
+    .action((opts: ViewOptions) => run(opts));
+}
+
 /** `flyd view`: Flyd's own conversation, served on loopback. */
 export async function runView(options: ViewOptions = {}): Promise<void> {
   const { acquireDesktopOwner } = await import("../mobile/owner.js");
@@ -328,19 +378,6 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
   const interpreter = new AnswerInterpreter({ complete, cacheFile: defaultInterpretationCache() });
   // The artefact says each piece of work in Flyd's own words, through Flyd's own model.
   // A call whose task the staff's record shows finished, answered or released leaves Needs you, and firstmate is told to close it.
-  const firstmateInbox = inbox;
-  const overtaken = wantsInbox && firstmateInbox && process.env.FLYD_CLOSE_OVERTAKEN !== "0"
-    ? new OvertakenCalls({ send: (note, requestId, task) => firstmateInbox.sendOwn(note, requestId, {
-      outcome: `Close the overtaken call on ${task}`,
-      doneWhen: ["the hold is closed, or reopened with what changed if it is still a real decision", "what you did is replied to this note"],
-      contextRefs: [`task:${task}`],
-      // The call's own run, when one of Flyd's handoffs raised it.
-      ...(listDomainRuns().some((run) => run.id === task) ? { parentRequestId: task } : {}),
-    }),
-    // An old call the staff never closed is weighed against the repo and his project list (FLYD_STALE_CALLS=0 off).
-    ...(process.env.FLYD_STALE_CALLS !== "0" ? { stale: new StaleCallJudge({ complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }) }) } : {}),
-    })
-    : undefined;
   const decideChanges = async (changes: import("../intelligence/executive/firstmate-decision.js").FirstmateChange[]) => {
     const runs = listDomainRuns();
     // His recorded words, read once: the routine calls they settle are answered for him (FLYD_STANDING_RULES=0 off).
@@ -350,7 +387,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       const run = change.taskId ? runs.find((item) => item.id === change.taskId) : undefined;
       // A worker firstmate's record shows stopped on purpose, superseded or finished is no work to recover.
       const stopped = !run && change.taskId && change.kind === "fleet_state" && ["unknown", "failed"].includes(change.state) ? inbox.taskStopped(change.taskId) : [];
-      const authority = run ? authorityForStaffRun({
+      // An old call firstmate still holds sits quietly in his list: Flyd words it, and never acts or sends a note on it.
+      const authority = change.quiet ? [] : run ? authorityForStaffRun({
         runId: run.id,
         firstmate: run.transport.kind === "firstmate" && run.request.domain === "coding",
         active: isOpen(run.status),
@@ -390,12 +428,11 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       },
     });
   };
-  const feed = new ArtefactFeed({
+  const feed = viewFeed(inbox, {
     voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }),
     decideChanges,
     // Working reads every worker Core's staff watch sees, not the snapshot's first twenty.
     workers: () => readStaffView()?.snapshot.workers ?? [],
-    ...(overtaken ? { overtaken } : {}),
   });
   if (source !== flydSource) source = executiveConversationSource(source, decideChanges, resolveDecision);
   // His conversations by project: Flyd's own and firstmate's, read only.

@@ -37,6 +37,14 @@ export interface FirstmateChange {
   unresolved?: boolean;
   /** Firstmate's own record that this task's worker was stopped on purpose, superseded or finished: its evidence refs. */
   stopped?: string[];
+  /**
+   * For a call: the one identity of its question (conversation-view/artefact.ts `questionIdentityOf`: the hold's
+   * lifecycle, else its raising). The decision is keyed on it alone, so the same open call is decided once, however
+   * its words or the rows around it change; the hold raised again is a new question.
+   */
+  questionIdentity?: string;
+  /** An old call firstmate still holds, kept quietly in his list (artefact.ts `withCurrentCalls`): it is worded, never acted on. */
+  quiet?: boolean;
 }
 
 export interface FirstmateDecisionOptions {
@@ -193,12 +201,22 @@ async function judgeProposal(change: FirstmateChange, proposal: ExecutiveProposa
   return { route, confidence: answer.confidence, notable: Boolean(notable && notable.probability >= (predicateDefinition("executive_outcome_notable").threshold ?? 1)) };
 }
 
+/**
+ * What makes a change a new event: a call is its question's identity alone (never its words, its label, or the
+ * sibling rows its detail carries, which re-filed every open call each time a neighbour changed); anything else is
+ * what it says. Pure.
+ */
+export function sourceEventKey(change: Pick<FirstmateChange, "eventId" | "kind" | "state" | "label" | "detail" | "evidenceRefs" | "questionIdentity">): string {
+  if (change.kind === "decision" && change.questionIdentity) return `${change.eventId}\0decision\0question:${change.questionIdentity}`;
+  return `${change.eventId}\0${change.kind}\0${change.state}\0${change.label}\0${change.detail}\0${JSON.stringify([...change.evidenceRefs].sort())}`;
+}
+
 export async function processFirstmateChange(change: FirstmateChange, options: FirstmateDecisionOptions): Promise<ExecutiveDecisionRecord> {
   const store = options.store ?? new IntelligenceEventStore();
   const ownsStore = options.store === undefined;
   const sourceId = change.sourceId ?? "firstmate.change";
   const finishedWork = reportsFinished(change);
-  const sourceEventId = createHash("sha256").update(`${change.eventId}\0${change.kind}\0${change.state}\0${change.label}\0${change.detail}\0${JSON.stringify([...change.evidenceRefs].sort())}${change.sentToBoss?.length ? `\0${[...change.sentToBoss].sort().join("\0")}` : ""}${finishedWork ? `\0${FINISHED_POLICY}` : ""}${change.stopped?.length ? `\0stopped:${[...change.stopped].sort().join("\0")}` : ""}`).digest("hex");
+  const sourceEventId = createHash("sha256").update(`${sourceEventKey(change)}${change.sentToBoss?.length ? `\0${[...change.sentToBoss].sort().join("\0")}` : ""}${finishedWork ? `\0${FINISHED_POLICY}` : ""}${change.stopped?.length ? `\0stopped:${[...change.stopped].sort().join("\0")}` : ""}`).digest("hex");
   const decisionId = createHash("sha256").update(`${sourceId}\0${sourceEventId}`).digest("hex").slice(0, 32);
   const existing = store.findByIdempotencyKey("executive.cycle", `step:${decisionId}`);
   if (existing?.payload?.decision && typeof existing.payload.decision === "object") {

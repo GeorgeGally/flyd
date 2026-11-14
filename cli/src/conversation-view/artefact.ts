@@ -27,6 +27,9 @@ import { forHim, shortHeadline, staffStatusLine } from "../lib/pa-voice.js";
 import { SnapshotGate, type SnapshotGateOptions } from "./snapshot-gate.js";
 import { BoardShots, boardShotSrc, publicBoardUrl } from "./board-shots.js";
 import { BoardNames, boardKeyOf, boardTitle, isBoardKey, ProjectBoards, viaOpener } from "./liesel.js";
+import type { HoldCheck, HoldState } from "./hold-check.js";
+import { asksSomething } from "./asks.js";
+import type { RetiredCards } from "./retired-cards.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
 // fleet snapshot (the authoritative "everything going on"), Flyd's own memory,
@@ -92,6 +95,18 @@ export interface ArtefactRow {
   notable?: boolean;
   /** The list still holds it but the latest read no longer reports it: a call shows as settled, never as asking him. */
   ledgerOnly?: boolean;
+  /**
+   * The call's lifecycle as firstmate names it (`fm-captain-hold.sh open --identity`: its hold-set stamp and answer
+   * count): the one identity its decision, its ring and its words are keyed on, whatever its wording does.
+   */
+  holdIdentity?: string;
+  /** The question's identity (questionIdentityOf), fixed when the call is first read, before its words are reworded. */
+  questionIdentity?: string;
+  /**
+   * An old call firstmate still confirms open (the 3-day rule would drop it, its own predicate says it stands): it
+   * stays in the list, quietly. It never rings him and is never put to him afresh; closing it is firstmate's.
+   */
+  quiet?: boolean;
 }
 
 export interface FleetArtefact {
@@ -410,6 +425,10 @@ export interface BacklogEntry {
   finished?: string;
   /** The pull request (or other link) the row names. */
   url?: string;
+  /** The row is checked off: done, archived or closed, whether or not it carries a date. */
+  closed?: boolean;
+  /** When its captain hold was set (`Captain hold set:` in its body): the start of the call's lifecycle. */
+  holdSet?: string;
 }
 
 /** Firstmate stores a hold's reason as `fm-hold-v1:<base64>`; its plain words, or nothing when it does not decode. Pure. */
@@ -432,8 +451,12 @@ export function parseBacklog(markdown: string): Map<string, BacklogEntry> {
   for (const line of markdown.split("\n")) {
     const row = /^- \[([ x])\] ([\w.-]+) - (.+)$/.exec(line.trim());
     if (!row) {
-      if (current && /^\s+\S/.test(line)) current.notes = ((current.notes ?? "") + " " + line.trim()).trim().slice(0, 2000);
-      else if (/^#/.test(line)) current = undefined;
+      if (current && /^\s+\S/.test(line)) {
+        current.notes = ((current.notes ?? "") + " " + line.trim()).trim().slice(0, 2000);
+        // The leading stamp is the lifecycle's own: a repeated hold keeps it.
+        const set = /^Captain hold set:\s*(\d{4}-\d{2}-\d{2}T\S+)/.exec(line.trim());
+        if (set && !current.holdSet) current.holdSet = set[1]!;
+      } else if (/^#/.test(line)) current = undefined;
       continue;
     }
     let rest = row[3]!;
@@ -461,6 +484,7 @@ export function parseBacklog(markdown: string): Map<string, BacklogEntry> {
       ...(hold ? { hold } : {}),
       ...(since && /^\d{4}-\d{2}-\d{2}/.test(since) ? { since: since.slice(0, 10) } : {}),
       ...(row[1] === "x" && finished ? { finished: finished.slice(0, 10) } : {}),
+      ...(row[1] === "x" ? { closed: true } : {}),
     };
     entries.set(row[2]!, current);
   }
@@ -524,9 +548,12 @@ export function statusNote(line: string): string {
 /** Holds that ask him to read or remember something rather than to decide. */
 const NOT_A_DECISION = /\bready to read\b|\(report \+ artefact\)|(?:^|:\s)Read:|^Remind (?:the )?captain\b/i;
 
-/** Whether a hold asks him to read or remember something rather than to decide. Pure. */
+/** Whether a hold asks him to read or remember something rather than to decide, or only tells him something. Pure. */
 function notADecision(row: ArtefactRow): boolean {
-  return NOT_A_DECISION.test(row.label) || Boolean(row.detail && NOT_A_DECISION.test(row.detail));
+  if (NOT_A_DECISION.test(row.label) || Boolean(row.detail && NOT_A_DECISION.test(row.detail))) return true;
+  // The hold's own reason is what it puts to him: a reason that asks nothing is a notice, not a call.
+  // (A settled row keeps the words he was last shown, which need not ask: it is judged by the read that settled it.)
+  return !row.ledgerOnly && Boolean(row.detail) && !asksSomething(row.detail!, row.choices ?? []) && !asksSomething(row.question ?? "");
 }
 
 /** A hold nobody has touched for this long, with nothing to answer, is no longer a call. */
@@ -540,13 +567,41 @@ export function isCurrentDecision(row: ArtefactRow, now: number): boolean {
   return !Number.isNaN(touched) && now - touched <= STALE_CALL_MS;
 }
 
+export interface EnrichOptions {
+  /** Keep each call's original evidence for Core's judgment (`sourceDetail`): set when the executive decides calls. */
+  sourceDetail?: boolean;
+  /**
+   * Keep calls the 3-day rule would drop, so the staff can still be told to close overtaken ones first; the feed then
+   * drops them itself (`withCurrentCalls`). Never a way past the rule: nothing that skips it reaches him.
+   */
+  keepStaleCalls?: boolean;
+}
+
+/**
+ * The fleet with every call that is no longer a current decision gone (isCurrentDecision: a read-me, a notice, or an
+ * old hold with nothing to answer), and its decision change with it, so Core never weighs one either. The 3-day rule
+ * is for calls firstmate cannot vouch for: one its own predicate confirms open (it carries the hold's lifecycle)
+ * stays, and once old it stays quietly (`quiet`): listed, never rung, never put to him afresh. Pure.
+ */
+export function withCurrentCalls(fleet: FleetArtefact, now: number): FleetArtefact {
+  if (fleet.unavailable) return fleet;
+  const confirmed = (row: ArtefactRow) => Boolean(row.holdIdentity) && !notADecision(row);
+  const kept = (row: ArtefactRow) => row.ledgerOnly || isCurrentDecision(row, now) || confirmed(row);
+  const dropped = new Set(fleet.calls.filter((row) => !kept(row)).flatMap((row) => (row.task ? [row.task] : [])));
+  return {
+    ...fleet,
+    calls: fleet.calls.filter(kept).map((row) => (row.ledgerOnly || isCurrentDecision(row, now) ? row : { ...row, quiet: true })),
+    ...(fleet.changes ? { changes: fleet.changes.filter((change) => !(change.kind === "decision" && change.taskId && dropped.has(change.taskId))) } : {}),
+  };
+}
+
 /** Bearings' rows with the backlog's full words, last-report times and screenshots. Pure. */
-export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEntry>, extras: Map<string, TaskExtra> = new Map(), now = Date.now(), options: { includeUnclassifiedCalls?: boolean } = {}): FleetArtefact {
+export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEntry>, extras: Map<string, TaskExtra> = new Map(), now = Date.now(), options: EnrichOptions = {}): FleetArtefact {
   const enrich = (row: ArtefactRow, call = false): ArtefactRow => {
     const entry = row.task ? backlog.get(row.task) : undefined;
     const extra = row.task ? extras.get(row.task) : undefined;
     let next: ArtefactRow = { ...row };
-    if (entry && call) next = { ...next, label: entry.title, ...(entry.hold ? { detail: entry.hold, ...(options.includeUnclassifiedCalls ? { sourceDetail: [row.sourceDetail, entry.hold].filter(Boolean).join("\n") } : {}) } : {}) };
+    if (entry && call) next = { ...next, label: entry.title, ...(entry.hold ? { detail: entry.hold, ...(options.sourceDetail ? { sourceDetail: [row.sourceDetail, entry.hold].filter(Boolean).join("\n") } : {}) } : {}) };
     else if (entry) next = { ...next, label: wholeLabel(row.label, entry.title) };
     if (entry?.repo) next.repo = entry.repo;
     const related = next.repo ? [...backlog].filter(([task, other]) => task !== row.task && other.repo === next.repo) : [];
@@ -585,9 +640,10 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
     if (next.repo) {
       next.context = related.slice(-6).map(([, other]) => `${other.finished ? `Finished ${other.finished}` : "Still open"}: ${other.title}. ${other.notes ?? ""}`).join("\n").slice(0, 2400);
     }
-    if (call && entry?.since) next.raised = entry.since;
+    if (call && (entry?.since || entry?.holdSet)) next.raised = entry.since ?? entry.holdSet!.slice(0, 10);
     if (extra?.at) next.at = extra.at;
-    else if (call && entry?.since) next.at = entry.since;
+    // A call no worker reports on dates from when its hold was set: the start of this call, not of its task.
+    else if (call && (entry?.holdSet || entry?.since)) next.at = entry.holdSet ?? entry.since;
     if (extra?.started) next.started = extra.started;
     if (extra?.note && next.detail && !call) next.detail = saysNoStep(next.detail) ? extra.note : wholeLabel(next.detail, extra.note);
     if (extra?.shots?.length) {
@@ -614,7 +670,7 @@ export function enrichFleet(fleet: FleetArtefact, backlog: Map<string, BacklogEn
   if (fleet.unavailable) return fleet;
   return {
     ...fleet,
-    calls: fleet.calls.map((row) => (row.ledgerOnly ? row : enrich(row, true))).filter((row) => (row.ledgerOnly ? !notADecision(row) : options.includeUnclassifiedCalls || isCurrentDecision(row, now))),
+    calls: fleet.calls.map((row) => (row.ledgerOnly ? row : enrich(row, true))).filter((row) => (row.ledgerOnly || options.keepStaleCalls ? !notADecision(row) : isCurrentDecision(row, now))),
     live: fleet.live.map((row) => enrich(row)),
     ready: fleet.ready.map((row) => enrich(row)),
     landed: fleet.landed.map((row) => enrich(row)),
@@ -638,6 +694,10 @@ export function firstmateChangesFromFleet(fleet: FleetArtefact): FirstmateChange
       label: row.label,
       detail: [original?.detail, row.sourceDetail ?? row.detail, row.context].filter(Boolean).join("\n"),
       goalContext: row.context,
+      // One question, one identity: its hold's lifecycle when firstmate names it, else its raising (callId), never
+      // its words or its sibling rows, so an edit elsewhere in the repo never re-files it.
+      questionIdentity: questionIdentityOf(row),
+      ...(row.quiet ? { quiet: true } : {}),
       evidenceRefs: row.task ? [`firstmate-task:${row.task}`] : [],
     });
   }
@@ -1392,6 +1452,7 @@ function loopbackRowItem(kind: ShowKind, id: string, row: ArtefactRow, options: 
     id: `${kind}:${id}`,
     kind,
     ...(row.executiveDecisionId ? { executiveDecisionId: row.executiveDecisionId } : {}),
+    ...(kind === "call" ? { questionIdentity: questionIdentityOf(row) } : {}),
     headline,
     why: "",
     ...(kind === "call" && row.task ? { decision: { task: row.task, ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}), ...(row.decisions?.length ? { decisions: row.decisions } : {}) } } : {}),
@@ -1895,6 +1956,22 @@ export function callId(row: ArtefactRow): string {
   return `${asked}-${row.task ?? ""}`;
 }
 
+/**
+ * The one identity of the question a call puts to him: its task and hold lifecycle (`hold:<task>#<identity>`) when
+ * firstmate names it, else its raising (`call:<callId>`). Its executive decision, its island ring and its card words
+ * are all keyed on this, so a reworded or re-read call is the same call. Pure.
+ */
+export function questionIdentityOf(row: ArtefactRow): string {
+  if (row.task && row.holdIdentity) return `hold:${row.task}#${row.holdIdentity}`;
+  return row.questionIdentity ?? `call:${callId(row)}`;
+}
+
+/** Each open call with its question's identity fixed, before its words are reworded for him. Pure. */
+export function pinnedQuestions(fleet: FleetArtefact): FleetArtefact {
+  if (fleet.unavailable) return fleet;
+  return { ...fleet, calls: fleet.calls.map((row) => (row.ledgerOnly ? row : { ...row, questionIdentity: questionIdentityOf(row) })) };
+}
+
 /** Runs the bearings script and reads the other three inputs. Bounded; never throws. */
 export class ArtefactFeed {
   private inputs: ArtefactInputs = EMPTY_ARTEFACT;
@@ -1954,6 +2031,12 @@ export class ArtefactFeed {
       decideChanges?: (changes: FirstmateChange[]) => Promise<ExecutiveDecisionRecord[]>;
       /** Reads whether old calls were overtaken; without it every call is shown. */
       overtaken?: OvertakenCheck;
+      /** Asks firstmate whether each call is still open, and names its lifecycle (hold-check.ts); without it the snapshot is trusted. */
+      holds?: HoldCheck;
+      /** Settles Flyd's own runs whose firstmate task the record shows closed (command/run-closure.ts), on every read. */
+      settleRuns?: (entries: Map<string, BacklogEntry>) => unknown;
+      /** The cards George said are old (retired-cards.ts): never shown again. */
+      retired?: RetiredCards;
       /** Every worker the staff is running now (Core's staff watch): the snapshot itself lists only the first twenty. */
       workers?: () => readonly StaffWorker[];
       intervalMs?: number;
@@ -2056,6 +2139,17 @@ export class ArtefactFeed {
 
   current(): ArtefactInputs {
     return this.inputs;
+  }
+
+  /** Which of its safety checks this feed was built with: the app's wiring is tested through this (commands/view.ts). */
+  wiring(): { overtaken: boolean; holds: boolean; settleRuns: boolean; retired: boolean; executive: boolean } {
+    return {
+      overtaken: Boolean(this.options.overtaken),
+      holds: Boolean(this.options.holds),
+      settleRuns: Boolean(this.options.settleRuns),
+      retired: Boolean(this.options.retired),
+      executive: Boolean(this.options.decideChanges),
+    };
   }
 
   onRefresh(listener: () => void): () => void {
@@ -2364,6 +2458,14 @@ export class ArtefactFeed {
       }
       // Done rows move to the archive; the live backlog wins for a task in both.
       const entries = new Map([...parseBacklog(archiveText), ...parseBacklog(backlogText)]);
+      // Flyd's own runs whose task the record closed stop asking before anything is decided or drawn.
+      if (this.options.settleRuns && !bearings.unavailable) {
+        try {
+          await this.options.settleRuns(entries);
+        } catch (error) {
+          console.warn(`[view] could not settle closed runs: ${reason(error)}`);
+        }
+      }
       const listed = [bearings.calls, bearings.live, bearings.ready, bearings.landed, bearings.held, bearings.next]
         .flat().map((row) => row.task).filter((task): task is string => Boolean(task));
       // Finished work is shown whether or not the fleet read succeeded: a failed read never empties the screen.
@@ -2379,8 +2481,12 @@ export class ArtefactFeed {
       this.loadLedger();
       const merged = this.mergeLedger(withRecent, Date.now(), !bearings.unavailable);
       const content = bearings.unavailable && !FLEET_FIELDS.some((field) => merged[field].length) ? FLEET_UNAVAILABLE("unreadable") : merged;
-      const allQuestions = enrichFleet(content, entries, extras, Date.now(), { includeUnclassifiedCalls: Boolean(this.options.decideChanges) });
-      const enriched = await this.withoutOvertaken(allQuestions, entries);
+      // Every call is checked before it can reach him: is it still open (firstmate's own predicate, and its subject not
+      // already landed), was it overtaken (the staff are told to close it), did he retire it, and is it still a current
+      // decision (the 3-day rule). The staff hear about overtaken calls even when the 3-day rule then hides them.
+      const allQuestions = enrichFleet(content, entries, extras, Date.now(), { sourceDetail: Boolean(this.options.decideChanges), keepStaleCalls: true });
+      const live = await this.withLiveHolds(allQuestions, bearings.unavailable ? undefined : bearings);
+      const enriched = pinnedQuestions(withCurrentCalls(this.withoutRetired(await this.withoutOvertaken(live, entries)), Date.now()));
       const decided = this.options.decideChanges
         ? projectFleetDecisions(enriched, await this.options.decideChanges(firstmateChangesFromFleet(enriched)).catch((error: unknown) => {
           console.warn(`[view] executive decision step failed: ${reason(error)}`);
@@ -2416,6 +2522,54 @@ export class ArtefactFeed {
     } finally {
       if (this.again) this.refreshSoon();
     }
+  }
+
+  /**
+   * Each call as firstmate's record stands now, asked when it would be shown (hold-check.ts): a call its open
+   * predicate says is closed, or whose task or pull request the fresh read lists as landed (the board's own
+   * hygiene), settles; one still open carries its lifecycle identity. "Absent" and "cannot tell" keep it.
+   */
+  private async withLiveHolds(fleet: FleetArtefact, read?: FleetArtefact): Promise<FleetArtefact> {
+    if (fleet.unavailable) return fleet;
+    const landed = read ? read.landed.filter((row) => !row.ledgerOnly) : [];
+    const landedTasks = new Set(landed.flatMap((row) => (row.task ? [row.task] : [])));
+    const landedUrls = new Set(landed.flatMap((row) => (row.url ? [row.url] : [])));
+    const check = this.options.holds;
+    const states = await Promise.all(fleet.calls.map(async (row): Promise<HoldState | undefined> => {
+      if (row.ledgerOnly || !row.task) return undefined;
+      if (landedTasks.has(row.task) || (row.url && landedUrls.has(row.url))) return { state: "closed" };
+      return check ? check.state(row.task).catch((): HoldState => ({ state: "unknown" })) : undefined;
+    }));
+    return this.settleCalls(fleet, (row, index) => states[index]?.state === "closed", (row, index) => {
+      const state = states[index];
+      return state?.state === "open" && state.identity ? { ...row, holdIdentity: state.identity } : row;
+    });
+  }
+
+  /** The fleet without the calls George said are old (retired-cards.ts). */
+  private withoutRetired(fleet: FleetArtefact): FleetArtefact {
+    const retired = this.options.retired;
+    if (!retired || fleet.unavailable) return fleet;
+    return this.settleCalls(fleet, (row) => !row.ledgerOnly && retired.has(row));
+  }
+
+  /**
+   * The fleet with the calls `closed` picks settled: one he was asked stays on as settled, any other goes, and its
+   * decision change never reaches Core. The rest are kept, as `keep` gives them.
+   */
+  private settleCalls(fleet: FleetArtefact, closed: (row: ArtefactRow, index: number) => boolean, keep: (row: ArtefactRow, index: number) => ArtefactRow = (row) => row): FleetArtefact {
+    const settled = new Set<string>();
+    const calls = fleet.calls.flatMap((row, index) => {
+      if (!closed(row, index)) return [keep(row, index)];
+      if (row.task) settled.add(row.task);
+      return this.ledger.get(ledgerKey("calls", row) ?? "")?.asked ? [{ ...row, ledgerOnly: true }] : [];
+    });
+    if (!settled.size) return { ...fleet, calls };
+    return {
+      ...fleet,
+      calls,
+      ...(fleet.changes ? { changes: fleet.changes.filter((change) => !(change.kind === "decision" && change.taskId && settled.has(change.taskId))) } : {}),
+    };
   }
 
   /**
