@@ -7,7 +7,7 @@ import { FLYD_DIR } from "../lib/config.js";
 import { readTaste } from "../council/taste.js";
 import { BoardWatcher, putLabOnBoard, type BoardFeedback, type BoardInput, type BoardWatch, type LabBoard } from "./design-board.js";
 import { completeWithClaude, DesignModelError, makeWithClaude } from "./design-claude.js";
-import { designLabSkill, designTeamSkills } from "./design.js";
+import { DESIGN_LAB_DONE_WHEN, designLabSkill, designTeamSkills } from "./design.js";
 import { dueReport } from "./report.js";
 import { createDomainRun, isDomainRunId, listDomainRuns, mutateDomainRun, readDomainRun } from "./store.js";
 import { cameBack, isSettled } from "./run-state.js";
@@ -453,6 +453,14 @@ export function pageOf(text: string): string | null {
   return text.slice(start, end + "</html>".length);
 }
 
+/**
+ * The board does the presenting: it shows each version's name, puts them side by side, and lets George mark one
+ * final or pin notes. Without saying so, Flyd's review asked designers for those, and they put fake "Mark as final"
+ * buttons and captions into the pages.
+ */
+const REVIEW_SURFACE_FOR_DESIGNERS = "Build the page itself only. George reviews the versions on a board that already shows each version's name side by side and lets him mark one final or pin notes, so never add a version label, a lab caption, a 'Mark as final' control or any other review control to the page.";
+const REVIEW_SURFACE_FOR_FLYD = "Once you accept, the team puts the versions on George's review board: side by side, each named, with a way to mark one final or pin notes, and the files listed for him. Judge each version as the page it is. Never ask the designers for those board features, for captions or controls about the lab, or for file lists. The screenshots show each whole page down to a readable height.";
+
 const TASTE_HEADER = "George's standing taste: TV-style clean type; Cursor-style framed imagery with padding; letter-spacing never wider than .04em; generous space above buttons; buttons never oversized; readable body copy; copy that says what a thing is (no slogans, never opens with \"Not…\"); every claim literally true; motion is TV-style fades only.";
 
 function teamSkills(use: "apply" | "judge"): string[] {
@@ -510,6 +518,7 @@ export function buildPrompt(run: DomainRun, lab: Lab, version: LabVersion, taste
     "",
     "Use only the real content in the brief and his request. Never invent people, companies, quotes, numbers or dates; where something is unknown, leave it out.",
     "Rules: one self-contained file; inline CSS and JS; fonts only from Google Fonts; no other network files. Real content, never lorem ipsum. Colours as tokens on :root with an explicit body background. It must work at 1440×900 and at 390 wide phone with a 16px gutter and no sideways scroll. No gradients, glows, pill clutter, icon-in-circle grids, emoji or wide letter-spacing.",
+    REVIEW_SURFACE_FOR_DESIGNERS,
     ...(lab.flydNotes?.length ? ["", "Flyd sent this lab back with these notes; your build must answer them:", ...lab.flydNotes.map((note) => `- ${note}`)] : []),
     ...(previous && version.critique ? [
       "",
@@ -524,7 +533,7 @@ export function buildPrompt(run: DomainRun, lab: Lab, version: LabVersion, taste
 
 export function critiquePrompt(run: DomainRun, version: LabVersion, taste: string): string {
   return [
-    "You are the Creative Director of George's design team, judging one of the versions you directed, held to the standard of a top studio. You see only the two screenshots attached: the desktop (1440×900) and the phone (390 wide) of one version.",
+    "You are the Creative Director of George's design team, judging one of the versions you directed, held to the standard of a top studio. You see only the two screenshots attached: the desktop (1440 wide) and the phone (390 wide) of one version, each the whole page down to a readable height.",
     `George asked for: "${run.request.originalMessage}"`,
     `${TASTE_HEADER}\nHis learned taste rules:\n${taste}`,
     `The version is "${version.name}": ${version.idea}`,
@@ -555,8 +564,9 @@ export function flydReviewPrompt(run: DomainRun, presentation: string, taste: st
     "You are Flyd, George's personal assistant. George's design team has presented work to you. You know what he asked for and how he judges design; decide whether it is ready to show him. Be the demanding client he would be: accept only work you would be proud to put in front of him.",
     `George asked: "${run.request.originalMessage}"`,
     `Outcome he wants: ${run.request.intendedOutcome}`,
-    `Done when: ${run.request.doneWhen.join("; ")}`,
+    `Done when: ${run.request.doneWhen.filter((point) => !DESIGN_LAB_DONE_WHEN.includes(point)).join("; ")}`,
     `${TASTE_HEADER}\nHis learned taste rules:\n${taste}`,
+    REVIEW_SURFACE_FOR_FLYD,
     ...((run.messages ?? []).length ? ["He has since added (the work must answer this too):", ...(run.messages ?? []).map((message) => `- ${message.body}`)] : []),
     `What was made: ${what}`,
     `The Creative Director's presentation:\n${presentation}`,
@@ -953,20 +963,63 @@ const CHROME = [
   "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
 ];
 
-/** A screenshot from a headless browser with its own throwaway profile; George's browser is never touched. */
-export function shootWithChrome(page: string, png: string, viewport: { width: number; height: number; scale: number }): Promise<void> {
+/**
+ * The tallest a review shot is taken, in CSS pixels. A shot of only the first screen hid everything below it
+ * from the critic and from Flyd's review, which then kept asking for "uncropped" shots no designer could give.
+ * Past these heights the copy the model sees is shrunk too far to read.
+ */
+const MAX_SHOT_HEIGHT = { desktop: 2700, phone: 1600 };
+
+/** How tall a page is at a viewport, from a headless pass that reads it once it has settled; the viewport's own height when it can't be read. */
+function pageHeight(binary: string, page: string, viewport: { width: number; height: number }): Promise<number> {
+  const profile = mkdtempSync(join(tmpdir(), "flyd-lab-"));
+  const measure = join(dirname(page), `.measure-${viewport.width}-${basename(page)}`);
+  writeFileSync(measure, `<!doctype html><html><head><title>0</title></head><body style="margin:0"><iframe id="f" src="${encodeURI(basename(page))}" style="display:block;border:0;width:${viewport.width}px;height:${viewport.height}px"></iframe><script>
+document.getElementById("f").addEventListener("load", function () { setTimeout(function () { try { var d = document.getElementById("f").contentDocument; document.title = "h" + Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0); } catch (e) { document.title = "x"; } }, 2500); });
+</script></body></html>`);
+  return new Promise<number>((resolve) => {
+    const child = spawn(binary, [
+      "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files",
+      `--user-data-dir=${profile}`, `--window-size=${Math.max(viewport.width, 500)},${viewport.height}`, "--virtual-time-budget=6000",
+      "--dump-dom", `file://${measure}`,
+    ], { stdio: ["ignore", "pipe", "ignore"] });
+    let dom = "";
+    child.stdout.on("data", (chunk: Buffer) => { dom += chunk.toString("utf8"); });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
+    const done = () => {
+      clearTimeout(timer);
+      rmSync(profile, { recursive: true, force: true });
+      rmSync(measure, { force: true });
+      const height = Number(/<title>h(\d+)<\/title>/.exec(dom)?.[1]);
+      resolve(Number.isFinite(height) && height > 0 ? height : viewport.height);
+    };
+    child.on("error", done);
+    child.on("exit", done);
+  });
+}
+
+/** A screenshot from a headless browser with its own throwaway profile; George's browser is never touched. The whole page, up to a readable height. */
+export async function shootWithChrome(page: string, png: string, viewport: { width: number; height: number; scale: number }): Promise<void> {
   const binary = CHROME.find((path) => existsSync(path));
-  if (!binary) return Promise.reject(new Error("No Chrome or Chromium to take the lab's screenshots"));
+  if (!binary) throw new Error("No Chrome or Chromium to take the lab's screenshots");
+  const cap = viewport.width < 500 ? MAX_SHOT_HEIGHT.phone : MAX_SHOT_HEIGHT.desktop;
+  const height = Math.min(Math.max(viewport.height, await pageHeight(binary, page, viewport)), cap);
+  return shootAt(binary, page, png, { ...viewport, height });
+}
+
+function shootAt(binary: string, page: string, png: string, viewport: { width: number; height: number; scale: number }): Promise<void> {
   const profile = mkdtempSync(join(tmpdir(), "flyd-lab-"));
   // Headless Chrome will not lay a window out narrower than about 500px, so a phone
   // width is framed at exactly that width; the page inside sees a true phone viewport.
-  const framed = viewport.width < 500 ? join(dirname(page), `.frame-${viewport.width}.html`) : null;
+  // One frame file per page: the versions are shot side by side, and a shared one let a version's phone shot show another.
+  const framed = viewport.width < 500 ? join(dirname(page), `.frame-${viewport.width}-${basename(page)}`) : null;
   if (framed) writeFileSync(framed, `<!doctype html><html><body style="margin:0"><iframe src="${encodeURI(basename(page))}" style="display:block;border:0;width:${viewport.width}px;height:${viewport.height}px"></iframe></body></html>`);
   return new Promise<void>((resolve, reject) => {
     const child = spawn(binary, [
       "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check",
       `--user-data-dir=${profile}`, `--window-size=${viewport.width},${viewport.height}`,
-      `--force-device-scale-factor=${viewport.scale}`, "--virtual-time-budget=4000",
+      // Every compositor stage runs before the shot, so an entrance fade is caught finished, not halfway.
+      `--force-device-scale-factor=${viewport.scale}`, "--run-all-compositor-stages-before-draw", "--virtual-time-budget=4000",
       `--screenshot=${png}`, `file://${framed ?? page}`,
     ], { stdio: "ignore" });
     const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);

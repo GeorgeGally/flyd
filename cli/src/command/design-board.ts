@@ -91,15 +91,16 @@ export async function putLabOnBoard(input: BoardInput, cli: LieselCli = runLiese
   const images = join(input.labDir, "img");
   if (existsSync(images)) cpSync(images, join(dir, "img"), { recursive: true });
   await ready();
+  // Opened first: Liesel names a board only when it creates it, and frames added to an open board appear on it.
+  const opened = await cli(["board", "open", dir, "--name", input.name.slice(0, 80), "--no-open"]);
+  const key = BOARD_URL.exec(opened)?.[1];
+  if (!key) throw new Error("Liesel opened the board but did not say where it is");
   const onBoard = boardFiles(dir);
   for (const version of input.versions) {
     const file = `v${version.n}.html`;
     copyFileSync(join(input.labDir, file), join(dir, file));
     if (!onBoard.includes(file)) await cli(["board", "add", dir, join(dir, file), "--label", `V${version.n} · ${version.name}`]);
   }
-  const opened = await cli(["board", "open", dir, "--name", input.name.slice(0, 80), "--no-open"]);
-  const key = BOARD_URL.exec(opened)?.[1];
-  if (!key) throw new Error("Liesel opened the board but did not say where it is");
   if (input.note?.trim()) await cli(["reply", dir, "--agent-reply", input.note.trim().slice(0, 1500)]).catch(() => undefined);
   return { url: `${LIESEL_LOCAL_ORIGIN}/board/${key}`, key, dir };
 }

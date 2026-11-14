@@ -2,9 +2,9 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, resumePhase, startDesignRun, toldInChat, type DesignMateDeps } from "../design-mate.js";
+import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, resumePhase, startDesignRun, toldInChat, type DesignMateDeps } from "../design-mate.js";
 import { DesignModelError } from "../design-claude.js";
-import { designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
+import { DESIGN_LAB_DONE_WHEN, designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
 import { dueReport } from "../report.js";
 import { notifyRun } from "../scheduler.js";
 import { listDomainRuns, readDomainRun, saveDomainRun, updateDomainRun } from "../store.js";
@@ -453,5 +453,15 @@ describe("Design Mate", () => {
       if (previous === undefined) delete process.env.FLYD_LABS_DIR;
       else process.env.FLYD_LABS_DIR = previous;
     }
+  });
+
+  it("leaves the presenting to the board: designers build only the page, and Flyd's review never asks them for board controls or file lists", () => {
+    const run = dispatchDesignMate({ originalMessage: "a lab", intendedOutcome: "A lab", doneWhen: ["three versions", ...DESIGN_LAB_DONE_WHEN] }, labs);
+    const page = buildPrompt(run, { brief: "b", versions: [], round: 1, images: [], log: [] }, { n: 1, name: "Title card", idea: "Big type.", seed: "ab" }, "(none)");
+    expect(page).toContain("never add a version label, a lab caption, a 'Mark as final' control");
+    const review = flydReviewPrompt(run, "V1 is the one.", "(none)", "A lab of 3 versions");
+    expect(review).toContain("Done when: three versions\n");
+    expect(review).not.toContain("listed in artifacts");
+    expect(review).toContain("Never ask the designers for those board features");
   });
 });

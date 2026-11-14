@@ -34,7 +34,9 @@ describe("the lab's board", () => {
     const board = await putLabOnBoard({ labDir: lab, name: "Right column lab", versions, note: "V2 is the one." }, cli, async () => undefined);
     expect(board).toEqual({ url: "http://127.0.0.1:4747/board/a1b2c3d4e5f6", key: "a1b2c3d4e5f6", dir: join(lab, "board") });
     expect(calls.filter((args) => args[1] === "add").map((args) => args[args.indexOf("--label") + 1])).toEqual(["V1 · Title card", "V2 · Wall label", "V3 · Departure board"]);
-    expect(calls.find((args) => args[1] === "open")).toContain("--no-open");
+    expect(calls[0]!.slice(0, 2)).toEqual(["board", "open"]);
+    expect(calls[0]).toContain("--no-open");
+    expect(calls[0]![calls[0]!.indexOf("--name") + 1]).toBe("Right column lab");
     expect(calls.find((args) => args[0] === "reply")).toEqual(["reply", join(lab, "board"), "--agent-reply", "V2 is the one."]);
     expect(existsSync(join(lab, "board", "v2.html"))).toBe(true);
     expect(existsSync(join(lab, "board", "img", "1-hero.png"))).toBe(true);
