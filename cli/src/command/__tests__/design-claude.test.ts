@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claudeArgs, claudeBinary, claudeMessage, classifyClaudeFailure, completeWithClaude, DesignModelError, designModel, subscriptionEnv, type SpawnClaude } from "../design-claude.js";
+import { claudeArgs, claudeBinary, claudeMessage, classifyClaudeFailure, completeWithClaude, DesignModelError, designModel, makeWithClaude, subscriptionEnv, type SpawnClaude } from "../design-claude.js";
 
 // The design team on Claude Opus through George's subscription (the claude CLI), never the metered API key.
 
@@ -98,7 +98,44 @@ describe("the design team's Claude", () => {
     expect((paid as DesignModelError).kind).toBe("paid");
   });
 
+  it("stops a Console login, which bills per call, and runs on the plan", async () => {
+    const seen: { killed?: boolean } = {};
+    const paid = await completeWithClaude("x", {
+      binary: "/bin/claude", env: {},
+      spawnClaude: cli([{ ...INIT, apiKeySource: "/login managed key" }, STARTED, { type: "result", subtype: "success", is_error: false, result: "billed" }], seen),
+    }).catch((error: unknown) => error);
+    expect(seen.killed).toBe(true);
+    expect((paid as DesignModelError).kind).toBe("paid");
+  });
+
+  it("stops the build Designer on a session that bills per call, and lets a plan session build", async () => {
+    const seen: { killed?: boolean; args?: string[]; env?: NodeJS.ProcessEnv } = {};
+    const paid = await makeWithClaude("/site", "Build V2.", {
+      binary: "/bin/claude", env: { ANTHROPIC_API_KEY: "sk" },
+      spawnClaude: cli([{ ...INIT, apiKeySource: "/login managed key" }, { type: "result", subtype: "success", is_error: false, result: "built" }], seen),
+    }).catch((error: unknown) => error);
+    expect(seen.killed).toBe(true);
+    expect((paid as DesignModelError).kind).toBe("paid");
+
+    const ok: { killed?: boolean; args?: string[]; env?: NodeJS.ProcessEnv } = {};
+    const built = await makeWithClaude("/site", "Build V2.", {
+      binary: "/bin/claude", env: { ANTHROPIC_API_KEY: "sk" },
+      spawnClaude: cli([INIT, { type: "assistant" }, { type: "result", subtype: "success", is_error: false, result: "built the hero" }], ok),
+    });
+    expect(built).toBe("built the hero");
+    expect(ok.killed).toBeUndefined();
+    expect(ok.args).toContain("Build V2.");
+    expect(ok.env?.ANTHROPIC_API_KEY).toBeUndefined();
+
+    const limit = await makeWithClaude("/site", "Build V2.", {
+      binary: "/bin/claude", env: {},
+      spawnClaude: cli([INIT, { type: "result", subtype: "success", is_error: true, result: "You've hit your limit · resets 9pm (Asia/Singapore)" }]),
+    }).catch((error: unknown) => error);
+    expect((limit as DesignModelError).kind).toBe("limit");
+  });
+
   it("never calls the real CLI under tests", async () => {
+    await expect(makeWithClaude("/site", "x", { env: { VITEST: "1" } })).rejects.toThrow(/under tests/);
     await expect(completeWithClaude("x", { binary: "/bin/claude", env: { VITEST: "1" } })).rejects.toThrow(/under tests/);
   });
 });

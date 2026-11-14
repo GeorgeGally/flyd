@@ -159,6 +159,13 @@ export function claudeArgs(model = designModel()): string[] {
 
 const CALL_TIMEOUT_MS = 20 * 60_000;
 
+/** A session's init event names where its credentials come from; anything but the plan ("none") bills per call. */
+function paidSession(init: Record<string, unknown>): DesignModelError | null {
+  const source = String(init.apiKeySource ?? "none");
+  if (source === "none") return null;
+  return new DesignModelError("paid", "Claude was set to bill per call instead of your plan, so the call was stopped", `apiKeySource=${source}`);
+}
+
 /**
  * One answer from Claude on George's subscription. Resolves with the reply text; rejects with a
  * DesignModelError that says in plain words what went wrong.
@@ -192,10 +199,10 @@ export function completeWithClaude(prompt: string, options: ClaudeCallOptions = 
       let event: Record<string, unknown>;
       try { event = JSON.parse(line) as Record<string, unknown>; } catch { return; }
       if (event.type === "system" && event.subtype === "init") {
-        const source = String(event.apiKeySource ?? "none");
-        if (/api.?key|helper/i.test(source) && source !== "none") {
+        const paid = paidSession(event);
+        if (paid) {
           child.kill();
-          finish({ error: new DesignModelError("paid", "Claude was set to bill per call instead of your plan, so the call was stopped", `apiKeySource=${source}`) });
+          finish({ error: paid });
         }
         return;
       }
@@ -222,41 +229,49 @@ export function completeWithClaude(prompt: string, options: ClaudeCallOptions = 
   });
 }
 
-/** The CLI's one JSON reply (--output-format json), or null. */
-function parseReply(text: string): { result?: string; is_error?: boolean; api_error_status?: number | null } | null {
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    return parsed && typeof parsed === "object" ? parsed as { result?: string; is_error?: boolean; api_error_status?: number | null } : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * A Designer that edits a real project: Claude Code on George's subscription, working in that folder with
  * its own tools, as firstmate's sessions do. Resolves with what it says it did.
  */
-export function makeWithClaude(cwd: string, prompt: string, options: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<string> {
+export function makeWithClaude(cwd: string, prompt: string, options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; binary?: string | null; spawnClaude?: SpawnClaude } = {}): Promise<string> {
   const env = options.env ?? process.env;
-  if (env.VITEST) return Promise.reject(new Error("refusing to launch a real designer under tests"));
-  const binary = claudeBinary(env);
+  if (env.VITEST && !options.spawnClaude) return Promise.reject(new Error("refusing to launch a real designer under tests"));
+  const binary = options.binary !== undefined ? options.binary : claudeBinary(env);
   if (!binary) return Promise.reject(new DesignModelError("missing", "Claude Code is not installed on this Mac"));
+  // "auto" runs routine commands and still blocks risky ones; nobody is there to approve a prompt.
+  const args = ["-p", "--model", designModel(env), "--permission-mode", "auto", "--output-format", "stream-json", "--verbose", prompt];
+  const child = (options.spawnClaude ?? spawnClaudeProcess)(binary, args, { cwd, env: subscriptionEnv(env) });
   return new Promise((resolve, reject) => {
-    // "auto" runs routine commands and still blocks risky ones; nobody is there to approve a prompt.
-    const child = spawn(binary, ["-p", "--model", designModel(env), "--permission-mode", "auto", "--output-format", "json", prompt], {
-      cwd, env: subscriptionEnv(env), stdio: ["ignore", "pipe", "pipe"],
-    });
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (chunk: Buffer) => { out += chunk.toString("utf8"); });
-    child.stderr.on("data", (chunk: Buffer) => { err = (err + chunk.toString("utf8")).slice(-4000); });
-    const timer = setTimeout(() => child.kill("SIGKILL"), options.timeoutMs ?? 45 * 60_000);
-    child.on("error", (error) => { clearTimeout(timer); reject(error); });
-    child.on("close", (code) => {
+    let settled = false;
+    let reply: { result?: unknown; is_error?: unknown; api_error_status?: unknown } | undefined;
+    const finish = (outcome: { text: string } | { error: Error }) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      const reply = parseReply(out);
-      if (reply && !reply.is_error && typeof reply.result === "string") { resolve(reply.result); return; }
-      reject(classifyClaudeFailure(reply?.result || err.trim() || `The designer stopped (exit ${code ?? "killed"})`, reply?.api_error_status ?? null));
+      if ("error" in outcome) reject(outcome.error);
+      else resolve(outcome.text);
+    };
+    const timer = setTimeout(() => child.kill(), options.timeoutMs ?? 45 * 60_000);
+    timer.unref?.();
+    child.onLine((line) => {
+      let event: Record<string, unknown>;
+      try { event = JSON.parse(line) as Record<string, unknown>; } catch { return; }
+      if (event.type === "system" && event.subtype === "init") {
+        const paid = paidSession(event);
+        if (paid) {
+          child.kill();
+          finish({ error: paid });
+        }
+      } else if (event.type === "result") {
+        reply = event;
+      }
     });
+    child.onExit((code, stderr) => {
+      if (reply && reply.is_error !== true && typeof reply.result === "string") { finish({ text: reply.result }); return; }
+      const said = typeof reply?.result === "string" ? reply.result : "";
+      const status = typeof reply?.api_error_status === "number" ? reply.api_error_status : null;
+      finish({ error: classifyClaudeFailure(said || stderr.trim() || `The designer stopped (exit ${code ?? "killed"})`, status) });
+    });
+    child.stdin.end("");
   });
 }
