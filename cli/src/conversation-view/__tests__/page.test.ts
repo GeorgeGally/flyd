@@ -4440,6 +4440,45 @@ describe("the front page", () => {
     expect(tell.querySelector("time")!.textContent).toBe("Thursday 5 November, no changes");
   });
 
+  it("keeps the Week story's headline at the tallest day's height, so what sits under it stays put", async () => {
+    const days = ["2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08", "2026-11-09", "2026-11-10", "2026-11-11"].map((day) => ({ day, hours: {}, changes: 0, head: "", lines: [] as string[] }));
+    days[5] = { day: "2026-11-09", hours: {}, changes: 2, head: "A short one", lines: [] };
+    days[6] = { day: "2026-11-10", hours: {}, changes: 3, head: "A much longer headline that wraps to three lines here", lines: ["Bloom: Track creators."] };
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (String(url).startsWith("/api/week") ? json({ week: { days, lead: ["Flyd", "Logan", "DIR"], read: "" } }) : json({ assistantLabel: "firstmate", sessions: SESSIONS })));
+    // jsdom lays nothing out: a headline is 33px a line at 20 characters a line (or its reserved height if taller), the story 300px wide and its parts stacked.
+    const rect = (width: number, height: number) => ({ x: 0, y: 0, top: 0, left: 0, right: width, bottom: height, width, height, toJSON: () => ({}) }) as DOMRect;
+    const headHeight = (h3: HTMLElement) => Math.max(Math.ceil((h3.textContent ?? "").length / 20) * 33, parseFloat(h3.closest<HTMLElement>(".wk-tell")!.style.getPropertyValue("--wk-head-h")) || 0);
+    const box = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if (this.tagName === "H3" && this.closest(".wk-tell")) return rect(300, headHeight(this as HTMLElement));
+      if (this.classList.contains("wk-tell")) {
+        const head = this.querySelector<HTMLElement>("h3");
+        return rect(300, (head ? headHeight(head) + 31 : 0) + this.querySelectorAll(":scope > p").length * 25);
+      }
+      return rect(0, 0);
+    });
+    try {
+      const stream = await opened();
+      stream.emit("update", { order: [], messages: [], working: false, show: SHOW, live: { known: true, counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] } });
+      document.querySelector<HTMLElement>('.ctab[data-centre="week"]')!.click();
+      await settle();
+      const tell = document.getElementById("wk-tell")!;
+      // The three-line headline (52 characters) sets the room; "A quiet day" and "A short one" keep it.
+      expect(tell.style.getPropertyValue("--wk-head-h")).toBe("99px");
+      expect(tell.style.minHeight).toBe(`${99 + 31 + 25}px`);
+      // The measuring is done unseen and leaves nothing behind.
+      expect(document.querySelectorAll(".wk-tell")).toHaveLength(1);
+      const strips = [...document.querySelectorAll<HTMLElement>(".wk-day")];
+      for (const strip of [strips[5]!, strips[6]!, strips[1]!]) {
+        strip.click();
+        expect(tell.style.getPropertyValue("--wk-head-h")).toBe("99px");
+        expect(tell.style.minHeight).toBe("155px");
+      }
+      expect(tell.querySelector("h3")!.textContent).toBe("A quiet day");
+    } finally {
+      box.mockRestore();
+    }
+  });
+
   it("opens a card beside a Week block naming its project, its hours and what changed then", async () => {
     const hours = (from: number, to: number) => Array.from({ length: 24 }, (_, h) => (h >= from && h < to ? 1 : 0));
     const days = ["2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08", "2026-11-09", "2026-11-10", "2026-11-11"].map((day) => ({ day, hours: {}, changes: 0, head: "", lines: [] as string[], work: [] as unknown[] }));

@@ -50,8 +50,8 @@ export const WEEK_STYLE = `
 @keyframes wk-fall { from { transform: scaleY(0); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .wk-lane i { animation: none; } }
 
-.wk-tell { display: grid; grid-template-columns: 1.25fr 1fr 1fr 1fr; gap: 44px; align-items: start; margin: 48px 0 auto 72px; }
-.wk-tell h3 { margin: 0; font: 700 30px/1.1 var(--sans); letter-spacing: -.02em; color: var(--ink); text-wrap: balance; overflow-wrap: anywhere; }
+.wk-tell { display: grid; grid-template-columns: 1.25fr 1fr 1fr 1fr; gap: 44px; align-items: start; align-content: start; margin: 48px 0 auto 72px; }
+.wk-tell h3 { margin: 0; min-height: var(--wk-head-h, 0); font: 700 30px/1.1 var(--sans); letter-spacing: -.02em; color: var(--ink); text-wrap: balance; overflow-wrap: anywhere; }
 .wk-tell time { display: block; margin-top: 10px; font: 400 15px/1.4 var(--sans); color: var(--mute); }
 .wk-tell p { margin: 0; padding-top: 4px; font: 400 17px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; overflow-wrap: anywhere; }
 .wk-tell .wk-none { grid-column: 1 / -1; color: var(--mute); }

@@ -5,7 +5,9 @@
  * (hovered or tapped; at first the latest day with work) is told underneath.
  * Pointing at a block (hover, a tap, or the arrow keys on a focused day) opens
  * a small card beside its strip: the project, the hours, and what changed then.
- * Data from /api/week (week.ts). Runs inside the page script's closure after
+ * The story keeps the room of the tallest day's at the width shown, so picking
+ * another day never moves what sits under its headline. Data from /api/week
+ * (week.ts). Runs inside the page script's closure after
  * Today's script and borrows its helpers (frontEsc, withToken, centre).
  */
 export const WEEK_SCRIPT = `
@@ -115,6 +117,7 @@ export const WEEK_SCRIPT = `
       weekDays.innerHTML = "";
       weekTell.innerHTML = '<p class="wk-none">Nothing to show yet.</p>';
       weekShown = "";
+      weekFit();
       return;
     }
     weekKey.innerHTML = week.lead.map(function (name, at) { return '<span><i class="k' + (at + 1) + '"></i>' + frontEsc(name) + '</span>'; }).join("")
@@ -134,6 +137,7 @@ export const WEEK_SCRIPT = `
         + '<span class="wk-lane">' + segs + (di === last ? '<em style="top:' + nowAt.toFixed(2) + '%"></em>' : "") + '</span></button>';
     }).join("");
     weekShown = "";
+    weekFit();
     if (!week.days.some(function (day) { return day.day === weekPicked; })) {
       var busy = week.days.filter(function (day) { return day.changes; });
       weekPicked = (busy[busy.length - 1] || week.days[last]).day;
@@ -150,11 +154,54 @@ export const WEEK_SCRIPT = `
       one.classList.toggle("on", on);
       one.setAttribute("aria-pressed", String(on));
     });
+    if (weekWidth() !== weekFitAt) weekFit();
+    weekTell.innerHTML = weekTellHtml(day);
+  }
+  function weekTellHtml(day) {
     var d = weekDate(day.day);
     var when = WEEK_LONG[d.getDay()] + " " + d.getDate() + " " + WEEK_MONTH[d.getMonth()] + ", " + (day.changes ? day.changes + (day.changes === 1 ? " change" : " changes") : "no changes");
-    weekTell.innerHTML = '<div><h3>' + frontEsc(day.head || "A quiet day") + '</h3><time>' + frontEsc(when) + '</time></div>'
+    return '<div><h3>' + frontEsc(day.head || "A quiet day") + '</h3><time>' + frontEsc(when) + '</time></div>'
       + day.lines.map(function (line) { return '<p>' + frontEsc(line) + '</p>'; }).join("");
   }
+  // A headline wraps to two, three or four lines by day and by width. Each day's story is laid out once,
+  // unseen, at the width shown; the headline keeps the tallest one's height and the story the tallest
+  // story's, so the date and lines under the headline (and, with the group centred, the strips above) stay put.
+  var weekFitAt = -1;
+  function weekWidth() { return Math.round(weekTell.getBoundingClientRect().width); }
+  function weekFit() {
+    weekTell.style.removeProperty("--wk-head-h");
+    weekTell.style.minHeight = "";
+    weekFitAt = -1;
+    var width = weekWidth();
+    if (!week || !width) return;
+    var probe = weekTell.cloneNode(false);
+    probe.removeAttribute("id");
+    probe.removeAttribute("aria-live");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText = "position:absolute;left:0;top:0;margin:0;visibility:hidden;pointer-events:none;width:" + width + "px";
+    weekTell.parentNode.appendChild(probe);
+    var head = 0, tall = 0;
+    week.days.forEach(function (day) {
+      probe.innerHTML = weekTellHtml(day);
+      head = Math.max(head, probe.querySelector("h3").getBoundingClientRect().height);
+    });
+    head = Math.ceil(head);
+    // Then each story again under a headline of that height.
+    probe.style.setProperty("--wk-head-h", head + "px");
+    week.days.forEach(function (day) {
+      probe.innerHTML = weekTellHtml(day);
+      tall = Math.max(tall, probe.getBoundingClientRect().height);
+    });
+    probe.remove();
+    if (head) weekTell.style.setProperty("--wk-head-h", head + "px");
+    if (tall) weekTell.style.minHeight = Math.ceil(tall) + "px";
+    weekFitAt = width;
+  }
+  // Shown after being hidden, or narrowed or widened: the room is measured again.
+  // (A frame later: resizing what is being observed inside its own callback is a loop the browser complains of.)
+  if (window.ResizeObserver) new ResizeObserver(function () {
+    requestAnimationFrame(function () { if (week && weekWidth() !== weekFitAt) weekFit(); });
+  }).observe(weekTell);
   weekDays.addEventListener("mouseover", function (event) {
     var one = event.target.closest(".wk-day"); if (one) weekPick(one.dataset.day);
     var seg = event.target.closest(".wk-lane i");
