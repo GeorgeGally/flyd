@@ -49,11 +49,13 @@ export const THREADS_SCRIPT = `
     var rows = (list.all ? [list.all] : []).concat(projects, list.other ? [list.other] : []);
     var open = rows.filter(function (thread) { return thread.id === explicit; })[0];
     if (open && open.replyAt && open.replyAt !== threadsSeen[open.id]) { threadsSeen[open.id] = open.replyAt; keepThreadsSeen(); }
-    // A box above the list shows the newest project with a picture, unless it is already open in the middle; the list keeps its order.
+    // A box above the list shows the newest project with a picture, unless it is already open in the middle.
+    // The project it shows leaves the list, so each exchange is drawn once; the rest keep their order.
     var lead = projects.filter(function (thread) { return thread.picture && thread.id !== explicit; })[0];
+    var listedProjects = projects.filter(function (thread) { return thread !== lead; });
     var more = (list.all ? threadLink(list.all, "All conversations") : "") + (list.other ? threadLink(list.other, "Other") : "");
     var html = projects.length
-      ? (lead ? threadRow(lead, true) : "") + '<div class="thread-list">' + projects.map(function (thread) { return threadRow(thread); }).join("") + '</div>'
+      ? (lead ? threadRow(lead, true) : "") + (listedProjects.length ? '<div class="thread-list">' + listedProjects.map(function (thread) { return threadRow(thread); }).join("") + '</div>' : "")
         + (more ? '<p class="thread-more">' + more + '</p>' : "")
       : (more ? '<p class="thread-more">' + more + '</p>' : '<p class="fempty">' + (list.ready ? "Nothing said about a project yet." : "Reading your conversations.") + '</p>');
     threadsDot.hidden = !projects.some(function (thread) { return thread.id !== explicit && threadUnread(thread); });

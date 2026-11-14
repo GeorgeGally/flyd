@@ -5469,7 +5469,7 @@ describe("project threads", () => {
     expect(Array.from(document.querySelectorAll(".thread-more button")).map((link) => link.textContent)).toEqual(["All conversations", "Other"]);
   });
 
-  it("boxes the newest project that has a picture above the list, never the one open in the middle, and keeps the list newest first", async () => {
+  it("boxes the newest project that has a picture above the list, never the one open in the middle, and keeps the rest of the list newest first", async () => {
     const pictured = {
       ...LIST,
       projects: [
@@ -5486,14 +5486,32 @@ describe("project threads", () => {
     expect(lead.querySelector("img")!.getAttribute("src")).toMatch(/^\/api\/rail-image\?path=%2Fkept%2Flogan\.png&token=/);
     expect(lead.closest(".thread-list")).toBeNull();
     const listedNames = () => Array.from(document.querySelectorAll(".thread-list .thread-name")).map((row) => row.textContent);
-    expect(listedNames()).toEqual(["DIR", "Logan", "HFTW"]);
+    expect(listedNames()).toEqual(["DIR", "HFTW"]);
     (lead as HTMLElement).click();
     await settle();
     const next = document.querySelector(".thread-lead")!;
     expect(next.querySelector(".thread-name")?.textContent).toBe("HFTW");
     expect(next.querySelector("img")!.getAttribute("src")).toBe("/api/image?session=project%3Ahftw&id=1");
     expect(document.querySelector('.thread-list .thread.on[data-thread="project:logan"]')).not.toBeNull();
-    expect(listedNames()).toEqual(["DIR", "Logan", "HFTW"]);
+    expect(listedNames()).toEqual(["DIR", "Logan"]);
+  });
+
+  it("draws the exchange in the box above the list once, never again as a row under it", async () => {
+    seenFrom("2026-10-05T20:00:00.000Z");
+    const dir = {
+      id: "project:dir", name: "DIR", question: "actually now i just heard cvommentary.", answer: "I've told the DJ commentary worker you heard some talk.",
+      at: "2026-10-05T21:00:00.000Z", replyAt: "2026-10-05T21:00:00.000Z", count: 2, picture: "/api/image?session=project%3Adir&id=1",
+    };
+    listed({ ...LIST, projects: [dir, LIST.projects[1]!] });
+    load("");
+    await settle();
+    expect(document.querySelectorAll('.thread[data-thread="project:dir"]')).toHaveLength(1);
+    expect(document.querySelector('.thread[data-thread="project:dir"]')!.classList.contains("thread-lead")).toBe(true);
+    expect(Array.from(document.querySelectorAll(".thread-q")).filter((node) => node.textContent === dir.question)).toHaveLength(1);
+    expect(Array.from(document.querySelectorAll(".thread-a")).filter((node) => node.textContent === dir.answer)).toHaveLength(1);
+    expect(Array.from(document.querySelectorAll(".thread-list .thread-name")).map((row) => row.textContent)).toEqual(["Logan"]);
+    // The project tab still says something came that he has not read.
+    expect((document.getElementById("rtab-threads-dot") as HTMLElement).hidden).toBe(false);
   });
 
   it("opens every conversation from the line under the list", async () => {
