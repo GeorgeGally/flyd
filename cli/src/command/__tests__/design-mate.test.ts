@@ -304,7 +304,7 @@ describe("Design Mate", () => {
       return { url: "http://127.0.0.1:4747/board/labboard02", key: "labboard02", dir: join(input.labDir, "board") };
     } });
     expect(done.status).toBe("completed");
-    expect(boards).toEqual([{ name: "Right column lab", versions: [1, 2, 3], note: expect.stringContaining("Pin notes for another round, or mark one as final") }]);
+    expect(boards).toEqual([{ name: "Right column lab", versions: [1, 2, 3], note: "I'd take V2 · Wall label forward.\n- V1 · Title card: Big type.\n- V2 · Wall label: A framed piece.\n- V3 · Departure board: A dark board.\nPin notes for another round, or mark one as final to settle on it." }]);
     expect(readLab(done.id, labs)!.board).toMatchObject({ key: "labboard02" });
     expect(done.result!.brief).toContain("On the board: http://127.0.0.1:4747/board/labboard02");
     expect(done.result!.evidence).toEqual(["board http://127.0.0.1:4747/board/labboard02"]);

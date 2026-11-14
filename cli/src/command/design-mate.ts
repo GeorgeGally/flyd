@@ -899,6 +899,16 @@ async function advanceBuild(run: DomainRun, deps: DesignMateDeps, root: string, 
   return save(run, { status: "completed", phase: "done", result });
 }
 
+/**
+ * What George reads beside the frames: the pick, what each version is, and what he can do there. Never the
+ * Creative Director's presentation, which is written to Flyd and talks about him in the third person.
+ */
+export function boardNote(run: DomainRun, lab: Lab, best: LabVersion): string {
+  const versions = [...lab.versions].sort((a, b) => a.n - b.n).map((version) => `- V${version.n} · ${version.name}: ${version.idea.split(/(?<=\.)\s/)[0]!.slice(0, 160)}`);
+  const act = run.request.project?.root ? "Mark one as final to have it built, or pin notes for another round." : "Pin notes for another round, or mark one as final to settle on it.";
+  return [`I'd take V${best.n} · ${best.name} forward.`, ...versions, act].join("\n");
+}
+
 /** Ready for George only when every page and screenshot is really on disk, and on the board he reviews from. */
 async function handOver(run: DomainRun, lab: Lab, root: string, deps: DesignMateDeps): Promise<DomainRun> {
   const dir = labDir(run.id, root);
@@ -919,7 +929,7 @@ async function handOver(run: DomainRun, lab: Lab, root: string, deps: DesignMate
         labDir: dir,
         name: run.request.intendedOutcome.split(/[.\n]/)[0]!.trim().slice(0, 80) || "Design lab",
         versions: [...lab.versions].sort((a, b) => a.n - b.n),
-        note: [lab.presentation, `I'd take V${best.n} · ${best.name} forward. ${run.request.project?.root ? "Mark one as final to have it built, or pin notes for another round." : "Pin notes for another round, or mark one as final to settle on it."}`].filter(Boolean).join("\n\n"),
+        note: boardNote(run, lab, best),
       });
       lab.log.push(`On the board: ${lab.board.url}`);
     } catch (error) {
