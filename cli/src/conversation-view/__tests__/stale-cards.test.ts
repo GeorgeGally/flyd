@@ -7,11 +7,11 @@ import { firstmateTasksOfRun, retireRun, settleClosedRuns } from "../../command/
 import { readDomainRun, saveDomainRun } from "../../command/store.js";
 import type { DomainRun } from "../../command/types.js";
 import { sourceEventKey } from "../../intelligence/executive/firstmate-decision.js";
-import { ArtefactFeed, enrichFleet, firstmateChangesFromFleet, parseBacklog, pinnedQuestions, type FleetArtefact } from "../artefact.js";
+import { ArtefactFeed, callItems, enrichFleet, firstmateChangesFromFleet, parseBacklog, pinnedQuestions, withCurrentCalls, type ArtefactRow, type FleetArtefact } from "../artefact.js";
 import { cardSource, fallbackWords, translateCard } from "../card-words.js";
 import type { HoldCheck, HoldState } from "../hold-check.js";
 import { jobRunFromDomain, jobsFrom } from "../jobs.js";
-import { askingRuns, retireCard } from "../retire.js";
+import { askingRuns, retireCard, shownCalls } from "../retire.js";
 import { RetiredCards } from "../retired-cards.js";
 import { IslandRung, islandStatusOf } from "../status.js";
 
@@ -52,6 +52,8 @@ function fleetHome(calls: Array<{ id: string; summary: string }>, backlog: strin
 
 const feedIn = (home: string, extra: ConstructorParameters<typeof ArtefactFeed>[0] = {}) => new ArtefactFeed({ home, memoryFile: join(home, "none"), newsFile: join(home, "none"), tasteFile: join(home, "none"), ...extra });
 const holds = (states: Record<string, HoldState>): HoldCheck => ({ state: async (task) => states[task] ?? { state: "unknown" } });
+/** The board his screen shows for these calls. */
+const boardOf = (fleet: FleetArtefact, now = NOW) => jobsFrom({ now, show: { read: true, items: [], calls: callItems(fleet) } as never }).jobs;
 
 describe("E1: the design-team call re-filed 15 times in new words", () => {
   const backlog = (sibling: string) => parseBacklog([
@@ -154,6 +156,16 @@ describe("E4: 'The picture desk isn't shipping, and I'm replacing it', which ask
     expect(fleet.calls).toEqual([]);
   });
 
+  it("an instruction that reports nothing is still his call", () => {
+    for (const reason of ["Land PR #312 into main after the visual check", "Merge the redesign once CI is green", "Publish the HFTW launch post"]) {
+      const entries = parseBacklog(`- [ ] flyd-instruction - Flyd instruction (repo: flyd) (since 2026-11-14) (hold: ${hold(reason)}) (hold-kind: captain)`);
+      const fleet = withCurrentCalls(enrichFleet(emptyFleet({ calls: [{ label: "Instruction", task: "flyd-instruction" }] }), entries, new Map(), NOW, { keepStaleCalls: true }), NOW);
+      expect(fleet.calls.map((row) => row.task), reason).toEqual(["flyd-instruction"]);
+      expect(firstmateChangesFromFleet(fleet).filter((change) => change.kind === "decision").map((change) => change.taskId), reason).toEqual(["flyd-instruction"]);
+      expect(boardOf(fleet).map((job) => job.group), reason).toEqual(["needs"]);
+    }
+  });
+
   it("is never turned into a question in his words", async () => {
     const source = cardSource("Flyd", "Needs you", "Picture desk", NOTICE, undefined, { wantsAnswer: true });
     expect(source.asks).toBe(false);
@@ -226,6 +238,8 @@ describe("an old call firstmate still confirms open", () => {
     expect(fleet.calls.map((row) => [row.task, row.quiet === true])).toEqual([["dir-controls-lab-choice", true]]);
     expect(decided.map((change) => [change.taskId, change.quiet])).toEqual([["dir-controls-lab-choice", true]]);
     expect(islandStatusOf({ working: false }, fleet).reply).toBeUndefined();
+    // Needs you holds only fresh calls: an old one waits.
+    expect(boardOf(fleet, Date.now()).map((job) => job.group)).toEqual(["waiting"]);
   });
 
   it("asks him as usual while it is still fresh", async () => {
@@ -238,6 +252,7 @@ describe("an old call firstmate still confirms open", () => {
     const fleet = feed.current().fleet!;
     expect(fleet.calls.map((row) => [row.task, row.quiet === true])).toEqual([["dir-controls-lab-choice", false]]);
     expect(islandStatusOf({ working: false }, fleet).reply).toMatchObject({ asks: true, lifecycle: true });
+    expect(boardOf(fleet, Date.now()).map((job) => job.group)).toEqual(["needs"]);
   });
 });
 
@@ -290,6 +305,59 @@ describe("E8: 'This seems like an old note, the site moved on' and 'I'll stop ra
     const reraised = feedIn(home, { holds: holds({ "hftw-hero-pick": { state: "open", identity: "2026-11-20T09:00:00Z#1" } }), retired });
     await reraised.refresh();
     expect(reraised.current().fleet!.calls.map((row) => row.task)).toEqual(["hftw-hero-pick"]);
+  });
+
+  it("keeps a retired call off when firstmate cannot say on the next read", async () => {
+    const home = fleetHome([{ id: "hftw-hero-pick", summary: "Pick keep, A or B per hero" }], [
+      `- [ ] hftw-hero-pick - HFTW lab: pick keep, A or B per hero (repo: hftw) (kind: captain) (hold: ${hold("Pick keep, A or B for each hero: 1 Keep, 2 A, 3 B")}) (hold-kind: captain)`,
+      `  Captain hold set: ${new Date().toISOString().slice(0, 19)}Z`,
+    ]);
+    const states: Record<string, HoldState> = { "hftw-hero-pick": { state: "open", identity: "now#0" } };
+    const retired = new RetiredCards(null);
+    const feed = feedIn(home, { holds: holds(states), retired });
+    await feed.refresh();
+    expect(feed.current().fleet!.calls.map((row) => row.task)).toEqual(["hftw-hero-pick"]);
+    const reply = await retireCard({ card: "hftw-hero-pick", words: "The site is live, this is old" }, { candidates: () => shownCalls(retired, join(home, "artefacts.json")), retired });
+    expect(reply).toMatch(/^Retired /);
+    for (const state of [{ state: "unknown" }, { state: "absent" }] as HoldState[]) {
+      states["hftw-hero-pick"] = state;
+      await feed.refresh();
+      expect(feed.current().fleet!.calls.filter((row) => !row.ledgerOnly), state.state).toEqual([]);
+    }
+  });
+
+  it("lists only the calls on his screen: put to him and not already retired", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "stale-cards-shown-")), "artefacts.json");
+    const row = (task: string): ArtefactRow => ({ label: `Pick ${task}`, task, questionIdentity: `hold:${task}#2026-11-14T08:00:00Z#0` });
+    writeFileSync(file, JSON.stringify({ rows: [
+      { field: "calls", row: row("shown-call"), asked: true },
+      { field: "calls", row: row("never-asked") },
+      { field: "calls", row: row("retired-call"), asked: true },
+      { field: "calls", row: row("settled-call"), asked: true, ledgerOnly: true },
+    ] }));
+    const retired = new RetiredCards(null);
+    retired.retire({ task: "retired-call", identity: "hold:retired-call#2026-11-14T08:00:00Z#0", label: "Pick retired-call", words: "old", at: "2026-11-14T12:00:00Z" });
+    expect(shownCalls(retired, file).map((call) => call.id)).toEqual(["shown-call"]);
+  });
+
+  it("retiring one of Flyd's runs handed to firstmate keeps its task's call off and tells firstmate with his words", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "stale-cards-runs-"));
+    const asking = run("domain-11aa22bb-3ac6-44f5-856a-f3207ef3fc24", {}, { contextRefs: ["task:hftw-hero-pick"] });
+    saveDomainRun(asking, dir);
+    const entries = parseBacklog(`- [ ] hftw-hero-pick - HFTW lab: pick keep, A or B per hero (repo: hftw) (kind: captain) (hold: ${hold("Pick keep, A or B for each hero: 1 Keep, 2 A")}) (hold-kind: captain)`);
+    const shown: ArtefactRow = { label: "HFTW lab: pick keep, A or B per hero", task: "hftw-hero-pick", holdIdentity: "2026-11-11T12:18:21Z#0" };
+    const retired = new RetiredCards(null);
+    const told: Array<[string, string]> = [];
+    const reply = await retireCard({ card: asking.id, words: "The site is live, this is old" }, {
+      candidates: () => [{ kind: "call", id: "hftw-hero-pick", label: shown.label, identity: "hold:hftw-hero-pick#2026-11-11T12:18:21Z#0", aliases: ["hftw-hero-pick"] }, ...askingRuns([asking], entries)],
+      retired,
+      retireRun: (id, words, options) => retireRun(id, words, { ...options, dir }),
+      tellFirstmate: async (call, words) => { told.push([call.id, words]); },
+    });
+    expect(reply).toMatch(/staff were told to close it with his words/);
+    expect(readDomainRun(asking.id, dir)!.closedBy).toMatchObject({ by: "george" });
+    expect(told).toEqual([["hftw-hero-pick", "The site is live, this is old"]]);
+    expect(retired.has(shown)).toBe(true);
   });
 
   it("never claims a retirement it could not make", async () => {

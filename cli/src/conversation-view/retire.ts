@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { labAwaitingReview } from "../command/design.js";
-import { retireRun, runNames } from "../command/run-closure.js";
+import { firstmateTasksOfRun, retireRun, runNames, type TaskRecord } from "../command/run-closure.js";
 import type { DomainRun } from "../command/types.js";
-import { questionIdentityOf, type ArtefactRow } from "./artefact.js";
+import { callId, parseBacklog, questionIdentityOf, type ArtefactRow, type BacklogEntry } from "./artefact.js";
 import type { RetiredCards } from "./retired-cards.js";
 
 // George says a card is old, moot or done ("This seems like an old note, the
@@ -26,32 +26,49 @@ export interface RetireCandidate {
   label: string;
   /** For a call: its question's identity. */
   identity?: string;
+  /** For a call: its raising (`call:<callId>`), kept beside its identity. */
+  call?: string;
+  /** For one of Flyd's runs handed to firstmate: the firstmate tasks it is for (command/run-closure.ts). */
+  tasks?: string[];
   /** Other names the card goes by: a lab's folder, a run's short id or inbox note. */
   aliases: string[];
 }
 
-/** The calls on his screen now, from the list the view keeps (`~/.flyd/view/artefacts.json`). Never throws. */
-export function shownCalls(file = join(process.env.FLYD_DIR || FLYD_DIR, "view", "artefacts.json")): RetireCandidate[] {
+/**
+ * The calls on his screen now, from the list the view keeps (`~/.flyd/view/artefacts.json`): only those put to him,
+ * and none he already retired. Never throws.
+ */
+export function shownCalls(retired: RetiredCards, file = join(process.env.FLYD_DIR || FLYD_DIR, "view", "artefacts.json")): RetireCandidate[] {
   try {
-    const stored = JSON.parse(readFileSync(file, "utf8")) as { rows?: Array<{ field?: unknown; row?: ArtefactRow; ledgerOnly?: unknown }> };
+    const stored = JSON.parse(readFileSync(file, "utf8")) as { rows?: Array<{ field?: unknown; row?: ArtefactRow; ledgerOnly?: unknown; asked?: unknown }> };
     return (stored.rows ?? []).flatMap((entry) => {
       const row = entry.row;
-      if (entry.field !== "calls" || entry.ledgerOnly === true || !row?.task || !row.label) return [];
-      return [{ kind: "call" as const, id: row.task, label: row.question ?? row.label, identity: row.questionIdentity ?? questionIdentityOf(row), aliases: [row.task] }];
+      if (entry.field !== "calls" || entry.ledgerOnly === true || entry.asked !== true || !row?.task || !row.label || retired.has(row)) return [];
+      return [{ kind: "call" as const, id: row.task, label: row.question ?? row.label, identity: questionIdentityOf(row), call: `call:${callId(row)}`, aliases: [row.task] }];
     });
   } catch {
     return [];
   }
 }
 
-/** Flyd's own runs that put something to him: a question waiting on his answer, or finished work waiting on his look. Pure. */
-export function askingRuns(runs: readonly DomainRun[]): RetireCandidate[] {
+/** Firstmate's record of its tasks, the live backlog over the archive (as the view reads it). Never throws. */
+export function firstmateRecord(home: string): Map<string, BacklogEntry> {
+  const text = (file: string) => { try { return readFileSync(join(home, "data", file), "utf8"); } catch { return ""; } };
+  return new Map([...parseBacklog(text("done-archive.md")), ...parseBacklog(text("backlog.md"))]);
+}
+
+/**
+ * Flyd's own runs that put something to him: a question waiting on his answer, or finished work waiting on his look;
+ * one handed to firstmate names the tasks it is for in `entries`. Pure.
+ */
+export function askingRuns(runs: readonly DomainRun[], entries: ReadonlyMap<string, TaskRecord> = new Map()): RetireCandidate[] {
   return runs.flatMap((run) => {
     if (run.closedBy) return [];
     const asking = run.status === "needs_decision" || (run.status === "completed" && (run.result?.workState === "ready" || labAwaitingReview(run, runs)));
     if (!asking) return [];
     const labs = [...(run.result?.artifacts ?? []), ...(run.result?.evidence ?? [])].flatMap((pointer) => pointer.match(/\blab-[0-9a-f]{8}(?:-[0-9a-f-]+)?/gi) ?? []);
-    return [{ kind: "run" as const, id: run.id, label: run.result?.brief?.trim() || run.request.intendedOutcome, aliases: [...runNames(run), `lab:${run.id}`, ...labs] }];
+    const tasks = run.transport.kind === "firstmate" ? firstmateTasksOfRun(run, entries) : [];
+    return [{ kind: "run" as const, id: run.id, label: run.result?.brief?.trim() || run.request.intendedOutcome, aliases: [...runNames(run), `lab:${run.id}`, ...labs], ...(tasks.length ? { tasks } : {}) }];
   });
 }
 
@@ -111,16 +128,21 @@ export async function retireCard(input: { card: string; words: string }, deps: R
   const card = choice.picked;
   const at = (deps.now?.() ?? new Date()).toISOString();
   const words = input.words.trim() || input.card.trim();
+  /** Keeps the task's shown call off his screen and tells firstmate to close it with his words: whether it took the note. */
+  const close = async (call: RetireCandidate): Promise<boolean> => {
+    if (call.identity) deps.retired.retire({ task: call.id, identity: call.identity, ...(call.call ? { call: call.call } : {}), label: call.label, words, at });
+    if (!deps.tellFirstmate) return false;
+    const requestId = `flyd-retire-${createHash("sha256").update(call.identity ?? call.id).digest("hex").slice(0, 12)}-${call.id}`.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 125);
+    return deps.tellFirstmate(call, words, requestId).then(() => true, () => false);
+  };
   if (card.kind === "run") {
     const settled = (deps.retireRun ?? retireRun)(card.id, words, { now: new Date(at) });
     if ("refused" in settled) return `Not retired: ${settled.refused}`;
-    return `Retired "${card.label}": it is off his screen for good and will not be raised again. Tell him so in one line.`;
+    // The firstmate tasks it was for: their calls leave his screen too, and firstmate is told to close their holds.
+    const told = await Promise.all((card.tasks ?? []).map((task) =>
+      close(candidates.find((candidate) => candidate.kind === "call" && candidate.id === task) ?? { kind: "call", id: task, label: card.label, aliases: [] })));
+    return `Retired "${card.label}": it is off his screen for good and will not be raised again${told.some(Boolean) ? "; the staff were told to close it with his words" : ""}. Tell him so in one line.`;
   }
-  deps.retired.retire({ task: card.id, identity: card.identity ?? "", label: card.label, words, at });
-  let told = false;
-  if (deps.tellFirstmate) {
-    const requestId = `flyd-retire-${createHash("sha256").update(card.identity ?? card.id).digest("hex").slice(0, 12)}-${card.id}`.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 125);
-    told = await deps.tellFirstmate(card, words, requestId).then(() => true, () => false);
-  }
+  const told = await close(card);
   return `Retired "${card.label}": it is off his screen and will not be raised again for this question${told ? "; the staff were told to close it with his words" : ""}. Tell him so in one line.`;
 }

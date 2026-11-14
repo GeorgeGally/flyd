@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
 import { quickQuery } from "../lib/llm.js";
 import { bannedFor, forHim, PA_VOICE } from "../lib/pa-voice.js";
-import { asksSomething } from "./asks.js";
+import { asksSomething, onlyTells } from "./asks.js";
 
 /**
  * A board card's words, said for George. A card built from a worker's status
@@ -82,7 +82,7 @@ export function cardWordsKey(project: string, state: string, title: string, line
 
 export function cardSource(project: string, state: string, title: string, line: string, answers?: string[], named: CardIdentity = {}): CardSource {
   // A card that asks nothing is read under the rule that says so: its key says it, so no older reading stands in.
-  const asks = !named.wantsAnswer || Boolean(answers?.length) || asksSomething(line) || asksSomething(title);
+  const asks = !named.wantsAnswer || Boolean(answers?.length) || !onlyTells([line, title]);
   const key = named.identity
     ? createHash("sha256").update([PROMPT_VERSION, "question", project.replace(/\s+/g, " ").trim(), state.trim(), named.identity, ...(answers?.length ? [answers.join("\u0001")] : [])].join("\0")).digest("hex").slice(0, 20)
     : asks ? cardWordsKey(project, state, title, line, answers) : cardWordsKey(project, `${state}\0notice`, title, line, answers);

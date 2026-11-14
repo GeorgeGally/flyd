@@ -274,13 +274,14 @@ export async function runAssistantTool(
         return "Error: todos action must be list, add, done, or replace";
       }
       case "retire_card": {
-        const [{ retireCard, shownCalls, askingRuns, retireNote }, { RetiredCards }, { listDomainRuns }, { FirstmateInbox }] = await Promise.all([
+        const [{ retireCard, shownCalls, askingRuns, retireNote, firstmateRecord }, { RetiredCards }, { listDomainRuns }, { FirstmateInbox }] = await Promise.all([
           import("../conversation-view/retire.js"), import("../conversation-view/retired-cards.js"), import("../command/store.js"), import("../conversation-view/firstmate-inbox.js"),
         ]);
         const inbox = new FirstmateInbox();
+        const retired = new RetiredCards();
         return retireCard({ card: String(input.card ?? ""), words: String(input.words ?? "") }, {
-          candidates: () => [...shownCalls(), ...askingRuns(listDomainRuns())],
-          retired: new RetiredCards(),
+          candidates: () => [...shownCalls(retired), ...askingRuns(listDomainRuns(), inbox.available() ? firstmateRecord(inbox.home) : new Map())],
+          retired,
           ...(inbox.available() ? {
             tellFirstmate: (call, words, requestId) => inbox.sendOwn(retireNote(call, words), requestId, {
               outcome: `Close the call on ${call.id} that George called old`,

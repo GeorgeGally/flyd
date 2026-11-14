@@ -436,7 +436,8 @@ export function jobsFrom(input: {
 
   for (const item of showItems(input.show)) {
     // A finished worker's row waits on his look for a day, as a run does; after that it is done work, not his to do.
-    const group = item.kind === "ready" && item.at && now - Date.parse(item.at) > READY_KEEP_MS ? "done" : itemGroup(item.kind);
+    // An old call firstmate still holds open waits quietly: Needs you holds only fresh calls.
+    const group = item.kind === "call" && item.quiet ? "waiting" : item.kind === "ready" && item.at && now - Date.parse(item.at) > READY_KEEP_MS ? "done" : itemGroup(item.kind);
     if (!group) continue;
     // Every running worker is its own card: two on one project are two, and a project's open call never hides one.
     const name = item.project && (projectOfRepo(item.project) ?? item.project);

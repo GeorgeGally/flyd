@@ -265,12 +265,15 @@ export function feedChecks(inbox: Pick<FirstmateInbox, "available" | "home" | "s
   };
 }
 
-/** The view's one feed: what the app shows, with every safety check `feedChecks` builds, whatever flags it was started with. */
-export function viewFeed(inbox: Pick<FirstmateInbox, "available" | "home" | "sendOwn">, feed: Pick<ConstructorParameters<typeof ArtefactFeed>[0] & object, "voice" | "decideChanges" | "workers">): ArtefactFeed {
+/**
+ * The view's one feed, built from the options `flyd view` was started with (Flyd.app: `view --no-open --port <n>`):
+ * whatever they are, it carries every safety check `feedChecks` builds.
+ */
+export function viewFeed(options: ViewOptions, inbox: Pick<FirstmateInbox, "available" | "home" | "sendOwn">, feed: Pick<ConstructorParameters<typeof ArtefactFeed>[0] & object, "voice" | "decideChanges" | "workers">): ArtefactFeed {
   return new ArtefactFeed({ home: inbox.home, ...feed, ...feedChecks(inbox) });
 }
 
-/** `flyd view`'s command line, as index.ts registers it: the wiring test parses Flyd.app's own arguments through it. */
+/** `flyd view`'s command line, as index.ts registers it: the wiring test parses Flyd.app's launch arguments through it. */
 export function registerViewCommand(program: Command, run: (options: ViewOptions) => Promise<void> = runView): Command {
   return program
     .command("view")
@@ -428,7 +431,7 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
       },
     });
   };
-  const feed = viewFeed(inbox, {
+  const feed = viewFeed(options, inbox, {
     voice: new ArtefactVoice({ complete, cacheFile: defaultVoiceCache() }),
     decideChanges,
     // Working reads every worker Core's staff watch sees, not the snapshot's first twenty.

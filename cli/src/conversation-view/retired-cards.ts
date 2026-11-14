@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
-import { questionIdentityOf, type ArtefactRow } from "./artefact.js";
+import { callId, questionIdentityOf, type ArtefactRow } from "./artefact.js";
 
 // The calls George said are old, moot or done. "I'll stop raising it" is kept
 // here, not only said: the feed never shows a retired call again (artefact.ts),
@@ -12,6 +12,8 @@ export interface RetiredCard {
   task: string;
   /** The question's identity when he retired it (artefact.ts `questionIdentityOf`). */
   identity: string;
+  /** Its raising (`call:<callId>`), so a read where firstmate cannot name the hold's lifecycle still knows it. */
+  call?: string;
   /** What the card said, so the record reads on its own. */
   label: string;
   /** His own words. */
@@ -53,7 +55,13 @@ export class RetiredCards {
   has(row: ArtefactRow): boolean {
     if (!row.task) return false;
     const identity = questionIdentityOf(row);
-    return this.list().some((card) => card.task === row.task && card.identity === identity);
+    const raising = `call:${callId(row)}`;
+    return this.list().some((card) => {
+      if (card.task !== row.task) return false;
+      // A hold firstmate names now is matched by its lifecycle alone: the same hold raised again is a new question.
+      if (row.holdIdentity && card.identity.startsWith("hold:")) return card.identity === identity;
+      return [card.identity, card.call].some((known) => known === identity || known === raising);
+    });
   }
 
   retire(card: RetiredCard): void {

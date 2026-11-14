@@ -28,7 +28,7 @@ import { SnapshotGate, type SnapshotGateOptions } from "./snapshot-gate.js";
 import { BoardShots, boardShotSrc, publicBoardUrl } from "./board-shots.js";
 import { BoardNames, boardKeyOf, boardTitle, isBoardKey, ProjectBoards, viaOpener } from "./liesel.js";
 import type { HoldCheck, HoldState } from "./hold-check.js";
-import { asksSomething } from "./asks.js";
+import { onlyTells } from "./asks.js";
 import type { RetiredCards } from "./retired-cards.js";
 
 // Flyd's artefact: the panel's content, built from four inputs — firstmate's
@@ -551,9 +551,9 @@ const NOT_A_DECISION = /\bready to read\b|\(report \+ artefact\)|(?:^|:\s)Read:|
 /** Whether a hold asks him to read or remember something rather than to decide, or only tells him something. Pure. */
 function notADecision(row: ArtefactRow): boolean {
   if (NOT_A_DECISION.test(row.label) || Boolean(row.detail && NOT_A_DECISION.test(row.detail))) return true;
-  // The hold's own reason is what it puts to him: a reason that asks nothing is a notice, not a call.
+  // The hold's own reason is what it puts to him: a reason that only reports something is a notice, not a call.
   // (A settled row keeps the words he was last shown, which need not ask: it is judged by the read that settled it.)
-  return !row.ledgerOnly && Boolean(row.detail) && !asksSomething(row.detail!, row.choices ?? []) && !asksSomething(row.question ?? "");
+  return !row.ledgerOnly && Boolean(row.detail) && onlyTells([row.detail!, row.question ?? ""], row.choices ?? []);
 }
 
 /** A hold nobody has touched for this long, with nothing to answer, is no longer a call. */
@@ -1453,6 +1453,7 @@ function loopbackRowItem(kind: ShowKind, id: string, row: ArtefactRow, options: 
     kind,
     ...(row.executiveDecisionId ? { executiveDecisionId: row.executiveDecisionId } : {}),
     ...(kind === "call" ? { questionIdentity: questionIdentityOf(row) } : {}),
+    ...(kind === "call" && row.quiet ? { quiet: true } : {}),
     headline,
     why: "",
     ...(kind === "call" && row.task ? { decision: { task: row.task, ...(row.executiveDecisionId ? { decisionId: row.executiveDecisionId } : {}), question: row.question ?? row.detail ?? row.label, choices: row.choices ?? [], ...(recommended ? { recommended } : {}), ...(row.decisions?.length ? { decisions: row.decisions } : {}) } } : {}),
@@ -2141,17 +2142,6 @@ export class ArtefactFeed {
     return this.inputs;
   }
 
-  /** Which of its safety checks this feed was built with: the app's wiring is tested through this (commands/view.ts). */
-  wiring(): { overtaken: boolean; holds: boolean; settleRuns: boolean; retired: boolean; executive: boolean } {
-    return {
-      overtaken: Boolean(this.options.overtaken),
-      holds: Boolean(this.options.holds),
-      settleRuns: Boolean(this.options.settleRuns),
-      retired: Boolean(this.options.retired),
-      executive: Boolean(this.options.decideChanges),
-    };
-  }
-
   onRefresh(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -2310,7 +2300,9 @@ export class ArtefactFeed {
       for (const row of incoming[field]) {
         const key = ledgerKey(field, row);
         const known = key ? this.ledger.get(key) : undefined;
-        if (key && !merged.has(key)) merged.set(key, { field, row, seenAt: now, firstSeen: known?.firstSeen || known?.seenAt || now, ledgerOnly: false, asked: known?.asked === true });
+        // A call keeps the question it was last known as by its hold's lifecycle: a read where firstmate cannot say leaves it the same question.
+        const carried = field === "calls" && !row.questionIdentity && known?.row.questionIdentity?.startsWith("hold:") ? { ...row, questionIdentity: known.row.questionIdentity } : row;
+        if (key && !merged.has(key)) merged.set(key, { field, row: carried, seenAt: now, firstSeen: known?.firstSeen || known?.seenAt || now, ledgerOnly: false, asked: known?.asked === true });
       }
     }
     for (const [key, entry] of this.ledger) {
