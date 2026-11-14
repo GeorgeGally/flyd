@@ -67,7 +67,11 @@ export const dispatchBrief: Dispatch = async (objective, brief, requestId, optio
     }
     case "creative": {
       const { dispatchDesignLab } = await import("../design.js");
-      return { ref: (await dispatchDesignLab({ ...common, source: "chat", ...(brief.project ? { project: brief.project } : {}) })).run.id };
+      const lab = await dispatchDesignLab({ ...common, source: "chat", ...(brief.project ? { project: brief.project } : {}) });
+      if (lab.status === "refused") return { refused: lab.reason };
+      // Under way now rather than on the next tick; a lab that stops is told through the objective's report.
+      void (await import("../design-mate.js")).startDesignRun(lab.run, { waitMs: 0 });
+      return { ref: lab.run.id };
     }
     case "life": {
       // A one-off job; its result comes back as the objective's report, so the job itself never tells George.

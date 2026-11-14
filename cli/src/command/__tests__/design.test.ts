@@ -97,6 +97,14 @@ describe("design lab path", () => {
     }
   });
 
+  it("never throws a hand-off it cannot take: it comes back refused with why, so the chat tells him instead of retrying", async () => {
+    dir = mkdtempSync(join(tmpdir(), "flyd-design-dispatch-"));
+    process.env.FLYD_COMMAND_DIR = join(dir, "command");
+    process.env.FLYD_SKILLS_DIR = join(dir, "skills");
+    const result = await dispatchDesignLab({ originalMessage: "a lab", intendedOutcome: "A lab", doneWhen: ["three versions"], requestId: "../escape" });
+    expect(result).toEqual({ status: "refused", reason: "the design team could not take it (Invalid request id)" });
+  });
+
   it("waits for his review until he answers the lab with a follow-up", () => {
     const lab = run("domain-lab");
     expect(labAwaitingReview(lab, [lab])).toBe(true);

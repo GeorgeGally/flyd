@@ -23,6 +23,7 @@ nothing else.
 | Quick jobs: room reading/routing, query rewrites, the view's routing, retold answers and status lines | Claude Haiku 5.5, thinking off | `FLYD_MODEL`, then the same fallbacks |
 | Reply summaries in the Flyd window | Claude Haiku 5.5 | xAI Grok (`XAI_API_KEY` or the grok CLI's key) |
 | Typing prediction | Claude Haiku 5.5, conversation cached | `openrouter:inception/mercury-2.5` |
+| Design team (`start_design_task`): the Creative Director, Flyd's review of a lab, and the Designers who build lab pages and real-project changes | Claude Opus through George's Claude subscription: the `claude` CLI with every API key variable removed, never the metered `CLAUDE_API_KEY` chain; `FLYD_DESIGN_MODEL` names another Claude model, `FLYD_CLAUDE_BIN` the CLI | None: a plan limit or a missing login stops the lab and George is told why |
 | Coding crew (`flyd crew`, `start_coding_task`) | `opencode-go/gpt-6-luna`, or `FLYD_CREW_MODEL` (never OpenCode's own default) | `cursor/auto` (Cursor's agent on George's login) when the provider refuses; `FLYD_CREW_BACKUP_MODELS` |
 | Background learning, synthesis, curation, the news edition | `FLYD_MODEL` | `FLYD_CHAT_FALLBACK_MODELS`, CommandCode, then Claude Haiku 5.5 (`FLYD_CLAUDE_QUICK_MODEL`) while Claude is on and under its cap |
 

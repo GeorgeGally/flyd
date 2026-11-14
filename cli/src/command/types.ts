@@ -129,6 +129,8 @@ export interface DomainRun {
   messages?: DomainMessage[];
   result?: DomainResult;
   failure?: string;
+  /** When its staff's model first answered: the work is really under way (Design Mate). */
+  startedAt?: string;
   /** Set while a FirstMate session launch is retried: how many tries and the earliest next one. */
   launchRetry?: { attempts: number; nextAt: string };
   /** Which layers of the handoff contract the latest reply missed (see validateDomainHandoff); the reply still counts. */

@@ -19,6 +19,8 @@ export async function dispatchDomainFollowup(input: {
   parentRunId: string;
   question: string;
   background?: boolean;
+  /** The project George asked from, when the parent's own request named none. */
+  project?: { name?: string; root?: string };
 }): Promise<DomainRun | Extract<CodingDomainDispatch, { status: "refused" }>> {
   const parent = readDomainRun(input.parentRunId);
   if (!parent) throw new Error(`Unknown domain run ${input.parentRunId}`);
@@ -59,37 +61,51 @@ export async function dispatchDomainFollowup(input: {
       background: input.background,
     });
   }
-  if (parent.request.domain === "creative") return designFollowup(parent, question);
+  if (parent.request.domain === "creative") return designFollowup(parent, question, input.project ? { project: input.project } : {});
   throw new Error(`No domain boss supports follow-ups for ${parent.request.domain} yet`);
 }
 
 /**
  * George's answer to a presented lab goes back to the Creative Director: naming
  * a version with the project known builds it for real; anything else is
- * another round, with his words and the last lab as the new brief.
+ * another round, with his words and the last lab as the new brief. `pick` says
+ * which version he chose when that is already known (a version marked final on
+ * the board), null when he chose none (notes only); left out, it is read from
+ * his words, and failing that, when his words ask to build it, it is the version
+ * he marked final on the board, used once.
+ * `project` is where to build when the lab named none; a round keeps the lab's own. `requestId` makes a
+ * replayed answer the same run, not a second one.
  */
-async function designFollowup(parent: DomainRun, question: string): Promise<DomainRun> {
-  const { dispatchDesignMate, labDir, readLab, shotPaths } = await import("./design-mate.js");
+export async function designFollowup(parent: DomainRun, question: string, options: { pick?: number | null; requestId?: string; project?: { name?: string; root?: string } } = {}): Promise<DomainRun> {
+  const { dispatchDesignMate, labDir, labsDir, readLab, shotPaths, writeLab } = await import("./design-mate.js");
   const lab = readLab(parent.id);
-  const named = question.match(/\bv(?:ersion)?\s*([1-9])\b/i) ?? question.match(/\b(?:build|go with|take|use|pick|keep)\b[^.]*?\b([1-9])\b/i);
-  const version = lab?.versions.find((item) => item.n === Number(named?.[1]));
-  const root = parent.request.project?.root;
+  const named = options.pick !== undefined ? null
+    : question.match(/\bv(?:ersion)?\s*([1-9])\b/i) ?? question.match(/\b(?:build|go with|pick)\s+([1-9])(?=\s*(?:$|[.,!?;:]|\s(?:into|in|to|for|on)\b))/i);
+  const project = parent.request.project?.root ? parent.request.project : options.project ?? parent.request.project;
+  const root = project?.root;
+  const fromPick = options.pick === undefined && !named && Boolean(root) && lab?.picked !== undefined && /\b(?:build|go with)\s+(?:it|that|the one)(?=\s*(?:$|[.,!?;:]|\s(?:into|in|to|for|on)\b))/i.test(question);
+  const chosen = options.pick !== undefined ? options.pick : named ? Number(named[1]) : fromPick ? lab!.picked! : null;
+  const version = chosen === null ? undefined : lab?.versions.find((item) => item.n === chosen);
   const common = {
     originalMessage: question,
     parentRequestId: parent.id,
     contextRefs: [`domain:${parent.id}`],
-    ...(parent.request.project ? { project: parent.request.project } : {}),
+    ...(options.requestId ? { requestId: options.requestId } : {}),
   };
   if (version && root) {
-    return dispatchDesignMate({
+    const built = dispatchDesignMate({
       ...common,
+      project,
       intendedOutcome: `Build "${version.name}" (V${version.n} from the lab "${parent.request.intendedOutcome}") for real in the project. ${version.idea}`,
       doneWhen: [`the project shows ${version.name} as designed`, "the project's own checks still pass"],
       build: { reference: { page: join(labDir(parent.id), `v${version.n}.html`), shot: shotPaths(parent.id, version).desktop, name: version.name } },
     });
+    if (fromPick) writeLab(parent.id, { ...lab!, picked: undefined }, labsDir());
+    return built;
   }
   return dispatchDesignMate({
     ...common,
+    ...(parent.request.project ? { project: parent.request.project } : {}),
     intendedOutcome: `${parent.request.intendedOutcome} - another round. George said: "${question}"${lab ? `\nLast round's brief: ${lab.brief}\nLast round: ${lab.versions.map((item) => `V${item.n} ${item.name} (${item.score}/10): ${item.idea}`).join("; ")}` : ""}`,
     doneWhen: parent.request.doneWhen,
   });

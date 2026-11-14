@@ -1,10 +1,15 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, type DesignMateDeps } from "../design-mate.js";
-import { isDesignLabRun, labAwaitingReview } from "../design.js";
-import { readDomainRun } from "../store.js";
+import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
+import { DesignModelError } from "../design-claude.js";
+import { DESIGN_LAB_DONE_WHEN, designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
+import { dispatchDomainFollowup } from "../followup.js";
+import { dueReport } from "../report.js";
+import { notifyRun } from "../scheduler.js";
+import { listDomainRuns, readDomainRun, saveDomainRun } from "../store.js";
+import type { DomainRun } from "../types.js";
 
 let home: string;
 let labs: string;
@@ -51,8 +56,14 @@ function staff(scores: number[], calls: string[] = [], verdicts: Array<{ verdict
       return JSON.stringify({ score: scores[critique++ % scores.length], critique: "Delete the second label." });
     },
     shoot: async (_page, png) => { writeFileSync(png, "png"); },
+    board: async (input) => {
+      calls.push(`board:${input.versions.map((version) => `V${version.n}`).join(",")}`);
+      return { url: "http://127.0.0.1:4747/board/labboard01", key: "labboard01", dir: join(input.labDir, "board") };
+    },
   };
 }
+
+const LIMIT = new DesignModelError("limit", "your Claude plan has hit its usage limit; it resets 9pm");
 
 function start() {
   return dispatchDesignMate({ originalMessage: "do a lab for the right column", intendedOutcome: "Right column lab", doneWhen: ["five versions"] }, labs);
@@ -85,14 +96,15 @@ describe("Design Mate", () => {
     const calls: string[] = [];
     const done = await driveDesignRun(start(), staff([9, 10, 9], calls));
     expect(done.status).toBe("completed");
-    expect(calls).toEqual(["brief", "build", "build", "build", "critique:2", "critique:2", "critique:2", "present:3", "flyd"]);
+    expect(calls).toEqual(["brief", "build", "build", "build", "critique:2", "critique:2", "critique:2", "present:3", "flyd", "board:V1,V2,V3"]);
     const artifacts = done.result!.artifacts;
-    expect(artifacts[0]).toMatch(/index\.html$/);
+    expect(artifacts[0]).toBe("http://127.0.0.1:4747/board/labboard01");
+    expect(artifacts[1]).toMatch(/index\.html$/);
     expect(artifacts.filter((path) => path.endsWith(".png"))).toHaveLength(6);
-    for (const path of artifacts) expect(existsSync(path)).toBe(true);
+    for (const path of artifacts.slice(1)) expect(existsSync(path)).toBe(true);
     expect(readFileSync(join(labDir(done.id, labs), "v1.html"), "utf8")).toBe(PAGE);
     expect(done.result!.brief).toContain("Creative Director's pick: V2 · Wall label at 10/10");
-    expect(readFileSync(artifacts[0]!, "utf8")).toContain("Wall label is the one");
+    expect(readFileSync(artifacts[1]!, "utf8")).toContain("Wall label is the one");
     expect(labAwaitingReview(done, [done])).toBe(true);
   });
 
@@ -145,7 +157,7 @@ describe("Design Mate", () => {
     const done = await driveDesignRun(start(), staff([9], [], Array(MAX_SENDBACKS + 1).fill(no)));
     expect(done.status).toBe("completed");
     expect(readLab(done.id, labs)!.sendbacks).toBe(MAX_SENDBACKS);
-    expect(readLab(done.id, labs)!.log.at(-1)).toMatch(/still had notes/);
+    expect(readLab(done.id, labs)!.log.join("\n")).toMatch(/still had notes after 2 send-backs/);
   });
 
   it("builds for real: the designer edits the project, the Creative Director reviews, Flyd accepts, Design Mate commits only what it made", async () => {
@@ -285,5 +297,206 @@ describe("Design Mate", () => {
     } });
     expect(done.status).toBe("failed");
     expect(done.failure).toMatch(/V3 · Departure board could not be built: socket hang up/);
+  });
+
+  it("lands the finished lab on a board George reviews from, with the Creative Director's words beside the frames", async () => {
+    const boards: Array<{ name: string; versions: number[]; note?: string }> = [];
+    const done = await driveDesignRun(start(), { ...staff([9]), board: async (input) => {
+      boards.push({ name: input.name, versions: input.versions.map((version) => version.n), ...(input.note ? { note: input.note } : {}) });
+      return { url: "http://127.0.0.1:4747/board/labboard02", key: "labboard02", dir: join(input.labDir, "board") };
+    } });
+    expect(done.status).toBe("completed");
+    expect(boards).toEqual([{ name: "Right column lab", versions: [1, 2, 3], note: "I'd take V2 · Wall label forward.\n- V1 · Title card: Big type.\n- V2 · Wall label: A framed piece.\n- V3 · Departure board: A dark board.\nPin notes for another round, or mark one as final to settle on it." }]);
+    expect(readLab(done.id, labs)!.board).toMatchObject({ key: "labboard02" });
+    expect(done.result!.brief).toContain("On the board: http://127.0.0.1:4747/board/labboard02");
+    expect(done.result!.evidence).toEqual(["board http://127.0.0.1:4747/board/labboard02"]);
+  });
+
+  it("still hands the lab over when the board cannot be opened, and says so", async () => {
+    const done = await driveDesignRun(start(), { ...staff([9]), board: async () => { throw new Error("Liesel did not start"); } });
+    expect(done.status).toBe("completed");
+    expect(done.result!.risks.join(" ")).toContain("It could not be put on a board: Liesel did not start.");
+    expect(done.result!.artifacts[0]).toMatch(/index\.html$/);
+  });
+
+  it("stops at once on a plan limit, without retrying, and says why in plain words", async () => {
+    const calls: string[] = [];
+    const done = await driveDesignRun(start(), { ...staff([9]), complete: async () => { calls.push("call"); throw LIMIT; } });
+    expect(calls).toEqual(["call"]);
+    expect(done.status).toBe("failed");
+    expect(done.failure).toBe("The design lab stopped before it was ready: your Claude plan has hit its usage limit; it resets 9pm.");
+  });
+
+  it("stops the whole lab on a plan limit mid-build instead of dropping every direction", async () => {
+    const deps = staff([9]);
+    const done = await driveDesignRun(start(), { ...deps, complete: async (prompt, options) => {
+      if (prompt.startsWith("You are a designer")) throw LIMIT;
+      return deps.complete(prompt, options);
+    } });
+    expect(done.status).toBe("failed");
+    expect(done.failure).toMatch(/usage limit; it resets 9pm\.$/);
+    expect(readLab(done.id, labs)!.dropped).toBeUndefined();
+  });
+
+  it("says a lab started only once its model answered, and that it failed when it stopped at once", async () => {
+    const started = await startDesignRun(start(), { deps: staff([9]), waitMs: 5_000, pollMs: 5 });
+    expect(started.state).toBe("started");
+    expect(readDomainRun(started.run.id)!.startedAt).toBeTruthy();
+    expect(designStartLine(started)).toMatch(/^Design lab started \(run lab-/);
+
+    const failed = await startDesignRun(start(), { deps: { ...staff([9]), complete: async () => { throw LIMIT; } }, waitMs: 5_000, pollMs: 5 });
+    expect(failed.state).toBe("failed");
+    expect(readDomainRun(failed.run.id)!.startedAt).toBeUndefined();
+    const line = designStartLine(failed);
+    expect(line).toMatch(/^Error: the design lab did not start\./);
+    expect(line).toContain("usage limit");
+
+    // Told in the chat that started it, so no notification says it again.
+    expect(readDomainRun(failed.run.id)!.report?.state).toBe("due");
+    toldInChat(failed.run.id);
+    expect(readDomainRun(failed.run.id)!.report?.state).toBe("quiet");
+
+    const waiting = await startDesignRun(start(), { deps: { ...staff([9]), complete: () => new Promise<string>(() => undefined) }, waitMs: 20, pollMs: 5 });
+    expect(waiting.state).toBe("waiting");
+    expect(designStartLine(waiting)).toMatch(/^Design lab queued .*not that it has started/);
+  });
+
+  it("tells George a stopped lab right away, in its own plain words, never sending it back to the team", async () => {
+    const run = start();
+    const failure = "The design lab stopped before it was ready: your Claude plan has hit its usage limit; it resets 9pm.";
+    saveDomainRun({ ...readDomainRun(run.id)!, status: "failed", phase: "done", failure, report: dueReport("failed", new Date().toISOString()) });
+    const said: string[] = [];
+    let reviewed = false;
+    await notifyRun(readDomainRun(run.id)!, async (_title, message) => { said.push(message); }, undefined, async () => { reviewed = true; throw new Error("not reviewed"); }, () => false, async () => { throw new Error("no focus"); });
+    expect(reviewed).toBe(false);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("usage limit");
+    expect(readDomainRun(run.id)!.report).toMatchObject({ state: "shown" });
+
+    // A stop from days ago is old news: recorded, never rung.
+    const old = start();
+    saveDomainRun({ ...readDomainRun(old.id)!, status: "failed", phase: "done", failure, report: dueReport("failed", "2026-11-01T00:00:00.000Z") });
+    await notifyRun(readDomainRun(old.id)!, async (_title, message) => { said.push(message); }, undefined, undefined, () => false, async () => { throw new Error("no focus"); });
+    expect(said).toHaveLength(1);
+    expect(readDomainRun(old.id)!.report?.state).toBe("quiet");
+  });
+
+  it("keeps a second runner off a lab another live process is stepping", async () => {
+    const run = start();
+    const boot = Math.round((Date.now() - uptime() * 1000) / 60_000);
+    const lock = join(labDir(run.id, labs), "runner.lock");
+    writeFileSync(lock, JSON.stringify({ pid: process.ppid, boot, at: new Date().toISOString() }));
+    const calls: string[] = [];
+    const after = await driveDesignRun(run, staff([9], calls));
+    expect(calls).toEqual([]);
+    expect(after.phase).toBe("briefing");
+
+    // The same pid from before this Mac restarted is someone else now: the lock is taken over.
+    writeFileSync(lock, JSON.stringify({ pid: process.ppid, boot: boot - 600, at: new Date().toISOString() }));
+    expect((await driveDesignRun(run, staff([9]))).status).toBe("completed");
+  });
+
+  it("fails the run, rather than losing the request, when its folder cannot be made", () => {
+    writeFileSync(labs, "not a folder");
+    const run = dispatchDesignMate({ originalMessage: "a lab", intendedOutcome: "A lab", doneWhen: ["three versions"] }, labs);
+    expect(readDomainRun(run.id)).toMatchObject({ status: "failed", report: { state: "due" } });
+    expect(run.failure).toMatch(/^The design lab stopped before it was ready: its folder could not be made/);
+  });
+
+  it("builds the version George marks final on the board, and takes notes alone into another round", async () => {
+    const project = join(home, "project");
+    const previous = process.env.FLYD_LABS_DIR;
+    process.env.FLYD_LABS_DIR = labs;
+    try {
+      const lab = await driveDesignRun(dispatchDesignMate({ originalMessage: "do a lab", intendedOutcome: "Right column lab", doneWhen: ["three versions"], project: { root: project } }, labs), staff([9]));
+      const built = await answerFromBoard(lab, { final: 2, notes: ["V2 · Wall label: tighter headline"], ids: ["p1"] });
+      expect(built).toBe("Building V2 · Wall label into the project now. You'll hear when it's in.");
+      const build = listDomainRuns().find((run) => run.request.parentRequestId === lab.id && readBuild(run.id, labs))!;
+      expect(build.request.originalMessage).toContain("Build V2 · Wall label.");
+      expect(build.request.originalMessage).toContain("tighter headline");
+      // The same board message again is the same run, not a second build.
+      await answerFromBoard(lab, { final: 2, notes: ["V2 · Wall label: tighter headline"], ids: ["p1"] });
+      expect(listDomainRuns().filter((run) => run.request.parentRequestId === lab.id)).toHaveLength(1);
+
+      // Notes that name a version are still notes: another round, never a build.
+      const round = await answerFromBoard(lab, { notes: ["V2 · Wall label: build the header bigger"], ids: ["p2"] });
+      expect(round).toMatch(/another round/);
+      const next = listDomainRuns().find((run) => run.request.parentRequestId === lab.id && run.request.originalMessage.includes("bigger"))!;
+      expect(readBuild(next.id, labs)).toBeNull();
+      expect(next.phase).toBe("briefing");
+
+      // A lab with no project to build into keeps his pick and says so, starting nothing.
+      const loose = await driveDesignRun(start(), staff([9]));
+      const before = listDomainRuns().length;
+      expect(await answerFromBoard(loose, { final: 3, notes: [], ids: ["p3"] })).toMatch(/^Marked V3 · Departure board as the one\. This lab has no project/);
+      expect(listDomainRuns()).toHaveLength(before);
+      expect(readLab(loose.id, labs)!.picked).toBe(3);
+
+      // Notes alone are another round, even from a project with a pick waiting.
+      const noted = await dispatchDomainFollowup({ parentRunId: loose.id, question: "try a warmer palette", project: { root: project } }) as DomainRun;
+      expect(readBuild(noted.id, labs)).toBeNull();
+      expect(noted.phase).toBe("briefing");
+      expect(noted.request.project).toBeUndefined();
+      expect(readLab(loose.id, labs)!.picked).toBe(3);
+      const darker = await dispatchDomainFollowup({ parentRunId: loose.id, question: "use a darker background", project: { root: project } }) as DomainRun;
+      expect(readBuild(darker.id, labs)).toBeNull();
+      expect(darker.phase).toBe("briefing");
+      expect(darker.request.project).toBeUndefined();
+      expect(readLab(loose.id, labs)!.picked).toBe(3);
+      for (const note of ["use that blue on the buttons", "use this font for headings", "go with that colour", "use 2 columns on mobile", "take 3 more stabs at the hero", "build 3 more versions", "go with 2 columns on mobile", "pick 2 colours from the photo"]) {
+        const round = await dispatchDomainFollowup({ parentRunId: loose.id, question: note, project: { root: project } }) as DomainRun;
+        expect(readBuild(round.id, labs)).toBeNull();
+        expect(round.phase).toBe("briefing");
+        expect(round.request.project).toBeUndefined();
+        expect(readLab(loose.id, labs)!.picked).toBe(3);
+      }
+
+      // Saying where later builds that pick, even when his words name no version; with nowhere to build, it is another round.
+      const nowhere = await dispatchDomainFollowup({ parentRunId: loose.id, question: "build it into the site" }) as DomainRun;
+      expect(readBuild(nowhere.id, labs)).toBeNull();
+      expect(nowhere.phase).toBe("briefing");
+      const placed = await dispatchDomainFollowup({ parentRunId: loose.id, question: "build it into the site", project: { root: project } }) as DomainRun;
+      expect(placed.request.project?.root).toBe(project);
+      expect(readBuild(placed.id, labs)?.reference?.name).toBe("Departure board");
+      // The pick builds once: later notes are another round, not the old pick again.
+      expect(readLab(loose.id, labs)!.picked).toBeUndefined();
+      writeLab(loose.id, { ...readLab(loose.id, labs)!, picked: 3 }, labs);
+      const theOne = await dispatchDomainFollowup({ parentRunId: loose.id, question: "go with the one.", project: { root: project } }) as DomainRun;
+      expect(readBuild(theOne.id, labs)?.reference?.name).toBe("Departure board");
+      expect(readLab(loose.id, labs)!.picked).toBeUndefined();
+      const later = await dispatchDomainFollowup({ parentRunId: loose.id, question: "make the type bigger", project: { root: project } }) as DomainRun;
+      expect(readBuild(later.id, labs)).toBeNull();
+      expect(later.phase).toBe("briefing");
+
+      // A project but no pick is still another round.
+      const unpicked = await driveDesignRun(start(), staff([9]));
+      const another = await dispatchDomainFollowup({ parentRunId: unpicked.id, question: "build it into the site", project: { root: project } }) as DomainRun;
+      expect(readBuild(another.id, labs)).toBeNull();
+      expect(another.phase).toBe("briefing");
+
+      // A count after the verb is a note, even on a lab with its own project; a bare version number is a build.
+      for (const note of ["build 3 more", "build 3 more versions", "go with 2 columns on mobile", "pick 2 colours from the photo"]) {
+        const round = await dispatchDomainFollowup({ parentRunId: lab.id, question: note }) as DomainRun;
+        expect(readBuild(round.id, labs)).toBeNull();
+        expect(round.phase).toBe("briefing");
+      }
+      const three = await dispatchDomainFollowup({ parentRunId: unpicked.id, question: "go with 3.", project: { root: project } }) as DomainRun;
+      expect(readBuild(three.id, labs)?.reference?.name).toBe("Departure board");
+      const two = await dispatchDomainFollowup({ parentRunId: unpicked.id, question: "build 2 into ~/site", project: { root: project } }) as DomainRun;
+      expect(readBuild(two.id, labs)?.reference?.name).toBe("Wall label");
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_LABS_DIR;
+      else process.env.FLYD_LABS_DIR = previous;
+    }
+  });
+
+  it("leaves the presenting to the board: designers build only the page, and Flyd's review never asks them for board controls or file lists", () => {
+    const run = dispatchDesignMate({ originalMessage: "a lab", intendedOutcome: "A lab", doneWhen: ["three versions", ...DESIGN_LAB_DONE_WHEN] }, labs);
+    const page = buildPrompt(run, { brief: "b", versions: [], round: 1, images: [], log: [] }, { n: 1, name: "Title card", idea: "Big type.", seed: "ab" }, "(none)");
+    expect(page).toContain("never add a version label, a lab caption, a 'Mark as final' control");
+    const review = flydReviewPrompt(run, "V1 is the one.", "(none)", "A lab of 3 versions");
+    expect(review).toContain("Done when: three versions\n");
+    expect(review).not.toContain("listed in artifacts");
+    expect(review).toContain("Never ask the designers for those board features");
   });
 });
