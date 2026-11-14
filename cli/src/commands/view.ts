@@ -44,7 +44,7 @@ import { LiveStaffSession, readStaffView } from "../command/fleet-monitor.js";
 import { listDomainRuns } from "../command/store.js";
 import { isOpen, isSettled } from "../command/run-state.js";
 import { sendRunMessage } from "../command/messages.js";
-import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun } from "../intelligence/executive/firstmate-decision.js";
+import { NOTE_ALREADY_SENT, processFirstmateChanges, authorityForStaffRun, STAFF_COORDINATION_POLICY } from "../intelligence/executive/firstmate-decision.js";
 import { IntelligenceEventStore } from "../intelligence/event-store.js";
 import { notesSentToBoss, readExecutiveDecision, resolveExecutiveDecision, takeBackSettledDecision } from "../intelligence/executive/decision-step.js";
 import { STANDING_RULES_POLICY, standingPreferences } from "../intelligence/executive/standing-rules.js";
@@ -348,6 +348,8 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
     const openCalls = [...new Set(changes.flatMap((change) => change.kind === "decision" && change.taskId ? [change.taskId] : []))];
     const prepared = changes.map((change) => {
       const run = change.taskId ? runs.find((item) => item.id === change.taskId) : undefined;
+      // A worker firstmate's record shows stopped on purpose, superseded or finished is no work to recover.
+      const stopped = !run && change.taskId && change.kind === "fleet_state" && ["unknown", "failed"].includes(change.state) ? inbox.taskStopped(change.taskId) : [];
       const authority = run ? authorityForStaffRun({
         runId: run.id,
         firstmate: run.transport.kind === "firstmate" && run.request.domain === "coding",
@@ -355,14 +357,14 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
         autonomy: autonomyLevel(),
         ...(change.kind === "decision" ? { standing } : {}),
       }) : change.taskId && change.kind === "fleet_state" && ["working", "paused", "unknown", "failed"].includes(change.state)
-        ? authorityForStaffRun({ runId: change.taskId, firstmate: inbox.available(), active: true, autonomy: autonomyLevel() })
+        ? authorityForStaffRun({ runId: change.taskId, firstmate: inbox.available(), active: stopped.length === 0 && !inbox.taskClosed(change.taskId), autonomy: autonomyLevel() })
         // A call firstmate holds with no run of Flyd's behind it: only his standing rules may answer it.
         : change.taskId && change.kind === "decision"
-          ? authorityForStaffRun({ runId: change.taskId, firstmate: inbox.available(), active: true, autonomy: autonomyLevel(), standing })
+          ? authorityForStaffRun({ runId: change.taskId, firstmate: inbox.available(), active: !inbox.taskClosed(change.taskId), autonomy: autonomyLevel(), standing })
             .filter((grant) => grant.grantId === STANDING_RULES_POLICY.id)
           : [];
       const sentToBoss = notesSentToBoss(run?.messages);
-      return { ...change, ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), ...(standing !== undefined && change.kind === "decision" ? { standing } : {}), ...(openCalls.length ? { openCalls } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
+      return { ...change, ...(stopped.length ? { stopped } : {}), ...(authority.length ? { authority } : {}), ...(sentToBoss.length ? { sentToBoss } : {}), ...(standing !== undefined && change.kind === "decision" ? { standing } : {}), ...(openCalls.length ? { openCalls } : {}), evidenceRefs: [...change.evidenceRefs, ...(run?.result?.evidence ?? [])] };
     });
     return processFirstmateChanges(prepared, {
       complete: async (prompt) => (await import("../lib/llm.js")).quickQuery(prompt, { json: true }),
@@ -375,7 +377,11 @@ export async function runView(options: ViewOptions = {}): Promise<void> {
           if (!observedTask || !inbox.available()) return { status: "unknown", evidenceRefs: [] };
           // Work firstmate already archived as done (George may have closed it) is not chased back to life.
           if (inbox.taskClosed(action.target)) return { status: "verified", evidenceRefs: [`firstmate-task-closed:${action.target}`] };
-          const { requestId, replayed } = await inbox.sendTaskNote(action.target, action.text);
+          const coordination = action.grantId === STAFF_COORDINATION_POLICY.id;
+          // Nor is work it stopped on purpose or superseded, and a gone worker is chased once per task lifecycle at most.
+          const stopped = coordination ? inbox.taskStopped(action.target) : [];
+          if (stopped.length) return { status: "verified", evidenceRefs: stopped };
+          const { requestId, replayed } = await inbox.sendTaskNote(action.target, action.text, coordination ? inbox.taskLifecycle(action.target) : undefined);
           return replayed
             ? { status: "failed", evidenceRefs: [`${NOTE_ALREADY_SENT}${requestId}`] }
             : { status: "verified", evidenceRefs: [`firstmate-note:${requestId}`] };

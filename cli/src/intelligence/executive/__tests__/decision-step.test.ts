@@ -284,11 +284,15 @@ describe("executive decision step", () => {
     expect(decideExecutiveStep({ ...eitherOr, taskId: "review", authority })).toMatchObject({ disposition: "ask_george", show: true });
   });
 
-  it("returns an unconfirmed internal action and failed work to the boss rather than holding them silently", () => {
+  it("keeps an unconfirmed status check backstage, and returns only failed work to its boss", () => {
     const authority = authorityForStaffRun({ runId: "review", firstmate: true, active: true, autonomy: "trusted" });
     const base = { sourceId: "firstmate.status", sourceEventId: "review:cancelled", taskId: "review", authority, sourceText: "The review was cancelled before it reached a verdict." };
-    const unconfirmed = decideExecutiveStep({ ...base, proposal: { kind: "internal_action", summary: "Check the review.", action: { kind: "request_status", target: "review", evidence: "The review was cancelled" }, evidenceRefs: [] } });
-    expect(unconfirmed).toMatchObject({ disposition: "handle_internally", action: { target: "review", text: RECOVER_IT_YOURSELF }, verification: { status: "pending" } });
+    const statusCheck = { kind: "internal_action" as const, summary: "Check the review.", action: { kind: "request_status" as const, target: "review", evidence: "The review was cancelled" }, evidenceRefs: [] };
+    // Jev did not confirm the status request: a harmless check never grows into "recover it".
+    const unconfirmed = decideExecutiveStep({ ...base, proposal: statusCheck });
+    expect(unconfirmed).toMatchObject({ disposition: "backstage", show: false, notify: false, reason: "the status request was not confirmed; it stays backstage" });
+    expect(unconfirmed).not.toHaveProperty("action");
+    expect(decideExecutiveStep({ ...base, sourceFailed: true, proposal: statusCheck })).toMatchObject({ disposition: "handle_internally", action: { target: "review", text: RECOVER_IT_YOURSELF } });
     const failed = decideExecutiveStep({ ...base, sourceFailed: true, proposal: { kind: "unclear", summary: "The run failed.", evidenceRefs: [] } });
     expect(failed).toMatchObject({ disposition: "handle_internally", show: false, notify: false, action: { text: RECOVER_IT_YOURSELF } });
     const again = decideExecutiveStep({ ...base, sourceFailed: true, sentToBoss: [RECOVER_IT_YOURSELF], proposal: { kind: "unclear", summary: "The run failed.", evidenceRefs: [] } });

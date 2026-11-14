@@ -130,6 +130,40 @@ export interface CaptainInbox {
 
 const SEND_TIMEOUT_MS = 20_000;
 export const MAX_NOTE_CHARS = 8_000;
+
+/** How firstmate and its workers say work was stopped on purpose or taken over by other work. */
+const STOPPED_ON_PURPOSE = /\bstopp(?:ed|ing)\b[^.;\n]{0,60}?(?:\bon purpose\b|\bdeliberately\b|\bintentionally\b|\bper\b|\bby (?:firstmate|the captain|george)\b)|\bsupersed(?:ed|es)\b|\bovertaken\b|\breplaced by\b|\bno (?:more )?work(?:er)? (?:is )?needed\b|\bnot shipping\b/i;
+
+/** A task id as a whole word: not part of a longer id, though a sentence's full stop may follow it. */
+function taskIdPattern(taskId: string): string {
+  return `(?<![\\w.-])${taskId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-]|\\.\\w)`;
+}
+
+/** A backlog entry's own words, title and notes, with its encoded hold reason read out. Pure. */
+function ownEntry(markdown: string, taskId: string): string {
+  const lines = markdown.split("\n");
+  const start = lines.findIndex((line) => new RegExp(`^- \\[[ x]\\] ${taskIdPattern(taskId)} - `).test(line.trim()));
+  if (start < 0) return "";
+  const end = lines.findIndex((line, index) => index > start && (/^- \[[ x]\] /.test(line.trim()) && !/^\s{2,}/.test(line) || /^#/.test(line)));
+  return lines.slice(start, end < 0 ? undefined : end).join("\n").replace(/fm-hold-v1:([A-Za-z0-9+/]+={0,2})/g, (_whole, encoded: string) => Buffer.from(encoded, "base64").toString("utf8"));
+}
+
+/**
+ * What in firstmate's own record says a task's worker is gone on purpose, as evidence refs (none when nothing
+ * does): its latest status line says it finished, was stopped on purpose or superseded; its backlog entry says
+ * so; or another task's entry says it supersedes or replaces it. Pure.
+ */
+export function stoppedEvidence(taskId: string, record: { status?: string; backlog?: string; archive?: string }): string[] {
+  const refs: string[] = [];
+  const latest = (record.status ?? "").split("\n").map((line) => line.trim()).filter(Boolean).pop();
+  if (latest && /^done\b/i.test(latest)) refs.push(`firstmate-status-done:${taskId}`);
+  else if (latest && STOPPED_ON_PURPOSE.test(latest)) refs.push(`firstmate-status-stopped:${taskId}`);
+  if (STOPPED_ON_PURPOSE.test(ownEntry(record.backlog ?? "", taskId))) refs.push(`firstmate-backlog-stopped:${taskId}`);
+  const id = taskIdPattern(taskId);
+  const replaced = new RegExp(`\\b(?:supersedes|replaces)(?::|\\s)+(?:the\\s+)?(?:direction\\s+of\\s+)?${id}|${id}(?:\\s+(?:is|was))?\\s+superseded\\b`, "i");
+  if ([record.backlog, record.archive].some((text) => text?.split("\n").some((line) => replaced.test(line)))) refs.push(`firstmate-superseded:${taskId}`);
+  return refs;
+}
 export { MAX_FILE_BYTES, MAX_IMAGE_BYTES };
 export const MAX_IMAGES = 4;
 const IMAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(png|jpg|gif|webp)$/;
@@ -367,10 +401,6 @@ export class FirstmateInbox implements CaptainInbox {
     }
   }
 
-  /**
-   * True when firstmate has archived the task as done (`- [x] <id> …` in data/done-archive.md):
-   * a closed task is never chased again, whatever a stale fleet read still says about it.
-   */
   /** Whether firstmate is up and taking notes now: for what can wait, and must not start a session of its own. */
   async taking(): Promise<boolean> {
     const readiness = await (await this.client()).ready();
@@ -385,6 +415,10 @@ export class FirstmateInbox implements CaptainInbox {
     return reply && existsSync(reply) ? parseRecord(reply)?.body : undefined;
   }
 
+  /**
+   * True when firstmate has archived the task as done (`- [x] <id> …` in data/done-archive.md):
+   * a closed task is never chased again, whatever a stale fleet read still says about it.
+   */
   taskClosed(taskId: string): boolean {
     try {
       const archive = readFileSync(join(this.home, "data", "done-archive.md"), "utf8");
@@ -394,10 +428,32 @@ export class FirstmateInbox implements CaptainInbox {
     }
   }
 
-  /** Flyd's note about one task, keyed on the task and the note so the inbox takes each note at most once per task. */
-  async sendTaskNote(taskId: string, text: string): Promise<{ requestId: string; replayed: boolean }> {
+  /**
+   * Firstmate's own record that a task was stopped on purpose, superseded or already finished, as evidence refs
+   * (none when its record says nothing of the kind): a gone worker on such a task is no work to recover.
+   */
+  taskStopped(taskId: string): string[] {
+    const read = (...path: string[]) => { try { return readFileSync(join(this.home, ...path), "utf8"); } catch { return ""; } };
+    return stoppedEvidence(taskId, { status: read("state", `${taskId}.status`), backlog: read("data", "backlog.md"), archive: read("data", "done-archive.md") });
+  }
+
+  /** The task's lifecycle as firstmate records it: its backlog row's opening day, so a task id reused later is a new life. */
+  taskLifecycle(taskId: string): string {
+    try {
+      const row = readFileSync(join(this.home, "data", "backlog.md"), "utf8").split("\n").find((line) => line.trim().startsWith(`- [ ] ${taskId} - `));
+      return `${taskId}@${row?.match(/\(since:? (\d{4}-\d{2}-\d{2})/)?.[1] ?? ""}`;
+    } catch {
+      return `${taskId}@`;
+    }
+  }
+
+  /**
+   * Flyd's note about one task, keyed on the task and the note so the inbox takes each note at most once per task.
+   * With a lifecycle key the note is keyed on that instead of its words: whatever it says, one per lifecycle.
+   */
+  async sendTaskNote(taskId: string, text: string, lifecycle?: string): Promise<{ requestId: string; replayed: boolean }> {
     const note = text.startsWith(`Task ${taskId}.`) ? text : `Task ${taskId}. ${text}`;
-    const requestId = `flyd-task-${taskId.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 80)}-${createHash("sha256").update(note).digest("hex").slice(0, 16)}`;
+    const requestId = `flyd-task-${taskId.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 80)}-${createHash("sha256").update(lifecycle === undefined ? note : `lifecycle\0${lifecycle}`).digest("hex").slice(0, 16)}`;
     const { replayed } = await this.sendOwn(note, requestId, { outcome: `Act on Flyd's note about task ${taskId}`, contextRefs: [`task:${taskId}`] });
     return { requestId, replayed };
   }

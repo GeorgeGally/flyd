@@ -309,8 +309,10 @@ function decide(input: ExecutiveDecisionInput, now = new Date()): ExecutiveDecis
       && candidate.target === proposal.action.target);
     if (!grant || judgment?.route !== "handle_internally" || confidence < MIN_CONFIDENCE
       || !containsEvidence(input.sourceText, proposal.action.evidence)) {
-      return toBoss(input, { ...decision, reason: "no matching deterministic authority grant and grounded high-confidence interpretation" },
-        RECOVER_IT_YOURSELF, "the status request was not confirmed; returned to its boss");
+      // An unconfirmed status check is never turned into "recover it": it stays backstage, and only work that
+      // itself failed goes back to its boss.
+      const held = { ...decision, reason: "the status request was not confirmed; it stays backstage" };
+      return input.sourceFailed ? toBoss(input, held, RECOVER_IT_YOURSELF, "failed work returned to its boss") : held;
     }
     return {
       ...decision,
