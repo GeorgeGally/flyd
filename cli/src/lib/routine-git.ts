@@ -16,15 +16,8 @@ export const DEPLOY_ACTION = /\b(?:and|then)\s+(?:then\s+)?(?:deploy|publish|rel
 /** Still his: a force push, or a push to someone else's repo. */
 const STILL_HIS = /\bforce[- ]?push\w*|--force\b|\bpush\w*\s+(?:\S+\s+)?-f\b|(?<!--set-)\bupstream\b|\b(?:forks?|forked|someone else(?:'s)?|other people(?:'s)?|third[- ]party|another remote|their repo)\b/i;
 
-const DESTRUCTIVE_WORD = String.raw`\b(?:revert|reset|delet|drop|amend|force|filter-branch|rebase -i|rewrit\w* (?:the )?history)\w*\b`;
-const NOUN_PHRASE_BEFORE = String.raw`\b(?:the|a|an|this|that|my|our)\s+(?:[\w'-]+\s+)?`;
-const WORK_NOUN_AFTER = String.raw`(?:-[\w']+|\s+(?!(?:the|a|an|this|that|these|those|my|our|his|her|their|last|old|all|any|some)\b)[\w'-]+)?[\s-]+(?:fix|fixes|bug|bugs|button|shadow|feature|flow|page|form|link|modal|screen|tests?|copy)\b`;
-
-/** A step that destroys or rewrites work anywhere in the ask ("Delete tests and push?"); only a word inside a phrase naming the work is exempt ("the password reset fix"). */
-const DESTRUCTIVE = new RegExp(`(?<!${NOUN_PHRASE_BEFORE})${DESTRUCTIVE_WORD}|(?<=${NOUN_PHRASE_BEFORE})${DESTRUCTIVE_WORD}(?!${WORK_NOUN_AFTER})`, "i");
-
-/** Secret material the ask itself commits or pushes ("commit the .env", "push the API key"). */
-const SECRET = /(?:^|\s)\.env\b|\b(?:(?:commit|push|add)\w*|check in|with|including|containing)\s+(?:(?:the|a|my|his|our|these|those)\s+)?(?:api[- ]?keys?|secrets?|credentials?|tokens?|passwords?|private keys?)(?=\s*(?:$|[.,;:?!]|(?:and|to|into|with|in|file|files)\b))/i;
+/** A destructive step or secret material anywhere in the ask ("Delete tests and push?", "commit the .env"): never routine, however the rest reads. */
+const UNSAFE = /\b(?:revert|reset|delet|drop|remov|rewrit|force|amend|secret|credential|password)\w*|\bfilter-branch\b|\brebase -i\b|\btokens?\b|\bapi[- ]?keys?\b|(?:^|\s)\.env\b/i;
 
 /** A choice between options: the work's own engineering call, never settled as a plain go-ahead. */
 const EITHER_OR = /\bor\b|\b(?:which|pick|choose|instead)\b/i;
@@ -49,5 +42,5 @@ function failingNow(text: string): boolean {
 export function routineGitStep(ask: string, context = ""): boolean {
   const asked = ask.replace(/\s+/g, " ").trim();
   const said = `${asked} ${context.replace(/\s+/g, " ").trim()}`;
-  return GIT_STEP.test(said) && !STILL_HIS.test(said) && !DESTRUCTIVE.test(asked) && !SECRET.test(asked) && !EITHER_OR.test(asked) && !DEPLOY_ACTION.test(said) && !failingNow(said);
+  return GIT_STEP.test(said) && !STILL_HIS.test(said) && !UNSAFE.test(asked) && !EITHER_OR.test(asked) && !DEPLOY_ACTION.test(said) && !failingNow(said);
 }

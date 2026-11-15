@@ -107,11 +107,11 @@ describe("George's standing rules in the review step", () => {
       "Should I delete failing tests and push?", "Delete stale tests and push?", "Drop flaky tests and push?", "Revert broken fix and push?",
       "Revert fix and push?", "Delete tests and push?", "Reset tests and push?", "Revert Friday's fix and push?", "Push with failing tests?",
       "Push this and revert the fix?", "Merge that then delete the tests and push?", "Push this and drop the feature?", "Can the bot revert the fix and push?",
+      "Can the bot revert your fix and push?", "Push this and revert your fix?", "Push this then delete your tests?", "Can the bot drop its feature and push?",
+      "Push this and delete 3 tests?", "Remove the old migration and push?", "Push the token?",
+      "Push the password reset fix?", "Push the delete-account button fix?", "Push the drop shadow fix?",
     ]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
-    }
-    for (const question of ["Push the password reset fix?", "Push the delete-account button fix?", "Push the drop shadow fix?"]) {
-      expect(settleCall(call(question), "- George likes tea.")?.rule, question).toBe("routine-git");
     }
     const deletedHelper = { ...call("Push it?"), sourceText: "Deleted the unused helper; all tests pass. Needs George's approval to push." };
     expect(settleCall(deletedHelper, "- George likes tea.")?.rule).toBe("routine-git");
