@@ -8,7 +8,7 @@
 2. **Relationship preparation.** For an upcoming Calendar event in the next 90 minutes, Flyd may surface verified, reasonably fresh `People` memory beside the meeting, including a confirmation date. It matches a unique, exact full name or an unambiguous first name. Ambiguous identities, missing facts, stale memories and irrelevant events stay silent. It never infers someone's children's names or birthdays.
 3. **Personal stewardship.** When the Librarian has a fresh, explicitly dated `Commitments` entry due today or within the next two days, Flyd shows one quiet activity note. Vague commitments, guessed due dates and stale notes are ignored. Nothing is automatically sent, booked, purchased or scheduled.
 
-These are **ambient activity records**, not interruptions. Flyd never narrates that a team or model prepared them. The existing activity reader and Story media presentation are responsible for displaying them.
+These are **ambient activity records**, not interruptions. Flyd never narrates that a team or model prepared them. The existing activity reader and Story media presentation are responsible for displaying them. Cards expire automatically when the meeting begins, the curated day ends, or the commitment's due day passes, rather than cluttering the activity view for a week.
 
 ## Consent and controls
 
