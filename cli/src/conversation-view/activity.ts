@@ -508,10 +508,8 @@ export interface ActivityInputs {
   upkeep?: boolean;
 }
 
-/** Whether his words ask how Flyd works, the one time its own upkeep is his business. Pure. */
-export function asksHowFlydWorks(said: string): boolean {
-  return /\bhow (?:do|does) (?:you|flyd) work\b/i.test(said);
-}
+/** Whether his words ask how Flyd works, the one time its own upkeep is his business (lib/backstage.ts). */
+export { asksHowFlydWorks } from "../lib/backstage.js";
 
 /** The stories a news card opens onto, each bound to the day it belongs to. */
 export interface NewsStories {

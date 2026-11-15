@@ -7,8 +7,12 @@ import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
 import { decideRun, notifyRun, tellHeld } from "../scheduler.js";
+import type { sendRunMessage } from "../messages.js";
+import { judgeOperationalQuestion, type OperationalQuestion } from "../cos/operational-judgment.js";
+import { HANDLE_IT_YOURSELF } from "../../intelligence/executive/decision-step.js";
 import { deliverOwed } from "../../runtime/delivered.js";
-import { readDomainRun } from "../store.js";
+import { readDomainRun, saveDomainRun } from "../store.js";
+import { MAX_REVIEW_TRIES } from "../report.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
@@ -32,6 +36,10 @@ function run(reply: string, status?: DomainRunStatus): DomainRun {
     result: parsed.result,
   };
 }
+
+/** A true implementation call, caught by the decision-routing rule on its own words (no "test" keyword): which library to use. */
+const offline = (question: OperationalQuestion) => judgeOperationalQuestion(question, { evaluate: async () => { throw new Error("no decision model in tests"); } });
+const IMPLEMENTATION_CALL = "Tell me whether to add the date-fns dependency or write our own date helper.";
 
 describe("captain notices", () => {
   it("keeps firstmate's supervision chatter off the screen", () => {
@@ -142,11 +150,13 @@ describe("notices keep the one voice", () => {
   });
 
   it("brings a decision or failure that names backstage as a line naming the work, and records it", () => {
-    const decision = captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate needs your call on a composer idle-row guard." })));
+    const decision = captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate needs your call on the sidebar: Artefacts or Changes first?" })));
     expect(decision).toBe('I need your decision on "Fix the island".');
+    // An implementation call (a composer guard) is Flyd's to make, not relayed as his decision.
+    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate needs your call on a composer idle-row guard." })))).toBeNull();
     const failure = captainNotice(run(JSON.stringify({ status: "failed", brief: "the branch fm/x is broken" })));
     expect(failure).toBe("Fix the island is blocked: it couldn't be finished. Tell me whether to try another way or drop it.");
-    expect(verdicts()).toContainEqual(expect.objectContaining({ text: "I need your decision: Firstmate needs your call on a composer idle-row guard.", surface: "notification", held: true }));
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: "I need your decision: Firstmate needs your call on the sidebar: Artefacts or Changes first?", surface: "notification", held: true }));
   });
 
   it("names the work in a few words, and never falls to a content-free line when the work itself names backstage", () => {
@@ -186,6 +196,57 @@ describe("a decision or failure the checks catch", () => {
     const verdicts = readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
       .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
     expect(verdicts).toContainEqual(expect.objectContaining({ text: "I need your decision: Working on it", surface: "notification", held: true }));
+  });
+});
+
+describe("the relay gate on the self-review's evidence", () => {
+  // The exact lines Flyd's self-review caught reaching George: one names the
+  // backstage helper, the other hands him an implementation call.
+  const BACKSTAGE = "Flyd is re-requesting unstructured FirstMate handoffs";
+  const INTERNAL_CALL = "Tell me whether to add Teletext, Test card and Tuning dial buttons";
+  const verdicts = () => readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
+    .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string; shortfalls: Array<{ requirement: string }> });
+
+  it("never shows either line verbatim in a domain-run notice, whatever the run's status, and records each hold", () => {
+    for (const status of ["completed", "needs_decision", "failed"] as const) {
+      for (const line of [BACKSTAGE, INTERNAL_CALL]) {
+        const notice = captainNotice(run(JSON.stringify({ status, brief: line })));
+        expect(notice ?? "", `${status}: ${line}`).not.toContain(line);
+        expect(notice ?? "", `${status}: ${line}`).not.toMatch(/firstmate|handoff/i);
+      }
+    }
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("re-requesting unstructured FirstMate"), surface: "notification", held: true }));
+    expect(verdicts()).toContainEqual(expect.objectContaining({
+      text: `I need your decision: ${INTERNAL_CALL}`, held: true,
+      shortfalls: expect.arrayContaining([expect.objectContaining({ requirement: "decisions_handled" })]),
+    }));
+  });
+
+  it("keeps an implementation call off his screen as a decision, and brings him a call on what the page carries", () => {
+    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: IMPLEMENTATION_CALL })))).toBeNull();
+    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Tell me whether to add Teletext and Tuning dial buttons." }))))
+      .toBe("I need your decision: Tell me whether to add Teletext and Tuning dial buttons.");
+    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "The logo can be red or blue: which do you want?" }))))
+      .toBe("I need your decision: The logo can be red or blue: which do you want?");
+  });
+
+  it("brings an unstructured handoff as a neutral line naming the work, never its reason code or a process call, and records it", () => {
+    const base = run("--body-file /tmp/flyd-df.json");
+    const notice = captainNotice({ ...base, incompleteReason: "handoff:missing brief,report,evidence" });
+    expect(notice).toBe("Fix the island came back without a clear report, so nothing counts as done yet.");
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("handoff:missing"), surface: "notification", held: true }));
+  });
+
+  it("holds task and run ids, fm/ branches and worktree paths", () => {
+    for (const line of ["The island fix in run-12 is merged.", "Merged fm/flyd-island into main.", "Fixed in ~/.treehouse/flyd-c351a7/11/flyd; the island is quiet."]) {
+      expect(captainNotice(run(line)), line).toBe('There is news on "Fix the island". Ask Flyd for the details.');
+    }
+  });
+
+  it("may name the machinery when George asked how Flyd works", () => {
+    const base = run("FirstMate picked the island fix and the crewmate merged it.");
+    expect(captainNotice({ ...base, request: { ...base.request, originalMessage: "How does Flyd work when I hand it a fix?" } }))
+      .toBe("FirstMate picked the island fix and the crewmate merged it.");
   });
 });
 
@@ -354,10 +415,114 @@ describe("notifyRun", () => {
     ];
     for (const [id, question] of calls) {
       const [asked, decided] = ask(id!, question!);
-      await notifyRun(asked, notify, undefined, async () => decided, () => false, onBloom);
+      await notifyRun(asked, notify, undefined, async () => decided, () => false, onBloom, offline);
     }
     expect(sent).toHaveLength(4);
     expect(sent.join(" ")).not.toMatch(/Blue or green|login page|token parser|2FA code module|sign in to the dashboard/);
+  });
+
+  it("gates the scheduler's notice on the outgoing review: an implementation call goes to the Chief of Staff, machinery gives way to the work, and each hold is recorded", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const ask = (id: string, question: string): [DomainRun, ExecutiveDecisionRecord] => {
+      const base = run(JSON.stringify({ status: "needs_decision", brief: question }));
+      return [{ ...base, id, request: { ...base.request, id } }, {
+        schema: "flyd.executive-decision.v1", decisionId: `decision-${id}`, sourceId: "firstmate.change", sourceEventId: `event-${id}`,
+        taskId: id, disposition: "ask_george", reason: "George owns the choice", summary: question, evidenceRefs: [id], question,
+        options: ["Yes", "Not yet"], recommendation: { option: "Yes", rationale: "It keeps the page moving." }, verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
+      }];
+    };
+    const verdicts = () => readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; source?: string; shortfalls: Array<{ requirement: string }> });
+    const toBoss: Array<{ run: string; body: string }> = [];
+    const send: typeof sendRunMessage = async (input) => {
+      toBoss.push({ run: input.run.id, body: input.body });
+      const at = "2026-11-10T10:01:00.000Z";
+      return { delivered: true, run: { ...input.run, messages: [...(input.run.messages ?? []), { id: `${input.run.id}:${input.kind}:1`, kind: input.kind, body: input.body, from: "flyd", at, deliveredAt: at }] } };
+    };
+    const calls: Array<[string, string]> = [
+      ["domain-gate-a", IMPLEMENTATION_CALL],
+      ["domain-gate-b", "Flyd is re-requesting unstructured FirstMate handoffs"],
+      ["domain-gate-c", "Tell me whether to add Teletext and Tuning dial buttons."],
+      ["domain-gate-d", "Should the button CSS be red or blue?"],
+      ["domain-gate-e", "Should I retry the import or push back on the API owner?"],
+      ["domain-gate-f", "Should I gate it behind config?"],
+    ];
+    for (const [id, question] of calls) {
+      const [asked, decided] = ask(id, question);
+      const goal = id === "domain-gate-f" ? { intendedOutcome: "Add the Teletext buttons to the TV page" } : {};
+      await notifyRun({ ...asked, request: { ...asked.request, ...goal } }, notify, send, async () => decided, () => false, async () => ({}), offline);
+    }
+    // What the page carries and how it looks stay his; the machinery line gives way to the work.
+    expect(sent).toEqual(["Your call is needed: Fix the island.", "Tell me whether to add Teletext and Tuning dial buttons.", "Should the button CSS be red or blue?"]);
+    // The library choice is Flyd's: the Chief of Staff's operational judgment (cos/operational-judgment.ts) tells the boss to make it.
+    expect(toBoss.map((note) => note.run)).toEqual(["domain-gate-a", "domain-gate-e", "domain-gate-f"]);
+    for (const note of toBoss) expect(note.body).toMatch(/^CoS (?:owns|resolves) .*implementation choice/);
+    expect(verdicts()).toContainEqual(expect.objectContaining({
+      text: IMPLEMENTATION_CALL, source: "domain:domain-gate-a", surface: "notification", held: true,
+      shortfalls: expect.arrayContaining([expect.objectContaining({ requirement: "decisions_handled" })]),
+    }));
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("FirstMate handoffs"), source: "domain:domain-gate-b", held: true }));
+  });
+
+  it("never lets an implementation call go quiet: one the boss cannot be told, the Chief of Staff will not take, or the boss insists on reaches George", async () => {
+    const question = IMPLEMENTATION_CALL;
+    const decided = (id: string): ExecutiveDecisionRecord => ({
+      schema: "flyd.executive-decision.v1", decisionId: `decision-${id}`, sourceId: "firstmate.change", sourceEventId: `event-${id}`,
+      taskId: id, disposition: "ask_george", reason: "George owns the choice", summary: question, evidenceRefs: [id], question,
+      options: ["date-fns", "Our own helper"], recommendation: { option: "date-fns", rationale: "It is already tested." }, verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
+    });
+    const asked = (id: string, messages: DomainRun["messages"] = []): DomainRun => {
+      const base = run(JSON.stringify({ status: "needs_decision", brief: question }));
+      return { ...base, id, request: { ...base.request, id }, messages, report: { state: "due", status: "needs_decision", since: base.updatedAt, at: base.updatedAt } };
+    };
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const toBoss: string[] = [];
+    let up = true;
+    const send: typeof sendRunMessage = async (input) => {
+      if (!up) return { delivered: false, run: input.run };
+      toBoss.push(input.body);
+      const at = "2026-11-10T10:01:00.000Z";
+      return { delivered: true, run: { ...input.run, messages: [...(input.run.messages ?? []), { id: `${input.run.id}:${input.kind}:1`, kind: input.kind, body: input.body, from: "flyd", at, deliveredAt: at }] } };
+    };
+    const pass = (id: string, decide: () => Promise<ExecutiveDecisionRecord> = async () => decided(id)) =>
+      notifyRun(readDomainRun(id)!, notify, send, decide, () => false, async () => ({}), offline);
+
+    // The boss cannot be reached: the call is brought to him straight away, screened like any notice, not left quiet.
+    up = false;
+    saveDomainRun(asked("domain-back-a"));
+    await pass("domain-back-a");
+    expect([sent, toBoss, readDomainRun("domain-back-a")?.report?.state]).toEqual([[question], [], "shown"]);
+    sent.length = 0;
+    up = true;
+
+    // Reviews that failed before one finished are not a reason to hand him the call: the Chief of Staff still takes it.
+    saveDomainRun(asked("domain-back-d"));
+    let failing = MAX_REVIEW_TRIES - 1;
+    for (let tries = 0; tries < MAX_REVIEW_TRIES; tries++) {
+      await pass("domain-back-d", async () => {
+        if (failing-- > 0) throw new Error("review timed out");
+        return decided("domain-back-d");
+      });
+    }
+    expect([sent, toBoss.length, readDomainRun("domain-back-d")?.report?.state]).toEqual([[], 1, "quiet"]);
+
+    // A review that never finishes does not leave his call quiet either: it reaches him, screened like any notice.
+    saveDomainRun(asked("domain-back-e"));
+    for (let tries = 0; tries < MAX_REVIEW_TRIES; tries++) {
+      await pass("domain-back-e", async () => { throw new Error("review timed out"); });
+    }
+    expect(sent).toEqual([question]);
+    expect(readDomainRun("domain-back-e")?.report?.state).toBe("shown");
+    sent.length = 0;
+
+    // Told to make it itself (decision-step.ts), the boss says it is his after all: Flyd brings it to him, as its note promised.
+    const handedBack = [{ id: "m-back", kind: "decision" as const, body: HANDLE_IT_YOURSELF, from: "flyd" as const, at: "2026-11-10T10:01:00.000Z", deliveredAt: "2026-11-10T10:01:00.000Z" }];
+    saveDomainRun(asked("domain-back-b", handedBack));
+    await pass("domain-back-b");
+    expect(sent).toEqual([question]);
+    expect(toBoss).toHaveLength(1);
   });
 
   it("quotes only George's own words for a finished run, and says Flyd's stand-ins as the bare fact", async () => {

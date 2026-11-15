@@ -135,18 +135,28 @@ authoritative path. This change does not rewrite historical private entries.
     boss, marked as Flyd's own note (not George's wording, no new authority),
     to settle it and report the outcome. Only FirstMate, which replies, is
     sent one back. Whatever the boss replies next reaches George, including
-    the same question asked again. A decision that touches his money, his
+    the same question asked again. A domain-run notice the outgoing screen
+    holds as an implementation call goes to the Chief of Staff's operational
+    judgment (`cli/src/command/cos/operational-judgment.ts`), the one place
+    internal calls are decided; its instruction reaches the boss through
+    `deliverBossNote`. One it will not take, or could not deliver, reaches
+    George as a screened notice rather than going quiet (`tellRun` in
+    `cli/src/command/scheduler.ts`), as does a waiting run whose review keeps
+    failing. A decision that touches his money, his
     name or an outward step (paying, charging, refunds, subscriptions,
     renewals, cancelling, invoices, contracts, signing, publishing, sending,
     merging) always reaches him, even when it also mentions how the work runs.
   - A relayed update in the window and a domain-run notification pass the
     same checks a chat answer does (`relayShortfalls` in
-    `cli/src/runtime/honesty-check.ts`): backstage machinery, a ruled-out
-    phrase or a placeholder holds it. A relayed update in the window also
-    passes the chief-of-staff screen (`screenOutgoing` in
+    `cli/src/runtime/honesty-check.ts`): backstage machinery (helper names,
+    task and run ids, branches, worktree paths, handoff reason codes), a
+    ruled-out phrase or a placeholder holds it. Both also pass the
+    chief-of-staff screen (`screenOutgoing` in
     `cli/src/council/reply-review.ts`), so one that hands him an internal
-    implementation call is held too. A held relay is not shown at all. A
-    completion notice held only for backstage machinery becomes a neutral
+    implementation call is held too. When his own words asked how Flyd works,
+    naming the machinery is not held. A held relay reading gives way to the
+    staff's own answer when that passes, else to "There's an answer to this;
+    it's under show original." A completion notice held only for backstage machinery becomes a neutral
     line naming the work ("There is news on …"), with no claim of success
     or failure; held for anything else, it is not shown. A decision or
     failure still reaches him, with the ruled-out phrase stripped or,

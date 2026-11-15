@@ -732,5 +732,30 @@
       ],
       "maxSeconds": 45
     }
+  },
+  {
+    "id": "relay-one-voice-own-calls",
+    "category": "conversation",
+    "history": [
+      {
+        "role": "user",
+        "content": "how's the TV page coming along?"
+      },
+      {
+        "role": "assistant",
+        "content": "The TV page is built; the last buttons are being added now."
+      }
+    ],
+    "ask": "any news on the TV page?",
+    "expect": {
+      "notAnswer": [
+        "re-requesting unstructured FirstMate handoffs",
+        "Tell me whether to add Teletext, Test card and Tuning dial buttons",
+        "firstmate|crewmate|worktree|\\bhand-?offs?\\b|\\bfm/[\\w.-]+|\\b(?:run|task)-\\d+\\b",
+        "\\btell me whether to (?:gate|retry|rerun)\\b"
+      ],
+      "judge": "A chief of staff giving him the state of the TV page in his own voice: no helper, task or run id, branch or handoff named, and no implementation call (which CSS layout or library to use, whether to retry or rerun, how to test) handed to him as his decision. Flyd makes those calls and tells him the outcome.",
+      "maxSeconds": 45
+    }
   }
 ]

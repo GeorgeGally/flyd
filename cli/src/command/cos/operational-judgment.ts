@@ -20,13 +20,15 @@ export interface OperationalQuestion {
   evidenceRefs: string[];
   /** One question already sent back to the boss is not a new permission. */
   previousResolution?: boolean;
+  /** The outgoing screen already held it as an implementation call (council/standard.ts). */
+  screenedInternal?: boolean;
 }
 export type OperationalDisposition =
   | { kind: "internal"; message: string; reason: string; judgment?: PredicateEvaluation }
   | { kind: "reason"; reason: string; judgment?: PredicateEvaluation }
   | { kind: "escalate"; reason: string; judgment?: PredicateEvaluation };
 
-const PROTECTED = /\b(?:merge|push|publish|post publicly|deploy|release to production|purchase|pay|payment|transfer money|invoice|charge|send (?:an? )?(?:email|message|whatsapp)|email (?:a|the|him|her|them)|whatsapp|contact (?:a|the|him|her|them)|delete|destroy|erase|revoke|credentials?|password|access token|secret key|permission|security|authorize|approval|sign[- ]?off|contract|legal|liability|personal data)\b/i;
+const PROTECTED = /\b(?:merge|push(?!\s+back\b)|publish|post publicly|deploy|release to production|purchase|pay|payment|transfer money|invoice|charge|send (?:an? )?(?:email|message|whatsapp)|email (?:a|the|him|her|them)|whatsapp|contact (?:a|the|him|her|them)|delete|destroy|erase|revoke|credentials?|password|access token|secret key|permission|security|authorize|approval|sign[- ]?off|contract|legal|liability|personal data)\b/i;
 const PERSONAL = /\b(?:george(?:'s|’s)? (?:personal|taste|preference|decision|choice)|only george|his own word|personal preference|subjective brand direction|client promise)\b/i;
 const INTERNAL = /\b(?:test|lint|typescript|library|framework|package|implementation|function|component|layout|code|refactor|bug|fix|build|module|dependency|migration|coverage|review|debug|research|method|approach|design iteration|style rules|visual hierarchy)\b/i;
 
@@ -85,7 +87,7 @@ export async function judgeOperationalQuestion(input: OperationalQuestion, deps:
     return { kind: "escalate", reason: "requires scoped authorization or personal judgment" };
   }
   const contextual = [input.goal, input.question, ...input.options].join(" ");
-  if (!INTERNAL.test(contextual) && input.domain !== "knowledge") {
+  if (!input.screenedInternal && !INTERNAL.test(contextual) && input.domain !== "knowledge") {
     return { kind: "escalate", reason: "no evidence this is an internal technical choice" };
   }
   if (input.previousResolution) {

@@ -3,7 +3,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryPaths } from "../council/memory-store.js";
-import { screenOutgoing } from "../council/reply-review.js";
+import { gateOutgoing, relayMayShow } from "../council/reply-review.js";
+import { plainSaid } from "../lib/backstage.js";
 import { stripCommitIds } from "../runtime/honesty-check.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import type { Complete } from "./flyd-desk.js";
@@ -28,6 +29,25 @@ const TIMEOUT_MS = 60_000;
 const MAX_IN_FLIGHT = 2;
 /** Interpretations kept on disk: the newest ones, as only the newest replies are interpreted. */
 const KEEP = 20;
+
+/**
+ * What George reads in place of a reading the outgoing checks held when the
+ * staff's answer may not lead either: Flyd's own neutral line, never the held
+ * words. The staff's answer stays one tap away.
+ */
+export const HELD_READING = "There's an answer to this; it's under show original.";
+
+/** Whether the staff's own answer may lead in place of a held reading. */
+function answerMayShow(answer: string): boolean {
+  return relayMayShow(plainSaid(stripCommitIds(answer)));
+}
+
+interface Interpretation {
+  text: string;
+  at: string;
+  /** Passed the outgoing checks when it was made; a reading cached before them is screened again before it is shown. */
+  screened?: true;
+}
 
 export interface InterpretInput {
   question: string;
@@ -79,7 +99,7 @@ function memoryOrNull(): string | null {
 
 /** Interpretations keyed by a hash of the answer: asked for at most once per answer in a process, kept on disk. */
 export class AnswerInterpreter {
-  private readonly cache: Record<string, { text: string; at: string }>;
+  private readonly cache: Record<string, Interpretation>;
   private readonly inFlight = new Map<string, Promise<string | undefined>>();
   private readonly failed = new Set<string>();
   private readonly profile: () => string | null;
@@ -91,7 +111,7 @@ export class AnswerInterpreter {
     this.profile = options.profile ?? profileOrNull;
     this.memory = options.memory ?? memoryOrNull;
     try {
-      this.cache = JSON.parse(readFileSync(options.cacheFile, "utf8")) as Record<string, { text: string; at: string }>;
+      this.cache = JSON.parse(readFileSync(options.cacheFile, "utf8")) as Record<string, Interpretation>;
     } catch {
       this.cache = {};
     }
@@ -101,8 +121,11 @@ export class AnswerInterpreter {
     return createHash("sha256").update(`${PROMPT_VERSION}\0${answer}`).digest("hex").slice(0, 32);
   }
 
+  /** The reading he is shown: one cached before the outgoing checks is screened first; a held one gives way to the staff's answer when that may lead, else to Flyd's neutral line. */
   cached(answer: string): string | undefined {
-    return this.cache[AnswerInterpreter.key(answer)]?.text;
+    const entry = this.cache[AnswerInterpreter.key(answer)];
+    if (!entry || entry.screened || relayMayShow(entry.text)) return entry?.text;
+    return answerMayShow(answer) ? undefined : HELD_READING;
   }
 
   pending(answer: string): boolean {
@@ -118,14 +141,14 @@ export class AnswerInterpreter {
   /** Resolves with the interpretation, or undefined when the model failed or only acknowledged. Never rejects. */
   request(input: InterpretInput): Promise<string | undefined> {
     const key = AnswerInterpreter.key(input.answer);
-    if (this.cache[key]) return Promise.resolve(this.cache[key].text);
+    if (this.cache[key]) return Promise.resolve(this.cached(input.answer));
     if (this.failed.has(key)) return Promise.resolve(undefined);
     const existing = this.inFlight.get(key);
     if (existing) return existing;
     const job = this.slot()
       .then((release) => this.interpret(input).finally(release))
       .then((text) => {
-        this.cache[key] = { text, at: new Date().toISOString() };
+        this.cache[key] = { text, at: new Date().toISOString(), screened: true };
         this.save();
         return text;
       })
@@ -150,11 +173,14 @@ export class AnswerInterpreter {
       const text = stripCommitIds(forHim(inFlydsVoice(raw.trim())));
       if (!text || isRoutine(text) || isAcknowledgement(text)) throw new Error("no interpretation");
       // The relayed update reaches George under the same outgoing-answer checks
-      // a chat reply passes: one that names backstage machinery, is a
-      // placeholder or hands him an internal call is not shown, and what was
-      // held is recorded (council/reply-review.ts).
-      if (!screenOutgoing({ surface: "relay", source: "relay:interpretation", text }).send) throw new Error("relay held back");
-      return text;
+      // a chat reply passes: one that names backstage machinery (unless he
+      // asked how Flyd works), is a placeholder or hands him an internal call
+      // is not shown, and what was held is recorded (council/reply-review.ts).
+      // The staff's answer leads instead when it passes; else Flyd's neutral line.
+      const gated = gateOutgoing({ surface: "relay", source: "relay:interpretation", text, asked: input.question }, null);
+      if (gated) return gated;
+      if (answerMayShow(input.answer)) throw new Error("relay held back");
+      return HELD_READING;
     } finally {
       if (timer) clearTimeout(timer);
     }

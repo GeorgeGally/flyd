@@ -8,6 +8,7 @@ import { journalDir, readJournalSince } from "./journal.js";
 import { requirement, reviewSaid, screenBeforeDisplay, voiceRules, type RequirementId, type Said, type Shortfall, type Surface, type VoiceRules } from "./standard.js";
 import { isInteractionClass } from "../runtime/conversation-presence.js";
 import { relayShortfalls } from "../runtime/honesty-check.js";
+import { asksHowFlydWorks } from "../lib/backstage.js";
 
 // Flyd reading its own words back against the chief-of-staff standard
 // (council/standard.ts). Everything George was shown — chat answers,
@@ -114,6 +115,20 @@ export function recordHeld(said: Said & { source: string }, shortfalls: Shortfal
   } catch { /* review is best effort */ }
 }
 
+/**
+ * Why a text may not reach George as written, by the outgoing review below,
+ * with nothing recorded. He asked how Flyd works: naming its machinery back
+ * to him is the answer, not a leak. Pure.
+ */
+export function outgoingShortfalls(said: Said): Shortfall[] {
+  const explains = asksHowFlydWorks(said.asked ?? "");
+  const shortfalls = relayShortfalls(said.text).filter((item) => !explains || item.requirement !== "backstage_hidden");
+  for (const shortfall of screenBeforeDisplay(said).shortfalls) {
+    if (!shortfalls.some((item) => item.requirement === shortfall.requirement)) shortfalls.push(shortfall);
+  }
+  return shortfalls;
+}
+
 export interface Screened {
   /** May it go to George as written? */
   send: boolean;
@@ -131,12 +146,21 @@ export interface Screened {
  * instead. A text that passes is sent unchanged. Never throws.
  */
 export function screenOutgoing(said: Said & { source: string }, dir = selfReviewDir(), now = new Date()): Screened {
-  const shortfalls = relayShortfalls(said.text);
-  for (const shortfall of screenBeforeDisplay(said).shortfalls) {
-    if (!shortfalls.some((item) => item.requirement === shortfall.requirement)) shortfalls.push(shortfall);
-  }
+  const shortfalls = outgoingShortfalls(said);
   if (shortfalls.length) recordHeld(said, shortfalls, dir, now);
   return { send: shortfalls.length === 0, shortfalls };
+}
+
+/**
+ * What reaches George of a relayed update or domain-run notice: the text
+ * itself when it passes screenOutgoing, else the neutral Flyd-voiced line
+ * standing in for it (when that passes too), else nothing. A held text is
+ * recorded in the self-review record either way, so the improver can trace
+ * it; Flyd keeps the internal call and he hears the outcome. Never throws.
+ */
+export function gateOutgoing(said: Said & { source: string }, neutral: string | null, dir = selfReviewDir(), now = new Date()): string | null {
+  if (screenOutgoing(said, dir, now).send) return said.text;
+  return neutral && relayMayShow(neutral) ? neutral : null;
 }
 
 /** Whether a relay of the staff's would reach him, with nothing recorded: for reading old conversations. */
