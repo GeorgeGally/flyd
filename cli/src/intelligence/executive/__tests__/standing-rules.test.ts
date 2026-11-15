@@ -106,6 +106,7 @@ describe("George's standing rules in the review step", () => {
       "Revert the fix and push?", "Revert this fix and push?", "Delete the tests and push?", "Drop the feature and push?", "Should I revert the bug fix and push?",
       "Should I delete failing tests and push?", "Delete stale tests and push?", "Drop flaky tests and push?", "Revert broken fix and push?",
       "Revert fix and push?", "Delete tests and push?", "Reset tests and push?", "Revert Friday's fix and push?", "Push with failing tests?",
+      "Push this and revert the fix?", "Merge that then delete the tests and push?", "Push this and drop the feature?", "Can the bot revert the fix and push?",
     ]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
     }

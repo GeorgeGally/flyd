@@ -18,7 +18,7 @@ const STILL_HIS = /\bforce[- ]?push\w*|--force\b|\bpush\w*\s+(?:\S+\s+)?-f\b|(?<
 
 const DESTRUCTIVE_WORD = String.raw`\b(?:revert|reset|delet|drop|amend|force|filter-branch|rebase -i|rewrit\w* (?:the )?history)\w*\b`;
 const NOUN_PHRASE_BEFORE = String.raw`\b(?:the|a|an|this|that|my|our)\s+(?:[\w'-]+\s+)?`;
-const WORK_NOUN_AFTER = String.raw`(?:-[\w']+|\s+[\w'-]+)?[\s-]+(?:fix|fixes|bug|bugs|button|shadow|feature|flow|page|form|link|modal|screen|tests?|copy)\b`;
+const WORK_NOUN_AFTER = String.raw`(?:-[\w']+|\s+(?!(?:the|a|an|this|that|these|those|my|our|his|her|their|last|old|all|any|some)\b)[\w'-]+)?[\s-]+(?:fix|fixes|bug|bugs|button|shadow|feature|flow|page|form|link|modal|screen|tests?|copy)\b`;
 
 /** A step that destroys or rewrites work anywhere in the ask ("Delete tests and push?"); only a word inside a phrase naming the work is exempt ("the password reset fix"). */
 const DESTRUCTIVE = new RegExp(`(?<!${NOUN_PHRASE_BEFORE})${DESTRUCTIVE_WORD}|(?<=${NOUN_PHRASE_BEFORE})${DESTRUCTIVE_WORD}(?!${WORK_NOUN_AFTER})`, "i");
