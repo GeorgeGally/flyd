@@ -355,6 +355,7 @@ export const COMPOSER_SCRIPT = `
   var scopeThread = "";
   var scopeChoice = null;
   var scopeSessionId = null;
+  var scopeDrawn = null;
   function scopeNow() { return scopeChoice !== null ? scopeChoice : scopeThread; }
   function scopeLabel(name) { return !name ? "Flyd" : name.toLowerCase() === "flyd" ? "Flyd (project)" : name; }
   function drawScope() {
@@ -362,6 +363,7 @@ export const COMPOSER_SCRIPT = `
     scopeNameEl.textContent = scopeLabel(name);
     scopeBtn.classList.toggle("project", !!name);
     scopeBtn.setAttribute("aria-label", name ? "To " + scopeLabel(name) + ". Change where this goes" : "To Flyd, no project. Change where this goes");
+    if (scopeDrawn) scopeDrawn();
   }
   // A new conversation starts where it is: a project's thread speaks for that project, anything else is general.
   function scopeSession(session) {

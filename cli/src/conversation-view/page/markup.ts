@@ -112,6 +112,7 @@ ${FRONT_HTML}
     <div class="field">
       <button class="attach" id="attach" type="button" aria-label="Attach images or documents" title="Attach images or documents">+</button>
       <input type="file" id="attach-input" multiple hidden tabindex="-1">
+      <span class="story-chip" id="story-chip" hidden><span class="story-chip-name" id="story-chip-name"></span><button type="button" id="story-chip-clear" aria-label="Stop asking about this story">✕</button></span>
       <div class="typing">
         <div class="prediction-layer" id="prediction-layer" aria-hidden="true" hidden><span class="prediction-prefix" id="prediction-prefix"></span><span class="prediction-suffix" id="prediction-suffix"></span></div>
         <textarea id="input" rows="1" placeholder="Message ${label}" aria-label="Message ${label}"></textarea>

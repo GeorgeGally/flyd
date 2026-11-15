@@ -76,6 +76,20 @@ button.ev:hover { background: var(--sheet); }
 .story.lead h2 { max-width: 324px; font-size: 26px; line-height: 1.18; letter-spacing: -.02em; }
 .story > p { margin: 6px 0 0; font: 400 17px/1.42 var(--sans); color: var(--text); text-wrap: pretty; }
 .story > p.src { margin: 8px 0 0; font: 400 14px/1.4 var(--sans); color: var(--mute); }
+/* "Chat about this": a plain link under the source; the story he picked keeps it dark. */
+.story .story-chat { display: inline-block; margin: 6px 0 0; padding: 0; border: 0; background: none; cursor: pointer; font: 500 14px/1.4 var(--sans); color: var(--mute); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); transition: color 140ms ease; }
+.story .story-chat:hover, .story .story-chat[aria-pressed="true"] { color: var(--ink); }
+.story .story-chat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+/* On News the box says what it talks about itself: no "To:" line over it, and room around it. */
+:root[data-layout="front"][data-centre="news"]:not([data-job]) .composer .scope-line { display: none; }
+:root[data-layout="front"][data-centre="news"]:not([data-job]) .composer { padding-top: 18px; }
+:root[data-layout="front"][data-centre="news"]:not([data-job]) .composer .field { padding-top: 10px; padding-bottom: 10px; }
+/* The story the box is about: its name in the box, removable. */
+.composer .story-chip { display: inline-flex; flex: none; align-items: center; gap: 2px; max-width: 45%; min-width: 0; padding: 3px 3px 3px 10px; border-radius: 7px; background: var(--well-on, var(--tint)); font: 500 14px/1.3 var(--sans); color: var(--ink, var(--fg)); }
+.composer .story-chip[hidden] { display: none; }
+.composer .story-chip-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.composer .story-chip button { flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; cursor: pointer; font: 400 12px/22px var(--sans); letter-spacing: 0; text-transform: none; color: var(--mute, var(--muted)); transition: color 140ms ease, background 140ms ease; }
+.composer .story-chip button:hover { color: var(--ink, var(--fg)); background: color-mix(in srgb, var(--ink, var(--fg)) 8%, transparent); }
 .story .talk { margin-top: 18px; }
 .story .talk:empty { display: none; }
 .story .talk .q { padding: 20px 0 4px; font: 700 17px/1.42 var(--sans); color: var(--ink); }

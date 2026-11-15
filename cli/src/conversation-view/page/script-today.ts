@@ -2,10 +2,11 @@
  * The middle of the front page at rest: Today, a feed of what happened today
  * as cards, and News, the stories in two columns with the weather beside them.
  * A conversation still takes the middle once he writes; the Today tab brings
- * the feed back. On News the message box talks about the story in view: his
- * question and Flyd's answer sit under that story, in the story's own article
- * conversation. Runs inside the page script's closure after the front page's
- * own script and borrows its helpers (el, clock, withToken, tokenFetch,
+ * the feed back. On News the message box talks about the story he picked with
+ * "Chat about this" under its source (pointing or scrolling never changes
+ * which): his question and Flyd's answer sit under that story, in the story's
+ * own article conversation. Runs inside the page script's closure after the
+ * front page's own script and borrows its helpers (el, clock, withToken, tokenFetch,
  * frontEsc, frontText, frontGlance, frontProject, frontRoot, frontSelect,
  * renderFront, connect, input, composer, historyList).
  */
@@ -37,7 +38,7 @@ export const TODAY_SCRIPT = `
       if (on && centreTabs.scrollWidth > centreTabs.clientWidth) centreTabs.scrollLeft = Math.max(0, tab.offsetLeft - centreTabs.offsetLeft - 8);
     });
     if (name === "week") loadWeek();
-    if (name === "news") { loadWeather(); newsPlaceholder(newsPicked); newsPickInView(); newsConfirm(); }
+    if (name === "news") { loadWeather(); newsPlaceholder(newsPicked); newsConfirm(); }
     else { newsPlaceholder(null); paintConfirm(conversationConfirm); }
     newsSyncStreams();
     if (name === "machines") loadMachines();
@@ -142,7 +143,6 @@ export const TODAY_SCRIPT = `
   var NEWS_FILLER = /^(giphy|pexels|google trends)$/i;
   var newsStories = [];
   var newsPicked = null;
-  var newsPointer = null;
   function newsOf(recent) {
     var stories = [];
     var urls = {};
@@ -190,6 +190,15 @@ export const TODAY_SCRIPT = `
     if (said && said !== frontText(story.title).toLowerCase() && said !== quoted) node.appendChild(el("p", "", story.gist));
     // Where it came from, quietly after the story: never a label over the headline.
     if (story.source) node.appendChild(el("p", "src", story.source));
+    // Talking about this story is his choice, made here: the message box then names it.
+    var chat = el("button", "story-chat", "Chat about this");
+    chat.type = "button";
+    chat.setAttribute("aria-pressed", String(!!newsPicked && newsPicked.url === story.url));
+    chat.addEventListener("click", function () {
+      newsPick(story);
+      input.focus();
+    });
+    node.appendChild(chat);
     var talk = newsTalks[story.url];
     if (talk) node.appendChild(talk.box);
     return node;
@@ -208,17 +217,32 @@ export const TODAY_SCRIPT = `
     var leadAt = news.stories.findIndex(function (story) { return !!newsPicture(story); });
     news.stories.forEach(function (story, index) { newsCols.appendChild(newsStory(story, index, index === leadAt)); });
     var still = newsPicked && newsStories.find(function (story) { return story.url === newsPicked.url; });
-    newsPick(still || newsStories[0] || null);
+    newsPick(still || null);
   }
-  // The message box follows the story he is on: the one picked, else the one in view.
+  // The message box names the story he picked, removable; with none it is the conversation's box.
+  var newsChip = document.getElementById("story-chip");
   function newsPlaceholder(story) {
-    var words = story ? "Ask about " + story.title : inputPlaceholder;
+    var to = centre === "news" && scopeNow() ? inputPlaceholder + " about " + scopeLabel(scopeNow()) : inputPlaceholder;
+    var words = story ? "Ask about this story" : to;
     input.setAttribute("placeholder", words);
-    input.setAttribute("aria-label", words);
+    input.setAttribute("aria-label", story ? "Ask about " + story.title : to);
+    newsChip.hidden = !story;
+    document.getElementById("story-chip-name").textContent = story ? story.title : "";
+    newsChip.title = story ? story.title : "";
   }
+  scopeDrawn = function () { if (centre === "news") newsPlaceholder(newsPicked); };
+  document.getElementById("story-chip-clear").addEventListener("click", function () {
+    newsPick(null);
+    input.focus();
+  });
   function newsPick(story) {
     newsPicked = story;
-    newsCols.querySelectorAll(".story").forEach(function (node) { node.classList.toggle("on", newsStories[+node.dataset.story] === story); });
+    newsCols.querySelectorAll(".story").forEach(function (node) {
+      var on = newsStories[+node.dataset.story] === story;
+      node.classList.toggle("on", on);
+      var chat = node.querySelector(".story-chat");
+      if (chat) chat.setAttribute("aria-pressed", String(on));
+    });
     if (centre === "news") { newsPlaceholder(story); newsConfirm(); }
     newsSyncStreams();
   }
@@ -226,36 +250,6 @@ export const TODAY_SCRIPT = `
     var talk = newsPicked && newsTalks[newsPicked.url];
     paintConfirm(talk && talk.confirm);
   }
-  function newsPickInView() {
-    if (centre !== "news") return;
-    var under = newsPointer && document.elementFromPoint && document.elementFromPoint(newsPointer.x, newsPointer.y);
-    var pointed = under && under.closest("#news-cols .story");
-    if (pointed) { newsPick(newsStories[+pointed.dataset.story]); return; }
-    var page = document.getElementById("news-page").getBoundingClientRect();
-    var viewport = { top: Math.max(0, page.top), bottom: Math.min(window.innerHeight, page.bottom), left: Math.max(0, page.left), right: Math.min(window.innerWidth, page.right) };
-    var composerRect = composer.getBoundingClientRect();
-    if (composerRect.top > viewport.top && composerRect.left < viewport.right && composerRect.right > viewport.left) viewport.bottom = Math.min(viewport.bottom, composerRect.top);
-    var nodes = Array.prototype.slice.call(newsCols.querySelectorAll(".story"));
-    var first = nodes.filter(function (node) {
-      var rect = node.getBoundingClientRect();
-      return rect.bottom > viewport.top && rect.top < viewport.bottom && rect.right > viewport.left && rect.left < viewport.right;
-    }).sort(function (a, b) { return Math.max(a.getBoundingClientRect().top, viewport.top) - Math.max(b.getBoundingClientRect().top, viewport.top); })[0];
-    if (first) newsPick(newsStories[+first.dataset.story]);
-  }
-  window.addEventListener("scroll", function () { if (centre === "news") newsPickInView(); }, { passive: true });
-  document.getElementById("news-page").addEventListener("scroll", newsPickInView, { passive: true });
-  document.addEventListener("mousemove", function (event) { newsPointer = { x: event.clientX, y: event.clientY }; });
-  newsCols.addEventListener("click", function (event) {
-    if (event.target.closest("a, .talk")) return;
-    var node = event.target.closest(".story");
-    if (!node) return;
-    newsPick(newsStories[+node.dataset.story]);
-    input.focus();
-  });
-  newsCols.addEventListener("mouseover", function (event) {
-    var node = event.target.closest(".story");
-    if (node && newsStories[+node.dataset.story] !== newsPicked) newsPick(newsStories[+node.dataset.story]);
-  });
 
   // Talking to a story: the story's own article conversation, drawn under it.
   var newsTalks = {};
