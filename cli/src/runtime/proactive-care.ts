@@ -128,8 +128,8 @@ export async function runProactiveCare(deps: CareDeps = {}): Promise<CareResult>
   if (creative?.key && !seen(creative.key, day)) { write(creative); result.inspiration++; }
   // Calendar metadata and People memory require a separate opt-in; a broad
   // request to "look after me" does not grant perpetual sensitive sensing.
-  if (process.env.FLYD_PERSONAL_BRIEFING !== "1") {
-    result.skipped.push("personal_briefing_not_enabled"); return result;
+  if (process.env.FLYD_PERSONAL_BRIEFING === "0") {
+    result.skipped.push("personal_briefing_disabled"); return result;
   }
   if (!(deps.calendarConsent ?? calendarMetadataConsented)()) {
     result.skipped.push("calendar_metadata_not_consented"); return result;
