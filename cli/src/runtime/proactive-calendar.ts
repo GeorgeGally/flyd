@@ -40,11 +40,16 @@ export function parseCalendarMetadata(raw: string): CareEvent[] {
     if (parts.length !== 3) return [];
     const [id, title, start] = parts;
     if (!id || !title || !start || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(start)) return [];
-    if (Number.isNaN(Date.parse(start)) || /[\r\n]/.test(id + title)) return [];
+    const parsed = new Date(start);
+    // JavaScript normalizes invalid days (e.g. February 31); do not let
+    // malformed Calendar metadata create phantom upcoming meetings.
+    const formatted = Number.isNaN(parsed.getTime()) ? "" :
+      `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}T${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}:${String(parsed.getSeconds()).padStart(2, "0")}`;
+    if (formatted !== start || /[\r\n]/.test(id + title)) return [];
     if (unique.has(id + start)) return [];
     unique.add(id + start);
     return [{ id: id.slice(0, 180), title: title.slice(0, 180), start }];
-  }).slice(0, 20);
+  }).sort((a, b) => a.start.localeCompare(b.start)).slice(0, 20);
 }
 
 export async function upcomingCalendarMetadata(): Promise<CareEvent[]> {
