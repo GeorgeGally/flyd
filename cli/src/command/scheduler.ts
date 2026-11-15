@@ -107,9 +107,9 @@ function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord): G
   // Finished work's checked line is the report's lead, its link kept whole (runtime/delivery.ts).
   const report = reportFromRun(run, decision);
   const text = deliver(report, "notification").text;
-  // A boss told to make the call itself that still says it is his, or a boss the hand-back could not reach on its
-  // last try: it reaches him, screened for backstage like any notice.
-  const insisted = notesSentToBoss(run.messages).includes(HANDLE_IT_YOURSELF) || (run.report?.tries ?? 0) >= MAX_REVIEW_TRIES - 1;
+  // A boss told to make the call itself that still says it is his, or a boss the hand-back could not reach after the
+  // usual tries: it reaches him, screened for backstage like any notice.
+  const insisted = notesSentToBoss(run.messages).includes(HANDLE_IT_YOURSELF) || (run.report?.handBackTries ?? 0) >= MAX_REVIEW_TRIES;
   return text ? gateNotice(run, text, decision.disposition === "ask_george", report.outcome, insisted) : { text: null, flydsCall: false };
 }
 
@@ -210,7 +210,8 @@ export async function notifyRun(
     // The durable result remains in the command store; a review that keeps failing is given up, not retried forever.
     if (base) {
       const tries = (base.tries ?? 0) + 1;
-      moveReport(run.id, base, { state: tries >= MAX_REVIEW_TRIES ? "gave_up" : "due", tries });
+      if (tries < MAX_REVIEW_TRIES) moveReport(run.id, base, { state: "due", tries });
+      else await tellUnreviewed(run, base, tries, notify).catch(() => undefined);
     }
     return;
   }
@@ -254,6 +255,25 @@ async function tellFailure(run: DomainRun, from: RunReport | undefined, notify?:
   if (!delivered.owed.length) {
     mutateDomainRun(run.id, (current) => current ? { ...current, notified: true, told: { line, decisionId: "" } } : null);
   }
+}
+
+/**
+ * A run whose review kept failing: work still waiting on someone is brought to George in its own words, screened like
+ * any notice, rather than left to go quiet; finished work, or words with nothing fit to show, is given up.
+ */
+async function tellUnreviewed(run: DomainRun, from: RunReport, tries: number, notify?: Notify): Promise<void> {
+  const report = reportFromRun(run);
+  const text = run.status === "completed" ? null : deliver(report, "notification").text;
+  const line = text ? gateNotice(run, text, run.status === "needs_decision", report.outcome, true).text : null;
+  if (!line) {
+    moveReport(run.id, from, { state: "gave_up", tries });
+    return;
+  }
+  const key = `run:${run.id}:unreviewed:${from.since}`;
+  const told = { key, line, kind: noticeKind(run), work: run.request.intendedOutcome, evidenceRefs: [`domain-run:${run.id}`] };
+  moveReport(run.id, from, { ...told, state: "sending", tries });
+  const delivered = await deliverOnce([told], { ...(notify ? { say: (title, message, said) => notify(title, message, said) } : {}) });
+  moveReport(run.id, from, { ...told, state: reportState(delivered.states[key]), tries });
 }
 
 /**
@@ -326,9 +346,9 @@ export async function tellRun(
     if (await handBack(run, decision, options.send ?? sendRunMessage)) {
       moveReport(run.id, from, { state: "quiet", sentBack: true, decisionId: decision.decisionId });
     } else {
-      // The hand-back did not reach the boss: reviewed again on the next pass, and brought to him on the last try.
+      // The hand-back did not reach the boss: reviewed again on the next pass, and brought to him once it has failed the usual tries.
       retry = true;
-      moveReport(run.id, from, { state: "due", tries: (from?.tries ?? 0) + 1, decisionId: decision.decisionId });
+      moveReport(run.id, from, { state: "due", handBackTries: (from?.handBackTries ?? 0) + 1, decisionId: decision.decisionId });
     }
   } else {
     if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);

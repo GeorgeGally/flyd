@@ -485,16 +485,40 @@ describe("notifyRun", () => {
     await notifyRun(readDomainRun("domain-back-a")!, notify, send, async () => decided("domain-back-a"), () => false, async () => ({}));
     expect([sent, toBoss, readDomainRun("domain-back-a")?.report?.state]).toEqual([[], [HANDLE_IT_YOURSELF], "quiet"]);
 
-    // A boss that cannot be reached at all: on the last try the call is brought to him rather than left to go quiet.
+    // A boss that cannot be reached at all: once every hand-back has failed, the call is brought to him rather than left to go quiet.
     up = false;
     saveDomainRun(asked("domain-back-c"));
     for (let pass = 0; pass < MAX_REVIEW_TRIES; pass++) {
       await notifyRun(readDomainRun("domain-back-c")!, notify, send, async () => decided("domain-back-c"), () => false, async () => ({}));
     }
+    expect([sent, readDomainRun("domain-back-c")?.report?.state]).toEqual([[], "due"]);
+    await notifyRun(readDomainRun("domain-back-c")!, notify, send, async () => decided("domain-back-c"), () => false, async () => ({}));
     expect(sent).toEqual([question]);
     expect(readDomainRun("domain-back-c")?.report?.state).toBe("shown");
     sent.length = 0;
     up = true;
+
+    // Reviews that failed before one finished are not failed hand-backs: the call still goes to the boss, not to him.
+    saveDomainRun(asked("domain-back-d"));
+    let failing = MAX_REVIEW_TRIES - 1;
+    const flaky = async () => {
+      if (failing-- > 0) throw new Error("review timed out");
+      return decided("domain-back-d");
+    };
+    for (let pass = 0; pass < MAX_REVIEW_TRIES; pass++) {
+      await notifyRun(readDomainRun("domain-back-d")!, notify, send, flaky, () => false, async () => ({}));
+    }
+    expect([sent, toBoss, readDomainRun("domain-back-d")?.report?.state]).toEqual([[], [HANDLE_IT_YOURSELF, HANDLE_IT_YOURSELF], "quiet"]);
+    toBoss.length = 1;
+
+    // A review that never finishes does not leave his call quiet either: it reaches him, screened like any notice.
+    saveDomainRun(asked("domain-back-e"));
+    for (let pass = 0; pass < MAX_REVIEW_TRIES; pass++) {
+      await notifyRun(readDomainRun("domain-back-e")!, notify, send, async () => { throw new Error("review timed out"); }, () => false, async () => ({}));
+    }
+    expect(sent).toEqual([question]);
+    expect(readDomainRun("domain-back-e")?.report?.state).toBe("shown");
+    sent.length = 0;
 
     // Told to make it itself, the boss says it is his after all: Flyd brings it to him, as its note promised.
     const handedBack = [{ id: "m-back", kind: "decision" as const, body: HANDLE_IT_YOURSELF, from: "flyd" as const, at: "2026-11-10T10:01:00.000Z", deliveredAt: "2026-11-10T10:01:00.000Z" }];

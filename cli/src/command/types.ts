@@ -185,6 +185,8 @@ export interface RunReport {
   sentBack?: boolean;
   /** Reviews that failed before one could finish. */
   tries?: number;
+  /** Implementation calls Flyd could not hand back to the boss; after the usual tries the call is brought to George. */
+  handBackTries?: number;
   /** The delivery record's key (runtime/delivered.ts), once there is a line to tell. */
   key?: string;
   /** The line to tell, once there is one; the line he saw when shown. */
