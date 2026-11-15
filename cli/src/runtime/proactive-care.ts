@@ -71,7 +71,8 @@ export function matchingPeople(event: CareEvent, memory: MemoryEntry[], now: Dat
 }
 
 export function meetingCard(event: CareEvent, memory: MemoryEntry[], now: Date): ActivityRecord | null {
-  const delay = new Date(event.start).getTime() - now.getTime();
+  const start = new Date(event.start);
+  const delay = start.getTime() - now.getTime();
   if (!Number.isFinite(delay) || delay < 0 || delay > 90 * 60_000) return null;
   if (!event.title.trim() || /(?:birthday|holiday|focus time|all.day)/i.test(event.title)) return null;
   const people = matchingPeople(event, memory, now);
