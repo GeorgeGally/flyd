@@ -4707,6 +4707,23 @@ describe("the front page", () => {
     expect(document.querySelector('#news-cols .story-chat[aria-pressed="true"]')).toBeNull();
   });
 
+  it("names where an unpicked News message goes inside the box, and drops it off News", async () => {
+    const stream = await opened();
+    const stories = [{ title: "Left", url: "https://example.test/left" }];
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
+    showNews(null);
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    stream.emit("session", { id: "project:dir", title: "DIR", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    expect(input.placeholder).toBe("Message firstmate about DIR");
+    expect(input.getAttribute("aria-label")).toBe("Message firstmate about DIR");
+    showNews(0);
+    expect(input.placeholder).toBe("Ask about this story");
+    document.getElementById("story-chip-clear")!.click();
+    expect(input.placeholder).toBe("Message firstmate about DIR");
+    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    expect(input.placeholder).toBe("Message firstmate");
+  });
+
   it("sends a News attachment without text to the article session", async () => {
     const stream = await opened();
     const stories = [{ title: "A story", url: "https://example.test/story" }];

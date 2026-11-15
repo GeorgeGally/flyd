@@ -222,13 +222,15 @@ export const TODAY_SCRIPT = `
   // The message box names the story he picked, removable; with none it is the conversation's box.
   var newsChip = document.getElementById("story-chip");
   function newsPlaceholder(story) {
-    var words = story ? "Ask about this story" : inputPlaceholder;
+    var to = centre === "news" && scopeNow() ? inputPlaceholder + " about " + scopeLabel(scopeNow()) : inputPlaceholder;
+    var words = story ? "Ask about this story" : to;
     input.setAttribute("placeholder", words);
-    input.setAttribute("aria-label", story ? "Ask about " + story.title : inputPlaceholder);
+    input.setAttribute("aria-label", story ? "Ask about " + story.title : to);
     newsChip.hidden = !story;
     document.getElementById("story-chip-name").textContent = story ? story.title : "";
     newsChip.title = story ? story.title : "";
   }
+  scopeDrawn = function () { if (centre === "news") newsPlaceholder(newsPicked); };
   document.getElementById("story-chip-clear").addEventListener("click", function () {
     newsPick(null);
     input.focus();
