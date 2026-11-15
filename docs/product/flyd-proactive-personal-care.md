@@ -4,9 +4,9 @@
 
 ## What Flyd does
 
-1. **Creative anticipation.** The 5-minute agenda tick compares today's already-curated Scout edition against active creative/design projects from the Librarian's project index. The interactive Flyd conversation view also checks design-related user turns and can prepare a relevant ambient card for the current direction. Both paths take at most three sourced HTTPS references, require at least two meaningful matches, deduplicate per day, and produce no spoken interruption. Neither runs a fresh search or uploads the user's design context to a provider.
+1. **Creative anticipation.** The 5-minute agenda tick compares today's already-curated Scout edition against active creative/design projects from the Librarian's project index. The interactive Flyd conversation view also checks design-related user turns and can prepare a relevant ambient card for the current direction. Both paths take at most three sourced HTTPS references, require at least two meaningful matches, and produce no spoken interruption. Conversation cards deduplicate by normalized design direction and are limited to two distinct directions per day, including across Core restarts. Neither runs a fresh search or uploads the user's design context to a provider.
 2. **Relationship preparation.** For an upcoming Calendar event in the next 90 minutes, Flyd may surface verified, reasonably fresh `People` memory beside the meeting, including a confirmation date. It matches a unique, exact full name or an unambiguous first name. Ambiguous identities, missing facts, stale memories and irrelevant events stay silent. It never infers someone's children's names or birthdays.
-3. **Personal stewardship.** When the Librarian has a fresh, explicitly dated `Commitments` entry due today or within the next two days, Flyd shows one quiet activity note. Vague commitments, guessed due dates and stale notes are ignored. Nothing is automatically sent, booked, purchased or scheduled.
+3. **Personal stewardship.** When the Librarian has a fresh, explicitly dated `Commitments` entry due today or within the next two days, Flyd shows up to three distinct quiet activity notes, ordered by nearest due date. Vague commitments, guessed due dates and stale notes are ignored. Their recorded date indicates when Flyd last noted the fact, not independent third-party confirmation. Nothing is automatically sent, booked, purchased or scheduled.
 
 These are **ambient activity records**, not interruptions. Flyd never narrates that a team or model prepared them. The existing activity reader and Story media presentation are responsible for displaying them. Cards expire automatically when the meeting begins, the curated day ends, or the commitment's due day passes, rather than cluttering the activity view for a week.
 
@@ -19,6 +19,7 @@ These are **ambient activity records**, not interruptions. Flyd never narrates t
 - `flyd care status` shows consent and feature state. `flyd care run` triggers a local sweep. `flyd care pause` or `flyd care disable` stops calendar preparation. The source contract can be revoked through the existing source-consent registry; revoked sources fail closed.
 - `FLYD_PROACTIVE_CARE=0` disables all three slices; `FLYD_PERSONAL_BRIEFING=0` separately disables Calendar preparation even when consented.
 - No notification API is called. Activity records contain only the short surfaced facts and source story links, in the existing private local activity store.
+- The Activity reader filters already-prepared `care:meeting:` records at render time when Calendar consent is paused, disabled, revoked or the feature kill switch is off. It also hides all proactive cards immediately when `FLYD_PROACTIVE_CARE=0`—disabling a source cannot leave yesterday’s private card on screen until expiry. The underlying local activity history is not automatically erased; data removal is a separate explicit control.
 
 ## Data / implementation
 
@@ -43,6 +44,9 @@ These are **ambient activity records**, not interruptions. Flyd never narrates t
 - Creative cards require at least two distinct, relevant HTTPS story links; unrelated or old editions are ignored.
 - Dated commitments require confirmed, non-stale evidence and a real actionable due date.
 - Duplicate sweeps cannot publish the same key again in a local day.
+- Two different design topics can each get an ambient reference card in a day, but repeated/paraphrased turns do not generate unlimited cards.
+- The view hides private meeting cards after consent revocation, even if they were previously written.
+- Up to three dated commitments are surfaced; the background receipt counts all three.
 - The main proactive kill switch prevents source reads and writes.
 
 ## Explicit remaining verification
