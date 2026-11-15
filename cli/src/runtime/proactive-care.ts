@@ -39,7 +39,7 @@ function alreadyRecorded(key: string, day: string): boolean {
     return readFileSync(activityRecordPath(), "utf8").split("\n").slice(-300).some((line) => {
       try {
         const entry = JSON.parse(line) as ActivityRecord;
-        return entry.key === key && entry.at?.slice(0, 10) === day;
+        return entry.key === key && !!entry.at && dayOf(new Date(entry.at)) === day;
       } catch { return false; }
     });
   } catch { return false; }
@@ -79,8 +79,8 @@ export function meetingCard(event: CareEvent, memory: MemoryEntry[], now: Date):
   return {
     key: "care:meeting:" + hash(event.id + "|" + event.start), kind: "noted", state: "done", at: now.toISOString(),
     title: "Before " + clean(event.title, 72),
-    line: "Coming up in " + Math.ceil(delay / 60_000) + " min. " +
-      people.map((p) => clean(p.text, 120) + " (confirmed " + p.date + ")").join(" • ").slice(0, 500),
+    line: (people.map((p) => clean(p.text.replace(/[.!?]+$/, ""), 120) + " (confirmed " + p.date + ")").join(" · ")
+      + " · Call in " + Math.ceil(delay / 60_000) + " min.").slice(0, 500),
   };
 }
 
