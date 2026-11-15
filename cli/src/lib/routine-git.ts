@@ -16,8 +16,11 @@ const STILL_HIS = /\b(?:deploy|publish|releas|go(?:es|ing)? live|live site|produ
 /** A choice between options: the work's own engineering call, never settled as a plain go-ahead. */
 const EITHER_OR = /\bor\b|\b(?:which|pick|choose|instead)\b/i;
 
-/** The staff's own report says the work is failing now (not "fixed the failing test"). */
-const STILL_FAILING = /\b(?:still (?:fail(?:s|ing)?|red|broken)|(?:is|are|keeps?) (?:still )?(?:failing|red|broken)|fail(?:s)? on|not (?:yet )?(?:green|passing))\b/i;
+/** The staff's own report says the work is failing now ("Lint failing", "CI red"). */
+const STILL_FAILING = /\b(?:fail(?:s|ing)?|red|broken|not (?:yet )?(?:green|passing))\b/i;
+
+/** Failure the report says is past ("fixed the failing test", "was failing, now green"). */
+const FIXED_FAILURE = /\b(?:fix(?:ed|es)?|resolved)\s+(?:\w+\s+){0,2}?(?:failing|broken|red)\b|\b(?:was|were) (?:failing|red|broken)\b/gi;
 
 /** The work is not finished and green. */
 const FAILING = /\b(?:fail(?:s|ed|ing|ures?)?|broken|red|not (?:yet )?(?:green|passing))\b/i;
@@ -29,5 +32,5 @@ const FAILING = /\b(?:fail(?:s|ed|ing|ures?)?|broken|red|not (?:yet )?(?:green|p
 export function routineGitStep(ask: string, context = ""): boolean {
   const asked = ask.replace(/\s+/g, " ").trim();
   const said = `${asked} ${context.replace(/\s+/g, " ").trim()}`;
-  return GIT_STEP.test(said) && !STILL_HIS.test(said) && !EITHER_OR.test(asked) && !FAILING.test(asked) && !STILL_FAILING.test(said);
+  return GIT_STEP.test(said) && !STILL_HIS.test(said) && !EITHER_OR.test(asked) && !FAILING.test(asked) && !STILL_FAILING.test(said.replace(FIXED_FAILURE, ""));
 }
