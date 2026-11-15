@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { calendarMetadataConsented, commitmentCard, creativeCard, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
+import { calendarMetadataConsented, commitmentCard, creativeCard, prepareCreativeForConversation, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
 import { parseCalendarMetadata } from "../proactive-calendar.js";
 import { CALENDAR_METADATA_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import type { MemoryEntry } from "../../council/memory-store.js";
@@ -107,6 +107,22 @@ describe("proactive local personal care", () => {
     expect(await runProactiveCare(deps)).toMatchObject({ meetings: 0, inspiration: 0 });
     expect(made.map((x) => x.kind)).toEqual(["news", "noted"]);
     expect(made.every((x) => x.state === "done")).toBe(true);
+  });
+
+  it("silently attaches sourced inspiration to a live design conversation once per day", () => {
+    const made: ActivityRecord[] = [];
+    const keys = new Set<string>();
+    const deps = {
+      now: () => now, edition: () => edition,
+      record: (record: ActivityRecord) => { made.push(record); keys.add(record.key!); },
+      alreadyRecorded: (key: string) => keys.has(key),
+    };
+    expect(prepareCreativeForConversation("I'm exploring generative visual typography and design", deps)).toBe(true);
+    expect(prepareCreativeForConversation("I'm exploring generative visual typography and design", deps)).toBe(false);
+    expect(made).toHaveLength(1);
+    expect(made[0]?.title).toBe("References for this direction");
+    expect(made[0]?.stories?.length).toBeGreaterThanOrEqual(2);
+    expect(prepareCreativeForConversation("Just checking in", deps)).toBe(false);
   });
 
   it("surfaces a dated, confirmed commitment without inventing an action or deadline", () => {
