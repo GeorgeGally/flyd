@@ -229,19 +229,21 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
   }
 }
 
-/** The after_land step a line names, by its leading verb ("Push the fix to GitHub" is a push). */
-export function afterLandStep(step: string): AfterLandStep | null {
-  const verb = /^\s*(push|deploy)\b/i.exec(step)?.[1]?.toLowerCase();
-  return verb === "push" || verb === "deploy" ? verb : null;
+/** The after_land steps a line names ("Commit and push to GitHub" is a push; "Push and deploy to production" is both). */
+export function afterLandSteps(line: string): AfterLandStep[] {
+  return [
+    ...(/\b(?:push|sync)\w*/i.test(line) ? ["push" as const] : []),
+    ...(/\b(?:deploy|publish|releas|go(?:es|ing)? live|production)\w*/i.test(line) ? ["deploy" as const] : []),
+  ];
 }
 
 function afterLandLines(input: Record<string, unknown>): string[] {
   return Array.isArray(input.after_land) ? input.after_land.map((step) => String(step).trim()).filter(Boolean) : [];
 }
 
-/** after_land steps George must approve: everything except a push, which is routine. */
+/** after_land steps George must approve: a step that goes live. A push is routine. */
 export function gatedAfterLand(input: Record<string, unknown>): string[] {
-  return afterLandLines(input).filter((step) => afterLandStep(step) !== "push");
+  return afterLandLines(input).filter((line) => afterLandSteps(line).includes("deploy"));
 }
 
 /**
@@ -251,9 +253,9 @@ export function gatedAfterLand(input: Record<string, unknown>): string[] {
  */
 export function ungatedRemainder(name: string, input: Record<string, unknown>): Record<string, unknown> | null {
   if (name !== "start_coding_task" || !gatedAfterLand(input).length) return null;
-  const kept = afterLandLines(input).filter((step) => afterLandStep(step) === "push");
+  const push = afterLandLines(input).some((line) => afterLandSteps(line).includes("push"));
   const { after_land: _dropped, ...rest } = input;
-  return kept.length ? { ...rest, after_land: kept } : rest;
+  return push ? { ...rest, after_land: ["push"] } : rest;
 }
 
 function clip(text: string, max = 160): string {

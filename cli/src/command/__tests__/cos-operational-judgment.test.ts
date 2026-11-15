@@ -90,6 +90,8 @@ describe("CoS operational decisions", () => {
       expect(result.reason, question).not.toBe("routine git step under George's standing rule");
     }
     expect(protectedOperationalQuestion({ ...routine, domain: "coding", question: "Merge option A or B? George's personal preference", options: [] })).toBe(true);
+    const red = await judgeOperationalQuestion({ ...routine, domain: "coding", question: "Ready to merge?", options: [], recommendation: "merge even though lint is failing" });
+    expect(red.reason).not.toBe("routine git step under George's standing rule");
   });
 
   it("does not interpret a personal booking as routine implementation", async () => {

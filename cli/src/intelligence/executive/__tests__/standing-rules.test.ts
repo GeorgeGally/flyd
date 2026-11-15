@@ -68,6 +68,11 @@ describe("George's standing rules in the review step", () => {
     for (const question of ["Should I rebase onto main or merge?", "Should I commit the tests first or the refactor?", "Ready to merge? two tests still fail"]) {
       expect(settleCall(call(question), PREFERENCES)?.rule, question).not.toBe("routine-git");
     }
+    // Red work said only in the staff's report is not finished either; a fixed failing test is.
+    const red = { ...call("Ready to merge?"), sourceText: "Two tests still fail on CI. Ready to merge?" };
+    expect(settleCall(red, PREFERENCES)?.rule).not.toBe("routine-git");
+    const fixed = { ...call("Ready to merge?"), sourceText: "Fixed the failing test; all green. Ready to merge?" };
+    expect(settleCall(fixed, "- George likes tea.")?.rule).toBe("routine-git");
   });
 
   it("stands only on lines he wrote: without them nothing is settled", () => {

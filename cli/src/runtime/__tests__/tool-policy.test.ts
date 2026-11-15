@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  advanceSemanticAction, allowForSession, autonomyLevel, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, resetSessionAllowances, semanticActionForToolCall,
+  advanceSemanticAction, allowForSession, autonomyLevel, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, resetSessionAllowances, semanticActionForToolCall, ungatedRemainder,
 } from "../tool-policy.js";
 
 describe("isReadOnlyCommand", () => {
@@ -181,6 +181,12 @@ describe("approving crew follow-ups at dispatch", () => {
     expect(decideToolCall("start_coding_task", { outcome: "Ship the polish", after_land: ["push", "deploy"] }, clean, "trusted"))
       .toEqual({ kind: "confirm", category: "outward", reason: 'build "Ship the polish", then push and deploy once you land it (leaves this machine)' });
     expect(decideToolCall("start_coding_task", { outcome: "Ship the polish" }, clean, "trusted")).toEqual({ kind: "allow" });
+    for (const line of ["Commit and push to GitHub", "Sync to GitHub", "git push origin main"]) {
+      expect(decideToolCall("start_coding_task", { outcome: "Fix it", after_land: [line] }, clean, "trusted"), line).toEqual({ kind: "allow" });
+    }
+    const both = { outcome: "Ship it", after_land: ["Push and deploy to production"] };
+    expect(decideToolCall("start_coding_task", both, clean, "trusted").kind).toBe("confirm");
+    expect(ungatedRemainder("start_coding_task", both)).toEqual({ outcome: "Ship it", after_land: ["push"] });
   });
 });
 

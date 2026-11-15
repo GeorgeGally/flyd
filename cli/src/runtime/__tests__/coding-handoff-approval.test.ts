@@ -84,6 +84,18 @@ describe("a coding request never waits on a push approval", () => {
     }
   });
 
+  it("pushes a push however it is worded, and says a step it can't do instead of dropping it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flyd-guido-"));
+    try {
+      const out = await callTool({ repo: root, outcome: "Fix the ruler error", done_when: ["x"], after_land: ["Commit and push to GitHub", "Tell the team on Slack"] }, root,
+        async () => { throw new Error("asked George"); });
+      expect(dispatched).toEqual([{ outcome: "Fix the ruler error", afterLand: ["push"] }]);
+      expect(out).toMatch(/Not done after landing.*Tell the team on Slack/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("holds only the deploy step when it isn't approved, and says the build started", async () => {
     const root = mkdtempSync(join(tmpdir(), "flyd-guido-"));
     try {

@@ -3,7 +3,7 @@ import type { AgentTool } from "../lib/llm.js";
 import type { ChatScope } from "./chat-scope.js";
 import type { AfterLandStep } from "../crew/crew.js";
 import { formatWorkModelResult, parseWorkModelArgs, workModelTool } from "./work-model-tool.js";
-import { afterLandStep } from "./tool-policy.js";
+import { afterLandSteps } from "./tool-policy.js";
 
 // Capabilities that used to be regex intercepts in front of the model. Each
 // intercept guessed intent from phrasing and answered with canned text before
@@ -479,14 +479,16 @@ export async function runAssistantTool(
         }
 
         const { dispatchCrewTask, deployCommand } = await import("../crew/crew.js");
-        const afterLand = normalizeCriteria(input.after_land).map(afterLandStep)
-          .filter((step): step is AfterLandStep => step !== null);
+        const lines = normalizeCriteria(input.after_land);
+        const afterLand = [...new Set(lines.flatMap(afterLandSteps))] as AfterLandStep[];
+        const unknown = lines.filter((line) => !afterLandSteps(line).length);
         const task = await dispatchCrewTask({ repo, outcome, doneWhen, afterLand, source: "chat" });
         const noDeploy = afterLand.includes("deploy") && !deployCommand(task.repo)
           ? " This repo declares no deploy command, so deploying will need one set up; tell him." : "";
         const verbs = { push: "pushes", deploy: "deploys" } as const;
         const after = afterLand.length ? ` When he lands it, it then ${afterLand.map((step) => verbs[step]).join(", then ")}, as he just approved.` : "";
-        return `Started in the compatibility coding crew (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land.${after}${noDeploy} Tell him in your own words, promising only this; don't mention crewmates, branches, or worktrees.`;
+        const skipped = unknown.length ? ` Not done after landing, since it is neither a push nor a deploy: ${unknown.join("; ")}; tell him.` : "";
+        return `Started in the compatibility coding crew (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land.${after}${noDeploy}${skipped} Tell him in your own words, promising only this; don't mention crewmates, branches, or worktrees.`;
       }
       case "start_knowledge_task": {
         const outcome = String(input.outcome ?? "").replace(/\s+/g, " ").trim();
