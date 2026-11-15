@@ -55,8 +55,8 @@ export const WEEK_SCRIPT = `
     var when = WEEK_LONG[d.getDay()] + " " + d.getDate() + " " + WEEK_MONTH[d.getMonth()] + ", " + weekHour(seg.h0) + " to " + weekHour(seg.h1)
       + (done.length ? ", " + done.length + (done.length === 1 ? " change" : " changes") : "");
     return '<div><h3>' + frontEsc(seg.k) + '</h3><time>' + frontEsc(when) + '</time></div>'
-      + done.slice(-5).map(function (one) { return '<p>' + frontEsc(one.title + (one.ref ? " " + one.ref : "")) + '</p>'; }).join("")
-      + (done.length > 5 ? '<p>and ' + (done.length - 5) + ' earlier</p>' : "");
+      + (done.length ? '<div class="wk-done">' + done.slice(-5).map(function (one) { return '<p>' + frontEsc(one.title + (one.ref ? " " + one.ref : "")) + '</p>'; }).join("")
+        + (done.length > 5 ? '<p>and ' + (done.length - 5) + ' earlier</p>' : "") + '</div>' : "");
   }
   function weekShow(el) {
     var dayEl = el && el.closest(".wk-day");

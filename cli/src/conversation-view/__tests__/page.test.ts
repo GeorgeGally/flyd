@@ -4512,6 +4512,7 @@ describe("the front page", () => {
     // The two Flyd hours join into one block; the story tells it with the count, the latest five and the rest counted.
     flyd!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     expect(told()).toEqual(["Flyd", "Tuesday 10 November, 09:00 to 11:00, 7 changes", "Change 3", "Change 4", "Change 5", "Change 6", "Add the Week tab #274", "and 2 earlier"]);
+    expect([...tell.children].map((child) => child.querySelectorAll("p").length)).toEqual([0, 6]);
     expect(flyd!.classList.contains("lit")).toBe(true);
     document.getElementById("wk-days")!.dispatchEvent(new MouseEvent("mouseleave"));
     expect(told()[0]).toBe("Add the Week tab");

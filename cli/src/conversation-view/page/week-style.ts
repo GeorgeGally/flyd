@@ -5,7 +5,8 @@
  * whole width (the right column steps aside, as on News), the heading, the
  * strips and the story sit as one group in the middle of the height, and the
  * strips grow with the room; on a phone the day names go to two lines and the
- * story stacks. A block's card floats beside its strip. Comes after Today's style.
+ * story stacks. A block is told in the story's place, its changes in one list
+ * beside the headline. Comes after Today's style.
  */
 export const WEEK_STYLE = `
 :root[data-layout="front"] { --wk-1: #e2572e; --wk-2: #3f6fe0; --wk-3: #15140f; --wk-0: #b9b5ab; --wk-side: max(var(--gut), 5vw); }
@@ -55,12 +56,15 @@ export const WEEK_STYLE = `
 .wk-tell time { display: block; margin-top: 10px; font: 400 15px/1.4 var(--sans); color: var(--mute); }
 .wk-tell p { margin: 0; padding-top: 4px; font: 400 17px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; overflow-wrap: anywhere; }
 .wk-tell .wk-none { grid-column: 1 / -1; color: var(--mute); }
+.wk-tell .wk-done { grid-column: 2 / -1; columns: 2; column-gap: 44px; }
+.wk-tell .wk-done p { break-inside: avoid; }
 
 @media (max-width: 1100px) {
   .wk-head { font-size: 44px; }
   .wk-days { gap: 12px; }
   .wk-tell { grid-template-columns: 1fr 1fr; gap: 28px 36px; }
   .wk-tell > div { grid-column: 1 / -1; }
+  .wk-tell .wk-done { grid-column: 1 / -1; column-gap: 36px; }
 }
 
 /* A phone: the week under the header, the day names on two lines, the story stacked. */
@@ -85,5 +89,6 @@ export const WEEK_STYLE = `
   .wk-tell h3 { font-size: 23px; }
   .wk-tell time { font-size: 13px; margin-top: 6px; }
   .wk-tell p { padding-top: 12px; font-size: 15px; }
+  .wk-tell .wk-done { columns: auto; }
 }
 `;
