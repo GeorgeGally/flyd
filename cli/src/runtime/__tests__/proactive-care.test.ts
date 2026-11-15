@@ -8,7 +8,7 @@ import { CALENDAR_METADATA_CONTRACT, MEETING_PREP_CONTRACT, SourceContractRegist
 import type { MemoryEntry } from "../../council/memory-store.js";
 import type { Project } from "../../council/projects.js";
 import type { Edition } from "../../council/scout.js";
-import { activityFromRecords, visibleCareRecords, type ActivityRecord } from "../../conversation-view/activity.js";
+import { ActivityReader, recordActivity, activityFromRecords, visibleCareRecords, type ActivityRecord } from "../../conversation-view/activity.js";
 
 const now = new Date("2026-11-15T10:00:00");
 const meeting: CareEvent = { id: "event-123", title: "Call with Chris Jones", start: "2026-11-15T10:45:00" };
@@ -160,6 +160,24 @@ describe("proactive local personal care", () => {
     const disabled = visibleCareRecords(records, { careEnabled: false, meetingEnabled: false });
     expect(activityFromRecords(disabled, now.getTime()).done.map((item) => item.title))
       .toEqual(["Other work"]);
+  });
+
+  it("the live activity reader removes a consented meeting card immediately on revocation", () => {
+    const folder = mkdtempSync(join(tmpdir(), "flyd-care-reader-"));
+    try {
+      const registry = new SourceContractRegistry({ path: join(folder, "intelligence", "source-consents.json") });
+      registry.register(MEETING_PREP_CONTRACT);
+      registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "enabled");
+      recordActivity(meetingCard(meeting, memory, now)!, folder, now);
+      const reader = new ActivityReader({ dir: folder, now: () => now.getTime() });
+      reader.refresh();
+      expect(reader.current().recent.some((item) => item.title.includes("Chris Jones"))).toBe(true);
+      registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "revoked");
+      reader.refresh();
+      expect(reader.current().recent.some((item) => item.title.includes("Chris Jones"))).toBe(false);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 
   it("allows another relevant design direction but caps conversation inspiration at two cards a day", () => {
