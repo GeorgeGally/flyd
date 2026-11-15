@@ -4,8 +4,8 @@
  * DIR in their own inks, everything else one neutral). The day picked
  * (hovered or tapped; at first the latest day with work) is told underneath.
  * Pointing at a block (hover, a tap, or the arrow keys on a focused day) tells
- * that block in the same place instead: the project, the hours, and what changed
- * then. No card floats over the strips. The story keeps the room of the tallest
+ * that block in the same place instead: the project, the hours, and the latest five changes made
+ * then, the rest counted. No card floats over the strips. The story keeps the room of the tallest
  * day's or block's at the width shown, so picking another never moves what sits
  * under its headline. Data from /api/week
  * (week.ts). Runs inside the page script's closure after
@@ -55,7 +55,8 @@ export const WEEK_SCRIPT = `
     var when = WEEK_LONG[d.getDay()] + " " + d.getDate() + " " + WEEK_MONTH[d.getMonth()] + ", " + weekHour(seg.h0) + " to " + weekHour(seg.h1)
       + (done.length ? ", " + done.length + (done.length === 1 ? " change" : " changes") : "");
     return '<div><h3>' + frontEsc(seg.k) + '</h3><time>' + frontEsc(when) + '</time></div>'
-      + done.slice(-3).map(function (one) { return '<p>' + frontEsc(one.title + (one.ref ? " " + one.ref : "")) + '</p>'; }).join("");
+      + done.slice(-5).map(function (one) { return '<p>' + frontEsc(one.title + (one.ref ? " " + one.ref : "")) + '</p>'; }).join("")
+      + (done.length > 5 ? '<p>and ' + (done.length - 5) + ' earlier</p>' : "");
   }
   function weekShow(el) {
     var dayEl = el && el.closest(".wk-day");
