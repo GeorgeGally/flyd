@@ -7,6 +7,8 @@ import { selfReviewDir } from "../../council/reply-review.js";
 import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
 import { decideRun, notifyRun, tellHeld } from "../scheduler.js";
+import type { sendRunMessage } from "../messages.js";
+import { HANDLE_IT_YOURSELF } from "../../intelligence/executive/decision-step.js";
 import { deliverOwed } from "../../runtime/delivered.js";
 import { readDomainRun } from "../store.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
@@ -426,16 +428,25 @@ describe("notifyRun", () => {
     };
     const verdicts = () => readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
       .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; source?: string; shortfalls: Array<{ requirement: string }> });
+    const toBoss: Array<{ run: string; body: string }> = [];
+    const send: typeof sendRunMessage = async (input) => {
+      toBoss.push({ run: input.run.id, body: input.body });
+      const at = "2026-11-10T10:01:00.000Z";
+      return { delivered: true, run: { ...input.run, messages: [...(input.run.messages ?? []), { id: `${input.run.id}:${input.kind}:1`, kind: input.kind, body: input.body, from: "flyd", at, deliveredAt: at }] } };
+    };
     const calls: Array<[string, string]> = [
       ["domain-gate-a", "Tell me whether to lay out the TV page with CSS grid or flexbox."],
       ["domain-gate-b", "Flyd is re-requesting unstructured FirstMate handoffs"],
       ["domain-gate-c", "Tell me whether to add Teletext and Tuning dial buttons."],
+      ["domain-gate-d", "Should the button CSS be red or blue?"],
     ];
     for (const [id, question] of calls) {
       const [asked, decided] = ask(id, question);
-      await notifyRun(asked, notify, undefined, async () => decided, () => false, async () => ({}));
+      await notifyRun(asked, notify, send, async () => decided, () => false, async () => ({}));
     }
-    expect(sent).toEqual(["Your call is needed: Fix the island.", "Tell me whether to add Teletext and Tuning dial buttons."]);
+    expect(sent).toEqual(["Your call is needed: Fix the island.", "Tell me whether to add Teletext and Tuning dial buttons.", "Should the button CSS be red or blue?"]);
+    // The layout method is Flyd's call: the boss is told to make it and report the outcome, so the run carries on.
+    expect(toBoss).toEqual([{ run: "domain-gate-a", body: HANDLE_IT_YOURSELF }]);
     expect(verdicts()).toContainEqual(expect.objectContaining({
       text: "Tell me whether to lay out the TV page with CSS grid or flexbox.", source: "domain:domain-gate-a", surface: "notification", held: true,
       shortfalls: expect.arrayContaining([expect.objectContaining({ requirement: "decisions_handled" })]),

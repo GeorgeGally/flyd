@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { bossMessageKind, FENCE_HELD, HELD_FOR_ATTENTION, notesSentToBoss } from "../intelligence/executive/decision-step.js";
+import { bossMessageKind, FENCE_HELD, HANDLE_IT_YOURSELF, HELD_FOR_ATTENTION, notesSentToBoss } from "../intelligence/executive/decision-step.js";
 import { recordHeld } from "../council/reply-review.js";
 import { syncFirstmateDomainRuns } from "./firstmate.js";
 import { DESIGN_MATE, syncDesignBoards, syncDesignMateRuns } from "./design-mate.js";
 import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
-import { gateNotice, noticeKind } from "./notice.js";
+import { gateNotice, noticeKind, type GatedNotice } from "./notice.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { listDomainRuns, mutateDomainRun, readDomainRun, updateDomainRun } from "./store.js";
 import { cameBack, isOpen } from "./run-state.js";
@@ -102,12 +102,22 @@ export async function decideRun(
 }
 
 /** The notification a decision makes: the run's report, delivered as its lead line (runtime/delivery.ts) and gated by the outgoing review (notice.ts); none when held. */
-function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord): string | null {
-  if (!decision.show || !decision.notify) return null;
+function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord): GatedNotice {
+  if (!decision.show || !decision.notify) return { text: null, flydsCall: false };
   // Finished work's checked line is the report's lead, its link kept whole (runtime/delivery.ts).
   const report = reportFromRun(run, decision);
   const text = deliver(report, "notification").text;
-  return text ? gateNotice(run, text, decision.disposition === "ask_george", report.outcome) : null;
+  return text ? gateNotice(run, text, decision.disposition === "ask_george", report.outcome) : { text: null, flydsCall: false };
+}
+
+/** An implementation call held back from George: Flyd makes it by sending it back to the run's boss to make, once (deliverBossNote). */
+async function handBack(run: DomainRun, decision: ExecutiveDecisionRecord, send: typeof sendRunMessage): Promise<boolean> {
+  if (!isOpen(run.status)) return false;
+  const action: ExecutiveInternalAction = {
+    capability: "firstmate.message", target: run.id, text: HANDLE_IT_YOURSELF,
+    grantId: `flyd-call:${run.id}`, idempotencyKey: `${decision.decisionId}:flyd-call`,
+  };
+  return (await deliverBossNote(run, action, send)).status === "verified";
 }
 
 /** The project a run is about, by name or folder. */
@@ -208,7 +218,7 @@ export async function notifyRun(
     return;
   }
   try {
-    await tellRun(reviewing ?? run, decision, { ...(notify ? { notify } : {}), attention });
+    await tellRun(reviewing ?? run, decision, { ...(notify ? { notify } : {}), attention, send });
   } catch {
     // Left where it got to: a report "sending" is said again by the tick's sweep, one still "reviewing" reviewed again.
   }
@@ -274,10 +284,11 @@ function reportState(state: DeliveryState | undefined): RunReport["state"] {
 export async function tellRun(
   run: DomainRun,
   decision: ExecutiveDecisionRecord,
-  options: { notify?: Notify; attention?: ReadAttention; key?: string } = {},
+  options: { notify?: Notify; attention?: ReadAttention; key?: string; send?: typeof sendRunMessage } = {},
 ): Promise<{ notice: string | null; owed: boolean; waiting: boolean }> {
   // Settled once George was told, or quietly when nothing is left for him or Flyd; otherwise Flyd holds it in view.
-  const notice = noticeForDecision(run, decision);
+  const gated = noticeForDecision(run, decision);
+  const notice = gated.text;
   const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
     || decision.action !== undefined || decision.reason === FENCE_HELD || decision.reason === HELD_FOR_ATTENTION;
   // The report this telling belongs to: the run's own, or (a Chief of Staff report on a run without one) its current outcome's.
@@ -308,6 +319,8 @@ export async function tellRun(
       owed = delivered.owed.length > 0;
       moveReport(run.id, from, { ...told, state: reportState(delivered.states[report.key]) });
     }
+  } else if (gated.flydsCall && await handBack(run, decision, options.send ?? sendRunMessage)) {
+    moveReport(run.id, from, { state: "quiet", sentBack: true, decisionId: decision.decisionId });
   } else {
     if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     moveReport(run.id, from, { state: "quiet", decisionId: decision.decisionId });
