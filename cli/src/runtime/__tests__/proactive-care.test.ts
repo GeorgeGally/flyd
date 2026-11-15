@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { calendarMetadataConsented, commitmentCard, creativeCard, prepareCreativeForConversation, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
+import { meetingPrepConsented, commitmentCard, creativeCard, prepareCreativeForConversation, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
 import { parseCalendarMetadata } from "../proactive-calendar.js";
 import { MEETING_PREP_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import type { MemoryEntry } from "../../council/memory-store.js";
@@ -151,11 +151,11 @@ describe("proactive local personal care", () => {
     const folder = mkdtempSync(join(tmpdir(), "flyd-care-consent-"));
     try {
       const registry = new SourceContractRegistry({ path: join(folder, "source-consents.json") });
-      expect(calendarMetadataConsented(registry)).toBe(false);
+      expect(meetingPrepConsented(registry)).toBe(false);
       registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "enabled");
-      expect(calendarMetadataConsented(registry)).toBe(true);
+      expect(meetingPrepConsented(registry)).toBe(true);
       registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "revoked");
-      expect(calendarMetadataConsented(registry)).toBe(false);
+      expect(meetingPrepConsented(registry)).toBe(false);
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }
