@@ -4333,6 +4333,15 @@ describe("the front page", () => {
     group.querySelector(".fhead span")!.textContent,
     group.querySelector(".fempty")?.textContent ?? group.querySelectorAll(".job").length,
   ]);
+  // News, with a story picked by its "Chat about this" link (none when pick is null).
+  function showNews(pick: number | null = 0): void {
+    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    if (pick !== null) document.querySelectorAll<HTMLElement>("#news-cols .story-chat")[pick]?.click();
+  }
+  // The story the message box names, or "" when it names none.
+  function chip(): string {
+    return document.getElementById("story-chip")!.hidden ? "" : document.getElementById("story-chip-name")!.textContent ?? "";
+  }
   async function opened(): Promise<FakeEventSource> {
     load("");
     await settle();
@@ -4527,7 +4536,7 @@ describe("the front page", () => {
     expect(card.hidden).toBe(true);
   });
 
-  it("shows News as stories in columns, leaves filler out, and the box asks about the story in view", async () => {
+  it("shows News as stories in columns, leaves filler out, and the box asks about the story he picks", async () => {
     const stream = await opened();
     const stories = [
       { title: "Static Radio for the Chumby One", url: "https://hackaday.example/chumby", source: "Hackaday", gist: "A native C client turns a 2009 Chumby One into a radio.", image: "/api/story-image?u=1" },
@@ -4535,7 +4544,7 @@ describe("the front page", () => {
       { title: "Halloween GIF", url: "https://giphy.com/gifs/1", source: "Giphy", gist: "A pumpkin." },
     ];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories, at: "2026-11-03T06:00:00.000Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews(null);
     expect(document.documentElement.getAttribute("data-centre")).toBe("news");
     expect(document.getElementById("news-when")!.textContent).toMatch(/^Last updated (?=.*\b3\b)(?=.*November)/);
     const shown = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
@@ -4543,13 +4552,22 @@ describe("the front page", () => {
     expect(shown[0]!.classList.contains("lead")).toBe(true);
     // The source is a quiet line after the story, never a label above the headline.
     expect(shown[0]!.querySelector(".src")!.textContent).toBe("Hackaday");
-    expect([...shown[0]!.children].map((child) => child.tagName.toLowerCase() + (child.className ? "." + child.className : ""))).toEqual(["img", "h2", "p", "p.src"]);
+    expect([...shown[0]!.children].map((child) => child.tagName.toLowerCase() + (child.className ? "." + child.className : ""))).toEqual(["img", "h2", "p", "p.src", "button.story-chat"]);
     expect(shown[0]!.querySelector("img")!.getAttribute("src")).toBe(`/api/story-image?u=1&token=${"a".repeat(48)}`);
     expect(shown[0]!.querySelector("h2 a")!.getAttribute("href")).toBe("https://hackaday.example/chumby");
     const input = document.getElementById("input") as HTMLTextAreaElement;
-    expect(input.placeholder).toBe("Ask about Static Radio for the Chumby One");
-    shown[1]!.click();
-    expect(input.placeholder).toBe("Ask about Infinite Mac adds support for BeOS");
+    // No story is talked about until he picks one: the box is the conversation's.
+    expect(chip()).toBe("");
+    expect(input.placeholder).toBe("Message firstmate");
+    // "Chat about this" under the source puts that story in the box, by name.
+    shown[1]!.querySelector<HTMLElement>(".story-chat")!.click();
+    expect(chip()).toBe("Infinite Mac adds support for BeOS");
+    expect(input.placeholder).toBe("Ask about this story");
+    expect(shown[1]!.querySelector(".story-chat")!.getAttribute("aria-pressed")).toBe("true");
+    // Pointing at another story on the way to the box never changes it.
+    shown[0]!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    document.getElementById("news-page")!.dispatchEvent(new Event("scroll"));
+    expect(chip()).toBe("Infinite Mac adds support for BeOS");
     // Asking goes to that story's own conversation, and the answer is drawn under the story.
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (
       url === "/api/article-chat" ? json({ session: "window:article-0123456789abcdef" }) : url === "/api/send" ? json({ id: "u9" }) : json({ assistantLabel: "Flyd", sessions: SESSIONS })
@@ -4576,27 +4594,27 @@ describe("the front page", () => {
     ];
     const update = (items: typeof stories) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: items }], semantic: [] } });
     update(stories);
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (
       url === "/api/article-chat" ? json({ session: "article:first" }) : url === "/api/send" ? json({ id: "q1" }) : json({ assistantLabel: "Flyd", sessions: SESSIONS })
     ));
     await type("Question?");
     const first = FakeEventSource.instances.at(-1)!;
     expect(first.url).toContain("session=article%3Afirst");
-    document.querySelectorAll<HTMLElement>("#news-cols .story")[1]!.click();
+    document.querySelectorAll<HTMLElement>("#news-cols .story-chat")[1]!.click();
     expect(first.closed).toBe(false);
     first.emit("update", { order: ["q1"], messages: [{ id: "q1", role: "user", html: "Question?" }], working: true });
     first.emit("update", { order: ["q1", "a1"], messages: [{ id: "a1", role: "assistant", html: "Answer.", answers: "q1" }], working: false });
     expect(document.querySelector("#news-cols .story .talk")!.textContent).toContain("Answer.");
     expect(first.closed).toBe(true);
-    document.querySelectorAll<HTMLElement>("#news-cols .story")[0]!.click();
+    document.querySelectorAll<HTMLElement>("#news-cols .story-chat")[0]!.click();
     const reconnected = FakeEventSource.instances.at(-1)!;
     expect(reconnected).not.toBe(first);
     reconnected.emit("update", { order: ["q1", "a1"], messages: [{ id: "q1", role: "user", html: "Question?" }, { id: "a1", role: "assistant", html: "Answer." }], working: false });
     expect(document.querySelector("#news-cols .story .talk")!.textContent).toContain("Answer.");
     document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
     expect(reconnected.closed).toBe(true);
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     const returned = FakeEventSource.instances.at(-1)!;
     expect(returned).not.toBe(reconnected);
     update([]);
@@ -4607,14 +4625,14 @@ describe("the front page", () => {
     const stream = await opened();
     const stories = [{ title: "First", url: "https://example.test/first" }, { title: "Second", url: "https://example.test/second" }];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     let finishOpen!: (response: Response) => void;
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (
       url === "/api/article-chat" ? new Promise<Response>((resolve) => { finishOpen = resolve; }) : url === "/api/send" ? json({ id: "q1" }) : json({ assistantLabel: "Flyd", sessions: SESSIONS })
     ));
     const sending = type("Question?");
     await settle();
-    document.querySelectorAll<HTMLElement>("#news-cols .story")[1]!.click();
+    document.querySelectorAll<HTMLElement>("#news-cols .story-chat")[1]!.click();
     finishOpen(json({ session: "article:first" }));
     await sending;
     await settle();
@@ -4633,20 +4651,18 @@ describe("the front page", () => {
     ];
     const update = (items: typeof stories) => stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: items, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
     update(stories);
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     const input = document.getElementById("input") as HTMLTextAreaElement;
     let cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
     expect(cards).toHaveLength(2);
-    cards[1]!.click();
+    cards[1]!.querySelector<HTMLElement>(".story-chat")!.click();
     update([{ ...stories[0]! }, { ...stories[1]!, title: "Second updated" }]);
-    expect(input.placeholder).toBe("Ask about Second updated");
+    expect(chip()).toBe("Second updated");
     cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
-    vi.spyOn(document.getElementById("news-page")!, "getBoundingClientRect").mockReturnValue({ top: 140, bottom: 700, left: 0, right: 800 } as DOMRect);
-    vi.spyOn(cards[0]!, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 100, left: 0, right: 300 } as DOMRect);
-    vi.spyOn(cards[1]!, "getBoundingClientRect").mockReturnValue({ top: 150, bottom: 300, left: 0, right: 300 } as DOMRect);
+    // Clicking another card to read it does not change which story the box is about.
     cards[0]!.click();
     document.getElementById("news-page")!.dispatchEvent(new Event("scroll"));
-    expect(input.placeholder).toBe("Ask about Second updated");
+    expect(chip()).toBe("Second updated");
     update([]);
     expect(input.placeholder).toBe("Message firstmate");
   });
@@ -4659,7 +4675,7 @@ describe("the front page", () => {
       { title: "Infinite Mac adds support for BeOS", url: "https://waxy.example/beos", source: "Waxy", gist: "Another dead operating system boots in a tab." },
     ];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories, at: "2026-11-14T06:00:00.000Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     const [quote, article] = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
     expect([...quote!.querySelectorAll("p")].map((line) => line.textContent)).toEqual([`“${words}”`, "— John Eliot", "ZenQuotes"]);
     expect([...article!.querySelectorAll("p")].map((line) => line.textContent)).toEqual(["Another dead operating system boots in a tab.", "Waxy"]);
@@ -4675,45 +4691,27 @@ describe("the front page", () => {
       { title: "Trending", url: "https://cdn.example/trend", source: "Google Trends" },
     ];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: stories.slice(1), newsStories: stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     expect([...document.querySelectorAll("#news-cols .story h2")].map((node) => node.textContent)).toEqual(["Reporting on Pexels", "A Giphy investigation"]);
   });
 
-  it("keeps the story under the pointer selected when News scrolls", async () => {
+  it("forgets the picked story when he removes it from the box", async () => {
     const stream = await opened();
     const stories = [{ title: "Left", url: "https://example.test/left" }, { title: "Right", url: "https://example.test/right" }];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
-    const cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
-    const original = document.elementFromPoint;
-    document.elementFromPoint = () => cards[1]!;
-    try {
-      document.dispatchEvent(new MouseEvent("mousemove", { clientX: 600, clientY: 200, bubbles: true }));
-      for (const target of [document.getElementById("news-page")!, window]) {
-        target.dispatchEvent(new Event("scroll"));
-        expect((document.getElementById("input") as HTMLTextAreaElement).placeholder).toBe("Ask about Right");
-      }
-    } finally { document.elementFromPoint = original; }
-  });
-
-  it("selects a visible story rather than an offscreen column", async () => {
-    const stream = await opened();
-    const stories = [{ title: "Offscreen", url: "https://example.test/off" }, { title: "Visible", url: "https://example.test/visible" }];
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
-    const cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
-    vi.spyOn(document.getElementById("news-page")!, "getBoundingClientRect").mockReturnValue({ top: 100, bottom: 700, left: 100, right: 900 } as DOMRect);
-    vi.spyOn(cards[0]!, "getBoundingClientRect").mockReturnValue({ top: 800, bottom: 1000, left: 100, right: 400 } as DOMRect);
-    vi.spyOn(cards[1]!, "getBoundingClientRect").mockReturnValue({ top: 200, bottom: 500, left: 500, right: 800 } as DOMRect);
-    document.getElementById("news-page")!.dispatchEvent(new Event("scroll"));
-    expect((document.getElementById("input") as HTMLTextAreaElement).placeholder).toBe("Ask about Visible");
+    showNews(1);
+    expect(chip()).toBe("Right");
+    document.getElementById("story-chip-clear")!.click();
+    expect(chip()).toBe("");
+    expect((document.getElementById("input") as HTMLTextAreaElement).placeholder).toBe("Message firstmate");
+    expect(document.querySelector('#news-cols .story-chat[aria-pressed="true"]')).toBeNull();
   });
 
   it("sends a News attachment without text to the article session", async () => {
     const stream = await opened();
     const stories = [{ title: "A story", url: "https://example.test/story" }];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/article-chat" ? { session: "window:article-0123456789abcdef" } : { id: "sent" }));
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(drop, "dataTransfer", { value: { files: [new File(["hello"], "notes.md")] } });
@@ -4729,7 +4727,7 @@ describe("the front page", () => {
     const stream = await opened();
     const stories = [{ title: "First", url: "https://example.test/first" }, { title: "Second", url: "https://example.test/second" }];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     let fail!: (response: Response) => void;
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
       if ((stage === "open" && url === "/api/article-chat") || (stage === "send" && url === "/api/send")) return new Promise<Response>((resolve) => { fail = resolve; });
@@ -4737,40 +4735,40 @@ describe("the front page", () => {
       return json({});
     });
     await type("Question for first");
-    document.querySelectorAll<HTMLElement>("#news-cols .story")[1]!.click();
+    document.querySelectorAll<HTMLElement>("#news-cols .story-chat")[1]!.click();
     fail(json({ error: "failed" }, 500));
     await settle();
     const input = document.getElementById("input") as HTMLTextAreaElement;
     expect(input.value).toBe("Question for first");
-    expect(input.placeholder).toBe("Ask about First");
+    expect(chip()).toBe("First");
   });
 
   it("keeps a new draft when an earlier News send fails", async () => {
     const stream = await opened();
     const stories = [{ title: "First", url: "https://example.test/first" }, { title: "Second", url: "https://example.test/second" }];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     let fail!: (response: Response) => void;
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => url === "/api/article-chat" ? new Promise<Response>((resolve) => { fail = resolve; }) : json({}));
     await type("Earlier question");
-    document.querySelectorAll<HTMLElement>("#news-cols .story")[1]!.click();
+    document.querySelectorAll<HTMLElement>("#news-cols .story-chat")[1]!.click();
     const input = document.getElementById("input") as HTMLTextAreaElement;
     input.value = "New question";
     fail(json({ error: "failed" }, 500));
     await settle();
     expect(input.value).toBe("New question");
-    expect(input.placeholder).toBe("Ask about Second");
+    expect(chip()).toBe("Second");
     input.value = "";
     document.querySelector<HTMLButtonElement>("#news-cols .talk button")!.click();
     expect(input.value).toBe("Earlier question");
-    expect(input.placeholder).toBe("Ask about First");
+    expect(chip()).toBe("First");
   });
 
   it("treats a lost News send response as uncertain and shows delivery warnings", async () => {
     const stream = await opened();
     const stories = [{ title: "A story", url: "https://example.test/story" }];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     let attempts = 0;
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
       if (url === "/api/article-chat") return json({ session: "window:article-0123456789abcdef" });
@@ -4790,7 +4788,7 @@ describe("the front page", () => {
   it("keeps News delivery uncertain without a receipt, even for similar messages", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: [{ title: "A story", url: "https://example.test/story" }], at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     let rejectSend!: (error: Error) => void;
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
       if (url === "/api/article-chat") return json({ session: "window:article-0123456789abcdef" });
@@ -4813,7 +4811,7 @@ describe("the front page", () => {
   it("retains a successful News question until its receipt appears", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: [{ title: "A story", url: "https://example.test/story" }], at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/article-chat" ? { session: "window:article-0123456789abcdef" } : { id: "new" }));
     await type("A new question");
     const article = FakeEventSource.instances.at(-1)!;
@@ -4827,7 +4825,7 @@ describe("the front page", () => {
   it("shows News image and document attachments before and after their receipt", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories: [{ title: "A story", url: "https://example.test/story" }], at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     let reply!: (response: Response) => void;
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
       if (url === "/api/article-chat") return json({ session: "window:article-0123456789abcdef" });
@@ -4855,7 +4853,7 @@ describe("the front page", () => {
     const stream = await opened();
     const stories = [{ title: "First", url: "https://example.test/first" }, { title: "Second", url: "https://example.test/second" }];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/article-chat" ? { session: "window:article-0123456789abcdef" } : { id: "sent" }));
     await type("Remember this");
     const article = FakeEventSource.instances.at(-1)!;
@@ -4865,9 +4863,9 @@ describe("the front page", () => {
     stream.emit("update", { order: ["u1"], messages: [], working: false });
     expect(bar.textContent).toContain("Remember this?");
     const cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
-    cards[1]!.click();
+    cards[1]!.querySelector<HTMLElement>(".story-chat")!.click();
     expect(bar.hidden).toBe(true);
-    cards[0]!.click();
+    cards[0]!.querySelector<HTMLElement>(".story-chat")!.click();
     expect(bar.hidden).toBe(false);
     document.getElementById("article-confirm-yes")!.click();
     await settle();
@@ -4882,15 +4880,15 @@ describe("the front page", () => {
       { title: "A statistic", url: "https://example.test/stat", media: "stat", figure: "42%", gist: "A result" },
     ];
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ kind: "news", stories, at: "2026-11-03T06:00:00Z" }], semantic: [] } });
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     const cards = [...document.querySelectorAll<HTMLElement>("#news-cols .story")];
     expect(cards[0]!.textContent).toContain("Keep going");
     expect(cards[0]!.textContent).toContain("Ada");
     expect(cards[1]!.textContent).toContain("42%");
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(url === "/api/article-chat" ? { session: "window:article-0123456789abcdef" } : { id: "u9" }));
-    cards[0]!.click();
+    cards[0]!.querySelector<HTMLElement>(".story-chat")!.click();
     await type("What did she mean?");
-    cards[1]!.click();
+    cards[1]!.querySelector<HTMLElement>(".story-chat")!.click();
     await type("What does it measure?");
     const openedStories = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/article-chat").map(([, init]) => JSON.parse(String(init!.body)));
     expect(openedStories).toMatchObject([{ text: "Keep going", attribution: "Ada" }, { text: "A result", figure: "42%" }]);
@@ -4904,11 +4902,11 @@ describe("the front page", () => {
       return json({ weather: reads === 1 ? null : { place: "Canggu", tempC: 29, code: 0, read: "2026-11-07T05:00:00Z", hours: [] } });
     });
     await opened();
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     await settle();
     expect(document.querySelector("#news-side .wxcard")).toBeNull();
     document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     await settle();
     expect(document.querySelector("#news-side .wx-deg")!.textContent).toBe("29°");
   });
@@ -4923,7 +4921,7 @@ describe("the front page", () => {
     };
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(String(url).startsWith("/api/weather?") ? { weather } : { assistantLabel: "Flyd", sessions: SESSIONS }));
     await opened();
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     await settle();
     const card = () => document.querySelector<HTMLElement>("#news-side .wxcard")!;
     expect(card().querySelector(".wx-place")!.textContent).toBe("Canggu");
@@ -4951,7 +4949,7 @@ describe("the front page", () => {
     ] };
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => json(String(url).startsWith("/api/weather?") ? { weather } : { assistantLabel: "Flyd", sessions: SESSIONS }));
     await opened();
-    document.querySelector<HTMLElement>('.ctab[data-centre="news"]')!.click();
+    showNews();
     await settle();
     document.querySelector<HTMLElement>('#news-side [data-hour="0"]')!.click();
     expect(document.querySelector("#news-side .wx-deg")!.textContent).toBe("26°");
