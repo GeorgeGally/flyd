@@ -5,7 +5,7 @@ import { activityRecordPath, recordActivity, type ActivityRecord } from "../conv
 import { readMemoryEntries, memoryEntryIsStale, type MemoryEntry } from "../council/memory-store.js";
 import { readProjects, type Project } from "../council/projects.js";
 import { latestEdition, type Edition } from "../council/scout.js";
-import { contextScore, workFocusFromProjects } from "../council/inspiration.js";
+import { contextScore, lexicalTokens, workFocusFromProjects } from "../council/inspiration.js";
 import { MEETING_PREP_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
 
 export interface CareEvent { id: string; title: string; start: string }
@@ -18,6 +18,8 @@ export interface CareDeps {
   calendarConsent?: () => boolean;
   record?: (record: ActivityRecord) => void;
   alreadyRecorded?: (key: string, day: string) => boolean;
+  /** Number of existing, distinct conversation galleries today; for daily attention budget. */
+  countConversationCards?: (day: string) => number;
 }
 export interface CareResult { meetings: number; inspiration: number; commitments: number; skipped: string[] }
 const CREATIVE = /\b(?:design|graphic|visual|art|creative|identity|branding|typography|animation|render|website|interface|ui|3d|generative)\b/i;
@@ -43,6 +45,24 @@ function alreadyRecorded(key: string, day: string): boolean {
       } catch { return false; }
     });
   } catch { return false; }
+}
+
+/** Older activity cards remain on disk for audit, but the panel only shows
+ * them under current consent (activity.ts). Use stored keys for the attention
+ * budget so a restarted Core cannot produce endless inspiration cards.
+ */
+export function conversationCardCount(day: string): number {
+  try {
+    const unique = new Set<string>();
+    for (const line of readFileSync(activityRecordPath(), "utf8").split("\n").slice(-500)) {
+      try {
+        const item = JSON.parse(line) as ActivityRecord;
+        if (item.key?.startsWith("care:creative:conversation:" + day + ":")
+          && item.at && dayOf(new Date(item.at)) === day) unique.add(item.key);
+      } catch { /* a truncated final record is not a card */ }
+    }
+    return unique.size;
+  } catch { return 0; }
 }
 
 /** Require exact two-part names present in both the title and fresh People memory. */
@@ -192,12 +212,16 @@ export function prepareCreativeForConversation(message: string, deps: CareDeps =
   };
   const candidate = creativeCard([focus], edition, now, 3);
   if (!candidate) return false;
+  // Normalize the subject rather than keying off raw prose, so edits to
+  // punctuation do not create new cards. Distinct directions can each get a
+  // useful gallery, but two per day is the hard interruption/attention budget.
+  const topic = lexicalTokens(message).slice(0, 12).sort().join(" ");
+  const key = "care:creative:conversation:" + day + ":" + hash(topic);
+  if ((deps.alreadyRecorded ?? alreadyRecorded)(key, day)) return false;
+  if ((deps.countConversationCards ?? conversationCardCount)(day) >= 2) return false;
   const card: ActivityRecord = {
-    ...candidate,
-    key: "care:creative:conversation:" + day,
-    title: "References for this direction",
+    ...candidate, key, title: "References for this direction",
   };
-  if ((deps.alreadyRecorded ?? alreadyRecorded)(card.key!, day)) return false;
   (deps.record ?? recordActivity)(card);
   return true;
 }
