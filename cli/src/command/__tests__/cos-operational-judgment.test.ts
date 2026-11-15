@@ -50,8 +50,8 @@ describe("CoS operational decisions", () => {
   it("declines high-impact and externally committed decisions before querying a model", async () => {
     const called: string[] = [];
     for (const question of [
-      "Should we merge PR #46?",
       "Can I deploy the site?",
+      "Force push over main?",
       "Send the client's message?",
       "Do we pay the supplier?",
       "Delete the production database?",
@@ -63,6 +63,27 @@ describe("CoS operational decisions", () => {
       expect(result.kind, question).toBe("escalate");
     }
     expect(called).toEqual([]);
+  });
+
+  it("settles a routine push or merge of George's own work itself, with no decision model, never asking him", async () => {
+    const called: string[] = [];
+    for (const question of [
+      "Should we merge PR #46?",
+      "Waiting for George's approval to push the Guido fix to GitHub",
+      "Need permission to merge and push to main?",
+    ]) {
+      const result = await judgeOperationalQuestion({ ...routine, domain: "coding", question, options: [], recommendation: undefined }, {
+        evaluate: async () => { called.push(question); return fake("use_recommendation"); },
+      });
+      expect(result.kind, question).toBe("internal");
+      expect(result.kind === "internal" && result.message, question).toMatch(/push it to his GitHub/);
+    }
+    expect(called).toEqual([]);
+    // Still his: going live, someone else's repo, and work outside code.
+    for (const question of ["Push and deploy to production?", "Push the fix upstream to their fork?"]) {
+      expect((await judgeOperationalQuestion({ ...routine, domain: "coding", question, options: [] })).kind, question).toBe("escalate");
+    }
+    expect(protectedOperationalQuestion({ ...routine, domain: "creative", question: "Merge PR #46?", options: [] })).toBe(true);
   });
 
   it("does not interpret a personal booking as routine implementation", async () => {

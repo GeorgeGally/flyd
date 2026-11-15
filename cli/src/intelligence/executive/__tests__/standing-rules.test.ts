@@ -59,9 +59,17 @@ describe("George's standing rules in the review step", () => {
     ]) expect(settleCall(call(question), PREFERENCES)).toBeNull();
   });
 
+  it("settles a routine push of his own work by the built-in rule, however the staff word it", () => {
+    for (const question of ["Waiting for George's approval to push the Guido fix to GitHub?", "Needs your permission to merge and push to main?"]) {
+      expect(settleCall(call(question), "- George likes tea."), question).toMatchObject({ rule: "routine-git" });
+    }
+    expect(settleCall(call("OK to push and deploy to production?"), PREFERENCES)?.rule).not.toBe("routine-git");
+  });
+
   it("stands only on lines he wrote: without them nothing is settled", () => {
     expect(settleCall(call("Pick which phases to start (recommended phase 0+1 first)"), "- George likes tea.")).toBeNull();
-    expect(authorityForStaffRun({ runId: "r", firstmate: true, active: true, autonomy: "trusted", standing: "- George likes tea." }).map((grant) => grant.grantId)).not.toContain(STANDING_RULES_POLICY.id);
+    // The built-in routine-git rule still stands, so the grant exists; it settles only that.
+    expect(authorityForStaffRun({ runId: "r", firstmate: true, active: true, autonomy: "trusted", standing: "- George likes tea." }).map((grant) => grant.grantId)).toContain(STANDING_RULES_POLICY.id);
     expect(authorityForStaffRun({ runId: "r", firstmate: true, active: true, autonomy: "ask", standing: PREFERENCES })).toEqual([]);
   });
 });

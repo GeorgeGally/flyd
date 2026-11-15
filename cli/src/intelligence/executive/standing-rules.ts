@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { userProfilePath } from "../../lib/user-profile.js";
+import { ROUTINE_GIT_RULE, routineGitStep } from "../../lib/routine-git.js";
 import { HIS_TASTE, NEVER, recordedLine, speaksForHim, standingAnswer, TAKE_CONTROL, WANTS_HIM } from "../../conversation-view/auto-answers.js";
 
 // George's standing rules as an authority grant in the review step. When a
@@ -111,6 +112,12 @@ export function settleCall(call: CallToSettle, preferences: string): StandingSet
   const question = call.question.replace(/\s+/g, " ").trim();
   if (!question) return null;
   const said = `${question}\n${call.label}`;
+
+  // Pushing, merging or syncing his own finished work is routine by his standing rule, however
+  // the staff word it ("needs George's permission to push"); it never waits on him.
+  if (ASKS.test(question) && routineGitStep(`${question}\n${call.sourceText}`) && !HIS_TASTE.test(said) && !speaksForHim(question)) {
+    return settled("routine-git", "Yes. Merge it into main and push it to his GitHub; that is routine, so don't ask him about it again.", ROUTINE_GIT_RULE, question, `Told the team to go ahead: ${question.replace(/[?.\s]+$/, "")}.`);
+  }
 
   if (NEVER.test(said) || NEVER.test(call.sourceText) || HIS_TASTE.test(said) || WANTS_HIM.test(call.sourceText) || HIS_WORD.test(call.sourceText) || speaksForHim(question)) return null;
 

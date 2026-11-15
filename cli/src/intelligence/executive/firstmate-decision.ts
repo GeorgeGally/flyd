@@ -84,7 +84,9 @@ export function authorityForStaffRun(input: {
   if (!input.firstmate || !input.active || input.autonomy === "ask") return [];
   return [
     { grantId: STAFF_COORDINATION_POLICY.id, capability: STAFF_COORDINATION_POLICY.capability, target: input.runId },
-    ...(input.standing !== undefined && hasStandingRules(input.standing)
+    // The routine-git rule (push, merge, sync of his own finished work) is built in, so it stands
+    // even before USER.md records a line; his recorded lines add the rest.
+    ...(input.standing !== undefined && (input.firstmate || hasStandingRules(input.standing))
       ? [{ grantId: STANDING_RULES_POLICY.id, capability: STANDING_RULES_POLICY.capability, target: input.runId }] : []),
   ];
 }

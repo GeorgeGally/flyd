@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { evaluateExecutivePredicates } from "../system-one/decision-provider.js";
+import { questionFor } from "../system-one/registry.js";
 import { evaluatePredicates, JEV_PINNED_MODEL } from "../system-one/jev.js";
 import { predicatePasses } from "../system-one/policy.js";
 
@@ -177,6 +179,24 @@ describe("Jev client wire contract (docs.typesafe.ai/api)", () => {
       expect(captured).toHaveLength(0);
     } finally {
       if (previous !== undefined) process.env.FLYD_JEV_ENABLED = previous;
+    }
+  });
+});
+
+describe("the executive decision provider without Gemini", () => {
+  it("never calls Gemini or needs a Google account: an unconfigured Gemini falls back to Jev", async () => {
+    vi.stubEnv("FLYD_EXECUTIVE_DECISION_PROVIDER", "gemini");
+    vi.stubEnv("GEMINI_API_KEY", "");
+    vi.stubEnv("GOOGLE_API_KEY", "");
+    const calls: string[] = [];
+    try {
+      const result = await evaluateExecutivePredicates({ summary: "push the fix" }, [questionFor("cos_operational_disposition")], {
+        fetchFn: (async (url: string) => { calls.push(String(url)); throw new Error("no network in tests"); }) as never,
+      });
+      expect(calls.some((url) => url.includes("googleapis"))).toBe(false);
+      expect(result.evaluator).not.toBe("gemini");
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });
