@@ -202,6 +202,8 @@ export interface ActivityRecord {
   stories?: Array<Omit<ActivityStory, "mark"> & { kind?: string }>;
   state?: "now" | "done";
   at?: string;
+  /** Ambient content stops being relevant after this time; a card is not a week-long alert. */
+  expiresAt?: string;
 }
 
 /** A `now` record nobody ended is stale after this long: the thing that wrote it is gone. */
@@ -409,6 +411,7 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
     const title = text(record?.title);
     const at = stamp(record?.at);
     if (!record || !title || !at || typeof record.kind !== "string" || !KINDS.has(record.kind)) return;
+    if (record.expiresAt && (!Number.isFinite(Date.parse(record.expiresAt)) || now >= Date.parse(record.expiresAt))) return;
     const key = text(record.key) ?? `once:${index}`;
     const before = latest.get(key);
     if (!before || Date.parse(at) >= Date.parse(before.at)) latest.set(key, { ...record, title, at, kind: record.kind });
