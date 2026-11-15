@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
 import { FLYD_DIR } from "../lib/config.js";
+import { HEADLESS_CHROME_ARGS } from "../lib/headless-chrome.js";
 import { chooseElement, cropBox, type Locator, type Rect } from "./site-changes.js";
 
 // The picture of a change to a website: the element the change touched, cut
@@ -153,11 +154,9 @@ class Devtools {
 async function launch(chrome: string): Promise<{ child: ChildProcess; profile: string; endpoint: string }> {
   const profile = mkdtempSync(join(tmpdir(), "flyd-element-"));
   const child = spawn(chrome, [
-    "--headless=new",
+    ...HEADLESS_CHROME_ARGS,
     "--remote-debugging-port=0",
     `--user-data-dir=${profile}`,
-    "--no-first-run",
-    "--no-default-browser-check",
     "--disable-extensions",
     "--hide-scrollbars",
     "--mute-audio",

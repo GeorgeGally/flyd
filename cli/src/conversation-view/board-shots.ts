@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
+import { HEADLESS_CHROME_ARGS } from "../lib/headless-chrome.js";
 
 // A picture of a Liesel board, so a card that asks him to look at one shows
 // the board itself rather than only a link to it. The board already exists:
@@ -66,15 +67,11 @@ function chromePath(): string | undefined {
 /** The headless Chrome arguments for one screen of a page: its own throwaway profile, no keychain, no window. Pure. */
 export function captureArgs(url: string, png: string, profile: string): string[] {
   return [
-    "--headless=new",
+    ...HEADLESS_CHROME_ARGS,
     "--disable-gpu",
     "--hide-scrollbars",
-    "--no-first-run",
-    "--no-default-browser-check",
     "--disable-extensions",
     "--mute-audio",
-    "--use-mock-keychain",
-    "--password-store=basic",
     `--user-data-dir=${profile}`,
     `--window-size=${VIEW.width},${VIEW.height}`,
     "--virtual-time-budget=6000",
