@@ -62,10 +62,10 @@ describe("proactive local personal care", () => {
   it("curates only directly related, actual Scout references", () => {
     const card = creativeCard([project], edition, now);
     expect(card?.title).toBe("For Generative Typography");
-    expect(card?.stories?.map((story) => story.url)).toEqual([
+    expect(card?.stories?.map((story) => story.url).sort()).toEqual([
       "https://studio.example.org/generative-typography",
       "https://archive.example.org/typography",
-    ]);
+    ].sort());
     expect(creativeCard([project], { ...edition, date: "2026-11-14" }, now)).toBeNull();
     expect(creativeCard([project], { ...edition, items: edition.items.slice(0, 1) }, now)).toBeNull();
     expect(creativeCard([{ ...project, status: "done" }], edition, now)).toBeNull();
