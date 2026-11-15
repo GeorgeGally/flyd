@@ -38,8 +38,8 @@ afterEach(() => {
 describe("proactive local personal care", () => {
   it("parses minimal macOS Calendar metadata, no notes or addresses", () => {
     const events = parseCalendarMetadata(
-      "abc-123\tCall with Chris Jones\t2026-11-15T10:45:00\n" +
-      "abc-123\tCall with Chris Jones\t2026-11-15T10:45:00\n" +
+      "event-123\tCall with Chris Jones\t2026-11-15T10:45:00\n" +
+      "event-123\tCall with Chris Jones\t2026-11-15T10:45:00\n" +
       "bad\tmalformed\t2026-11-15\n",
     );
     expect(events).toEqual([meeting]);
