@@ -16,8 +16,12 @@ export const DEPLOY_ACTION = /\b(?:and|then)\s+(?:then\s+)?(?:deploy|publish|rel
 /** Still his: a force push, or a push to someone else's repo. */
 const STILL_HIS = /\bforce[- ]?push\w*|--force\b|\bpush\w*\s+(?:\S+\s+)?-f\b|(?<!--set-)\bupstream\b|\b(?:forks?|forked|someone else(?:'s)?|other people(?:'s)?|third[- ]party|another remote|their repo)\b/i;
 
-/** A step that destroys or rewrites work anywhere in the ask ("Needs approval to revert the last commit and push"); only a word naming the work itself is exempt ("the password reset fix"). */
-const DESTRUCTIVE = /\b(?:revert|reset|delet|drop|amend|force|filter-branch|rebase -i|rewrit\w* (?:the )?history)\w*\b(?!(?:-[\w']+|\s+(?!(?:the|a|an|this|that|these|those|my|our|his|her|their|last|old|all|any|some)\b)[\w'-]+)?[\s-]+(?:fix|fixes|bug|bugs|button|shadow|feature|flow|page|form|link|modal|screen|tests?|copy)\b)/i;
+const DESTRUCTIVE_WORD = String.raw`\b(?:revert|reset|delet|drop|amend|force|filter-branch|rebase -i|rewrit\w* (?:the )?history)\w*\b`;
+const NOUN_PHRASE_BEFORE = String.raw`\b(?:the|a|an|this|that|my|our)\s+(?:[\w'-]+\s+)?`;
+const WORK_NOUN_AFTER = String.raw`(?:-[\w']+|\s+[\w'-]+)?[\s-]+(?:fix|fixes|bug|bugs|button|shadow|feature|flow|page|form|link|modal|screen|tests?|copy)\b`;
+
+/** A step that destroys or rewrites work anywhere in the ask ("Delete tests and push?"); only a word inside a phrase naming the work is exempt ("the password reset fix"). */
+const DESTRUCTIVE = new RegExp(`(?<!${NOUN_PHRASE_BEFORE})${DESTRUCTIVE_WORD}|(?<=${NOUN_PHRASE_BEFORE})${DESTRUCTIVE_WORD}(?!${WORK_NOUN_AFTER})`, "i");
 
 /** Secret material the ask itself commits or pushes ("commit the .env", "push the API key"). */
 const SECRET = /(?:^|\s)\.env\b|\b(?:(?:commit|push|add)\w*|check in|with|including|containing)\s+(?:(?:the|a|my|his|our|these|those)\s+)?(?:api[- ]?keys?|secrets?|credentials?|tokens?|passwords?|private keys?)(?=\s*(?:$|[.,;:?!]|(?:and|to|into|with|in|file|files)\b))/i;
@@ -26,15 +30,15 @@ const SECRET = /(?:^|\s)\.env\b|\b(?:(?:commit|push|add)\w*|check in|with|includ
 const EITHER_OR = /\bor\b|\b(?:which|pick|choose|instead)\b/i;
 
 /** Tests, checks, CI, lint or the build failing now ("Lint failing", "CI red", "two tests still fail", "not green"). */
-const STILL_FAILING = /\bstill (?:fail(?:s|ing)?|red|broken)\b|\b(?:tests?|checks?|ci|lint|build|suite)\W+(?:[\w'-]+\W+){0,2}?(?:fail(?:s|ing)?|red|broken)\b|\bnot (?:yet )?(?:green|passing)\b/gi;
+const STILL_FAILING = /\bstill (?:fail(?:s|ing)?|red|broken)\b|\b(?:tests?|checks?|ci|lint|build|suite)\W+(?:[\w'-]+\W+){0,2}?(?:fail(?:s|ing)?|red|broken)\b|\bfailing (?:tests?|checks?|ci|lint|builds?|specs?)\b|\bnot (?:yet )?(?:green|passing)\b/gi;
 
 /** Said of a failure that is past or none ("lint was failing", "no longer fails", "0 failing"). */
 const PAST = /\b(?:fixed|resolved|was|were|used to|0|no|none|nothing|zero)(?:[\s-]+[\w'-]+){0,2}[\s-]+$/i;
 
 function failingNow(text: string): boolean {
   return [...text.matchAll(STILL_FAILING)].some((found) => {
-    const failure = /(?:fail(?:s|ing)?|red|broken|green|passing)$/i.exec(found[0])!;
-    return !PAST.test(text.slice(0, found.index! + failure.index));
+    const failure = [...found[0].matchAll(/\b(?:fail(?:s|ing)?|red|broken|green|passing)\b/gi)].at(-1)!;
+    return !PAST.test(text.slice(0, found.index! + failure.index!));
   });
 }
 

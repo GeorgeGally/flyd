@@ -104,6 +104,8 @@ describe("George's standing rules in the review step", () => {
       "Needs George's approval to revert the last commit and push.", "Need permission to reset the branch and push?", "Is it fine to drop the old table and push?",
       "Want to revert the last commit and push?", "OK if I delete the old migration and push?", "Push the fix to delete stale caches?",
       "Revert the fix and push?", "Revert this fix and push?", "Delete the tests and push?", "Drop the feature and push?", "Should I revert the bug fix and push?",
+      "Should I delete failing tests and push?", "Delete stale tests and push?", "Drop flaky tests and push?", "Revert broken fix and push?",
+      "Revert fix and push?", "Delete tests and push?", "Reset tests and push?", "Revert Friday's fix and push?", "Push with failing tests?",
     ]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
     }
