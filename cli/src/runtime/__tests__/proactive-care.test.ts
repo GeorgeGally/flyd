@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { calendarMetadataConsented, commitmentCard, creativeCard, prepareCreativeForConversation, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
 import { parseCalendarMetadata } from "../proactive-calendar.js";
-import { CALENDAR_METADATA_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
+import { MEETING_PREP_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import type { MemoryEntry } from "../../council/memory-store.js";
 import type { Project } from "../../council/projects.js";
 import type { Edition } from "../../council/scout.js";
@@ -152,9 +152,9 @@ describe("proactive local personal care", () => {
     try {
       const registry = new SourceContractRegistry({ path: join(folder, "source-consents.json") });
       expect(calendarMetadataConsented(registry)).toBe(false);
-      registry.setStatus(CALENDAR_METADATA_CONTRACT.sourceId, "enabled");
+      registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "enabled");
       expect(calendarMetadataConsented(registry)).toBe(true);
-      registry.setStatus(CALENDAR_METADATA_CONTRACT.sourceId, "revoked");
+      registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "revoked");
       expect(calendarMetadataConsented(registry)).toBe(false);
     } finally {
       rmSync(folder, { recursive: true, force: true });
