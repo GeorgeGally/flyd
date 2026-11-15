@@ -8,7 +8,7 @@ import { CALENDAR_METADATA_CONTRACT, SourceContractRegistry } from "../../intell
 import type { MemoryEntry } from "../../council/memory-store.js";
 import type { Project } from "../../council/projects.js";
 import type { Edition } from "../../council/scout.js";
-import type { ActivityRecord } from "../../conversation-view/activity.js";
+import { activityFromRecords, type ActivityRecord } from "../../conversation-view/activity.js";
 
 const now = new Date("2026-11-15T10:00:00");
 const meeting: CareEvent = { id: "event-123", title: "Call with Chris Jones", start: "2026-11-15T10:45:00" };
@@ -119,6 +119,16 @@ describe("proactive local personal care", () => {
     expect(card?.line).toContain("Send the revised proposal");
     expect(commitmentCard(entries.map((entry) => ({ ...entry, date: "2026-01-01" })), now)).toBeNull();
     expect(commitmentCard(entries, new Date("2026-11-20T10:00:00"))).toBeNull();
+  });
+
+  it("drops ambient cards as soon as their context expires", () => {
+    const meeting = meetingCard({ ...meeting, start: "2026-11-15T10:45:00" }, memory, now);
+    const creative = creativeCard([project], edition, now);
+    expect(meeting).not.toBeNull();
+    expect(creative).not.toBeNull();
+    expect(activityFromRecords([meeting!, creative!], new Date("2026-11-15T10:15:00").getTime()).done).toHaveLength(2);
+    expect(activityFromRecords([meeting!, creative!], new Date("2026-11-15T10:46:00").getTime()).done).toHaveLength(1);
+    expect(activityFromRecords([meeting!, creative!], new Date("2026-11-16T01:00:00").getTime()).done).toHaveLength(0);
   });
 
   it("honors a revoked or disabled calendar metadata source contract", () => {
