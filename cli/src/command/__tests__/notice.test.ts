@@ -11,6 +11,7 @@ import type { sendRunMessage } from "../messages.js";
 import { HANDLE_IT_YOURSELF } from "../../intelligence/executive/decision-step.js";
 import { deliverOwed } from "../../runtime/delivered.js";
 import { readDomainRun, saveDomainRun } from "../store.js";
+import { MAX_REVIEW_TRIES } from "../report.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
@@ -483,6 +484,17 @@ describe("notifyRun", () => {
     up = true;
     await notifyRun(readDomainRun("domain-back-a")!, notify, send, async () => decided("domain-back-a"), () => false, async () => ({}));
     expect([sent, toBoss, readDomainRun("domain-back-a")?.report?.state]).toEqual([[], [HANDLE_IT_YOURSELF], "quiet"]);
+
+    // A boss that cannot be reached at all: on the last try the call is brought to him rather than left to go quiet.
+    up = false;
+    saveDomainRun(asked("domain-back-c"));
+    for (let pass = 0; pass < MAX_REVIEW_TRIES; pass++) {
+      await notifyRun(readDomainRun("domain-back-c")!, notify, send, async () => decided("domain-back-c"), () => false, async () => ({}));
+    }
+    expect(sent).toEqual([question]);
+    expect(readDomainRun("domain-back-c")?.report?.state).toBe("shown");
+    sent.length = 0;
+    up = true;
 
     // Told to make it itself, the boss says it is his after all: Flyd brings it to him, as its note promised.
     const handedBack = [{ id: "m-back", kind: "decision" as const, body: HANDLE_IT_YOURSELF, from: "flyd" as const, at: "2026-11-10T10:01:00.000Z", deliveredAt: "2026-11-10T10:01:00.000Z" }];
