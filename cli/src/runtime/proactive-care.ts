@@ -174,6 +174,34 @@ export async function runProactiveCare(deps: CareDeps = {}): Promise<CareResult>
   return result;
 }
 
+/**
+ * Conversation-triggered visual preparation. George can be talking about
+ * design before the Librarian has registered a project; use the Scout edition
+ * already on disk and put at most one contextual gallery in the ambient
+ * activity panel per day. This does not modify the reply or start a search.
+ */
+export function prepareCreativeForConversation(message: string, deps: CareDeps = {}): boolean {
+  if (process.env.FLYD_PROACTIVE_CARE === "0" || !CREATIVE.test(message) || message.trim().length < 10) return false;
+  const now = deps.now?.() ?? new Date();
+  const day = dayOf(now);
+  const edition = (deps.edition ?? latestEdition)();
+  const focus: Project = {
+    id: "conversation-design", name: "Your current design direction",
+    kind: "creative", status: "active", what: clean(message, 400), now: "",
+    people: [], repos: [], updated: day,
+  };
+  const candidate = creativeCard([focus], edition, now);
+  if (!candidate) return false;
+  const card: ActivityRecord = {
+    ...candidate,
+    key: "care:creative:conversation:" + day,
+    title: "References for this direction",
+  };
+  if ((deps.alreadyRecorded ?? alreadyRecorded)(card.key!, day)) return false;
+  (deps.record ?? recordActivity)(card);
+  return true;
+}
+
 async function defaultEvents(): Promise<CareEvent[]> {
   if (process.platform !== "darwin" || process.env.VITEST) return [];
   const { appRunning } = await import("./personal-tools.js");
