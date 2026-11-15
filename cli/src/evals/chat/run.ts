@@ -8,6 +8,7 @@
 //   npm run evals:chat -- --suite delivery    how finished work reaches George (sandboxed)
 //   npm run evals:chat -- --tools split --soul path/to/SOUL.md   (split-plan Phase 0: compare tool sets and voices)
 import { execFileSync } from "node:child_process";
+import { loadModelRouting, setModelRouting } from "../../runtime/model-routing.js";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -75,9 +76,10 @@ function previousRun(directory: string): Map<string, CaseResult> | null {
 async function main(): Promise<void> {
   const model = argValue("--model");
   if (model) {
-    process.env.FLYD_CHAT_MODEL = model;
-    // The model under test leads the chain even while Flyd's own Claude is on.
-    process.env.FLYD_CLAUDE_CHAT_MODEL = model;
+    // The model under test is chat's only model, even while Flyd's own Claude is on.
+    const split = model.indexOf(":");
+    const route = split > 0 ? { provider: model.slice(0, split), model: model.slice(split + 1) } : { provider: "anthropic", model };
+    setModelRouting({ ...loadModelRouting(), jobs: { ...loadModelRouting().jobs, chat: [route] } });
   }
   // The judge stays fixed across runs so model comparisons are apples to apples.
   process.env.FLYD_EVAL = "1";
@@ -133,7 +135,7 @@ async function main(): Promise<void> {
     const route = interpretAgentInput(testCase.ask).kind;
     const observed: ChatEvalObservation = { route, answer: "", seconds: 0, toolCalls: [] };
     let approvalsAsked = 0;
-    let actualModel = process.env.FLYD_CHAT_MODEL ?? "configured";
+    let actualModel = argValue("--model") ?? "configured";
     let providerIdentity: string | undefined;
     const started = Date.now();
     if (route === "conversation") {
@@ -218,7 +220,7 @@ async function main(): Promise<void> {
   const medianSeconds = median(results.map((row) => row.seconds));
   const lines = [
     "",
-    `Model: ${process.env.FLYD_CHAT_MODEL ?? "(configured)"} · tools: ${argValue("--tools") ?? "current"}${soul ? ` · soul: ${soul}` : ""} · judge: ${judgeModel}${judgedMean !== null ? ` · judged quality ${judgedMean.toFixed(1)}/10 over ${judged.length}` : ""}`,
+    `Model: ${argValue("--model") ?? "(configured)"} · tools: ${argValue("--tools") ?? "current"}${soul ? ` · soul: ${soul}` : ""} · judge: ${judgeModel}${judgedMean !== null ? ` · judged quality ${judgedMean.toFixed(1)}/10 over ${judged.length}` : ""}`,
     `Chat evals: ${passed}/${results.length} passed (${Math.round((passed / results.length) * 100)}%) · median ${medianSeconds.toFixed(1)}s · ${results.reduce((sum, row) => sum + row.toolCalls, 0)} tool calls`,
   ];
   const byCategory = new Map<string, CaseResult[]>();

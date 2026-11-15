@@ -137,7 +137,7 @@ flyd learning [--approve|--reject <n>]  # dictation corrections → docs/product
 flyd view [--session id] [--project dir]  # conversation view on 127.0.0.1:4818 → docs/product/flyd-conversation-view.md
 flyd taste [show|for <project|path>|learn [--days N]|curate|skills|edit]  # learned design/code taste → docs/product/flyd-taste.md
 flyd transitions                     # recent transitions/judgments/directives; --export <sourceId>, --forget <sourceId>
-FLYD_CHAT_FALLBACK_MODELS=openai:gpt-5.6-luna  # chat/ask failover after Claude (while under its monthly cap) and FLYD_CHAT_MODEL; provider-qualified openai:|anthropic:|commandcode:|openrouter: (OpenCode/DeepSeek are never used; `cli/src/runtime/provider-policy.ts`); every model override: docs/product/flyd-models.md
+~/.flyd/models.json                  # one model config: each job (chat, quick, background, worker, crew, design, images) → ordered {provider, model}, plus banned providers; .env holds keys only (`cli/src/runtime/model-routing.ts`); every model setting: docs/product/flyd-models.md
 FLYD_TRANSITIONS_DISABLED=1          # kill switch for all transition capture
 FLYD_JEV_MODEL=jev-1.13.0            # pin an exact Jev release (default jev-latest); thresholds were tuned against the pinned one
 FLYD_JEV_EVAL=1 TYPESAFE_API_KEY=… FLYD_JEV_EVAL_RECORD=/tmp/r.jsonl npm run evals   # live System-1 replay (synthetic fixtures only); freeze as src/evals/fixtures/system-one/recordings.jsonl
@@ -205,7 +205,7 @@ General questions must resolve to `requires_augment`, not insert answers into th
 ## Known issues
 
 - Local dev signing can require re-granting Accessibility/Input Monitoring/Screen Recording/Microphone after rebuilds.
-- Without `FLYD_MODEL_API_KEY` in `cli/.env`, model-backed resolution cannot answer normally (Core configuration issue).
+- Without `CLAUDE_API_KEY` in the project `.env` (or another keyed provider listed in `~/.flyd/models.json`), model-backed resolution cannot answer normally (Core configuration issue).
 - GUI-launched processes inherit a minimal `PATH` and may start with `/` as the working directory. Never assume Homebrew/nvm/local bin paths; native startup must resolve them explicitly.
 - Launching the raw adapter binary from Terminal can make macOS attribute TCC checks to the wrong process; test with `make run`.
 - The TypeScript baseline has unrelated pre-existing type errors in older memory/graph tests/files; don't attribute them to new evidence code unless an error points into `cli/src/evidence/`.

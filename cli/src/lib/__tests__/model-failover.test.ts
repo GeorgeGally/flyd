@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chatModelChain, oneShotModelChain, resolveModelConnection, usesOpenAITransport } from "../config.js";
 import { openAIAgentTransport, resetProviderCooldowns, runWithModelFailover } from "../llm.js";
-import { commandCodeModelId } from "../../runtime/flyd-worker-config.js";
+import { setModelRouting } from "../../runtime/model-routing.js";
 
 function providerError(status: number, message: string): Error {
   return Object.assign(new Error(message), { status });
@@ -17,7 +17,10 @@ describe("provider-qualified models", () => {
     vi.stubEnv("COMMANDCODE_API_KEY", "cc-key");
     vi.stubEnv("OPENAI_API_KEY", "oa-key");
   });
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    setModelRouting(null);
+    vi.unstubAllEnvs();
+  });
 
   it("routes commandcode: models to CommandCode regardless of FLYD_PROVIDER", () => {
     const connection = resolveModelConnection("commandcode:moonshot/kimi-k3");
@@ -38,16 +41,12 @@ describe("provider-qualified models", () => {
     expect(usesOpenAITransport("anthropic:claude-sonnet-5")).toBe(false);
   });
 
-  it("normalizes OpenCode-style ids to CommandCode's vendor/model form", () => {
-    expect(commandCodeModelId("opencode-go/deepseek-v4.1-flash")).toBe("deepseek/deepseek-v4.1-flash");
-    expect(commandCodeModelId("claude-sonnet-5")).toBe("claude-sonnet-5");
-    expect(commandCodeModelId(undefined)).toBe("deepseek/deepseek-v4-flash");
-  });
-
-  it("builds the chat chain: primary, configured fallbacks, then CommandCode", () => {
-    vi.stubEnv("FLYD_CHAT_MODEL", "openai:gpt-5.6-sol");
-    vi.stubEnv("FLYD_CHAT_FALLBACK_MODELS", "openai:gpt-5.6-luna, ");
-    vi.stubEnv("COMMANDCODE_API_KEY_MODEL", "moonshot/kimi-k3");
+  it("builds the chat chain from the model config, in its order", () => {
+    setModelRouting({ jobs: { chat: [
+      { provider: "openai", model: "gpt-5.6-sol" },
+      { provider: "openai", model: "gpt-5.6-luna" },
+      { provider: "commandcode", model: "moonshot/kimi-k3" },
+    ] } });
     expect(chatModelChain()).toEqual([
       "openai:gpt-5.6-sol",
       "openai:gpt-5.6-luna",
@@ -62,30 +61,31 @@ describe("one-shot model chain", () => {
     spendDir = mkdtempSync(join(tmpdir(), "flyd-one-shot-"));
     vi.stubEnv("FLYD_CLAUDE_SPEND_FILE", join(spendDir, "spend.json"));
     vi.stubEnv("FLYD_CLAUDE_MONTHLY_CAP_USD", "");
-    vi.stubEnv("FLYD_CLAUDE_QUICK_MODEL", "");
     vi.stubEnv("FLYD_CLAUDE", "1");
     vi.stubEnv("CLAUDE_API_KEY", "claude-key");
-    // George's live shape: every configured model on one OpenCode Go account.
-    vi.stubEnv("FLYD_MODEL", "opencode-go/deepseek-v4.1-flash");
-    vi.stubEnv("FLYD_CHAT_FALLBACK_MODELS", "opencode-go/deepseek-v4-pro");
+    setModelRouting({});
     vi.stubEnv("COMMANDCODE_API_KEY", "");
     vi.stubEnv("CMD_API_KEY", "");
     vi.stubEnv("OPENAI_API_KEY", "oa-key");
   });
   afterEach(() => {
+    setModelRouting(null);
     vi.unstubAllEnvs();
     rmSync(spendDir, { recursive: true, force: true });
   });
 
-  it("runs on Claude Haiku alone, never touching the OpenCode Go account", () => {
+  it("runs on Claude Haiku alone by default", () => {
     expect(oneShotModelChain()).toEqual(["anthropic:claude-haiku-5-5"]);
   });
 
-  it("keeps an allowed FLYD_MODEL first, ends on Claude Haiku, and never reaches for OpenAI unasked", () => {
-    vi.stubEnv("FLYD_MODEL", "commandcode:moonshot/kimi-k3");
+  it("follows the config's order, and drops Claude while it is off and CommandCode without its key", () => {
+    setModelRouting({ jobs: { background: [{ provider: "commandcode", model: "moonshot/kimi-k3" }, { provider: "anthropic", model: "claude-haiku-5-5" }] } });
+    vi.stubEnv("COMMANDCODE_API_KEY", "cc-key");
     expect(oneShotModelChain()).toEqual(["commandcode:moonshot/kimi-k3", "anthropic:claude-haiku-5-5"]);
     vi.stubEnv("FLYD_CLAUDE", "0");
     expect(oneShotModelChain()).toEqual(["commandcode:moonshot/kimi-k3"]);
+    vi.stubEnv("COMMANDCODE_API_KEY", "");
+    expect(() => oneShotModelChain()).toThrow(/No model can do Flyd's background jobs/);
   });
 });
 

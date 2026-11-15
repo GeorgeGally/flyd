@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chatModelChain, claudeChatModel, quickModelChain, resolveModelConnection } from "../config.js";
+import { setModelRouting } from "../../runtime/model-routing.js";
 import {
   claudeAvailable,
   claudeHeaders,
@@ -24,9 +25,11 @@ beforeEach(() => {
   vi.stubEnv("CLAUDE_API_KEY", "claude-key");
   vi.stubEnv("ANTHROPIC_API_KEY", "");
   vi.stubEnv("FLYD_PROVIDER", "");
-  vi.stubEnv("FLYD_MODEL", "openai:gpt-5.6-luna");
-  vi.stubEnv("FLYD_CHAT_MODEL", "openai:gpt-5.6-luna");
-  vi.stubEnv("FLYD_CHAT_FALLBACK_MODELS", "");
+  const luna = { provider: "openai", model: "gpt-5.6-luna" };
+  setModelRouting({ jobs: {
+    chat: [{ provider: "anthropic", model: "claude-sonnet-5-5" }, luna],
+    quick: [{ provider: "anthropic", model: "claude-haiku-5-5" }, luna],
+  } });
   vi.stubEnv("COMMANDCODE_API_KEY", "");
   vi.stubEnv("CMD_API_KEY", "");
   vi.stubEnv("FLYD_CLAUDE_MONTHLY_CAP_USD", "");
@@ -36,6 +39,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setSpendNotifier(null);
+  setModelRouting(null);
   vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -49,9 +53,8 @@ describe("model chains with Claude", () => {
     expect(quickModelChain()).toEqual(["anthropic:claude-haiku-5-5", "openai:gpt-5.6-luna"]);
   });
 
-  it("takes model overrides from the environment and qualifies bare Claude ids", () => {
-    vi.stubEnv("FLYD_CLAUDE_CHAT_MODEL", "claude-opus-5-5");
-    vi.stubEnv("FLYD_CLAUDE_QUICK_MODEL", "anthropic:claude-sonnet-5-5");
+  it("takes Claude's models from the model config", () => {
+    setModelRouting({ jobs: { chat: [{ provider: "anthropic", model: "claude-opus-5-5" }], quick: [{ provider: "anthropic", model: "claude-sonnet-5-5" }] } });
     expect(chatModelChain()[0]).toBe("anthropic:claude-opus-5-5");
     expect(quickModelChain()[0]).toBe("anthropic:claude-sonnet-5-5");
   });
@@ -80,9 +83,10 @@ describe("model chains with Claude", () => {
     expect(claudeHeaders()).toEqual({ "anthropic-workspace-id": "wrkspc_123" });
   });
 
-  it("still has a chain when FLYD_MODEL is unset but Claude is on", () => {
-    vi.stubEnv("FLYD_MODEL", "");
+  it("runs on Claude alone by default", () => {
+    setModelRouting({});
     expect(quickModelChain()).toEqual(["anthropic:claude-haiku-5-5"]);
+    expect(chatModelChain()).toEqual(["anthropic:claude-sonnet-5-5"]);
   });
 });
 

@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chatModelChain, claudeChatModel, claudeQuickModel, defaultModel, FLYD_APPLICATION_ROOT, getKey, fallbackModelChain, quickModelChain } from "../lib/config.js";
+import { chatModelChain, FLYD_APPLICATION_ROOT, getKey, oneShotModelChain, quickModelChain } from "../lib/config.js";
+import { modelRoutingSource, type ModelJob } from "./model-routing.js";
 import { claudeApiKey, spendStatus } from "../lib/claude-spend.js";
 
 // What Flyd runs on, worked out each time it is asked, from the same resolvers
-// each job uses to pick its model. So the answer follows his .env,
-// ~/.flyd/config.json and the code defaults the moment any of them changes.
+// each job uses to pick its model. So the answer follows ~/.flyd/models.json,
+// his .env keys and the code defaults the moment any of them changes.
 // Model ids, setting names and on/off only: no key, token or URL leaves this
 // file.
 
@@ -56,8 +57,12 @@ function qmdModels(): { embed: string; expand: string; rerank: string } {
   return { embed: local("QMD_EMBED_MODEL", "EMBED"), expand: local("QMD_GENERATE_MODEL", "GENERATE"), rerank: local("QMD_RERANK_MODEL", "RERANK") };
 }
 
-const COMMANDCODE_SETTINGS = ["COMMANDCODE_MODEL", "COMMANDCODE_API_KEY_MODEL"];
 const CLAUDE_SETTINGS = ["FLYD_CLAUDE", "FLYD_CLAUDE_MONTHLY_CAP_USD"];
+
+/** A job's models come from the model-routing config; Claude's switch and cap decide whether Claude entries run. */
+function routingSettings(job: ModelJob): string[] {
+  return [`models.json jobs.${job}`, ...CLAUDE_SETTINGS];
+}
 
 /** Why Claude leads a chain, or why it is missing from one. */
 function claudeState(): string {
@@ -65,12 +70,6 @@ function claudeState(): string {
   if (!claudeApiKey()) return "Claude off (no CLAUDE_API_KEY)";
   const spend = attempt(() => spendStatus());
   return spend?.capped ? `Claude paused: this month's $${spend.cap} cap is reached, back on the 1st` : "Claude on";
-}
-
-/** Who picked a chain: Claude's own setting or the code default while Claude leads it, else what picks it without Claude (the spend line says why Claude is out). */
-function claudeDecidedBy(claude: string | null, modelSetting: string, otherwise: string): string {
-  if (!claude) return otherwise;
-  return setting(modelSetting) ? modelSetting : "code default (CLAUDE_API_KEY set, under the monthly cap)";
 }
 
 /** Each job Flyd does with a model, and the model doing it right now. */
@@ -114,24 +113,21 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
   };
 
   const chain = attempt(chatModelChain) ?? [];
-  const claudeChat = attempt(claudeChatModel);
-  const chatSettings = ["FLYD_CLAUDE_CHAT_MODEL", ...CLAUDE_SETTINGS, "FLYD_CHAT_MODEL", "FLYD_MODEL", "FLYD_CHAT_FALLBACK_MODELS", ...COMMANDCODE_SETTINGS];
   add({
     job: "Chat: talking with George in the conversation window and the CLI, plus background jobs and scheduled agenda runs",
-    model: chain[0] ?? "not configured (set FLYD_MODEL)",
+    model: chain[0] ?? "none available (is Claude off or at its cap?)",
     ...(chain.length > 1 ? { fallbacks: chain.slice(1) } : {}),
-    settings: chatSettings,
-    setBy: claudeDecidedBy(claudeChat, "FLYD_CLAUDE_CHAT_MODEL", setting("FLYD_CHAT_MODEL") ? "FLYD_CHAT_MODEL" : setting("FLYD_MODEL") ? "FLYD_MODEL (FLYD_CHAT_MODEL is not set)" : "code default"),
+    settings: routingSettings("chat"),
+    setBy: modelRoutingSource("chat"),
   });
 
-  const main = attempt(defaultModel);
-  const oneShotClaude = attempt(claudeQuickModel);
-  const mainFallbacks = [...new Set([...(attempt(fallbackModelChain) ?? []), ...(oneShotClaude ? [oneShotClaude] : [])])].filter((model) => model !== main);
+  const oneShot = attempt(oneShotModelChain) ?? [];
   add({
     job: "One-shot thinking: memory curation and the council, the news edition and the morning brief",
-    model: main ?? "not configured (set FLYD_MODEL)",
-    ...(mainFallbacks.length ? { fallbacks: mainFallbacks } : {}),
-    settings: ["FLYD_MODEL", "FLYD_CHAT_FALLBACK_MODELS", ...COMMANDCODE_SETTINGS, "FLYD_CLAUDE_QUICK_MODEL", ...CLAUDE_SETTINGS],
+    model: oneShot[0] ?? "none available (is Claude off or at its cap?)",
+    ...(oneShot.length > 1 ? { fallbacks: oneShot.slice(1) } : {}),
+    settings: routingSettings("background"),
+    setBy: modelRoutingSource("background"),
   });
 
   const typesafe = Boolean(process.env.TYPESAFE_API_KEY?.trim());
@@ -146,15 +142,14 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     settings: ["FLYD_JEV_MODEL", "BEACON_JEV_MODEL"],
   });
   const quick = attempt(quickModelChain) ?? [];
-  const claudeQuick = attempt(claudeQuickModel);
   const quickJobs = (job: string, override?: string): void => {
     const overridden = override ? setting(override) : undefined;
     add({
       job,
-      model: overridden ?? quick[0] ?? "not configured (set FLYD_MODEL)",
+      model: overridden ?? quick[0] ?? "none available (is Claude off or at its cap?)",
       ...(!overridden && quick.length > 1 ? { fallbacks: quick.slice(1) } : {}),
-      settings: [...(override ? [override] : []), "FLYD_CLAUDE_QUICK_MODEL", ...CLAUDE_SETTINGS, "FLYD_MODEL", "FLYD_CHAT_FALLBACK_MODELS", ...COMMANDCODE_SETTINGS],
-      setBy: overridden ? override! : claudeDecidedBy(claudeQuick, "FLYD_CLAUDE_QUICK_MODEL", "FLYD_MODEL"),
+      settings: [...(override ? [override] : []), ...routingSettings("quick")],
+      setBy: overridden ? override! : modelRoutingSource("quick"),
     });
   };
   quickJobs("Reading the room before each chat reply when Jev is unsure", "FLYD_ROUTING_FALLBACK_MODEL");
@@ -165,7 +160,8 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     job: "Overlay questions (fn key, text and voice), LIVE's look-ups and actions, and Core's coding worker",
     model: workers[0]?.providerIdentity ?? "not configured",
     ...(workers.length > 1 ? { fallbacks: workers.slice(1).map((worker) => worker.providerIdentity) } : {}),
-    settings: ["FLYD_MODEL", "OPENROUTER_MODEL", ...COMMANDCODE_SETTINGS, "FLYD_CLAUDE_CHAT_MODEL", ...CLAUDE_SETTINGS],
+    settings: routingSettings("worker"),
+    setBy: modelRoutingSource("worker"),
   });
   add({
     job: "Overlay route classifier",
@@ -175,7 +171,8 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
   add({
     job: "Coding crewmates (when FirstMate isn't installed; FirstMate picks its own models)",
     model: crewModel(),
-    settings: ["FLYD_CREW_MODEL"],
+    settings: ["models.json jobs.crew"],
+    setBy: modelRoutingSource("crew"),
   });
 
   const searches = webSearchOrder();
@@ -198,18 +195,18 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
 
   const summaryChain = summaryModels({ anthropicKey: claudeApiKey() });
   const summaries = summaryChain.map(({ model }) => model);
-  const summarySettings = summaryChain[0]?.provider === "anthropic" ? ["FLYD_VIEW_ANTHROPIC_MODEL", "FLYD_CLAUDE_QUICK_MODEL"] : ["FLYD_VIEW_XAI_MODEL"];
+  const summarySettings = summaryChain[0]?.provider === "anthropic" ? ["FLYD_VIEW_ANTHROPIC_MODEL"] : ["FLYD_VIEW_XAI_MODEL"];
   add({
     job: "Summaries of long replies in the window",
     model: process.env.FLYD_VIEW_SUMMARIES === "0" ? "off (FLYD_VIEW_SUMMARIES=0)" : summaries[0] ?? "none (no CLAUDE_API_KEY or XAI_API_KEY): long replies lead with Flyd's own briefing",
     ...(summaries.length > 1 ? { fallbacks: summaries.slice(1) } : {}),
-    settings: ["FLYD_VIEW_ANTHROPIC_MODEL", "FLYD_CLAUDE_QUICK_MODEL", "FLYD_VIEW_XAI_MODEL"],
+    settings: ["FLYD_VIEW_ANTHROPIC_MODEL", "models.json jobs.quick", "FLYD_VIEW_XAI_MODEL"],
     setBy: decidedBy(summarySettings),
   });
   add({
     job: "Typing suggestions in the message box",
     model: getKey("FLYD_PREDICTIONS") === "0" ? "off (FLYD_PREDICTIONS=0)" : predictionModel(),
-    settings: ["FLYD_PREDICTION_MODEL", "FLYD_CLAUDE_QUICK_MODEL"],
+    settings: ["FLYD_PREDICTION_MODEL", "models.json jobs.quick"],
   });
 
   const transcription = transcriptionModelsForPushToTalk(process.env.FLYD_TRANSCRIPTION_MODEL);

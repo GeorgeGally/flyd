@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +16,18 @@ mkdirSync(join(process.env.XDG_CACHE_HOME, "qmd"), { recursive: true });
 // projection stores, directives) follows FLYD_DIR. It is forced, not defaulted:
 // an inherited FLYD_DIR from a running Core must not point tests at live data.
 process.env.FLYD_DIR = join(sandbox, "flyd-home");
+// Tests' model config: Claude first while a test gives it a key, then the OpenAI test model
+// (OPENAI_API_KEY is a fake key in vitest.config.ts). Never George's ~/.flyd/models.json.
+process.env.FLYD_MODELS_PATH = join(sandbox, "models.json");
+const testRoutes = (claude: string) => [{ provider: "anthropic", model: claude }, { provider: "openai", model: "gpt-4o-mini" }];
+writeFileSync(process.env.FLYD_MODELS_PATH, JSON.stringify({
+  jobs: {
+    chat: testRoutes("claude-sonnet-5-5"),
+    quick: testRoutes("claude-haiku-5-5"),
+    background: testRoutes("claude-haiku-5-5"),
+    worker: testRoutes("claude-sonnet-5-5"),
+  },
+}));
 process.env.FLYD_USER_PROFILE = join(sandbox, "USER.md");
 process.env.FLYD_MEMORY_DIR = join(sandbox, "memory-home");
 process.env.FLYD_JOURNAL_DIR = join(sandbox, "journal");
