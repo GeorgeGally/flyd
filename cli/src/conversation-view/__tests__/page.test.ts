@@ -4488,7 +4488,7 @@ describe("the front page", () => {
     }
   });
 
-  it("opens a card beside a Week block naming its project, its hours and what changed then", async () => {
+  it("tells a Week block in the story below, with no popup, naming its project, its hours and what changed then", async () => {
     const hours = (from: number, to: number) => Array.from({ length: 24 }, (_, h) => (h >= from && h < to ? 1 : 0));
     const days = ["2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08", "2026-11-09", "2026-11-10", "2026-11-11"].map((day) => ({ day, hours: {}, changes: 0, head: "", lines: [] as string[], work: [] as unknown[] }));
     const when = (h: number, m = 0) => new Date(2026, 10, 10, h, m).getTime();
@@ -4503,37 +4503,33 @@ describe("the front page", () => {
     stream.emit("update", { order: [], messages: [], working: false, show: SHOW, live: { known: true, counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] } });
     document.querySelector<HTMLElement>('.ctab[data-centre="week"]')!.click();
     await settle();
-    const card = document.getElementById("wk-card")!;
-    expect(card.hidden).toBe(true);
+    expect(document.getElementById("wk-card")).toBeNull();
+    const tell = document.getElementById("wk-tell")!;
+    const told = () => [tell.querySelector("h3")!.textContent, tell.querySelector("time")!.textContent, ...[...tell.querySelectorAll("p")].map((p) => p.textContent)];
+    expect(told()[0]).toBe("Add the Week tab");
     const strip = document.querySelectorAll<HTMLElement>(".wk-day")[6]!;
     const [flyd, logan] = [...strip.querySelectorAll<HTMLElement>(".wk-lane i")];
-    // The two Flyd hours join into one block; its card lists the latest five and counts the rest.
+    // The two Flyd hours join into one block; the story tells it with the count and the latest three.
     flyd!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-    expect(card.hidden).toBe(false);
-    expect(card.getAttribute("role")).toBe("tooltip");
-    expect(card.querySelector(".wk-card-who")!.textContent).toBe("Flyd");
-    expect(card.querySelector(".wk-card-when")!.textContent).toBe("09:00 to 11:00, 7 changes");
-    expect([...card.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["Change 3", "Change 4", "Change 5", "Change 6", "Add the Week tab #274"]);
-    expect(card.querySelector(".wk-card-more")!.textContent).toBe("and 2 earlier");
+    expect(told()).toEqual(["Flyd", "Tuesday 10 November, 09:00 to 11:00, 7 changes", "Change 5", "Change 6", "Add the Week tab #274"]);
     expect(flyd!.classList.contains("lit")).toBe(true);
-    expect(strip.getAttribute("aria-describedby")).toBe("wk-card");
     document.getElementById("wk-days")!.dispatchEvent(new MouseEvent("mouseleave"));
-    expect(card.hidden).toBe(true);
-    // A tap keeps the card until a tap elsewhere.
+    expect(told()[0]).toBe("Add the Week tab");
+    expect(flyd!.classList.contains("lit")).toBe(false);
+    // A tap keeps the block told until a tap elsewhere.
     logan!.click();
-    expect(card.querySelector(".wk-card-who")!.textContent).toBe("Logan");
-    expect(card.querySelector(".wk-card-when")!.textContent).toBe("14:00 to 15:00, 1 change");
+    expect(told()).toEqual(["Logan", "Tuesday 10 November, 14:00 to 15:00, 1 change", "Keep the canvas still"]);
     document.getElementById("wk-days")!.dispatchEvent(new MouseEvent("mouseleave"));
-    expect(card.hidden).toBe(false);
+    expect(told()[0]).toBe("Logan");
     document.body.click();
-    expect(card.hidden).toBe(true);
+    expect(told()[0]).toBe("Add the Week tab");
     // From the keyboard, the arrows on a focused day walk its blocks.
     strip.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-    expect(card.querySelector(".wk-card-who")!.textContent).toBe("Flyd");
+    expect(told()[0]).toBe("Flyd");
     strip.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-    expect(card.querySelector(".wk-card-who")!.textContent).toBe("Logan");
+    expect(told()[0]).toBe("Logan");
     strip.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(card.hidden).toBe(true);
+    expect(told()[0]).toBe("Add the Week tab");
   });
 
   it("shows News as stories in columns, leaves filler out, and the box asks about the story he picks", async () => {
