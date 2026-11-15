@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCareCommand } from "../care.js";
-import { calendarMetadataConsented } from "../../runtime/proactive-care.js";
+import { meetingPrepConsented } from "../../runtime/proactive-care.js";
 import { SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -16,17 +16,17 @@ describe("flyd care consent controls", () => {
     const spy = vi.spyOn(console, "log").mockImplementation((...args) => lines.push(args.map(String).join(" ")));
     try {
       const registry = () => new SourceContractRegistry();
-      expect(calendarMetadataConsented(registry())).toBe(false);
+      expect(meetingPrepConsented(registry())).toBe(false);
       await runCareCommand("status");
       expect(lines.join(" ")).toContain("disabled");
       await runCareCommand("enable");
-      expect(calendarMetadataConsented(registry())).toBe(true);
+      expect(meetingPrepConsented(registry())).toBe(true);
       await runCareCommand("pause");
-      expect(calendarMetadataConsented(registry())).toBe(false);
+      expect(meetingPrepConsented(registry())).toBe(false);
       await runCareCommand("enable");
-      expect(calendarMetadataConsented(registry())).toBe(true);
+      expect(meetingPrepConsented(registry())).toBe(true);
       await runCareCommand("disable");
-      expect(calendarMetadataConsented(registry())).toBe(false);
+      expect(meetingPrepConsented(registry())).toBe(false);
       await expect(runCareCommand("nonsense")).rejects.toThrow("Usage");
     } finally {
       spy.mockRestore();
