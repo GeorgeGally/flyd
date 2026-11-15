@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { meetingPrepConsented, commitmentCard, creativeCard, prepareCreativeForConversation, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
 import { parseCalendarMetadata } from "../proactive-calendar.js";
-import { MEETING_PREP_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
+import { CALENDAR_METADATA_CONTRACT, MEETING_PREP_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import type { MemoryEntry } from "../../council/memory-store.js";
 import type { Project } from "../../council/projects.js";
 import type { Edition } from "../../council/scout.js";
@@ -151,6 +151,10 @@ describe("proactive local personal care", () => {
     const folder = mkdtempSync(join(tmpdir(), "flyd-care-consent-"));
     try {
       const registry = new SourceContractRegistry({ path: join(folder, "source-consents.json") });
+      expect(meetingPrepConsented(registry)).toBe(false);
+      registry.register(CALENDAR_METADATA_CONTRACT);
+      registry.setStatus(CALENDAR_METADATA_CONTRACT.sourceId, "enabled");
+      // A prior time-only Calendar grant cannot silently authorize reading event titles.
       expect(meetingPrepConsented(registry)).toBe(false);
       registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "enabled");
       expect(meetingPrepConsented(registry)).toBe(true);
