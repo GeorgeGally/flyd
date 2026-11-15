@@ -5,7 +5,8 @@
  * whole width (the right column steps aside, as on News), the heading, the
  * strips and the story sit as one group in the middle of the height, and the
  * strips grow with the room; on a phone the day names go to two lines and the
- * story stacks. A block's card floats beside its strip. Comes after Today's style.
+ * story stacks. A block is told in the story's place, its changes in one list
+ * beside the headline. Comes after Today's style.
  */
 export const WEEK_STYLE = `
 :root[data-layout="front"] { --wk-1: #e2572e; --wk-2: #3f6fe0; --wk-3: #15140f; --wk-0: #b9b5ab; --wk-side: max(var(--gut), 5vw); }
@@ -55,28 +56,15 @@ export const WEEK_STYLE = `
 .wk-tell time { display: block; margin-top: 10px; font: 400 15px/1.4 var(--sans); color: var(--mute); }
 .wk-tell p { margin: 0; padding-top: 4px; font: 400 17px/1.45 var(--sans); color: var(--ink2); text-wrap: pretty; overflow-wrap: anywhere; }
 .wk-tell .wk-none { grid-column: 1 / -1; color: var(--mute); }
-
-/* A block's card: the project, its hours, what changed. Quiet, beside the strip, never over the block. */
-.wk-card { position: fixed; z-index: 5; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box; padding: 16px 18px 15px; border-radius: 8px;
-  background: var(--paper); color: var(--ink2); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent), 0 12px 32px -12px color-mix(in srgb, var(--ink) 30%, transparent);
-  pointer-events: none; animation: column-in .14s ease both; }
-.wk-card[hidden] { display: none; }
-.wk-card p { margin: 0; }
-.wk-card-who { display: flex; align-items: center; gap: 8px; font: 700 17px/1.25 var(--sans); letter-spacing: -.01em; color: var(--ink); }
-.wk-card-who i { flex: none; width: 10px; height: 10px; border-radius: 2px; }
-.wk-card .wk-card-when { margin-top: 3px; font: 400 13px/1.4 var(--sans); color: var(--mute); font-variant-numeric: tabular-nums; }
-.wk-card ul { margin: 12px 0 0; padding: 0; list-style: none; }
-.wk-card li { margin: 0; padding: 7px 0 0; font: 400 14px/1.4 var(--sans); text-wrap: pretty; overflow-wrap: anywhere; }
-.wk-card li + li { margin-top: 7px; border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent); }
-.wk-card li span { color: var(--mute); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.wk-card .wk-card-more { margin-top: 9px; font: 400 13px/1.4 var(--sans); color: var(--mute); }
-@media (prefers-reduced-motion: reduce) { .wk-card { animation: none; } }
+.wk-tell .wk-done { grid-column: 2 / -1; columns: 2; column-gap: 44px; }
+.wk-tell .wk-done p { break-inside: avoid; }
 
 @media (max-width: 1100px) {
   .wk-head { font-size: 44px; }
   .wk-days { gap: 12px; }
   .wk-tell { grid-template-columns: 1fr 1fr; gap: 28px 36px; }
   .wk-tell > div { grid-column: 1 / -1; }
+  .wk-tell .wk-done { grid-column: 1 / -1; column-gap: 36px; }
 }
 
 /* A phone: the week under the header, the day names on two lines, the story stacked. */
@@ -98,9 +86,9 @@ export const WEEK_STYLE = `
   .wk-lane { outline-offset: 3px; }
   .wk-top { margin-top: 0; }
   .wk-tell { display: block; margin: 40px 0 0; }
-  .wk-card { width: 240px; padding: 13px 14px 12px; }
   .wk-tell h3 { font-size: 23px; }
   .wk-tell time { font-size: 13px; margin-top: 6px; }
   .wk-tell p { padding-top: 12px; font-size: 15px; }
+  .wk-tell .wk-done { columns: auto; }
 }
 `;

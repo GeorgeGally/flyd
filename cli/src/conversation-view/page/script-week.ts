@@ -3,10 +3,11 @@
  * coloured hour by hour by the project that changed then (Flyd, Logan and
  * DIR in their own inks, everything else one neutral). The day picked
  * (hovered or tapped; at first the latest day with work) is told underneath.
- * Pointing at a block (hover, a tap, or the arrow keys on a focused day) opens
- * a small card beside its strip: the project, the hours, and what changed then.
- * The story keeps the room of the tallest day's at the width shown, so picking
- * another day never moves what sits under its headline. Data from /api/week
+ * Pointing at a block (hover, a tap, or the arrow keys on a focused day) tells
+ * that block in the same place instead: the project, the hours, and the latest five changes made
+ * then, the rest counted. No card floats over the strips. The story keeps the room of the tallest
+ * day's or block's at the width shown, so picking another never moves what sits
+ * under its headline. Data from /api/week
  * (week.ts). Runs inside the page script's closure after
  * Today's script and borrows its helpers (frontEsc, withToken, centre).
  */
@@ -15,8 +16,6 @@ export const WEEK_SCRIPT = `
   var weekKey = document.getElementById("wk-key");
   var weekDays = document.getElementById("wk-days");
   var weekTell = document.getElementById("wk-tell");
-  var weekCard = document.getElementById("wk-card");
-  var weekPage = document.getElementById("week-page");
   var weekSegs = {};
   var weekLit = null;
   var weekPinned = false;
@@ -49,44 +48,15 @@ export const WEEK_SCRIPT = `
   }
   function weekClock(x) { var h = Math.floor(x), m = Math.round((x - h) * 60); if (m === 60) { h += 1; m = 0; } return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"); }
   function weekHour(h) { return String(h % 24).padStart(2, "0") + ":00"; }
-  // The card for one block: the project, the whole hours it spans, and the changes made in them.
-  function weekCardHtml(day, seg) {
+  // One block told in the story's own place: the project, its whole hours, and the latest changes made in them.
+  function weekBlockHtml(day, seg) {
     var done = (day.work || []).filter(function (one) { var h = new Date(one.at).getHours(); return one.project === seg.k && h >= seg.h0 && h < seg.h1; });
-    var shown = done.slice(-5);
-    var more = done.length - shown.length;
-    return '<p class="wk-card-who"><i class="' + weekInk(seg.k) + '"></i>' + frontEsc(seg.k) + '</p>'
-      + '<p class="wk-card-when">' + weekHour(seg.h0) + ' to ' + weekHour(seg.h1) + (done.length ? ", " + done.length + (done.length === 1 ? " change" : " changes") : "") + '</p>'
-      + (shown.length ? '<ul>' + shown.map(function (one) { return '<li>' + frontEsc(one.title) + (one.ref ? ' <span>' + frontEsc(one.ref) + '</span>' : "") + '</li>'; }).join("") + '</ul>' : "")
-      + (more > 0 ? '<p class="wk-card-more">and ' + more + ' earlier</p>' : "");
-  }
-  // Beside the strip, right or left, so the block stays in view; on a narrow screen above or below it. Always on screen.
-  function weekPlace(el) {
-    var lane = el.parentNode.getBoundingClientRect(), seg = el.getBoundingClientRect();
-    var vw = window.innerWidth, vh = window.innerHeight, gap = 14, edge = 8;
-    // The message box floats over the bottom of the screen: the card stays above it.
-    var box = document.getElementById("composer"), boxAt = box ? box.getBoundingClientRect() : null;
-    if (boxAt && boxAt.height && boxAt.top > vh / 2) vh = Math.min(vh, boxAt.top);
-    weekCard.style.maxWidth = "";
-    var w = weekCard.offsetWidth, h = weekCard.offsetHeight, x, y;
-    var right = vw - edge - lane.right - gap, left = lane.left - gap - edge;
-    if (right >= w || left >= w) {
-      x = right >= w ? lane.right + gap : lane.left - gap - w;
-      y = Math.min(Math.max(seg.top + Math.min(seg.height, 40) / 2 - 20, edge), vh - h - edge);
-    } else {
-      x = Math.min(Math.max(seg.left + seg.width / 2 - w / 2, edge), vw - w - edge);
-      var below = vh - edge - seg.bottom - gap, above = seg.top - gap - edge;
-      if (below >= h || above >= h) y = below >= h ? seg.bottom + gap : seg.top - gap - h;
-      else {
-        // A block taller than the room around it: beside the strip on the roomier side, narrowed to fit.
-        var room = Math.max(right, left);
-        weekCard.style.maxWidth = room + "px";
-        w = weekCard.offsetWidth; h = weekCard.offsetHeight;
-        x = right >= left ? lane.right + gap : lane.left - gap - w;
-        y = Math.min(Math.max(seg.top, edge), vh - h - edge);
-      }
-    }
-    weekCard.style.left = Math.round(Math.max(x, edge)) + "px";
-    weekCard.style.top = Math.round(Math.max(y, edge)) + "px";
+    var d = weekDate(day.day);
+    var when = WEEK_LONG[d.getDay()] + " " + d.getDate() + " " + WEEK_MONTH[d.getMonth()] + ", " + weekHour(seg.h0) + " to " + weekHour(seg.h1)
+      + (done.length ? ", " + done.length + (done.length === 1 ? " change" : " changes") : "");
+    return '<div><h3>' + frontEsc(seg.k) + '</h3><time>' + frontEsc(when) + '</time></div>'
+      + (done.length ? '<div class="wk-done">' + done.slice(-5).map(function (one) { return '<p>' + frontEsc(one.title + (one.ref ? " " + one.ref : "")) + '</p>'; }).join("")
+        + (done.length > 5 ? '<p>and ' + (done.length - 5) + ' earlier</p>' : "") + '</div>' : "");
   }
   function weekShow(el) {
     var dayEl = el && el.closest(".wk-day");
@@ -94,20 +64,20 @@ export const WEEK_SCRIPT = `
     var day = dayEl && week && week.days.filter(function (one) { return one.day === dayEl.dataset.day; })[0];
     var seg = segs && segs[+el.dataset.s];
     if (!seg || !day) { weekHide(); return; }
+    weekPick(day.day);
     if (weekLit && weekLit !== el) weekLit.classList.remove("lit");
     weekLit = el;
     el.classList.add("lit");
-    weekCard.innerHTML = weekCardHtml(day, seg);
-    weekCard.hidden = false;
-    weekDays.querySelectorAll(".wk-day").forEach(function (one) { if (one === dayEl) one.setAttribute("aria-describedby", "wk-card"); else one.removeAttribute("aria-describedby"); });
-    weekPlace(el);
+    weekTell.innerHTML = weekBlockHtml(day, seg);
   }
   function weekHide() {
     weekPinned = false;
-    if (weekLit) weekLit.classList.remove("lit");
+    if (!weekLit) return;
+    weekLit.classList.remove("lit");
     weekLit = null;
-    weekCard.hidden = true;
-    weekDays.querySelectorAll(".wk-day[aria-describedby]").forEach(function (one) { one.removeAttribute("aria-describedby"); });
+    // The block let go: its day's story comes back.
+    var day = week && week.days.filter(function (one) { return one.day === weekShown; })[0];
+    if (day) weekTell.innerHTML = weekTellHtml(day);
   }
   function drawWeek() {
     weekHide();
@@ -146,6 +116,8 @@ export const WEEK_SCRIPT = `
   }
   function weekPick(dayKey) {
     if (!week || weekShown === dayKey) return;
+    // Another day picked: a block told from the last one lets go.
+    if (weekLit) { weekLit.classList.remove("lit"); weekLit = null; weekPinned = false; }
     weekShown = weekPicked = dayKey;
     var day = week.days.filter(function (one) { return one.day === dayKey; })[0];
     if (!day) return;
@@ -163,9 +135,9 @@ export const WEEK_SCRIPT = `
     return '<div><h3>' + frontEsc(day.head || "A quiet day") + '</h3><time>' + frontEsc(when) + '</time></div>'
       + day.lines.map(function (line) { return '<p>' + frontEsc(line) + '</p>'; }).join("");
   }
-  // A headline wraps to two, three or four lines by day and by width. Each day's story is laid out once,
-  // unseen, at the width shown; the headline keeps the tallest one's height and the story the tallest
-  // story's, so the date and lines under the headline (and, with the group centred, the strips above) stay put.
+  // A headline wraps to two, three or four lines by day and by width. Each day's story (and each block's)
+  // is laid out once, unseen, at the width shown; the headline keeps the tallest one's height and the
+  // story the tallest story's, so the date and lines under the headline (and, with the group centred, the strips above) stay put.
   var weekFitAt = -1;
   function weekWidth() { return Math.round(weekTell.getBoundingClientRect().width); }
   function weekFit() {
@@ -181,15 +153,20 @@ export const WEEK_SCRIPT = `
     probe.style.cssText = "position:absolute;left:0;top:0;margin:0;visibility:hidden;pointer-events:none;width:" + width + "px";
     weekTell.parentNode.appendChild(probe);
     var head = 0, tall = 0;
+    var stories = [];
     week.days.forEach(function (day) {
-      probe.innerHTML = weekTellHtml(day);
+      stories.push(weekTellHtml(day));
+      (weekSegs[day.day] || []).forEach(function (seg) { stories.push(weekBlockHtml(day, seg)); });
+    });
+    stories.forEach(function (html) {
+      probe.innerHTML = html;
       head = Math.max(head, probe.querySelector("h3").getBoundingClientRect().height);
     });
     head = Math.ceil(head);
     // Then each story again under a headline of that height.
     probe.style.setProperty("--wk-head-h", head + "px");
-    week.days.forEach(function (day) {
-      probe.innerHTML = weekTellHtml(day);
+    stories.forEach(function (html) {
+      probe.innerHTML = html;
       tall = Math.max(tall, probe.getBoundingClientRect().height);
     });
     probe.remove();
@@ -217,7 +194,7 @@ export const WEEK_SCRIPT = `
     }
     if (!weekPinned && !weekKeyed) weekHide();
   });
-  // A tap (or a click) on a block keeps its card until the next tap elsewhere.
+  // A tap (or a click) on a block keeps it told until the next tap elsewhere.
   weekDays.addEventListener("click", function (event) {
     var one = event.target.closest(".wk-day"); if (one) weekPick(one.dataset.day);
     var seg = event.target.closest(".wk-lane i");
@@ -236,7 +213,7 @@ export const WEEK_SCRIPT = `
     if (first) weekShow(first); else weekHide();
   });
   weekDays.addEventListener("focusout", function (event) { if (!weekDays.contains(event.relatedTarget)) { weekKeyed = false; weekHide(); } });
-  // On a focused day, up and down walk its blocks (the card follows), left and right step between days.
+  // On a focused day, up and down walk its blocks (the story follows), left and right step between days.
   weekDays.addEventListener("keydown", function (event) {
     var one = event.target.closest(".wk-day"); if (!one) return;
     if (event.key === "Escape") { weekKeyed = false; weekHide(); return; }
@@ -254,11 +231,6 @@ export const WEEK_SCRIPT = `
     at = at < 0 ? 0 : Math.max(0, Math.min(blocks.length - 1, at + (event.key === "ArrowDown" ? 1 : -1)));
     weekShow(blocks[at]);
   });
-  // The card is fixed to the screen: a scroll (the page's own, or the phone's whole page) moves it with its block.
-  function weekScrolled() { if (weekLit) weekPlace(weekLit); }
-  weekPage.addEventListener("scroll", weekScrolled, { passive: true });
-  window.addEventListener("scroll", weekScrolled, { passive: true });
-  window.addEventListener("resize", function () { if (weekLit) weekPlace(weekLit); });
   function loadWeek() {
     if (!VIEW_TOKEN) return;
     if (Date.now() - weekAt < 5 * 60 * 1000) return;
