@@ -6,7 +6,7 @@ import { readMemoryEntries, memoryEntryIsStale, type MemoryEntry } from "../coun
 import { readProjects, type Project } from "../council/projects.js";
 import { latestEdition, type Edition } from "../council/scout.js";
 import { contextScore, workFocusFromProjects } from "../council/inspiration.js";
-import { CALENDAR_METADATA_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+import { MEETING_PREP_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
 
 export interface CareEvent { id: string; title: string; start: string }
 export interface CareDeps {
@@ -31,8 +31,8 @@ function validUrl(raw: string): boolean {
 
 /** macOS permission alone is not consent to monitor Calendar. */
 export function calendarMetadataConsented(registry = new SourceContractRegistry()): boolean {
-  registry.register(CALENDAR_METADATA_CONTRACT);
-  return registry.status(CALENDAR_METADATA_CONTRACT.sourceId) === "enabled";
+  registry.register(MEETING_PREP_CONTRACT);
+  return registry.status(MEETING_PREP_CONTRACT.sourceId) === "enabled";
 }
 function alreadyRecorded(key: string, day: string): boolean {
   try {
