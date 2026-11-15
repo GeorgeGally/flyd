@@ -502,7 +502,23 @@ export function pageOf(text: string): string | null {
 const REVIEW_SURFACE_FOR_DESIGNERS = "Build the page itself only. George reviews the versions on a board that already shows each version's name side by side and lets him mark one final or pin notes, so never add a version label, a lab caption, a 'Mark as final' control or any other review control to the page.";
 const REVIEW_SURFACE_FOR_FLYD = "Once you accept, the team puts the versions on George's review board: side by side, each named, with a way to mark one final or pin notes, and the files listed for him. Judge each version as the page it is. Never ask the designers for those board features, for captions or controls about the lab, or for file lists. The screenshots show each whole page down to a readable height.";
 
-const TASTE_HEADER = "George's standing taste: TV-style clean type; Cursor-style framed imagery with padding; letter-spacing never wider than .04em; generous space above buttons; buttons never oversized; readable body copy; copy that says what a thing is (no slogans, never opens with \"Not…\"); every claim literally true; motion is TV-style fades only. All animation uses GSAP: never CSS keyframes or transitions alone, and no other animation library.";
+/** George's grid method, distilled from a grid-systems talk he shared: every brief, build and judgement works from it. */
+const GRID_FINAL_CHECK = "with guides hidden, at the intended size: is the main message clear, can the audience find the information and the action, does it carry the brand's character, and what does a fresh viewer notice first?";
+const GRID_METHOD = [
+  "Grid method (lay out every page this way): before any guides, know who views it, where, and what they must understand or do; that sets the main hook and what belongs together.",
+  "1) Content first: list the pieces (headline groups, main image, supporting info, footer or action).",
+  "2) Margins set the outer boundary for key content, open for restrained work, tighter for dense information; backgrounds and images may bleed past, key text stays inside.",
+  "3) Columns and gutters suit the content (6 gives halves, thirds and narrow zones; 12 for finer control on wide formats); column = (canvas - 2×margin - (columns-1)×gutter) / columns, e.g. 1200 wide, 60 margins, 6 columns, 24 gutters = 160px.",
+  "4) Spans by priority: what must be noticed first gets the widest span, supporting info narrower zones, then the action; faces, bright colour and contrast also pull weight, so balance spans against image weight.",
+  "5) Vertical rhythm by proximity: one spacing unit (e.g. 12/24/48) chosen from the text sizes; related items close, a bigger gap before the next group; check at the real viewing size, phone included.",
+  "6) Containers (cards, strips, panels) align to the page grid first, then their own inner spacing.",
+  "7) Across formats keep type, colour relationships and spacing rules constant; change the column count and arrangement per format.",
+  "8) When copy grows, widen the span before shrinking type; keep outer margins fixed and adapt the inside (line breaks, size, image crop).",
+  `9) Final check ${GRID_FINAL_CHECK}`,
+].join("\n");
+const GRID_JUDGE = `Run the grid method's final check on what you see, ${GRID_FINAL_CHECK} A layout that fails it, or ignores its own grid, costs points.`;
+
+const TASTE_HEADER = `George's standing taste: TV-style clean type; Cursor-style framed imagery with padding; letter-spacing never wider than .04em; generous space above buttons; buttons never oversized; readable body copy; copy that says what a thing is (no slogans, never opens with \"Not…\"); every claim literally true; motion is TV-style fades only. All animation uses GSAP: never CSS keyframes or transitions alone, and no other animation library.\n${GRID_METHOD}`;
 
 function teamSkills(use: "apply" | "judge"): string[] {
   const skills = designTeamSkills();
@@ -582,6 +598,7 @@ export function critiquePrompt(run: DomainRun, lab: Lab, version: LabVersion, ta
     `The version is "${version.name}": ${version.idea}`,
     ...(lab.audience ? ["Score it first on whether these people, there, can understand or do what they need:", ...audienceLines(lab.audience)] : []),
     ...teamSkills("judge"),
+    GRID_JUDGE,
     "Any invented person, company, quote or figure that is not in his request costs at least 3 points: claims must be literally true.",
     "1) Say how well it delivers what he asked for and how the best studio would execute exactly that brief. 2) List what to delete first, then the biggest remaining gaps, structural first, then fine detail. Penalise overdone or obviously AI-generated patterns (generic gradients, glows, pill clutter, icon-in-circle grids, centred-everything hero, emoji, wide letter-spacing) and clutter. Be specific, tight and opinionated. 3) Score it out of 10. Rank against concrete references (Cursor, micro1), not against average work.",
     'Reply with JSON only: {"score":0,"critique":"delete first, then gaps, in short lines"}',
@@ -654,6 +671,7 @@ export function buildReviewPrompt(run: DomainRun, build: Build, diff: string, ta
     `The designer says: ${build.report ?? "(nothing)"}`,
     `What changed:\n${diff.slice(0, 40_000) || "(nothing changed)"}`,
     ...teamSkills("judge"),
+    GRID_JUDGE,
     "Judge whether this delivers the design faithfully and cleanly: what to delete, what is missing, what is off. Then present it to Flyd in 2-4 plain lines. Score out of 10; nothing changed scores 0.",
     'Reply with JSON only: {"score":0,"critique":"short lines","presentation":"2-4 lines to Flyd"}',
   ].join("\n");

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, briefPrompt, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, shootWithChrome, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
+import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, briefPrompt, buildPrompt, critiquePrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, shootWithChrome, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
 import { DesignModelError } from "../design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
 import { dispatchDomainFollowup } from "../followup.js";
@@ -569,6 +569,15 @@ describe("Design Mate", () => {
     expect(page).toContain("All animation uses GSAP");
     expect(page).toContain("GSAP only from cdnjs.cloudflare.com");
     expect(briefPrompt(run, [], "(none)", ["ab"])).toContain("All animation uses GSAP");
+  });
+
+  it("gives the team George's grid method, and the judge runs its final check", () => {
+    const run = dispatchDesignMate({ originalMessage: "a lab", intendedOutcome: "A lab", doneWhen: ["three versions"] }, labs);
+    const lab = { brief: "b", versions: [], round: 1, images: [], log: [] };
+    const version = { n: 1, name: "Title card", idea: "Big type.", seed: "ab" };
+    expect(briefPrompt(run, [], "(none)", ["ab"])).toContain("Grid method");
+    expect(buildPrompt(run, lab, version, "(none)")).toContain("widen the span before shrinking type");
+    expect(critiquePrompt(run, lab, version, "(none)")).toContain("Run the grid method's final check");
   });
 });
 
