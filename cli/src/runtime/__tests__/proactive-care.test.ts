@@ -52,6 +52,7 @@ describe("proactive local personal care", () => {
     expect(card?.line).toContain("confirmed 2026-11-14");
     expect(card?.title).toBe("Before Call with Chris Jones");
     expect(meetingCard({ ...meeting, title: "Call with Chris" }, memory, now)).toBeNull();
+    expect(matchingPeople({ ...meeting, title: "Call with Chris" }, memory.slice(0, 2), now).map((x) => x.id)).toEqual(["m1", "m2"]);
     expect(meetingCard({ ...meeting, start: "2026-11-15T12:15:00" }, memory, now)).toBeNull();
     expect(meetingCard({ ...meeting, title: "Birthday with Chris Jones" }, memory, now)).toBeNull();
     const stale = memory.map((x) => ({ ...x, date: "2026-01-01" }));
@@ -71,7 +72,7 @@ describe("proactive local personal care", () => {
   });
 
   it("does not read sensitive calendar or memory before separate opt-ins", async () => {
-    vi.stubEnv("FLYD_PERSONAL_BRIEFING", "");
+    vi.stubEnv("FLYD_PERSONAL_BRIEFING", "0");
     let calls = 0;
     const made: ActivityRecord[] = [];
     const deps = {
@@ -83,7 +84,7 @@ describe("proactive local personal care", () => {
       calendarConsent: () => true,
     };
     const out = await runProactiveCare(deps);
-    expect(out).toEqual({ meetings: 0, inspiration: 1, skipped: ["personal_briefing_not_enabled"] });
+    expect(out).toEqual({ meetings: 0, inspiration: 1, skipped: ["personal_briefing_disabled"] });
     expect(calls).toBe(0);
     expect(made).toHaveLength(1);
     vi.stubEnv("FLYD_PERSONAL_BRIEFING", "1");
