@@ -99,6 +99,13 @@ export const answerAsFlyd: Answerer = async (question, history, onStep, turn) =>
   const memory = await retrieveAgentMemory(question).catch(() => ({ verdict: "insufficient" as const, matches: [] }));
   const article = turn ? await articleForTurn(turn.source.sessionId, question) : undefined;
   const text = await respondToConversation({ ...(turn ? { source: turn.source, sessionId: turn.source.sessionId, turnNumber: turn.turnNumber, onPreparation: turn.onPreparation, onInteraction: turn.onInteraction, onUnderstanding: turn.onUnderstanding, onArtefact: turn.onArtefact, ...(turn.askUser ? { askUser: turn.askUser } : {}), ...(turn.outside ? { outside: true } : {}), ...(turn.attached ? { attached: turn.attached } : {}), ...(turn.scope ? { chatScope: turn.scope } : {}) } : {}), ...(article ? { article } : {}), message: question, history, memory, situation, crossRepo, onToken: () => {}, ...(onStep ? { onActivity: onStep } : {}), formPrompt: FORM_PROMPT });
+  // Quiet design companionship: already-curated, sourced references become
+  // an ambient card, never a second spoken answer or a new remote search.
+  if (turn && /\b(?:design|visual|branding|typography|graphic|animation|render|generative|art direction)\b/i.test(question)) {
+    await import("../runtime/proactive-care.js")
+      .then(({ prepareCreativeForConversation }) => { prepareCreativeForConversation(question); })
+      .catch(() => undefined);
+  }
   const declared = diagnosisFromText(text);
   if (declared) return withAskedWhy(declared, question);
   // A comparison may be drawn as a table; an explanation stays the plain words he was told.
