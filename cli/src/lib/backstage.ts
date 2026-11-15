@@ -12,6 +12,11 @@ const FM_BRANCH = /\bfm\/[\w.-]+/i;
 const RUN_ID = /\b(?:run|task)[ -]?id\b/i;
 const JOB_ID = /\bjob[ -]?id\b|\bjob-[0-9a-f]{6,}\b/i;
 const DOMAIN_RUN_ID = /\bdomain-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i;
+/** A short task or run id carrying a number ("run-1", "domain-notice-1", "task-42"); "run-time" and "task-based" stay ordinary words. */
+const SHORT_RUN_ID = /\b(?:domain|run|task)-(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)*\b/i;
+/** A worktree checkout path, and the handoff contract's own reason codes ("handoff:missing brief,report"). */
+const WORKTREE_PATH = /(?:^|[\s(`'"])[~\w./-]*\.treehouse\/\S*/i;
+const HANDOFF_CODE = /\bhandoff:[a-z]+\b/i;
 const PR_NUMBER = /\bPR\s*#?\d+\b/i;
 const CREWS = /\bcrews?\b/i;
 const COUNCIL_ROLES: RegExp[] = [
@@ -24,7 +29,7 @@ const COUNCIL_ROLES: RegExp[] = [
 export const BACKSTAGE_ROLES: RegExp[] = [HELPERS, STAFF_UNMISTAKABLE, STAFF_TITLES, CREWS, /\bjev\b/i, COUNCIL_NAMED, ...COUNCIL_ROLES];
 
 /** Git and run telemetry: commit hashes, fm/ branches, task, run, job and domain-run ids. */
-export const BACKSTAGE_TELEMETRY: RegExp[] = [COMMIT_ID, FM_BRANCH, RUN_ID, JOB_ID, DOMAIN_RUN_ID];
+export const BACKSTAGE_TELEMETRY: RegExp[] = [COMMIT_ID, FM_BRANCH, RUN_ID, JOB_ID, DOMAIN_RUN_ID, SHORT_RUN_ID, WORKTREE_PATH, HANDOFF_CODE];
 
 /** The names chat review holds back: helpers, machinery and the council by name, words that are rarely ordinary speech in an answer. */
 export const CHAT_BACKSTAGE: RegExp[] = [HELPERS, STAFF_UNMISTAKABLE, MACHINERY, COUNCIL_NAMED];
@@ -42,7 +47,12 @@ export const CHAT_ANSWER_BACKSTAGE: RegExp[] = [
 ];
 
 /** Everything relays, notices, status cards and agenda lines may not show. */
-export const BACKSTAGE_DENYLIST: RegExp[] = [...CHAT_ANSWER_BACKSTAGE, STAFF_TITLES, PR_NUMBER, JOB_ID, DOMAIN_RUN_ID];
+export const BACKSTAGE_DENYLIST: RegExp[] = [...CHAT_ANSWER_BACKSTAGE, STAFF_TITLES, PR_NUMBER, JOB_ID, DOMAIN_RUN_ID, SHORT_RUN_ID, WORKTREE_PATH, HANDOFF_CODE];
+
+/** Whether his words ask how Flyd works: the one time its machinery may be named back to him. Pure. */
+export function asksHowFlydWorks(said: string): boolean {
+  return /\bhow (?:do|does) (?:you|flyd) work\b/i.test(said);
+}
 
 const STAFF_SAID: Array<[RegExp, string]> = [
   [/^(?:the |a )?(?:workers?|crew ?mates?|firstmate|team)\s+(?:has |have )?(?:finished|is done|are done|reports?|reported|says|said)\s*[:;,\u2014-]\s*/i, ""],

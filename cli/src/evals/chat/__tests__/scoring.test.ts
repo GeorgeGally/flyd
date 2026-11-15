@@ -116,6 +116,18 @@ describe("the chief-of-staff brevity case", () => {
   });
 });
 
+describe("the one-voice relay case", () => {
+  it("fails either relay line the self-review caught reaching George, and passes a plain outcome", async () => {
+    const { readFileSync } = await import("node:fs");
+    const cases = JSON.parse(readFileSync(new URL("../cases.json", import.meta.url), "utf8")) as ChatEvalCase[];
+    const relay = cases.find((testCase) => testCase.id === "relay-one-voice-own-calls")!;
+    const run = (answer: string) => scoreChatEval(relay, { ...base, answer, judgeScore: 9 }, { tomorrow: "2026-11-16", weekday: "Monday" });
+    expect(run("Flyd is re-requesting unstructured FirstMate handoffs.").failures).not.toEqual([]);
+    expect(run("Tell me whether to add Teletext, Test card and Tuning dial buttons.").failures).not.toEqual([]);
+    expect(run("The TV page is done, sir: Teletext, Test card and Tuning dial buttons are in.").failures).toEqual([]);
+  });
+});
+
 describe("percentile", () => {
   it("takes the nearest rank", () => {
     expect(percentile([], 95)).toBe(0);

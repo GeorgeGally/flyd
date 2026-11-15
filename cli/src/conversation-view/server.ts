@@ -32,7 +32,7 @@ import type { PlanUsageReader } from "./plan-usage.js";
 import { IslandRung, islandStatusOf, statusOf } from "./status.js";
 import { authorSummary, digestReply, isActionable, isRoutine, isRoutineAnswer, askedForArtefact, replyArtefact, ReplySummarizer, SUMMARY_MIN_CHARS, type ReplyArtefact, type SummarySource } from "./summaries.js";
 import { QuestionGone, type ConversationMessage, type ConversationSnapshot, type ConversationSource, type Exchange, type FileUpload, type ImageUpload } from "./types.js";
-import type { AnswerInterpreter } from "./interpret.js";
+import { HELD_READING, type AnswerInterpreter } from "./interpret.js";
 import type { ArtefactJudge } from "./artefact-judge.js";
 import type { SemanticJudge } from "./semantic-judge.js";
 import type { ImportanceJudge } from "./importance-judge.js";
@@ -347,7 +347,7 @@ function handledIn(messages: ConversationMessage[]): (message: ConversationMessa
 /** Held relays already recorded in this process, so a reload or a reconnect does not record one twice. */
 const heldRelays = new Set<string>();
 /** What leads an answer to him whose own words may not be shown: the original stays one tap away. */
-const HELD_ANSWER = "There's an answer to this; it's under show original.";
+const HELD_ANSWER = HELD_READING;
 
 /** An answer to him whose own words may not lead: the plain line leads, the original one tap away. */
 function heldAnswer(message: ConversationMessage): Pick<RenderedMessage, "summary"> & { body: string } {

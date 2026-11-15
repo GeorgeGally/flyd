@@ -88,7 +88,9 @@ describe("acceptance", () => {
     } as unknown as DomainRun;
     const notice = captainNotice(run);
     expect(handoff.ok).toBe(false);
-    expect(notice).toContain("handoff:missing");
+    // The contract's reason code is Flyd's process: he hears only that nothing counts as done.
+    expect(notice).toMatch(/came back without a clear report, so nothing counts as done yet\.$/);
+    expect(notice).not.toContain("handoff:missing");
     expect(notice).not.toContain("/tmp/flyd-df.json");
   });
   it("refuses a handoff whose report is a bare flag fragment", () => {
@@ -121,7 +123,9 @@ describe("acceptance", () => {
     } as unknown as DomainRun;
     const notice = captainNotice(run);
     expect(handoff.ok).toBe(false);
-    expect(notice).toContain("handoff:missing");
+    // The contract's reason code is Flyd's process: he hears only that nothing counts as done.
+    expect(notice).toMatch(/came back without a clear report, so nothing counts as done yet\.$/);
+    expect(notice).not.toContain("handoff:missing");
     expect(notice).not.toContain("/tmp/flyd-df.json");
   });
 

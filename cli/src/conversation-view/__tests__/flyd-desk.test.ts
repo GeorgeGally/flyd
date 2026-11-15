@@ -8,7 +8,7 @@ import { FirstmateInbox, mergeNotes, relayed } from "../firstmate-inbox.js";
 import { FlydDesk, routeMessage, routePrompt, type Answerer } from "../flyd-desk.js";
 import { answeringLine } from "../living.js";
 import { inFlydsVoice } from "../flyd-voice.js";
-import { AnswerInterpreter } from "../interpret.js";
+import { AnswerInterpreter, HELD_READING } from "../interpret.js";
 import { SnapshotDiffer } from "../server.js";
 import { headlineOf, statusOf } from "../status.js";
 import { digestReply, ReplySummarizer } from "../summaries.js";
@@ -835,7 +835,8 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     for (const [reply, file] of [[helperReport, "helper.json"], [placeholder, "placeholder.json"]] as const) {
       // The model retells the reply word for word, as a leaky retelling would.
       const { told, shown } = await relay(reply, file);
-      expect(told).toBeUndefined();
+      // Flyd's neutral line stands in for the held retelling.
+      expect(told).toBe(HELD_READING);
       // An answer to his note is never dropped: a plain line leads, the staff's words wait under "show original".
       for (const message of shown) {
         expect(plain(message!.summary!.html).trim()).toBe("There's an answer to this; it's under show original.");
@@ -855,7 +856,40 @@ describe("a firstmate answer to his note, told by Flyd", () => {
 
   it("holds back a whole retelling that names backstage, keeping none of its sentences", async () => {
     const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "backstage.json"), profile: () => null, complete: async () => "FirstMate finished. The sidebar now opens on Artefacts." });
-    expect(await interpreter.request({ question: "q", answer: "The sidebar now opens on Artefacts.", recent: [] })).toBeUndefined();
+    expect(await interpreter.request({ question: "q", answer: "The sidebar now opens on Artefacts.", recent: [] })).toBe(HELD_READING);
+  });
+
+  it("never relays the self-review's evidence lines verbatim, records them, and shows Flyd's neutral line instead", async () => {
+    // The exact relays the self-review caught: a backstage name, and an implementation call handed to him.
+    for (const [line, file, requirement] of [
+      ["Flyd is re-requesting unstructured FirstMate handoffs", "evidence-backstage.json", "backstage_hidden"],
+      ["Tell me whether to add Teletext, Test card and Tuning dial buttons", "evidence-call.json", "decisions_handled"],
+    ] as const) {
+      const interpreter = new AnswerInterpreter({ cacheFile: join(dir, file), profile: () => null, complete: async () => line });
+      const told = await interpreter.request({ question: "how is the TV page going?", answer: `${line}.`, recent: [] });
+      expect(told).toBe(HELD_READING);
+      expect(interpreter.cached(`${line}.`)).toBe(HELD_READING);
+      const verdicts = readFileSync(join(process.env.FLYD_SELF_REVIEW_DIR!, "verdicts.jsonl"), "utf8")
+        .split("\n").filter(Boolean).map((row) => JSON.parse(row) as { text: string; held?: boolean; source?: string; shortfalls: Array<{ requirement: string }> });
+      expect(verdicts).toContainEqual(expect.objectContaining({
+        text: line, source: "relay:interpretation", held: true,
+        shortfalls: expect.arrayContaining([expect.objectContaining({ requirement })]),
+      }));
+    }
+  });
+
+  it("screens a reading cached before the outgoing checks, so an old leak never reaches him", () => {
+    const answer = "The TV page has its buttons.";
+    const cacheFile = join(dir, "legacy.json");
+    writeFileSync(cacheFile, JSON.stringify({ [AnswerInterpreter.key(answer)]: { text: "Flyd is re-requesting unstructured FirstMate handoffs", at: "2026-11-01T00:00:00.000Z" } }));
+    const interpreter = new AnswerInterpreter({ cacheFile, profile: () => null, complete: async () => "" });
+    expect(interpreter.cached(answer)).toBe(HELD_READING);
+  });
+
+  it("may name the machinery when he asked how Flyd works", async () => {
+    const told = "FirstMate takes the brief, a crewmate builds it, and I check the result.";
+    const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "how.json"), profile: () => null, complete: async () => told });
+    expect(await interpreter.request({ question: "how does Flyd work when I hand it a fix?", answer: "Briefed, built, checked.", recent: [] })).toBe(told);
   });
 
   it("keeps a link whose address carries a commit id", async () => {

@@ -142,11 +142,13 @@ describe("notices keep the one voice", () => {
   });
 
   it("brings a decision or failure that names backstage as a line naming the work, and records it", () => {
-    const decision = captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate needs your call on a composer idle-row guard." })));
+    const decision = captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate needs your call on the sidebar: Artefacts or Changes first?" })));
     expect(decision).toBe('I need your decision on "Fix the island".');
+    // An implementation call (a composer guard) is Flyd's to make, not relayed as his decision.
+    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Firstmate needs your call on a composer idle-row guard." })))).toBeNull();
     const failure = captainNotice(run(JSON.stringify({ status: "failed", brief: "the branch fm/x is broken" })));
     expect(failure).toBe("Fix the island is blocked: it couldn't be finished. Tell me whether to try another way or drop it.");
-    expect(verdicts()).toContainEqual(expect.objectContaining({ text: "I need your decision: Firstmate needs your call on a composer idle-row guard.", surface: "notification", held: true }));
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: "I need your decision: Firstmate needs your call on the sidebar: Artefacts or Changes first?", surface: "notification", held: true }));
   });
 
   it("names the work in a few words, and never falls to a content-free line when the work itself names backstage", () => {
@@ -186,6 +188,55 @@ describe("a decision or failure the checks catch", () => {
     const verdicts = readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
       .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string });
     expect(verdicts).toContainEqual(expect.objectContaining({ text: "I need your decision: Working on it", surface: "notification", held: true }));
+  });
+});
+
+describe("the relay gate on the self-review's evidence", () => {
+  // The exact lines Flyd's self-review caught reaching George: one names the
+  // backstage helper, the other hands him an implementation call.
+  const BACKSTAGE = "Flyd is re-requesting unstructured FirstMate handoffs";
+  const INTERNAL_CALL = "Tell me whether to add Teletext, Test card and Tuning dial buttons";
+  const verdicts = () => readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
+    .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; surface?: string; shortfalls: Array<{ requirement: string }> });
+
+  it("never shows either line verbatim in a domain-run notice, whatever the run's status, and records each hold", () => {
+    for (const status of ["completed", "needs_decision", "failed"] as const) {
+      for (const line of [BACKSTAGE, INTERNAL_CALL]) {
+        const notice = captainNotice(run(JSON.stringify({ status, brief: line })));
+        expect(notice ?? "", `${status}: ${line}`).not.toContain(line);
+        expect(notice ?? "", `${status}: ${line}`).not.toMatch(/firstmate|handoff/i);
+      }
+    }
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("re-requesting unstructured FirstMate"), surface: "notification", held: true }));
+    expect(verdicts()).toContainEqual(expect.objectContaining({
+      text: `I need your decision: ${INTERNAL_CALL}`, held: true,
+      shortfalls: expect.arrayContaining([expect.objectContaining({ requirement: "decisions_handled" })]),
+    }));
+  });
+
+  it("keeps an implementation call off his screen as a decision, and Flyd makes it", () => {
+    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: INTERNAL_CALL })))).toBeNull();
+    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "The logo can be red or blue: which do you want?" }))))
+      .toBe("I need your decision: The logo can be red or blue: which do you want?");
+  });
+
+  it("brings an unstructured handoff as a neutral line naming the work, never its reason code or a process call, and records it", () => {
+    const base = run("--body-file /tmp/flyd-df.json");
+    const notice = captainNotice({ ...base, incompleteReason: "handoff:missing brief,report,evidence" });
+    expect(notice).toBe("Fix the island came back without a clear report, so nothing counts as done yet.");
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("handoff:missing"), surface: "notification", held: true }));
+  });
+
+  it("holds task and run ids, fm/ branches and worktree paths", () => {
+    for (const line of ["The island fix in run-12 is merged.", "Merged fm/flyd-island into main.", "Fixed in ~/.treehouse/flyd-c351a7/11/flyd; the island is quiet."]) {
+      expect(captainNotice(run(line)), line).toBe('There is news on "Fix the island". Ask Flyd for the details.');
+    }
+  });
+
+  it("may name the machinery when George asked how Flyd works", () => {
+    const base = run("FirstMate picked the island fix and the crewmate merged it.");
+    expect(captainNotice({ ...base, request: { ...base.request, originalMessage: "How does Flyd work when I hand it a fix?" } }))
+      .toBe("FirstMate picked the island fix and the crewmate merged it.");
   });
 });
 
