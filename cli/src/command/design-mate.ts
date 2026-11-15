@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir, uptime } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { FLYD_DIR } from "../lib/config.js";
+import { HEADLESS_CHROME_ARGS } from "../lib/headless-chrome.js";
 import { readTaste } from "../council/taste.js";
 import { BoardWatcher, putLabOnBoard, type BoardFeedback, type BoardInput, type BoardWatch, type LabBoard } from "./design-board.js";
 import { completeWithClaude, DesignModelError, makeWithClaude } from "./design-claude.js";
@@ -1030,7 +1031,7 @@ document.getElementById("f").addEventListener("load", function () { setTimeout(f
 </script></body></html>`);
   return new Promise<number>((resolve) => {
     const child = spawn(binary, [
-      "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files",
+      ...HEADLESS_CHROME_ARGS, "--disable-gpu", "--hide-scrollbars", "--allow-file-access-from-files",
       `--user-data-dir=${profile}`, `--window-size=${Math.max(viewport.width, 500)},${viewport.height}`, "--virtual-time-budget=6000",
       "--dump-dom", `file://${measure}`,
     ], { stdio: ["ignore", "pipe", "ignore"] });
@@ -1077,7 +1078,7 @@ function shootAt(binary: string, page: string, png: string, viewport: { width: n
   if (framed) writeFileSync(framed, `<!doctype html><html><body style="margin:0"><iframe src="${encodeURI(basename(settled))}" style="display:block;border:0;width:${viewport.width}px;height:${viewport.height}px"></iframe></body></html>`);
   return new Promise<void>((resolve, reject) => {
     const child = spawn(binary, [
-      "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check",
+      ...HEADLESS_CHROME_ARGS, "--disable-gpu", "--hide-scrollbars",
       `--user-data-dir=${profile}`, `--window-size=${viewport.width},${viewport.height}`,
       // Every compositor stage runs before the shot, so an entrance fade is caught finished, not halfway.
       `--force-device-scale-factor=${viewport.scale}`, "--run-all-compositor-stages-before-draw", "--virtual-time-budget=4000",
