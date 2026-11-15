@@ -94,17 +94,21 @@ function loaded(): { routing: ModelRouting; file: Partial<Record<ModelJob, true>
   if (override) return { routing: override, file: {} };
   const path = modelRoutingPath();
   if (!path || !existsSync(path)) return { routing: DEFAULT_MODEL_ROUTING, file: {} };
+  let stamp: string;
   try {
     const { mtimeMs, size } = statSync(path);
-    const stamp = `${mtimeMs}:${size}`;
-    if (cached?.path === path && cached.stamp === stamp) return cached;
-    cached = { path, stamp, ...merged(JSON.parse(readFileSync(path, "utf8"))) };
-    return cached;
-  } catch (error) {
-    // A broken file falls back to the defaults (Claude only), never to whatever was cached.
-    console.error(`[flyd] ${path} could not be read, using the default models: ${error instanceof Error ? error.message : String(error)}`);
+    stamp = `${mtimeMs}:${size}`;
+  } catch {
     return { routing: DEFAULT_MODEL_ROUTING, file: {} };
   }
+  if (cached?.path === path && cached.stamp === stamp) return cached;
+  try {
+    cached = { path, stamp, ...merged(JSON.parse(readFileSync(path, "utf8"))) };
+  } catch (error) {
+    console.error(`[flyd] ${path} could not be read, using the default models: ${error instanceof Error ? error.message : String(error)}`);
+    cached = { path, stamp, routing: DEFAULT_MODEL_ROUTING, file: {} };
+  }
+  return cached;
 }
 
 export function loadModelRouting(): ModelRouting {
