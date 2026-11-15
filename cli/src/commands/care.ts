@@ -1,4 +1,4 @@
-import { calendarMetadataConsented, runProactiveCare } from "../runtime/proactive-care.js";
+import { meetingPrepConsented, runProactiveCare } from "../runtime/proactive-care.js";
 import { MEETING_PREP_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
 
 /** Separate explicit opt-in. An assistant cannot assume Calendar access. */
@@ -27,7 +27,7 @@ export async function runCareCommand(action = "status"): Promise<void> {
   console.log([
     "Flyd proactive personal care",
     "Creative references: " + (process.env.FLYD_PROACTIVE_CARE === "0" ? "off" : "ambient, local, source-backed"),
-    "Calendar preparation: " + (calendarMetadataConsented(registry) ? "opted in" : registry.status(MEETING_PREP_CONTRACT.sourceId)),
+    "Calendar preparation: " + (meetingPrepConsented(registry) ? "opted in" : registry.status(MEETING_PREP_CONTRACT.sourceId)),
     "Calendar reader: Mac only; requires Calendar running and macOS permission.",
     "People memory: local, verified and freshness checked.",
     "Output: quiet activity cards, not push notifications.",
