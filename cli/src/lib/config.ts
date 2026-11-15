@@ -38,6 +38,37 @@ export function loadFlydEnvironment(
 // and keys) would otherwise turn hermetic tests into live provider calls.
 if (!process.env.VITEST) loadFlydEnvironment();
 
+const IGNORED_MODEL_ENV_VARS = [
+  "FLYD_MODEL",
+  "FLYD_CHAT_MODEL",
+  "FLYD_CHAT_FALLBACK_MODELS",
+  "FLYD_CLAUDE_CHAT_MODEL",
+  "FLYD_CLAUDE_QUICK_MODEL",
+  "FLYD_CREW_MODEL",
+  "FLYD_CREW_BACKUP_MODELS",
+  "FLYD_DESIGN_MODEL",
+  "COMMANDCODE_MODEL",
+  "COMMANDCODE_API_KEY_MODEL",
+  "OPENROUTER_MODEL",
+];
+
+let warnedIgnoredModelEnv = false;
+
+export function warnIgnoredModelEnv(
+  environment: NodeJS.ProcessEnv = process.env,
+  log: (message: string) => void = (message) => console.error(message),
+): string[] {
+  if (warnedIgnoredModelEnv) return [];
+  warnedIgnoredModelEnv = true;
+  const ignored = IGNORED_MODEL_ENV_VARS.filter((name) => environment[name] !== undefined);
+  if (ignored.length) {
+    log(`flyd: ignoring model env vars (${ignored.join(", ")}); models are configured in ~/.flyd/models.json`);
+  }
+  return ignored;
+}
+
+if (!process.env.VITEST) warnIgnoredModelEnv();
+
 function detectProject(): { name: string; path: string } {
   const cwd = process.cwd();
   try {
