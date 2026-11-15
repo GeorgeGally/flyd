@@ -135,10 +135,14 @@ authoritative path. This change does not rewrite historical private entries.
     boss, marked as Flyd's own note (not George's wording, no new authority),
     to settle it and report the outcome. Only FirstMate, which replies, is
     sent one back. Whatever the boss replies next reaches George, including
-    the same question asked again. A hand-back that does not reach the boss is
-    retried on the next pass; after three failed tries the call reaches George
-    (`tellRun` in `cli/src/command/scheduler.ts`), as does a waiting run whose
-    review keeps failing. A decision that touches his money, his
+    the same question asked again. A domain-run notice the outgoing screen
+    holds as an implementation call goes to the Chief of Staff's operational
+    judgment (`cli/src/command/cos/operational-judgment.ts`), the one place
+    internal calls are decided; its instruction reaches the boss through
+    `deliverBossNote`. One it will not take, or could not deliver, reaches
+    George as a screened notice rather than going quiet (`tellRun` in
+    `cli/src/command/scheduler.ts`), as does a waiting run whose review keeps
+    failing. A decision that touches his money, his
     name or an outward step (paying, charging, refunds, subscriptions,
     renewals, cancelling, invoices, contracts, signing, publishing, sending,
     merging) always reaches him, even when it also mentions how the work runs.

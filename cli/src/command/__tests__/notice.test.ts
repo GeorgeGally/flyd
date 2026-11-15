@@ -36,6 +36,9 @@ function run(reply: string, status?: DomainRunStatus): DomainRun {
   };
 }
 
+/** A true implementation call, caught by the decision-routing rule on its own words (no "test" keyword): which library to use. */
+const IMPLEMENTATION_CALL = "Tell me whether to add the date-fns dependency or write our own date helper.";
+
 describe("captain notices", () => {
   it("keeps firstmate's supervision chatter off the screen", () => {
     for (const chatter of [
@@ -218,7 +221,7 @@ describe("the relay gate on the self-review's evidence", () => {
   });
 
   it("keeps an implementation call off his screen as a decision, and brings him a call on what the page carries", () => {
-    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Tell me whether to lay out the TV page with CSS grid or flexbox." })))).toBeNull();
+    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: IMPLEMENTATION_CALL })))).toBeNull();
     expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Tell me whether to add Teletext and Tuning dial buttons." }))))
       .toBe("I need your decision: Tell me whether to add Teletext and Tuning dial buttons.");
     expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "The logo can be red or blue: which do you want?" }))))
@@ -416,7 +419,7 @@ describe("notifyRun", () => {
     expect(sent.join(" ")).not.toMatch(/Blue or green|login page|token parser|2FA code module|sign in to the dashboard/);
   });
 
-  it("gates the scheduler's notice on the outgoing review: an implementation call is Flyd's, machinery gives way to the work, and each hold is recorded", async () => {
+  it("gates the scheduler's notice on the outgoing review: an implementation call goes to the Chief of Staff, machinery gives way to the work, and each hold is recorded", async () => {
     const sent: string[] = [];
     const notify = async (_title: string, message: string) => { sent.push(message); };
     const ask = (id: string, question: string): [DomainRun, ExecutiveDecisionRecord] => {
@@ -436,7 +439,7 @@ describe("notifyRun", () => {
       return { delivered: true, run: { ...input.run, messages: [...(input.run.messages ?? []), { id: `${input.run.id}:${input.kind}:1`, kind: input.kind, body: input.body, from: "flyd", at, deliveredAt: at }] } };
     };
     const calls: Array<[string, string]> = [
-      ["domain-gate-a", "Tell me whether to lay out the TV page with CSS grid or flexbox."],
+      ["domain-gate-a", IMPLEMENTATION_CALL],
       ["domain-gate-b", "Flyd is re-requesting unstructured FirstMate handoffs"],
       ["domain-gate-c", "Tell me whether to add Teletext and Tuning dial buttons."],
       ["domain-gate-d", "Should the button CSS be red or blue?"],
@@ -445,22 +448,24 @@ describe("notifyRun", () => {
       const [asked, decided] = ask(id, question);
       await notifyRun(asked, notify, send, async () => decided, () => false, async () => ({}));
     }
+    // What the page carries and how it looks stay his; the machinery line gives way to the work.
     expect(sent).toEqual(["Your call is needed: Fix the island.", "Tell me whether to add Teletext and Tuning dial buttons.", "Should the button CSS be red or blue?"]);
-    // The layout method is Flyd's call: the boss is told to make it and report the outcome, so the run carries on.
-    expect(toBoss).toEqual([{ run: "domain-gate-a", body: HANDLE_IT_YOURSELF }]);
+    // The library choice is Flyd's: the Chief of Staff's operational judgment (cos/operational-judgment.ts) tells the boss to make it.
+    expect(toBoss).toHaveLength(1);
+    expect(toBoss[0]).toMatchObject({ run: "domain-gate-a", body: expect.stringMatching(/^CoS (?:owns|resolves) .*implementation choice/) });
     expect(verdicts()).toContainEqual(expect.objectContaining({
-      text: "Tell me whether to lay out the TV page with CSS grid or flexbox.", source: "domain:domain-gate-a", surface: "notification", held: true,
+      text: IMPLEMENTATION_CALL, source: "domain:domain-gate-a", surface: "notification", held: true,
       shortfalls: expect.arrayContaining([expect.objectContaining({ requirement: "decisions_handled" })]),
     }));
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("FirstMate handoffs"), source: "domain:domain-gate-b", held: true }));
   });
 
-  it("never lets an implementation call go quiet: a failed hand-back is retried, and a boss that insists after it brings the call to George", async () => {
-    const question = "Tell me whether to lay out the TV page with CSS grid or flexbox.";
+  it("never lets an implementation call go quiet: one the boss cannot be told, the Chief of Staff will not take, or the boss insists on reaches George", async () => {
+    const question = IMPLEMENTATION_CALL;
     const decided = (id: string): ExecutiveDecisionRecord => ({
       schema: "flyd.executive-decision.v1", decisionId: `decision-${id}`, sourceId: "firstmate.change", sourceEventId: `event-${id}`,
       taskId: id, disposition: "ask_george", reason: "George owns the choice", summary: question, evidenceRefs: [id], question,
-      options: ["Grid", "Flexbox"], recommendation: { option: "Grid", rationale: "It fits the page." }, verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
+      options: ["date-fns", "Our own helper"], recommendation: { option: "date-fns", rationale: "It is already tested." }, verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
     });
     const asked = (id: string, messages: DomainRun["messages"] = []): DomainRun => {
       const base = run(JSON.stringify({ status: "needs_decision", brief: question }));
@@ -469,63 +474,50 @@ describe("notifyRun", () => {
     const sent: string[] = [];
     const notify = async (_title: string, message: string) => { sent.push(message); };
     const toBoss: string[] = [];
-    let up = false;
+    let up = true;
     const send: typeof sendRunMessage = async (input) => {
       if (!up) return { delivered: false, run: input.run };
       toBoss.push(input.body);
       const at = "2026-11-10T10:01:00.000Z";
       return { delivered: true, run: { ...input.run, messages: [...(input.run.messages ?? []), { id: `${input.run.id}:${input.kind}:1`, kind: input.kind, body: input.body, from: "flyd", at, deliveredAt: at }] } };
     };
+    const pass = (id: string, decide: () => Promise<ExecutiveDecisionRecord> = async () => decided(id)) =>
+      notifyRun(readDomainRun(id)!, notify, send, decide, () => false, async () => ({}));
 
-    // The boss cannot be reached: the report stays due for the next pass, and George is not handed the call.
-    saveDomainRun(asked("domain-back-a"));
-    await notifyRun(readDomainRun("domain-back-a")!, notify, send, async () => decided("domain-back-a"), () => false, async () => ({}));
-    expect([sent, toBoss, readDomainRun("domain-back-a")?.report?.state]).toEqual([[], [], "due"]);
-    up = true;
-    await notifyRun(readDomainRun("domain-back-a")!, notify, send, async () => decided("domain-back-a"), () => false, async () => ({}));
-    expect([sent, toBoss, readDomainRun("domain-back-a")?.report?.state]).toEqual([[], [HANDLE_IT_YOURSELF], "quiet"]);
-
-    // A boss that cannot be reached at all: once every hand-back has failed, the call is brought to him rather than left to go quiet.
+    // The boss cannot be reached: the call is brought to him straight away, screened like any notice, not left quiet.
     up = false;
-    saveDomainRun(asked("domain-back-c"));
-    for (let pass = 0; pass < MAX_REVIEW_TRIES; pass++) {
-      await notifyRun(readDomainRun("domain-back-c")!, notify, send, async () => decided("domain-back-c"), () => false, async () => ({}));
-    }
-    expect([sent, readDomainRun("domain-back-c")?.report?.state]).toEqual([[], "due"]);
-    await notifyRun(readDomainRun("domain-back-c")!, notify, send, async () => decided("domain-back-c"), () => false, async () => ({}));
-    expect(sent).toEqual([question]);
-    expect(readDomainRun("domain-back-c")?.report?.state).toBe("shown");
+    saveDomainRun(asked("domain-back-a"));
+    await pass("domain-back-a");
+    expect([sent, toBoss, readDomainRun("domain-back-a")?.report?.state]).toEqual([[question], [], "shown"]);
     sent.length = 0;
     up = true;
 
-    // Reviews that failed before one finished are not failed hand-backs: the call still goes to the boss, not to him.
+    // Reviews that failed before one finished are not a reason to hand him the call: the Chief of Staff still takes it.
     saveDomainRun(asked("domain-back-d"));
     let failing = MAX_REVIEW_TRIES - 1;
-    const flaky = async () => {
-      if (failing-- > 0) throw new Error("review timed out");
-      return decided("domain-back-d");
-    };
-    for (let pass = 0; pass < MAX_REVIEW_TRIES; pass++) {
-      await notifyRun(readDomainRun("domain-back-d")!, notify, send, flaky, () => false, async () => ({}));
+    for (let tries = 0; tries < MAX_REVIEW_TRIES; tries++) {
+      await pass("domain-back-d", async () => {
+        if (failing-- > 0) throw new Error("review timed out");
+        return decided("domain-back-d");
+      });
     }
-    expect([sent, toBoss, readDomainRun("domain-back-d")?.report?.state]).toEqual([[], [HANDLE_IT_YOURSELF, HANDLE_IT_YOURSELF], "quiet"]);
-    toBoss.length = 1;
+    expect([sent, toBoss.length, readDomainRun("domain-back-d")?.report?.state]).toEqual([[], 1, "quiet"]);
 
     // A review that never finishes does not leave his call quiet either: it reaches him, screened like any notice.
     saveDomainRun(asked("domain-back-e"));
-    for (let pass = 0; pass < MAX_REVIEW_TRIES; pass++) {
-      await notifyRun(readDomainRun("domain-back-e")!, notify, send, async () => { throw new Error("review timed out"); }, () => false, async () => ({}));
+    for (let tries = 0; tries < MAX_REVIEW_TRIES; tries++) {
+      await pass("domain-back-e", async () => { throw new Error("review timed out"); });
     }
     expect(sent).toEqual([question]);
     expect(readDomainRun("domain-back-e")?.report?.state).toBe("shown");
     sent.length = 0;
 
-    // Told to make it itself, the boss says it is his after all: Flyd brings it to him, as its note promised.
+    // Told to make it itself (decision-step.ts), the boss says it is his after all: Flyd brings it to him, as its note promised.
     const handedBack = [{ id: "m-back", kind: "decision" as const, body: HANDLE_IT_YOURSELF, from: "flyd" as const, at: "2026-11-10T10:01:00.000Z", deliveredAt: "2026-11-10T10:01:00.000Z" }];
     saveDomainRun(asked("domain-back-b", handedBack));
-    await notifyRun(readDomainRun("domain-back-b")!, notify, send, async () => decided("domain-back-b"), () => false, async () => ({}));
+    await pass("domain-back-b");
     expect(sent).toEqual([question]);
-    expect(toBoss).toEqual([HANDLE_IT_YOURSELF]);
+    expect(toBoss).toHaveLength(1);
   });
 
   it("quotes only George's own words for a finished run, and says Flyd's stand-ins as the bare fact", async () => {

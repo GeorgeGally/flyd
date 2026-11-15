@@ -6,6 +6,7 @@ import { DESIGN_MATE, syncDesignBoards, syncDesignMateRuns } from "./design-mate
 import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
 import { gateNotice, noticeKind, type GatedNotice } from "./notice.js";
+import { judgeOperationalQuestion } from "./cos/operational-judgment.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { listDomainRuns, mutateDomainRun, readDomainRun, updateDomainRun } from "./store.js";
 import { cameBack, isOpen } from "./run-state.js";
@@ -102,21 +103,35 @@ export async function decideRun(
 }
 
 /** The notification a decision makes: the run's report, delivered as its lead line (runtime/delivery.ts) and gated by the outgoing review (notice.ts); none when held. */
-function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord): GatedNotice {
+function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord, insisted = notesSentToBoss(run.messages).includes(HANDLE_IT_YOURSELF)): GatedNotice {
   if (!decision.show || !decision.notify) return { text: null, flydsCall: false };
   // Finished work's checked line is the report's lead, its link kept whole (runtime/delivery.ts).
   const report = reportFromRun(run, decision);
   const text = deliver(report, "notification").text;
-  // A boss told to make the call itself that still says it is his, or a boss the hand-back could not reach after the
-  // usual tries: it reaches him, screened for backstage like any notice.
-  const insisted = notesSentToBoss(run.messages).includes(HANDLE_IT_YOURSELF) || (run.report?.handBackTries ?? 0) >= MAX_REVIEW_TRIES;
+  // A boss already told to make the call itself that still says it is his (decision-step.ts) reaches him, screened
+  // for backstage like any notice.
   return text ? gateNotice(run, text, decision.disposition === "ask_george", report.outcome, insisted) : { text: null, flydsCall: false };
 }
 
-/** An implementation call held back from George: Flyd makes it by sending it back to the run's boss to make, once (deliverBossNote). */
-async function handBack(run: DomainRun, decision: ExecutiveDecisionRecord, send: typeof sendRunMessage): Promise<boolean> {
+/**
+ * An implementation call the outgoing review kept from George goes to the Chief of Staff's operational judgment
+ * (cos/operational-judgment.ts), the one place that decides internal calls; its instruction reaches the boss through
+ * deliverBossNote. Whether the boss was told: false when the judgment says the call is not internal, or it could not
+ * be delivered, and the caller brings the call to George instead of letting it go quiet.
+ */
+async function flydMakesCall(run: DomainRun, decision: ExecutiveDecisionRecord, send: typeof sendRunMessage, judge = judgeOperationalQuestion): Promise<boolean> {
+  const asked = decision.disposition === "ask_george" ? decision : undefined;
+  const disposition = await judge({
+    domain: run.request.domain,
+    goal: run.request.intendedOutcome,
+    question: asked?.question || reportFromRun(run, decision).outcome,
+    options: asked?.options ?? [],
+    ...(asked?.recommendation && "option" in asked.recommendation && asked.recommendation.option ? { recommendation: asked.recommendation.option } : {}),
+    evidenceRefs: [`domain-run:${run.id}`, ...decision.evidenceRefs],
+  }).catch(() => null);
+  if (disposition?.kind !== "internal") return false;
   const action: ExecutiveInternalAction = {
-    capability: "firstmate.message", target: run.id, text: HANDLE_IT_YOURSELF,
+    capability: "firstmate.message", target: run.id, text: disposition.message,
     grantId: `flyd-call:${run.id}`, idempotencyKey: `${decision.decisionId}:flyd-call`,
   };
   return (await deliverBossNote(run, action, send)).status === "verified";
@@ -306,18 +321,24 @@ function reportState(state: DeliveryState | undefined): RunReport["state"] {
 export async function tellRun(
   run: DomainRun,
   decision: ExecutiveDecisionRecord,
-  options: { notify?: Notify; attention?: ReadAttention; key?: string; send?: typeof sendRunMessage } = {},
+  options: { notify?: Notify; attention?: ReadAttention; key?: string; send?: typeof sendRunMessage; judge?: typeof judgeOperationalQuestion } = {},
 ): Promise<{ notice: string | null; owed: boolean; waiting: boolean }> {
   // Settled once George was told, or quietly when nothing is left for him or Flyd; otherwise Flyd holds it in view.
   const gated = noticeForDecision(run, decision);
-  const notice = gated.text;
+  let notice = gated.text;
+  // An implementation call is Flyd's: the Chief of Staff makes it and tells the boss. One it will not take, or could
+  // not deliver, is brought to George, screened like any notice, never left quiet.
+  let madeCall = false;
+  if (!notice && gated.flydsCall && isOpen(run.status)) {
+    madeCall = await flydMakesCall(run, decision, options.send ?? sendRunMessage, options.judge);
+    if (!madeCall) notice = noticeForDecision(run, decision, true).text;
+  }
   const unsettled = run.status !== "completed" || decision.disposition === "ask_george" || decision.show && decision.notify
     || decision.action !== undefined || decision.reason === FENCE_HELD || decision.reason === HELD_FOR_ATTENTION;
   // The report this telling belongs to: the run's own, or (a Chief of Staff report on a run without one) its current outcome's.
   const from = run.report;
   let owed = false;
   let waiting = false;
-  let retry = false;
   if (notice) {
     const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
     // A run's finished work is one report per outcome, whatever its domain; anything else is one per decision. A restart never says either twice.
@@ -342,21 +363,15 @@ export async function tellRun(
       owed = delivered.owed.length > 0;
       moveReport(run.id, from, { ...told, state: reportState(delivered.states[report.key]) });
     }
-  } else if (gated.flydsCall && isOpen(run.status)) {
-    if (await handBack(run, decision, options.send ?? sendRunMessage)) {
-      moveReport(run.id, from, { state: "quiet", sentBack: true, decisionId: decision.decisionId });
-    } else {
-      // The hand-back did not reach the boss: reviewed again on the next pass, and brought to him once it has failed the usual tries.
-      retry = true;
-      moveReport(run.id, from, { state: "due", handBackTries: (from?.handBackTries ?? 0) + 1, decisionId: decision.decisionId });
-    }
+  } else if (madeCall) {
+    moveReport(run.id, from, { state: "quiet", sentBack: true, decisionId: decision.decisionId });
   } else {
     if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     moveReport(run.id, from, { state: "quiet", decisionId: decision.decisionId });
   }
   // Legacy flags, written for one release: a report not delivered yet is never marked notified (the tick says it
   // again); one held for a break is told by the tick when his focus breaks (tellHeld).
-  if (!owed && !retry) {
+  if (!owed) {
     mutateDomainRun(run.id, (current) => {
       const { told: _told, ...rest } = current ?? run;
       return { ...rest, notified: true, ...(notice && !waiting ? { told: { line: notice, decisionId: decision.decisionId } } : {}) };
