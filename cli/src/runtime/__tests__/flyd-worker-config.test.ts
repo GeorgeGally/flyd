@@ -6,17 +6,18 @@ describe("Flyd worker configuration", () => {
     const config = loadFlydWorkerConfig({
       environment: {},
       envFileText: [
-        "OPENCODE_API=secret-provider-key",
-        "OPENCODE_MODEL=deepseekv4",
+        "FLYD_MODEL_API_KEY=secret-provider-key",
+        "FLYD_MODEL=custom-model",
+        "FLYD_MODEL_BASE_URL=https://models.example.test/v1",
       ].join("\n"),
     });
 
     expect(config).toMatchObject({
       apiKey: "secret-provider-key",
-      model: "deepseek-v4-pro",
-      baseURL: "https://opencode.ai/zen/v1",
+      model: "custom-model",
+      baseURL: "https://models.example.test/v1",
     });
-    expect(config.providerIdentity).toBe("opencode.ai/deepseek-v4-pro");
+    expect(config.providerIdentity).toBe("models.example.test/custom-model");
     expect(JSON.stringify({ ...config, apiKey: "[REDACTED]" })).not.toContain("secret-provider-key");
   });
 
@@ -39,51 +40,23 @@ describe("Flyd worker configuration", () => {
     });
   });
 
-  it("routes FLYD_PROVIDER=opencode-go through the Go endpoint and strips the provider prefix", () => {
-    const config = loadFlydWorkerConfig({
-      environment: {
-        FLYD_PROVIDER: "opencode-go",
-        FLYD_MODEL: "opencode-go/deepseek-v4.1-flash",
-        OPENCODE_API_KEY: "opencode-key",
-        OPENROUTER_API_KEY: "router-key",
-        OPENROUTER_MODEL: "openrouter/free",
-      },
-    });
-
-    expect(config).toEqual({
-      apiKey: "opencode-key",
-      model: "deepseek-v4.1-flash",
-      baseURL: "https://opencode.ai/zen/go/v1",
-      providerIdentity: "opencode.ai/deepseek-v4.1-flash",
-    });
-  });
-
-  it("uses the configured OpenCode model and drops OpenRouter /free when a paid model exists", () => {
-    const configs = loadFlydWorkerConfigs({
-      environment: {
-        OPENROUTER_API_KEY: "router-key",
-        OPENROUTER_MODEL: "openrouter/free",
-        OPENCODE_API: "legacy-key",
-        OPENCODE_MODEL: "deepseekv4",
-      },
-    });
-
-    expect(configs).toMatchObject([
-      {
-        apiKey: "legacy-key",
-        model: "deepseek-v4-pro",
-        baseURL: "https://opencode.ai/zen/v1",
-        providerIdentity: "opencode.ai/deepseek-v4-pro",
-      },
-    ]);
-    expect(loadFlydWorkerConfig({
-      environment: {
-        OPENROUTER_API_KEY: "router-key",
-        OPENROUTER_MODEL: "openrouter/free",
-        OPENCODE_API: "legacy-key",
-        OPENCODE_MODEL: "deepseekv4",
-      },
-    })).toEqual(configs[0]);
+  it("never uses OpenCode, OpenCode Go or DeepSeek, by model or endpoint, even with their key set", () => {
+    const environment = {
+      FLYD_PROVIDER: "opencode-go",
+      FLYD_MODEL: "opencode-go/deepseek-v4.1-flash",
+      OPENCODE_API_KEY: "opencode-key",
+      OPENCODE_MODEL: "deepseekv4",
+      OPENROUTER_API_KEY: "router-key",
+      OPENROUTER_MODEL: "openrouter/free",
+    };
+    expect(loadFlydWorkerConfigs({ environment })).toEqual([{
+      apiKey: "router-key",
+      model: "openrouter/free",
+      baseURL: "https://openrouter.ai/api/v1",
+      providerIdentity: "openrouter.ai/openrouter/free",
+    }]);
+    expect(() => loadFlydWorkerConfigs({ environment: { ...environment, OPENROUTER_API_KEY: "" } })).toThrow("Flyd coding model is not configured");
+    expect(() => loadFlydWorkerConfigs({ environment: { FLYD_MODEL_API_KEY: "k", FLYD_MODEL: "custom", FLYD_MODEL_BASE_URL: "https://opencode.ai/zen/go/v1" } })).toThrow("not configured");
   });
 
   it("pairs FLYD_MODEL with OPENAI_API_KEY and drops /free when a paid model exists", () => {
@@ -105,22 +78,6 @@ describe("Flyd worker configuration", () => {
         providerIdentity: "api.openai.com/gpt-5.6-luna",
       },
     ]);
-  });
-
-  it("accepts the OPENOCE_MODEL typo as an OpenCode model alias", () => {
-    const config = loadFlydWorkerConfig({
-      environment: {
-        OPENCODE_API_KEY: "opencode-key",
-        OPENOCE_MODEL: "deepseekv4",
-      },
-    });
-
-    expect(config).toMatchObject({
-      apiKey: "opencode-key",
-      model: "deepseek-v4-pro",
-      baseURL: "https://opencode.ai/zen/v1",
-      providerIdentity: "opencode.ai/deepseek-v4-pro",
-    });
   });
 
   it("parses quoted dotenv values and ignores comments", () => {

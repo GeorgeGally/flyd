@@ -165,7 +165,7 @@ export async function flydModelAssignments(): Promise<ModelAssignment[]> {
     job: "Overlay questions (fn key, text and voice), LIVE's look-ups and actions, and Core's coding worker",
     model: workers[0]?.providerIdentity ?? "not configured",
     ...(workers.length > 1 ? { fallbacks: workers.slice(1).map((worker) => worker.providerIdentity) } : {}),
-    settings: ["FLYD_MODEL", "OPENCODE_MODEL", "OPENOCE_MODEL", "OPENROUTER_MODEL", ...COMMANDCODE_SETTINGS],
+    settings: ["FLYD_MODEL", "OPENROUTER_MODEL", ...COMMANDCODE_SETTINGS, "FLYD_CLAUDE_CHAT_MODEL", ...CLAUDE_SETTINGS],
   });
   add({
     job: "Overlay route classifier",

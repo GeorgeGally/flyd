@@ -7,12 +7,13 @@ import { promisify } from "node:util";
 import { FLYD_DIR } from "../lib/config.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import type { NotificationOutcome } from "../runtime/agenda.js";
-import { claudeApiKey, claudeHeaders, recordClaudeUsage } from "../lib/claude-spend.js";
 import { normalizeCriteria, parseVerdicts, unmetChecks, unresolvedItems, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
 import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
+import { allowedForText, refuseForText } from "../runtime/provider-policy.js";
+import { claudeBinary, subscriptionEnv } from "../command/design-claude.js";
 
 // Flyd as first mate. George states the outcome once; Flyd briefs an
-// OpenCode crewmate, gives it a clean git worktree, supervises it to
+// Claude Code crewmate, gives it a clean git worktree, supervises it to
 // completion, verifies the result with the repository's own checks, and
 // reports back. Nothing lands on George's branch without his word.
 //
@@ -86,8 +87,6 @@ export interface CrewTask {
   model?: string;
   /** Models this task already ran on before its provider refused and it moved to a backup. */
   triedModels?: string[];
-  /** How far into the log Claude spend has been counted. */
-  spendOffset?: number;
   /** Set once a failed or discarded task's worktree is gone from disk (its branch is kept while it holds commits). */
   worktreeRemoved?: boolean;
   /** When a failed or discarded task's worktree (and, if safe, its branch) was tidied away. */
@@ -203,28 +202,14 @@ function slug(text: string): string {
 }
 
 /**
- * Permissions for an unattended crewmate: build and test freely inside its
- * worktree, never publish, destroy, or escalate. (Enforced by OpenCode.)
+ * What an unattended crewmate may never run: it builds and tests freely inside its
+ * worktree, but never publishes, destroys, or escalates. Claude Code enforces these
+ * deny rules even with its permission prompts skipped.
  */
-export const CREW_OPENCODE_CONFIG = {
-  permission: {
-    edit: "allow",
-    webfetch: "allow",
-    bash: {
-      "*": "allow",
-      "git push*": "deny",
-      "git remote*": "deny",
-      "git reset --hard*": "deny",
-      "git clean*": "deny",
-      "git checkout main*": "deny",
-      "git switch main*": "deny",
-      "rm -rf *": "deny",
-      "sudo *": "deny",
-      "gh pr merge*": "deny",
-      "npm publish*": "deny",
-    },
-  },
-};
+export const CREW_DENIED_COMMANDS = [
+  "git push", "git remote", "git reset --hard", "git clean", "git checkout main", "git switch main",
+  "rm -rf", "sudo", "gh pr merge", "npm publish",
+];
 
 /** One repair round after the first review; more is paying to repeat a failure. */
 export const MAX_CREW_ATTEMPTS = 2;
@@ -311,19 +296,15 @@ export async function dispatchCrewTask(options: DispatchOptions): Promise<CrewTa
   return readTask(id, dir)!;
 }
 
-export function openCodePath(): string {
-  const configured = process.env.FLYD_OPENCODE_PATH?.trim();
-  if (configured) return configured;
-  const home = join(homedir(), ".opencode", "bin", "opencode");
-  return existsSync(home) ? home : "opencode";
-}
-
-/** Start the crewmate on its model: Cursor's agent for a "cursor/…" model, OpenCode for the rest. */
+/** Start the crewmate on its model: Cursor's agent for a "cursor/…" model, Claude Code for the rest. Never OpenCode, DeepSeek or the ChatGPT allowance. */
 export function launchCrewmate(task: CrewTask, brief: string): number | undefined {
-  return (task.model ?? crewModel()).startsWith(CURSOR_PREFIX) ? launchCursor(task, brief) : launchOpenCode(task, brief);
+  const model = task.model ?? crewModel();
+  refuseForText(model, "crew work");
+  return model.startsWith(CURSOR_PREFIX) ? launchCursor(task, brief) : launchClaude(task, brief);
 }
 
 const CURSOR_PREFIX = "cursor/";
+const CLAUDE_PREFIX = /^(?:claude|anthropic)\//;
 
 export function cursorAgentPath(): string {
   const configured = process.env.FLYD_CURSOR_AGENT_PATH?.trim();
@@ -350,93 +331,63 @@ export function launchCursor(task: CrewTask, brief: string): number | undefined 
   return child.pid;
 }
 
-/** Start `opencode run` detached in the worktree; its JSON events stream to the task log. */
-export function launchOpenCode(task: CrewTask, brief: string): number | undefined {
+/** Claude Code's arguments for a crewmate: unattended, every denied command still refused, on the CLI's own model unless one is named. */
+export function crewClaudeArgs(model: string, brief: string): string[] {
+  const named = model.replace(CLAUDE_PREFIX, "");
+  return [
+    "-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions",
+    "--disallowedTools", ...CREW_DENIED_COMMANDS.map((command) => `Bash(${command}:*)`),
+    ...(named && named !== "claude" && named !== "default" ? ["--model", named] : []),
+    "--", brief,
+  ];
+}
+
+/** Start `claude -p` detached in the worktree on George's Claude subscription (never the metered key); its JSON events stream to the task log. */
+export function launchClaude(task: CrewTask, brief: string): number | undefined {
   // A test once dispatched a real crewmate against Flyd itself. Never again.
   if (process.env.VITEST && process.env.FLYD_CREW_ALLOW_LAUNCH !== "1") {
-    throw new Error("refusing to launch a real OpenCode crewmate under tests");
+    throw new Error("refusing to launch a real Claude crewmate under tests");
   }
+  const binary = claudeBinary();
+  if (!binary) throw new Error("Claude Code is not installed, so the crewmate can't start");
   const out = openSync(task.log, "a");
-  const args = ["run", "--format", "json", "--title", `flyd:${task.id}`, "--auto"];
-  const model = task.model ?? crewModel();
-  if (model) args.push("--model", model);
-  args.push(brief);
-  // OpenCode's Anthropic provider reads ANTHROPIC_API_KEY; only this child gets Flyd's key under that name.
-  const claudeKey = model?.startsWith("anthropic/") ? claudeApiKey() : undefined;
-  const child = spawn(openCodePath(), args, {
+  const child = spawn(binary, crewClaudeArgs(task.model ?? crewModel(), brief), {
     cwd: task.worktree,
     detached: true,
     stdio: ["ignore", out, out],
-    env: { ...process.env, ...(claudeKey ? { ANTHROPIC_API_KEY: claudeKey } : {}), OPENCODE_CONFIG_CONTENT: JSON.stringify(crewOpenCodeConfig(Boolean(claudeKey))) },
+    env: subscriptionEnv(),
   });
   child.unref();
   closeSync(out);
   return child.pid;
 }
 
-/** The crew's OpenCode config; on Flyd's Claude key it also names the key's workspace. */
-export function crewOpenCodeConfig(claude: boolean): Record<string, unknown> {
-  const headers = claude ? claudeHeaders() : {};
-  return Object.keys(headers).length
-    ? { ...CREW_OPENCODE_CONFIG, provider: { anthropic: { options: { headers } } } }
-    : CREW_OPENCODE_CONFIG;
-}
-
 /**
- * The crewmate's model: FLYD_CREW_MODEL when set, else George's opencode-go plan.
- * Never OpenCode's own default: with several providers stored it picked one
- * George never chose (an OpenRouter key out of credits), and every task failed.
+ * The crewmate's model: FLYD_CREW_MODEL when set, else Claude Code on its own default.
+ * An OpenCode, DeepSeek or ChatGPT-login model is never the crew's (runtime/provider-policy.ts).
  */
-export const DEFAULT_CREW_MODEL = "opencode-go/gpt-6-luna";
+export const DEFAULT_CREW_MODEL = "claude/default";
 export function crewModel(): string {
-  return process.env.FLYD_CREW_MODEL?.trim() || DEFAULT_CREW_MODEL;
+  const configured = process.env.FLYD_CREW_MODEL?.trim();
+  return configured && allowedForText(configured) ? configured : DEFAULT_CREW_MODEL;
 }
 
 /**
  * Where a crewmate goes when its model's provider refuses the work (out of credits,
- * a usage limit): FLYD_CREW_BACKUP_MODELS, comma-separated, else George's Cursor plan.
- * "none" turns the switch off.
+ * a usage limit): FLYD_CREW_BACKUP_MODELS, comma-separated; none by default, so a
+ * limited Claude waits rather than handing the work elsewhere. "none" turns it off.
  */
-export const DEFAULT_CREW_BACKUP_MODELS = ["cursor/auto"];
+export const DEFAULT_CREW_BACKUP_MODELS: string[] = [];
 export function crewBackupModels(): string[] {
   const configured = process.env.FLYD_CREW_BACKUP_MODELS?.trim();
   if (configured === "none") return [];
-  return configured ? configured.split(",").map((model) => model.trim()).filter(Boolean) : DEFAULT_CREW_BACKUP_MODELS;
+  return configured ? configured.split(",").map((model) => model.trim()).filter((model) => model && allowedForText(model)) : DEFAULT_CREW_BACKUP_MODELS;
 }
 
 /** The next model to try after a refusal: the first backup this task hasn't run on yet. */
 export function nextBackupModel(task: CrewTask): string | undefined {
   const tried = new Set([...(task.triedModels ?? []), task.model ?? crewModel()]);
   return crewBackupModels().find((model) => !tried.has(model));
-}
-
-/**
- * Count a Claude crewmate's new steps against the monthly spend, from the
- * token usage OpenCode logs on each step. Returns the new log offset.
- */
-export function recordCrewSpend(task: CrewTask): number | undefined {
-  if (!task.model?.startsWith("anthropic/") || !existsSync(task.log)) return task.spendOffset;
-  const log = readFileSync(task.log);
-  const start = Math.min(task.spendOffset ?? 0, log.length);
-  // Only whole lines: a step still being written is counted next time.
-  const end = log.lastIndexOf(0x0a) + 1;
-  if (end <= start) return start;
-  const model = task.model.slice("anthropic/".length);
-  for (const line of log.subarray(start, end).toString("utf8").split("\n")) {
-    if (!line.includes("step_finish")) continue;
-    try {
-      const event = JSON.parse(line) as { type?: string; part?: { tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } } } };
-      const tokens = event.type === "step_finish" ? event.part?.tokens : undefined;
-      if (!tokens) continue;
-      recordClaudeUsage(model, {
-        input_tokens: tokens.input,
-        output_tokens: (tokens.output ?? 0) + (tokens.reasoning ?? 0),
-        cache_read_input_tokens: tokens.cache?.read,
-        cache_creation_input_tokens: tokens.cache?.write,
-      }, "crew");
-    } catch { /* not an event */ }
-  }
-  return end;
 }
 
 export function processAlive(pid: number | undefined): boolean {
@@ -848,10 +799,7 @@ async function superviseCrewPass(deps: SuperviseDependencies, dir: string): Prom
       return { ...rest, status: "running" };
     }, dir);
   }
-  for (const listed of listTasks(dir).filter((item) => item.status === "running")) {
-    const spendOffset = recordCrewSpend(listed);
-    const task = spendOffset === listed.spendOffset ? listed : { ...listed, spendOffset };
-    if (task !== listed && !saveFrom(task, ["running"], dir)) continue;
+  for (const task of listTasks(dir).filter((item) => item.status === "running")) {
     const processIsAlive = alive(task.pid);
     let observed = task;
     const iterations = completedIterations(task.log);

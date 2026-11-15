@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { georgeInbox } from "../../runtime/agenda.js";
-import { CREW_OPENCODE_CONFIG, MAX_CREW_ATTEMPTS, REVIEW_SHORT_FAILURE, MAX_NO_PROGRESS_ITERATIONS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, crewBackupModels, discardCrewTask, nextBackupModel, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew, pruneCrewTasks, saveTask } from "../crew.js";
+import { crewClaudeArgs, MAX_CREW_ATTEMPTS, REVIEW_SHORT_FAILURE, MAX_NO_PROGRESS_ITERATIONS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, crewBackupModels, discardCrewTask, nextBackupModel, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew, pruneCrewTasks, saveTask } from "../crew.js";
 
 let home: string;
 let repo: string;
@@ -255,14 +255,13 @@ describe("crew", () => {
     expect(notify).toHaveBeenCalledTimes(1);
   });
 
-  it("reads the backup list, with Cursor as the default and none turning it off", () => {
+  it("reads the backup list: none by default or with none, the configured ones in order", () => {
     expect(crewBackupModels()).toEqual([]);
     delete process.env.FLYD_CREW_BACKUP_MODELS;
-    expect(crewBackupModels()).toEqual(["cursor/auto"]);
-    expect(nextBackupModel({ model: "cursor/auto" } as never)).toBeUndefined();
-    process.env.FLYD_CREW_BACKUP_MODELS = "opencode-go/kimi-k3, cursor/auto";
-    expect(nextBackupModel({ model: "opencode-go/gpt-6-luna" } as never)).toBe("opencode-go/kimi-k3");
-    expect(nextBackupModel({ model: "cursor/auto", triedModels: ["opencode-go/gpt-6-luna", "opencode-go/kimi-k3"] } as never)).toBeUndefined();
+    expect(crewBackupModels()).toEqual([]);
+    process.env.FLYD_CREW_BACKUP_MODELS = "claude/opus, cursor/auto";
+    expect(nextBackupModel({ model: "claude/default" } as never)).toBe("claude/opus");
+    expect(nextBackupModel({ model: "cursor/auto", triedModels: ["claude/default", "claude/opus"] } as never)).toBeUndefined();
   });
 
   it("reads a Cursor log: its last words and a refused result", () => {
@@ -433,12 +432,11 @@ describe("crew", () => {
   });
 
   it("refuses to launch a real crewmate under tests", async () => {
-    await expect(dispatchCrewTask({ repo, outcome: "Would be real" })).rejects.toThrow("refusing to launch a real OpenCode crewmate under tests");
+    await expect(dispatchCrewTask({ repo, outcome: "Would be real" })).rejects.toThrow("refusing to launch a real Claude crewmate under tests");
   });
 
   it("denies publishing and destructive commands to unattended crewmates", () => {
-    expect(CREW_OPENCODE_CONFIG.permission.bash["git push*"]).toBe("deny");
-    expect(CREW_OPENCODE_CONFIG.permission.bash["rm -rf *"]).toBe("deny");
+    expect(crewClaudeArgs("claude/default", "x")).toEqual(expect.arrayContaining(["Bash(git push:*)", "Bash(rm -rf:*)", "Bash(gh pr merge:*)"]));
     expect(crewBrief("x", ["npm test"], "flyd/x")).toContain("run and pass: npm test");
     // George's learned taste rides in the brief, ahead of the rules.
     const taste = "George's taste (learned from his own corrections…):\n\nEverywhere:\n- No shadows on icon boxes.";

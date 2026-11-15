@@ -21,14 +21,14 @@ describe("worker router", () => {
     const selected = routeWorker({
       requirements: ["implementation", "testing"],
       adapters: [
-        health("codex", ["analysis", "implementation", "testing"]),
-        health("opencode", ["analysis", "implementation", "testing"]),
+        health("steady", ["analysis", "implementation", "testing"]),
+        health("builder", ["analysis", "implementation", "testing"]),
       ],
-      activeCounts: { codex: 1, opencode: 0 },
+      activeCounts: { steady: 1, builder: 0 },
       excludedAdapters: [],
     });
 
-    expect(selected.name).toBe("opencode");
+    expect(selected.name).toBe("builder");
   });
 
   it("excludes unhealthy, incapable, and explicitly replaced adapters", () => {
@@ -37,20 +37,35 @@ describe("worker router", () => {
       adapters: [
         health("broken", ["review"], false),
         health("builder", ["implementation"]),
-        health("codex", ["review"]),
+        health("steady", ["review"]),
         health("replacement", ["review"]),
       ],
       activeCounts: {},
-      excludedAdapters: ["codex"],
+      excludedAdapters: ["steady"],
     });
 
     expect(selected.name).toBe("replacement");
   });
 
+  it("never picks the ChatGPT/Codex allowance or OpenCode, even when idle and first by name", () => {
+    const selected = routeWorker({
+      requirements: ["implementation"],
+      adapters: [
+        health("codex", ["implementation"]),
+        health("opencode", ["implementation"]),
+        health("worker", ["implementation"]),
+      ],
+      activeCounts: { worker: 5 },
+      excludedAdapters: [],
+    });
+
+    expect(selected.name).toBe("worker");
+  });
+
   it("fails explicitly when the task grant has no capable worker", () => {
     expect(() => routeWorker({
       requirements: ["review"],
-      adapters: [health("opencode", ["implementation"])],
+      adapters: [health("builder", ["implementation"])],
       activeCounts: {},
       excludedAdapters: [],
     })).toThrow("No healthy worker satisfies: review");
@@ -60,13 +75,14 @@ describe("worker router", () => {
     const selected = routeWorker({
       requirements: ["analysis"],
       adapters: [
-        health("opencode", ["analysis"]),
-        health("codex", ["analysis"]),
+        health("worker", ["analysis"]),
+        health("claude", ["analysis"]),
       ],
       activeCounts: {},
       excludedAdapters: [],
     });
 
-    expect(selected.name).toBe("codex");
+    expect(selected.name).toBe("claude");
   });
+
 });

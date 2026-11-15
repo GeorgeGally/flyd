@@ -26,7 +26,7 @@ export async function modelSetup(): Promise<ModelSetup> {
     chat: safe(chatModelChain, []),
     quick: safe(quickModelChain, []),
     typing: safe(predictionModel, "unconfigured"),
-    crew: safe(() => crewModel(), "opencode-go/gpt-6-luna"),
+    crew: safe(() => crewModel(), "claude/default"),
     design: safe(() => `claude CLI ${designModel()} on the subscription${claudeBinary() ? "" : " (claude CLI not found)"}`, "claude CLI opus on the subscription"),
     claude: { key: Boolean(claudeApiKey()), workspace: Object.keys(claudeHeaders()).length > 0, spend: spendStatus() },
   };

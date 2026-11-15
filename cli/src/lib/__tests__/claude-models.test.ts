@@ -23,9 +23,9 @@ beforeEach(() => {
   vi.stubEnv("FLYD_CLAUDE", "1");
   vi.stubEnv("CLAUDE_API_KEY", "claude-key");
   vi.stubEnv("ANTHROPIC_API_KEY", "");
-  vi.stubEnv("FLYD_PROVIDER", "opencode-go");
-  vi.stubEnv("FLYD_MODEL", "opencode-go/deepseek-v4.1-flash");
-  vi.stubEnv("FLYD_CHAT_MODEL", "opencode-go/deepseek-v4.1-flash");
+  vi.stubEnv("FLYD_PROVIDER", "");
+  vi.stubEnv("FLYD_MODEL", "openai:gpt-5.6-luna");
+  vi.stubEnv("FLYD_CHAT_MODEL", "openai:gpt-5.6-luna");
   vi.stubEnv("FLYD_CHAT_FALLBACK_MODELS", "");
   vi.stubEnv("COMMANDCODE_API_KEY", "");
   vi.stubEnv("CMD_API_KEY", "");
@@ -42,11 +42,11 @@ afterEach(() => {
 
 describe("model chains with Claude", () => {
   it("puts Claude Sonnet ahead of the configured chat model, which stays as the fallback", () => {
-    expect(chatModelChain()).toEqual(["anthropic:claude-sonnet-5-5", "opencode-go/deepseek-v4.1-flash"]);
+    expect(chatModelChain()).toEqual(["anthropic:claude-sonnet-5-5", "openai:gpt-5.6-luna"]);
   });
 
   it("puts Claude Haiku ahead of the models quick jobs used before", () => {
-    expect(quickModelChain()).toEqual(["anthropic:claude-haiku-5-5", "opencode-go/deepseek-v4.1-flash"]);
+    expect(quickModelChain()).toEqual(["anthropic:claude-haiku-5-5", "openai:gpt-5.6-luna"]);
   });
 
   it("takes model overrides from the environment and qualifies bare Claude ids", () => {
@@ -58,7 +58,7 @@ describe("model chains with Claude", () => {
 
   it("leaves Claude out when FLYD_CLAUDE=0 or no key is set", () => {
     vi.stubEnv("FLYD_CLAUDE", "0");
-    expect(chatModelChain()).toEqual(["opencode-go/deepseek-v4.1-flash"]);
+    expect(chatModelChain()).toEqual(["openai:gpt-5.6-luna"]);
     vi.stubEnv("FLYD_CLAUDE", "1");
     vi.stubEnv("CLAUDE_API_KEY", "");
     expect(claudeChatModel()).toBeNull();
@@ -123,8 +123,8 @@ describe("monthly Claude spend", () => {
     expect(notices[1]).toContain("backup models");
     expect(spendStatus(now).capped).toBe(true);
     expect(claudeAvailable(now)).toBe(false);
-    expect(chatModelChain()).toEqual(["opencode-go/deepseek-v4.1-flash"]);
-    expect(quickModelChain()).toEqual(["opencode-go/deepseek-v4.1-flash"]);
+    expect(chatModelChain()).toEqual(["openai:gpt-5.6-luna"]);
+    expect(quickModelChain()).toEqual(["openai:gpt-5.6-luna"]);
   });
 
   it("defaults the cap to $100 and words the warning for George", () => {

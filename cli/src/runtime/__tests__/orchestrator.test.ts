@@ -5,18 +5,28 @@ import { join } from "path";
 import { promisify } from "util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { grantRuntimeTimeoutMs, integrateRepositoryGroups, orchestrateAssignments } from "../orchestrator.js";
-import { buildCodexArgs, parseCodexEvent, runCodex } from "../codex-adapter.js";
-import { buildOpenCodeArgs, parseOpenCodeEvent, runOpenCode } from "../opencode-adapter.js";
 import { inspectRepository } from "../repository-inspector.js";
 import { integrateVerifiedResults } from "../result-integrator.js";
 import { verifyWorkerResult } from "../result-verifier.js";
 import type { AgentTask, TaskAssignment, TaskGrant, WorkerCommand, WorkerSession } from "../types.js";
-import type { WorkerAdapter, WorkerRunInput } from "../worker-adapter.js";
+import { runJsonWorkerProcess, type WorkerAdapter, type WorkerCommandInput, type WorkerEvent, type WorkerRunInput } from "../worker-adapter.js";
 import { GitWorktreeManager } from "../worktree-manager.js";
 
 // The verification sandbox (sandbox-exec) exists only on macOS; elsewhere
 // the tests that verify through it skip, with that reason in their names.
 const onMacOS = it.skipIf(process.platform !== "darwin");
+
+// The real-process tests drive fake worker binaries that speak one JSON event per line.
+const fakeArgs = (input: WorkerCommandInput): string[] => ["run", input.assignment];
+function parseFakeEvent(line: string): WorkerEvent | null {
+  try {
+    const parsed = JSON.parse(line) as { type?: string; sessionID?: string; part?: { text?: string } };
+    return { type: parsed.type ?? "unknown", sessionId: parsed.sessionID ?? null, text: parsed.part?.text ?? null };
+  } catch {
+    return null;
+  }
+}
+const runFake = (input: WorkerRunInput) => runJsonWorkerProcess({ ...input, label: "Worker", parseEvent: parseFakeEvent });
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -163,15 +173,15 @@ describe("orchestrateAssignments", () => {
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["claude"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
       decisionReason: null, decidedAt: new Date().toISOString(),
     };
     const neverRun: WorkerAdapter = {
-      name: "codex", capabilities: ["implementation"],
-      detect: async () => ({ name: "codex", executable: "/bin/codex", version: "1", healthy: true, capabilities: ["implementation"] }),
+      name: "claude", capabilities: ["implementation"],
+      detect: async () => ({ name: "claude", executable: "/bin/claude", version: "1", healthy: true, capabilities: ["implementation"] }),
       buildArgs: () => [], parseEvent: () => null,
       run: vi.fn(),
     };
@@ -218,15 +228,15 @@ describe("orchestrateAssignments", () => {
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-no-delivery", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["claude"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
       decisionReason: null, decidedAt: new Date().toISOString(),
     };
     const neverRun: WorkerAdapter = {
-      name: "codex", capabilities: ["implementation"],
-      detect: async () => ({ name: "codex", executable: "/bin/codex", version: "1", healthy: true, capabilities: ["implementation"] }),
+      name: "claude", capabilities: ["implementation"],
+      detect: async () => ({ name: "claude", executable: "/bin/claude", version: "1", healthy: true, capabilities: ["implementation"] }),
       buildArgs: () => [], parseEvent: () => null,
       run: vi.fn(),
     };
@@ -255,7 +265,7 @@ describe("orchestrateAssignments", () => {
       createWorker: vi.fn(async (input: Record<string, unknown>) => {
         const worker: WorkerSession = {
           id: "1", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1",
-          status: "queued", adapter: "codex", capabilities: ["implementation"], executablePath: "/bin/codex",
+          status: "queued", adapter: "claude", capabilities: ["implementation"], executablePath: "/bin/claude",
           executableVersion: "1.0.0", workingDirectory: input.workingDirectory as string,
           externalSessionId: null, processId: null, processIdentity: null, errorSummary: null,
           output: null, exitStatus: null, startedAt: null, endedAt: null,
@@ -275,10 +285,10 @@ describe("orchestrateAssignments", () => {
       recordTaskIntegration: vi.fn(async () => undefined),
     };
     const capturing: WorkerAdapter = {
-      name: "codex",
+      name: "claude",
       capabilities: ["implementation"],
       detect: async () => ({
-        name: "codex", executable: "/bin/codex", version: "1.0.0", healthy: true,
+        name: "claude", executable: "/bin/claude", version: "1.0.0", healthy: true,
         capabilities: ["implementation"],
       }),
       buildArgs: (input) => {
@@ -303,7 +313,7 @@ describe("orchestrateAssignments", () => {
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-instruction", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["claude"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -340,8 +350,8 @@ describe("orchestrateAssignments", () => {
     assignments[0].baseHead = repo.head;
     assignments[1].repositoryRoot = secondRepo.root;
     assignments[1].baseHead = secondRepo.head;
-    assignments[0].excludedAdapters = ["codex"];
-    assignments[1].excludedAdapters = ["opencode"];
+    assignments[0].excludedAdapters = ["claude"];
+    assignments[1].excludedAdapters = ["steady"];
     const workers: WorkerSession[] = [];
     const transitionOrder: string[] = [];
     const store = {
@@ -399,9 +409,9 @@ describe("orchestrateAssignments", () => {
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root, secondRepo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex", "opencode"],
+      repositoryRoots: [repo.root, secondRepo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["claude", "steady"],
       fileOperations: ["read", "write"], commandClasses: ["test"],
-      verificationCommands: ["grep -q 'opencode changed' one.txt", "grep -q 'codex changed' two.txt"],
+      verificationCommands: ["grep -q 'steady changed' one.txt", "grep -q 'claude changed' two.txt"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 2, budget: { max_worker_runs: 4, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
       decisionReason: null, decidedAt: new Date().toISOString(),
@@ -413,13 +423,13 @@ describe("orchestrateAssignments", () => {
       assignments,
       repository: snapshot,
       verificationCommandsByRepository: {
-        [repo.root]: ["grep -q 'opencode changed' one.txt"],
-        [secondRepo.root]: ["grep -q 'codex changed' two.txt"],
+        [repo.root]: ["grep -q 'steady changed' one.txt"],
+        [secondRepo.root]: ["grep -q 'claude changed' two.txt"],
       },
       contextPath: "/tmp/context.md",
       adapters: [
-        adapter("opencode", ["implementation", "testing", "resume"], "one.txt", concurrency, workersReleased),
-        adapter("codex", ["implementation", "review", "testing", "resume"], "two.txt", concurrency, workersReleased),
+        adapter("steady", ["implementation", "testing", "resume"], "one.txt", concurrency, workersReleased),
+        adapter("claude", ["implementation", "review", "testing", "resume"], "two.txt", concurrency, workersReleased),
       ],
       deps: { store, manager: new GitWorktreeManager({ managedRoot }) },
     });
@@ -429,12 +439,12 @@ describe("orchestrateAssignments", () => {
     const result = await orchestration;
 
     expect(result.status, JSON.stringify(result)).toBe("integrated");
-    expect(result.summary).toContain("## Implement\n\nopencode done");
-    expect(result.summary).toContain("## Review\n\ncodex done");
+    expect(result.summary).toContain("## Implement\n\nsteady done");
+    expect(result.summary).toContain("## Review\n\nclaude done");
     expect(concurrency.maximum).toBe(2);
-    expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("opencode changed\n");
+    expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("steady changed\n");
     expect(await readFile(join(repo.root, "two.txt"), "utf8")).toBe("two base\n");
-    expect(await readFile(join(secondRepo.root, "two.txt"), "utf8")).toBe("codex changed\n");
+    expect(await readFile(join(secondRepo.root, "two.txt"), "utf8")).toBe("claude changed\n");
     expect(store.recordAssignmentVerification).toHaveBeenCalledTimes(2);
     expect(store.recordTaskIntegration).toHaveBeenCalledOnce();
     for (const worker of workers) {
@@ -465,7 +475,7 @@ describe("orchestrateAssignments", () => {
         const worker: WorkerSession = {
           id: String(workers.length + 1), workerKey: `worker-${workers.length + 1}`,
           agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1", status: "queued",
-          adapter: "codex", capabilities: ["implementation"], executablePath: "/bin/codex",
+          adapter: "claude", capabilities: ["implementation"], executablePath: "/bin/claude",
           executableVersion: "1.0.0", workingDirectory: input.workingDirectory as string,
           externalSessionId: null, processId: null, processIdentity: null, errorSummary: null,
           output: null, exitStatus: null, startedAt: null, endedAt: null,
@@ -498,10 +508,10 @@ describe("orchestrateAssignments", () => {
       recordTaskIntegration: vi.fn(async () => undefined),
     };
     const retrying: WorkerAdapter = {
-      name: "codex",
+      name: "claude",
       capabilities: ["implementation", "resume"],
       detect: async () => ({
-        name: "codex", executable: "/bin/codex", version: "1.0.0", healthy: true,
+        name: "claude", executable: "/bin/claude", version: "1.0.0", healthy: true,
         capabilities: ["implementation", "resume"],
       }),
       buildArgs: (input) => {
@@ -529,7 +539,7 @@ describe("orchestrateAssignments", () => {
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-retry", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["claude"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1,
       budget: { max_worker_runs: 2, max_runtime_minutes: 90 }, providerIdentity: "local",
@@ -568,7 +578,7 @@ describe("orchestrateAssignments", () => {
         const worker: WorkerSession = {
           id: String(workers.length + 1), workerKey: `worker-${workers.length + 1}`,
           agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1", status: "queued",
-          adapter: "codex", capabilities: ["implementation"], executablePath: "/bin/codex",
+          adapter: "claude", capabilities: ["implementation"], executablePath: "/bin/claude",
           executableVersion: "1.0.0", workingDirectory: input.workingDirectory as string,
           externalSessionId: null, processId: null, processIdentity: null, errorSummary: null,
           output: null, exitStatus: null, startedAt: null, endedAt: null,
@@ -602,10 +612,10 @@ describe("orchestrateAssignments", () => {
       recordTaskIntegration: vi.fn(async () => undefined),
     };
     const blocked: WorkerAdapter = {
-      name: "codex",
+      name: "claude",
       capabilities: ["implementation"],
       detect: async () => ({
-        name: "codex", executable: "/bin/codex", version: "1.0.0", healthy: true,
+        name: "claude", executable: "/bin/claude", version: "1.0.0", healthy: true,
         capabilities: ["implementation"],
       }),
       buildArgs: () => [],
@@ -626,7 +636,7 @@ describe("orchestrateAssignments", () => {
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-blocked", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["claude"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1,
       budget: { max_worker_runs: 2, max_runtime_minutes: 90 }, providerIdentity: "local",
@@ -660,24 +670,24 @@ describe("orchestrateAssignments", () => {
     const managedRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-managed-"));
     const executableRoot = await mkdtemp(join(tmpdir(), "flyd-orchestrator-bin-"));
     roots.push(managedRoot, executableRoot);
-    const codexPath = join(executableRoot, "codex");
-    const openCodePath = join(executableRoot, "opencode");
-    await writeFile(codexPath, `#!/bin/sh
+    const flakyPath = join(executableRoot, "flaky");
+    const steadyPath = join(executableRoot, "steady");
+    await writeFile(flakyPath, `#!/bin/sh
 sleep 0.05
-printf '%s\\n' '{"type":"thread.started","thread_id":"fake-codex"}'
+printf '%s\\n' '{"type":"text","sessionID":"fake-flaky","part":{"text":"failed"}}'
 exit 1
 `);
-    await writeFile(openCodePath, `#!/bin/sh
+    await writeFile(steadyPath, `#!/bin/sh
 case "$*" in
   *one.txt*) target=one.txt ;;
   *two.txt*) target=two.txt ;;
   *) exit 2 ;;
 esac
 sleep 0.05
-printf 'fake opencode changed\\n' > "$target"
-printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"}}'
+printf 'fake steady changed\\n' > "$target"
+printf '%s\\n' '{"type":"text","sessionID":"fake-steady","part":{"text":"done"}}'
 `);
-    await Promise.all([chmod(codexPath, 0o755), chmod(openCodePath, 0o755)]);
+    await Promise.all([chmod(flakyPath, 0o755), chmod(steadyPath, 0o755)]);
 
     const assignments = [
       assignment("1", "Implement one", ["implementation", "testing"], "one.txt"),
@@ -744,7 +754,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-process-smoke", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex", "opencode"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["flaky", "steady"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 2, budget: { max_worker_runs: 4, max_runtime_minutes: 1 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -753,20 +763,20 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     const capabilities: WorkerAdapter["capabilities"] = ["analysis", "implementation", "review", "testing", "resume"];
     const adapters: WorkerAdapter[] = [
       {
-        name: "codex",
+        name: "flaky",
         capabilities,
-        detect: async () => ({ name: "codex", executable: codexPath, version: "codex-cli 0.144.2", healthy: true, capabilities }),
-        buildArgs: buildCodexArgs,
-        parseEvent: parseCodexEvent,
-        run: runCodex,
+        detect: async () => ({ name: "flaky", executable: flakyPath, version: "1.17.18", healthy: true, capabilities }),
+        buildArgs: fakeArgs,
+        parseEvent: parseFakeEvent,
+        run: runFake,
       },
       {
-        name: "opencode",
+        name: "steady",
         capabilities,
-        detect: async () => ({ name: "opencode", executable: openCodePath, version: "1.17.18", healthy: true, capabilities }),
-        buildArgs: buildOpenCodeArgs,
-        parseEvent: parseOpenCodeEvent,
-        run: (input) => runOpenCode(input),
+        detect: async () => ({ name: "steady", executable: steadyPath, version: "1.17.18", healthy: true, capabilities }),
+        buildArgs: fakeArgs,
+        parseEvent: parseFakeEvent,
+        run: runFake,
       },
     ];
 
@@ -779,8 +789,8 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     expect(store.queueWorkerCommand).toHaveBeenCalledWith(
       expect.any(String), "replace", expect.objectContaining({ evidence_digest: expect.any(String) }), expect.any(String),
     );
-    expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("fake opencode changed\n");
-    expect(await readFile(join(repo.root, "two.txt"), "utf8")).toBe("fake opencode changed\n");
+    expect(await readFile(join(repo.root, "one.txt"), "utf8")).toBe("fake steady changed\n");
+    expect(await readFile(join(repo.root, "two.txt"), "utf8")).toBe("fake steady changed\n");
     expect(store.recordAssignmentVerification).toHaveBeenCalledTimes(2);
     expect(store.recordTaskIntegration).toHaveBeenCalledOnce();
   });
@@ -793,8 +803,8 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     const assignments = [assignment("1", "Implement", ["implementation"], "one.txt")];
     const worker: WorkerSession = {
       id: "1", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1",
-      status: "queued", adapter: "codex", capabilities: ["implementation"],
-      executablePath: "/bin/codex", executableVersion: "1.0.0", workingDirectory: repo.root,
+      status: "queued", adapter: "claude", capabilities: ["implementation"],
+      executablePath: "/bin/claude", executableVersion: "1.0.0", workingDirectory: repo.root,
       externalSessionId: null, processId: null, processIdentity: null, errorSummary: null, output: null, exitStatus: null,
       startedAt: null, endedAt: null, lastObservedAt: null, stopReason: null,
     };
@@ -811,10 +821,10 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       recordTaskIntegration: vi.fn(async () => undefined),
     };
     const crashing: WorkerAdapter = {
-      name: "codex",
+      name: "claude",
       capabilities: ["implementation"],
       detect: async () => ({
-        name: "codex", executable: "/bin/codex", version: "1.0.0",
+        name: "claude", executable: "/bin/claude", version: "1.0.0",
         healthy: true, capabilities: ["implementation"],
       }),
       buildArgs: () => [],
@@ -834,7 +844,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["claude"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 1, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -871,8 +881,8 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     const assignments = [assignment("1", "Implement", ["implementation"], "one.txt")];
     const worker: WorkerSession = {
       id: "1", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1",
-      status: "queued", adapter: "codex", capabilities: ["implementation"],
-      executablePath: "/bin/codex", executableVersion: "1.0.0", workingDirectory: repo.root,
+      status: "queued", adapter: "claude", capabilities: ["implementation"],
+      executablePath: "/bin/claude", executableVersion: "1.0.0", workingDirectory: repo.root,
       externalSessionId: null, processId: null, processIdentity: null, errorSummary: null, output: null, exitStatus: null,
       startedAt: null, endedAt: null, lastObservedAt: null, stopReason: null,
     };
@@ -890,10 +900,10 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       recordTaskIntegration: vi.fn(async () => undefined),
     };
     const stopped: WorkerAdapter = {
-      name: "codex",
+      name: "claude",
       capabilities: ["implementation"],
       detect: async () => ({
-        name: "codex", executable: "/bin/codex", version: "1.0.0",
+        name: "claude", executable: "/bin/claude", version: "1.0.0",
         healthy: true, capabilities: ["implementation"],
       }),
       buildArgs: () => [],
@@ -915,7 +925,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["claude"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 4, max_runtime_minutes: 90 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -946,8 +956,8 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     const assignments = [assignment("1", "Implement", ["implementation"], "one.txt")];
     const worker = {
       id: "1", workerKey: "worker-1", agentTaskId: "1", taskGrantId: "2", taskAssignmentId: "1",
-      status: "queued", adapter: "codex", capabilities: ["implementation"],
-      executablePath: "/bin/codex", executableVersion: "1.0.0", workingDirectory: repo.root,
+      status: "queued", adapter: "claude", capabilities: ["implementation"],
+      executablePath: "/bin/claude", executableVersion: "1.0.0", workingDirectory: repo.root,
       externalSessionId: null, processId: null, processIdentity: null, errorSummary: null, output: null, exitStatus: null,
       startedAt: null, endedAt: null, lastObservedAt: null, stopReason: null,
     } satisfies WorkerSession;
@@ -970,10 +980,10 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       recordTaskIntegration: vi.fn(async () => undefined),
     };
     const timedOut: WorkerAdapter = {
-      name: "codex",
+      name: "claude",
       capabilities: ["implementation"],
       detect: async () => ({
-        name: "codex", executable: "/bin/codex", version: "1.0.0",
+        name: "claude", executable: "/bin/claude", version: "1.0.0",
         healthy: true, capabilities: ["implementation"],
       }),
       buildArgs: () => [],
@@ -981,7 +991,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
       run: async (input) => {
         await input.onStart?.(123);
         await input.onTimeout?.("inactive");
-        return { exitStatus: 1, externalSessionId: null, output: "", error: "Codex timed out after 1000ms" };
+        return { exitStatus: 1, externalSessionId: null, output: "", error: "Worker timed out after 1000ms" };
       },
     };
     const task: AgentTask = {
@@ -994,7 +1004,7 @@ printf '%s\\n' '{"type":"text","sessionID":"fake-opencode","part":{"text":"done"
     };
     const grant: TaskGrant = {
       id: "2", grantKey: "grant-1", agentTaskId: "1", status: "approved", scopeDigest: "digest",
-      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["codex"],
+      repositoryRoots: [repo.root], externalRoots: [], worktreePaths: [managedRoot], workerAdapters: ["claude"],
       fileOperations: ["read", "write"], commandClasses: ["test"], verificationCommands: ["git diff --check"],
       renewalRequiredActions: ["deploy"], maxConcurrency: 1, budget: { max_worker_runs: 2, max_runtime_minutes: 1 / 60 },
       providerIdentity: "local", approvedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),

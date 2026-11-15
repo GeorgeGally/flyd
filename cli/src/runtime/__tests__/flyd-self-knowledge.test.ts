@@ -11,8 +11,8 @@ import { respondToConversation } from "../conversation-responder.js";
 const LOGGED_REPLY = "The one I'm sure of is the one writing this: opencode-go/deepseek-v4.1-flash. That's what Flyd's chat runs on.\n\nThe rest I'd be guessing at. Search rewrites go through a configured LLM with a local fallback, and the background jobs (memory curation, news, the coding crew) each have their own model wired in, but I can't name those from memory without reading the config.\n\nWant me to open the repo and give you the full list, model by model and what each one does?";
 
 const CONFIGURED = {
-  FLYD_MODEL: "opencode-go/deepseek-v4.1-flash",
-  FLYD_CHAT_MODEL: "opencode-go/deepseek-v4.1-flash",
+  FLYD_MODEL: "openai:gpt-5.6-sol",
+  FLYD_CHAT_MODEL: "openai:gpt-5.6-sol",
   FLYD_TRANSCRIPTION_MODEL: "gpt-4o-mini-transcribe-2025-12-15",
   FLYD_DICTATE_MODEL: "openrouter:x-ai/grok-4.3",
   FLYD_REALTIME_MODEL: "gpt-realtime-2.1",

@@ -1,10 +1,9 @@
 import { readFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { elideToolHistory, type ToolHistoryPolicy, type ToolHistoryStats } from "../runtime/tool-history.js";
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
 import { usesOpenAITransport, apiModelId, defaultModel, oneShotModelChain, quickModelChain, resolveModelConnection, type ModelConnection } from "./config.js";
-import { claudeHeaders, recordClaudeUsage, type ClaudeUsage } from "./claude-spend.js";
+import { claudeHeaders, compatibleClaudeHeaders, recordClaudeUsage, recordCompatibleClaudeUsage, type ClaudeUsage } from "./claude-spend.js";
 
 interface FixtureRule {
   /** Prompt must contain this substring. */
@@ -189,20 +188,10 @@ export function openAIAgentTransport(model: string): "responses" | "chat_complet
   return /^gpt-5(?:\.|-|$)/i.test(apiModelId(model)) ? "responses" : "chat_completions";
 }
 
-// The OpenCode Go endpoint requires a client user agent and a stable session id
-// so it can route and cache prompts. ponytail: one id per process is enough;
-// thread the real conversation id through if per-conversation caching matters.
-const OPENCODE_HOST = /opencode\.ai/;
-const OPENCODE_HEADERS = {
-  "User-Agent": "flyd-coding-agent/1.0",
-  "x-opencode-session": randomUUID(),
-};
-
 function openAIClientOptions(apiKey: string, baseURL?: string) {
   return {
     apiKey,
     baseURL: baseURL || undefined,
-    ...(baseURL && OPENCODE_HOST.test(baseURL) ? { defaultHeaders: OPENCODE_HEADERS } : {}),
   };
 }
 
@@ -574,18 +563,22 @@ async function queryOpenAIWithConfig(
   options: QueryOptions = {}
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI(openAIClientOptions(apiKey, baseURL));
+  const client = new OpenAI({ ...openAIClientOptions(apiKey, baseURL), defaultHeaders: compatibleClaudeHeaders(baseURL) });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: openAIUserContent(prompt, options.images) });
   const limit = options.maxTokens ?? (options.json ? 8192 : 4096);
-  const ask = (maxTokens: number) => client.chat.completions.create({
-    model: apiModelId(model),
-    ...openAICompletionLimit(maxTokens),
-    messages,
-    ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
-  });
+  const ask = async (maxTokens: number) => {
+    const response = await client.chat.completions.create({
+      model: apiModelId(model),
+      ...openAICompletionLimit(maxTokens),
+      messages,
+      ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
+    });
+    recordCompatibleClaudeUsage(apiModelId(model), baseURL, response.usage, options.source ?? "worker");
+    return response;
+  };
   let res = await ask(limit);
   if (!res.choices.length) throw new Error("OpenAI returned empty choices");
   // Reasoning models can spend the whole budget thinking and return no text;
