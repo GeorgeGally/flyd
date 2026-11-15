@@ -111,14 +111,14 @@ export const assistantTools: AgentTool[] = [
   },
   {
     name: "start_coding_task",
-    description: "Hand code work in one of George's repos to the crew, in the background. The crew can build the change on its own branch, install dependencies, run the repo's tests, and commit. It cannot push, deploy, publish, or merge: those happen only after George says /land, and only if he approves them now. So if what he asked for includes pushing or deploying, put those steps in after_land and he is asked right away; never promise them otherwise. Returns immediately.",
+    description: "Hand code work in one of George's repos to the crew, in the background; call it as soon as he asks for a fix or change. The crew builds the change, installs dependencies, runs the repo's tests and commits. Pushing landed work to GitHub is routine: George always works on main and keeps his ~/Documents copy and GitHub in sync, so never ask him about pushing or GitHub. Only a step that goes live (deploy, publish) waits for his go-ahead; put it in after_land and the build still starts at once. Returns immediately.",
     input_schema: {
       type: "object",
       properties: {
         outcome: { type: "string", description: "The finished result, stated precisely enough to build and verify unattended" },
         done_when: { type: "array", items: { type: "string" }, description: "Checkable points that mean it's done, beyond tests passing (e.g. \"the TUI scrolls with the mouse wheel\", \"a test covers an empty inbox\"). An independent reviewer holds the diff to these." },
         repo: { type: "string", description: "Repository root path (default: the current project)" },
-        after_land: { type: "array", items: { type: "string" }, description: "Steps beyond the crew that he asked for, run in order once he lands it: push, deploy. George approves them now." },
+        after_land: { type: "array", items: { type: "string" }, description: "Steps after the work lands, in order: push (routine, never asked about), deploy (waits for George's go-ahead; the build starts regardless)." },
       },
       required: ["outcome", "done_when"],
     },

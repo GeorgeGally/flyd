@@ -196,8 +196,10 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     case "schedule": return input.action === "list" ? "read" : "local";
     case "todos": return input.action === "list" ? "read" : "local";
     case "domain_work": return input.action === "ask" ? "local" : "read";
-    // Building on its own branch is local; approving a push or deploy for when he lands it is not.
-    case "start_coding_task": return Array.isArray(input.after_land) && input.after_land.length ? "outward" : "local";
+    // Building and pushing landed work are routine: George always works on main and keeps
+    // GitHub in sync with ~/Documents, so a push is never his call. Only a step that goes
+    // live (deploy) waits for him, and even then the build starts without it.
+    case "start_coding_task": return gatedAfterLand(input).length ? "outward" : "local";
     case "work_model": return workModelAction(input) === "show" ? "read" : "local";
     case "retire_card":
     case "speaking_style":
@@ -217,6 +219,25 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
       return input.action === "clipboard_read" ? "read" : "local";
     default: return "read";
   }
+}
+
+/** after_land steps George must approve: everything except a push, which is routine. */
+export function gatedAfterLand(input: Record<string, unknown>): string[] {
+  const steps = Array.isArray(input.after_land) ? input.after_land.map((step) => String(step).trim()) : [];
+  return steps.filter((step) => step && !/^push\b/i.test(step));
+}
+
+/**
+ * The part of a declined call that needs no approval and still runs, or null.
+ * A coding request is never held hostage by its deploy step: the build starts
+ * (with its routine push) and only the gated step waits for George.
+ */
+export function ungatedRemainder(name: string, input: Record<string, unknown>): Record<string, unknown> | null {
+  if (name !== "start_coding_task" || !gatedAfterLand(input).length) return null;
+  const steps = Array.isArray(input.after_land) ? input.after_land.map((step) => String(step).trim()) : [];
+  const kept = steps.filter((step) => /^push\b/i.test(step));
+  const { after_land: _dropped, ...rest } = input;
+  return kept.length ? { ...rest, after_land: kept } : rest;
 }
 
 function clip(text: string, max = 160): string {

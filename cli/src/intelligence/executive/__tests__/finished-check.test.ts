@@ -60,6 +60,13 @@ describe("finished work, checked by Flyd", () => {
     expect(finishedLine({ request: "fm/pc-secondmate" }, "unchecked")).toBe("A piece of your work is finished; I haven't checked it yet.");
   });
 
+  it("says a reply that only started the work has started, never that it is finished", async () => {
+    // The Guido reply: marked complete, but its brief said both fixes were only under way.
+    const detail = "Both under way: Guido error being reproduced in a test Chrome; Flyd delegation fix dispatched.\n~/Documents/guido 17b7e71 pushed";
+    expect((await checkFinished({ label: "Fix Flyd's delegation", detail, request: "im still getting error on extension when i reload" }, readers(null))).line)
+      .toBe("Your request “im still getting error on extension when i reload” has started; it isn't finished yet.");
+  });
+
   it("never says his request itself is done when no title of the change was read", async () => {
     const commit = "https://github.com/GeorgeGally/gnm/commit/3ce3245";
     // His first line is a problem statement: the landed change is named by it, never said to have done it.
