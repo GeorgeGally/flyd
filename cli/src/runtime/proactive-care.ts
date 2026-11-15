@@ -53,15 +53,21 @@ export function matchingPeople(event: CareEvent, memory: MemoryEntry[], now: Dat
     const match = /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})(?:\s*[:—–,-]|\s+(?:is|has|works|lives|said|mentioned|wants|likes|and)\b)/.exec(item.text);
     if (!match) continue;
     const name = match[1]!.trim().toLowerCase();
-    if (!event.title.toLowerCase().includes(name)) continue;
-    // Avoid matching "Ann Lee" in "Joann Lee": name boundary on both sides.
-    const offset = event.title.toLowerCase().indexOf(name);
-    const left = event.title[offset - 1] ?? "";
-    const right = event.title[offset + name.length] ?? "";
-    if (/[a-z]/i.test(left) || /[a-z]/i.test(right)) continue;
     groups.set(name, [...(groups.get(name) ?? []), item]);
   }
-  return groups.size === 1 ? [...groups.values()][0]!.slice(0, 3) : [];
+  const title = event.title.toLowerCase();
+  const wholeWord = (name: string): boolean => {
+    const index = title.indexOf(name);
+    if (index < 0) return false;
+    return !/[a-z]/i.test(title[index - 1] ?? "") && !/[a-z]/i.test(title[index + name.length] ?? "");
+  };
+  // Prefer the complete verified name. A single first name works only if it
+  // uniquely identifies exactly one known person; otherwise say nothing.
+  const full = [...groups.keys()].filter(wholeWord);
+  if (full.length === 1) return groups.get(full[0]!)!.slice(0, 3);
+  if (full.length > 1) return [];
+  const byFirstName = [...groups.keys()].filter((name) => wholeWord(name.split(" ")[0]!));
+  return byFirstName.length === 1 ? groups.get(byFirstName[0]!)!.slice(0, 3) : [];
 }
 
 export function meetingCard(event: CareEvent, memory: MemoryEntry[], now: Date): ActivityRecord | null {
