@@ -30,7 +30,7 @@ function validUrl(raw: string): boolean {
 }
 
 /** macOS permission alone is not consent to monitor Calendar. */
-export function calendarMetadataConsented(registry = new SourceContractRegistry()): boolean {
+export function meetingPrepConsented(registry = new SourceContractRegistry()): boolean {
   registry.register(MEETING_PREP_CONTRACT);
   return registry.status(MEETING_PREP_CONTRACT.sourceId) === "enabled";
 }
@@ -161,7 +161,7 @@ export async function runProactiveCare(deps: CareDeps = {}): Promise<CareResult>
   if (process.env.FLYD_PERSONAL_BRIEFING === "0") {
     result.skipped.push("personal_briefing_disabled"); return result;
   }
-  if (!(deps.calendarConsent ?? calendarMetadataConsented)()) {
+  if (!(deps.calendarConsent ?? meetingPrepConsented)()) {
     result.skipped.push("calendar_metadata_not_consented"); return result;
   }
   const events = await (deps.events ?? defaultEvents)().catch(() => []);
