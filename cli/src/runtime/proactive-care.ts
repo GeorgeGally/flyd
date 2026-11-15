@@ -97,22 +97,15 @@ export function meetingCard(event: CareEvent, memory: MemoryEntry[], now: Date):
   if (!event.title.trim() || /(?:birthday|holiday|focus time|all.day)/i.test(event.title)) return null;
   const people = matchingPeople(event, memory, now);
   if (!people.length) return null;
-  // A commitment is worth preparing only when it explicitly names the same
-  // full person and is already present in fresh, curated memory. Never infer
-  // ownership from a common first name or turn a remembered note into action.
+  // A relevant follow-up must name the matched person in full, not merely
+  // share a first name. Use only fresh, existing curated commitments.
   const named = /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})/.exec(people[0]!.text)?.[1];
-  const followups = named ? memory.filter((item) =>
+  const exactName = named ? new RegExp("\\b" + named + "\\b", "i") : null;
+  const followups = exactName ? memory.filter((item) =>
     item.section.toLowerCase() === "commitments"
     && !memoryEntryIsStale(item, now)
     && /\b(?:send|follow up|follow-up|reply|call|review|deliver|prepare)\b/i.test(item.text)
-    && new RegExp("(^|\\W)" + named.replace(/[.*+?^${}()|[\]\\]/g, "\\  const people = matchingPeople(event, memory, now);
-  if (!people.length) return null;
-  return {
-    key: "care:meeting:" + hash(event.id + "|" + event.start), kind: "noted", state: "done", at: now.toISOString(), expiresAt: start.toISOString(),
-    title: "Before " + clean(event.title, 72),
-    line: (people.map((p) => clean(p.text.replace(/[.!?]+$/, ""), 120) + " (confirmed " + p.date + ")").join(" · ")
-      + " · Call in " + Math.ceil(delay / 60_000) + " min.").slice(0, 500),
-  };") + "(?=\\W|$)", "i").test(item.text),
+    && exactName.test(item.text),
   ).slice(0, 2) : [];
   const facts = [
     ...people.map((p) => clean(p.text.replace(/[.!?]+$/, ""), 120) + " (noted " + p.date + ")"),
