@@ -13,6 +13,7 @@ import { createHash } from "crypto";
 import type { SemanticObject } from "../conversation-view/semantic.js";
 import { workModelAction } from "./work-model-tool.js";
 import type { AfterLandStep } from "../crew/crew.js";
+import { DEPLOY_ACTION } from "../lib/routine-git.js";
 
 export type ActionCategory = "read" | "local" | "outward" | "destructive";
 export type AutonomyLevel = "full" | "trusted" | "ask";
@@ -233,7 +234,7 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
 export function afterLandSteps(line: string): AfterLandStep[] {
   return [
     ...(/\b(?:push|sync)\w*/i.test(line) ? ["push" as const] : []),
-    ...(/\b(?:deploy\w*|publish\w*|releas(?:e|ing)\b(?!-)|go(?:es|ing)? live)|\bto (?:prod|production|live)\b/i.test(line) ? ["deploy" as const] : []),
+    ...(DEPLOY_ACTION.test(line.trim()) ? ["deploy" as const] : []),
   ];
 }
 

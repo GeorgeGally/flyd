@@ -78,6 +78,11 @@ describe("George's standing rules in the review step", () => {
     }
     const green = { ...call("Ready to merge?"), sourceText: "Lint was failing, now green. Ready to merge?" };
     expect(settleCall(green, "- George likes tea.")?.rule).toBe("routine-git");
+    for (const report of ["Fixed the extension so it no longer fails on reload.", "Fixed it; no longer failing.", "Added a fail-safe.", "Made the badge red."]) {
+      expect(settleCall({ ...call("Push to GitHub?"), sourceText: `${report} Push to GitHub?` }, "- George likes tea.")?.rule, report).toBe("routine-git");
+    }
+    expect(settleCall({ ...call("Two tests still fail on CI. Ready to merge?"), sourceText: "Two tests still fail on CI. Ready to merge?" }, PREFERENCES)?.rule).not.toBe("routine-git");
+    expect(settleCall(call("Waiting for George's approval to push the production error fix to GitHub?"), "- George likes tea.")?.rule).toBe("routine-git");
   });
 
   it("stands only on lines he wrote: without them nothing is settled", () => {
