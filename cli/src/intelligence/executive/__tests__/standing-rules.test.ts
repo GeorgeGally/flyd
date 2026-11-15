@@ -92,6 +92,18 @@ describe("George's standing rules in the review step", () => {
     for (const question of ["Force push over main?", "Push the fix upstream?", "Push it to their fork?", "OK to push and deploy to production?"]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
     }
+    // Only a git step is one: a landing page or a commit hook is not.
+    for (const question of ["Ready to start the landing page copy?", "Should I add a commit hook?"]) {
+      expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
+    }
+    for (const question of ["Push the login bug fix?", "Land it?", "OK to run git push --set-upstream origin main?"]) {
+      expect(settleCall(call(question), "- George likes tea.")?.rule, question).toBe("routine-git");
+    }
+    expect(settleCall(call("Push upstream to their fork?"), "- George likes tea.")?.rule).not.toBe("routine-git");
+    // A green report counting no failures is not a failure.
+    for (const report of ["All 120 tests pass, 0 failing.", "Tests green, nothing failing."]) {
+      expect(settleCall({ ...call("Push to GitHub?"), sourceText: `${report} Push to GitHub?` }, "- George likes tea.")?.rule, report).toBe("routine-git");
+    }
     // A past fix in an earlier clause never makes a current failure look past.
     for (const report of ["Resolved conflicts; CI red.", "Fixed typo, tests failing.", "Rebase was clean; tests failing."]) {
       expect(settleCall({ ...call("Ready to merge?"), sourceText: `${report} Ready to merge?` }, PREFERENCES)?.rule, report).not.toBe("routine-git");
