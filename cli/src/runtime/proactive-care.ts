@@ -137,8 +137,10 @@ export function creativeCard(projects: Project[], edition: Edition | null, now: 
   };
 }
 
-/** A dated, curator-confirmed commitment is an opportunity, not a new task. */
-export function commitmentCard(memory: MemoryEntry[], now: Date): ActivityRecord | null {
+/** Up to three dated, curated commitments, ordered by due date.
+ * Never infer deadlines or turn a vague note into a user-facing promise.
+ */
+export function commitmentCards(memory: MemoryEntry[], now: Date): ActivityRecord[] {
   const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const candidates = memory.flatMap((item) => {
     if (item.section.toLowerCase() !== "commitments" || memoryEntryIsStale(item, now)) return [];
@@ -149,16 +151,26 @@ export function commitmentCard(memory: MemoryEntry[], now: Date): ActivityRecord
     const days = Math.round((date.getTime() - midnight) / 86_400_000);
     return days >= 0 && days <= 2 ? [{ item, due: dates[0], days }] : [];
   }).sort((a, b) => a.days - b.days || a.item.text.localeCompare(b.item.text));
-  const best = candidates[0];
-  if (!best) return null;
-  const when = best.days === 0 ? "Today" : best.days === 1 ? "Tomorrow" : "In two days";
-  return {
-    key: "care:commitment:" + hash(best.item.id + "|" + best.due),
-    kind: "noted", state: "done", at: now.toISOString(),
-    expiresAt: new Date(new Date(best.due + "T00:00:00").getFullYear(), new Date(best.due + "T00:00:00").getMonth(), new Date(best.due + "T00:00:00").getDate() + 1).toISOString(),
-    title: when + ": something you committed to",
-    line: clean(best.item.text.replace(/[.!?]+$/, ""), 190) + " (confirmed " + best.item.date + ").",
-  };
+  const ids = new Set<string>();
+  return candidates.filter(({ item }) => {
+    if (ids.has(item.id)) return false;
+    ids.add(item.id); return true;
+  }).slice(0, 3).map(({ item, due, days }) => {
+    const when = days === 0 ? "Today" : days === 1 ? "Tomorrow" : "In two days";
+    const date = new Date(due + "T00:00:00");
+    return {
+      key: "care:commitment:" + hash(item.id + "|" + due),
+      kind: "noted", state: "done", at: now.toISOString(),
+      expiresAt: new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).toISOString(),
+      title: when + ": something you committed to",
+      line: clean(item.text.replace(/[.!?]+$/, ""), 190) + " (noted " + item.date + ").",
+    };
+  });
+}
+
+/** Backward-compatible single-best commitment for existing consumers. */
+export function commitmentCard(memory: MemoryEntry[], now: Date): ActivityRecord | null {
+  return commitmentCards(memory, now)[0] ?? null;
 }
 
 /** The existing activity column is the ambient surface; nothing pushes a notification. */
@@ -172,9 +184,10 @@ export async function runProactiveCare(deps: CareDeps = {}): Promise<CareResult>
   const creative = creativeCard((deps.projects ?? readProjects)(), (deps.edition ?? latestEdition)(), now);
   if (creative?.key && !seen(creative.key, day)) { write(creative); result.inspiration++; }
   // Reuse already consented curated memory only; no calendar, contact or model lookup.
-  const commitments = commitmentCard((deps.memory ?? readMemoryEntries)(), now);
-  if (commitments?.key && !seen(commitments.key, day)) {
-    write(commitments); result.commitments++;
+  const memory = (deps.memory ?? readMemoryEntries)();
+  for (const commitment of commitmentCards(memory, now)) {
+    if (!commitment.key || seen(commitment.key, day)) continue;
+    write(commitment); result.commitments++;
   }
   // Calendar metadata and People memory require a separate opt-in; a broad
   // request to "look after me" does not grant perpetual sensitive sensing.
@@ -185,7 +198,6 @@ export async function runProactiveCare(deps: CareDeps = {}): Promise<CareResult>
     result.skipped.push("calendar_metadata_not_consented"); return result;
   }
   const events = await (deps.events ?? defaultEvents)().catch(() => []);
-  const memory = (deps.memory ?? readMemoryEntries)();
   for (const event of events.slice(0, 10)) {
     const card = meetingCard(event, memory, now);
     if (!card?.key || seen(card.key, day)) continue;
