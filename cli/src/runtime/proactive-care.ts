@@ -19,7 +19,7 @@ export interface CareDeps {
   record?: (record: ActivityRecord) => void;
   alreadyRecorded?: (key: string, day: string) => boolean;
 }
-export interface CareResult { meetings: number; inspiration: number; skipped: string[] }
+export interface CareResult { meetings: number; inspiration: number; commitments: number; skipped: string[] }
 const CREATIVE = /\b(?:design|graphic|visual|art|creative|identity|branding|typography|animation|render|website|interface|ui|3d|generative)\b/i;
 const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20);
 const dayOf = (d: Date) => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
@@ -116,9 +116,32 @@ export function creativeCard(projects: Project[], edition: Edition | null, now: 
   };
 }
 
+/** A dated, curator-confirmed commitment is an opportunity, not a new task. */
+export function commitmentCard(memory: MemoryEntry[], now: Date): ActivityRecord | null {
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const candidates = memory.flatMap((item) => {
+    if (item.section.toLowerCase() !== "commitments" || memoryEntryIsStale(item, now)) return [];
+    const dates = [...item.text.matchAll(/\b(20\d{2}-\d{2}-\d{2})\b/g)].map((match) => match[1]!);
+    if (dates.length !== 1 || !/\b(?:send|follow up|follow-up|reply|call|review|submit|deliver|renew|pay|meet|finish|prepare)\b/i.test(item.text)) return [];
+    const date = new Date(dates[0] + "T00:00:00");
+    if (Number.isNaN(date.getTime()) || dayOf(date) !== dates[0]) return [];
+    const days = Math.round((date.getTime() - midnight) / 86_400_000);
+    return days >= 0 && days <= 2 ? [{ item, due: dates[0], days }] : [];
+  }).sort((a, b) => a.days - b.days || a.item.text.localeCompare(b.item.text));
+  const best = candidates[0];
+  if (!best) return null;
+  const when = best.days === 0 ? "Today" : best.days === 1 ? "Tomorrow" : "In two days";
+  return {
+    key: "care:commitment:" + hash(best.item.id + "|" + best.due),
+    kind: "noted", state: "done", at: now.toISOString(),
+    title: when + ": something you committed to",
+    line: clean(best.item.text.replace(/[.!?]+$/, ""), 190) + " (confirmed " + best.item.date + ").",
+  };
+}
+
 /** The existing activity column is the ambient surface; nothing pushes a notification. */
 export async function runProactiveCare(deps: CareDeps = {}): Promise<CareResult> {
-  const result: CareResult = { meetings: 0, inspiration: 0, skipped: [] };
+  const result: CareResult = { meetings: 0, inspiration: 0, commitments: 0, skipped: [] };
   if (process.env.FLYD_PROACTIVE_CARE === "0") return { ...result, skipped: ["disabled"] };
   const now = deps.now?.() ?? new Date();
   const day = dayOf(now);
@@ -126,6 +149,11 @@ export async function runProactiveCare(deps: CareDeps = {}): Promise<CareResult>
   const seen = deps.alreadyRecorded ?? alreadyRecorded;
   const creative = creativeCard((deps.projects ?? readProjects)(), (deps.edition ?? latestEdition)(), now);
   if (creative?.key && !seen(creative.key, day)) { write(creative); result.inspiration++; }
+  // Reuse already consented curated memory only; no calendar, contact or model lookup.
+  const commitments = commitmentCard((deps.memory ?? readMemoryEntries)(), now);
+  if (commitments?.key && !seen(commitments.key, day)) {
+    write(commitments); result.commitments++;
+  }
   // Calendar metadata and People memory require a separate opt-in; a broad
   // request to "look after me" does not grant perpetual sensitive sensing.
   if (process.env.FLYD_PERSONAL_BRIEFING === "0") {
