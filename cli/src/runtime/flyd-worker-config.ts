@@ -2,7 +2,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { allowedForText } from "./provider-policy.js";
 import { claudeApiKey, spendStatus } from "../lib/claude-spend.js";
-import { DEFAULT_CLAUDE_CHAT_MODEL } from "../lib/config.js";
+import { modelRoutes, type ModelRoute, type ModelRouting } from "./model-routing.js";
 
 export interface FlydWorkerConfig {
   apiKey: string;
@@ -49,15 +49,6 @@ export function apiModelId(model: string): string {
 export const ANTHROPIC_OPENAI_BASE_URL = "https://api.anthropic.com/v1";
 
 export const COMMANDCODE_BASE_URL = "https://api.commandcode.ai/provider/v1";
-export const COMMANDCODE_DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
-
-/** CommandCode names open models "vendor/model"; accept OpenCode-style ids too. */
-export function commandCodeModelId(model?: string): string {
-  const bare = apiModelId(model?.trim() || COMMANDCODE_DEFAULT_MODEL);
-  if (bare.includes("/")) return bare;
-  if (/^deepseek-/i.test(bare)) return `deepseek/${bare}`;
-  return bare;
-}
 
 export function parseEnvFile(content: string): NodeJS.ProcessEnv {
   const values: NodeJS.ProcessEnv = {};
@@ -90,11 +81,7 @@ function normalizedBaseURL(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-export function loadFlydWorkerConfig(input: {
-  projectRoot?: string;
-  environment?: NodeJS.ProcessEnv;
-  envFileText?: string;
-} = {}): FlydWorkerConfig {
+export function loadFlydWorkerConfig(input: Parameters<typeof loadFlydWorkerConfigs>[0] = {}): FlydWorkerConfig {
   return loadFlydWorkerConfigs(input)[0];
 }
 
@@ -102,58 +89,42 @@ export function loadFlydWorkerConfigs(input: {
   projectRoot?: string;
   environment?: NodeJS.ProcessEnv;
   envFileText?: string;
+  /** The routing to read instead of the model config (tests). */
+  routing?: ModelRouting;
 } = {}): FlydWorkerConfig[] {
   const environment = input.environment ?? process.env;
   const fileEnvironment = input.envFileText === undefined
     ? readProjectEnv(input.projectRoot)
     : parseEnvFile(input.envFileText);
   const values = { ...fileEnvironment, ...environment };
-  const canonicalModel = values.FLYD_MODEL?.trim();
-  const provider = (values.FLYD_PROVIDER ?? "").trim().toLowerCase();
-  const opencode = opencodeProviderFor(canonicalModel, provider);
-  const useOpenAI = provider === "openai" || Boolean(canonicalModel?.startsWith("gpt-"));
-  const canonicalKey = values.FLYD_MODEL_API_KEY?.trim()
-    || (opencode
-      ? values.OPENCODE_API_KEY?.trim() || values.OPENCODE_API?.trim()
-      : useOpenAI ? values.OPENAI_API_KEY?.trim() : values.OPENROUTER_API_KEY?.trim());
-  const canonicalBaseURL = values.FLYD_MODEL_BASE_URL?.trim()
-    || (opencode
-      ? opencodeEndpoint(opencode)
-      : useOpenAI ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1");
-  const openRouterKey = values.OPENROUTER_API_KEY?.trim();
-  const openRouterModel = values.OPENROUTER_MODEL?.trim();
-  const commandCodeKey = values.COMMANDCODE_API_KEY?.trim() || values.CMD_API_KEY?.trim();
   const claudeKey = values.CLAUDE_API_KEY?.trim() || values.ANTHROPIC_API_KEY?.trim()
     || (input.environment === undefined ? claudeApiKey() : undefined);
   const claudeOn = Boolean(claudeKey) && values.FLYD_CLAUDE?.trim() !== "0" && !spendStatus().capped;
-  const candidates = [
-    canonicalKey && canonicalModel ? {
-      apiKey: canonicalKey,
-      model: canonicalModel,
-      baseURL: canonicalBaseURL,
-    } : null,
-    openRouterKey && openRouterModel ? {
-      apiKey: openRouterKey,
-      model: openRouterModel,
-      baseURL: values.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1",
-    } : null,
-    commandCodeKey ? {
-      apiKey: commandCodeKey,
-      model: commandCodeModelId(values.COMMANDCODE_MODEL || values.COMMANDCODE_API_KEY_MODEL),
-      baseURL: values.COMMANDCODE_BASE_URL?.trim() || COMMANDCODE_BASE_URL,
-    } : null,
-    claudeOn && claudeKey ? {
-      apiKey: claudeKey,
-      model: values.FLYD_CLAUDE_CHAT_MODEL?.trim() || DEFAULT_CLAUDE_CHAT_MODEL,
-      baseURL: ANTHROPIC_OPENAI_BASE_URL,
-    } : null,
-  ].filter((candidate): candidate is { apiKey: string; model: string; baseURL: string } => Boolean(candidate))
-    // Never OpenCode, OpenCode Go, DeepSeek or the ChatGPT allowance, by model or by endpoint (runtime/provider-policy.ts).
-    .filter((candidate) => allowedForText(candidate.model) && !/(^|\.)opencode\.ai$/i.test(new URL(candidate.baseURL).host));
+  // The worker's models, in order, from the model-routing config: each with the key its provider needs.
+  const connection = (route: ModelRoute): { apiKey: string; model: string; baseURL: string } | null => {
+    const withKey = (apiKey: string | undefined, baseURL: string, model = route.model) => apiKey ? { apiKey, model, baseURL } : null;
+    switch (route.provider) {
+      case "anthropic":
+        return claudeOn ? withKey(claudeKey, ANTHROPIC_OPENAI_BASE_URL) : null;
+      case "openrouter":
+        return withKey(values.OPENROUTER_API_KEY?.trim(), values.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1");
+      case "openai":
+        return withKey(values.OPENAI_API_KEY?.trim(), "https://api.openai.com/v1");
+      case "commandcode":
+        return withKey(values.COMMANDCODE_API_KEY?.trim() || values.CMD_API_KEY?.trim(), values.COMMANDCODE_BASE_URL?.trim() || COMMANDCODE_BASE_URL);
+      default:
+        return null;
+    }
+  };
+  const candidates = modelRoutes("worker", input.routing)
+    .map(connection)
+    .filter((candidate): candidate is { apiKey: string; model: string; baseURL: string } => Boolean(candidate))
+    // Never a banned provider or the ChatGPT allowance, by model or by endpoint (runtime/provider-policy.ts).
+    .filter((candidate) => allowedForText(candidate.model) && allowedForText(new URL(candidate.baseURL).host));
 
   if (candidates.length === 0) {
     throw new Error(
-      "Flyd coding model is not configured. Set FLYD_MODEL_API_KEY and FLYD_MODEL in .env",
+      "No coding model is available: the model config's worker list has none with a key (is Claude off or at its monthly cap?)",
     );
   }
 

@@ -10,6 +10,7 @@ import type { NotificationOutcome } from "../runtime/agenda.js";
 import { normalizeCriteria, parseVerdicts, unmetChecks, unresolvedItems, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
 import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
 import { allowedForText, refuseForText } from "../runtime/provider-policy.js";
+import { modelRoutes, routeTarget } from "../runtime/model-routing.js";
 import { claudeBinary, subscriptionEnv } from "../command/design-claude.js";
 
 // Flyd as first mate. George states the outcome once; Flyd briefs an
@@ -362,25 +363,25 @@ export function launchClaude(task: CrewTask, brief: string): number | undefined 
 }
 
 /**
- * The crewmate's model: FLYD_CREW_MODEL when set, else Claude Code on its own default.
- * An OpenCode, DeepSeek or ChatGPT-login model is never the crew's (runtime/provider-policy.ts).
+ * The crewmate's model: the crew job's first entry in the model-routing config
+ * ("claude/default" runs Claude Code on its own model, "cursor/<model>" Cursor's agent).
+ * A banned or ChatGPT-allowance model is never the crew's (runtime/provider-policy.ts).
  */
 export const DEFAULT_CREW_MODEL = "claude/default";
+function crewModels(): string[] {
+  return modelRoutes("crew").map((route) => routeTarget("crew", route)).filter(allowedForText);
+}
 export function crewModel(): string {
-  const configured = process.env.FLYD_CREW_MODEL?.trim();
-  return configured && allowedForText(configured) ? configured : DEFAULT_CREW_MODEL;
+  return crewModels()[0] ?? DEFAULT_CREW_MODEL;
 }
 
 /**
  * Where a crewmate goes when its model's provider refuses the work (out of credits,
- * a usage limit): FLYD_CREW_BACKUP_MODELS, comma-separated; none by default, so a
- * limited Claude waits rather than handing the work elsewhere. "none" turns it off.
+ * a usage limit): the crew job's later entries; none by default, so a limited Claude
+ * waits rather than handing the work elsewhere.
  */
-export const DEFAULT_CREW_BACKUP_MODELS: string[] = [];
 export function crewBackupModels(): string[] {
-  const configured = process.env.FLYD_CREW_BACKUP_MODELS?.trim();
-  if (configured === "none") return [];
-  return configured ? configured.split(",").map((model) => model.trim()).filter((model) => model && allowedForText(model)) : DEFAULT_CREW_BACKUP_MODELS;
+  return crewModels().slice(1);
 }
 
 /** The next model to try after a refusal: the first backup this task hasn't run on yet. */

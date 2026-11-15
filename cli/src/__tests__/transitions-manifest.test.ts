@@ -73,9 +73,8 @@ describe("transitions manifest capture", () => {
   beforeAll(async () => {
     testRoot = mkdtempSync(join(tmpdir(), "flyd-transitions-manifest-"));
     process.env.HOME = testRoot;
-    process.env.FLYD_MODEL_API_KEY = "test-key";
-    process.env.FLYD_MODEL = "gpt-test";
-    delete process.env.OPENAI_API_KEY;
+    // The test model config's worker list ends on OpenAI's test model.
+    process.env.OPENAI_API_KEY = "test-key";
     delete process.env.FLYD_TRANSITIONS_DISABLED;
 
     mkdirSync(join(testRoot, ".flyd", "overlay"), { recursive: true });
@@ -96,8 +95,6 @@ describe("transitions manifest capture", () => {
     await server.stopServer();
     const writer = await import("../transitions/writer.js");
     writer.configureTransitionStore({});
-    delete process.env.FLYD_MODEL_API_KEY;
-    delete process.env.FLYD_MODEL;
     rmSync(testRoot, { recursive: true, force: true });
   });
 

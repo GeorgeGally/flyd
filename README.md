@@ -77,11 +77,10 @@ Copyright (c) 2026 Kit Langton, under the MIT license. The full notice is in
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `FLYD_MODEL` | required | Canonical model for chat, resolution, attention judgment, and memory distillation |
-| `FLYD_MODEL_BASE_URL` | OpenAI for GPT models | OpenAI-compatible base URL for the configured model |
+| `CLAUDE_API_KEY` | required | Anthropic key; every text and code job runs on Claude by default |
+| `~/.flyd/models.json` | Claude for text and code, Codex for images | Which provider and model does each job, plus banned providers ([docs/product/flyd-models.md](docs/product/flyd-models.md)) |
 | `FLYD_TRANSCRIPTION_MODEL` | `gpt-4o-mini-transcribe-2025-12-15` | Voice transcription model |
 | `FLYD_REALTIME_MODEL` | `gpt-realtime-2.1` | LIVE session model |
-| `FLYD_MODEL_API_KEY` | (from env) | OpenAI API key — `resolve()` fails closed and falls back to `requires_compose` without this set in `cli/.env` |
 | `FLYD_CLI_DIR` | (auto-detected) | Path to cli/ directory — overrides the baked-in repo path if set |
 | `FLYD_JEV_ENABLED` | `false` | Opt in to hosted Jev System-1 calls; reply self-review uses the separate setting linked above |
 | `FLYD_JEV_MODEL` | `jev-latest` | Jev model override when enabled |

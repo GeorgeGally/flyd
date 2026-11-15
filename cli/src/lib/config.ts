@@ -1,19 +1,19 @@
-import { homedir } from "os";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join, basename, resolve } from "path";
+import { join, basename } from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { parseEnvFile } from "../runtime/flyd-worker-config.js";
 import {
   apiModelId,
   COMMANDCODE_BASE_URL,
-  commandCodeModelId,
   opencodeProviderFor,
   qualifiedModelProvider,
 } from "../runtime/flyd-worker-config.js";
 import { allowedForText, refuseForText } from "../runtime/provider-policy.js";
+import { CLAUDE_CHAT_MODEL_ID, CLAUDE_QUICK_MODEL_ID, modelRoutes } from "../runtime/model-routing.js";
 export { apiModelId, opencodeProviderFor } from "../runtime/flyd-worker-config.js";
 import { claudeApiKey, claudeAvailable } from "./claude-spend.js";
+import { resolveFlydDir } from "./flyd-dir.js";
 
 export const FLYD_APPLICATION_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -38,14 +38,36 @@ export function loadFlydEnvironment(
 // and keys) would otherwise turn hermetic tests into live provider calls.
 if (!process.env.VITEST) loadFlydEnvironment();
 
-function resolveFlydDir(): string {
-  const configured = process.env.FLYD_DIR?.trim();
-  if (configured) return resolve(configured);
+const IGNORED_MODEL_ENV_VARS = [
+  "FLYD_MODEL",
+  "FLYD_CHAT_MODEL",
+  "FLYD_CHAT_FALLBACK_MODELS",
+  "FLYD_CLAUDE_CHAT_MODEL",
+  "FLYD_CLAUDE_QUICK_MODEL",
+  "FLYD_CREW_MODEL",
+  "FLYD_CREW_BACKUP_MODELS",
+  "FLYD_DESIGN_MODEL",
+  "COMMANDCODE_MODEL",
+  "COMMANDCODE_API_KEY_MODEL",
+  "OPENROUTER_MODEL",
+];
 
-  const cwdLocal = join(process.cwd(), ".flyd");
-  if (existsSync(cwdLocal)) return cwdLocal;
-  return join(homedir(), ".flyd");
+let warnedIgnoredModelEnv = false;
+
+export function warnIgnoredModelEnv(
+  environment: NodeJS.ProcessEnv = process.env,
+  log: (message: string) => void = (message) => console.error(message),
+): string[] {
+  if (warnedIgnoredModelEnv) return [];
+  warnedIgnoredModelEnv = true;
+  const ignored = IGNORED_MODEL_ENV_VARS.filter((name) => environment[name] !== undefined);
+  if (ignored.length) {
+    log(`flyd: ignoring model env vars (${ignored.join(", ")}); models are configured in ~/.flyd/models.json`);
+  }
+  return ignored;
 }
+
+if (!process.env.VITEST) warnIgnoredModelEnv();
 
 function detectProject(): { name: string; path: string } {
   const cwd = process.cwd();
@@ -90,11 +112,6 @@ interface FlydConfig {
   OPENCODE_API?: string;
   GITHUB_TOKEN?: string;
   FLYD_PROVIDER?: string;
-  FLYD_MODEL?: string;
-  FLYD_CHAT_MODEL?: string;
-  FLYD_CHAT_FALLBACK_MODELS?: string;
-  FLYD_CLAUDE_CHAT_MODEL?: string;
-  FLYD_CLAUDE_QUICK_MODEL?: string;
   FLYD_PREDICTIONS?: string;
   FLYD_PREDICTION_MODEL?: string;
   FLYD_MODEL_API_KEY?: string;
@@ -103,8 +120,6 @@ interface FlydConfig {
   FLYD_DICTATE_MODEL?: string;
   FLYD_CONVERSATION_LEARN_MODEL?: string;
   CMD_API_KEY?: string;
-  COMMANDCODE_MODEL?: string;
-  COMMANDCODE_API_KEY_MODEL?: string;
   COMMANDCODE_BASE_URL?: string;
   FLYD_MODEL_BASE_URL?: string;
   LAST30DAYS_SCRIPT?: string;
@@ -139,102 +154,70 @@ export function getKey(key: keyof FlydConfig): string | undefined {
 }
 
 /**
- * FLYD_MODEL, unless it names a provider Flyd no longer uses (OpenCode, DeepSeek, the
- * ChatGPT allowance; runtime/provider-policy.ts): then Claude's quick model, and when
- * Claude is off or capped, an error rather than a quiet hop to one of them.
+ * The API jobs' models come from the model-routing config (runtime/model-routing.ts,
+ * ~/.flyd/models.json): each job's list in order, provider-qualified
+ * ("anthropic:claude-sonnet-5-5"), never a banned provider or the images-only allowance.
+ * Claude entries drop out while Claude is off or at its monthly cap, CommandCode ones
+ * without its key. An empty list is an error rather than a quiet hop elsewhere.
  */
+function apiModelChain(job: "chat" | "quick" | "background"): string[] {
+  const chain = modelRoutes(job)
+    .filter((route) => route.provider === "anthropic" ? claudeAvailable() : route.provider === "commandcode" ? Boolean(commandCodeKey()) : true)
+    .map((route) => `${route.provider}:${route.model}`)
+    .filter(allowedForText);
+  if (chain.length === 0) {
+    throw new Error(`No model can do Flyd's ${job} jobs: the model config lists none that is available (is Claude off or at its monthly cap?)`);
+  }
+  return [...new Set(chain)];
+}
+
+function commandCodeKey(): string | undefined {
+  return getKey("COMMANDCODE_API_KEY")?.trim() || getKey("CMD_API_KEY")?.trim() || undefined;
+}
+
+/** Background jobs' first model. */
 export function defaultModel(): string {
-  const model = getKey("FLYD_MODEL")?.trim();
-  if (model && allowedForText(model)) return model;
-  const claude = claudeQuickModel();
-  if (claude) return claude;
-  throw new Error(model
-    ? `Flyd model ${model} is a provider Flyd no longer uses, and Claude is off or at its monthly cap`
-    : "Flyd model is not configured. Set FLYD_MODEL in the project .env");
+  return apiModelChain("background")[0]!;
 }
 
-/** FLYD_CHAT_MODEL (or FLYD_MODEL) on the same terms, falling to Claude's chat model. */
+/** Chat's first model. */
 export function defaultChatModel(): string {
-  const model = getKey("FLYD_CHAT_MODEL")?.trim() || getKey("FLYD_MODEL")?.trim();
-  if (model && allowedForText(model)) return model;
-  const claude = claudeChatModel();
-  if (claude) return claude;
-  throw new Error(model
-    ? `Flyd chat model ${model} is a provider Flyd no longer uses, and Claude is off or at its monthly cap`
-    : "Flyd chat model is not configured. Set FLYD_MODEL in the project .env");
+  return apiModelChain("chat")[0]!;
 }
 
-export const DEFAULT_CLAUDE_CHAT_MODEL = "anthropic:claude-sonnet-5-5";
-export const DEFAULT_CLAUDE_QUICK_MODEL = "anthropic:claude-haiku-5-5";
+export const DEFAULT_CLAUDE_CHAT_MODEL = `anthropic:${CLAUDE_CHAT_MODEL_ID}`;
+export const DEFAULT_CLAUDE_QUICK_MODEL = `anthropic:${CLAUDE_QUICK_MODEL_ID}`;
 
-/** A bare Claude id names the Anthropic API whatever FLYD_PROVIDER says. */
-function anthropicQualified(model: string): string {
-  return qualifiedModelProvider(model) ? model : `anthropic:${model}`;
+/** The job's first Claude model while Claude is on and under its cap; null otherwise. */
+function claudeModelFor(job: "chat" | "quick"): string | null {
+  if (!claudeAvailable()) return null;
+  const route = modelRoutes(job).find((candidate) => candidate.provider === "anthropic");
+  return route ? `anthropic:${route.model}` : null;
 }
 
 /** Claude for chat while the key is set and the month is under its cap; null otherwise. */
 export function claudeChatModel(): string | null {
-  if (!claudeAvailable()) return null;
-  return anthropicQualified(getKey("FLYD_CLAUDE_CHAT_MODEL")?.trim() || DEFAULT_CLAUDE_CHAT_MODEL);
+  return claudeModelFor("chat");
 }
 
 /** Claude for quick jobs (routing, rewrites, summaries, status lines, typing); null when off or capped. */
 export function claudeQuickModel(): string | null {
-  if (!claudeAvailable()) return null;
-  return anthropicQualified(getKey("FLYD_CLAUDE_QUICK_MODEL")?.trim() || DEFAULT_CLAUDE_QUICK_MODEL);
+  return claudeModelFor("quick");
 }
 
-/**
- * Ordered chat models: Claude while it is on and under its monthly cap, then
- * the configured chat model, then FLYD_CHAT_FALLBACK_MODELS (comma-separated,
- * provider-qualified like "openai:gpt-5.6-luna"), then CommandCode whenever its
- * key is present. A provider outage or quota wall on one entry must not leave
- * the personal agent mute.
- */
+/** Chat models in order: a provider outage or quota wall on one must not leave the personal agent mute. */
 export function chatModelChain(): string[] {
-  const claude = claudeChatModel();
-  return [...new Set([...(claude ? [claude] : []), ...configuredOr(defaultChatModel, claude), ...fallbackModelChain()])].filter(allowedForText);
+  return apiModelChain("chat");
 }
 
-/** Quick jobs: Claude Haiku first, then the models those jobs used before. */
+/** Quick jobs: room reading, rewrites, the view's routing, retold answers, status lines. */
 export function quickModelChain(): string[] {
-  const claude = claudeQuickModel();
-  return [...new Set([...(claude ? [claude] : []), ...configuredOr(defaultModel, claude), ...fallbackModelChain()])].filter(allowedForText);
+  return apiModelChain("quick");
 }
 
-/** The configured model; with Claude in front, a missing FLYD_MODEL is no longer fatal. */
-function configuredOr(configured: () => string, claude: string | null): string[] {
-  try {
-    return [configured()];
-  } catch (error) {
-    if (claude) return [];
-    throw error;
-  }
-}
-
-/** Fallback models only, in order; shared by chat and one-shot queries. */
-export function fallbackModelChain(): string[] {
-  const chain: string[] = [];
-  for (const entry of (getKey("FLYD_CHAT_FALLBACK_MODELS") ?? "").split(",")) {
-    if (entry.trim()) chain.push(entry.trim());
-  }
-  if (getKey("COMMANDCODE_API_KEY")?.trim() || getKey("CMD_API_KEY")?.trim()) {
-    const configured = getKey("COMMANDCODE_MODEL")?.trim() || getKey("COMMANDCODE_API_KEY_MODEL")?.trim();
-    chain.push(`commandcode:${commandCodeModelId(configured)}`);
-  }
-  // No fallback ever lands on OpenCode, DeepSeek or the ChatGPT allowance.
-  return [...new Set(chain)].filter(allowedForText);
-}
-
-/**
- * One-shot queries (the news edition, the council, taste, self-improvement):
- * FLYD_MODEL (Claude's quick model when it names a retired provider), the shared
- * fallbacks, then Claude's quick model while Claude is on and under its cap; none of
- * them OpenCode, DeepSeek or the ChatGPT allowance.
- */
+/** One-shot queries (the news edition, the council, taste, self-improvement). */
 export function oneShotModelChain(): string[] {
-  const claude = claudeQuickModel();
-  return [...new Set([defaultModel(), ...fallbackModelChain(), ...(claude ? [claude] : [])])].filter(allowedForText);
+  return apiModelChain("background");
 }
 
 /** CommandCode serves Claude only through its Anthropic Messages endpoint. */
@@ -248,7 +231,7 @@ function qualifiedConnection(provider: string, model: string): ModelConnection {
     switch (provider) {
       case "commandcode":
         return {
-          apiKey: getKey("COMMANDCODE_API_KEY")?.trim() || getKey("CMD_API_KEY")?.trim(),
+          apiKey: commandCodeKey(),
           keyName: "COMMANDCODE_API_KEY",
           // The Anthropic SDK appends /v1/messages itself.
           baseURL: (getKey("COMMANDCODE_BASE_URL")?.trim().replace(/\/+$/, "") || COMMANDCODE_BASE_URL)

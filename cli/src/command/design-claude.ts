@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { modelRoutes } from "../runtime/model-routing.js";
 
 // The design team runs on Claude Opus through George's Claude subscription: the `claude` CLI, never Flyd's
 // metered API key. 88a96085 put the team on Flyd's pay-as-you-go Claude chain and George had it reverted the
@@ -10,9 +11,9 @@ import { delimiter, join } from "node:path";
 // an API key as its credential. Before this the team ran on Flyd's default chain (DeepSeek through
 // OpenCode Go) and half its labs died on that account's credit.
 
-/** The model the whole team (Creative Director, Flyd's review, Designers) works on; FLYD_DESIGN_MODEL overrides. */
-export function designModel(env: NodeJS.ProcessEnv = process.env): string {
-  return env.FLYD_DESIGN_MODEL?.trim() || "opus";
+/** The model the whole team (Creative Director, Flyd's review, Designers) works on: the design job's first Claude Code entry in the model-routing config. */
+export function designModel(): string {
+  return modelRoutes("design").find((route) => route.provider === "claude")?.model ?? "opus";
 }
 
 /** Variables that would switch the CLI from George's subscription to metered billing. */
@@ -177,7 +178,7 @@ export function completeWithClaude(prompt: string, options: ClaudeCallOptions = 
   if (env.VITEST && !options.spawnClaude) return Promise.reject(new Error("refusing to call Claude under tests"));
   const cwd = mkdtempSync(join(tmpdir(), "flyd-design-"));
   const extra: Record<string, string> = options.maxTokens ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(options.maxTokens) } : {};
-  const child = (options.spawnClaude ?? spawnClaudeProcess)(binary, claudeArgs(designModel(env)), { cwd, env: subscriptionEnv(env, extra) });
+  const child = (options.spawnClaude ?? spawnClaudeProcess)(binary, claudeArgs(designModel()), { cwd, env: subscriptionEnv(env, extra) });
   return new Promise<string>((resolve, reject) => {
     let settled = false;
     let started = false;
@@ -239,7 +240,7 @@ export function makeWithClaude(cwd: string, prompt: string, options: { timeoutMs
   const binary = options.binary !== undefined ? options.binary : claudeBinary(env);
   if (!binary) return Promise.reject(new DesignModelError("missing", "Claude Code is not installed on this Mac"));
   // "auto" runs routine commands and still blocks risky ones; nobody is there to approve a prompt.
-  const args = ["-p", "--model", designModel(env), "--permission-mode", "auto", "--output-format", "stream-json", "--verbose", prompt];
+  const args = ["-p", "--model", designModel(), "--permission-mode", "auto", "--output-format", "stream-json", "--verbose", prompt];
   const child = (options.spawnClaude ?? spawnClaudeProcess)(binary, args, { cwd, env: subscriptionEnv(env) });
   return new Promise((resolve, reject) => {
     let settled = false;

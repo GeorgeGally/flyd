@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { georgeInbox } from "../../runtime/agenda.js";
+import { setModelRouting } from "../../runtime/model-routing.js";
 import { crewClaudeArgs, MAX_CREW_ATTEMPTS, REVIEW_SHORT_FAILURE, MAX_NO_PROGRESS_ITERATIONS, blockedBy, checkCommand, cleanupCrewWorktree, completeBaseline, runCheckCommand, crewBrief, crewBackupModels, discardCrewTask, nextBackupModel, dispatchCrewTask, failureSignatures, landCrewTask, lastSummary, onlyPreExistingFailures, listTasks, plainOutcome, providerFailure, readTask, superviseCrew, pruneCrewTasks, saveTask } from "../crew.js";
 
 let home: string;
@@ -16,7 +17,7 @@ beforeEach(() => {
   process.env.FLYD_CREW_WORKTREES = join(home, "worktrees");
   process.env.FLYD_AGENDA_DIR = join(home, "agenda");
   // Refusals fail outright unless a test asks for the switch to a backup model.
-  process.env.FLYD_CREW_BACKUP_MODELS = "none";
+  setModelRouting(null);
   repo = join(home, "app");
   execFileSync("git", ["init", "-q", "-b", "main", repo]);
   git(repo, "config", "user.email", "t@t.test");
@@ -25,7 +26,10 @@ beforeEach(() => {
   git(repo, "add", ".");
   git(repo, "commit", "-qm", "init");
 });
-afterEach(() => rmSync(home, { recursive: true, force: true }));
+afterEach(() => {
+  setModelRouting(null);
+  rmSync(home, { recursive: true, force: true });
+});
 
 /** A fake crewmate: commits a change in its worktree and logs OpenCode-style JSON events. */
 function fakeCrewmate(commit = true) {
@@ -234,7 +238,7 @@ describe("crew", () => {
   });
 
   it("moves a refused crewmate onto the next backup model in the same worktree, and only George's last resort fails", async () => {
-    process.env.FLYD_CREW_BACKUP_MODELS = "cursor/auto";
+    setModelRouting({ jobs: { crew: [{ provider: "claude", model: "default" }, { provider: "cursor", model: "auto" }] } });
     const refuse = (launched: { log: string }) => {
       writeFileSync(launched.log, `${JSON.stringify({ type: "error", error: { name: "APIError", data: { message: "Insufficient credits", statusCode: 402 } } })}\n`, { flag: "a" });
       return 424242;
@@ -255,11 +259,9 @@ describe("crew", () => {
     expect(notify).toHaveBeenCalledTimes(1);
   });
 
-  it("reads the backup list: none by default or with none, the configured ones in order", () => {
+  it("reads the backup list: none by default, the crew job's later entries in order", () => {
     expect(crewBackupModels()).toEqual([]);
-    delete process.env.FLYD_CREW_BACKUP_MODELS;
-    expect(crewBackupModels()).toEqual([]);
-    process.env.FLYD_CREW_BACKUP_MODELS = "claude/opus, cursor/auto";
+    setModelRouting({ jobs: { crew: [{ provider: "claude", model: "default" }, { provider: "claude", model: "opus" }, { provider: "cursor", model: "auto" }] } });
     expect(nextBackupModel({ model: "claude/default" } as never)).toBe("claude/opus");
     expect(nextBackupModel({ model: "cursor/auto", triedModels: ["claude/default", "claude/opus"] } as never)).toBeUndefined();
   });

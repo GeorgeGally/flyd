@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { CLAUDE_QUICK_MODEL_ID, modelRoutes } from "../runtime/model-routing.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -408,7 +409,7 @@ export function summaryModels(options: { env?: NodeJS.ProcessEnv; home?: string;
   // Claude Haiku first (Flyd's quick-job model), xAI Grok when Claude is off or capped.
   const anthropic = env.CLAUDE_API_KEY?.trim() || env.ANTHROPIC_API_KEY?.trim() || options.anthropicKey?.trim();
   if (anthropic && env.FLYD_CLAUDE !== "0") {
-    const model = env.FLYD_VIEW_ANTHROPIC_MODEL?.trim() || env.FLYD_CLAUDE_QUICK_MODEL?.trim().replace(/^anthropic:/, "") || "claude-haiku-5-5";
+    const model = env.FLYD_VIEW_ANTHROPIC_MODEL?.trim() || modelRoutes("quick").find((route) => route.provider === "anthropic")?.model || CLAUDE_QUICK_MODEL_ID;
     models.push({ provider: "anthropic", model, key: anthropic });
   }
   const xai = findXaiKey(env, options.home);

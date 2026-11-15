@@ -20,16 +20,15 @@ describe("Flyd directory configuration", () => {
     expect(config.RAW_DIR).toBe(resolve("/tmp/flyd-shared-state/raw"));
   });
 
-  it("refuses to silently downgrade chat to gpt-4o-mini", async () => {
-    vi.stubEnv("FLYD_MODEL", "");
-    vi.stubEnv("FLYD_CHAT_MODEL", "");
+  it("fails loudly rather than downgrading when no listed chat model is available", async () => {
+    vi.stubEnv("FLYD_CLAUDE", "0");
     vi.resetModules();
 
     const config = await import("../config.js");
+    const routing = await import("../../runtime/model-routing.js");
+    routing.setModelRouting({ jobs: { chat: [{ provider: "anthropic", model: "claude-sonnet-5-5" }] } });
 
-    expect(() => config.defaultChatModel()).toThrow(
-      "Flyd chat model is not configured",
-    );
+    expect(() => config.defaultChatModel()).toThrow("No model can do Flyd's chat jobs");
   });
 
   it("loads canonical model settings from the project .env without overriding the shell", async () => {
@@ -56,8 +55,6 @@ describe("Flyd directory configuration", () => {
   });
 
   it("resolves chat through the canonical Flyd model connection", async () => {
-    vi.stubEnv("FLYD_MODEL", "gpt-4.6");
-    vi.stubEnv("FLYD_CHAT_MODEL", "");
     vi.stubEnv("FLYD_MODEL_API_KEY", "flyd-key");
     vi.stubEnv("FLYD_MODEL_BASE_URL", "https://models.example.test/v1/");
     vi.stubEnv("OPENAI_API_KEY", "wrong-key");
@@ -65,7 +62,7 @@ describe("Flyd directory configuration", () => {
 
     const config = await import("../config.js");
 
-    expect(config.resolveModelConnection()).toEqual({
+    expect(config.resolveModelConnection("gpt-4.6")).toEqual({
       model: "gpt-4.6",
       apiKey: "flyd-key",
       baseURL: "https://models.example.test/v1",
@@ -74,7 +71,6 @@ describe("Flyd directory configuration", () => {
   });
 
   it("refuses OpenCode Go and DeepSeek, bare under FLYD_PROVIDER or prefixed, even with their key set", async () => {
-    vi.stubEnv("FLYD_CHAT_MODEL", "");
     vi.stubEnv("FLYD_PROVIDER", "opencode-go");
     vi.stubEnv("OPENCODE_API_KEY", "opencode-key");
     vi.stubEnv("FLYD_CLAUDE", "0");
@@ -85,13 +81,12 @@ describe("Flyd directory configuration", () => {
     for (const model of ["gpt-6-luna", "opencode-go/deepseek-v4-flash", "opencode:kimi-k3"]) {
       expect(() => config.resolveModelConnection(model), model).toThrow(/no longer uses/);
     }
-    vi.stubEnv("FLYD_MODEL", "opencode-go/deepseek-v4-flash");
-    expect(() => config.resolveModelConnection()).toThrow(/no longer uses/);
+    const routing = await import("../../runtime/model-routing.js");
+    routing.setModelRouting({ jobs: { chat: [{ provider: "opencode-go", model: "deepseek-v4-flash" }] } });
+    expect(() => config.resolveModelConnection()).toThrow(/No model can do Flyd's chat jobs/);
   });
 
   it("resolves a bare model under FLYD_PROVIDER=commandcode to CommandCode, keeping the same model", async () => {
-    vi.stubEnv("FLYD_MODEL", "moonshot/kimi-k3");
-    vi.stubEnv("FLYD_CHAT_MODEL", "");
     vi.stubEnv("FLYD_PROVIDER", "commandcode");
     vi.stubEnv("COMMANDCODE_API_KEY", "cc-key");
     vi.stubEnv("FLYD_MODEL_API_KEY", "");
@@ -99,13 +94,13 @@ describe("Flyd directory configuration", () => {
     vi.resetModules();
 
     const config = await import("../config.js");
-    const connection = config.resolveModelConnection(config.defaultModel());
+    const connection = config.resolveModelConnection("moonshot/kimi-k3");
 
     expect(connection.model).toBe("moonshot/kimi-k3");
     expect(connection.apiKey).toBe("cc-key");
     expect(connection.baseURL).toBe("https://api.commandcode.ai/provider/v1");
     expect(config.usesOpenAITransport("moonshot/kimi-k3")).toBe(true);
-    expect(config.hasApiKey()).toBe(true);
+    expect(config.hasApiKey("moonshot/kimi-k3")).toBe(true);
   });
 
   it("hasApiKey follows provider-qualified models and missing keys", async () => {
@@ -122,15 +117,13 @@ describe("Flyd directory configuration", () => {
   });
 
   it("fails loudly for an unsupported provider instead of reaching for Anthropic", async () => {
-    vi.stubEnv("FLYD_MODEL", "some-model");
-    vi.stubEnv("FLYD_CHAT_MODEL", "");
     vi.stubEnv("FLYD_PROVIDER", "google");
     vi.stubEnv("ANTHROPIC_API_KEY", "wrong-key");
     vi.resetModules();
 
     const config = await import("../config.js");
 
-    expect(() => config.resolveModelConnection()).toThrow(/not supported/);
+    expect(() => config.resolveModelConnection("some-model")).toThrow(/not supported/);
   });
 
   it("routes an openrouter: model to OpenRouter with its own key and the bare model id", async () => {

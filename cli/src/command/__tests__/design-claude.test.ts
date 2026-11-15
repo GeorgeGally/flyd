@@ -30,8 +30,7 @@ const STARTED = { type: "stream_event", event: { type: "message_start" } };
 
 describe("the design team's Claude", () => {
   it("runs on Opus through the subscription: no API key reaches the CLI, and his settings and hooks are not loaded", () => {
-    expect(designModel({})).toBe("opus");
-    expect(designModel({ FLYD_DESIGN_MODEL: "sonnet" })).toBe("sonnet");
+    expect(designModel()).toBe("opus");
     const env = subscriptionEnv({ HOME: "/h", ANTHROPIC_API_KEY: "sk", ANTHROPIC_AUTH_TOKEN: "t", ANTHROPIC_BASE_URL: "u", CLAUDE_API_KEY: "c" }, { CLAUDE_CODE_MAX_OUTPUT_TOKENS: "32000" });
     expect(env).toEqual({ HOME: "/h", CLAUDE_CODE_MAX_OUTPUT_TOKENS: "32000" });
     const args = claudeArgs("opus");
