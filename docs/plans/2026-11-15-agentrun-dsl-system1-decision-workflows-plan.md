@@ -1,15 +1,51 @@
 # Flyd × AgentRun DSL — Embedded System-1 Decision Workflows
 
-**Date:** 2026-11-15  
-**Status:** Implementation proposal committed for review; **not implemented**.  
+**Originally drafted:** 2026-11-15  
+**Revalidated:** 2026-11-16  
+**Status:** Source-validated, conditional feasibility proposal; **not implemented or runtime-tested**.  
 **Owner:** Flyd / Chief of Staff  
-**Flyd source inspected:** [GeorgeGally/flyd at `aaa804dfa7f84555e201f8f5780772b3086e7c11`](https://github.com/GeorgeGally/flyd/commit/aaa804dfa7f84555e201f8f5780772b3086e7c11), 2026-11-15.  
-**AgentRun source inspected:** [Parcha-ai/agentrun at `908004c0a9d0681571d28341afe963436dfc9471`](https://github.com/Parcha-ai/agentrun/commit/908004c0a9d0681571d28341afe963436dfc9471), 2026-11-15.  
+**Flyd source rechecked:** [GeorgeGally/flyd at `59ee06bc20166e631ee17b6b9553ae5c97aa45dc`](https://github.com/GeorgeGally/flyd/commit/59ee06bc20166e631ee17b6b9553ae5c97aa45dc), 2026-11-15 (original review `aaa804dfa7f84555e201f8f5780772b3086e7c11`).  
+**AgentRun source rechecked:** [Parcha-ai/agentrun at `039beb7f3354851150b5d2855a2c141be6a636aa`](https://github.com/Parcha-ai/agentrun/commit/039beb7f3354851150b5d2855a2c141be6a636aa), 2026-11-15 (original review `908004c0a9d0681571d28341afe963436dfc9471`).  
 **Governing authority:** [`docs/product/flyd-personal-intelligence-prd.md`](../product/flyd-personal-intelligence-prd.md), especially sections 2, 4, 4.1 and 6.  
 **Prior plan:** [v9 autonomous executive judgment and communication](2026-11-13-flyd-autonomous-executive-judgment-and-communication-v9.md), retained without supersession. This plan is a narrow implementation extension of v9, not a new product direction.  
 **Upstream references:** [AgentRun DSL](https://github.com/Parcha-ai/agentrun/tree/main/packages/dsl), [host integration](https://github.com/Parcha-ai/agentrun/blob/main/docs/host-integration.md), [DSL guide](https://github.com/Parcha-ai/agentrun/blob/main/docs/guide.md), [Jev adapter](https://github.com/Parcha-ai/agentrun/tree/main/packages/jev), [read + judge example](https://github.com/Parcha-ai/agentrun/blob/main/packages/dsl/skills/author/examples/read-source-decision.json).
 
 > **Decision in one sentence:** Experiment with AgentRun DSL as a **trusted, optional, in-process subroutine interpreter** inside CoS, using Flyd's existing Jev/Gemini System-1 and authority/evidence infrastructure; do **not** adopt AgentRun Server, replace CoS/FirstMate, or create a second scheduler, event ledger or agent runtime.
+
+## 0. Independent source validation — 16 November 2026
+
+**Verdict: CONDITIONAL GO FOR P0 ONLY.** Re-reading the latest AgentRun DSL *source code*, recovery contracts and Flyd's updated CoS/System-1 code confirms the boundary: CoS owns objectives; DSL may help inside a bounded subroutine. It does **not** yet justify an AgentRun dependency or production build. The initial plan understated adapter mismatches, crash uncertainty and the absence of a ready-made multi-question recovery workflow. **This validation section overrides conflicting details or optimistic sequencing below.** No live npm install, Mac run, API request or performance test was performed during this review.
+
+### Corrected technical findings
+
+**V1 — A hidden threshold mismatch can make a procedure act prematurely.** [AgentRun `answersToValue`](https://github.com/Parcha-ai/agentrun/blob/main/packages/dsl/src/system-one.ts) converts a Noul yes probability to Boolean `true` at **0.5**. Flyd's named predicates have stricter thresholds: e.g. `cos_recovery_tactic` uses 0.80 for the current *choice* response and `cos_operational_disposition` uses 0.75. **Never** branch on the default decoded Noul as if it passed Flyd's policy. Use the original numeric probability and host-owned named gate; validate any `ask.gte` or `route.unsure.gte` against the registry. Test 0.49, 0.50, just under policy threshold, at threshold and refusal. A model decision is never an execution grant.
+
+**V2 — Flyd's normalized answers are not always valid AgentRun answers.** [AgentRun `validateAnswers`](https://github.com/Parcha-ai/agentrun/blob/main/packages/dsl/src/system-one.ts) requires matching answer IDs, full choice/score distributions summing to one, valid option keys and confidence (and consistent score legends). [Flyd `normalizeAnswer`](https://github.com/GeorgeGally/flyd/blob/main/cli/src/cognition/system-one/jev.ts) may carry empty/partial choice distributions and normalizes absent confidence to zero; [Flyd's Gemini wrapper](https://github.com/GeorgeGally/flyd/blob/main/cli/src/cognition/system-one/decision-provider.ts) may mark a *partial* answer batch `ok: true`. Thus an adapter must reject incomplete/malformed provider results; **never fabricate probabilities, missing confidence or score legends**. Start with one existing **choice** predicate and strict fixtures. Expand Noul/Score only after explicit conformance and calibration. Choice probability is not identical to provider confidence.
+
+**V3 — Sent-but-unanswered decisions need a non-retryable unknown state.** [AgentRun `decide`](https://github.com/Parcha-ai/agentrun/blob/main/packages/dsl/src/workflow.ts) and [`with-recovery`](https://github.com/Parcha-ai/agentrun/blob/main/packages/dsl/src/recovery/with-recovery.ts) distinguish decisions paid/answered, interrupted after being sent, and positively unsent. AgentRun records `decision.request` before asking and can raise `DECISION_INTERRUPTED` instead of paying/asking again. Flyd `evaluateExecutivePredicates` returns `ok:false` for provider errors without always preserving definite pre-send versus possibly-sent status. A bridge must represent **`unknown_provider_outcome` separately**, hold it for *private* CoS/Flyd reconciliation, and retry only when the request is positively known not to have been sent. “A person decides” in AgentRun maps to **CoS/Flyd**, not automatically George. Unknown external effects remain protected by existing CoS receipt reconciliation.
+
+**V4 — Receipts themselves can carry private source content.** [`DecisionReceipt`](https://github.com/Parcha-ai/agentrun/blob/main/packages/dsl/src/decision-receipts.ts) may include up to 64 KiB of raw `state`, full `questions`, `answers`, `evidence` and long `error` strings; `fileStore` also retains effect arguments. Do not directly persist AgentRun's raw receipts in Flyd's event store or a new file journal. Minimize/consent-check input *before* the DSL sees it, and serialize only a redacted, retention-governed record into Flyd canonical events. A hash-only record **cannot** support `recovery.decision` replay: that needs a complete, validated, authorized answer bound to its question/workflow/policy/provider/objective version. If no such receipt survived, hold/reconcile; never reconstruct synthetic evidence. `recordDecision` is an awaited pre-branch gate, not an asynchronous logger; `onEvent` is observational and cannot replace it.
+
+**V5 — The proposed question batch does not exist in today's Flyd registry.** [Flyd's registry](https://github.com/GeorgeGally/flyd/blob/main/cli/src/cognition/system-one/registry.ts) has `cos_recovery_tactic` and `cos_operational_disposition` as single choices, along with other unrelated executive predicates. It does **not** already declare standalone recovery predicates for `evidence_sufficient`, `known_internal` and `needs_reasoning`. Start with one exact approved question plus host-side deterministic eligibility checks. New predicates need separately frozen question versions, full egress declarations and replay evaluation **before** batching. P0 must identify a *real, recurring two-stage* decision procedure that benefits from DSL composition over a single Jev call plus TypeScript `if`. If none is found, **NO-GO**. Wrapping one decision is not sufficient benefit.
+
+**V6 — New Flyd model configuration matters for the fallback.** Since the original draft, [`cli/src/runtime/model-routing.ts`](https://github.com/GeorgeGally/flyd/blob/main/cli/src/runtime/model-routing.ts) and [`docs/product/flyd-models.md`](https://github.com/GeorgeGally/flyd/blob/main/docs/product/flyd-models.md) centralize reasoning jobs, banned/images-only providers, fallbacks and spend controls. `runNode` must use the existing authorized private reasoning route instead of hardcoding Claude/OpenRouter/FirstMate or bypassing its provider policy. Jev/Gemini remain a separately governed System-1 capability, not an arbitrary new chat model job.
+
+**V7 — Compatibility is a HARD STOP, not a post-integration detail.** The inspected `@parcha/agentrun-dsl` package is `0.1.0-beta.38` with Node `>=24.22.3`, whereas Flyd declares `node >=22` and runs most CI jobs on Node 22. [Upstream compatibility guidance](https://github.com/Parcha-ai/agentrun/blob/main/docs/compatibility.md) warns of beta API/recovery migrations. P0 must test the exact published tarball against the *actual* installed Mac/Hetzner Core runtime before changing a production dependency. Do not silently upgrade Node, vendor an unsupported copy, or add another daemon. License is Apache-2.0; retain the appropriate NOTICE on redistribution.
+
+**V8 — Host adapters, not the DSL, remain responsible for effect safety.** Upstream already supplies `decisionProviders` capability checking, `recordDecision`, `rederiveDecision`, `guardStep` and optional step recovery. Do not duplicate a new provider registry, guard model, scheduler or durable state store. `code` nodes execute JavaScript in the host (including during default validation) and are **not** a sandbox. Static, reviewed workflow definitions only; no model-authored executable code in v1. `guardStep` is potentially useful later but adds judgment latency and duplicates Flyd's current verification if applied indiscriminately. A completed DSL workflow is not an external execution receipt.
+
+### Revised design and acceptance order (supersedes optimistic work packages below)
+
+1. **P0: red/green spike** — Verify exact package tarball, installed Core Node version, isolated import and validation, current direct Jev decision latency, and at least one real recurring **multi-stage** case. Document an explicit GO/NO-GO. **A successful import alone is not a GO.**
+2. **P1: one strictly validated choice** — Resolve the exact `cos_recovery_tactic` registry definition and question/criteria fingerprint, consented egress, full provider distribution/confidence, and separate answered / proven-unsent / unknown-sent / refused results. No new predicates yet. Gate any branch with the host threshold and current authority/revision.
+3. **P2: read-only evidence → decision → optional private reasoning pilot** — A trusted fixed subroutine returns only a typed recommendation/investigation/hold. CoS remains the sole owner of retries, dispatch, receipts and verification. Do not add a second run queue or effect transport. If P0 found no genuine composition advantage, do not execute this step.
+4. **P3–P4: controlled shadow and frozen holdout** — Compare a hand-written TypeScript + System-1 baseline against DSL on exactly the same inputs. Measure verified outcomes, wrong repairs, p50/p95 end-to-end decision latency, full-model calls, model cost (unknown != zero), unnecessary interruptions and private data exposure. 100 independently labelled cases plus protected crash/consent/partial-response fixtures are the proposed baseline. **No higher speed is worth more incorrect or unapproved actions.**
+5. **P5: opt-in canary conditional on safety and measured gain** — Keep default-off kill switch and legacy behavior; verify installed Mac runtime, policy and unknown-outcome faults. Roll back on any protected regression. P6 learned workflows remain deferred, under Flyd's existing policy-promotion machinery.
+
+**Additional must-pass tests:** 0.5 Noul default versus host gate; incomplete Gemini `ok:true` answer batch; distribution mass and confidence missing; malformed option labels; stale question fingerprint; raw `DecisionReceipt.state` and `error` containing secrets/private evidence; revoked consent; a provider request that might have been sent but did not return; crash after recording a decision but before CoS commits; concurrent ticks must never duplicate a domain dispatch.
+
+**Result of validation:** AgentRun has useful decision instrumentation and disciplined control flow. It does not yet establish that inserting a DSL is better than Flyd's existing direct choice handler. P0 is a decision experiment, **not an implementation mandate**.
+
 
 ---
 
@@ -184,7 +220,7 @@ A fast predicate cannot invent a new tactic. If no grounded options exist, the f
 
 - Use AgentRun's `recordDecision(receipt, exchange)` as an awaited, pre-branch checkpoint where supported by the pinned release. Project a **sanitized** subset into Flyd's existing canonical event envelope: objective ID, domain-run ID, revision, workflow digest, execution path, System-1 predicate IDs/versions, state projection hash, allowed evidence references, answer, threshold/rule/action, provider identity, error/refusal, cost basis and timestamps.
 - Do **not** write raw emails, full screen text, credentials or entire model payloads into DSL journals or event receipts. Keep only source-approved projections and/or references within current consent/retention rules.
-- Use the same stable request/decision ID and existing event-store idempotency to detect a repeated decision. On resume an answered, version-matching decision can be *rederived* from its receipt without paying for it again; any decision with changed objective, workflow, predicate, consent or policy versions must be re-evaluated or safely stopped.
+- Use the same stable request/decision ID and existing event-store idempotency to detect a repeated decision. On resume a decision can be rederived **only from a complete, validated, version-matching and consent-approved receipt**, not a redacted hash-only event; an interrupted possibly-sent request must hold rather than automatically re-query; any decision with changed objective, workflow, predicate, consent or policy versions must be re-evaluated or safely stopped.
 - An AgentRun decision receipt proves **what was decided**, not that a FirstMate handoff, Git mutation or other effect succeeded. Execution receipts and domain verification remain with CoS/Flyd.
 - AgentRun provides optional decision recovery and workflow journaling; do **not** switch on a second durable workflow scheduler. For the narrow v1 flow, CoS owns the durable boundary and re-invokes the short decision procedure from recorded, version-pinned state. Only consider DSL step-level recovery later if measured need justifies it, and then integrate its checkpoint hooks into Flyd's canonical storage rather than a second authority.
 - Preserve “unknown outcome” for an in-flight external effect. Never retry it because a DSL step, network request or process crashed.
@@ -192,7 +228,7 @@ A fast predicate cannot invent a new tactic. If no grounded options exist, the f
 
 ### ADR-06 — Reasoning fallback is private and narrow
 
-- `runNode` uses Flyd's existing private reasoning capability (v9), not a direct chat UI, another agent scheduler or AgentRun's default harness.
+- `runNode` uses Flyd's existing private reasoning capability (v9) through the current centralized model-routing/provider-policy and spend controls, never a hardcoded SDK client, chat UI, another agent scheduler or AgentRun's default harness.
 - Limit context to a decision dossier, require a typed proposal, preserve exact original intent and evidence references, and cap model calls/time/tokens at the **objective's** existing budget.
 - Returned text is an untrusted proposal. Only candidate options that survive host validation may be ranked by System-1. Escalation from DSL means “CoS/Flyd investigate or hold”; it does **not** mean “ask George”.
 - Do not create approval UI for technical implementation decisions.
@@ -294,7 +330,7 @@ Host invariants: the referenced tactic must be in the approved candidate set; `r
 
 **Use existing:** `cognition/system-one/{registry,decision-provider,policy,replay}.ts`; `intelligence/{context-envelope,event-store}.ts`; `intelligence/capabilities/`. Do not recreate these components.
 
-**Tests:** fake System-1 provider responses for Noul/choice/score; malformed distribution; missing keys; conflicting predicate projections; denied egress; revoked consent; model failure; cost missing (null, not zero); version mismatch; complete/failed receipt ordering; same-request deduplication; cancellation; 64-KiB projection guard; no secrets in traces.
+**Tests:** strict choice result conformance (Noul/Score deferred); 0.5 Noul-threshold trap fixtures; malformed choice distribution; missing keys including partial Gemini batches; conflicting predicate projections; denied egress; revoked consent; model failure; cost missing (null, not zero); version mismatch; complete/failed receipt ordering; same-request deduplication; cancellation; 64-KiB projection guard; no secrets in traces.
 
 **Exit:** the bridge can run an offline fixed workflow and produce a typed Flyd decision receipt; prohibited tool names, unapproved predicate definitions and non-allowlisted fields fail before execution; the legacy path remains unchanged.
 
@@ -302,7 +338,7 @@ Host invariants: the referenced tactic must be in the approved candidate set; `r
 
 **Goal:** test whether the DSL buys something beyond the existing TypeScript branch.
 
-**Implement:** fixed `cos-internal-recovery-v1` with schema-checked state, one batched System-1 judgment over previously collected evidence, deterministic outcome mapping, at most one private reasoning fallback for a novel case, and an explicit safe hold. Read-only evidence may go through a host `runEffect` if necessary; no mutation, no shell.
+**Implement:** fixed `cos-internal-recovery-v1` with schema-checked state, one strictly validated existing choice predicate over already collected evidence (add more questions only after registry and replay approval), deterministic outcome mapping, at most one private reasoning fallback for a novel case, and an explicit safe hold. Read-only evidence may go through a host `runEffect` if necessary; no mutation, no shell.
 
 **Integration:** new optional function beside `cli/src/command/cos/recovery.ts`, still called by existing CoS under a test flag. Keep `judgeRecovery` and `canRecoverInternally` as fallback and authority gates. Never let the DSL own a worker.
 
@@ -479,6 +515,6 @@ Suggested commit boundaries: (a) feasibility + benchmarks; (b) typed adapter, re
 
 ## 12. First engineering move
 
-**Run P0, then build P1 only if P0 passes.** Specifically: test the exact AgentRun DSL release in an isolated Node 24.22.3+ consumer, verify Flyd's installed runtime and the existing one-call Jev baseline, and write a single admissible **internal recovery** workflow against Flyd's System-1 adapter. If it doesn't reduce real reasoning overhead or increase reliability without violating the authority model, stop and keep the current CoS code.
+**Run P0, then build P1 only if P0 proves compatibility **and** a genuinely useful multi-step workload.** Specifically: test the exact AgentRun DSL release in an isolated Node 24.22.3+ consumer, verify Flyd's installed runtime and the existing one-call Jev baseline, and write a single admissible **internal recovery** workflow against Flyd's System-1 adapter. If it doesn't reduce real reasoning overhead or increase reliability without violating the authority model, stop and keep the current CoS code.
 
 **The one outcome that matters:** Flyd should handle more routine decisions correctly, privately and quickly—**not** acquire another orchestration engine.
