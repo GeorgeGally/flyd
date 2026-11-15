@@ -10,7 +10,7 @@ export async function runCareCommand(action = "status"): Promise<void> {
       registry.renew(MEETING_PREP_CONTRACT.sourceId);
     }
     registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "enabled");
-    console.log("Enabled local, metadata-only Calendar preparation. Flyd may use verified People memory for quiet pre-call cards; no attendee addresses, notes, location, notification or model egress.");
+    console.log("Enabled local Calendar meeting-title and start-time preparation. Flyd may match them with verified People memory for quiet pre-call cards; attendee addresses, notes, locations and message contents are not read, and nothing is sent to a model.");
     console.log("Use flyd care disable to stop Calendar preparation.");
     return;
   }
