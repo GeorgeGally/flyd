@@ -732,11 +732,11 @@ describe("a firstmate answer to his note, told by Flyd", () => {
     "PR: https://github.com/GeorgeGally/flyd/pull/70",
   ].join("\n\n");
 
-  function noteWithReply(reply: string) {
+  function noteWithReply(reply: string, question = "is the island hiding things from me?") {
     const home = join(dir, "firstmate");
     mkdirSync(join(home, "state", "inbox", "handled"), { recursive: true });
     mkdirSync(join(home, "state", "inbox", ".replies"), { recursive: true });
-    writeFileSync(join(home, "state", "inbox", "handled", `${NOTE}.note`), `id=${NOTE}\nat=2026-10-09T03:30:00Z\n--\nis the island hiding things from me?\n`);
+    writeFileSync(join(home, "state", "inbox", "handled", `${NOTE}.note`), `id=${NOTE}\nat=2026-10-09T03:30:00Z\n--\n${question}\n`);
     writeFileSync(join(home, "state", "inbox", ".replies", NOTE), `id=${NOTE}\nat=2026-10-09T03:33:41Z\nseq=5\n--\n${reply}\n`);
     return mergeNotes(relayed([]), new FirstmateInbox({ home }).notes(), {});
   }
@@ -895,7 +895,11 @@ describe("a firstmate answer to his note, told by Flyd", () => {
   it("may name the machinery when he asked how Flyd works", async () => {
     const told = "FirstMate takes the brief, a crewmate builds it, and I check the result.";
     const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "how.json"), profile: () => null, complete: async () => told });
-    expect(await interpreter.request({ question: "how does Flyd work when I hand it a fix?", answer: "Briefed, built, checked.", recent: [] })).toBe(told);
+    const question = "how does Flyd work when I hand it a fix?";
+    expect(await interpreter.request({ question, answer: "Briefed, built, checked.", recent: [] })).toBe(told);
+    const shown = new SnapshotDiffer({ interpreter }).next({ messages: noteWithReply("Briefed, built, checked.", question), working: false })
+      .messages.find((message) => message.answers === `note:${NOTE}`)!;
+    expect(plain(shown.summary!.html)).toContain("a crewmate builds it");
   });
 
   it("keeps a link whose address carries a commit id", async () => {

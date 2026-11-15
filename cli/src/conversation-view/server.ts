@@ -373,11 +373,12 @@ export class SnapshotDiffer {
    * internal call handed to him), so it may not reach him as written. Each one
    * held is recorded once for a reviewer (council/reply-review.ts).
    */
-  private heldRelay(text: string): boolean {
+  private heldRelay(text: string, asked?: string): boolean {
     const said = inFlydsVoice(text);
-    if (heldRelays.has(said)) return true;
-    if (screenOutgoing({ surface: "relay", source: "relay:staff", text: said }).send) return false;
-    heldRelays.add(said);
+    const key = `${asked ?? ""}\u0000${said}`;
+    if (heldRelays.has(key)) return true;
+    if (screenOutgoing({ surface: "relay", source: "relay:staff", text: said, ...(asked ? { asked } : {}) }).send) return false;
+    heldRelays.add(key);
     return true;
   }
 
@@ -418,7 +419,7 @@ export class SnapshotDiffer {
    * leads, firstmate's own words wait behind "more". Until it lands the lead
    * is the answer's local digest; with none coming, Flyd's whole briefing of it.
    */
-  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean): Pick<RenderedMessage, "summary"> & { body: string } {
+  private interpret(message: ConversationMessage, snapshot: ConversationSnapshot, newest: boolean, asked?: string): Pick<RenderedMessage, "summary"> & { body: string } {
     const interpreter = this.summaries?.interpreter;
     const cached = interpreter?.cached(message.text);
     const shown = plainSaid(stripCommitIds(message.text));
@@ -426,7 +427,7 @@ export class SnapshotDiffer {
       // Flyd's reading is the outcome; the reply decides its shape, and he reads its lead line first (runtime/delivery.ts).
       // Flyd's reading passes the same checks the staff's words do before it leads; one that fails gives way to a plain line.
       const reading = plainSaid(inFlydsVoice(cached));
-      if (this.heldRelay(reading)) return heldAnswer(message);
+      if (this.heldRelay(reading, asked)) return heldAnswer(message);
       const said = deliver(reportFromReply({
         id: message.id, reading, reply: message.text,
         options: choiceOf(message.text)?.options ?? [], shots: (message.shots ?? []).filter((shot) => shot.startsWith("/")),
@@ -436,7 +437,7 @@ export class SnapshotDiffer {
     }
     this.readAnswer(message, snapshot, newest);
     // An answer to his note is never dropped: staff words that fail the checks wait behind a plain line.
-    if (this.heldRelay(shown)) return heldAnswer(message);
+    if (this.heldRelay(shown, asked)) return heldAnswer(message);
     const pending = interpreter?.pending(message.text) ?? false;
     return { body: message.text, summary: pending ? glance(shown, "digest", true) : briefOf(shown) };
   }
@@ -448,11 +449,11 @@ export class SnapshotDiffer {
    * staff's words wait behind "show original". One that answers words he typed
    * is never dropped: a plain line leads, the original one tap away.
    */
-  private relaySummary(message: ConversationMessage, newest: boolean, toHim = false): (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null {
+  private relaySummary(message: ConversationMessage, newest: boolean, toHim = false, asked?: string): (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null {
     const parts = this.summarize(message, newest, plainSaid);
     const model = this.summaries?.summarizer?.cached(message.text);
     const said = model && parts.summary?.source === "model" ? inFlydsVoice(model) : message.text;
-    if (this.heldRelay(plainSaid(said))) return toHim ? heldAnswer(message) : null;
+    if (this.heldRelay(plainSaid(said), asked)) return toHim ? heldAnswer(message) : null;
     return parts;
   }
 
@@ -492,7 +493,7 @@ export class SnapshotDiffer {
   }
 
   /** An answer to him, or a relayed update that answers him, as one compact card: Flyd's reading when it has one. */
-  private answerCard(message: ConversationMessage): RenderedMessage["card"] {
+  private answerCard(message: ConversationMessage, asked?: string): RenderedMessage["card"] {
     const reading = message.answers?.startsWith("note:") ? this.summaries?.interpreter?.cached(message.text) : undefined;
     const staff = message.aside === true || message.answers?.startsWith("note:") === true;
     const voiced = inFlydsVoice(reading ?? message.text);
@@ -508,8 +509,8 @@ export class SnapshotDiffer {
     }
     // The card's words pass the same outgoing checks as any relay: a line that fails leaves no card, a sub that fails is dropped.
     if (staff) {
-      if (this.heldRelay(said.line)) return undefined;
-      if (said.sub && this.heldRelay(said.sub)) delete said.sub;
+      if (this.heldRelay(said.line, asked)) return undefined;
+      if (said.sub && this.heldRelay(said.sub, asked)) delete said.sub;
     }
     const kinds: Record<OutcomeState, NonNullable<RenderedMessage["card"]>["kind"]> = { landed: "landed", needs: "decision", stuck: "blocker", underway: "underway", note: "note", handled: "note" };
     const url = message.text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/)?.[0];
@@ -573,20 +574,21 @@ export class SnapshotDiffer {
       // His staff's chatter is Flyd's to keep; only what landed, his own decisions and real blockers reach him.
       // A reply to words he typed into the session himself answers him, and is never kept back.
       const toHim = previous?.role === "user" && !/^(?:note|ask):/.test(previous.id);
+      const asked = toHim ? previous?.text : message.answers ? snapshot.messages.find((candidate) => candidate.id === message.answers)?.text : undefined;
       previous = message;
       const handled = handledOf(message);
       if (!toHim && absorbed(message, handled)) continue;
       // Landed, his call or stuck: a compact card, whether or not it answers something he typed.
       const relay = message.role === "assistant" && message.aside ? staffLine(message.text, handled) : undefined;
       // A relay card's line is the staff's, so it passes the outgoing checks too; a decision stays his whatever its words.
-      if (!toHim && relay && relay.kind !== "absorbed" && relay.kind !== "decision" && this.heldRelay(relay.line)) continue;
+      if (!toHim && relay && relay.kind !== "absorbed" && relay.kind !== "decision" && this.heldRelay(relay.line, asked)) continue;
       // An answer to his own question is never muted as routine: firstmate's is told by Flyd, Flyd's own
       // shows whole when it fits a glance and else leads with its first few lines.
       const parts: (Pick<RenderedMessage, "summary" | "compare" | "routine" | "expanded"> & { body: string }) | null = message.form ? { body: message.text } : message.role !== "assistant" ? { body: plainNote(message.text).thread ? plainNote(message.text).words : message.text }
         : artifact ? { body: authorSummary(message.text)?.rest ?? message.text, summary: { html: renderMarkdown(`**${artifact.title}**: ${artifact.steps.length} ${artifact.options ? "options" : "steps"}, kept in Artefacts.`), source: "flyd" } }
           : relay && relay.kind !== "absorbed" ? { body: message.text, summary: { html: renderMarkdown(georgeMarkdown(relay)), source: "flyd" } }
-            : !message.answers ? (message.aside ? this.relaySummary(message, fresh, toHim) : this.summarize(message, fresh))
-              : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh)
+            : !message.answers ? (message.aside ? this.relaySummary(message, fresh, toHim, asked) : this.summarize(message, fresh))
+              : message.answers.startsWith("note:") ? this.interpret(message, snapshot, fresh, asked)
                 : ownAnswer(message.text);
       if (!parts) continue;
       // A question the staff put to him mid-reply is answerable where it stands too, until he has spoken since.
@@ -604,7 +606,7 @@ export class SnapshotDiffer {
       const shots = (message.shots ?? []).filter((shot) => shot.startsWith("/")).map(railImageSrc);
       const card: RenderedMessage["card"] = relay && relay.kind !== "absorbed"
         ? { kind: relay.kind, line: inFlydsVoice(relay.line).replace(/[:;,]$/, ""), ...(relay.kind === "landed" && relay.url ? { url: relay.url } : {}) }
-        : message.role === "assistant" && !message.form && !routine && !message.answers?.startsWith("ask:") && (message.aside || message.answers) ? this.answerCard(message) : undefined;
+        : message.role === "assistant" && !message.form && !routine && !message.answers?.startsWith("ask:") && (message.aside || message.answers) ? this.answerCard(message, asked) : undefined;
       // The card is his glance: the reply as written waits behind it, never shown twice.
       const staffWords = message.aside === true || message.answers?.startsWith("note:") === true;
       if (card && !parts.summary) parts.summary = briefOf(staffWords ? plainSaid(message.text) : message.text);
