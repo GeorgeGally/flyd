@@ -107,9 +107,14 @@ export function meetingCard(event: CareEvent, memory: MemoryEntry[], now: Date):
     && /\b(?:send|follow up|follow-up|reply|call|review|deliver|prepare)\b/i.test(item.text)
     && exactName.test(item.text),
   ).slice(0, 2) : [];
+  const describePerson = (p: MemoryEntry) => clean(p.text.replace(/[.!?]+$/, ""), 96) + " (noted " + p.date + ")";
+  const followup = (p: MemoryEntry) => "Follow-up: " + clean(p.text.replace(/[.!?]+$/, ""), 100) + " (noted " + p.date + ")";
+  // The activity card's expanded text is bounded. Put a concrete follow-up
+  // immediately behind the first personal fact, before less-important facts.
   const facts = [
-    ...people.map((p) => clean(p.text.replace(/[.!?]+$/, ""), 120) + " (noted " + p.date + ")"),
-    ...followups.map((p) => "Follow-up: " + clean(p.text.replace(/[.!?]+$/, ""), 120) + " (noted " + p.date + ")"),
+    describePerson(people[0]!),
+    ...followups.map(followup),
+    ...people.slice(1).map(describePerson),
   ];
   return {
     key: "care:meeting:" + hash(event.id + "|" + event.start), kind: "noted", state: "done", at: now.toISOString(), expiresAt: start.toISOString(),
