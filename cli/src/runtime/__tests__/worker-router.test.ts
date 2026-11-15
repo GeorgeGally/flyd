@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { routeWorker } from "../worker-router.js";
 import type { WorkerHealth } from "../worker-adapter.js";
+import { crewBackupModels, crewModel, DEFAULT_CREW_MODEL, launchCrewmate, type CrewTask } from "../../crew/crew.js";
 
 function health(
   name: string,
@@ -61,12 +62,33 @@ describe("worker router", () => {
       requirements: ["analysis"],
       adapters: [
         health("opencode", ["analysis"]),
-        health("codex", ["analysis"]),
+        health("claude", ["analysis"]),
       ],
       activeCounts: {},
       excludedAdapters: [],
     });
 
-    expect(selected.name).toBe("codex");
+    expect(selected.name).toBe("claude");
+  });
+
+  it("never routes text, code or review work to the ChatGPT/Codex allowance, which is kept for images", () => {
+    const allowance = [health("codex", ["analysis", "implementation", "review", "testing"]), health("openai/gpt-5.6-luna", ["analysis", "implementation", "review", "testing"])];
+    for (const requirements of [["implementation"], ["review"], ["analysis"]] as const) {
+      expect(routeWorker({ requirements: [...requirements], adapters: [...allowance, health("claude", ["analysis", "implementation", "review", "testing"])], activeCounts: { claude: 5 }, excludedAdapters: [] }).name).toBe("claude");
+      expect(() => routeWorker({ requirements: [...requirements], adapters: allowance, activeCounts: {}, excludedAdapters: [] })).toThrow("No healthy worker satisfies");
+    }
+    const saved = { FLYD_CREW_MODEL: process.env.FLYD_CREW_MODEL, FLYD_CREW_BACKUP_MODELS: process.env.FLYD_CREW_BACKUP_MODELS };
+    process.env.FLYD_CREW_MODEL = "openai/gpt-6.1-sol";
+    process.env.FLYD_CREW_BACKUP_MODELS = "codex,openai/gpt-5.6-luna,cursor/auto";
+    try {
+      expect(crewModel()).toBe(DEFAULT_CREW_MODEL);
+      expect(crewBackupModels()).toEqual(["cursor/auto"]);
+      expect(() => launchCrewmate({ model: "openai/gpt-6.1-sol" } as CrewTask, "brief")).toThrow("kept for images only");
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
   });
 });

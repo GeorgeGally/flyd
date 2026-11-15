@@ -65,8 +65,8 @@ until the 1st and he hears that once too.
 | `FLYD_ROUTING_FALLBACK_MODEL` | — | Pins the room reader and view router to one exact model |
 | `FLYD_PREDICTION_MODEL` | Claude Haiku, then Mercury | Pins typing prediction to one exact model |
 | `FLYD_PREDICTIONS` | on | `0` turns typing prediction off |
-| `FLYD_CREW_MODEL` | `opencode-go/gpt-6-luna` | Pins the crew's OpenCode model (`provider/model`) |
-| `FLYD_CREW_BACKUP_MODELS` | `cursor/auto` | Comma-separated models a crewmate moves to, in order, when its provider refuses (credits, limits, keys); it keeps its worktree. `cursor/<model>` runs `cursor-agent`; `none` turns it off |
+| `FLYD_CREW_MODEL` | `opencode-go/gpt-6-luna` | Pins the crew's OpenCode model (`provider/model`). An `openai/` (ChatGPT login) or `codex` model is ignored: that allowance is kept for images only (`cli/src/runtime/chatgpt-allowance.ts`) |
+| `FLYD_CREW_BACKUP_MODELS` | `cursor/auto` | Comma-separated models a crewmate moves to, in order, when its provider refuses (credits, limits, keys); it keeps its worktree. `cursor/<model>` runs `cursor-agent`; `openai/` and `codex` entries are dropped; `none` turns it off |
 | `FLYD_VIEW_ANTHROPIC_MODEL` | quick model | Summaries' Claude model |
 | `FLYD_VIEW_XAI_MODEL` | `grok-4-fast-non-reasoning` | Summaries' xAI model |
 | `FLYD_VIEW_SUMMARIES` | on | `0` turns model summaries off |

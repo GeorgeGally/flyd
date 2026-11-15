@@ -10,6 +10,7 @@ import type { NotificationOutcome } from "../runtime/agenda.js";
 import { claudeApiKey, claudeHeaders, recordClaudeUsage } from "../lib/claude-spend.js";
 import { normalizeCriteria, parseVerdicts, unmetChecks, unresolvedItems, VERDICT_FORMAT, type AcceptanceCheck } from "../runtime/acceptance.js";
 import { verificationCommandsForRepository } from "../runtime/verification-commands.js";
+import { refuseChatGptAllowance, spendsChatGptAllowance } from "../runtime/chatgpt-allowance.js";
 
 // Flyd as first mate. George states the outcome once; Flyd briefs an
 // OpenCode crewmate, gives it a clean git worktree, supervises it to
@@ -320,6 +321,7 @@ export function openCodePath(): string {
 
 /** Start the crewmate on its model: Cursor's agent for a "cursor/…" model, OpenCode for the rest. */
 export function launchCrewmate(task: CrewTask, brief: string): number | undefined {
+  refuseChatGptAllowance(task.model ?? crewModel(), "crew work");
   return (task.model ?? crewModel()).startsWith(CURSOR_PREFIX) ? launchCursor(task, brief) : launchOpenCode(task, brief);
 }
 
@@ -389,7 +391,9 @@ export function crewOpenCodeConfig(claude: boolean): Record<string, unknown> {
  */
 export const DEFAULT_CREW_MODEL = "opencode-go/gpt-6-luna";
 export function crewModel(): string {
-  return process.env.FLYD_CREW_MODEL?.trim() || DEFAULT_CREW_MODEL;
+  const configured = process.env.FLYD_CREW_MODEL?.trim();
+  // A ChatGPT-login model is never the crew's: that allowance is kept for images.
+  return configured && !spendsChatGptAllowance(configured) ? configured : DEFAULT_CREW_MODEL;
 }
 
 /**
@@ -401,7 +405,7 @@ export const DEFAULT_CREW_BACKUP_MODELS = ["cursor/auto"];
 export function crewBackupModels(): string[] {
   const configured = process.env.FLYD_CREW_BACKUP_MODELS?.trim();
   if (configured === "none") return [];
-  return configured ? configured.split(",").map((model) => model.trim()).filter(Boolean) : DEFAULT_CREW_BACKUP_MODELS;
+  return configured ? configured.split(",").map((model) => model.trim()).filter((model) => model && !spendsChatGptAllowance(model)) : DEFAULT_CREW_BACKUP_MODELS;
 }
 
 /** The next model to try after a refusal: the first backup this task hasn't run on yet. */
