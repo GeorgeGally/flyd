@@ -856,7 +856,9 @@ describe("a firstmate answer to his note, told by Flyd", () => {
 
   it("holds back a whole retelling that names backstage, keeping none of its sentences", async () => {
     const interpreter = new AnswerInterpreter({ cacheFile: join(dir, "backstage.json"), profile: () => null, complete: async () => "FirstMate finished. The sidebar now opens on Artefacts." });
-    expect(await interpreter.request({ question: "q", answer: "The sidebar now opens on Artefacts.", recent: [] })).toBe(HELD_READING);
+    // The staff's own answer is clean, so it leads in the window instead (no reading is kept).
+    expect(await interpreter.request({ question: "q", answer: "The sidebar now opens on Artefacts.", recent: [] })).toBeUndefined();
+    expect(interpreter.cached("The sidebar now opens on Artefacts.")).toBeUndefined();
   });
 
   it("never relays the self-review's evidence lines verbatim, records them, and shows Flyd's neutral line instead", async () => {
@@ -879,11 +881,15 @@ describe("a firstmate answer to his note, told by Flyd", () => {
   });
 
   it("screens a reading cached before the outgoing checks, so an old leak never reaches him", () => {
-    const answer = "The TV page has its buttons.";
+    const leaky = "FirstMate says the TV page has its buttons.";
+    const clean = "The TV page has its buttons.";
     const cacheFile = join(dir, "legacy.json");
-    writeFileSync(cacheFile, JSON.stringify({ [AnswerInterpreter.key(answer)]: { text: "Flyd is re-requesting unstructured FirstMate handoffs", at: "2026-11-01T00:00:00.000Z" } }));
+    const old = { text: "Flyd is re-requesting unstructured FirstMate handoffs", at: "2026-11-01T00:00:00.000Z" };
+    writeFileSync(cacheFile, JSON.stringify({ [AnswerInterpreter.key(leaky)]: old, [AnswerInterpreter.key(clean)]: old }));
     const interpreter = new AnswerInterpreter({ cacheFile, profile: () => null, complete: async () => "" });
-    expect(interpreter.cached(answer)).toBe(HELD_READING);
+    expect(interpreter.cached(leaky)).toBe(HELD_READING);
+    // A clean staff answer leads in place of the held reading.
+    expect(interpreter.cached(clean)).toBeUndefined();
   });
 
   it("may name the machinery when he asked how Flyd works", async () => {

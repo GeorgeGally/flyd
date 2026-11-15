@@ -5,7 +5,7 @@ import { syncFirstmateDomainRuns } from "./firstmate.js";
 import { DESIGN_MATE, syncDesignBoards, syncDesignMateRuns } from "./design-mate.js";
 import { syncLibrarianDomainRuns } from "./librarian.js";
 import { sendRunMessage } from "./messages.js";
-import { noticeKind } from "./notice.js";
+import { gateNotice, noticeKind } from "./notice.js";
 import type { GeorgeKind } from "../lib/reaches-george.js";
 import { listDomainRuns, mutateDomainRun, readDomainRun, updateDomainRun } from "./store.js";
 import { cameBack, isOpen } from "./run-state.js";
@@ -101,11 +101,13 @@ export async function decideRun(
   });
 }
 
-/** The notification a decision makes: the run's report, delivered as its lead line (runtime/delivery.ts); none when held. */
+/** The notification a decision makes: the run's report, delivered as its lead line (runtime/delivery.ts) and gated by the outgoing review (notice.ts); none when held. */
 function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord): string | null {
   if (!decision.show || !decision.notify) return null;
   // Finished work's checked line is the report's lead, its link kept whole (runtime/delivery.ts).
-  return deliver(reportFromRun(run, decision), "notification").text;
+  const report = reportFromRun(run, decision);
+  const text = deliver(report, "notification").text;
+  return text ? gateNotice(run, text, decision.disposition === "ask_george", report.outcome) : null;
 }
 
 /** The project a run is about, by name or folder. */

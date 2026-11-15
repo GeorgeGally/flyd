@@ -214,8 +214,10 @@ describe("the relay gate on the self-review's evidence", () => {
     }));
   });
 
-  it("keeps an implementation call off his screen as a decision, and Flyd makes it", () => {
-    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: INTERNAL_CALL })))).toBeNull();
+  it("keeps an implementation call off his screen as a decision, and brings him a call on what the page carries", () => {
+    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Tell me whether to lay out the TV page with CSS grid or flexbox." })))).toBeNull();
+    expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "Tell me whether to add Teletext and Tuning dial buttons." }))))
+      .toBe("I need your decision: Tell me whether to add Teletext and Tuning dial buttons.");
     expect(captainNotice(run(JSON.stringify({ status: "needs_decision", brief: "The logo can be red or blue: which do you want?" }))))
       .toBe("I need your decision: The logo can be red or blue: which do you want?");
   });
@@ -409,6 +411,36 @@ describe("notifyRun", () => {
     }
     expect(sent).toHaveLength(4);
     expect(sent.join(" ")).not.toMatch(/Blue or green|login page|token parser|2FA code module|sign in to the dashboard/);
+  });
+
+  it("gates the scheduler's notice on the outgoing review: an implementation call is Flyd's, machinery gives way to the work, and each hold is recorded", async () => {
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const ask = (id: string, question: string): [DomainRun, ExecutiveDecisionRecord] => {
+      const base = run(JSON.stringify({ status: "needs_decision", brief: question }));
+      return [{ ...base, id, request: { ...base.request, id } }, {
+        schema: "flyd.executive-decision.v1", decisionId: `decision-${id}`, sourceId: "firstmate.change", sourceEventId: `event-${id}`,
+        taskId: id, disposition: "ask_george", reason: "George owns the choice", summary: question, evidenceRefs: [id], question,
+        options: ["Yes", "Not yet"], recommendation: { option: "Yes", rationale: "It keeps the page moving." }, verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
+      }];
+    };
+    const verdicts = () => readFileSync(join(selfReviewDir(), "verdicts.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((line) => JSON.parse(line) as { text: string; held?: boolean; source?: string; shortfalls: Array<{ requirement: string }> });
+    const calls: Array<[string, string]> = [
+      ["domain-gate-a", "Tell me whether to lay out the TV page with CSS grid or flexbox."],
+      ["domain-gate-b", "Flyd is re-requesting unstructured FirstMate handoffs"],
+      ["domain-gate-c", "Tell me whether to add Teletext and Tuning dial buttons."],
+    ];
+    for (const [id, question] of calls) {
+      const [asked, decided] = ask(id, question);
+      await notifyRun(asked, notify, undefined, async () => decided, () => false, async () => ({}));
+    }
+    expect(sent).toEqual(["Your call is needed: Fix the island.", "Tell me whether to add Teletext and Tuning dial buttons."]);
+    expect(verdicts()).toContainEqual(expect.objectContaining({
+      text: "Tell me whether to lay out the TV page with CSS grid or flexbox.", source: "domain:domain-gate-a", surface: "notification", held: true,
+      shortfalls: expect.arrayContaining([expect.objectContaining({ requirement: "decisions_handled" })]),
+    }));
+    expect(verdicts()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("FirstMate handoffs"), source: "domain:domain-gate-b", held: true }));
   });
 
   it("quotes only George's own words for a finished run, and says Flyd's stand-ins as the bare fact", async () => {

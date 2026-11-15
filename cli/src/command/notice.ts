@@ -64,6 +64,28 @@ function outgoing(run: DomainRun, text: string): Said & { source: string } {
   return { surface: "notification", source: `domain:${run.id}`, text, ...(run.request?.originalMessage ? { asked: run.request.originalMessage } : {}) };
 }
 
+/**
+ * The scheduler's notice for a reviewed run (scheduler.ts tellRun), as it may
+ * reach George: the report's own words (`written`) and the line delivered from
+ * them pass the same outgoing review a relay passes. A report that hands him
+ * an implementation call, or only says something is happening, is not sent:
+ * the call stays Flyd's. One that names machinery gives way to a line naming
+ * the work. What was held is recorded in the self-review record.
+ */
+export function gateNotice(run: DomainRun, text: string, asks: boolean, written = text): string | null {
+  const flydsCall = (screened: { shortfalls: Array<{ requirement: string }> }) =>
+    screened.shortfalls.some((shortfall) => shortfall.requirement === "decisions_handled" || shortfall.requirement === "real_status");
+  const own = screenOutgoing(outgoing(run, written));
+  if (flydsCall(own)) return null;
+  const shown = written === text ? own : screenOutgoing(outgoing(run, text));
+  if (shown.send) return text;
+  if (flydsCall(shown)) return null;
+  const named = namedOutcome(run);
+  if (!named) return null;
+  const neutral = asks ? `I need your decision on ${named}.` : `There is news on ${named}. Ask Flyd for the details.`;
+  return relayMayShow(neutral) ? neutral : null;
+}
+
 /** The notification text for a run, or null when nothing George cares about happened, or when what it says may not reach him as written. */
 export function captainNotice(run: DomainRun): string | null {
   if (!run.result) return null;

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryPaths } from "../council/memory-store.js";
 import { gateOutgoing, relayMayShow } from "../council/reply-review.js";
+import { plainSaid } from "../lib/backstage.js";
 import { stripCommitIds } from "../runtime/honesty-check.js";
 import { readUserProfile } from "../lib/user-profile.js";
 import type { Complete } from "./flyd-desk.js";
@@ -30,10 +31,16 @@ const MAX_IN_FLIGHT = 2;
 const KEEP = 20;
 
 /**
- * What George reads in place of a reading the outgoing checks held: Flyd's own
- * neutral line, never the held words. The staff's answer stays one tap away.
+ * What George reads in place of a reading the outgoing checks held when the
+ * staff's answer may not lead either: Flyd's own neutral line, never the held
+ * words. The staff's answer stays one tap away.
  */
 export const HELD_READING = "There's an answer to this; it's under show original.";
+
+/** Whether the staff's own answer may lead in place of a held reading. */
+function answerMayShow(answer: string): boolean {
+  return relayMayShow(plainSaid(stripCommitIds(answer)));
+}
 
 interface Interpretation {
   text: string;
@@ -114,11 +121,11 @@ export class AnswerInterpreter {
     return createHash("sha256").update(`${PROMPT_VERSION}\0${answer}`).digest("hex").slice(0, 32);
   }
 
-  /** The reading he is shown: one cached before the outgoing checks is screened first, and a held one reads as Flyd's neutral line. */
+  /** The reading he is shown: one cached before the outgoing checks is screened first; a held one gives way to the staff's answer when that may lead, else to Flyd's neutral line. */
   cached(answer: string): string | undefined {
     const entry = this.cache[AnswerInterpreter.key(answer)];
-    if (!entry || entry.screened) return entry?.text;
-    return relayMayShow(entry.text) ? entry.text : HELD_READING;
+    if (!entry || entry.screened || relayMayShow(entry.text)) return entry?.text;
+    return answerMayShow(answer) ? undefined : HELD_READING;
   }
 
   pending(answer: string): boolean {
@@ -134,7 +141,7 @@ export class AnswerInterpreter {
   /** Resolves with the interpretation, or undefined when the model failed or only acknowledged. Never rejects. */
   request(input: InterpretInput): Promise<string | undefined> {
     const key = AnswerInterpreter.key(input.answer);
-    if (this.cache[key]) return Promise.resolve(this.cache[key].text);
+    if (this.cache[key]) return Promise.resolve(this.cached(input.answer));
     if (this.failed.has(key)) return Promise.resolve(undefined);
     const existing = this.inFlight.get(key);
     if (existing) return existing;
@@ -168,9 +175,12 @@ export class AnswerInterpreter {
       // The relayed update reaches George under the same outgoing-answer checks
       // a chat reply passes: one that names backstage machinery (unless he
       // asked how Flyd works), is a placeholder or hands him an internal call
-      // is not shown. Flyd's neutral line stands in, and what was held is
-      // recorded (council/reply-review.ts).
-      return gateOutgoing({ surface: "relay", source: "relay:interpretation", text, asked: input.question }, HELD_READING) ?? HELD_READING;
+      // is not shown, and what was held is recorded (council/reply-review.ts).
+      // The staff's answer leads instead when it passes; else Flyd's neutral line.
+      const gated = gateOutgoing({ surface: "relay", source: "relay:interpretation", text, asked: input.question }, null);
+      if (gated) return gated;
+      if (answerMayShow(input.answer)) throw new Error("relay held back");
+      return HELD_READING;
     } finally {
       if (timer) clearTimeout(timer);
     }
