@@ -60,7 +60,16 @@ describe("provider policy: Claude for text and code, ChatGPT/Codex only for imag
       expect(routeWorker({ requirements: [requirement], adapters: [...allowance, health("claude")], activeCounts: { claude: 9 }, excludedAdapters: [] }).name).toBe("claude");
       expect(() => routeWorker({ requirements: [requirement], adapters: allowance, activeCounts: {}, excludedAdapters: [] })).toThrow("No healthy worker satisfies");
     }
+    // The overlay, /manifest and `flyd code` worker lands on Claude Sonnet through Anthropic's OpenAI-compatible API.
+    expect(loadFlydWorkerConfigs({ envFileText: "" })).toEqual([{
+      apiKey: "claude-key",
+      model: "claude-sonnet-5-5",
+      baseURL: "https://api.anthropic.com/v1",
+      providerIdentity: "api.anthropic.com/claude-sonnet-5-5",
+    }]);
+    vi.stubEnv("FLYD_CLAUDE", "0");
     expect(() => loadFlydWorkerConfigs({ envFileText: "" })).toThrow("Flyd coding model is not configured");
+    vi.stubEnv("FLYD_CLAUDE", "1");
 
     // Crew: Claude Code on the subscription, retired models ignored, no backup onto them.
     expect(crewModel()).toBe(DEFAULT_CREW_MODEL);

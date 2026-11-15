@@ -1,6 +1,8 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { allowedForText } from "./provider-policy.js";
+import { claudeApiKey, spendStatus } from "../lib/claude-spend.js";
+import { DEFAULT_CLAUDE_CHAT_MODEL } from "../lib/config.js";
 
 export interface FlydWorkerConfig {
   apiKey: string;
@@ -43,6 +45,8 @@ export function apiModelId(model: string): string {
   const bare = qualified ? qualified[2] : model;
   return bare.replace(OPENCODE_MODEL_PREFIX, "");
 }
+
+export const ANTHROPIC_OPENAI_BASE_URL = "https://api.anthropic.com/v1";
 
 export const COMMANDCODE_BASE_URL = "https://api.commandcode.ai/provider/v1";
 export const COMMANDCODE_DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
@@ -119,6 +123,9 @@ export function loadFlydWorkerConfigs(input: {
   const openRouterKey = values.OPENROUTER_API_KEY?.trim();
   const openRouterModel = values.OPENROUTER_MODEL?.trim();
   const commandCodeKey = values.COMMANDCODE_API_KEY?.trim() || values.CMD_API_KEY?.trim();
+  const claudeKey = values.CLAUDE_API_KEY?.trim() || values.ANTHROPIC_API_KEY?.trim()
+    || (input.environment === undefined ? claudeApiKey() : undefined);
+  const claudeOn = Boolean(claudeKey) && values.FLYD_CLAUDE?.trim() !== "0" && !spendStatus().capped;
   const candidates = [
     canonicalKey && canonicalModel ? {
       apiKey: canonicalKey,
@@ -134,6 +141,11 @@ export function loadFlydWorkerConfigs(input: {
       apiKey: commandCodeKey,
       model: commandCodeModelId(values.COMMANDCODE_MODEL || values.COMMANDCODE_API_KEY_MODEL),
       baseURL: values.COMMANDCODE_BASE_URL?.trim() || COMMANDCODE_BASE_URL,
+    } : null,
+    claudeOn && claudeKey ? {
+      apiKey: claudeKey,
+      model: values.FLYD_CLAUDE_CHAT_MODEL?.trim() || DEFAULT_CLAUDE_CHAT_MODEL,
+      baseURL: ANTHROPIC_OPENAI_BASE_URL,
     } : null,
   ].filter((candidate): candidate is { apiKey: string; model: string; baseURL: string } => Boolean(candidate))
     // Never OpenCode, OpenCode Go, DeepSeek or the ChatGPT allowance, by model or by endpoint (runtime/provider-policy.ts).
