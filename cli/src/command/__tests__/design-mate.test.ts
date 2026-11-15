@@ -299,6 +299,34 @@ describe("Design Mate", () => {
     expect(done.failure).toMatch(/V3 · Departure board could not be built: socket hang up/);
   });
 
+  it("answers who views it, where, and what they must do before it begins, and steers designers, critic and board by it", async () => {
+    const audience = { who: "A CEO between meetings", where: "On his phone, in a lift", what: "See which deal needs him today" };
+    const seen: string[] = [];
+    const notes: string[] = [];
+    const deps = staff([9]);
+    const done = await driveDesignRun(start(), {
+      ...deps,
+      complete: async (prompt, options) => {
+        seen.push(prompt);
+        const reply = await deps.complete(prompt, options);
+        return prompt.includes("has brought you his brief") ? JSON.stringify({ ...JSON.parse(reply), audience }) : reply;
+      },
+      board: async (input) => { notes.push(input.note ?? ""); return deps.board!(input); },
+    });
+    expect(done.status).toBe("completed");
+    expect(seen[0]).toContain("Who is viewing the design? Where will they see it? What do they need to understand or do?");
+    expect(readLab(done.id, labs)!.audience).toEqual(audience);
+    const steered = seen.filter((prompt) => prompt.startsWith("You are a designer") || prompt.includes("judging one of the versions"));
+    expect(steered.length).toBe(6);
+    for (const prompt of steered) expect(prompt).toContain("Where they will see it: On his phone, in a lift");
+    expect(notes[0]!.split("\n").slice(0, 4)).toEqual([
+      "Who is viewing it: A CEO between meetings",
+      "Where they will see it: On his phone, in a lift",
+      "What they need to understand or do: See which deal needs him today",
+      "I'd take V2 · Wall label forward.",
+    ]);
+  });
+
   it("lands the finished lab on a board George reviews from, with the Creative Director's words beside the frames", async () => {
     const boards: Array<{ name: string; versions: number[]; note?: string }> = [];
     const done = await driveDesignRun(start(), { ...staff([9]), board: async (input) => {

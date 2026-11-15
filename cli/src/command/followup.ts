@@ -98,7 +98,7 @@ export async function designFollowup(parent: DomainRun, question: string, option
       project,
       intendedOutcome: `Build "${version.name}" (V${version.n} from the lab "${parent.request.intendedOutcome}") for real in the project. ${version.idea}`,
       doneWhen: [`the project shows ${version.name} as designed`, "the project's own checks still pass"],
-      build: { reference: { page: join(labDir(parent.id), `v${version.n}.html`), shot: shotPaths(parent.id, version).desktop, name: version.name } },
+      build: { reference: { page: join(labDir(parent.id), `v${version.n}.html`), shot: shotPaths(parent.id, version).desktop, name: version.name, ...(lab?.audience ? { audience: lab.audience } : {}) } },
     });
     if (fromPick) writeLab(parent.id, { ...lab!, picked: undefined }, labsDir());
     return built;

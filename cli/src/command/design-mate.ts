@@ -69,8 +69,35 @@ export interface LabVersion {
   bestCritique?: string;
 }
 
+/** The three questions every design job answers before it begins. */
+export interface Audience {
+  /** Who is viewing the design? */
+  who: string;
+  /** Where will they see it? */
+  where: string;
+  /** What do they need to understand or do? */
+  what: string;
+}
+
+/** The answers as plain lines, for every prompt and George's board. */
+export function audienceLines(audience?: Audience): string[] {
+  return audience ? [
+    `Who is viewing it: ${audience.who}`,
+    `Where they will see it: ${audience.where}`,
+    `What they need to understand or do: ${audience.what}`,
+  ] : [];
+}
+
+function audienceOf(value: unknown): Audience | undefined {
+  const item = (value ?? {}) as Record<string, unknown>;
+  const [who, where, what] = [item.who, item.where, item.what].map((part) => typeof part === "string" ? part.trim() : "");
+  return who && where && what ? { who, where, what } : undefined;
+}
+
 export interface Lab {
   brief: string;
+  /** Who views it, where, and what they must understand or do: set first, it steers every designer and the critic. */
+  audience?: Audience;
   versions: LabVersion[];
   round: number;
   images: string[];
@@ -101,7 +128,7 @@ export interface Build {
   /** The project folder the Designer edits. */
   root: string;
   /** The page it builds from, when it comes from a lab version. */
-  reference?: { page: string; shot?: string; name: string };
+  reference?: { page: string; shot?: string; name: string; audience?: Audience };
   /** Files already changed before the build started; Design Mate never commits them. */
   dirtyBefore: string[];
   round: number;
@@ -232,7 +259,7 @@ async function judgeVersion(run: DomainRun, lab: Lab, version: LabVersion, taste
   const shots = shotPaths(run.id, version, root);
   let reply: { score?: number; critique?: string } | null;
   try {
-    reply = jsonOf<{ score?: number; critique?: string }>(await ask(deps, critiquePrompt(run, version, taste), {
+    reply = jsonOf<{ score?: number; critique?: string }>(await ask(deps, critiquePrompt(run, lab, version, taste), {
       json: true, source: "design", images: [asImage(shots.desktop), asImage(shots.phone)],
     }));
   } catch (error) {
@@ -493,11 +520,12 @@ export function briefPrompt(run: DomainRun, images: string[], taste: string, see
     `His learned taste rules:\n${taste}`,
     `Real images the designers can use: ${images.join(", ") || "(none; use real content and typography, never stock shapes)"}`,
     "",
+    "Before anything else, answer three questions from his request, the project and what you see of it; never ask George unless it truly cannot be known: Who is viewing the design? Where will they see it? What do they need to understand or do? Every direction must serve those answers.",
     `Set ${MIN_VERSIONS}-${MAX_VERSIONS} directions that differ in composition and in what they leave out, not just palette. Give each a bold named inspiration (a TV title card, a museum wall label, a departure board, radical asymmetry…) and say how it shapes the layout. At least two must sound risky. Derive each one's palette, grid and type scale from its seed string below; the seed never appears on the page.`,
     `Seeds, one per direction in order: ${seeds.join(", ")}`,
     "Set a content budget from what he asked: real content, not all of it; what is not needed sits one click away.",
     "Content must be real: only what George wrote, what the request carries, or his own name and Flyd's. Never invent people, companies, quotes, numbers or dates. Write into the brief the exact real content every version shows.",
-    'Reply with JSON only: {"brief":"the shared brief: who it is for, the content budget, what every version must show","versions":[{"name":"2-3 words","idea":"one plain sentence on the idea and how the inspiration shapes the layout"}]}',
+    'Reply with JSON only: {"audience":{"who":"who is viewing it","where":"where they will see it: device, setting, moment","what":"what they need to understand or do"},"brief":"the shared brief: the content budget and what every version must show","versions":[{"name":"2-3 words","idea":"one plain sentence on the idea and how the inspiration shapes the layout"}]}',
   ].join("\n");
 }
 
@@ -505,6 +533,7 @@ export function buildPrompt(run: DomainRun, lab: Lab, version: LabVersion, taste
   return [
     "You are a designer on George's design team. Build one version of a lab as one complete HTML file.",
     `George asked: "${run.request.originalMessage}"`,
+    ...audienceLines(lab.audience),
     `Brief: ${lab.brief}`,
     `Your version: V${version.n} · ${version.name}. ${version.idea}`,
     ...((run.messages ?? []).length ? ["Later from George, newer than the brief; the page must answer it:", ...(run.messages ?? []).map((message) => `- ${message.body}`)] : []),
@@ -531,12 +560,13 @@ export function buildPrompt(run: DomainRun, lab: Lab, version: LabVersion, taste
   ].join("\n");
 }
 
-export function critiquePrompt(run: DomainRun, version: LabVersion, taste: string): string {
+export function critiquePrompt(run: DomainRun, lab: Lab, version: LabVersion, taste: string): string {
   return [
     "You are the Creative Director of George's design team, judging one of the versions you directed, held to the standard of a top studio. You see only the two screenshots attached: the desktop (1440 wide) and the phone (390 wide) of one version, each the whole page down to a readable height.",
     `George asked for: "${run.request.originalMessage}"`,
     `${TASTE_HEADER}\nHis learned taste rules:\n${taste}`,
     `The version is "${version.name}": ${version.idea}`,
+    ...(lab.audience ? ["Score it first on whether these people, there, can understand or do what they need:", ...audienceLines(lab.audience)] : []),
     ...teamSkills("judge"),
     "Any invented person, company, quote or figure that is not in his request costs at least 3 points: claims must be literally true.",
     "1) Say how well it delivers what he asked for and how the best studio would execute exactly that brief. 2) List what to delete first, then the biggest remaining gaps, structural first, then fine detail. Penalise overdone or obviously AI-generated patterns (generic gradients, glows, pill clutter, icon-in-circle grids, centred-everything hero, emoji, wide letter-spacing) and clutter. Be specific, tight and opinionated. 3) Score it out of 10. Rank against concrete references (Cursor, micro1), not against average work.",
@@ -583,6 +613,7 @@ export function makePrompt(run: DomainRun, build: Build, taste: string): string 
     `George asked: "${run.request.originalMessage}"`,
     `Outcome: ${run.request.intendedOutcome}`,
     `Done when: ${run.request.doneWhen.join("; ")}`,
+    ...audienceLines(build.reference?.audience),
     ...(build.reference ? [`Build it from the lab version George's team picked, "${build.reference.name}": its page is ${build.reference.page}${build.reference.shot ? ` and its screenshot is ${build.reference.shot}` : ""}. Match its composition, type and spacing in the project's own components, styles and real content; do not paste the lab page in.`] : []),
     ...teamSkills("apply"),
     "",
@@ -604,6 +635,7 @@ export function buildReviewPrompt(run: DomainRun, build: Build, diff: string, ta
     `George asked: "${run.request.originalMessage}"`,
     `Done when: ${run.request.doneWhen.join("; ")}`,
     `${TASTE_HEADER}\nHis learned taste rules:\n${taste}`,
+    ...audienceLines(build.reference?.audience),
     ...(build.reference ? [`It should realise the picked version "${build.reference.name}"${build.reference.shot ? ", whose screenshot is attached" : ""}.`] : []),
     `The designer says: ${build.report ?? "(nothing)"}`,
     `What changed:\n${diff.slice(0, 40_000) || "(nothing changed)"}`,
@@ -686,7 +718,7 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
     const context = readContext(run.id, root);
     const images = rejected?.images ?? projectImages(run.request.project?.root, join(dir, "img"));
     const seeds = Array.from({ length: MAX_VERSIONS }, () => randomBytes(12).toString("hex"));
-    const reply = jsonOf<{ brief?: string; versions?: Array<{ name?: string; idea?: string }> }>(
+    const reply = jsonOf<{ audience?: unknown; brief?: string; versions?: Array<{ name?: string; idea?: string }> }>(
       await ask(deps, briefPrompt(run, images, taste, seeds, rejected?.flydNotes, context), {
         json: true, source: "design", images: (context.shots ?? []).filter((path) => existsSync(path)).map(asImage),
       }));
@@ -695,8 +727,9 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
     if (!reply?.brief || versions.length < MIN_VERSIONS) {
       return save(run, { status: "failed", phase: "done", failure: stoppedLine("the brief came back without enough directions to build") });
     }
+    const audience = audienceOf(reply.audience);
     writeLab(run.id, {
-      brief: reply.brief.trim(), versions, round: 1, images,
+      brief: reply.brief.trim(), ...(audience ? { audience } : {}), versions, round: 1, images,
       ...(context.content ? { content: context.content } : {}),
       log: [...(rejected?.log ?? []), `Brief set with ${versions.length} directions.`],
       ...(rejected?.flydNotes ? { flydNotes: rejected.flydNotes } : {}),
@@ -894,7 +927,7 @@ export function boardNote(run: DomainRun, lab: Lab, best: LabVersion): string {
   const short = (text: string) => text.length > 160 ? `${text.slice(0, 160).replace(/\s+\S*$/, "")}…` : text;
   const versions = [...lab.versions].sort((a, b) => a.n - b.n).map((version) => `- V${version.n} · ${version.name}: ${short(version.idea.split(/(?<=\.)\s/)[0]!)}`);
   const act = run.request.project?.root ? "Mark one as final to have it built, or pin notes for another round." : "Pin notes for another round, or mark one as final to settle on it.";
-  return [`I'd take V${best.n} · ${best.name} forward.`, ...versions, act].join("\n");
+  return [...audienceLines(lab.audience), `I'd take V${best.n} · ${best.name} forward.`, ...versions, act].join("\n");
 }
 
 /** Ready for George only when every page and screenshot is really on disk, and on the board he reviews from. */
