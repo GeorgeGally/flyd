@@ -17,10 +17,10 @@ export const DEPLOY_ACTION = /\b(?:and|then)\s+(?:then\s+)?(?:deploy|publish|rel
 const STILL_HIS = /\bforce[- ]?push\w*|--force\b|\bpush\w*\s+(?:\S+\s+)?-f\b|(?<!--set-)\bupstream\b|\b(?:forks?|forked|someone else(?:'s)?|other people(?:'s)?|third[- ]party|another remote|their repo)\b/i;
 
 /** A step the ask itself requests that destroys or rewrites work ("Revert the last commit and push?"), never a word describing the fix ("the password reset fix"). */
-const DESTRUCTIVE = /(?:^|[.;:,?!]\s*|\b(?:and|then|to)\s+)(?:revert|reset|delete|drop|amend|rewrite (?:the )?history)\b|\bfilter-branch\b|\brebase -i\b/i;
+const DESTRUCTIVE = /(?:^|[.;:,?!]\s*|\b(?:and|then|ok(?:ay)? to|(?:should|shall|can|could|may|will) (?:i|we)|i'?ll|we'?ll|let me|let's|me to)\s+)(?:revert|reset|delete|drop|amend|rewrite (?:the )?history)\b|\bfilter-branch\b|\brebase -i\b/i;
 
 /** Secret material the ask itself commits or pushes ("commit the .env", "push the API key"). */
-const SECRET = /(?:^|\s)\.env\b|\b(?:commit|push|add|check in)\w*\s+(?:(?:the|a|my|his|our|these|those)\s+)?(?:api[- ]?keys?|secrets?|credentials?|tokens?|passwords?|private keys?)(?=\s*(?:$|[.,;:?!]|(?:and|to|into|with|in|file|files)\b))/i;
+const SECRET = /(?:^|\s)\.env\b|\b(?:(?:commit|push|add)\w*|check in|with|including|containing)\s+(?:(?:the|a|my|his|our|these|those)\s+)?(?:api[- ]?keys?|secrets?|credentials?|tokens?|passwords?|private keys?)(?=\s*(?:$|[.,;:?!]|(?:and|to|into|with|in|file|files)\b))/i;
 
 /** A choice between options: the work's own engineering call, never settled as a plain go-ahead. */
 const EITHER_OR = /\bor\b|\b(?:which|pick|choose|instead)\b/i;
