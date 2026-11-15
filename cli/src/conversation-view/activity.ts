@@ -411,7 +411,6 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
     const title = text(record?.title);
     const at = stamp(record?.at);
     if (!record || !title || !at || typeof record.kind !== "string" || !KINDS.has(record.kind)) return;
-    if (record.expiresAt && (!Number.isFinite(Date.parse(record.expiresAt)) || now >= Date.parse(record.expiresAt))) return;
     const key = text(record.key) ?? `once:${index}`;
     const before = latest.get(key);
     if (!before || Date.parse(at) >= Date.parse(before.at)) latest.set(key, { ...record, title, at, kind: record.kind });
@@ -419,6 +418,7 @@ export function activityFromRecords(records: unknown[], now: number): { now: Act
   const live: ActivityItem[] = [];
   const done: ActivityItem[] = [];
   for (const [key, record] of latest) {
+    if (record.expiresAt && (!Number.isFinite(Date.parse(record.expiresAt)) || now >= Date.parse(record.expiresAt))) continue;
     const stories = recordStories(record.stories);
     if (Array.isArray(record.stories) && record.stories.length && localDay(new Date(record.at)) !== localDay(new Date(now))) continue;
     const line = plainLine(record.line);
