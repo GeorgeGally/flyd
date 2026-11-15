@@ -59,7 +59,7 @@ describe("proactive local personal care", () => {
     expect(matchingPeople(meeting, memory, now).map((x) => x.id)).toEqual(["m1", "m2"]);
     const card = meetingCard(meeting, memory, now);
     expect(card?.line).toContain("Chris Jones has two children");
-    expect(card?.line).toContain("confirmed 2026-11-14");
+    expect(card?.line).toContain("noted 2026-11-14");
     expect(card?.title).toBe("Before Call with Chris Jones");
     expect(meetingCard({ ...meeting, title: "Call with Chris" }, memory, now)).toBeNull();
     expect(matchingPeople({ ...meeting, title: "Call with Chris" }, memory.slice(0, 2), now).map((x) => x.id)).toEqual(["m1", "m2"]);
@@ -67,6 +67,19 @@ describe("proactive local personal care", () => {
     expect(meetingCard({ ...meeting, title: "Birthday with Chris Jones" }, memory, now)).toBeNull();
     const stale = memory.map((x) => ({ ...x, date: "2026-01-01" }));
     expect(meetingCard(meeting, stale, now)).toBeNull();
+  });
+
+  it("prepares a specific verified follow-up for the matched person, not someone with the same first name", () => {
+    const facts: MemoryEntry[] = [
+      ...memory,
+      { id: "followup", section: "Commitments", text: "Send the revised deck to Chris Jones by 2026-11-16.", date: "2026-11-14", tier: "aging" },
+      { id: "wrong", section: "Commitments", text: "Call Chris Smith on 2026-11-15.", date: "2026-11-14", tier: "aging" },
+      { id: "old", section: "Commitments", text: "Follow up with Chris Jones by 2026-01-04.", date: "2026-01-01", tier: "aging" },
+    ];
+    const card = meetingCard(meeting, facts, now);
+    expect(card?.line).toContain("Follow-up: Send the revised deck to Chris Jones");
+    expect(card?.line).not.toContain("Chris Smith");
+    expect(card?.line).not.toContain("2026-01-04");
   });
 
   it("curates only directly related, actual Scout references", () => {
