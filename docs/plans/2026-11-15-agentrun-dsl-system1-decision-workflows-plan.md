@@ -5,7 +5,7 @@
 **Owner:** Flyd / Chief of Staff  
 **Flyd source inspected:** [GeorgeGally/flyd at `aaa804dfa7f84555e201f8f5780772b3086e7c11`](https://github.com/GeorgeGally/flyd/commit/aaa804dfa7f84555e201f8f5780772b3086e7c11), 2026-11-15.  
 **AgentRun source inspected:** [Parcha-ai/agentrun at `908004c0a9d0681571d28341afe963436dfc9471`](https://github.com/Parcha-ai/agentrun/commit/908004c0a9d0681571d28341afe963436dfc9471), 2026-11-15.  
-**Governing authority:** [`docs/product/flyd-personal-intelligence-prd.md`](../product/flyd-personal-intelligence-prd.md), especially ``2, 4, 4.1 and 6.  
+**Governing authority:** [`docs/product/flyd-personal-intelligence-prd.md`](../product/flyd-personal-intelligence-prd.md), especially sections 2, 4, 4.1 and 6.  
 **Prior plan:** [v9 autonomous executive judgment and communication](2026-11-13-flyd-autonomous-executive-judgment-and-communication-v9.md), retained without supersession. This plan is a narrow implementation extension of v9, not a new product direction.  
 **Upstream references:** [AgentRun DSL](https://github.com/Parcha-ai/agentrun/tree/main/packages/dsl), [host integration](https://github.com/Parcha-ai/agentrun/blob/main/docs/host-integration.md), [DSL guide](https://github.com/Parcha-ai/agentrun/blob/main/docs/guide.md), [Jev adapter](https://github.com/Parcha-ai/agentrun/tree/main/packages/jev), [read + judge example](https://github.com/Parcha-ai/agentrun/blob/main/packages/dsl/skills/author/examples/read-source-decision.json).
 
