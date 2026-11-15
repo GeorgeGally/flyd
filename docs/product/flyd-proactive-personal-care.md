@@ -14,7 +14,7 @@ These are **ambient activity records**, not interruptions. Flyd never narrates t
 
 - Creative references reuse local project context and public Scout references, without new model calls or egress.
 - Commitment cards reuse already-consented local curated memory. There is no new account or OS sensor.
-- Calendar preparation is disabled by default. The user must explicitly run `flyd care enable` to enable the `calendar.metadata` source contract; macOS Calendar permission is separately required. The reader accesses event UID, title and start time only—not attendees, notes, location, description or email.
+- Calendar preparation is disabled by default. The user must explicitly run `flyd care enable` to enable the `calendar.meeting-prep` source contract, separate from time-only `calendar.metadata`; macOS Calendar permission is separately required. The reader accesses event UID, title and start time only—not attendees, notes, location, description or email.
 - The Calendar reader runs only on macOS when Calendar is already running; it does not open the application in the background. This is a documented v1 limitation, not a guarantee of live coverage.
 - `flyd care status` shows consent and feature state. `flyd care run` triggers a local sweep. `flyd care pause` or `flyd care disable` stops calendar preparation. The source contract can be revoked through the existing source-consent registry; revoked sources fail closed.
 - `FLYD_PROACTIVE_CARE=0` disables all three slices; `FLYD_PERSONAL_BRIEFING=0` separately disables Calendar preparation even when consented.
@@ -37,7 +37,7 @@ These are **ambient activity records**, not interruptions. Flyd never narrates t
 ## Tested failure cases
 
 - No source consent or disabled Calendar mode means no Calendar read.
-- Revoked Calendar source fails closed; a general macOS permission is insufficient.
+- Revoked Calendar meeting-prep consent fails closed; time-only calendar metadata permission and general macOS permission are insufficient.
 - Two people with the same first name are not conflated; stale/ambiguous memories remain silent.
 - Calendar metadata is parsed with duplicate and malformed-event rejection.
 - Creative cards require at least two distinct, relevant HTTPS story links; unrelated or old editions are ignored.
