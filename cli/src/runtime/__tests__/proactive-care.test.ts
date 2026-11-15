@@ -122,13 +122,13 @@ describe("proactive local personal care", () => {
   });
 
   it("drops ambient cards as soon as their context expires", () => {
-    const meeting = meetingCard({ ...meeting, start: "2026-11-15T10:45:00" }, memory, now);
+    const meetingNote = meetingCard(meeting, memory, now);
     const creative = creativeCard([project], edition, now);
-    expect(meeting).not.toBeNull();
+    expect(meetingNote).not.toBeNull();
     expect(creative).not.toBeNull();
-    expect(activityFromRecords([meeting!, creative!], new Date("2026-11-15T10:15:00").getTime()).done).toHaveLength(2);
-    expect(activityFromRecords([meeting!, creative!], new Date("2026-11-15T10:46:00").getTime()).done).toHaveLength(1);
-    expect(activityFromRecords([meeting!, creative!], new Date("2026-11-16T01:00:00").getTime()).done).toHaveLength(0);
+    expect(activityFromRecords([meetingNote!, creative!], new Date("2026-11-15T10:15:00").getTime()).done).toHaveLength(2);
+    expect(activityFromRecords([meetingNote!, creative!], new Date("2026-11-15T10:46:00").getTime()).done).toHaveLength(1);
+    expect(activityFromRecords([meetingNote!, creative!], new Date("2026-11-16T01:00:00").getTime()).done).toHaveLength(0);
   });
 
   it("honors a revoked or disabled calendar metadata source contract", () => {
