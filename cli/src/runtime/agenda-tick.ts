@@ -74,6 +74,18 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       run: async () => (await import("./weekly-audit.js")).startWeeklyAuditIfDue(),
     },
     {
+      // Ambient personal care: local source-consent checks, sourced references
+      // and metadata-only meeting preparation. No notifications or model calls.
+      name: "proactive-care", usesModel: false,
+      run: async () => {
+        const { runProactiveCare } = await import("./proactive-care.js");
+        const result = await runProactiveCare({ ...(options.now ? { now: options.now } : {}) });
+        return result.meetings || result.inspiration
+          ? `Prepared ${result.meetings} meeting notes and ${result.inspiration} visual reference cards`
+          : undefined;
+      },
+    },
+    {
       // George's own scheduled tasks: they have their own retry/failure handling and
       // the chat failover chain, so they are not held back by the background backoff.
       name: "agenda", usesModel: false,

@@ -68,6 +68,19 @@ export const CALENDAR_METADATA_CONTRACT: SourceContract = {
  * Low sensitivity, local retention, enabled by default and revocable like
  * every other LEARN source.
  */
+/** Optional personal care: event title is more sensitive than time-only metadata.
+ * Existing calendar.metadata consent does not authorize reading titles.
+ */
+export const MEETING_PREP_CONTRACT: SourceContract = {
+  sourceId: "calendar.meeting-prep",
+  displayName: "Upcoming Calendar meeting titles and times",
+  sensitivity: "medium",
+  scopes: ["calendar.meeting-prep"],
+  retentionClass: "local_default",
+  egressDestinations: [],
+  purpose: "Locally match upcoming meeting titles and start times with confirmed People memory for quiet preparation; never read attendees, notes, location or email.",
+};
+
 export const TRANSITION_OVERLAY_CONTRACT: SourceContract = {
   sourceId: "transition.overlay",
   displayName: "Overlay transitions",

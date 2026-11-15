@@ -1,0 +1,36 @@
+import { meetingPrepConsented, runProactiveCare } from "../runtime/proactive-care.js";
+import { MEETING_PREP_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
+
+/** Separate explicit opt-in. An assistant cannot assume Calendar access. */
+export async function runCareCommand(action = "status"): Promise<void> {
+  const registry = new SourceContractRegistry();
+  registry.register(MEETING_PREP_CONTRACT);
+  if (action === "enable") {
+    if (registry.status(MEETING_PREP_CONTRACT.sourceId) === "revoked") {
+      registry.renew(MEETING_PREP_CONTRACT.sourceId);
+    }
+    registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "enabled");
+    console.log("Enabled local Calendar meeting-title and start-time preparation. Flyd may match them with verified People memory for quiet pre-call cards; attendee addresses, notes, locations and message contents are not read, and nothing is sent to a model.");
+    console.log("Use flyd care disable to stop Calendar preparation.");
+    return;
+  }
+  if (action === "disable" || action === "pause") {
+    registry.setStatus(MEETING_PREP_CONTRACT.sourceId, action === "pause" ? "paused" : "disabled");
+    console.log(action === "pause" ? "Calendar preparation paused." : "Calendar preparation disabled.");
+    return;
+  }
+  if (action === "run") {
+    console.log(JSON.stringify(await runProactiveCare(), null, 2));
+    return;
+  }
+  if (action !== "status") throw new Error("Usage: flyd care status | enable | disable | pause | run");
+  console.log([
+    "Flyd proactive personal care",
+    "Creative references: " + (process.env.FLYD_PROACTIVE_CARE === "0" ? "off" : "ambient, local, source-backed"),
+    "Calendar preparation: " + (meetingPrepConsented(registry) ? "opted in" : registry.status(MEETING_PREP_CONTRACT.sourceId)),
+    "Calendar reader: Mac only; requires Calendar running and macOS permission.",
+    "People memory: local, verified and freshness checked.",
+    "Output: quiet activity cards, not push notifications.",
+    "Enable Calendar preparation explicitly with flyd care enable.",
+  ].join("\n"));
+}

@@ -173,6 +173,15 @@ program
   });
 
 program
+  .command("care")
+  .description("Proactive personal care: status | enable | disable | pause | run (Calendar metadata opt-in)")
+  .argument("[action]", "status, enable, disable, pause, run")
+  .action(async (action?: string) => {
+    const { runCareCommand } = await import("./commands/care.js");
+    await runCareCommand(action);
+  });
+
+program
   .command("profile")
   .description("Show George's editable profile (USER.md); `flyd profile edit` opens it, `flyd profile bootstrap` drafts it from memory")
   .argument("[action]", "edit or bootstrap")
