@@ -507,12 +507,12 @@ const GRID_FINAL_CHECK = "with guides hidden, at the intended size: is the main 
 const GRID_METHOD = [
   "Grid method (lay out every page this way): before any guides, know who views it, where, and what they must understand or do; that sets the main hook and what belongs together.",
   "1) Content first: list the pieces (headline groups, main image, supporting info, footer or action).",
-  "2) Margins set the outer boundary for key content, open for restrained work, tighter for dense information; backgrounds and images may bleed past, key text stays inside.",
-  "3) Columns and gutters suit the content (6 gives halves, thirds and narrow zones; 12 for finer control on wide formats); column = (canvas - 2×margin - (columns-1)×gutter) / columns, e.g. 1200 wide, 60 margins, 6 columns, 24 gutters = 160px.",
+  "2) Margins set the outer boundary for key content, open for restrained work, tighter for dense information; backgrounds and images may bleed past, key text stays inside unless the brief calls for breaking it.",
+  "3) Columns and gutters suit the content (6 gives halves, thirds and narrow zones; 12 for finer control on wide formats); column = (canvas - 2×margin - (columns-1)×gutter) / columns, e.g. 1200 wide, 60 margins -> 1080 usable; 6 columns, 24 gutters (5×24 = 120) -> 960 / 6 = 160px per column.",
   "4) Spans by priority: what must be noticed first gets the widest span, supporting info narrower zones, then the action; faces, bright colour and contrast also pull weight, so balance spans against image weight.",
   "5) Vertical rhythm by proximity: one spacing unit (e.g. 12/24/48) chosen from the text sizes; related items close, a bigger gap before the next group; check at the real viewing size, phone included.",
   "6) Containers (cards, strips, panels) align to the page grid first, then their own inner spacing.",
-  "7) Across formats keep type, colour relationships and spacing rules constant; change the column count and arrangement per format.",
+  "7) Across formats keep type, colour relationships and spacing rules constant; change the column count and arrangement per format (portrait poster 6 columns, landscape banner 12 columns with text sharing one starting edge).",
   "8) When copy grows, widen the span before shrinking type; keep outer margins fixed and adapt the inside (line breaks, size, image crop).",
   `9) Final check ${GRID_FINAL_CHECK}`,
 ].join("\n");
