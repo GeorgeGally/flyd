@@ -10,7 +10,7 @@ const SUPPORTED_STYLE = /\b(?:plain|literal|simple|simplified)\b[^.\n]{0,40}\ben
 const ABOUT_HOW_FLYD_WRITES = /\b(?:talk|speak|write|reply|respond|answer|word)(?:s|ing)?\b/i;
 
 /** null when the call fits its tool; otherwise what to do instead. */
-/** Steps the crew can't take; they have to be approved as after_land instead. */
+/** Steps the crew can't take inside the build; they belong in after_land instead. */
 const BEYOND_THE_CREW = /\b(?:deploy(?:s|ed|ing|ment)?|push(?:es|ed|ing)?\s+(?:it|this|that|to|the)|publish(?:es|ed|ing)?|go(?:es)? live|ship(?:s|ped)? (?:it )?to (?:prod|production|live))\b/i;
 
 export function contractError(name: string, input: Record<string, unknown>): string | null {
@@ -18,7 +18,7 @@ export function contractError(name: string, input: Record<string, unknown>): str
     const steps = Array.isArray(input.after_land) ? input.after_land.map(String) : [];
     const beyond = String(input.outcome ?? "").match(BEYOND_THE_CREW);
     if (beyond && steps.length === 0) {
-      return `Error: the outcome includes "${beyond[0]}", which the crew can't do (it builds, tests and commits on its own branch). Put push/deploy in after_land so George approves it now, or drop it from the outcome.`;
+      return `Error: the outcome includes "${beyond[0]}", which the crew can't do (it builds, tests and commits on its own branch). Put push/deploy in after_land (a push is routine and never asked about; only a deploy waits for George), or drop it from the outcome.`;
     }
   }
   if (name === "remember") {

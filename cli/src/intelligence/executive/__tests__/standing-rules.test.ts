@@ -59,9 +59,82 @@ describe("George's standing rules in the review step", () => {
     ]) expect(settleCall(call(question), PREFERENCES)).toBeNull();
   });
 
+  it("settles a routine push of his own work by the built-in rule, however the staff word it", () => {
+    for (const question of ["Waiting for George's approval to push the Guido fix to GitHub?", "Needs your permission to merge and push to main?"]) {
+      expect(settleCall(call(question), "- George likes tea."), question).toMatchObject({ rule: "routine-git" });
+    }
+    expect(settleCall(call("OK to push and deploy to production?"), PREFERENCES)?.rule).not.toBe("routine-git");
+    // An either-or is the work's own engineering call, and red work is not finished: neither is a routine go-ahead.
+    for (const question of ["Should I rebase onto main or merge?", "Should I commit the tests first or the refactor?", "Ready to merge? two tests still fail"]) {
+      expect(settleCall(call(question), PREFERENCES)?.rule, question).not.toBe("routine-git");
+    }
+    // Red work said only in the staff's report is not finished either; a fixed failing test is.
+    const red = { ...call("Ready to merge?"), sourceText: "Two tests still fail on CI. Ready to merge?" };
+    expect(settleCall(red, PREFERENCES)?.rule).not.toBe("routine-git");
+    const fixed = { ...call("Ready to merge?"), sourceText: "Fixed the failing test; all green. Ready to merge?" };
+    expect(settleCall(fixed, "- George likes tea.")?.rule).toBe("routine-git");
+    for (const report of ["Lint failing.", "3 tests failing on CI.", "CI red.", "Checks red."]) {
+      expect(settleCall({ ...call("Ready to merge?"), sourceText: `${report} Ready to merge?` }, PREFERENCES)?.rule, report).not.toBe("routine-git");
+    }
+    const green = { ...call("Ready to merge?"), sourceText: "Lint was failing, now green. Ready to merge?" };
+    expect(settleCall(green, "- George likes tea.")?.rule).toBe("routine-git");
+    for (const report of ["Fixed the extension so it no longer fails on reload.", "Fixed it; no longer failing.", "Added a fail-safe.", "Made the badge red."]) {
+      expect(settleCall({ ...call("Push to GitHub?"), sourceText: `${report} Push to GitHub?` }, "- George likes tea.")?.rule, report).toBe("routine-git");
+    }
+    expect(settleCall({ ...call("Two tests still fail on CI. Ready to merge?"), sourceText: "Two tests still fail on CI. Ready to merge?" }, PREFERENCES)?.rule).not.toBe("routine-git");
+    expect(settleCall(call("Waiting for George's approval to push the production error fix to GitHub?"), "- George likes tea.")?.rule).toBe("routine-git");
+    // Words describing the work never make a push his question.
+    for (const question of [
+      "Updated the changelog, release notes. Push to GitHub?", "Release notes fixed. Push?", "Push the fix to release branch?",
+      "Push the login bug fix?", "Push the client-side fix?", "Push the accessibility fix?", "Push the email template fix?",
+      "Push the shared config fix?", "Push the tokenizer fix?", "Push the production error fix to GitHub?",
+    ]) expect(settleCall(call(question), "- George likes tea.")?.rule, question).toBe("routine-git");
+    for (const question of ["Force push over main?", "Push the fix upstream?", "Push it to their fork?", "OK to push and deploy to production?"]) {
+      expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
+    }
+    // Only a git step is one: a landing page, a commit hook, push notifications or a merge sort are not.
+    for (const question of ["Ready to start the landing page copy?", "Should I add a commit hook?", "Should I add push notifications?", "Should I fix the merge sort?"]) {
+      expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
+    }
+    // Secrets and destructive steps stay his, whatever git step comes with them.
+    for (const question of [
+      "OK to commit the .env with the API key and push?", "Revert the last commit and push?", "Delete the old migration and push?", "Reset the branch and push?",
+      "Should I revert the last commit and push?", "Can I reset the branch to origin and push?", "Shall I drop the old table and push?",
+      "Can we amend the pushed commit and push?", "I'll delete the old migration and push, OK?", "Push the commit with the API key?",
+      "Needs George's approval to revert the last commit and push.", "Need permission to reset the branch and push?", "Is it fine to drop the old table and push?",
+      "Want to revert the last commit and push?", "OK if I delete the old migration and push?", "Push the fix to delete stale caches?",
+      "Revert the fix and push?", "Revert this fix and push?", "Delete the tests and push?", "Drop the feature and push?", "Should I revert the bug fix and push?",
+      "Should I delete failing tests and push?", "Delete stale tests and push?", "Drop flaky tests and push?", "Revert broken fix and push?",
+      "Revert fix and push?", "Delete tests and push?", "Reset tests and push?", "Revert Friday's fix and push?", "Push with failing tests?",
+      "Push this and revert the fix?", "Merge that then delete the tests and push?", "Push this and drop the feature?", "Can the bot revert the fix and push?",
+      "Can the bot revert your fix and push?", "Push this and revert your fix?", "Push this then delete your tests?", "Can the bot drop its feature and push?",
+      "Push this and delete 3 tests?", "Remove the old migration and push?", "Push the token?",
+      "Push the password reset fix?", "Push the delete-account button fix?", "Push the drop shadow fix?",
+    ]) {
+      expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
+    }
+    expect(settleCall({ ...call("Ready to push?"), recommendation: "Reset the branch and push" }, "- George likes tea.")?.rule).not.toBe("routine-git");
+    expect(settleCall({ ...call("Ready to push?"), recommendation: "Push the login bug fix" }, "- George likes tea.")?.rule).toBe("routine-git");
+    const deletedHelper = { ...call("Push it?"), sourceText: "Deleted the unused helper; all tests pass. Needs George's approval to push." };
+    expect(settleCall(deletedHelper, "- George likes tea.")?.rule).toBe("routine-git");
+    for (const question of ["Push the login bug fix?", "Push the tokenizer fix?", "Land it?", "OK to run git push --set-upstream origin main?"]) {
+      expect(settleCall(call(question), "- George likes tea.")?.rule, question).toBe("routine-git");
+    }
+    expect(settleCall(call("Push upstream to their fork?"), "- George likes tea.")?.rule).not.toBe("routine-git");
+    // A green report counting no failures is not a failure.
+    for (const report of ["All 120 tests pass, 0 failing.", "Tests green, nothing failing."]) {
+      expect(settleCall({ ...call("Push to GitHub?"), sourceText: `${report} Push to GitHub?` }, "- George likes tea.")?.rule, report).toBe("routine-git");
+    }
+    // A past fix in an earlier clause never makes a current failure look past.
+    for (const report of ["Resolved conflicts; CI red.", "Fixed typo, tests failing.", "Rebase was clean; tests failing."]) {
+      expect(settleCall({ ...call("Ready to merge?"), sourceText: `${report} Ready to merge?` }, PREFERENCES)?.rule, report).not.toBe("routine-git");
+    }
+  });
+
   it("stands only on lines he wrote: without them nothing is settled", () => {
     expect(settleCall(call("Pick which phases to start (recommended phase 0+1 first)"), "- George likes tea.")).toBeNull();
-    expect(authorityForStaffRun({ runId: "r", firstmate: true, active: true, autonomy: "trusted", standing: "- George likes tea." }).map((grant) => grant.grantId)).not.toContain(STANDING_RULES_POLICY.id);
+    // The built-in routine-git rule still stands, so the grant exists; it settles only that.
+    expect(authorityForStaffRun({ runId: "r", firstmate: true, active: true, autonomy: "trusted", standing: "- George likes tea." }).map((grant) => grant.grantId)).toContain(STANDING_RULES_POLICY.id);
     expect(authorityForStaffRun({ runId: "r", firstmate: true, active: true, autonomy: "ask", standing: PREFERENCES })).toEqual([]);
   });
 });

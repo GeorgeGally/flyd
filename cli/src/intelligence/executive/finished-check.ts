@@ -14,6 +14,9 @@ import { plainTitle, verifyStaffOutcome } from "./verify-outcome.js";
 // line: what changed, plus the link. When nothing could be checked it still
 // says the work is finished, honestly, and never says nothing.
 
+/** The opening of a report that says its work is still running rather than finished. */
+const STILL_RUNNING = /\b(?:under ?way|in progress|still (?:running|working)|(?:has|have|was|were) (?:been )?(?:started|dispatched|handed (?:off|over)))\b/i;
+
 /** The states a finished task or run reports. */
 export const FINISHED_STATES: ReadonlySet<string> = new Set(["done", "completed"]);
 
@@ -117,7 +120,7 @@ function sayable(line: string): boolean {
  * One line George may be told, in the order: as written, in plain words, then the bare fact. Never empty. Pure.
  * A title (the change's own, else the task's) says what changed; his own words are only quoted, unchanged, as his request, never as the outcome.
  */
-export function finishedLine(what: { title: string } | { request: string }, outcome: "landed" | "waiting" | "closed" | "unchecked", url?: string): string {
+export function finishedLine(what: { title: string } | { request: string }, outcome: "landed" | "waiting" | "closed" | "unchecked" | "started", url?: string): string {
   const titled = "title" in what;
   const lines = (subject: string) => {
     const said = subject.replace(/[.\s]+$/, "");
@@ -125,7 +128,8 @@ export function finishedLine(what: { title: string } | { request: string }, outc
     const body = outcome === "landed" ? titled ? `Done: ${said}.` : `${named} is done.`
       : outcome === "waiting" ? `${named} is finished and waiting to go in.`
         : outcome === "closed" ? `${named} is finished, but its change was closed without going in.`
-          : `${named} is finished; I haven't checked it yet.`;
+          : outcome === "started" ? `${named} has started; it isn't finished yet.`
+            : `${named} is finished; I haven't checked it yet.`;
     return url ? `${body} ${url}` : body;
   };
   const subject = ("title" in what ? what.title : what.request).trim();
@@ -134,7 +138,8 @@ export function finishedLine(what: { title: string } | { request: string }, outc
     const line = lines(candidate);
     if (sayable(line)) return line;
   }
-  const bare = outcome === "unchecked" ? "A piece of your work is finished; I haven't checked it yet." : "A piece of your work is finished.";
+  const bare = outcome === "unchecked" ? "A piece of your work is finished; I haven't checked it yet."
+    : outcome === "started" ? "A piece of your work has started; it isn't finished yet." : "A piece of your work is finished.";
   return url && sayable(`${bare} ${url}`) ? `${bare} ${url}` : bare;
 }
 
@@ -174,5 +179,8 @@ export async function checkFinished(
   if (closed) return { checked: true, landed: false, url: closed.url, line: finishedLine(closed.title ? { title: closed.title } : what, "closed", closed.url), evidenceRefs: [closed.url] };
   if (commit && onDefault === false) return { checked: true, landed: false, url: commit[0], line: finishedLine(what, "waiting", commit[0]), evidenceRefs: [commit[0]] };
   const url = pulls[0] ?? commit?.[0];
-  return { checked: false, landed: false, ...(url ? { url } : {}), line: finishedLine(what, "unchecked", url), evidenceRefs: [] };
+  // A reply marked complete that leads with work still running ("Both under way: …") only
+  // dispatched it; calling that finished tells George the opposite of what happened.
+  const outcome = !url && STILL_RUNNING.test(input.detail.slice(0, 240)) ? "started" : "unchecked";
+  return { checked: false, landed: false, ...(url ? { url } : {}), line: finishedLine(what, outcome, url), evidenceRefs: [] };
 }

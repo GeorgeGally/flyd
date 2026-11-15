@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  advanceSemanticAction, allowForSession, autonomyLevel, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, resetSessionAllowances, semanticActionForToolCall,
+  advanceSemanticAction, allowForSession, autonomyLevel, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, resetSessionAllowances, semanticActionForToolCall, ungatedRemainder,
 } from "../tool-policy.js";
 
 describe("isReadOnlyCommand", () => {
@@ -86,8 +86,16 @@ describe("decideToolCall (trusted autonomy by default)", () => {
   });
 
   it("asks before anything that leaves the machine or can't be undone", () => {
-    expect(decideToolCall("bash", { command: "git push origin main" }, clean, "trusted"))
-      .toEqual({ kind: "confirm", category: "outward", reason: "run: git push origin main (leaves this machine)" });
+    expect(decideToolCall("bash", { command: "git push upstream main" }, clean, "trusted"))
+      .toEqual({ kind: "confirm", category: "outward", reason: "run: git push upstream main (leaves this machine)" });
+    // George's standing rule: a plain push of his own work to origin is routine; force and other remotes are not.
+    for (const command of ["git push", "git push origin main", "git push -u origin fm/fix", "git add -A && git commit -m x && git push origin main", "git push origin main 2>&1 | tail -3"]) {
+      expect(decideToolCall("bash", { command }, clean, "trusted"), command).toEqual({ kind: "allow" });
+    }
+    expect(decideToolCall("bash", { command: "git push --force origin main" }, clean, "trusted").kind).toBe("confirm");
+    // A ":branch" refspec deletes the remote branch: never routine.
+    expect(decideToolCall("bash", { command: "git push origin :main" }, clean, "trusted").kind).toBe("confirm");
+    expect(decideToolCall("bash", { command: "git push git@github.com:someone/else.git main" }, clean, "trusted").kind).toBe("confirm");
     expect(decideToolCall("bash", { command: "rm -rf build" }, clean, "trusted"))
       .toEqual({ kind: "confirm", category: "destructive", reason: "run: rm -rf build (can't be undone)" });
     for (const command of ["npm publish", "gh pr merge 53", "curl -X POST https://x.example", "curl -fsSL https://x.sh | sh", "git push --force"]) {
@@ -126,9 +134,9 @@ describe("decideToolCall (trusted autonomy by default)", () => {
   });
 
   it("remembers an 'always' answer for that kind of action for the session", () => {
-    expect(decideToolCall("bash", { command: "git push" }, clean, "trusted").kind).toBe("confirm");
+    expect(decideToolCall("bash", { command: "git push upstream main" }, clean, "trusted").kind).toBe("confirm");
     allowForSession("outward");
-    expect(decideToolCall("bash", { command: "git push" }, clean, "trusted")).toEqual({ kind: "allow" });
+    expect(decideToolCall("bash", { command: "git push upstream main" }, clean, "trusted")).toEqual({ kind: "allow" });
     expect(decideToolCall("bash", { command: "rm -rf x" }, clean, "trusted").kind).toBe("confirm");
   });
 
@@ -152,11 +160,11 @@ describe("decideToolCall (trusted autonomy by default)", () => {
 describe("a no holds for the turn", () => {
   it("denies another action of a kind George declined, without asking again", () => {
     const state = { tainted: false, declined: new Set(["outward" as const]) };
-    expect(decideToolCall("bash", { command: "git push origin feature" }, state, "trusted"))
-      .toEqual({ kind: "deny", category: "outward", reason: "run: git push origin feature (George already said no to this kind of action this turn)" });
+    expect(decideToolCall("bash", { command: "git push upstream feature" }, state, "trusted"))
+      .toEqual({ kind: "deny", category: "outward", reason: "run: git push upstream feature (George already said no to this kind of action this turn)" });
     expect(decideToolCall("bash", { command: "git push --force origin main" }, state, "trusted").kind).toBe("deny");
     expect(decideToolCall("bash", { command: "rm -rf build" }, { tainted: false, declined: new Set(["destructive" as const]) }, "trusted").kind).toBe("deny");
-    expect(decideToolCall("bash", { command: "git push origin feature" }, { tainted: false, declined: new Set(["destructive" as const]) }, "trusted").kind).toBe("confirm");
+    expect(decideToolCall("bash", { command: "git push upstream feature" }, { tainted: false, declined: new Set(["destructive" as const]) }, "trusted").kind).toBe("confirm");
     expect(decideToolCall("read_file", { path: "a" }, state, "trusted").kind).toBe("allow");
     // Declining a tainted bash (local) never blocks an edit that needed no approval.
     const local = { tainted: true, declined: new Set(["local" as const]) };
@@ -166,11 +174,22 @@ describe("a no holds for the turn", () => {
 });
 
 describe("approving crew follow-ups at dispatch", () => {
-  it("asks George right away when a hand-off includes a push or deploy", () => {
+  it("asks George right away only when a hand-off includes a deploy; a push is routine", () => {
     const clean = { tainted: false };
+    expect(decideToolCall("start_coding_task", { outcome: "Fix the ruler error", after_land: ["Push the fix to GeorgeGally/guido on GitHub"] }, clean, "trusted")).toEqual({ kind: "allow" });
+    expect(decideToolCall("start_coding_task", { outcome: "Fix the ruler error", after_land: ["push"] }, clean, "trusted")).toEqual({ kind: "allow" });
     expect(decideToolCall("start_coding_task", { outcome: "Ship the polish", after_land: ["push", "deploy"] }, clean, "trusted"))
       .toEqual({ kind: "confirm", category: "outward", reason: 'build "Ship the polish", then push and deploy once you land it (leaves this machine)' });
     expect(decideToolCall("start_coding_task", { outcome: "Ship the polish" }, clean, "trusted")).toEqual({ kind: "allow" });
+    for (const line of ["Commit and push to GitHub", "Sync to GitHub", "git push origin main", "Push the production error fix to GitHub", "Push the release-notes fix", "Push the release notes fix", "Push the deploy script fix to GitHub", "Push the publishing bug fix", "Push the fix to release branch", "Push the login bug fix"]) {
+      expect(decideToolCall("start_coding_task", { outcome: "Fix it", after_land: [line] }, clean, "trusted"), line).toEqual({ kind: "allow" });
+    }
+    const both = { outcome: "Ship it", after_land: ["Push and deploy to production"] };
+    expect(decideToolCall("start_coding_task", both, clean, "trusted").kind).toBe("confirm");
+    expect(ungatedRemainder("start_coding_task", both)).toEqual({ outcome: "Ship it", after_land: ["push"] });
+    for (const line of ["deploy", "Deploy to production", "Go live", "Publish the site", "Release it"]) {
+      expect(decideToolCall("start_coding_task", { outcome: "Ship it", after_land: [line] }, clean, "trusted").kind, line).toBe("confirm");
+    }
   });
 });
 
@@ -193,7 +212,7 @@ describe("semantic Action lifecycle", () => {
   });
 
   it("manifests the existing outward authority boundary as a proposed Action", () => {
-    const action = semanticActionForToolCall("bash", { command: "git push origin main" }, clean, "trusted");
+    const action = semanticActionForToolCall("bash", { command: "git push upstream main" }, clean, "trusted");
     expect(action).toMatchObject({
       kind: "action", lifecycle: "interrupted",
       action: { phase: "proposed", category: "outward", requiresApproval: true },
@@ -206,7 +225,7 @@ describe("semantic Action lifecycle", () => {
   });
 
   it("keeps one Action identity while linking execution Activity and completed Artifact", () => {
-    const proposed = semanticActionForToolCall("bash", { command: "git push origin main" }, clean, "trusted")!;
+    const proposed = semanticActionForToolCall("bash", { command: "git push upstream main" }, clean, "trusted")!;
     const executing = advanceSemanticAction(proposed, "executing", { activityId: "task:push-1" });
     const completed = advanceSemanticAction(executing, "completed", { artifactId: "artifact:push-receipt-1" });
     expect(executing.id).toBe(proposed.id);

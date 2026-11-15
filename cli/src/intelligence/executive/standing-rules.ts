@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { userProfilePath } from "../../lib/user-profile.js";
+import { ROUTINE_GIT_RULE, routineGitStep } from "../../lib/routine-git.js";
 import { HIS_TASTE, NEVER, recordedLine, speaksForHim, standingAnswer, TAKE_CONTROL, WANTS_HIM } from "../../conversation-view/auto-answers.js";
 
 // George's standing rules as an authority grant in the review step. When a
@@ -32,11 +33,6 @@ export function standingPreferences(): string {
   }
 }
 
-/** Whether any of his recorded lines lets Flyd settle routine calls for him. */
-export function hasStandingRules(preferences: string): boolean {
-  return [...TAKE_CONTROL, ...MERGE_GREEN_FLYD].some((preference) => recordedLine(preferences, preference) !== null);
-}
-
 export interface StandingSettlement {
   rule: string;
   /** The answer, as it is given to the staff. */
@@ -64,7 +60,6 @@ export interface CallToSettle {
   openCalls?: readonly string[];
 }
 
-const MERGE_GREEN_FLYD = [/merge green flyd (?:prs|pull requests|changes) without asking/i];
 const NO_EXTRA_DECISIONS = [/does not want to be given extra work or decisions/i, ...TAKE_CONTROL];
 /** The staff want his own word ("awaiting George's go-ahead", "needs George's OK"). */
 const HIS_WORD = /\b(?:george|captain)(?:'s|’s)?\s+(?:own\s+)?(?:ok|okay|go-?ahead|approval|yes|sign-?off|word|permission)\b/i;
@@ -111,6 +106,12 @@ export function settleCall(call: CallToSettle, preferences: string): StandingSet
   const question = call.question.replace(/\s+/g, " ").trim();
   if (!question) return null;
   const said = `${question}\n${call.label}`;
+
+  // Pushing, merging or syncing his own finished work is routine by his standing rule, however
+  // the staff word it ("needs George's permission to push"); it never waits on him.
+  if (ASKS.test(question) && routineGitStep(question, call.sourceText, call.recommendation ?? recommendedIn(question) ?? recommendedIn(call.sourceText) ?? "") && !HIS_TASTE.test(said) && !speaksForHim(question)) {
+    return settled("routine-git", "Yes. Merge it into main and push it to his GitHub; that is routine, so don't ask him about it again.", ROUTINE_GIT_RULE, question, `Told the team to go ahead: ${question.replace(/[?.\s]+$/, "")}.`);
+  }
 
   if (NEVER.test(said) || NEVER.test(call.sourceText) || HIS_TASTE.test(said) || WANTS_HIM.test(call.sourceText) || HIS_WORD.test(call.sourceText) || speaksForHim(question)) return null;
 

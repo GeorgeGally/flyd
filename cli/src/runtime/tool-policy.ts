@@ -12,6 +12,8 @@
 import { createHash } from "crypto";
 import type { SemanticObject } from "../conversation-view/semantic.js";
 import { workModelAction } from "./work-model-tool.js";
+import type { AfterLandStep } from "../crew/crew.js";
+import { DEPLOY_ACTION } from "../lib/routine-git.js";
 
 export type ActionCategory = "read" | "local" | "outward" | "destructive";
 export type AutonomyLevel = "full" | "trusted" | "ask";
@@ -173,12 +175,19 @@ export function classifyAppleScript(script: string): ActionCategory {
   return "local";
 }
 
+/**
+ * A plain push of George's own work to its origin is routine by his standing rule: he always
+ * works on main and keeps ~/Documents and GitHub in sync. A force push stays destructive
+ * (DESTRUCTIVE above), and a push to any other remote (someone else's repo, a fork) stays outward.
+ */
+const ROUTINE_PUSH = /\bgit\s+push(?:\s+(?:-u|--set-upstream))?(?:\s+origin(?:\s+(?![-:])[\w./:@-]+)?)?(?=\s*(?:$|[;&|\n)]|\d?>))/gi;
+
 export function classifyCommand(command: string): ActionCategory {
   if (DESTRUCTIVE.test(command)) return "destructive";
   if (isReadOnlyCommand(command)) return "read";
   // osascript from the shell is judged by what its script does.
   if (/\bosascript\b/.test(command)) return classifyAppleScript(command);
-  if (OUTWARD.test(command)) return "outward";
+  if (OUTWARD.test(command.replace(ROUTINE_PUSH, "git status"))) return "outward";
   return "local";
 }
 
@@ -196,8 +205,10 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
     case "schedule": return input.action === "list" ? "read" : "local";
     case "todos": return input.action === "list" ? "read" : "local";
     case "domain_work": return input.action === "ask" ? "local" : "read";
-    // Building on its own branch is local; approving a push or deploy for when he lands it is not.
-    case "start_coding_task": return Array.isArray(input.after_land) && input.after_land.length ? "outward" : "local";
+    // Building and pushing landed work are routine: George always works on main and keeps
+    // GitHub in sync with ~/Documents, so a push is never his call. Only a step that goes
+    // live (deploy) waits for him, and even then the build starts without it.
+    case "start_coding_task": return gatedAfterLand(input).length ? "outward" : "local";
     case "work_model": return workModelAction(input) === "show" ? "read" : "local";
     case "retire_card":
     case "speaking_style":
@@ -217,6 +228,35 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
       return input.action === "clipboard_read" ? "read" : "local";
     default: return "read";
   }
+}
+
+/** The after_land steps a line names ("Commit and push to GitHub" is a push; "Push and deploy to production" is both). */
+export function afterLandSteps(line: string): AfterLandStep[] {
+  return [
+    ...(/\b(?:push|sync)\w*/i.test(line) ? ["push" as const] : []),
+    ...(/^\s*(?:deploy|publish|release|go live|ship (?:it )?to prod(?:uction)?)\b/i.test(line) || DEPLOY_ACTION.test(line) ? ["deploy" as const] : []),
+  ];
+}
+
+function afterLandLines(input: Record<string, unknown>): string[] {
+  return Array.isArray(input.after_land) ? input.after_land.map((step) => String(step).trim()).filter(Boolean) : [];
+}
+
+/** after_land steps George must approve: a step that goes live. A push is routine. */
+export function gatedAfterLand(input: Record<string, unknown>): string[] {
+  return afterLandLines(input).filter((line) => afterLandSteps(line).includes("deploy"));
+}
+
+/**
+ * The part of a declined call that needs no approval and still runs, or null.
+ * A coding request is never held hostage by its deploy step: the build starts
+ * (with its routine push) and only the gated step waits for George.
+ */
+export function ungatedRemainder(name: string, input: Record<string, unknown>): Record<string, unknown> | null {
+  if (name !== "start_coding_task" || !gatedAfterLand(input).length) return null;
+  const push = afterLandLines(input).some((line) => afterLandSteps(line).includes("push"));
+  const { after_land: _dropped, ...rest } = input;
+  return push ? { ...rest, after_land: ["push"] } : rest;
 }
 
 function clip(text: string, max = 160): string {

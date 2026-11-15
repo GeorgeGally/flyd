@@ -4,6 +4,7 @@ import { familyEgress, questionFor } from "../../cognition/system-one/registry.j
 import { projectJevState } from "../../cognition/system-one/jev.js";
 import type { PredicateEvaluation } from "../../cognition/system-one/types.js";
 import type { DomainId } from "../types.js";
+import { ROUTINE_GIT_RULE, routineGitStep } from "../../lib/routine-git.js";
 
 /**
  * A question that arrived from a domain is a request for CoS judgment, not
@@ -26,13 +27,25 @@ export type OperationalDisposition =
   | { kind: "escalate"; reason: string; judgment?: PredicateEvaluation };
 
 const PROTECTED = /\b(?:merge|push|publish|post publicly|deploy|release to production|purchase|pay|payment|transfer money|invoice|charge|send (?:an? )?(?:email|message|whatsapp)|email (?:a|the|him|her|them)|whatsapp|contact (?:a|the|him|her|them)|delete|destroy|erase|revoke|credentials?|password|access token|secret key|permission|security|authorize|approval|sign[- ]?off|contract|legal|liability|personal data)\b/i;
-const PERSONAL = /\b(?:george(?:'s|’s)? (?:personal|taste|preference|decision|choice|approval)|only george|his own word|personal preference|subjective brand direction|client promise)\b/i;
+const PERSONAL = /\b(?:george(?:'s|’s)? (?:personal|taste|preference|decision|choice)|only george|his own word|personal preference|subjective brand direction|client promise)\b/i;
 const INTERNAL = /\b(?:test|lint|typescript|library|framework|package|implementation|function|component|layout|code|refactor|bug|fix|build|module|dependency|migration|coverage|review|debug|research|method|approach|design iteration|style rules|visual hierarchy)\b/i;
+
+function questionText(question: OperationalQuestion): string {
+  return [question.question, ...question.options, question.recommendation ?? ""].join(" ");
+}
+
+/** A coding ask that is only a plain go-ahead for a routine git step on George's own finished work. */
+export function routineCodingStep(question: OperationalQuestion): boolean {
+  // "Needs George's approval to push" is the very ask the rule settles, so his approval alone keeps nothing his.
+  return question.domain === "coding" && question.options.length < 2 && !PERSONAL.test(questionText(question))
+    && routineGitStep(question.question, "", [...question.options, question.recommendation ?? ""].join(" "));
+}
 
 /** Deterministic veto wins over any judgment provider's confidence. */
 export function protectedOperationalQuestion(question: OperationalQuestion): boolean {
   if (question.domain === "life") return true;
-  const text = [question.question, ...question.options, question.recommendation ?? ""].join(" ");
+  if (routineCodingStep(question)) return false;
+  const text = questionText(question);
   return PROTECTED.test(text) || PERSONAL.test(text);
 }
 
@@ -59,6 +72,15 @@ export interface OperationalJudgeOptions {
  * A repeat of the same request is for Flyd's stronger reasoning path.
  */
 export async function judgeOperationalQuestion(input: OperationalQuestion, deps: OperationalJudgeOptions = {}): Promise<OperationalDisposition> {
+  // Settled by George's standing rule in code, with or without a decision model:
+  // no provider's abstention can turn a routine push into his question.
+  if (routineCodingStep(input)) {
+    return {
+      kind: "internal",
+      message: `George's standing rule settles this: ${ROUTINE_GIT_RULE} Go ahead: merge the finished, green work into main and push it to his GitHub, then report it done. Do not ask him about pushing or GitHub. This covers only that; anything that deploys, goes live, deletes or force-pushes still comes back.`,
+      reason: "routine git step under George's standing rule",
+    };
+  }
   if (protectedOperationalQuestion(input)) {
     return { kind: "escalate", reason: "requires scoped authorization or personal judgment" };
   }

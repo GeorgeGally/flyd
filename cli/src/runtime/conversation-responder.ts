@@ -42,7 +42,7 @@ import { deliveredPromptBlock } from "./delivery.js";
 import { defaultRouteTurn, finishInFlydsVoice, gatherTurnKnowledge, groundingProblems, hedgeUngroundedAnswer, readRoomStage, turnBriefParts, turnExtras, ungroundedSpans, type FastRouteReading, type ReadRoom, type RouteTurn } from "./turn-stages.js";
 import { contractError } from "./tool-contracts.js";
 import { flydSetupReport, isFlydSetupQuestion } from "./flyd-setup.js";
-import { advanceSemanticAction, allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, semanticActionForToolCall, type ToolPolicyState } from "./tool-policy.js";
+import { advanceSemanticAction, allowForSession, decideToolCall, isReadOnlyCommand, marksTurnUntrusted, semanticActionForToolCall, ungatedRemainder, type ToolPolicyState } from "./tool-policy.js";
 import { collectProjectContext } from "../lib/project-context.js";
 import type { AgentSituation, ConversationTurn } from "./agent-session.js";
 import type { MemoryEvidence } from "./types.js";
@@ -406,7 +406,7 @@ ${input.situation.outcome ? `- Recent task outcome: ${input.situation.outcome}` 
         ? "For this temporal question, use only current repository and task evidence to identify recent work; do not infer recency from archival memory."
         : "",
       "Memory is supporting evidence, not a refusal boundary: use general knowledge when personal evidence is absent.",
-      "When the turn is for acting, act — don't describe what you'll do, do it, and continue to a real conclusion or blocker. Weak tool result — vary the query and try again, then conclude. When you change code, verify with bash (run tests/lint/build). You have broad autonomy: do local, reversible work yourself — edits, commits, installs, scripts, AppleScript, reminders, scheduling — without asking. Only actions that leave this machine or can't be undone (push, publish, send, delete, running downloaded code) go to George for approval, automatically. If an action comes back 'Not approved', do not retry or work around it.",
+      "When the turn is for acting, act — don't describe what you'll do, do it, and continue to a real conclusion or blocker. Weak tool result — vary the query and try again, then conclude. When you change code, verify with bash (run tests/lint/build). You have broad autonomy: do local, reversible work yourself — edits, commits, installs, scripts, AppleScript, reminders, scheduling — without asking. Pushing his own work to GitHub is routine too (he is always on main; ~/Documents and GitHub stay in sync), so never ask him about pushing or GitHub. Only actions that leave this machine in other ways or can't be undone (force-push, a push to someone else's repo, publish, send, delete, running downloaded code) go to George for approval, automatically. If an action comes back 'Not approved', do not retry or work around it.",
       "Never reply with generic availability, a capability menu, or 'let me know'. If George says he just wants to chat, ask what he is thinking about that does not belong in a task yet.",
       decisionPolicyBlock(),
       speakingStyleSystemRule(),
@@ -855,7 +855,7 @@ function createToolHandler(
     }
   };
 
-  return async (name: string, given: Record<string, unknown>): Promise<string> => {
+  const handle = async (name: string, given: Record<string, unknown>): Promise<string> => {
     signal?.throwIfAborted();
     // Flyd decides what to keep, but a note saved after web, mail or message content was read
     // is kept as outside content: never as George's own words, and never above what he confirmed.
@@ -873,7 +873,18 @@ function createToolHandler(
         // Only George's own no holds for the turn; an unattended run has no one to ask.
         if (askUser) (policy.declined ??= new Set()).add(decision.category);
         if (semanticAction) onAction?.(advanceSemanticAction(semanticAction, "declined"));
-        return `Not approved: ${decision.reason}. George did not approve this action — do not retry it; tell him what you would do and let him run it or approve it.`;
+        // The part that needs no approval still runs: a coding request starts now and only its
+        // gated step (a deploy) waits for George, so a missing yes never leaves the fix unstarted.
+        const remainder = ungatedRemainder(name, input);
+        if (remainder) {
+          const started = await handle(name, remainder);
+          const held = askUser ? "George did not approve it" : "there was no way to ask George here";
+          if (TOOL_FAILURE.test(started) || /^Coding request refused/.test(started)) return `${started}\nSeparately held: ${decision.reason}; ${held}.`;
+          return `${started}\nThe build has started. Only this step is held: ${decision.reason}; ${held}. Tell him the work has started and that this one step waits for his go-ahead; don't say the work hasn't started.`;
+        }
+        return askUser
+          ? `Not approved: ${decision.reason}. George did not approve this action — do not retry it; tell him what you would do and let him run it or approve it.`
+          : `Not approved: ${decision.reason}. Nothing here could ask George, so he was never asked and did not refuse, and nothing was done. Tell him plainly it hasn't been done and what you would do.`;
       }
       if (semanticAction) {
         semanticAction = advanceSemanticAction(semanticAction, "approved");
@@ -899,6 +910,7 @@ function createToolHandler(
     if (marksTurnUntrusted(name)) policy.tainted = true;
     return result;
   };
+  return handle;
 }
 
 function clip(value: unknown, max = 60): string {

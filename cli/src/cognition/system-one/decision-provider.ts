@@ -51,7 +51,7 @@ export async function evaluateGeminiPredicates(
   egress?: PredicateEgress,
 ): Promise<PredicateEvaluation> {
   const started = Date.now();
-  const apiKey = options.apiKey ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  const apiKey = options.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   const model = options.model ?? GEMINI_MODEL;
   const projection = projectJevState(state);
   const projectionHash = stateProjectionHash(state);
@@ -150,6 +150,14 @@ export async function evaluateExecutivePredicates(
   egress?: PredicateEgress,
 ): Promise<PredicateEvaluation> {
   const { provider = process.env.FLYD_EXECUTIVE_DECISION_PROVIDER === "gemini" ? "gemini" : "jev", ...rest } = options;
-  if (provider === "gemini") return evaluateGeminiPredicates(state, questions, rest, egress);
+  // Gemini is opt-in and needs its own key; George has no Google account for it. Without one
+  // Jev decides, so an unconfigured provider never becomes an abstention that reaches him.
+  if (provider === "gemini" && (rest.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)) {
+    return evaluateGeminiPredicates(state, questions, rest, egress);
+  }
+  if (provider === "gemini") {
+    const { apiKey: _gemini, ...jev } = rest;
+    return evaluatePredicates(state, questions, jev, egress);
+  }
   return evaluatePredicates(state, questions, rest, egress);
 }
