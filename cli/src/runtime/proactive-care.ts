@@ -111,7 +111,7 @@ export function creativeCard(projects: Project[], edition: Edition | null, now: 
     line: "A few references that connect with what you're making.",
     stories: selected.map(({ item }) => ({
       title: clean(item.title, 160), url: item.url, gist: clean(item.why, 220),
-      source: clean(item.source, 80), kind: "relevant", ...(item.media ? { media: item.media } : {}),
+      source: clean(item.source, 80), kind: "relevant", ...(item.media && item.media !== "article" ? { media: item.media } : {}),
     })),
   };
 }
