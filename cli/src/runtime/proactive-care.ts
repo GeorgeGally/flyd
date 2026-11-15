@@ -86,7 +86,7 @@ export function meetingCard(event: CareEvent, memory: MemoryEntry[], now: Date):
 }
 
 /** Scout's previously gathered, sourced references. No new remote search or data egress. */
-export function creativeCard(projects: Project[], edition: Edition | null, now: Date): ActivityRecord | null {
+export function creativeCard(projects: Project[], edition: Edition | null, now: Date, minimumScore = 5): ActivityRecord | null {
   if (!edition || edition.date !== dayOf(now)) return null;
   const visual = projects.filter((p) =>
     ["active", "launching", "waiting"].includes(p.status) &&
@@ -96,7 +96,7 @@ export function creativeCard(projects: Project[], edition: Edition | null, now: 
   const ranked = edition.items.flatMap((item) => {
     if (!validUrl(item.url)) return [];
     const score = contextScore({ title: item.title, summary: item.why }, focus);
-    return score.score >= 5 ? [{ item, score: score.score, match: score.match }] : [];
+    return score.score >= minimumScore ? [{ item, score: score.score, match: score.match }] : [];
   }).sort((a, b) => b.score - a.score);
   const seen = new Set<string>();
   const selected = ranked.filter(({ item }) => {
@@ -190,7 +190,7 @@ export function prepareCreativeForConversation(message: string, deps: CareDeps =
     kind: "creative", status: "active", what: clean(message, 400), now: "",
     people: [], repos: [], updated: day,
   };
-  const candidate = creativeCard([focus], edition, now);
+  const candidate = creativeCard([focus], edition, now, 3);
   if (!candidate) return false;
   const card: ActivityRecord = {
     ...candidate,
