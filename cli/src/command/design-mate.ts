@@ -88,10 +88,23 @@ export function audienceLines(audience?: Audience): string[] {
   ] : [];
 }
 
+const AUDIENCE_QUESTIONS: Record<keyof Audience, string> = {
+  who: "Who is viewing the design?",
+  where: "Where will they see it?",
+  what: "What do they need to understand or do?",
+};
+
 function audienceOf(value: unknown): Audience | undefined {
   const item = (value ?? {}) as Record<string, unknown>;
   const [who, where, what] = [item.who, item.where, item.what].map((part) => typeof part === "string" ? part.trim() : "");
   return who && where && what ? { who, where, what } : undefined;
+}
+
+function unansweredQuestions(value: unknown): string[] {
+  const item = (value ?? {}) as Record<string, unknown>;
+  return (Object.keys(AUDIENCE_QUESTIONS) as Array<keyof Audience>)
+    .filter((key) => typeof item[key] !== "string" || !(item[key] as string).trim())
+    .map((key) => AUDIENCE_QUESTIONS[key]);
 }
 
 export interface Lab {
@@ -520,7 +533,7 @@ export function briefPrompt(run: DomainRun, images: string[], taste: string, see
     `His learned taste rules:\n${taste}`,
     `Real images the designers can use: ${images.join(", ") || "(none; use real content and typography, never stock shapes)"}`,
     "",
-    "Before anything else, answer three questions from his request, the project and what you see of it; never ask George unless it truly cannot be known: Who is viewing the design? Where will they see it? What do they need to understand or do? Every direction must serve those answers.",
+    `Before anything else, answer three questions from his request, the project and what you see of it; never ask George unless it truly cannot be known: ${Object.values(AUDIENCE_QUESTIONS).join(" ")} Every direction must serve those answers.`,
     `Set ${MIN_VERSIONS}-${MAX_VERSIONS} directions that differ in composition and in what they leave out, not just palette. Give each a bold named inspiration (a TV title card, a museum wall label, a departure board, radical asymmetry…) and say how it shapes the layout. At least two must sound risky. Derive each one's palette, grid and type scale from its seed string below; the seed never appears on the page.`,
     `Seeds, one per direction in order: ${seeds.join(", ")}`,
     "Set a content budget from what he asked: real content, not all of it; what is not needed sits one click away.",
@@ -718,18 +731,25 @@ export async function advanceDesignRun(run: DomainRun, deps: DesignMateDeps): Pr
     const context = readContext(run.id, root);
     const images = rejected?.images ?? projectImages(run.request.project?.root, join(dir, "img"));
     const seeds = Array.from({ length: MAX_VERSIONS }, () => randomBytes(12).toString("hex"));
-    const reply = jsonOf<{ audience?: unknown; brief?: string; versions?: Array<{ name?: string; idea?: string }> }>(
-      await ask(deps, briefPrompt(run, images, taste, seeds, rejected?.flydNotes, context), {
-        json: true, source: "design", images: (context.shots ?? []).filter((path) => existsSync(path)).map(asImage),
-      }));
+    type BriefReply = { audience?: unknown; brief?: string; versions?: Array<{ name?: string; idea?: string }> };
+    const prompt = briefPrompt(run, images, taste, seeds, rejected?.flydNotes, context);
+    const options: DesignCallOptions = { json: true, source: "design", images: (context.shots ?? []).filter((path) => existsSync(path)).map(asImage) };
+    let reply = jsonOf<BriefReply>(await ask(deps, prompt, options));
+    const unanswered = reply ? unansweredQuestions(reply.audience) : [];
+    if (unanswered.length) {
+      reply = jsonOf<BriefReply>(await ask(deps, [prompt, "", `Your last reply left these unanswered; answer every one in "audience" and send the whole reply again: ${unanswered.join(" ")}`].join("\n"), options));
+    }
     const versions = (reply?.versions ?? []).filter((item) => item.name && item.idea).slice(0, MAX_VERSIONS)
       .map((item, index): LabVersion => ({ n: index + 1, name: String(item.name).trim(), idea: String(item.idea).trim(), seed: seeds[index]! }));
     if (!reply?.brief || versions.length < MIN_VERSIONS) {
       return save(run, { status: "failed", phase: "done", failure: stoppedLine("the brief came back without enough directions to build") });
     }
     const audience = audienceOf(reply.audience);
+    if (!audience) {
+      return save(run, { status: "failed", phase: "done", failure: stoppedLine("the brief never said who views it, where, and what they must do") });
+    }
     writeLab(run.id, {
-      brief: reply.brief.trim(), ...(audience ? { audience } : {}), versions, round: 1, images,
+      brief: reply.brief.trim(), audience, versions, round: 1, images,
       ...(context.content ? { content: context.content } : {}),
       log: [...(rejected?.log ?? []), `Brief set with ${versions.length} directions.`],
       ...(rejected?.flydNotes ? { flydNotes: rejected.flydNotes } : {}),

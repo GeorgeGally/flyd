@@ -28,6 +28,7 @@ afterEach(() => {
 });
 
 const PAGE = "<!doctype html><html><body><h1>V</h1></body></html>";
+const AUDIENCE = { who: "A visitor to George's site", where: "On a laptop, at a desk", what: "See what Flyd is" };
 
 /** Staff that answer by role: the brief, a page, a critique with the given scores in turn, the presentation, then Flyd's verdicts in turn. */
 function staff(scores: number[], calls: string[] = [], verdicts: Array<{ verdict: string; notes?: string[]; versions?: number[] }> = []): DesignMateDeps {
@@ -46,7 +47,7 @@ function staff(scores: number[], calls: string[] = [], verdicts: Array<{ verdict
       }
       if (prompt.includes("has brought you his brief")) {
         calls.push("brief");
-        return JSON.stringify({ brief: "A right column for a CEO.", versions: [{ name: "Title card", idea: "Big type." }, { name: "Wall label", idea: "A framed piece." }, { name: "Departure board", idea: "A dark board." }] });
+        return JSON.stringify({ audience: AUDIENCE, brief: "A right column for a CEO.", versions: [{ name: "Title card", idea: "Big type." }, { name: "Wall label", idea: "A framed piece." }, { name: "Departure board", idea: "A dark board." }] });
       }
       if (prompt.includes("You are a designer")) {
         calls.push(prompt.includes("The Creative Director scored your last build") ? "rebuild" : "build");
@@ -279,7 +280,7 @@ describe("Design Mate", () => {
     const run = start();
     const done = await driveDesignRun(run, { ...deps, complete: async (prompt, options) => {
       if (prompt.includes("has brought you his brief")) {
-        return JSON.stringify({ brief: "A right column.", versions: ["Title card", "Wall label", "Departure board", "Terminal"].map((name) => ({ name, idea: "An idea." })) });
+        return JSON.stringify({ audience: AUDIENCE, brief: "A right column.", versions: ["Title card", "Wall label", "Departure board", "Terminal"].map((name) => ({ name, idea: "An idea." })) });
       }
       if (prompt.startsWith("You are a designer") && prompt.includes("Terminal")) throw new Error("socket hang up");
       return deps.complete(prompt, options);
@@ -327,6 +328,39 @@ describe("Design Mate", () => {
     ]);
   });
 
+  it("asks once more for an answer the brief left blank, then begins with all three", async () => {
+    const briefs: string[] = [];
+    const deps = staff([9]);
+    const done = await driveDesignRun(start(), { ...deps, complete: async (prompt, options) => {
+      const reply = await deps.complete(prompt, options);
+      if (!prompt.includes("has brought you his brief")) return reply;
+      briefs.push(prompt);
+      return briefs.length === 1 ? JSON.stringify({ ...JSON.parse(reply), audience: { who: "A visitor", where: " ", what: "See what Flyd is" } }) : reply;
+    } });
+    expect(done.status).toBe("completed");
+    expect(briefs.length).toBe(2);
+    expect(briefs[1]).toContain("left these unanswered; answer every one in \"audience\" and send the whole reply again: Where will they see it?");
+    expect(briefs[1]).not.toContain("again: Who is viewing the design?");
+    expect(readLab(done.id, labs)!.audience).toEqual(AUDIENCE);
+  });
+
+  it("fails plainly when the brief still will not say who views it, where, and what they must do", async () => {
+    const run = start();
+    let briefs = 0;
+    const deps = staff([9]);
+    const done = await driveDesignRun(run, { ...deps, complete: async (prompt, options) => {
+      const reply = await deps.complete(prompt, options);
+      if (!prompt.includes("has brought you his brief")) return reply;
+      briefs++;
+      const { audience: _audience, ...rest } = JSON.parse(reply);
+      return JSON.stringify(rest);
+    } });
+    expect(done.status).toBe("failed");
+    expect(briefs).toBe(2);
+    expect(readDomainRun(run.id)!.failure).toMatch(/never said who views it, where, and what they must do/);
+    expect(readLab(run.id, labs)).toBeNull();
+  });
+
   it("lands the finished lab on a board George reviews from, with the Creative Director's words beside the frames", async () => {
     const boards: Array<{ name: string; versions: number[]; note?: string }> = [];
     const done = await driveDesignRun(start(), { ...staff([9]), board: async (input) => {
@@ -334,7 +368,7 @@ describe("Design Mate", () => {
       return { url: "http://127.0.0.1:4747/board/labboard02", key: "labboard02", dir: join(input.labDir, "board") };
     } });
     expect(done.status).toBe("completed");
-    expect(boards).toEqual([{ name: "Right column lab", versions: [1, 2, 3], note: "I'd take V2 · Wall label forward.\n- V1 · Title card: Big type.\n- V2 · Wall label: A framed piece.\n- V3 · Departure board: A dark board.\nPin notes for another round, or mark one as final to settle on it." }]);
+    expect(boards).toEqual([{ name: "Right column lab", versions: [1, 2, 3], note: "Who is viewing it: A visitor to George's site\nWhere they will see it: On a laptop, at a desk\nWhat they need to understand or do: See what Flyd is\nI'd take V2 · Wall label forward.\n- V1 · Title card: Big type.\n- V2 · Wall label: A framed piece.\n- V3 · Departure board: A dark board.\nPin notes for another round, or mark one as final to settle on it." }]);
     expect(readLab(done.id, labs)!.board).toMatchObject({ key: "labboard02" });
     expect(done.result!.brief).toContain("On the board: http://127.0.0.1:4747/board/labboard02");
     expect(done.result!.evidence).toEqual(["board http://127.0.0.1:4747/board/labboard02"]);
