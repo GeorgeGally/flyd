@@ -14,10 +14,10 @@ import { plainTitle, verifyStaffOutcome } from "./verify-outcome.js";
 // line: what changed, plus the link. When nothing could be checked it still
 // says the work is finished, honestly, and never says nothing.
 
-/** The states a finished task or run reports. */
 /** The opening of a report that says its work is still running rather than finished. */
-const STILL_RUNNING = /\b(?:under ?way|in progress|still (?:running|working)|(?:has|have|was|were) (?:been )?(?:started|dispatched|handed (?:off|over))|is (?:now )?(?:working|tracing|reproducing|loading|building|fixing))\b/i;
+const STILL_RUNNING = /\b(?:under ?way|in progress|still (?:running|working)|(?:has|have|was|were) (?:been )?(?:started|dispatched|handed (?:off|over)))\b/i;
 
+/** The states a finished task or run reports. */
 export const FINISHED_STATES: ReadonlySet<string> = new Set(["done", "completed"]);
 
 export interface PullState {

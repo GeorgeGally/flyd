@@ -12,6 +12,7 @@
 import { createHash } from "crypto";
 import type { SemanticObject } from "../conversation-view/semantic.js";
 import { workModelAction } from "./work-model-tool.js";
+import type { AfterLandStep } from "../crew/crew.js";
 
 export type ActionCategory = "read" | "local" | "outward" | "destructive";
 export type AutonomyLevel = "full" | "trusted" | "ask";
@@ -178,7 +179,7 @@ export function classifyAppleScript(script: string): ActionCategory {
  * works on main and keeps ~/Documents and GitHub in sync. A force push stays destructive
  * (DESTRUCTIVE above), and a push to any other remote (someone else's repo, a fork) stays outward.
  */
-const ROUTINE_PUSH = /\bgit\s+push(?:\s+(?:-u|--set-upstream))?(?:\s+origin(?:\s+(?!-)[\w./:@-]+)?)?(?=\s*(?:$|[;&|\n)]|\d?>))/gi;
+const ROUTINE_PUSH = /\bgit\s+push(?:\s+(?:-u|--set-upstream))?(?:\s+origin(?:\s+(?![-:])[\w./:@-]+)?)?(?=\s*(?:$|[;&|\n)]|\d?>))/gi;
 
 export function classifyCommand(command: string): ActionCategory {
   if (DESTRUCTIVE.test(command)) return "destructive";
@@ -228,10 +229,19 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
   }
 }
 
+/** The after_land step a line names, by its leading verb ("Push the fix to GitHub" is a push). */
+export function afterLandStep(step: string): AfterLandStep | null {
+  const verb = /^\s*(push|deploy)\b/i.exec(step)?.[1]?.toLowerCase();
+  return verb === "push" || verb === "deploy" ? verb : null;
+}
+
+function afterLandLines(input: Record<string, unknown>): string[] {
+  return Array.isArray(input.after_land) ? input.after_land.map((step) => String(step).trim()).filter(Boolean) : [];
+}
+
 /** after_land steps George must approve: everything except a push, which is routine. */
 export function gatedAfterLand(input: Record<string, unknown>): string[] {
-  const steps = Array.isArray(input.after_land) ? input.after_land.map((step) => String(step).trim()) : [];
-  return steps.filter((step) => step && !/^push\b/i.test(step));
+  return afterLandLines(input).filter((step) => afterLandStep(step) !== "push");
 }
 
 /**
@@ -241,8 +251,7 @@ export function gatedAfterLand(input: Record<string, unknown>): string[] {
  */
 export function ungatedRemainder(name: string, input: Record<string, unknown>): Record<string, unknown> | null {
   if (name !== "start_coding_task" || !gatedAfterLand(input).length) return null;
-  const steps = Array.isArray(input.after_land) ? input.after_land.map((step) => String(step).trim()) : [];
-  const kept = steps.filter((step) => /^push\b/i.test(step));
+  const kept = afterLandLines(input).filter((step) => afterLandStep(step) === "push");
   const { after_land: _dropped, ...rest } = input;
   return kept.length ? { ...rest, after_land: kept } : rest;
 }

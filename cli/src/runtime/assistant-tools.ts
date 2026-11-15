@@ -1,7 +1,9 @@
 import { refuseLeakedLaunch } from "./launch-guard.js";
 import type { AgentTool } from "../lib/llm.js";
 import type { ChatScope } from "./chat-scope.js";
+import type { AfterLandStep } from "../crew/crew.js";
 import { formatWorkModelResult, parseWorkModelArgs, workModelTool } from "./work-model-tool.js";
+import { afterLandStep } from "./tool-policy.js";
 
 // Capabilities that used to be regex intercepts in front of the model. Each
 // intercept guessed intent from phrasing and answered with canned text before
@@ -476,9 +478,9 @@ export async function runAssistantTool(
           return `Coding work accepted (run ${run.run.id}). Flyd remains your point of contact; the coding boss will route, supervise and return a detailed retained report. Tell George only what started, not the internal mechanics or id.`;
         }
 
-        const { dispatchCrewTask, AFTER_LAND_STEPS, deployCommand } = await import("../crew/crew.js");
-        const afterLand = normalizeCriteria(input.after_land).map((step) => step.toLowerCase())
-          .filter((step): step is (typeof AFTER_LAND_STEPS)[number] => (AFTER_LAND_STEPS as readonly string[]).includes(step));
+        const { dispatchCrewTask, deployCommand } = await import("../crew/crew.js");
+        const afterLand = normalizeCriteria(input.after_land).map(afterLandStep)
+          .filter((step): step is AfterLandStep => step !== null);
         const task = await dispatchCrewTask({ repo, outcome, doneWhen, afterLand, source: "chat" });
         const noDeploy = afterLand.includes("deploy") && !deployCommand(task.repo)
           ? " This repo declares no deploy command, so deploying will need one set up; tell him." : "";

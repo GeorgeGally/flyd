@@ -33,11 +33,6 @@ export function standingPreferences(): string {
   }
 }
 
-/** Whether any of his recorded lines lets Flyd settle routine calls for him. */
-export function hasStandingRules(preferences: string): boolean {
-  return [...TAKE_CONTROL, ...MERGE_GREEN_FLYD].some((preference) => recordedLine(preferences, preference) !== null);
-}
-
 export interface StandingSettlement {
   rule: string;
   /** The answer, as it is given to the staff. */
@@ -65,7 +60,6 @@ export interface CallToSettle {
   openCalls?: readonly string[];
 }
 
-const MERGE_GREEN_FLYD = [/merge green flyd (?:prs|pull requests|changes) without asking/i];
 const NO_EXTRA_DECISIONS = [/does not want to be given extra work or decisions/i, ...TAKE_CONTROL];
 /** The staff want his own word ("awaiting George's go-ahead", "needs George's OK"). */
 const HIS_WORD = /\b(?:george|captain)(?:'s|’s)?\s+(?:own\s+)?(?:ok|okay|go-?ahead|approval|yes|sign-?off|word|permission)\b/i;
@@ -115,7 +109,7 @@ export function settleCall(call: CallToSettle, preferences: string): StandingSet
 
   // Pushing, merging or syncing his own finished work is routine by his standing rule, however
   // the staff word it ("needs George's permission to push"); it never waits on him.
-  if (ASKS.test(question) && routineGitStep(`${question}\n${call.sourceText}`) && !HIS_TASTE.test(said) && !speaksForHim(question)) {
+  if (ASKS.test(question) && routineGitStep(question, call.sourceText) && !HIS_TASTE.test(said) && !speaksForHim(question)) {
     return settled("routine-git", "Yes. Merge it into main and push it to his GitHub; that is routine, so don't ask him about it again.", ROUTINE_GIT_RULE, question, `Told the team to go ahead: ${question.replace(/[?.\s]+$/, "")}.`);
   }
 

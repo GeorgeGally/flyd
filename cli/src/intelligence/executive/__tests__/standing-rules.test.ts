@@ -64,6 +64,10 @@ describe("George's standing rules in the review step", () => {
       expect(settleCall(call(question), "- George likes tea."), question).toMatchObject({ rule: "routine-git" });
     }
     expect(settleCall(call("OK to push and deploy to production?"), PREFERENCES)?.rule).not.toBe("routine-git");
+    // An either-or is the work's own engineering call, and red work is not finished: neither is a routine go-ahead.
+    for (const question of ["Should I rebase onto main or merge?", "Should I commit the tests first or the refactor?", "Ready to merge? two tests still fail"]) {
+      expect(settleCall(call(question), PREFERENCES)?.rule, question).not.toBe("routine-git");
+    }
   });
 
   it("stands only on lines he wrote: without them nothing is settled", () => {

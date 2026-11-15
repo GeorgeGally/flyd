@@ -64,7 +64,7 @@ describe("a coding request never waits on a push approval", () => {
       }, root);
       expect(out).not.toMatch(/Not approved/);
       expect(out).toMatch(/^Started/);
-      expect(dispatched).toEqual([{ outcome: "Fix the Guido extension error that still appears when using it." }]);
+      expect(dispatched).toEqual([{ outcome: "Fix the Guido extension error that still appears when using it.", afterLand: ["push"] }]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

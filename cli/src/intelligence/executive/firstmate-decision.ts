@@ -8,7 +8,7 @@ import { familyEgress, predicateDefinition, questionFor } from "../../cognition/
 import type { JevOptions } from "../../cognition/system-one/types.js";
 import { IntelligenceEventStore } from "../event-store.js";
 import { redactSensitiveText } from "../../runtime/context-redactor.js";
-import { hasStandingRules, STANDING_RULES_POLICY } from "./standing-rules.js";
+import { STANDING_RULES_POLICY } from "./standing-rules.js";
 import { decideExecutiveStep, persistExecutiveDecision, parseExecutiveDecision, tookBackOn, type ExecutiveAuthorityGrant, type ExecutiveDecisionRecord, type ExecutiveProposal, type ExecutiveJudgment } from "./decision-step.js";
 
 export interface FirstmateChange {
@@ -86,7 +86,7 @@ export function authorityForStaffRun(input: {
     { grantId: STAFF_COORDINATION_POLICY.id, capability: STAFF_COORDINATION_POLICY.capability, target: input.runId },
     // The routine-git rule (push, merge, sync of his own finished work) is built in, so it stands
     // even before USER.md records a line; his recorded lines add the rest.
-    ...(input.standing !== undefined && (input.firstmate || hasStandingRules(input.standing))
+    ...(input.standing !== undefined
       ? [{ grantId: STANDING_RULES_POLICY.id, capability: STANDING_RULES_POLICY.capability, target: input.runId }] : []),
   ];
 }

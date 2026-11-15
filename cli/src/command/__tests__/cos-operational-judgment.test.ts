@@ -84,6 +84,12 @@ describe("CoS operational decisions", () => {
       expect((await judgeOperationalQuestion({ ...routine, domain: "coding", question, options: [] })).kind, question).toBe("escalate");
     }
     expect(protectedOperationalQuestion({ ...routine, domain: "creative", question: "Merge PR #46?", options: [] })).toBe(true);
+    // A choice, a personal call or red work is never settled as a routine go-ahead.
+    for (const question of ["Merge option A or B? George's personal preference", "Should I rebase onto main or merge?", "Ready to merge? two tests still fail"]) {
+      const result = await judgeOperationalQuestion({ ...routine, domain: "coding", question, options: [] });
+      expect(result.reason, question).not.toBe("routine git step under George's standing rule");
+    }
+    expect(protectedOperationalQuestion({ ...routine, domain: "coding", question: "Merge option A or B? George's personal preference", options: [] })).toBe(true);
   });
 
   it("does not interpret a personal booking as routine implementation", async () => {

@@ -27,17 +27,18 @@ export type OperationalDisposition =
   | { kind: "escalate"; reason: string; judgment?: PredicateEvaluation };
 
 const PROTECTED = /\b(?:merge|push|publish|post publicly|deploy|release to production|purchase|pay|payment|transfer money|invoice|charge|send (?:an? )?(?:email|message|whatsapp)|email (?:a|the|him|her|them)|whatsapp|contact (?:a|the|him|her|them)|delete|destroy|erase|revoke|credentials?|password|access token|secret key|permission|security|authorize|approval|sign[- ]?off|contract|legal|liability|personal data)\b/i;
-const PERSONAL = /\b(?:george(?:'s|’s)? (?:personal|taste|preference|decision|choice|approval)|only george|his own word|personal preference|subjective brand direction|client promise)\b/i;
+const PERSONAL = /\b(?:george(?:'s|’s)? (?:personal|taste|preference|decision|choice)|only george|his own word|personal preference|subjective brand direction|client promise)\b/i;
 const INTERNAL = /\b(?:test|lint|typescript|library|framework|package|implementation|function|component|layout|code|refactor|bug|fix|build|module|dependency|migration|coverage|review|debug|research|method|approach|design iteration|style rules|visual hierarchy)\b/i;
 
 function questionText(question: OperationalQuestion): string {
   return [question.question, ...question.options, question.recommendation ?? ""].join(" ");
 }
 
-/** A coding ask that is only a routine git step on George's own work (push, merge, sync). */
+/** A coding ask that is only a plain go-ahead for a routine git step on George's own finished work. */
 export function routineCodingStep(question: OperationalQuestion): boolean {
-  // "Needs George's approval to push" is the very ask the rule settles, so his name alone keeps nothing his.
-  return question.domain === "coding" && routineGitStep(questionText(question));
+  // "Needs George's approval to push" is the very ask the rule settles, so his approval alone keeps nothing his.
+  return question.domain === "coding" && question.options.length < 2 && !PERSONAL.test(questionText(question))
+    && routineGitStep(question.question, [...question.options, question.recommendation ?? ""].join(" "));
 }
 
 /** Deterministic veto wins over any judgment provider's confidence. */

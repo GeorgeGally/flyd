@@ -67,6 +67,13 @@ describe("finished work, checked by Flyd", () => {
       .toBe("Your request “im still getting error on extension when i reload” has started; it isn't finished yet.");
   });
 
+  it("never calls finished work 'started' because its report says something now works", async () => {
+    for (const detail of ["Fixed: the extension is working on reload now", "Done; the project is building cleanly"]) {
+      expect((await checkFinished({ label: "Fix Guido", detail, request: "fix the extension" }, readers(null))).line, detail)
+        .not.toMatch(/has started/);
+    }
+  });
+
   it("never says his request itself is done when no title of the change was read", async () => {
     const commit = "https://github.com/GeorgeGally/gnm/commit/3ce3245";
     // His first line is a problem statement: the landed change is named by it, never said to have done it.

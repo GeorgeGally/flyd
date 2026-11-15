@@ -103,8 +103,7 @@ export interface CrewTask {
  */
 export const CREW_CAN = "build the change on its own branch, install dependencies, run the repo's tests, and commit";
 export const CREW_CANNOT = "push, deploy, publish, merge into his branch, or touch anything outside its worktree";
-export const AFTER_LAND_STEPS = ["push", "deploy"] as const;
-export type AfterLandStep = (typeof AFTER_LAND_STEPS)[number];
+export type AfterLandStep = "push" | "deploy";
 
 export function crewDir(): string {
   return process.env.FLYD_CREW_DIR?.trim() || join(FLYD_DIR, "crew");

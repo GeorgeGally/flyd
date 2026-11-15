@@ -93,6 +93,8 @@ describe("decideToolCall (trusted autonomy by default)", () => {
       expect(decideToolCall("bash", { command }, clean, "trusted"), command).toEqual({ kind: "allow" });
     }
     expect(decideToolCall("bash", { command: "git push --force origin main" }, clean, "trusted").kind).toBe("confirm");
+    // A ":branch" refspec deletes the remote branch: never routine.
+    expect(decideToolCall("bash", { command: "git push origin :main" }, clean, "trusted").kind).toBe("confirm");
     expect(decideToolCall("bash", { command: "git push git@github.com:someone/else.git main" }, clean, "trusted").kind).toBe("confirm");
     expect(decideToolCall("bash", { command: "rm -rf build" }, clean, "trusted"))
       .toEqual({ kind: "confirm", category: "destructive", reason: "run: rm -rf build (can't be undone)" });
