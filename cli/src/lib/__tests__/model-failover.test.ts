@@ -20,11 +20,11 @@ describe("provider-qualified models", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it("routes commandcode: models to CommandCode regardless of FLYD_PROVIDER", () => {
-    const connection = resolveModelConnection("commandcode:deepseek/deepseek-v4-flash");
+    const connection = resolveModelConnection("commandcode:moonshot/kimi-k3");
     expect(connection.apiKey).toBe("cc-key");
     expect(connection.baseURL).toBe("https://api.commandcode.ai/provider/v1");
-    expect(connection.providerIdentity).toBe("api.commandcode.ai/deepseek/deepseek-v4-flash");
-    expect(usesOpenAITransport("commandcode:deepseek/deepseek-v4-flash")).toBe(true);
+    expect(connection.providerIdentity).toBe("api.commandcode.ai/moonshot/kimi-k3");
+    expect(usesOpenAITransport("commandcode:moonshot/kimi-k3")).toBe(true);
     // Claude on CommandCode only speaks the Anthropic Messages shape.
     expect(usesOpenAITransport("commandcode:claude-sonnet-5")).toBe(false);
     expect(resolveModelConnection("commandcode:claude-sonnet-5").baseURL).toBe("https://api.commandcode.ai/provider");
@@ -45,13 +45,13 @@ describe("provider-qualified models", () => {
   });
 
   it("builds the chat chain: primary, configured fallbacks, then CommandCode", () => {
-    vi.stubEnv("FLYD_CHAT_MODEL", "opencode-go/deepseek-v4.1-flash");
+    vi.stubEnv("FLYD_CHAT_MODEL", "openai:gpt-5.6-sol");
     vi.stubEnv("FLYD_CHAT_FALLBACK_MODELS", "openai:gpt-5.6-luna, ");
-    vi.stubEnv("COMMANDCODE_API_KEY_MODEL", "opencode-go/deepseek-v4.1-flash");
+    vi.stubEnv("COMMANDCODE_API_KEY_MODEL", "moonshot/kimi-k3");
     expect(chatModelChain()).toEqual([
-      "opencode-go/deepseek-v4.1-flash",
+      "openai:gpt-5.6-sol",
       "openai:gpt-5.6-luna",
-      "commandcode:deepseek/deepseek-v4.1-flash",
+      "commandcode:moonshot/kimi-k3",
     ]);
   });
 });
@@ -77,17 +77,15 @@ describe("one-shot model chain", () => {
     rmSync(spendDir, { recursive: true, force: true });
   });
 
-  it("ends on Claude Haiku, so one empty account cannot silence the news and the council", () => {
-    expect(oneShotModelChain()).toEqual([
-      "opencode-go/deepseek-v4.1-flash",
-      "opencode-go/deepseek-v4-pro",
-      "anthropic:claude-haiku-5-5",
-    ]);
+  it("runs on Claude Haiku alone, never touching the OpenCode Go account", () => {
+    expect(oneShotModelChain()).toEqual(["anthropic:claude-haiku-5-5"]);
   });
 
-  it("has no backup when Claude is off, and never reaches for OpenAI", () => {
+  it("keeps an allowed FLYD_MODEL first, ends on Claude Haiku, and never reaches for OpenAI unasked", () => {
+    vi.stubEnv("FLYD_MODEL", "commandcode:moonshot/kimi-k3");
+    expect(oneShotModelChain()).toEqual(["commandcode:moonshot/kimi-k3", "anthropic:claude-haiku-5-5"]);
     vi.stubEnv("FLYD_CLAUDE", "0");
-    expect(oneShotModelChain()).toEqual(["opencode-go/deepseek-v4.1-flash", "opencode-go/deepseek-v4-pro"]);
+    expect(oneShotModelChain()).toEqual(["commandcode:moonshot/kimi-k3"]);
   });
 });
 

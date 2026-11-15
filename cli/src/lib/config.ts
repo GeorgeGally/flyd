@@ -8,10 +8,10 @@ import {
   apiModelId,
   COMMANDCODE_BASE_URL,
   commandCodeModelId,
-  opencodeEndpoint,
   opencodeProviderFor,
   qualifiedModelProvider,
 } from "../runtime/flyd-worker-config.js";
+import { allowedForText, refuseForText } from "../runtime/provider-policy.js";
 export { apiModelId, opencodeProviderFor } from "../runtime/flyd-worker-config.js";
 import { claudeApiKey, claudeAvailable } from "./claude-spend.js";
 
@@ -138,20 +138,30 @@ export function getKey(key: keyof FlydConfig): string | undefined {
   return process.env[key] ?? loadConfig()[key];
 }
 
+/**
+ * FLYD_MODEL, unless it names a provider Flyd no longer uses (OpenCode, DeepSeek, the
+ * ChatGPT allowance; runtime/provider-policy.ts): then Claude's quick model, and when
+ * Claude is off or capped, an error rather than a quiet hop to one of them.
+ */
 export function defaultModel(): string {
   const model = getKey("FLYD_MODEL")?.trim();
-  if (!model) {
-    throw new Error("Flyd model is not configured. Set FLYD_MODEL in the project .env");
-  }
-  return model;
+  if (model && allowedForText(model)) return model;
+  const claude = claudeQuickModel();
+  if (claude) return claude;
+  throw new Error(model
+    ? `Flyd model ${model} is a provider Flyd no longer uses, and Claude is off or at its monthly cap`
+    : "Flyd model is not configured. Set FLYD_MODEL in the project .env");
 }
 
+/** FLYD_CHAT_MODEL (or FLYD_MODEL) on the same terms, falling to Claude's chat model. */
 export function defaultChatModel(): string {
   const model = getKey("FLYD_CHAT_MODEL")?.trim() || getKey("FLYD_MODEL")?.trim();
-  if (!model) {
-    throw new Error("Flyd chat model is not configured. Set FLYD_MODEL in the project .env");
-  }
-  return model;
+  if (model && allowedForText(model)) return model;
+  const claude = claudeChatModel();
+  if (claude) return claude;
+  throw new Error(model
+    ? `Flyd chat model ${model} is a provider Flyd no longer uses, and Claude is off or at its monthly cap`
+    : "Flyd chat model is not configured. Set FLYD_MODEL in the project .env");
 }
 
 export const DEFAULT_CLAUDE_CHAT_MODEL = "anthropic:claude-sonnet-5-5";
@@ -183,13 +193,13 @@ export function claudeQuickModel(): string | null {
  */
 export function chatModelChain(): string[] {
   const claude = claudeChatModel();
-  return [...new Set([...(claude ? [claude] : []), ...configuredOr(defaultChatModel, claude), ...fallbackModelChain()])];
+  return [...new Set([...(claude ? [claude] : []), ...configuredOr(defaultChatModel, claude), ...fallbackModelChain()])].filter(allowedForText);
 }
 
 /** Quick jobs: Claude Haiku first, then the models those jobs used before. */
 export function quickModelChain(): string[] {
   const claude = claudeQuickModel();
-  return [...new Set([...(claude ? [claude] : []), ...configuredOr(defaultModel, claude), ...fallbackModelChain()])];
+  return [...new Set([...(claude ? [claude] : []), ...configuredOr(defaultModel, claude), ...fallbackModelChain()])].filter(allowedForText);
 }
 
 /** The configured model; with Claude in front, a missing FLYD_MODEL is no longer fatal. */
@@ -212,17 +222,19 @@ export function fallbackModelChain(): string[] {
     const configured = getKey("COMMANDCODE_MODEL")?.trim() || getKey("COMMANDCODE_API_KEY_MODEL")?.trim();
     chain.push(`commandcode:${commandCodeModelId(configured)}`);
   }
-  return [...new Set(chain)];
+  // No fallback ever lands on OpenCode, DeepSeek or the ChatGPT allowance.
+  return [...new Set(chain)].filter(allowedForText);
 }
 
 /**
  * One-shot queries (the news edition, the council, taste, self-improvement):
- * FLYD_MODEL, the shared fallbacks, then Claude's quick model while Claude is
- * on and under its cap, so one empty account cannot silence every background job.
+ * FLYD_MODEL (Claude's quick model when it names a retired provider), the shared
+ * fallbacks, then Claude's quick model while Claude is on and under its cap; none of
+ * them OpenCode, DeepSeek or the ChatGPT allowance.
  */
 export function oneShotModelChain(): string[] {
   const claude = claudeQuickModel();
-  return [...new Set([defaultModel(), ...fallbackModelChain(), ...(claude ? [claude] : [])])];
+  return [...new Set([defaultModel(), ...fallbackModelChain(), ...(claude ? [claude] : [])])].filter(allowedForText);
 }
 
 /** CommandCode serves Claude only through its Anthropic Messages endpoint. */
@@ -249,11 +261,8 @@ function qualifiedConnection(provider: string, model: string): ModelConnection {
       case "anthropic":
         return { apiKey: claudeApiKey(), keyName: "CLAUDE_API_KEY", baseURL: undefined };
       default:
-        return {
-          apiKey: getKey("OPENCODE_API_KEY")?.trim() || getKey("OPENCODE_API")?.trim(),
-          keyName: "OPENCODE_API_KEY",
-          baseURL: opencodeEndpoint(provider),
-        };
+        // opencode:/opencode-go: never get here: resolveModelConnection refuses them first.
+        throw new Error(`Flyd provider "${provider}" is not supported for model ${model}`);
     }
   })();
   if (!setting.apiKey) {
@@ -285,41 +294,35 @@ function explicitProvider(model: string): string | null {
 }
 
 export function resolveModelConnection(model = defaultChatModel()): ModelConnection {
+  refuseForText(model, "this call");
   const qualified = explicitProvider(model);
   if (qualified) return qualifiedConnection(qualified, model);
   const canonicalKey = getKey("FLYD_MODEL_API_KEY")?.trim();
   const canonicalBaseURL = getKey("FLYD_MODEL_BASE_URL")?.trim().replace(/\/+$/, "");
   const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
+  // FLYD_PROVIDER=opencode-go would send a bare id to OpenCode Go.
   const opencode = opencodeProviderFor(model, provider);
+  if (opencode) refuseForText(opencode, "this call");
   const useOpenAI = provider === "openai" || isOpenAIModel(model);
-  const useAnthropic = !opencode && !useOpenAI && (provider === "anthropic" || !provider);
-  if (!opencode && !useOpenAI && !useAnthropic) {
+  const useAnthropic = !useOpenAI && (provider === "anthropic" || !provider);
+  if (!useOpenAI && !useAnthropic) {
     throw new Error(
-      `Flyd provider "${provider}" is not supported for chat model ${model}. Supported providers: openai, anthropic, opencode, opencode-go`,
+      `Flyd provider "${provider}" is not supported for chat model ${model}. Supported providers: openai, anthropic`,
     );
   }
 
-  const apiKey = canonicalKey || (opencode
-    ? getKey("OPENCODE_API_KEY")?.trim() || getKey("OPENCODE_API")?.trim()
-    : useOpenAI
-      ? getKey("OPENAI_API_KEY")?.trim()
-      : claudeApiKey());
+  const apiKey = canonicalKey || (useOpenAI ? getKey("OPENAI_API_KEY")?.trim() : claudeApiKey());
   if (!apiKey) {
-    const keyName = opencode
-      ? "OPENCODE_API_KEY"
-      : useOpenAI
-        ? "OPENAI_API_KEY"
-        : "CLAUDE_API_KEY";
+    const keyName = useOpenAI ? "OPENAI_API_KEY" : "CLAUDE_API_KEY";
     throw new Error(
-      `No API key is configured for Flyd model ${model} (provider ${opencode ?? (useOpenAI ? "openai" : "anthropic")}): set FLYD_MODEL_API_KEY or ${keyName}`,
+      `No API key is configured for Flyd model ${model} (provider ${useOpenAI ? "openai" : "anthropic"}): set FLYD_MODEL_API_KEY or ${keyName}`,
     );
   }
 
-  const baseURL = canonicalBaseURL || (opencode ? opencodeEndpoint(opencode) : undefined);
+  const baseURL = canonicalBaseURL || undefined;
   const providerHost = baseURL
     ? new URL(baseURL).host
-    : opencode ? "opencode.ai"
-      : useOpenAI ? "api.openai.com" : "api.anthropic.com";
+    : useOpenAI ? "api.openai.com" : "api.anthropic.com";
   return {
     model,
     apiKey,
@@ -344,7 +347,7 @@ export function usesOpenAITransport(model: string): boolean {
   if (qualified === "commandcode") return !commandCodeUsesMessages(model);
   if (qualified) return qualified !== "anthropic";
   const provider = getKey("FLYD_PROVIDER")?.trim().toLowerCase() ?? "";
-  return isOpenAIModel(model) || opencodeProviderFor(model, provider) !== null || provider === "openai";
+  return isOpenAIModel(model) || provider === "openai";
 }
 
 export function isOpenAIModel(model: string): boolean {

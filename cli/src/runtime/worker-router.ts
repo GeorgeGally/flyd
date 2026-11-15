@@ -1,5 +1,5 @@
 import type { WorkerCapability, WorkerHealth } from "./worker-adapter.js";
-import { spendsChatGptAllowance } from "./chatgpt-allowance.js";
+import { allowedForText } from "./provider-policy.js";
 
 export function routeWorker(input: {
   requirements: WorkerCapability[];
@@ -10,8 +10,8 @@ export function routeWorker(input: {
   const excluded = new Set(input.excludedAdapters);
   const candidates = input.adapters.filter((adapter) => (
     adapter.healthy &&
-    // Every routed job is text, code or review work, which never goes to the ChatGPT/Codex allowance.
-    !spendsChatGptAllowance(adapter.name) &&
+    // Every routed job is text, code or review work: never OpenCode, DeepSeek or the ChatGPT/Codex allowance.
+    allowedForText(adapter.name) &&
     !excluded.has(adapter.name) &&
     input.requirements.every((requirement) => adapter.capabilities.includes(requirement))
   ));

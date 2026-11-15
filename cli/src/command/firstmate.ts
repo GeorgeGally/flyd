@@ -296,7 +296,7 @@ export class FirstmateDomainTransport {
 
 /**
  * Sessions run on Claude only. Codex and OpenCode are never session runtimes: OpenCode's default model here is its
- * ChatGPT login, and George keeps his ChatGPT/Codex allowance for images (`runtime/chatgpt-allowance.ts`), so coding
+ * ChatGPT login, and George keeps his ChatGPT/Codex allowance for images (`runtime/provider-policy.ts`), so coding
  * work waits for Claude rather than spending it.
  */
 type SessionRuntime = "claude";

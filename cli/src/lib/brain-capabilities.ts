@@ -12,7 +12,7 @@ export const BRAIN_CAPABILITIES = ([
   { id: "dashboard", integration: "automatic", description: "Summarize archive health, coverage, and pending memory work.", mutatesArchive: false },
   { id: "code", integration: "runtime", description: "Start or resume a durable repository-aware coding task through the canonical agent runtime.", mutatesArchive: false },
   { id: "task", integration: "runtime", description: "Inspect and advance canonical coding task, grant, worker, correction, and outcome state.", mutatesArchive: false },
-  { id: "crew", integration: "runtime", description: "Dispatch, supervise, verify, and land OpenCode crewmates working in isolated worktrees.", mutatesArchive: false },
+  { id: "crew", integration: "runtime", description: "Dispatch, supervise, verify, and land Claude Code crewmates working in isolated worktrees.", mutatesArchive: false },
   { id: "skills", integration: "runtime", description: "How-to skills loaded into a chat turn when it fits; list, or import one of George's Claude/OpenCode skills.", mutatesArchive: false },
   { id: "improve", integration: "runtime", description: "Human-gated self-improvement: gather shortfall evidence, pick one fix, hand it to the crew for a verified branch.", mutatesArchive: false },
   { id: "scorecard", integration: "runtime", description: "Self-review against the chief-of-staff standard: read back what George was shown, then a short scorecard of where Flyd fell short.", mutatesArchive: false },

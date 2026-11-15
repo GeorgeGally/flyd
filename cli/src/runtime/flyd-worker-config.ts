@@ -1,5 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
+import { allowedForText } from "./provider-policy.js";
 
 export interface FlydWorkerConfig {
   apiKey: string;
@@ -7,11 +8,6 @@ export interface FlydWorkerConfig {
   baseURL: string;
   providerIdentity: string;
 }
-
-const MODEL_ALIASES: Record<string, string> = {
-  deepseekv4: "deepseek-v4-pro",
-  "deepseek-v4": "deepseek-v4-pro",
-};
 
 const OPENCODE_ENDPOINTS: Record<string, string> = {
   opencode: "https://opencode.ai/zen/v1",
@@ -120,8 +116,6 @@ export function loadFlydWorkerConfigs(input: {
     || (opencode
       ? opencodeEndpoint(opencode)
       : useOpenAI ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1");
-  const compatibilityKey = values.OPENCODE_API?.trim() || values.OPENCODE_API_KEY?.trim();
-  const compatibilityModel = values.OPENCODE_MODEL?.trim() || values.OPENOCE_MODEL?.trim();
   const openRouterKey = values.OPENROUTER_API_KEY?.trim();
   const openRouterModel = values.OPENROUTER_MODEL?.trim();
   const commandCodeKey = values.COMMANDCODE_API_KEY?.trim() || values.CMD_API_KEY?.trim();
@@ -130,11 +124,6 @@ export function loadFlydWorkerConfigs(input: {
       apiKey: canonicalKey,
       model: canonicalModel,
       baseURL: canonicalBaseURL,
-    } : null,
-    compatibilityKey && compatibilityModel ? {
-      apiKey: compatibilityKey,
-      model: compatibilityModel,
-      baseURL: values.OPENCODE_BASE_URL?.trim() || "https://opencode.ai/zen/v1",
     } : null,
     openRouterKey && openRouterModel ? {
       apiKey: openRouterKey,
@@ -146,7 +135,9 @@ export function loadFlydWorkerConfigs(input: {
       model: commandCodeModelId(values.COMMANDCODE_MODEL || values.COMMANDCODE_API_KEY_MODEL),
       baseURL: values.COMMANDCODE_BASE_URL?.trim() || COMMANDCODE_BASE_URL,
     } : null,
-  ].filter((candidate): candidate is { apiKey: string; model: string; baseURL: string } => Boolean(candidate));
+  ].filter((candidate): candidate is { apiKey: string; model: string; baseURL: string } => Boolean(candidate))
+    // Never OpenCode, OpenCode Go, DeepSeek or the ChatGPT allowance, by model or by endpoint (runtime/provider-policy.ts).
+    .filter((candidate) => allowedForText(candidate.model) && !/(^|\.)opencode\.ai$/i.test(new URL(candidate.baseURL).host));
 
   if (candidates.length === 0) {
     throw new Error(
@@ -155,8 +146,7 @@ export function loadFlydWorkerConfigs(input: {
   }
 
   const mapped = candidates.map((candidate) => {
-    const raw = apiModelId(candidate.model);
-    const model = MODEL_ALIASES[raw.toLowerCase()] ?? raw;
+    const model = apiModelId(candidate.model);
     const baseURL = normalizedBaseURL(candidate.baseURL);
     return {
       apiKey: candidate.apiKey,
@@ -196,7 +186,7 @@ export function loadFlydRouterConfig(input: {
   const values = { ...fileEnvironment, ...environment };
 
   const model = values.FLYD_ROUTER_MODEL?.trim();
-  if (!model) return null;
+  if (!model || !allowedForText(model)) return null;
 
   let apiKey = values.FLYD_ROUTER_API_KEY?.trim();
   let baseURL = values.FLYD_ROUTER_BASE_URL?.trim();
@@ -214,7 +204,7 @@ export function loadFlydRouterConfig(input: {
   if (!apiKey) return null;
 
   return {
-    model: MODEL_ALIASES[model.toLowerCase()] ?? model,
+    model,
     apiKey,
     baseURL: normalizedBaseURL(baseURL || "https://openrouter.ai/api/v1"),
   };

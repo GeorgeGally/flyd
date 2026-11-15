@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { elideToolHistory, type ToolHistoryPolicy, type ToolHistoryStats } from "../runtime/tool-history.js";
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
@@ -189,20 +188,10 @@ export function openAIAgentTransport(model: string): "responses" | "chat_complet
   return /^gpt-5(?:\.|-|$)/i.test(apiModelId(model)) ? "responses" : "chat_completions";
 }
 
-// The OpenCode Go endpoint requires a client user agent and a stable session id
-// so it can route and cache prompts. ponytail: one id per process is enough;
-// thread the real conversation id through if per-conversation caching matters.
-const OPENCODE_HOST = /opencode\.ai/;
-const OPENCODE_HEADERS = {
-  "User-Agent": "flyd-coding-agent/1.0",
-  "x-opencode-session": randomUUID(),
-};
-
 function openAIClientOptions(apiKey: string, baseURL?: string) {
   return {
     apiKey,
     baseURL: baseURL || undefined,
-    ...(baseURL && OPENCODE_HOST.test(baseURL) ? { defaultHeaders: OPENCODE_HEADERS } : {}),
   };
 }
 

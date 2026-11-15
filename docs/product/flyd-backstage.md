@@ -52,7 +52,7 @@ Flyd's proactive agenda: self-scheduled follow-ups/briefings run unattended (Cor
 
 ## Crew (`flyd crew [list|dispatch <outcome> [--done <point>]…|show|supervise|land|discard]`, `cli/src/crew/crew.ts`)
 
-- Flyd as first mate: OpenCode crewmates in git worktrees under `~/.flyd/worktrees`, verified with the repo's own checks.
+- Flyd as first mate: Claude Code crewmates in git worktrees under `~/.flyd/worktrees`, verified with the repo's own checks.
 - An independent reviewer then holds the diff to the task's done_when on the agenda tick; its verdict decides, not the test run. A diff found short fails the task with the findings recorded verbatim, and the crewmate gets exactly one re-run with those findings appended to its brief (`MAX_CREW_ATTEMPTS`, kept on the task record so the bound survives restarts).
 - Flyd's own self-improvement fixes are managed backstage: once checks pass and the review finds every point met they land themselves (retried each pass, dropped after three days if they can't merge); George hears nothing of them (`FLYD_CREW_AUTO_LAND=0` turns landing off). Everything else waits for George's `/land`.
 - Tests must never launch a real crewmate (guarded under VITEST).

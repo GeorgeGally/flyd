@@ -73,59 +73,24 @@ describe("Flyd directory configuration", () => {
     });
   });
 
-  it("routes a bare model with FLYD_PROVIDER=opencode-go to the Go endpoint and the OpenCode key", async () => {
-    vi.stubEnv("FLYD_MODEL", "deepseek-v4-flash");
+  it("refuses OpenCode Go and DeepSeek, bare under FLYD_PROVIDER or prefixed, even with their key set", async () => {
     vi.stubEnv("FLYD_CHAT_MODEL", "");
     vi.stubEnv("FLYD_PROVIDER", "opencode-go");
     vi.stubEnv("OPENCODE_API_KEY", "opencode-key");
-    vi.stubEnv("ANTHROPIC_API_KEY", "wrong-key");
+    vi.stubEnv("FLYD_CLAUDE", "0");
     vi.resetModules();
 
     const config = await import("../config.js");
 
-    expect(config.resolveModelConnection()).toEqual({
-      model: "deepseek-v4-flash",
-      apiKey: "opencode-key",
-      baseURL: "https://opencode.ai/zen/go/v1",
-      providerIdentity: "opencode.ai/deepseek-v4-flash",
-    });
-  });
-
-  it("routes a model carrying the opencode-go/ prefix the same way", async () => {
+    for (const model of ["gpt-6-luna", "opencode-go/deepseek-v4-flash", "opencode:kimi-k3"]) {
+      expect(() => config.resolveModelConnection(model), model).toThrow(/no longer uses/);
+    }
     vi.stubEnv("FLYD_MODEL", "opencode-go/deepseek-v4-flash");
-    vi.stubEnv("FLYD_CHAT_MODEL", "");
-    vi.stubEnv("FLYD_PROVIDER", "opencode-go");
-    vi.stubEnv("OPENCODE_API_KEY", "opencode-key");
-    vi.stubEnv("ANTHROPIC_API_KEY", "wrong-key");
-    vi.resetModules();
-
-    const config = await import("../config.js");
-
-    expect(config.resolveModelConnection()).toEqual({
-      model: "opencode-go/deepseek-v4-flash",
-      apiKey: "opencode-key",
-      baseURL: "https://opencode.ai/zen/go/v1",
-      providerIdentity: "opencode.ai/deepseek-v4-flash",
-    });
-  });
-
-  it("names the missing key when the configured provider has none", async () => {
-    vi.stubEnv("FLYD_MODEL", "deepseek-v4-flash");
-    vi.stubEnv("FLYD_CHAT_MODEL", "");
-    vi.stubEnv("FLYD_PROVIDER", "opencode-go");
-    vi.stubEnv("FLYD_MODEL_API_KEY", "");
-    vi.stubEnv("OPENCODE_API_KEY", "");
-    vi.stubEnv("OPENCODE_API", "");
-    vi.stubEnv("ANTHROPIC_API_KEY", "wrong-key");
-    vi.resetModules();
-
-    const config = await import("../config.js");
-
-    expect(() => config.resolveModelConnection()).toThrow(/OPENCODE_API_KEY/);
+    expect(() => config.resolveModelConnection()).toThrow(/no longer uses/);
   });
 
   it("resolves a bare model under FLYD_PROVIDER=commandcode to CommandCode, keeping the same model", async () => {
-    vi.stubEnv("FLYD_MODEL", "deepseek/deepseek-v4.1-flash");
+    vi.stubEnv("FLYD_MODEL", "moonshot/kimi-k3");
     vi.stubEnv("FLYD_CHAT_MODEL", "");
     vi.stubEnv("FLYD_PROVIDER", "commandcode");
     vi.stubEnv("COMMANDCODE_API_KEY", "cc-key");
@@ -136,10 +101,10 @@ describe("Flyd directory configuration", () => {
     const config = await import("../config.js");
     const connection = config.resolveModelConnection(config.defaultModel());
 
-    expect(connection.model).toBe("deepseek/deepseek-v4.1-flash");
+    expect(connection.model).toBe("moonshot/kimi-k3");
     expect(connection.apiKey).toBe("cc-key");
     expect(connection.baseURL).toBe("https://api.commandcode.ai/provider/v1");
-    expect(config.usesOpenAITransport("deepseek/deepseek-v4.1-flash")).toBe(true);
+    expect(config.usesOpenAITransport("moonshot/kimi-k3")).toBe(true);
     expect(config.hasApiKey()).toBe(true);
   });
 
@@ -152,7 +117,7 @@ describe("Flyd directory configuration", () => {
 
     const config = await import("../config.js");
 
-    expect(config.hasApiKey("commandcode:deepseek/deepseek-v4.1-flash")).toBe(true);
+    expect(config.hasApiKey("commandcode:moonshot/kimi-k3")).toBe(true);
     expect(config.hasApiKey("openai:gpt-5.6-luna")).toBe(false);
   });
 

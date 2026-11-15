@@ -24,7 +24,7 @@ describe("flyd ask", () => {
   beforeEach(() => {
     query.mockReset();
     vi.stubEnv("FLYD_PROVIDER", "commandcode");
-    vi.stubEnv("FLYD_MODEL", "deepseek/deepseek-v4.1-flash");
+    vi.stubEnv("FLYD_MODEL", "moonshot/kimi-k3");
     vi.stubEnv("FLYD_CHAT_MODEL", "");
     vi.stubEnv("FLYD_CHAT_FALLBACK_MODELS", "");
     vi.stubEnv("COMMANDCODE_API_KEY", "cc-key");
@@ -39,7 +39,7 @@ describe("flyd ask", () => {
     const [prompt, , , , , options] = query.mock.calls[0];
     expect(prompt).toContain("George lives in Cape Town.");
     expect(prompt).toContain("where do I live?");
-    expect(options.chain).toContain("deepseek/deepseek-v4.1-flash");
+    expect(options.chain).toContain("moonshot/kimi-k3");
     expect(result.evidence).toContain("person:george");
     expect(result.evidence).not.toContain("[conflict]");
   });

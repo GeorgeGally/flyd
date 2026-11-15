@@ -15,6 +15,18 @@ request names a workspace, so such a key also needs `CLAUDE_WORKSPACE_ID`
 (console.anthropic.com → Settings → Workspaces). A workspace-scoped key needs
 nothing else.
 
+## Which providers Flyd may use
+
+Claude does all text, code, review and chat work. George's ChatGPT/Codex allowance
+(the Codex CLI, or OpenCode's `openai/…` ChatGPT login) is for images only.
+OpenCode, OpenCode Go and DeepSeek are never used, not even as a fallback: a
+setting that names one (`FLYD_MODEL=opencode-go/…`, `FLYD_PROVIDER=opencode-go`, a
+`deepseek` model through any route) is skipped in every chain and refused when a
+call resolves it, and Claude takes the job; with Claude off or at its cap the job
+fails rather than reaching for them. The rule lives in
+`cli/src/runtime/provider-policy.ts`. Flyd's own `openai:…` models bill the separate
+`OPENAI_API_KEY` and are not that allowance.
+
 ## Who answers what
 
 | Job | First choice | Falls back to |
@@ -24,8 +36,8 @@ nothing else.
 | Reply summaries in the Flyd window | Claude Haiku 5.5 | xAI Grok (`XAI_API_KEY` or the grok CLI's key) |
 | Typing prediction | Claude Haiku 5.5, conversation cached | `openrouter:inception/mercury-2.5` |
 | Design team (`start_design_task`): the Creative Director, Flyd's review of a lab, and the Designers who build lab pages and real-project changes | Claude Opus through George's Claude subscription: the `claude` CLI with every API key variable removed, never the metered `CLAUDE_API_KEY` chain; `FLYD_DESIGN_MODEL` names another Claude model, `FLYD_CLAUDE_BIN` the CLI | None: a plan limit or a missing login stops the lab and George is told why |
-| Coding crew (`flyd crew`, `start_coding_task`) | `opencode-go/gpt-6-luna`, or `FLYD_CREW_MODEL` (never OpenCode's own default) | `cursor/auto` (Cursor's agent on George's login) when the provider refuses; `FLYD_CREW_BACKUP_MODELS` |
-| Background learning, synthesis, curation, the news edition | `FLYD_MODEL` | `FLYD_CHAT_FALLBACK_MODELS`, CommandCode, then Claude Haiku 5.5 (`FLYD_CLAUDE_QUICK_MODEL`) while Claude is on and under its cap |
+| Coding crew (`flyd crew`, `start_coding_task`) | Claude Code (`claude -p`) on George's subscription, its own default model, or `FLYD_CREW_MODEL` (`claude/<model>`, or `cursor/<model>` for Cursor's agent) | None by default: a limited Claude waits; `FLYD_CREW_BACKUP_MODELS` lists others |
+| Background learning, synthesis, curation, the news edition | `FLYD_MODEL`, or Claude Haiku 5.5 when it names OpenCode or DeepSeek | `FLYD_CHAT_FALLBACK_MODELS`, CommandCode, then Claude Haiku 5.5 (`FLYD_CLAUDE_QUICK_MODEL`) while Claude is on and under its cap |
 
 A fallback takes over when Claude errors, declines, or the month's cap is
 reached. A failed provider (quota, out of credit, auth or server fault) cools
@@ -41,7 +53,7 @@ the conversation) follow the cached prefix.
 
 ## Monthly spend cap
 
-Every Claude call Flyd makes (and every step a crewmate logs when `FLYD_CREW_MODEL` names an `anthropic/` model) is priced
+Every Claude call Flyd makes is priced
 from its reported token usage and added to this calendar month's total in
 `~/.flyd/claude-spend.json`. At 80% of the cap George gets one notification and
 an inbox note for his next briefing; at 100% Claude drops out of every chain
@@ -65,8 +77,8 @@ until the 1st and he hears that once too.
 | `FLYD_ROUTING_FALLBACK_MODEL` | — | Pins the room reader and view router to one exact model |
 | `FLYD_PREDICTION_MODEL` | Claude Haiku, then Mercury | Pins typing prediction to one exact model |
 | `FLYD_PREDICTIONS` | on | `0` turns typing prediction off |
-| `FLYD_CREW_MODEL` | `opencode-go/gpt-6-luna` | Pins the crew's OpenCode model (`provider/model`). An `openai/` (ChatGPT login) or `codex` model is ignored: that allowance is kept for images only (`cli/src/runtime/chatgpt-allowance.ts`) |
-| `FLYD_CREW_BACKUP_MODELS` | `cursor/auto` | Comma-separated models a crewmate moves to, in order, when its provider refuses (credits, limits, keys); it keeps its worktree. `cursor/<model>` runs `cursor-agent`; `openai/` and `codex` entries are dropped; `none` turns it off |
+| `FLYD_CREW_MODEL` | `claude/default` | The crew's model: `claude/<model>` runs Claude Code on that model (`claude/default` leaves the CLI's own), `cursor/<model>` runs `cursor-agent`. An OpenCode, DeepSeek, `openai/` (ChatGPT login) or `codex` model is ignored |
+| `FLYD_CREW_BACKUP_MODELS` | none | Comma-separated models a crewmate moves to, in order, when its provider refuses (credits, limits, keys); it keeps its worktree. Same forms as `FLYD_CREW_MODEL`; OpenCode, DeepSeek, `openai/` and `codex` entries are dropped; `none` turns it off |
 | `FLYD_VIEW_ANTHROPIC_MODEL` | quick model | Summaries' Claude model |
 | `FLYD_VIEW_XAI_MODEL` | `grok-4-fast-non-reasoning` | Summaries' xAI model |
 | `FLYD_VIEW_SUMMARIES` | on | `0` turns model summaries off |
