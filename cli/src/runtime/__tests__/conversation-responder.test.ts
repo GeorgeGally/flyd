@@ -1290,8 +1290,8 @@ describe("conversation action tools", () => {
         .toMatch(/^Not approved: run: git push --force origin main \(can't be undone\)\./);
       expect(await runToolCall("bash", { command: "rm -rf node_modules" }, root))
         .toMatch(/^Not approved: run: rm -rf node_modules \(can't be undone\)\./);
-      expect(await runToolCall("bash", { command: "git push origin main" }, root))
-        .toMatch(/^Not approved: run: git push origin main \(leaves this machine\)\./);
+      expect(await runToolCall("bash", { command: "git push upstream main" }, root))
+        .toMatch(/^Not approved: run: git push upstream main \(leaves this machine\)\./);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1316,12 +1316,12 @@ describe("conversation action tools", () => {
     const root = mkdtempSync(join(tmpdir(), "flyd-action-bash-"));
     let asked = 0;
     try {
-      const out = await runToolCall("bash", { command: "git push origin main" }, root, async () => {
+      const out = await runToolCall("bash", { command: "git push upstream main" }, root, async () => {
         asked += 1;
         return false;
       });
       expect(asked).toBe(1);
-      expect(out).toMatch(/^Not approved: run: git push origin main \(leaves this machine\)\./);
+      expect(out).toMatch(/^Not approved: run: git push upstream main \(leaves this machine\)\./);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1334,8 +1334,8 @@ describe("conversation action tools", () => {
     let asked = 0;
     try {
       const askAlways = async () => { asked += 1; return "always" as const; };
-      await runToolCall("bash", { command: "git push origin main 2>/dev/null || true" }, root, askAlways);
-      await runToolCall("bash", { command: "git push origin other 2>/dev/null || true" }, root, askAlways);
+      await runToolCall("bash", { command: "git push upstream main 2>/dev/null || true" }, root, askAlways);
+      await runToolCall("bash", { command: "git push upstream other 2>/dev/null || true" }, root, askAlways);
       expect(asked).toBe(1);
     } finally {
       resetSessionAllowances();
@@ -1557,7 +1557,7 @@ describe("conversation action tools", () => {
         runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
           loops++;
           outputs.push(await onToolCall("write_file", { path: "note.txt", content: "done\n" }));
-          outputs.push(await onToolCall("bash", { command: "git push origin main" }));
+          outputs.push(await onToolCall("bash", { command: "git push upstream main" }));
           return "<final>The local note is written. The push was not approved.</final>";
         },
         persistReceipt: async (input) => input as never,
@@ -1711,7 +1711,7 @@ describe("conversation action tools", () => {
         askUser: async (prompt) => { prompts.push(prompt); return false; },
       }, {
         runAgentLoop: async (_system, _prompt, _tools, onToolCall) => {
-          outputs.push(await onToolCall("bash", { command: "git push origin feature" }));
+          outputs.push(await onToolCall("bash", { command: "git push upstream feature" }));
           outputs.push(await onToolCall("bash", { command: "git push --force origin feature" }));
           outputs.push(await onToolCall("write_file", { path: "notes.txt", content: "draft\n" }));
           return "<final>done</final>";
@@ -1719,7 +1719,7 @@ describe("conversation action tools", () => {
         persistReceipt: async (input) => input as never,
       });
       expect(prompts).toHaveLength(1);
-      expect(outputs[0]).toMatch(/^Not approved: run: git push origin feature \(leaves this machine\)/);
+      expect(outputs[0]).toMatch(/^Not approved: run: git push upstream feature \(leaves this machine\)/);
       expect(outputs[1]).toMatch(/already said no to this kind of action this turn/);
       expect(existsSync(join(root, "notes.txt"))).toBe(true);
     } finally {

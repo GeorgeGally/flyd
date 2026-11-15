@@ -115,7 +115,7 @@ Every guarantee in the CoS work must say which kind it is. Squad's docs are hone
 | Guarantee | Kind | Where |
 |---|---|---|
 | Flyd never changes code | Code: tools removed from Flyd's tool set | split plan Phase 4 |
-| Push, publish, send, delete or pipe-to-shell ask George | Code | `runtime/tool-policy.ts` |
+| Force-push, a push to someone else's remote, publish, send, delete or pipe-to-shell ask George; pushing, merging and syncing his own finished work is routine (George, 2026-11-15: always on main, `~/Documents` and GitHub in sync) | Code | `runtime/tool-policy.ts`, `lib/routine-git.ts` |
 | Staff never send outbound messages without George's explicit permission | Code: CoS-dispatched work has no send capability; a send becomes a `decision` report carrying the draft, and only George's approval of that item sends it | Phase 6, `tool-policy.ts` |
 | One alternative per failed run, then escalate | Code | Phase 6 adaptation count |
 | One delivery per report | Code | `flyd.delivered` event, split plan Phase 1 |

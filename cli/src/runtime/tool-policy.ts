@@ -173,12 +173,19 @@ export function classifyAppleScript(script: string): ActionCategory {
   return "local";
 }
 
+/**
+ * A plain push of George's own work to its origin is routine by his standing rule: he always
+ * works on main and keeps ~/Documents and GitHub in sync. A force push stays destructive
+ * (DESTRUCTIVE above), and a push to any other remote (someone else's repo, a fork) stays outward.
+ */
+const ROUTINE_PUSH = /\bgit\s+push(?:\s+(?:-u|--set-upstream))?(?:\s+origin(?:\s+(?!-)[\w./:@-]+)?)?(?=\s*(?:$|[;&|\n)]|\d?>))/gi;
+
 export function classifyCommand(command: string): ActionCategory {
   if (DESTRUCTIVE.test(command)) return "destructive";
   if (isReadOnlyCommand(command)) return "read";
   // osascript from the shell is judged by what its script does.
   if (/\bosascript\b/.test(command)) return classifyAppleScript(command);
-  if (OUTWARD.test(command)) return "outward";
+  if (OUTWARD.test(command.replace(ROUTINE_PUSH, "git status"))) return "outward";
   return "local";
 }
 
