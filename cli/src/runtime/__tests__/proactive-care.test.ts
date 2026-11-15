@@ -8,7 +8,7 @@ import { CALENDAR_METADATA_CONTRACT, MEETING_PREP_CONTRACT, SourceContractRegist
 import type { MemoryEntry } from "../../council/memory-store.js";
 import type { Project } from "../../council/projects.js";
 import type { Edition } from "../../council/scout.js";
-import { activityFromRecords, type ActivityRecord } from "../../conversation-view/activity.js";
+import { activityFromRecords, visibleCareRecords, type ActivityRecord } from "../../conversation-view/activity.js";
 
 const now = new Date("2026-11-15T10:00:00");
 const meeting: CareEvent = { id: "event-123", title: "Call with Chris Jones", start: "2026-11-15T10:45:00" };
@@ -123,6 +123,37 @@ describe("proactive local personal care", () => {
     expect(made[0]?.title).toBe("References for this direction");
     expect(made[0]?.stories?.length).toBeGreaterThanOrEqual(2);
     expect(prepareCreativeForConversation("Just checking in", deps)).toBe(false);
+  });
+
+  it("does not expose a previously prepared meeting when permission is disabled or revoked", () => {
+    const meetingNote = meetingCard(meeting, memory, now)!;
+    const visual = creativeCard([project], edition, now)!;
+    const records: unknown[] = [meetingNote, visual, { key: "ordinary", kind: "noted", title: "Other work", at: now.toISOString() }];
+    const allowed = visibleCareRecords(records, { careEnabled: true, meetingEnabled: true });
+    expect(allowed).toHaveLength(3);
+    const revoked = visibleCareRecords(records, { careEnabled: true, meetingEnabled: false });
+    expect(activityFromRecords(revoked, now.getTime()).done.map((item) => item.title))
+      .toEqual(["For Generative Typography", "Other work"]);
+    const disabled = visibleCareRecords(records, { careEnabled: false, meetingEnabled: false });
+    expect(activityFromRecords(disabled, now.getTime()).done.map((item) => item.title))
+      .toEqual(["Other work"]);
+  });
+
+  it("allows another relevant design direction but caps conversation inspiration at two cards a day", () => {
+    const made: ActivityRecord[] = [];
+    const keys = new Set<string>();
+    const deps = {
+      now: () => now, edition: () => edition,
+      record: (record: ActivityRecord) => { made.push(record); keys.add(record.key!); },
+      alreadyRecorded: (key: string) => keys.has(key),
+      countConversationCards: () => keys.size,
+    };
+    expect(prepareCreativeForConversation("Exploring generative visual typography and design", deps)).toBe(true);
+    expect(prepareCreativeForConversation("  Exploring generative visual typography and design!!! ", deps)).toBe(false);
+    expect(prepareCreativeForConversation("Visual generative typography and lettering experiments", deps)).toBe(true);
+    expect(prepareCreativeForConversation("Exploring a new visual generative typography direction", deps)).toBe(false);
+    expect(made).toHaveLength(2);
+    expect(made[0]?.key).not.toBe(made[1]?.key);
   });
 
   it("surfaces a dated, confirmed commitment without inventing an action or deadline", () => {
