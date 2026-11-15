@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { calendarMetadataConsented, creativeCard, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
+import { calendarMetadataConsented, commitmentCard, creativeCard, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
 import { parseCalendarMetadata } from "../proactive-calendar.js";
 import { CALENDAR_METADATA_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import type { MemoryEntry } from "../../council/memory-store.js";
@@ -71,26 +71,26 @@ describe("proactive local personal care", () => {
     expect(creativeCard([{ ...project, status: "done" }], edition, now)).toBeNull();
   });
 
-  it("does not read sensitive calendar or memory before separate opt-ins", async () => {
+  it("does not read Calendar before explicit source consent and honors its kill switch", async () => {
     vi.stubEnv("FLYD_PERSONAL_BRIEFING", "0");
-    let calls = 0;
+    let calendarReads = 0;
     const made: ActivityRecord[] = [];
     const deps = {
       now: () => now, projects: () => [project], edition: () => edition,
       record: (record: ActivityRecord) => made.push(record),
       alreadyRecorded: () => false,
-      events: async () => { calls++; return [meeting]; },
-      memory: () => { calls++; return memory; },
+      events: async () => { calendarReads++; return [meeting]; },
+      memory: () => memory,
       calendarConsent: () => true,
     };
     const out = await runProactiveCare(deps);
-    expect(out).toEqual({ meetings: 0, inspiration: 1, skipped: ["personal_briefing_disabled"] });
-    expect(calls).toBe(0);
+    expect(out).toEqual({ meetings: 0, inspiration: 1, commitments: 0, skipped: ["personal_briefing_disabled"] });
+    expect(calendarReads).toBe(0);
     expect(made).toHaveLength(1);
     vi.stubEnv("FLYD_PERSONAL_BRIEFING", "1");
     expect((await runProactiveCare({ ...deps, calendarConsent: () => false })).skipped)
       .toContain("calendar_metadata_not_consented");
-    expect(calls).toBe(0);
+    expect(calendarReads).toBe(0);
   });
 
   it("prepares quiet cards once and never pushes notifications", async () => {
@@ -107,6 +107,18 @@ describe("proactive local personal care", () => {
     expect(await runProactiveCare(deps)).toMatchObject({ meetings: 0, inspiration: 0 });
     expect(made.map((x) => x.kind)).toEqual(["news", "noted"]);
     expect(made.every((x) => x.state === "done")).toBe(true);
+  });
+
+  it("surfaces a dated, confirmed commitment without inventing an action or deadline", () => {
+    const entries: MemoryEntry[] = [
+      { id: "promise", section: "Commitments", text: "Send the revised proposal by 2026-11-16.", date: "2026-11-14", tier: "aging" },
+      { id: "vague", section: "Commitments", text: "Remember to check with a colleague soon.", date: "2026-11-14", tier: "aging" },
+    ];
+    const card = commitmentCard(entries, now);
+    expect(card).toMatchObject({ kind: "noted", state: "done", title: "Tomorrow: something you committed to" });
+    expect(card?.line).toContain("Send the revised proposal");
+    expect(commitmentCard(entries.map((entry) => ({ ...entry, date: "2026-01-01" })), now)).toBeNull();
+    expect(commitmentCard(entries, new Date("2026-11-20T10:00:00"))).toBeNull();
   });
 
   it("honors a revoked or disabled calendar metadata source contract", () => {
@@ -126,6 +138,6 @@ describe("proactive local personal care", () => {
   it("disables all proactive work with one switch", async () => {
     vi.stubEnv("FLYD_PROACTIVE_CARE", "0");
     expect(await runProactiveCare({ now: () => now, projects: () => { throw new Error("must not read"); } }))
-      .toEqual({ meetings: 0, inspiration: 0, skipped: ["disabled"] });
+      .toEqual({ meetings: 0, inspiration: 0, commitments: 0, skipped: ["disabled"] });
   });
 });
