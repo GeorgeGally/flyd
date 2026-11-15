@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
+import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, briefPrompt, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
 import { DesignModelError } from "../design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
 import { dispatchDomainFollowup } from "../followup.js";
@@ -560,5 +560,13 @@ describe("Design Mate", () => {
     expect(review).toContain("Done when: three versions\n");
     expect(review).not.toContain("listed in artifacts");
     expect(review).toContain("Never ask the designers for those board features");
+  });
+
+  it("tells the whole team that all animation uses GSAP", () => {
+    const run = dispatchDesignMate({ originalMessage: "a lab", intendedOutcome: "A lab", doneWhen: ["three versions"] }, labs);
+    const page = buildPrompt(run, { brief: "b", versions: [], round: 1, images: [], log: [] }, { n: 1, name: "Title card", idea: "Big type.", seed: "ab" }, "(none)");
+    expect(page).toContain("All animation uses GSAP");
+    expect(page).toContain("GSAP only from cdnjs.cloudflare.com");
+    expect(briefPrompt(run, [], "(none)", ["ab"])).toContain("All animation uses GSAP");
   });
 });

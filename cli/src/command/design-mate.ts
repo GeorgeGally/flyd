@@ -501,7 +501,7 @@ export function pageOf(text: string): string | null {
 const REVIEW_SURFACE_FOR_DESIGNERS = "Build the page itself only. George reviews the versions on a board that already shows each version's name side by side and lets him mark one final or pin notes, so never add a version label, a lab caption, a 'Mark as final' control or any other review control to the page.";
 const REVIEW_SURFACE_FOR_FLYD = "Once you accept, the team puts the versions on George's review board: side by side, each named, with a way to mark one final or pin notes, and the files listed for him. Judge each version as the page it is. Never ask the designers for those board features, for captions or controls about the lab, or for file lists. The screenshots show each whole page down to a readable height.";
 
-const TASTE_HEADER = "George's standing taste: TV-style clean type; Cursor-style framed imagery with padding; letter-spacing never wider than .04em; generous space above buttons; buttons never oversized; readable body copy; copy that says what a thing is (no slogans, never opens with \"Not…\"); every claim literally true; motion is TV-style fades only.";
+const TASTE_HEADER = "George's standing taste: TV-style clean type; Cursor-style framed imagery with padding; letter-spacing never wider than .04em; generous space above buttons; buttons never oversized; readable body copy; copy that says what a thing is (no slogans, never opens with \"Not…\"); every claim literally true; motion is TV-style fades only. All animation uses GSAP: never CSS keyframes or transitions alone, and no other animation library.";
 
 function teamSkills(use: "apply" | "judge"): string[] {
   const skills = designTeamSkills();
@@ -559,7 +559,7 @@ export function buildPrompt(run: DomainRun, lab: Lab, version: LabVersion, taste
     `Images you may use, by these exact relative paths: ${lab.images.join(", ") || "(none)"}`,
     "",
     "Use only the real content in the brief and his request. Never invent people, companies, quotes, numbers or dates; where something is unknown, leave it out.",
-    "Rules: one self-contained file; inline CSS and JS; fonts only from Google Fonts; no other network files. Real content, never lorem ipsum. Colours as tokens on :root with an explicit body background. It must work at 1440×900 and at 390 wide phone with a 16px gutter and no sideways scroll. No gradients, glows, pill clutter, icon-in-circle grids, emoji or wide letter-spacing.",
+    "Rules: one self-contained file; inline CSS and JS; fonts only from Google Fonts; GSAP only from cdnjs.cloudflare.com; no other network files. Real content, never lorem ipsum. Colours as tokens on :root with an explicit body background. It must work at 1440×900 and at 390 wide phone with a 16px gutter and no sideways scroll. No gradients, glows, pill clutter, icon-in-circle grids, emoji or wide letter-spacing.",
     REVIEW_SURFACE_FOR_DESIGNERS,
     ...(lab.flydNotes?.length ? ["", "Flyd sent this lab back with these notes; your build must answer them:", ...lab.flydNotes.map((note) => `- ${note}`)] : []),
     ...(previous && version.critique ? [
