@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { meetingPrepConsented, commitmentCard, creativeCard, prepareCreativeForConversation, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
+import { meetingPrepConsented, commitmentCards, commitmentCard, creativeCard, prepareCreativeForConversation, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
 import { parseCalendarMetadata } from "../proactive-calendar.js";
 import { CALENDAR_METADATA_CONTRACT, MEETING_PREP_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import type { MemoryEntry } from "../../council/memory-store.js";
@@ -166,6 +166,30 @@ describe("proactive local personal care", () => {
     expect(card?.line).toContain("Send the revised proposal");
     expect(commitmentCard(entries.map((entry) => ({ ...entry, date: "2026-01-01" })), now)).toBeNull();
     expect(commitmentCard(entries, new Date("2026-11-20T10:00:00"))).toBeNull();
+  });
+
+  it("shows at most three distinct upcoming commitments, closest dates first, and never invents deadlines", async () => {
+    const entries: MemoryEntry[] = [
+      { id: "a", section: "Commitments", text: "Send proposal by 2026-11-16", date: "2026-11-14", tier: "aging" },
+      { id: "b", section: "Commitments", text: "Review budget by 2026-11-15", date: "2026-11-14", tier: "aging" },
+      { id: "c", section: "Commitments", text: "Call designer by 2026-11-17", date: "2026-11-14", tier: "aging" },
+      { id: "d", section: "Commitments", text: "Finish gallery by 2026-11-17", date: "2026-11-14", tier: "aging" },
+      { id: "vague", section: "Commitments", text: "Follow up with someone soon", date: "2026-11-14", tier: "aging" },
+    ];
+    const cards = commitmentCards(entries, now);
+    expect(cards).toHaveLength(3);
+    expect(cards[0]?.title).toContain("Today");
+    expect(cards[1]?.title).toContain("Tomorrow");
+    expect(cards.every((card) => card.line?.includes("(noted 2026-11-14)"))).toBe(true);
+    const made: ActivityRecord[] = [];
+    const result = await runProactiveCare({
+      now: () => now, projects: () => [], edition: () => null,
+      memory: () => entries, calendarConsent: () => false,
+      record: (item) => made.push(item), alreadyRecorded: () => false,
+    });
+    expect(result.commitments).toBe(3);
+    expect(made).toHaveLength(3);
+    expect(made.every((card) => card.key?.startsWith("care:commitment:"))).toBe(true);
   });
 
   it("drops ambient cards as soon as their context expires", () => {
