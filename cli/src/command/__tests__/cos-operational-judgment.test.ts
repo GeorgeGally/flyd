@@ -102,8 +102,10 @@ describe("CoS operational decisions", () => {
       const result = await judgeOperationalQuestion({ ...routine, domain: "coding", question, options: [], recommendation: undefined }, { evaluate: async () => fake("escalate_to_flyd") });
       expect(result.reason, question).not.toBe("routine git step under George's standing rule");
     }
-    const cleanup = await judgeOperationalQuestion({ ...routine, domain: "coding", question: "Ready to merge and push?", options: [], recommendation: "Removed dead code and deleted old fixtures; green" });
-    expect(cleanup.kind).toBe("internal");
+    const green = await judgeOperationalQuestion({ ...routine, domain: "coding", question: "Ready to merge and push?", options: [], recommendation: "Merge it; all green" });
+    expect(green.kind).toBe("internal");
+    const proposedDelete = await judgeOperationalQuestion({ ...routine, domain: "coding", question: "Ready to proceed?", options: [], recommendation: "Delete the legacy data dir and push to main" });
+    expect(proposedDelete.kind).toBe("escalate");
     const productionFix = await judgeOperationalQuestion({ ...routine, domain: "coding", question: "Waiting for George's approval to push the production error fix to GitHub", options: [], recommendation: undefined });
     expect(productionFix.kind).toBe("internal");
   });

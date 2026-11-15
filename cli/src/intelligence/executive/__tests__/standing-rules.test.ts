@@ -113,6 +113,8 @@ describe("George's standing rules in the review step", () => {
     ]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
     }
+    expect(settleCall({ ...call("Ready to push?"), recommendation: "Reset the branch and push" }, "- George likes tea.")?.rule).not.toBe("routine-git");
+    expect(settleCall({ ...call("Ready to push?"), recommendation: "Push the login bug fix" }, "- George likes tea.")?.rule).toBe("routine-git");
     const deletedHelper = { ...call("Push it?"), sourceText: "Deleted the unused helper; all tests pass. Needs George's approval to push." };
     expect(settleCall(deletedHelper, "- George likes tea.")?.rule).toBe("routine-git");
     for (const question of ["Push the login bug fix?", "Push the tokenizer fix?", "Land it?", "OK to run git push --set-upstream origin main?"]) {

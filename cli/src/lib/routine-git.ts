@@ -37,10 +37,12 @@ function failingNow(text: string): boolean {
 
 /**
  * True when the ask is a plain go-ahead for a routine git step on George's own finished work:
- * no either-or, and nothing in the ask or the staff's report says it is failing. Pure.
+ * no either-or, nothing destructive or secret in the ask or the action proposed with it, and nothing
+ * in the ask or the staff's report says it is failing. Pure.
  */
-export function routineGitStep(ask: string, context = ""): boolean {
-  const asked = ask.replace(/\s+/g, " ").trim();
-  const said = `${asked} ${context.replace(/\s+/g, " ").trim()}`;
-  return GIT_STEP.test(said) && !STILL_HIS.test(said) && !UNSAFE.test(asked) && !EITHER_OR.test(asked) && !DEPLOY_ACTION.test(said) && !failingNow(said);
+export function routineGitStep(ask: string, context = "", proposed = ""): boolean {
+  const flat = (text: string) => text.replace(/\s+/g, " ").trim();
+  const asked = flat(ask);
+  const said = `${asked} ${flat(context)} ${flat(proposed)}`;
+  return GIT_STEP.test(said) && !STILL_HIS.test(said) && !UNSAFE.test(`${asked} ${flat(proposed)}`) && !EITHER_OR.test(asked) && !DEPLOY_ACTION.test(said) && !failingNow(said);
 }

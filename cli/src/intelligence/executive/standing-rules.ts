@@ -109,7 +109,7 @@ export function settleCall(call: CallToSettle, preferences: string): StandingSet
 
   // Pushing, merging or syncing his own finished work is routine by his standing rule, however
   // the staff word it ("needs George's permission to push"); it never waits on him.
-  if (ASKS.test(question) && routineGitStep(question, call.sourceText) && !HIS_TASTE.test(said) && !speaksForHim(question)) {
+  if (ASKS.test(question) && routineGitStep(question, call.sourceText, call.recommendation ?? recommendedIn(question) ?? recommendedIn(call.sourceText) ?? "") && !HIS_TASTE.test(said) && !speaksForHim(question)) {
     return settled("routine-git", "Yes. Merge it into main and push it to his GitHub; that is routine, so don't ask him about it again.", ROUTINE_GIT_RULE, question, `Told the team to go ahead: ${question.replace(/[?.\s]+$/, "")}.`);
   }
 

@@ -38,7 +38,7 @@ function questionText(question: OperationalQuestion): string {
 export function routineCodingStep(question: OperationalQuestion): boolean {
   // "Needs George's approval to push" is the very ask the rule settles, so his approval alone keeps nothing his.
   return question.domain === "coding" && question.options.length < 2 && !PERSONAL.test(questionText(question))
-    && routineGitStep(question.question, [...question.options, question.recommendation ?? ""].join(" "));
+    && routineGitStep(question.question, "", [...question.options, question.recommendation ?? ""].join(" "));
 }
 
 /** Deterministic veto wins over any judgment provider's confidence. */
