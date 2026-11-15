@@ -94,7 +94,11 @@ describe("CoS operational decisions", () => {
     expect(red.reason).not.toBe("routine git step under George's standing rule");
     const bare = await judgeOperationalQuestion({ ...routine, domain: "coding", question: "Ready to merge?", options: [], recommendation: "merge; 2 tests failing" });
     expect(bare.reason).not.toBe("routine git step under George's standing rule");
-    for (const question of ["Revert the last commit and push?", "Should I add push notifications?"]) {
+    for (const question of [
+      "Revert the last commit and push?", "Should I add push notifications?", "Needs George's approval to revert the last commit and push.",
+      "Need permission to reset the branch and push?", "Is it fine to drop the old table and push?", "Want to revert the last commit and push?",
+      "OK if I delete the old migration and push?",
+    ]) {
       const result = await judgeOperationalQuestion({ ...routine, domain: "coding", question, options: [], recommendation: undefined }, { evaluate: async () => fake("escalate_to_flyd") });
       expect(result.reason, question).not.toBe("routine git step under George's standing rule");
     }

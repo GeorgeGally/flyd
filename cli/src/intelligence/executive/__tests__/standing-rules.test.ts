@@ -101,10 +101,12 @@ describe("George's standing rules in the review step", () => {
       "OK to commit the .env with the API key and push?", "Revert the last commit and push?", "Delete the old migration and push?", "Reset the branch and push?",
       "Should I revert the last commit and push?", "Can I reset the branch to origin and push?", "Shall I drop the old table and push?",
       "Can we amend the pushed commit and push?", "I'll delete the old migration and push, OK?", "Push the commit with the API key?",
+      "Needs George's approval to revert the last commit and push.", "Need permission to reset the branch and push?", "Is it fine to drop the old table and push?",
+      "Want to revert the last commit and push?", "OK if I delete the old migration and push?", "Push the fix to delete stale caches?",
     ]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
     }
-    for (const question of ["Push the password reset fix?", "Push the delete-account button fix?", "Push the drop shadow fix?", "Push the fix to delete stale caches?"]) {
+    for (const question of ["Push the password reset fix?", "Push the delete-account button fix?", "Push the drop shadow fix?"]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).toBe("routine-git");
     }
     const deletedHelper = { ...call("Push it?"), sourceText: "Deleted the unused helper; all tests pass. Needs George's approval to push." };

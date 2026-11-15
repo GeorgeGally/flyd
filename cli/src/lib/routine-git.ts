@@ -16,8 +16,8 @@ export const DEPLOY_ACTION = /\b(?:and|then)\s+(?:then\s+)?(?:deploy|publish|rel
 /** Still his: a force push, or a push to someone else's repo. */
 const STILL_HIS = /\bforce[- ]?push\w*|--force\b|\bpush\w*\s+(?:\S+\s+)?-f\b|(?<!--set-)\bupstream\b|\b(?:forks?|forked|someone else(?:'s)?|other people(?:'s)?|third[- ]party|another remote|their repo)\b/i;
 
-/** A step the ask itself requests that destroys or rewrites work ("Revert the last commit and push?"), never a word describing the fix ("the password reset fix"). */
-const DESTRUCTIVE = /(?:^|[.;:,?!]\s*|\b(?:and|then|ok(?:ay)? to|(?:should|shall|can|could|may|will) (?:i|we)|i'?ll|we'?ll|let me|let's|me to)\s+)(?:revert|reset|delete|drop|amend|rewrite (?:the )?history)\b|\bfilter-branch\b|\brebase -i\b/i;
+/** A step that destroys or rewrites work anywhere in the ask ("Needs approval to revert the last commit and push"); only a word naming the work itself is exempt ("the password reset fix"). */
+const DESTRUCTIVE = /\b(?:revert|reset|delet|drop|amend|force|filter-branch|rebase -i|rewrit\w* (?:the )?history)\w*\b(?!(?:[\s-]+[\w'-]+)?[\s-]+(?:fix|fixes|bug|bugs|button|shadow|feature|flow|page|form|link|modal|screen|tests?|copy)\b)/i;
 
 /** Secret material the ask itself commits or pushes ("commit the .env", "push the API key"). */
 const SECRET = /(?:^|\s)\.env\b|\b(?:(?:commit|push|add)\w*|check in|with|including|containing)\s+(?:(?:the|a|my|his|our|these|those)\s+)?(?:api[- ]?keys?|secrets?|credentials?|tokens?|passwords?|private keys?)(?=\s*(?:$|[.,;:?!]|(?:and|to|into|with|in|file|files)\b))/i;
