@@ -100,6 +100,11 @@ describe("George's standing rules in the review step", () => {
     for (const question of ["OK to commit the .env with the API key and push?", "Revert the last commit and push?", "Delete the old migration and push?", "Reset the branch and push?"]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
     }
+    for (const question of ["Push the password reset fix?", "Push the delete-account button fix?", "Push the drop shadow fix?"]) {
+      expect(settleCall(call(question), "- George likes tea.")?.rule, question).toBe("routine-git");
+    }
+    const deletedHelper = { ...call("Push it?"), sourceText: "Deleted the unused helper; all tests pass. Needs George's approval to push." };
+    expect(settleCall(deletedHelper, "- George likes tea.")?.rule).toBe("routine-git");
     for (const question of ["Push the login bug fix?", "Push the tokenizer fix?", "Land it?", "OK to run git push --set-upstream origin main?"]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).toBe("routine-git");
     }

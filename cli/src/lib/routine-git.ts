@@ -16,8 +16,11 @@ export const DEPLOY_ACTION = /\b(?:and|then)\s+(?:then\s+)?(?:deploy|publish|rel
 /** Still his: a force push, or a push to someone else's repo. */
 const STILL_HIS = /\bforce[- ]?push\w*|--force\b|\bpush\w*\s+(?:\S+\s+)?-f\b|(?<!--set-)\bupstream\b|\b(?:forks?|forked|someone else(?:'s)?|other people(?:'s)?|third[- ]party|another remote|their repo)\b/i;
 
-/** Secrets, or a step that destroys or rewrites work: never routine, whatever git step comes with it. */
-const DESTRUCTIVE = /\b(?:revert\w*|reset\w*|delet\w*|drop(?:s|ped|ping)?|amend\w*|filter-branch|rebase -i|rewrit\w* (?:the )?history|secrets?|credentials?|api[- ]?keys?|passwords?|private keys?|access tokens?)\b|(?:^|\s)\.env\b/i;
+/** A step the ask itself requests that destroys or rewrites work ("Revert the last commit and push?"), never a word describing the fix ("the password reset fix"). */
+const DESTRUCTIVE = /(?:^|[.;:,?!]\s*|\b(?:and|then|to)\s+)(?:revert|reset|delete|drop|amend|rewrite (?:the )?history)\b|\bfilter-branch\b|\brebase -i\b/i;
+
+/** Secret material the ask itself commits or pushes ("commit the .env", "push the API key"). */
+const SECRET = /(?:^|\s)\.env\b|\b(?:commit|push|add|check in)\w*\s+(?:(?:the|a|my|his|our|these|those)\s+)?(?:api[- ]?keys?|secrets?|credentials?|tokens?|passwords?|private keys?)(?=\s*(?:$|[.,;:?!]|(?:and|to|into|with|in|file|files)\b))/i;
 
 /** A choice between options: the work's own engineering call, never settled as a plain go-ahead. */
 const EITHER_OR = /\bor\b|\b(?:which|pick|choose|instead)\b/i;
@@ -42,5 +45,5 @@ function failingNow(text: string): boolean {
 export function routineGitStep(ask: string, context = ""): boolean {
   const asked = ask.replace(/\s+/g, " ").trim();
   const said = `${asked} ${context.replace(/\s+/g, " ").trim()}`;
-  return GIT_STEP.test(said) && !STILL_HIS.test(said) && !DESTRUCTIVE.test(said) && !EITHER_OR.test(asked) && !DEPLOY_ACTION.test(said) && !failingNow(said);
+  return GIT_STEP.test(said) && !STILL_HIS.test(said) && !DESTRUCTIVE.test(asked) && !SECRET.test(asked) && !EITHER_OR.test(asked) && !DEPLOY_ACTION.test(said) && !failingNow(said);
 }
