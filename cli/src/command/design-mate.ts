@@ -501,7 +501,7 @@ export function pageOf(text: string): string | null {
 const REVIEW_SURFACE_FOR_DESIGNERS = "Build the page itself only. George reviews the versions on a board that already shows each version's name side by side and lets him mark one final or pin notes, so never add a version label, a lab caption, a 'Mark as final' control or any other review control to the page.";
 const REVIEW_SURFACE_FOR_FLYD = "Once you accept, the team puts the versions on George's review board: side by side, each named, with a way to mark one final or pin notes, and the files listed for him. Judge each version as the page it is. Never ask the designers for those board features, for captions or controls about the lab, or for file lists. The screenshots show each whole page down to a readable height.";
 
-const TASTE_HEADER = "George's standing taste: TV-style clean type; Cursor-style framed imagery with padding; letter-spacing never wider than .04em; generous space above buttons; buttons never oversized; readable body copy; copy that says what a thing is (no slogans, never opens with \"Not…\"); every claim literally true; motion is TV-style fades only.";
+const TASTE_HEADER = "George's standing taste: TV-style clean type; Cursor-style framed imagery with padding; letter-spacing never wider than .04em; generous space above buttons; buttons never oversized; readable body copy; copy that says what a thing is (no slogans, never opens with \"Not…\"); every claim literally true; motion is TV-style fades only. All animation uses GSAP: never CSS keyframes or transitions alone, and no other animation library.";
 
 function teamSkills(use: "apply" | "judge"): string[] {
   const skills = designTeamSkills();
@@ -559,7 +559,7 @@ export function buildPrompt(run: DomainRun, lab: Lab, version: LabVersion, taste
     `Images you may use, by these exact relative paths: ${lab.images.join(", ") || "(none)"}`,
     "",
     "Use only the real content in the brief and his request. Never invent people, companies, quotes, numbers or dates; where something is unknown, leave it out.",
-    "Rules: one self-contained file; inline CSS and JS; fonts only from Google Fonts; no other network files. Real content, never lorem ipsum. Colours as tokens on :root with an explicit body background. It must work at 1440×900 and at 390 wide phone with a 16px gutter and no sideways scroll. No gradients, glows, pill clutter, icon-in-circle grids, emoji or wide letter-spacing.",
+    "Rules: one self-contained file; inline CSS and JS; fonts only from Google Fonts; GSAP only from cdnjs.cloudflare.com; no other network files. Real content, never lorem ipsum. Colours as tokens on :root with an explicit body background. It must work at 1440×900 and at 390 wide phone with a 16px gutter and no sideways scroll. No gradients, glows, pill clutter, icon-in-circle grids, emoji or wide letter-spacing.",
     REVIEW_SURFACE_FOR_DESIGNERS,
     ...(lab.flydNotes?.length ? ["", "Flyd sent this lab back with these notes; your build must answer them:", ...lab.flydNotes.map((note) => `- ${note}`)] : []),
     ...(previous && version.critique ? [
@@ -1058,26 +1058,37 @@ export async function shootWithChrome(page: string, png: string, viewport: { wid
   return shootAt(binary, page, png, { ...viewport, height });
 }
 
+/**
+ * Designers animate with GSAP, and the camera's virtual clock caught its entrance tweens part-way, so the critic
+ * judged half-faded pages. Once the page has loaded (and again a moment later, for tweens started just after),
+ * every GSAP animation is jumped to its end so the shot shows the finished page.
+ */
+const SETTLE_GSAP = `<script>(function(){function settle(){var g=window.gsap;if(!g||!g.globalTimeline)return;g.ticker.lagSmoothing(0);g.globalTimeline.getChildren(false,true,true).forEach(function(t){t.progress(1);});}addEventListener("load",function(){settle();setTimeout(settle,1500);});})();</script>`;
+
 function shootAt(binary: string, page: string, png: string, viewport: { width: number; height: number; scale: number }): Promise<void> {
   const profile = mkdtempSync(join(tmpdir(), "flyd-lab-"));
+  // The page is shot from a copy beside it (so its relative assets still load) that settles GSAP before the shot.
+  const settled = join(dirname(page), `.shot-${viewport.width}-${basename(page)}`);
+  writeFileSync(settled, readFileSync(page, "utf8") + SETTLE_GSAP);
   // Headless Chrome will not lay a window out narrower than about 500px, so a phone
   // width is framed at exactly that width; the page inside sees a true phone viewport.
   // One frame file per page: the versions are shot side by side, and a shared one let a version's phone shot show another.
   const framed = viewport.width < 500 ? join(dirname(page), `.frame-${viewport.width}-${basename(page)}`) : null;
-  if (framed) writeFileSync(framed, `<!doctype html><html><body style="margin:0"><iframe src="${encodeURI(basename(page))}" style="display:block;border:0;width:${viewport.width}px;height:${viewport.height}px"></iframe></body></html>`);
+  if (framed) writeFileSync(framed, `<!doctype html><html><body style="margin:0"><iframe src="${encodeURI(basename(settled))}" style="display:block;border:0;width:${viewport.width}px;height:${viewport.height}px"></iframe></body></html>`);
   return new Promise<void>((resolve, reject) => {
     const child = spawn(binary, [
       "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check",
       `--user-data-dir=${profile}`, `--window-size=${viewport.width},${viewport.height}`,
       // Every compositor stage runs before the shot, so an entrance fade is caught finished, not halfway.
       `--force-device-scale-factor=${viewport.scale}`, "--run-all-compositor-stages-before-draw", "--virtual-time-budget=4000",
-      `--screenshot=${png}`, `file://${framed ?? page}`,
+      `--screenshot=${png}`, `file://${framed ?? settled}`,
     ], { stdio: "ignore" });
     const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
     child.on("error", reject);
     child.on("exit", () => {
       clearTimeout(timer);
       rmSync(profile, { recursive: true, force: true });
+      rmSync(settled, { force: true });
       if (framed) rmSync(framed, { force: true });
       if (!existsSync(png)) { reject(new Error(`No screenshot of ${basename(page)}`)); return; }
       if (framed) cropTo(png, viewport).then(resolve, reject);
