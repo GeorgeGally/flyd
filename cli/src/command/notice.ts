@@ -75,19 +75,22 @@ export interface GatedNotice {
  * reach George: the report's own words (`written`) and the line delivered from
  * them pass the same outgoing review a relay passes. A report that hands him
  * an implementation call is not sent: the call is Flyd's (tellRun hands it
- * back to the boss). One that only says something is happening is not sent
- * either. One that names machinery gives way to a line naming the work. What
- * was held is recorded in the self-review record.
+ * back to the boss), unless the boss `insisted`, after that hand-back, that it
+ * is his. One that only says something is happening is not sent either. One
+ * that names machinery gives way to a line naming the work. What was held is
+ * recorded in the self-review record.
  */
-export function gateNotice(run: DomainRun, text: string, asks: boolean, written = text): GatedNotice {
+export function gateNotice(run: DomainRun, text: string, asks: boolean, written = text, insisted = false): GatedNotice {
+  const holds = (screened: { shortfalls: Array<{ requirement: string }> }) =>
+    screened.shortfalls.filter((shortfall) => !insisted || shortfall.requirement !== "decisions_handled");
   const flydsCall = (screened: { shortfalls: Array<{ requirement: string }> }): GatedNotice | null =>
-    screened.shortfalls.some((shortfall) => shortfall.requirement === "decisions_handled") ? { text: null, flydsCall: true }
-      : screened.shortfalls.some((shortfall) => shortfall.requirement === "real_status") ? { text: null, flydsCall: false } : null;
+    holds(screened).some((shortfall) => shortfall.requirement === "decisions_handled") ? { text: null, flydsCall: true }
+      : holds(screened).some((shortfall) => shortfall.requirement === "real_status") ? { text: null, flydsCall: false } : null;
   const own = screenOutgoing(outgoing(run, written));
   const ownHeld = flydsCall(own);
   if (ownHeld) return ownHeld;
   const shown = written === text ? own : screenOutgoing(outgoing(run, text));
-  if (shown.send) return { text, flydsCall: false };
+  if (!holds(shown).length) return { text, flydsCall: false };
   const shownHeld = flydsCall(shown);
   if (shownHeld) return shownHeld;
   const named = namedOutcome(run);

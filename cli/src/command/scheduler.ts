@@ -107,12 +107,13 @@ function noticeForDecision(run: DomainRun, decision: ExecutiveDecisionRecord): G
   // Finished work's checked line is the report's lead, its link kept whole (runtime/delivery.ts).
   const report = reportFromRun(run, decision);
   const text = deliver(report, "notification").text;
-  return text ? gateNotice(run, text, decision.disposition === "ask_george", report.outcome) : { text: null, flydsCall: false };
+  // A boss told to make the call itself that still says it is his: it reaches him, screened for backstage like any notice.
+  const insisted = notesSentToBoss(run.messages).includes(HANDLE_IT_YOURSELF);
+  return text ? gateNotice(run, text, decision.disposition === "ask_george", report.outcome, insisted) : { text: null, flydsCall: false };
 }
 
 /** An implementation call held back from George: Flyd makes it by sending it back to the run's boss to make, once (deliverBossNote). */
 async function handBack(run: DomainRun, decision: ExecutiveDecisionRecord, send: typeof sendRunMessage): Promise<boolean> {
-  if (!isOpen(run.status)) return false;
   const action: ExecutiveInternalAction = {
     capability: "firstmate.message", target: run.id, text: HANDLE_IT_YOURSELF,
     grantId: `flyd-call:${run.id}`, idempotencyKey: `${decision.decisionId}:flyd-call`,
@@ -295,6 +296,7 @@ export async function tellRun(
   const from = run.report;
   let owed = false;
   let waiting = false;
+  let retry = false;
   if (notice) {
     const kind = decision.disposition === "ask_george" ? "decision" : noticeKind(run);
     // A run's finished work is one report per outcome, whatever its domain; anything else is one per decision. A restart never says either twice.
@@ -319,15 +321,22 @@ export async function tellRun(
       owed = delivered.owed.length > 0;
       moveReport(run.id, from, { ...told, state: reportState(delivered.states[report.key]) });
     }
-  } else if (gated.flydsCall && await handBack(run, decision, options.send ?? sendRunMessage)) {
-    moveReport(run.id, from, { state: "quiet", sentBack: true, decisionId: decision.decisionId });
+  } else if (gated.flydsCall && isOpen(run.status)) {
+    if (await handBack(run, decision, options.send ?? sendRunMessage)) {
+      moveReport(run.id, from, { state: "quiet", sentBack: true, decisionId: decision.decisionId });
+    } else {
+      // The hand-back did not reach the boss: reviewed again on the next pass, given up only after the usual tries.
+      const tries = (from?.tries ?? 0) + 1;
+      retry = tries < MAX_REVIEW_TRIES;
+      moveReport(run.id, from, { state: retry ? "due" : "gave_up", tries, decisionId: decision.decisionId });
+    }
   } else {
     if (unsettled) recordHeld({ surface: "notification", source: `domain:${run.id}`, text: run.request.intendedOutcome }, []);
     moveReport(run.id, from, { state: "quiet", decisionId: decision.decisionId });
   }
   // Legacy flags, written for one release: a report not delivered yet is never marked notified (the tick says it
   // again); one held for a break is told by the tick when his focus breaks (tellHeld).
-  if (!owed) {
+  if (!owed && !retry) {
     mutateDomainRun(run.id, (current) => {
       const { told: _told, ...rest } = current ?? run;
       return { ...rest, notified: true, ...(notice && !waiting ? { told: { line: notice, decisionId: decision.decisionId } } : {}) };

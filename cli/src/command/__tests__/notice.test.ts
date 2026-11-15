@@ -10,7 +10,7 @@ import { decideRun, notifyRun, tellHeld } from "../scheduler.js";
 import type { sendRunMessage } from "../messages.js";
 import { HANDLE_IT_YOURSELF } from "../../intelligence/executive/decision-step.js";
 import { deliverOwed } from "../../runtime/delivered.js";
-import { readDomainRun } from "../store.js";
+import { readDomainRun, saveDomainRun } from "../store.js";
 import type { DomainRun, DomainRunStatus } from "../types.js";
 import type { ExecutiveDecisionRecord } from "../../intelligence/executive/decision-step.js";
 
@@ -452,6 +452,44 @@ describe("notifyRun", () => {
       shortfalls: expect.arrayContaining([expect.objectContaining({ requirement: "decisions_handled" })]),
     }));
     expect(verdicts()).toContainEqual(expect.objectContaining({ text: expect.stringContaining("FirstMate handoffs"), source: "domain:domain-gate-b", held: true }));
+  });
+
+  it("never lets an implementation call go quiet: a failed hand-back is retried, and a boss that insists after it brings the call to George", async () => {
+    const question = "Tell me whether to lay out the TV page with CSS grid or flexbox.";
+    const decided = (id: string): ExecutiveDecisionRecord => ({
+      schema: "flyd.executive-decision.v1", decisionId: `decision-${id}`, sourceId: "firstmate.change", sourceEventId: `event-${id}`,
+      taskId: id, disposition: "ask_george", reason: "George owns the choice", summary: question, evidenceRefs: [id], question,
+      options: ["Grid", "Flexbox"], recommendation: { option: "Grid", rationale: "It fits the page." }, verification: { status: "unknown", evidenceRefs: [] }, show: true, notify: true, createdAt: "2026-11-10T10:00:00.000Z",
+    });
+    const asked = (id: string, messages: DomainRun["messages"] = []): DomainRun => {
+      const base = run(JSON.stringify({ status: "needs_decision", brief: question }));
+      return { ...base, id, request: { ...base.request, id }, messages, report: { state: "due", status: "needs_decision", since: base.updatedAt, at: base.updatedAt } };
+    };
+    const sent: string[] = [];
+    const notify = async (_title: string, message: string) => { sent.push(message); };
+    const toBoss: string[] = [];
+    let up = false;
+    const send: typeof sendRunMessage = async (input) => {
+      if (!up) return { delivered: false, run: input.run };
+      toBoss.push(input.body);
+      const at = "2026-11-10T10:01:00.000Z";
+      return { delivered: true, run: { ...input.run, messages: [...(input.run.messages ?? []), { id: `${input.run.id}:${input.kind}:1`, kind: input.kind, body: input.body, from: "flyd", at, deliveredAt: at }] } };
+    };
+
+    // The boss cannot be reached: the report stays due for the next pass, and George is not handed the call.
+    saveDomainRun(asked("domain-back-a"));
+    await notifyRun(readDomainRun("domain-back-a")!, notify, send, async () => decided("domain-back-a"), () => false, async () => ({}));
+    expect([sent, toBoss, readDomainRun("domain-back-a")?.report?.state]).toEqual([[], [], "due"]);
+    up = true;
+    await notifyRun(readDomainRun("domain-back-a")!, notify, send, async () => decided("domain-back-a"), () => false, async () => ({}));
+    expect([sent, toBoss, readDomainRun("domain-back-a")?.report?.state]).toEqual([[], [HANDLE_IT_YOURSELF], "quiet"]);
+
+    // Told to make it itself, the boss says it is his after all: Flyd brings it to him, as its note promised.
+    const handedBack = [{ id: "m-back", kind: "decision" as const, body: HANDLE_IT_YOURSELF, from: "flyd" as const, at: "2026-11-10T10:01:00.000Z", deliveredAt: "2026-11-10T10:01:00.000Z" }];
+    saveDomainRun(asked("domain-back-b", handedBack));
+    await notifyRun(readDomainRun("domain-back-b")!, notify, send, async () => decided("domain-back-b"), () => false, async () => ({}));
+    expect(sent).toEqual([question]);
+    expect(toBoss).toEqual([HANDLE_IT_YOURSELF]);
   });
 
   it("quotes only George's own words for a finished run, and says Flyd's stand-ins as the bare fact", async () => {
