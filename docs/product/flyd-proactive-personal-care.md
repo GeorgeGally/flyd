@@ -4,7 +4,7 @@
 
 ## What Flyd does
 
-1. **Creative anticipation.** The 5-minute agenda tick compares today's already-curated Scout edition against active creative/design projects from the Librarian's project index. It takes at most three directly relevant HTTPS references, requires at least two meaningful matches, and creates a quiet, source-linked activity card. It does **not** run a fresh search or upload project context to a provider.
+1. **Creative anticipation.** The 5-minute agenda tick compares today's already-curated Scout edition against active creative/design projects from the Librarian's project index. The interactive Flyd conversation view also checks design-related user turns and can prepare a relevant ambient card for the current direction. Both paths take at most three sourced HTTPS references, require at least two meaningful matches, deduplicate per day, and produce no spoken interruption. Neither runs a fresh search or uploads the user's design context to a provider.
 2. **Relationship preparation.** For an upcoming Calendar event in the next 90 minutes, Flyd may surface verified, reasonably fresh `People` memory beside the meeting, including a confirmation date. It matches a unique, exact full name or an unambiguous first name. Ambiguous identities, missing facts, stale memories and irrelevant events stay silent. It never infers someone's children's names or birthdays.
 3. **Personal stewardship.** When the Librarian has a fresh, explicitly dated `Commitments` entry due today or within the next two days, Flyd shows one quiet activity note. Vague commitments, guessed due dates and stale notes are ignored. Nothing is automatically sent, booked, purchased or scheduled.
 
@@ -25,6 +25,7 @@ These are **ambient activity records**, not interruptions. Flyd never narrates t
 | Concern | Reused code |
 | --- | --- |
 | Background trigger | `cli/src/runtime/agenda-tick.ts` |
+| Interactive design turns | `cli/src/commands/view.ts` → `runtime/proactive-care.ts` |
 | Creative candidates | `council/projects.ts`, `council/scout.ts`, `council/inspiration.ts` |
 | Personal evidence | `council/memory-store.ts` |
 | Calendar consent | `intelligence/sensors/source-contracts.ts` |
