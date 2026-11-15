@@ -8,6 +8,7 @@ import { captainNotice, isRoutineChatter } from "../notice.js";
 import { parseDomainResult } from "../result.js";
 import { decideRun, notifyRun, tellHeld } from "../scheduler.js";
 import type { sendRunMessage } from "../messages.js";
+import { judgeOperationalQuestion, type OperationalQuestion } from "../cos/operational-judgment.js";
 import { HANDLE_IT_YOURSELF } from "../../intelligence/executive/decision-step.js";
 import { deliverOwed } from "../../runtime/delivered.js";
 import { readDomainRun, saveDomainRun } from "../store.js";
@@ -37,6 +38,7 @@ function run(reply: string, status?: DomainRunStatus): DomainRun {
 }
 
 /** A true implementation call, caught by the decision-routing rule on its own words (no "test" keyword): which library to use. */
+const offline = (question: OperationalQuestion) => judgeOperationalQuestion(question, { evaluate: async () => { throw new Error("no decision model in tests"); } });
 const IMPLEMENTATION_CALL = "Tell me whether to add the date-fns dependency or write our own date helper.";
 
 describe("captain notices", () => {
@@ -413,7 +415,7 @@ describe("notifyRun", () => {
     ];
     for (const [id, question] of calls) {
       const [asked, decided] = ask(id!, question!);
-      await notifyRun(asked, notify, undefined, async () => decided, () => false, onBloom);
+      await notifyRun(asked, notify, undefined, async () => decided, () => false, onBloom, offline);
     }
     expect(sent).toHaveLength(4);
     expect(sent.join(" ")).not.toMatch(/Blue or green|login page|token parser|2FA code module|sign in to the dashboard/);
@@ -443,16 +445,19 @@ describe("notifyRun", () => {
       ["domain-gate-b", "Flyd is re-requesting unstructured FirstMate handoffs"],
       ["domain-gate-c", "Tell me whether to add Teletext and Tuning dial buttons."],
       ["domain-gate-d", "Should the button CSS be red or blue?"],
+      ["domain-gate-e", "Should I retry the import or push back on the API owner?"],
+      ["domain-gate-f", "Should I gate it behind config?"],
     ];
     for (const [id, question] of calls) {
       const [asked, decided] = ask(id, question);
-      await notifyRun(asked, notify, send, async () => decided, () => false, async () => ({}));
+      const goal = id === "domain-gate-f" ? { intendedOutcome: "Add the Teletext buttons to the TV page" } : {};
+      await notifyRun({ ...asked, request: { ...asked.request, ...goal } }, notify, send, async () => decided, () => false, async () => ({}), offline);
     }
     // What the page carries and how it looks stay his; the machinery line gives way to the work.
     expect(sent).toEqual(["Your call is needed: Fix the island.", "Tell me whether to add Teletext and Tuning dial buttons.", "Should the button CSS be red or blue?"]);
     // The library choice is Flyd's: the Chief of Staff's operational judgment (cos/operational-judgment.ts) tells the boss to make it.
-    expect(toBoss).toHaveLength(1);
-    expect(toBoss[0]).toMatchObject({ run: "domain-gate-a", body: expect.stringMatching(/^CoS (?:owns|resolves) .*implementation choice/) });
+    expect(toBoss.map((note) => note.run)).toEqual(["domain-gate-a", "domain-gate-e", "domain-gate-f"]);
+    for (const note of toBoss) expect(note.body).toMatch(/^CoS (?:owns|resolves) .*implementation choice/);
     expect(verdicts()).toContainEqual(expect.objectContaining({
       text: IMPLEMENTATION_CALL, source: "domain:domain-gate-a", surface: "notification", held: true,
       shortfalls: expect.arrayContaining([expect.objectContaining({ requirement: "decisions_handled" })]),
@@ -482,7 +487,7 @@ describe("notifyRun", () => {
       return { delivered: true, run: { ...input.run, messages: [...(input.run.messages ?? []), { id: `${input.run.id}:${input.kind}:1`, kind: input.kind, body: input.body, from: "flyd", at, deliveredAt: at }] } };
     };
     const pass = (id: string, decide: () => Promise<ExecutiveDecisionRecord> = async () => decided(id)) =>
-      notifyRun(readDomainRun(id)!, notify, send, decide, () => false, async () => ({}));
+      notifyRun(readDomainRun(id)!, notify, send, decide, () => false, async () => ({}), offline);
 
     // The boss cannot be reached: the call is brought to him straight away, screened like any notice, not left quiet.
     up = false;

@@ -128,6 +128,7 @@ async function flydMakesCall(run: DomainRun, decision: ExecutiveDecisionRecord, 
     options: asked?.options ?? [],
     ...(asked?.recommendation && "option" in asked.recommendation && asked.recommendation.option ? { recommendation: asked.recommendation.option } : {}),
     evidenceRefs: [`domain-run:${run.id}`, ...decision.evidenceRefs],
+    screenedInternal: true,
   }).catch(() => null);
   if (disposition?.kind !== "internal") return false;
   const action: ExecutiveInternalAction = {
@@ -183,6 +184,7 @@ export async function notifyRun(
   decide: RunDecisionStep = decideRun,
   windowIsOpen: (session: string) => boolean = (session) => windowOpen(session),
   attention: ReadAttention = readAttention,
+  judge: typeof judgeOperationalQuestion = judgeOperationalQuestion,
 ): Promise<void> {
   // A lab that stopped carries only its failure, no result: it is still his to hear.
   if (!cameBack(run.status) || (!run.result && !designFailure(run))) return;
@@ -236,7 +238,7 @@ export async function notifyRun(
     return;
   }
   try {
-    await tellRun(reviewing ?? run, decision, { ...(notify ? { notify } : {}), attention, send });
+    await tellRun(reviewing ?? run, decision, { ...(notify ? { notify } : {}), attention, send, judge });
   } catch {
     // Left where it got to: a report "sending" is said again by the tick's sweep, one still "reviewing" reviewed again.
   }
