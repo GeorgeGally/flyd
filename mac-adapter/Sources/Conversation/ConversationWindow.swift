@@ -232,6 +232,10 @@ final class ConversationWindow: NSObject, NSWindowDelegate, WKNavigationDelegate
     func windowDidBecomeKey(_ notification: Notification) {
         // He is looking at the conversation; the island has nothing to add.
         if case .status = DictationPill.shared.currentPhase { DictationPill.shared.hide() }
+        // The page is the whole window: its keys always go to the web view.
+        if let window, let webView, !((window.firstResponder as? NSView)?.isDescendant(of: webView) ?? false) {
+            window.makeFirstResponder(webView)
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
