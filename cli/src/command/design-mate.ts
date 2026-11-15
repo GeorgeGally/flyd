@@ -1058,26 +1058,37 @@ export async function shootWithChrome(page: string, png: string, viewport: { wid
   return shootAt(binary, page, png, { ...viewport, height });
 }
 
+/**
+ * Designers animate with GSAP, and the camera's virtual clock caught its entrance tweens part-way, so the critic
+ * judged half-faded pages. Once the page has loaded (and again a moment later, for tweens started just after),
+ * every GSAP animation is jumped to its end so the shot shows the finished page.
+ */
+const SETTLE_GSAP = `<script>(function(){function settle(){var g=window.gsap;if(!g||!g.globalTimeline)return;g.ticker.lagSmoothing(0);g.globalTimeline.getChildren(false,true,true).forEach(function(t){t.progress(1);});}addEventListener("load",function(){settle();setTimeout(settle,1500);});})();</script>`;
+
 function shootAt(binary: string, page: string, png: string, viewport: { width: number; height: number; scale: number }): Promise<void> {
   const profile = mkdtempSync(join(tmpdir(), "flyd-lab-"));
+  // The page is shot from a copy beside it (so its relative assets still load) that settles GSAP before the shot.
+  const settled = join(dirname(page), `.shot-${viewport.width}-${basename(page)}`);
+  writeFileSync(settled, readFileSync(page, "utf8") + SETTLE_GSAP);
   // Headless Chrome will not lay a window out narrower than about 500px, so a phone
   // width is framed at exactly that width; the page inside sees a true phone viewport.
   // One frame file per page: the versions are shot side by side, and a shared one let a version's phone shot show another.
   const framed = viewport.width < 500 ? join(dirname(page), `.frame-${viewport.width}-${basename(page)}`) : null;
-  if (framed) writeFileSync(framed, `<!doctype html><html><body style="margin:0"><iframe src="${encodeURI(basename(page))}" style="display:block;border:0;width:${viewport.width}px;height:${viewport.height}px"></iframe></body></html>`);
+  if (framed) writeFileSync(framed, `<!doctype html><html><body style="margin:0"><iframe src="${encodeURI(basename(settled))}" style="display:block;border:0;width:${viewport.width}px;height:${viewport.height}px"></iframe></body></html>`);
   return new Promise<void>((resolve, reject) => {
     const child = spawn(binary, [
       "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check",
       `--user-data-dir=${profile}`, `--window-size=${viewport.width},${viewport.height}`,
       // Every compositor stage runs before the shot, so an entrance fade is caught finished, not halfway.
       `--force-device-scale-factor=${viewport.scale}`, "--run-all-compositor-stages-before-draw", "--virtual-time-budget=4000",
-      `--screenshot=${png}`, `file://${framed ?? page}`,
+      `--screenshot=${png}`, `file://${framed ?? settled}`,
     ], { stdio: "ignore" });
     const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
     child.on("error", reject);
     child.on("exit", () => {
       clearTimeout(timer);
       rmSync(profile, { recursive: true, force: true });
+      rmSync(settled, { force: true });
       if (framed) rmSync(framed, { force: true });
       if (!existsSync(png)) { reject(new Error(`No screenshot of ${basename(page)}`)); return; }
       if (framed) cropTo(png, viewport).then(resolve, reject);

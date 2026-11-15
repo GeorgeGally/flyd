@@ -1,8 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, briefPrompt, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
+import { CREATIVE_DIRECTOR, DESIGN_MATE, MAX_ROUNDS, MAX_SENDBACKS, answerFromBoard, briefPrompt, buildPrompt, flydReviewPrompt, dispatchDesignMate, driveDesignRun, labDir, pageOf, readBuild, readLab, shootWithChrome, startDesignRun, writeLab, toldInChat, type DesignMateDeps } from "../design-mate.js";
 import { DesignModelError } from "../design-claude.js";
 import { DESIGN_LAB_DONE_WHEN, designStartLine, isDesignLabRun, labAwaitingReview } from "../design.js";
 import { dispatchDomainFollowup } from "../followup.js";
@@ -569,4 +570,37 @@ describe("Design Mate", () => {
     expect(page).toContain("GSAP only from cdnjs.cloudflare.com");
     expect(briefPrompt(run, [], "(none)", ["ab"])).toContain("All animation uses GSAP");
   });
+});
+
+const CHROME_BINARY = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium", "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"].find((path) => existsSync(path));
+
+/** The red, green and blue of a shot's centre pixel, read from an uncompressed BMP copy made with macOS's own image tool. */
+function centrePixel(png: string): [number, number, number] {
+  const bmp = `${png}.bmp`;
+  execFileSync("/usr/bin/sips", ["-s", "format", "bmp", png, "--out", bmp], { stdio: "ignore" });
+  const data = readFileSync(bmp);
+  const offset = data.readUInt32LE(10), width = data.readInt32LE(18), height = Math.abs(data.readInt32LE(22)), bytes = data.readUInt16LE(28) / 8;
+  const row = Math.ceil((width * bytes) / 4) * 4;
+  const at = offset + Math.floor(height / 2) * row + Math.floor(width / 2) * bytes;
+  return [data[at + 2], data[at + 1], data[at]];
+}
+
+describe("lab camera", () => {
+  it.skipIf(!CHROME_BINARY)("photographs a GSAP entrance animation finished, not part-way", async (ctx) => {
+    // Real GSAP, inlined so the shot itself needs no network; skipped when cdnjs cannot be reached.
+    const gsap = await fetch("https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js").then((r) => r.ok ? r.text() : "").catch(() => "");
+    if (!gsap) ctx.skip();
+    const dir = mkdtempSync(join(tmpdir(), "flyd-camera-"));
+    try {
+      const page = join(dir, "v1.html");
+      // A black panel over a white page fades in over 20 seconds: any shot before it ends shows grey.
+      writeFileSync(page, `<!doctype html><html><head><style>html,body{margin:0;background:#fff}#p{position:fixed;inset:0;background:#000}</style><script>${gsap}</script></head><body><div id="p"></div><script>gsap.from("#p",{opacity:0,duration:20,ease:"none"})</script></body></html>`);
+      const png = join(dir, "v1.png");
+      await shootWithChrome(page, png, { width: 800, height: 600, scale: 1 });
+      expect(centrePixel(png)).toEqual([0, 0, 0]);
+      expect(readdirSync(dir).filter((name) => name.startsWith("."))).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 90_000);
 });
