@@ -42,8 +42,18 @@ export const FRONT_SCRIPT = `
   frontTab(savedTab === "arts" || savedTab === "threads" || savedTab === "todo" ? savedTab : "jobs");
   rtabs.addEventListener("click", function (event) {
     var tab = event.target.closest(".rtab");
-    if (tab) frontTab(tab.dataset.rtab);
+    if (!tab) return;
+    frontTab(tab.dataset.rtab);
+    frontKeepTyping();
   });
+  // Changing what the right column shows never leaves the message box without the keys: they go back to it,
+  // unless he is in another field. Not on a phone, where focusing would raise the keyboard uninvited.
+  function frontKeepTyping() {
+    if (composer.hidden || (window.matchMedia && window.matchMedia("(pointer: coarse)").matches)) return;
+    var active = document.activeElement;
+    if (active && active !== input && active.closest && active.closest("input, textarea, select, [contenteditable]")) return;
+    try { input.focus({ preventScroll: true }); } catch (_) { input.focus(); }
+  }
 
   function frontEsc(text) {
     return String(text == null ? "" : text).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });

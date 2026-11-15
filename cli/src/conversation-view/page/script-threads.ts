@@ -78,6 +78,7 @@ export const THREADS_SCRIPT = `
     });
     connect(id);
     loadThreads();
+    frontKeepTyping();
   }
   threadsEl.addEventListener("click", function (event) {
     var row = event.target.closest("[data-thread]");

@@ -429,6 +429,11 @@ export const COMPOSER_SCRIPT = `
   });
   drawScope();
 
+  // A click anywhere in the box that is not one of its buttons puts the caret in it.
+  composer.querySelector(".field").addEventListener("click", function (event) {
+    if (event.target === input || (event.target.closest && event.target.closest("button, input, a"))) return;
+    input.focus();
+  });
   input.addEventListener("keydown", function (event) {
     if (event.isComposing) return;
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); return; }

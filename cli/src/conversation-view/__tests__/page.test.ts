@@ -5563,6 +5563,30 @@ describe("project threads", () => {
     expect(document.querySelector('.thread-more [data-thread="project:all"]')!.getAttribute("aria-current")).toBe("true");
   });
 
+  it("keeps the message box taking his keys after he switches to Projects and opens a thread", async () => {
+    listed(LIST);
+    load("");
+    await settle();
+    FakeEventSource.instances.at(-1)!.emit("session", { id: "latest", title: "latest", updatedAt: "2026-10-05T20:00:00.000Z", assistantLabel: "firstmate" });
+    await settle();
+    const input = document.getElementById("input") as HTMLTextAreaElement;
+    expect((document.getElementById("composer") as HTMLElement).hidden).toBe(false);
+    input.blur();
+    document.querySelector<HTMLElement>('.rtab[data-rtab="threads"]')!.click();
+    expect(document.documentElement.getAttribute("data-rtab")).toBe("threads");
+    expect(document.activeElement).toBe(input);
+    input.blur();
+    document.querySelector<HTMLElement>('.thread[data-thread="project:dir"]')!.click();
+    await settle();
+    expect(document.activeElement).toBe(input);
+    // A click on the box around the words, not on one of its buttons, also puts the caret in it.
+    input.blur();
+    document.querySelector<HTMLElement>(".composer .typing")!.click();
+    expect(document.activeElement).toBe(input);
+    document.getElementById("attach")!.click();
+    expect(document.activeElement).not.toBe(document.getElementById("attach-input"));
+  });
+
   it("marks what came after his last look, on the project and its tab, never on All", async () => {
     seenFrom("2026-10-05T20:00:00.000Z");
     listed(LIST);
