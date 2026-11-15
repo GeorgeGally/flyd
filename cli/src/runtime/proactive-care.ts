@@ -119,7 +119,7 @@ export function meetingCard(event: CareEvent, memory: MemoryEntry[], now: Date):
   return {
     key: "care:meeting:" + hash(event.id + "|" + event.start), kind: "noted", state: "done", at: now.toISOString(), expiresAt: start.toISOString(),
     title: "Before " + clean(event.title, 72),
-    line: (facts.join(" · ") + " · Call in " + Math.ceil(delay / 60_000) + " min.").slice(0, 500),
+    line: ("Call in " + Math.ceil(delay / 60_000) + " min · " + facts.join(" · ")).slice(0, 500),
   };
 }
 
