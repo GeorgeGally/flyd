@@ -77,7 +77,7 @@ export function meetingCard(event: CareEvent, memory: MemoryEntry[], now: Date):
   const people = matchingPeople(event, memory, now);
   if (!people.length) return null;
   return {
-    key: "care:meeting:" + hash(event.id + "|" + event.start), kind: "noted", state: "done", at: now.toISOString(),
+    key: "care:meeting:" + hash(event.id + "|" + event.start), kind: "noted", state: "done", at: now.toISOString(), expiresAt: start.toISOString(),
     title: "Before " + clean(event.title, 72),
     line: (people.map((p) => clean(p.text.replace(/[.!?]+$/, ""), 120) + " (confirmed " + p.date + ")").join(" · ")
       + " · Call in " + Math.ceil(delay / 60_000) + " min.").slice(0, 500),
@@ -106,7 +106,7 @@ export function creativeCard(projects: Project[], edition: Edition | null, now: 
   if (selected.length < 2) return null;
   const project = visual.find((p) => p.name === selected[0]!.match) ?? visual[0]!;
   return {
-    key: "care:creative:" + hash(project.id + "|" + edition.date), kind: "news", state: "done", at: now.toISOString(),
+    key: "care:creative:" + hash(project.id + "|" + edition.date), kind: "news", state: "done", at: now.toISOString(), expiresAt: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString(),
     title: clean("For " + project.name, 80),
     line: "A few references that connect with what you're making.",
     stories: selected.map(({ item }) => ({
@@ -134,6 +134,7 @@ export function commitmentCard(memory: MemoryEntry[], now: Date): ActivityRecord
   return {
     key: "care:commitment:" + hash(best.item.id + "|" + best.due),
     kind: "noted", state: "done", at: now.toISOString(),
+    expiresAt: new Date(new Date(best.due + "T00:00:00").getFullYear(), new Date(best.due + "T00:00:00").getMonth(), new Date(best.due + "T00:00:00").getDate() + 1).toISOString(),
     title: when + ": something you committed to",
     line: clean(best.item.text.replace(/[.!?]+$/, ""), 190) + " (confirmed " + best.item.date + ").",
   };
