@@ -92,11 +92,15 @@ describe("George's standing rules in the review step", () => {
     for (const question of ["Force push over main?", "Push the fix upstream?", "Push it to their fork?", "OK to push and deploy to production?"]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
     }
-    // Only a git step is one: a landing page or a commit hook is not.
-    for (const question of ["Ready to start the landing page copy?", "Should I add a commit hook?"]) {
+    // Only a git step is one: a landing page, a commit hook, push notifications or a merge sort are not.
+    for (const question of ["Ready to start the landing page copy?", "Should I add a commit hook?", "Should I add push notifications?", "Should I fix the merge sort?"]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
     }
-    for (const question of ["Push the login bug fix?", "Land it?", "OK to run git push --set-upstream origin main?"]) {
+    // Secrets and destructive steps stay his, whatever git step comes with them.
+    for (const question of ["OK to commit the .env with the API key and push?", "Revert the last commit and push?", "Delete the old migration and push?", "Reset the branch and push?"]) {
+      expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
+    }
+    for (const question of ["Push the login bug fix?", "Push the tokenizer fix?", "Land it?", "OK to run git push --set-upstream origin main?"]) {
       expect(settleCall(call(question), "- George likes tea.")?.rule, question).toBe("routine-git");
     }
     expect(settleCall(call("Push upstream to their fork?"), "- George likes tea.")?.rule).not.toBe("routine-git");

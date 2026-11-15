@@ -486,7 +486,7 @@ export async function runAssistantTool(
         const noDeploy = afterLand.includes("deploy") && !deployCommand(task.repo)
           ? " This repo declares no deploy command, so deploying will need one set up; tell him." : "";
         const verbs = { push: "pushes", deploy: "deploys" } as const;
-        const after = afterLand.length ? ` When he lands it, it then ${afterLand.map((step) => verbs[step]).join(", then ")}, as he just approved.` : "";
+        const after = afterLand.length ? ` When he lands it, it then ${afterLand.map((step) => verbs[step]).join(", then ")}${afterLand.includes("deploy") ? ", as he just approved" : "; pushing is routine, so he was not asked"}.` : "";
         const skipped = unknown.length ? ` Not done after landing, since it is neither a push nor a deploy: ${unknown.join("; ")}; tell him.` : "";
         return `Started in the compatibility coding crew (task ${task.id}). It is built and tested on its own branch, George is notified when it is ready, and it merges only when he says /land.${after}${noDeploy}${skipped} Tell him in your own words, promising only this; don't mention crewmates, branches, or worktrees.`;
       }

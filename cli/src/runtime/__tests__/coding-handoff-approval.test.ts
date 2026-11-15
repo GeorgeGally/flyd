@@ -78,6 +78,7 @@ describe("a coding request never waits on a push approval", () => {
         async (prompt) => { asked.push(prompt); return false; });
       expect(asked).toEqual([]);
       expect(out).toMatch(/^Started/);
+      expect(out).not.toMatch(/as he just approved/);
       expect(dispatched).toEqual([{ outcome: "Fix the ruler error", afterLand: ["push"] }]);
     } finally {
       rmSync(root, { recursive: true, force: true });

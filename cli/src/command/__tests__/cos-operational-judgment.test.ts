@@ -94,6 +94,10 @@ describe("CoS operational decisions", () => {
     expect(red.reason).not.toBe("routine git step under George's standing rule");
     const bare = await judgeOperationalQuestion({ ...routine, domain: "coding", question: "Ready to merge?", options: [], recommendation: "merge; 2 tests failing" });
     expect(bare.reason).not.toBe("routine git step under George's standing rule");
+    for (const question of ["Revert the last commit and push?", "Should I add push notifications?"]) {
+      const result = await judgeOperationalQuestion({ ...routine, domain: "coding", question, options: [], recommendation: undefined }, { evaluate: async () => fake("escalate_to_flyd") });
+      expect(result.reason, question).not.toBe("routine git step under George's standing rule");
+    }
     const productionFix = await judgeOperationalQuestion({ ...routine, domain: "coding", question: "Waiting for George's approval to push the production error fix to GitHub", options: [], recommendation: undefined });
     expect(productionFix.kind).toBe("internal");
   });
