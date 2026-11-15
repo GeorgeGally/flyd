@@ -6,6 +6,7 @@ import { labsDir } from "../command/design-mate.js";
 import { commandDir, listDomainRuns } from "../command/store.js";
 import type { DomainRun } from "../command/types.js";
 import { FLYD_DIR } from "../lib/config.js";
+import { SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
 import { sourceLabel } from "../lib/source-label.js";
 import { firstmateHome } from "../lib/firstmate-home.js";
 import { railImageSrc } from "./rail.js";
@@ -217,6 +218,25 @@ const DETAIL_LIMIT = 240;
 
 export function activityRecordPath(dir = FLYD_DIR): string {
   return join(dir, "activity", "records.jsonl");
+}
+
+/**
+ * Permission revocation must hide *previously prepared* private cards as well
+ * as stopping new Calendar reads. Keep this pure for ActivityReader and tests.
+ * Personal care has no right to retain UI visibility after its source is off.
+ */
+export function visibleCareRecords(
+  records: unknown[],
+  policy: { careEnabled: boolean; meetingEnabled: boolean },
+): unknown[] {
+  return records.filter((raw) => {
+    if (!raw || typeof raw !== "object") return true;
+    const key = (raw as Partial<ActivityRecord>).key;
+    if (typeof key !== "string" || !key.startsWith("care:")) return true;
+    if (!policy.careEnabled) return false;
+    if (key.startsWith("care:meeting:") && !policy.meetingEnabled) return false;
+    return true;
+  });
 }
 
 /** Appends one record; never throws, because writing a card must not fail the work it describes. */
@@ -698,7 +718,17 @@ export class ActivityReader {
       log: lines(join(this.dir, "logs", "agenda.log"), 600),
       jobs: this.jobs(),
       advice: jsonLines(join(this.dir, "council", "advisories.jsonl"), 4) as ActivityInputs["advice"],
-      records: jsonLines(activityRecordPath(this.dir), 300),
+      // Re-evaluate consent on every refresh, so disabled/revoked private
+      // preparation disappears without requiring a restart. Do not register
+      // or implicitly enable a source just to read its visibility state.
+      records: visibleCareRecords(jsonLines(activityRecordPath(this.dir), 300), {
+        careEnabled: process.env.FLYD_PROACTIVE_CARE !== "0",
+        meetingEnabled: process.env.FLYD_PROACTIVE_CARE !== "0"
+          && process.env.FLYD_PERSONAL_BRIEFING !== "0"
+          && new SourceContractRegistry({
+            path: join(this.dir, "intelligence", "source-consents.json"),
+          }).status("calendar.meeting-prep") === "enabled",
+      }),
       news: {
         edition: editionStories(editionFile, day),
         watch: flashStories(jsonLines(join(scout, "flash.jsonl"), 200), day),

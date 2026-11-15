@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { meetingPrepConsented, commitmentCard, creativeCard, prepareCreativeForConversation, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
+import { meetingPrepConsented, commitmentCards, commitmentCard, creativeCard, prepareCreativeForConversation, matchingPeople, meetingCard, runProactiveCare, type CareEvent } from "../proactive-care.js";
 import { parseCalendarMetadata } from "../proactive-calendar.js";
 import { CALENDAR_METADATA_CONTRACT, MEETING_PREP_CONTRACT, SourceContractRegistry } from "../../intelligence/sensors/source-contracts.js";
 import type { MemoryEntry } from "../../council/memory-store.js";
 import type { Project } from "../../council/projects.js";
 import type { Edition } from "../../council/scout.js";
-import { activityFromRecords, type ActivityRecord } from "../../conversation-view/activity.js";
+import { ActivityReader, recordActivity, activityFromRecords, visibleCareRecords, type ActivityRecord } from "../../conversation-view/activity.js";
 
 const now = new Date("2026-11-15T10:00:00");
 const meeting: CareEvent = { id: "event-123", title: "Call with Chris Jones", start: "2026-11-15T10:45:00" };
@@ -45,11 +45,21 @@ describe("proactive local personal care", () => {
     expect(events).toEqual([meeting]);
   });
 
+  it("prioritizes the nearest valid meeting regardless of Calendar enumeration order", () => {
+    const entries = parseCalendarMetadata(
+      "z\tCall with Chris Jones\t2026-11-15T11:45:00\n"
+      + "bad\tImpossible date\t2026-02-31T10:00:00\n"
+      + "a\tCall with Chris Jones\t2026-11-15T10:30:00\n",
+    );
+    expect(entries.map((event) => event.id)).toEqual(["a", "z"]);
+    expect(entries.some((event) => event.id === "bad")).toBe(false);
+  });
+
   it("requires fresh, unambiguous full-name evidence before a relationship card", () => {
     expect(matchingPeople(meeting, memory, now).map((x) => x.id)).toEqual(["m1", "m2"]);
     const card = meetingCard(meeting, memory, now);
     expect(card?.line).toContain("Chris Jones has two children");
-    expect(card?.line).toContain("confirmed 2026-11-14");
+    expect(card?.line).toContain("noted 2026-11-14");
     expect(card?.title).toBe("Before Call with Chris Jones");
     expect(meetingCard({ ...meeting, title: "Call with Chris" }, memory, now)).toBeNull();
     expect(matchingPeople({ ...meeting, title: "Call with Chris" }, memory.slice(0, 2), now).map((x) => x.id)).toEqual(["m1", "m2"]);
@@ -57,6 +67,19 @@ describe("proactive local personal care", () => {
     expect(meetingCard({ ...meeting, title: "Birthday with Chris Jones" }, memory, now)).toBeNull();
     const stale = memory.map((x) => ({ ...x, date: "2026-01-01" }));
     expect(meetingCard(meeting, stale, now)).toBeNull();
+  });
+
+  it("prepares a specific verified follow-up for the matched person, not someone with the same first name", () => {
+    const facts: MemoryEntry[] = [
+      ...memory,
+      { id: "followup", section: "Commitments", text: "Send the revised deck to Chris Jones by 2026-11-16.", date: "2026-11-14", tier: "aging" },
+      { id: "wrong", section: "Commitments", text: "Call Chris Smith on 2026-11-15.", date: "2026-11-14", tier: "aging" },
+      { id: "old", section: "Commitments", text: "Follow up with Chris Jones by 2026-01-04.", date: "2026-01-01", tier: "aging" },
+    ];
+    const card = meetingCard(meeting, facts, now);
+    expect(card?.line).toContain("Follow-up: Send the revised deck to Chris Jones");
+    expect(card?.line).not.toContain("Chris Smith");
+    expect(card?.line).not.toContain("2026-01-04");
   });
 
   it("curates only directly related, actual Scout references", () => {
@@ -125,6 +148,55 @@ describe("proactive local personal care", () => {
     expect(prepareCreativeForConversation("Just checking in", deps)).toBe(false);
   });
 
+  it("does not expose a previously prepared meeting when permission is disabled or revoked", () => {
+    const meetingNote = meetingCard(meeting, memory, now)!;
+    const visual = creativeCard([project], edition, now)!;
+    const records: unknown[] = [meetingNote, visual, { key: "ordinary", kind: "noted", title: "Other work", at: now.toISOString() }];
+    const allowed = visibleCareRecords(records, { careEnabled: true, meetingEnabled: true });
+    expect(allowed).toHaveLength(3);
+    const revoked = visibleCareRecords(records, { careEnabled: true, meetingEnabled: false });
+    expect(activityFromRecords(revoked, now.getTime()).done.map((item) => item.title))
+      .toEqual(["For Generative Typography", "Other work"]);
+    const disabled = visibleCareRecords(records, { careEnabled: false, meetingEnabled: false });
+    expect(activityFromRecords(disabled, now.getTime()).done.map((item) => item.title))
+      .toEqual(["Other work"]);
+  });
+
+  it("the live activity reader removes a consented meeting card immediately on revocation", () => {
+    const folder = mkdtempSync(join(tmpdir(), "flyd-care-reader-"));
+    try {
+      const registry = new SourceContractRegistry({ path: join(folder, "intelligence", "source-consents.json") });
+      registry.register(MEETING_PREP_CONTRACT);
+      registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "enabled");
+      recordActivity(meetingCard(meeting, memory, now)!, folder, now);
+      const reader = new ActivityReader({ dir: folder, now: () => now.getTime() });
+      reader.refresh();
+      expect(reader.current().recent.some((item) => item.title.includes("Chris Jones"))).toBe(true);
+      registry.setStatus(MEETING_PREP_CONTRACT.sourceId, "revoked");
+      reader.refresh();
+      expect(reader.current().recent.some((item) => item.title.includes("Chris Jones"))).toBe(false);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it("allows another relevant design direction but caps conversation inspiration at two cards a day", () => {
+    const made: ActivityRecord[] = [];
+    const keys = new Set<string>();
+    const deps = {
+      now: () => now, edition: () => edition,
+      record: (record: ActivityRecord) => { made.push(record); keys.add(record.key!); },
+      alreadyRecorded: (key: string) => keys.has(key),
+      countConversationCards: () => keys.size,
+    };
+    expect(prepareCreativeForConversation("Exploring generative visual typography and design", deps)).toBe(true);
+    expect(prepareCreativeForConversation("  Exploring generative visual typography and design!!! ", deps)).toBe(false);
+    expect(prepareCreativeForConversation("Visual generative typography and lettering experiments", deps)).toBe(true);
+    expect(prepareCreativeForConversation("Exploring a new visual generative typography direction", deps)).toBe(false);
+    expect(made).toHaveLength(2);
+    expect(made[0]?.key).not.toBe(made[1]?.key);
+  });
+
   it("surfaces a dated, confirmed commitment without inventing an action or deadline", () => {
     const entries: MemoryEntry[] = [
       { id: "promise", section: "Commitments", text: "Send the revised proposal by 2026-11-16.", date: "2026-11-14", tier: "aging" },
@@ -135,6 +207,30 @@ describe("proactive local personal care", () => {
     expect(card?.line).toContain("Send the revised proposal");
     expect(commitmentCard(entries.map((entry) => ({ ...entry, date: "2026-01-01" })), now)).toBeNull();
     expect(commitmentCard(entries, new Date("2026-11-20T10:00:00"))).toBeNull();
+  });
+
+  it("shows at most three distinct upcoming commitments, closest dates first, and never invents deadlines", async () => {
+    const entries: MemoryEntry[] = [
+      { id: "a", section: "Commitments", text: "Send proposal by 2026-11-16", date: "2026-11-14", tier: "aging" },
+      { id: "b", section: "Commitments", text: "Review budget by 2026-11-15", date: "2026-11-14", tier: "aging" },
+      { id: "c", section: "Commitments", text: "Call designer by 2026-11-17", date: "2026-11-14", tier: "aging" },
+      { id: "d", section: "Commitments", text: "Finish gallery by 2026-11-17", date: "2026-11-14", tier: "aging" },
+      { id: "vague", section: "Commitments", text: "Follow up with someone soon", date: "2026-11-14", tier: "aging" },
+    ];
+    const cards = commitmentCards(entries, now);
+    expect(cards).toHaveLength(3);
+    expect(cards[0]?.title).toContain("Today");
+    expect(cards[1]?.title).toContain("Tomorrow");
+    expect(cards.every((card) => card.line?.includes("(noted 2026-11-14)"))).toBe(true);
+    const made: ActivityRecord[] = [];
+    const result = await runProactiveCare({
+      now: () => now, projects: () => [], edition: () => null,
+      memory: () => entries, calendarConsent: () => false,
+      record: (item) => made.push(item), alreadyRecorded: () => false,
+    });
+    expect(result.commitments).toBe(3);
+    expect(made).toHaveLength(3);
+    expect(made.every((card) => card.key?.startsWith("care:commitment:"))).toBe(true);
   });
 
   it("drops ambient cards as soon as their context expires", () => {

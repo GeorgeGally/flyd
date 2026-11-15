@@ -5,7 +5,7 @@ import { activityRecordPath, recordActivity, type ActivityRecord } from "../conv
 import { readMemoryEntries, memoryEntryIsStale, type MemoryEntry } from "../council/memory-store.js";
 import { readProjects, type Project } from "../council/projects.js";
 import { latestEdition, type Edition } from "../council/scout.js";
-import { contextScore, workFocusFromProjects } from "../council/inspiration.js";
+import { contextScore, lexicalTokens, workFocusFromProjects } from "../council/inspiration.js";
 import { MEETING_PREP_CONTRACT, SourceContractRegistry } from "../intelligence/sensors/source-contracts.js";
 
 export interface CareEvent { id: string; title: string; start: string }
@@ -18,6 +18,8 @@ export interface CareDeps {
   calendarConsent?: () => boolean;
   record?: (record: ActivityRecord) => void;
   alreadyRecorded?: (key: string, day: string) => boolean;
+  /** Number of existing, distinct conversation galleries today; for daily attention budget. */
+  countConversationCards?: (day: string) => number;
 }
 export interface CareResult { meetings: number; inspiration: number; commitments: number; skipped: string[] }
 const CREATIVE = /\b(?:design|graphic|visual|art|creative|identity|branding|typography|animation|render|website|interface|ui|3d|generative)\b/i;
@@ -43,6 +45,24 @@ function alreadyRecorded(key: string, day: string): boolean {
       } catch { return false; }
     });
   } catch { return false; }
+}
+
+/** Older activity cards remain on disk for audit, but the panel only shows
+ * them under current consent (activity.ts). Use stored keys for the attention
+ * budget so a restarted Core cannot produce endless inspiration cards.
+ */
+export function conversationCardCount(day: string): number {
+  try {
+    const unique = new Set<string>();
+    for (const line of readFileSync(activityRecordPath(), "utf8").split("\n").slice(-500)) {
+      try {
+        const item = JSON.parse(line) as ActivityRecord;
+        if (item.key?.startsWith("care:creative:conversation:" + day + ":")
+          && item.at && dayOf(new Date(item.at)) === day) unique.add(item.key);
+      } catch { /* a truncated final record is not a card */ }
+    }
+    return unique.size;
+  } catch { return 0; }
 }
 
 /** Require exact two-part names present in both the title and fresh People memory. */
@@ -77,11 +97,29 @@ export function meetingCard(event: CareEvent, memory: MemoryEntry[], now: Date):
   if (!event.title.trim() || /(?:birthday|holiday|focus time|all.day)/i.test(event.title)) return null;
   const people = matchingPeople(event, memory, now);
   if (!people.length) return null;
+  // A relevant follow-up must name the matched person in full, not merely
+  // share a first name. Use only fresh, existing curated commitments.
+  const named = /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})/.exec(people[0]!.text)?.[1];
+  const exactName = named ? new RegExp("\\b" + named + "\\b", "i") : null;
+  const followups = exactName ? memory.filter((item) =>
+    item.section.toLowerCase() === "commitments"
+    && !memoryEntryIsStale(item, now)
+    && /\b(?:send|follow up|follow-up|reply|call|review|deliver|prepare)\b/i.test(item.text)
+    && exactName.test(item.text),
+  ).slice(0, 2) : [];
+  const describePerson = (p: MemoryEntry) => clean(p.text.replace(/[.!?]+$/, ""), 96) + " (noted " + p.date + ")";
+  const followup = (p: MemoryEntry) => "Follow-up: " + clean(p.text.replace(/[.!?]+$/, ""), 100) + " (noted " + p.date + ")";
+  // The activity card's expanded text is bounded. Put a concrete follow-up
+  // immediately behind the first personal fact, before less-important facts.
+  const facts = [
+    describePerson(people[0]!),
+    ...followups.map(followup),
+    ...people.slice(1).map(describePerson),
+  ];
   return {
     key: "care:meeting:" + hash(event.id + "|" + event.start), kind: "noted", state: "done", at: now.toISOString(), expiresAt: start.toISOString(),
     title: "Before " + clean(event.title, 72),
-    line: (people.map((p) => clean(p.text.replace(/[.!?]+$/, ""), 120) + " (confirmed " + p.date + ")").join(" · ")
-      + " · Call in " + Math.ceil(delay / 60_000) + " min.").slice(0, 500),
+    line: ("Call in " + Math.ceil(delay / 60_000) + " min · " + facts.join(" · ")).slice(0, 500),
   };
 }
 
@@ -117,8 +155,10 @@ export function creativeCard(projects: Project[], edition: Edition | null, now: 
   };
 }
 
-/** A dated, curator-confirmed commitment is an opportunity, not a new task. */
-export function commitmentCard(memory: MemoryEntry[], now: Date): ActivityRecord | null {
+/** Up to three dated, curated commitments, ordered by due date.
+ * Never infer deadlines or turn a vague note into a user-facing promise.
+ */
+export function commitmentCards(memory: MemoryEntry[], now: Date): ActivityRecord[] {
   const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const candidates = memory.flatMap((item) => {
     if (item.section.toLowerCase() !== "commitments" || memoryEntryIsStale(item, now)) return [];
@@ -129,16 +169,26 @@ export function commitmentCard(memory: MemoryEntry[], now: Date): ActivityRecord
     const days = Math.round((date.getTime() - midnight) / 86_400_000);
     return days >= 0 && days <= 2 ? [{ item, due: dates[0], days }] : [];
   }).sort((a, b) => a.days - b.days || a.item.text.localeCompare(b.item.text));
-  const best = candidates[0];
-  if (!best) return null;
-  const when = best.days === 0 ? "Today" : best.days === 1 ? "Tomorrow" : "In two days";
-  return {
-    key: "care:commitment:" + hash(best.item.id + "|" + best.due),
-    kind: "noted", state: "done", at: now.toISOString(),
-    expiresAt: new Date(new Date(best.due + "T00:00:00").getFullYear(), new Date(best.due + "T00:00:00").getMonth(), new Date(best.due + "T00:00:00").getDate() + 1).toISOString(),
-    title: when + ": something you committed to",
-    line: clean(best.item.text.replace(/[.!?]+$/, ""), 190) + " (confirmed " + best.item.date + ").",
-  };
+  const ids = new Set<string>();
+  return candidates.filter(({ item }) => {
+    if (ids.has(item.id)) return false;
+    ids.add(item.id); return true;
+  }).slice(0, 3).map(({ item, due, days }) => {
+    const when = days === 0 ? "Today" : days === 1 ? "Tomorrow" : "In two days";
+    const date = new Date(due + "T00:00:00");
+    return {
+      key: "care:commitment:" + hash(item.id + "|" + due),
+      kind: "noted", state: "done", at: now.toISOString(),
+      expiresAt: new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).toISOString(),
+      title: when + ": something you committed to",
+      line: clean(item.text.replace(/[.!?]+$/, ""), 190) + " (noted " + item.date + ").",
+    };
+  });
+}
+
+/** Backward-compatible single-best commitment for existing consumers. */
+export function commitmentCard(memory: MemoryEntry[], now: Date): ActivityRecord | null {
+  return commitmentCards(memory, now)[0] ?? null;
 }
 
 /** The existing activity column is the ambient surface; nothing pushes a notification. */
@@ -152,9 +202,10 @@ export async function runProactiveCare(deps: CareDeps = {}): Promise<CareResult>
   const creative = creativeCard((deps.projects ?? readProjects)(), (deps.edition ?? latestEdition)(), now);
   if (creative?.key && !seen(creative.key, day)) { write(creative); result.inspiration++; }
   // Reuse already consented curated memory only; no calendar, contact or model lookup.
-  const commitments = commitmentCard((deps.memory ?? readMemoryEntries)(), now);
-  if (commitments?.key && !seen(commitments.key, day)) {
-    write(commitments); result.commitments++;
+  const memory = (deps.memory ?? readMemoryEntries)();
+  for (const commitment of commitmentCards(memory, now)) {
+    if (!commitment.key || seen(commitment.key, day)) continue;
+    write(commitment); result.commitments++;
   }
   // Calendar metadata and People memory require a separate opt-in; a broad
   // request to "look after me" does not grant perpetual sensitive sensing.
@@ -165,7 +216,6 @@ export async function runProactiveCare(deps: CareDeps = {}): Promise<CareResult>
     result.skipped.push("calendar_metadata_not_consented"); return result;
   }
   const events = await (deps.events ?? defaultEvents)().catch(() => []);
-  const memory = (deps.memory ?? readMemoryEntries)();
   for (const event of events.slice(0, 10)) {
     const card = meetingCard(event, memory, now);
     if (!card?.key || seen(card.key, day)) continue;
@@ -192,12 +242,16 @@ export function prepareCreativeForConversation(message: string, deps: CareDeps =
   };
   const candidate = creativeCard([focus], edition, now, 3);
   if (!candidate) return false;
+  // Normalize the subject rather than keying off raw prose, so edits to
+  // punctuation do not create new cards. Distinct directions can each get a
+  // useful gallery, but two per day is the hard interruption/attention budget.
+  const topic = lexicalTokens(message).slice(0, 12).sort().join(" ");
+  const key = "care:creative:conversation:" + day + ":" + hash(topic);
+  if ((deps.alreadyRecorded ?? alreadyRecorded)(key, day)) return false;
+  if ((deps.countConversationCards ?? conversationCardCount)(day) >= 2) return false;
   const card: ActivityRecord = {
-    ...candidate,
-    key: "care:creative:conversation:" + day,
-    title: "References for this direction",
+    ...candidate, key, title: "References for this direction",
   };
-  if ((deps.alreadyRecorded ?? alreadyRecorded)(card.key!, day)) return false;
   (deps.record ?? recordActivity)(card);
   return true;
 }

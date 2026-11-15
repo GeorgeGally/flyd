@@ -80,8 +80,8 @@ export async function defaultTickJobs(options: { now?: () => Date; backoffPath?:
       run: async () => {
         const { runProactiveCare } = await import("./proactive-care.js");
         const result = await runProactiveCare({ ...(options.now ? { now: options.now } : {}) });
-        return result.meetings || result.inspiration
-          ? `Prepared ${result.meetings} meeting notes and ${result.inspiration} visual reference cards`
+        return result.meetings || result.inspiration || result.commitments
+          ? `Prepared ${result.meetings} meeting notes, ${result.inspiration} visual reference cards and ${result.commitments} due commitment cards`
           : undefined;
       },
     },

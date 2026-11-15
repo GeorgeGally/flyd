@@ -1,6 +1,6 @@
 # Flyd v9 — Autonomous Executive Judgment, Natural Communication, and Personal Care
 
-**Status:** Release A/B implementation merged to `main` on 13 November 2026 (PR #292, `bb559977aa753f5bc4a93bc839b3beb19ad3d0c9`); Release C proactive personal care and live Mac/provider verification remain **not complete**.
+**Status:** Release A/B merged (PR #292). Release C proactive personal care implemented in source (`119a9264`, 15 November 2026) and hardened by PR #307. Real Mac Calendar/consent/UI pilot and live decision-provider benchmarking remain **unverified**.
 **Date:** 13 November 2026
 **Repository reviewed:** GeorgeGally/flyd, main at 2880b4bcc32bc8652c3447285018e96e0c7f8fef
 **Owner:** Flyd product, for George
@@ -15,7 +15,9 @@
 
 **Implemented in source:** CoS fast executive predicate and Gemini/Jev abstraction; scoped operational disposition and private higher-reasoning escalation; bounded internal recovery and unknown-external-effect holds; Flyd-owned routing in project conversations; removal of mandatory delegation narration; grounded gallery and briefing manifestations; revised source-backed tests and governing authority language.
 
-**Not implemented or not proven:** Full proactive relationship/calendar preparation and ambient design anticipation (P5); real-world 100-case Jev-versus-Gemini benchmark; installed Mac/live credential/provider verification; expansion of standing grants beyond existing permitted internal effects. Those are **open acceptance gates**, not completed work. The plan should not be marked fully shipped until they pass.
+**Subsequent Release C implementation:** Commit `119a9264` introduced the existing 5-minute proactive care tick, consented metadata-only Calendar meeting preparation, local People memory matching, quiet visual Scout references, commitment cards, and `flyd care` controls. PR #307 improves revocation visibility, conversation relevance and attention limits, chronological event validation, multiple due commitments and person-specific follow-up evidence. The two previously missing personal care experiences are **implemented in source**; see `docs/product/flyd-proactive-personal-care.md`.
+
+**Not proven:** Live macOS Calendar permission and AppleScript behavior, a visible meeting/card pilot on George's installed Flyd, real-world 100-case Jev-versus-Gemini evaluation, and expanded standing grants beyond existing safe internal effects. These remain **open release-validation gates**. Source-level functionality must not be represented as a verified live personal-assistant rollout.
 
 ## 0. Executive decision
 
