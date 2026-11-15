@@ -45,6 +45,16 @@ describe("proactive local personal care", () => {
     expect(events).toEqual([meeting]);
   });
 
+  it("prioritizes the nearest valid meeting regardless of Calendar enumeration order", () => {
+    const entries = parseCalendarMetadata(
+      "z\\tCall with Chris Jones\\t2026-11-15T11:45:00\\n"
+      + "bad\\tImpossible date\\t2026-02-31T10:00:00\\n"
+      + "a\\tCall with Chris Jones\\t2026-11-15T10:30:00\\n",
+    );
+    expect(entries.map((event) => event.id)).toEqual(["a", "z"]);
+    expect(entries.some((event) => event.id === "bad")).toBe(false);
+  });
+
   it("requires fresh, unambiguous full-name evidence before a relationship card", () => {
     expect(matchingPeople(meeting, memory, now).map((x) => x.id)).toEqual(["m1", "m2"]);
     const card = meetingCard(meeting, memory, now);
