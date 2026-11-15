@@ -1,20 +1,20 @@
 // George's standing rule for code: he always works on main, and his ~/Documents
 // copy and GitHub are always in sync. Committing, merging finished work into main,
 // syncing and pushing it to his own GitHub are therefore routine, never his call,
-// however the staff word the ask ("needs George's approval to push"). Anything
-// that goes live, can't be taken back, costs money, touches access or reaches
-// someone else's repo still is.
+// however the staff word the ask ("needs George's approval to push") and whatever
+// words describe the work. Only going live, a force push, someone else's repo or
+// failing tests and checks still are.
 
 export const ROUTINE_GIT_RULE = "George always works on main, and his ~/Documents copy and GitHub are always in sync, so committing, merging, syncing and pushing finished work is routine.";
 
 /** The git steps the rule covers. */
 const GIT_STEP = /\b(?:push(?:es|ed|ing)?|merg(?:e|es|ed|ing)|sync(?:s|ed|ing)?|land(?:s|ed|ing)?|fast-?forward(?:s|ed|ing)?|commit(?:s|ted|ting)?)\b/i;
 
-/** Going live as the action itself ("deploy to production", "push and deploy", "go live"), never as a description ("the deploy script fix"). */
-export const DEPLOY_ACTION = /(?:^|[.;:,?!]\s*|\b(?:and|then|to|will|can|should|shall|please|i'?ll|we'?ll)\s+)(?:deploy|publish|release|go live)\b|\b(?:push|ship|deploy)\w*\s+(?:it\s+)?to (?:prod|production|live)\b/im;
+/** Going live as a step of its own ("push and deploy", "then publish", "push it to production", `npm publish`), never a word describing the work ("release notes"). */
+export const DEPLOY_ACTION = /\b(?:and|then)\s+(?:then\s+)?(?:deploy|publish|release|go live)\b|\b(?:push|ship|deploy)\w*\s+(?:it\s+)?to (?:prod|production|live)\b|\b(?:vercel|netlify|firebase|wrangler|flyctl|fly)\s+deploy\b|\b(?:npm|pnpm|yarn)\s+publish\b|\bgh release create\b/i;
 
-/** Still his, whatever else the ask says. */
-const STILL_HIS = /\b(?:force|delet|wip(?:e|ing)\b|purg|destroy|reset|revert|roll ?back|overwrit|discard|pay|purchas|buy|spend|cost|bill|charg|invoice|contract|secret|token|password|credential|api key|secur|login|access|collaborator|ssh key|sudo|public|share|client|customer|whatsapp|email|tweet|upstream|fork|someone else|third[- ]party|open[- ]source|other people)/i;
+/** Still his: a force push, or a push to someone else's repo. */
+const STILL_HIS = /\bforce[- ]?push\w*|--force\b|\bpush\w*\s+(?:\S+\s+)?-f\b|\b(?:upstream|forks?|forked|someone else(?:'s)?|other people(?:'s)?|third[- ]party|another remote|their repo)\b/i;
 
 /** A choice between options: the work's own engineering call, never settled as a plain go-ahead. */
 const EITHER_OR = /\bor\b|\b(?:which|pick|choose|instead)\b/i;
@@ -23,7 +23,7 @@ const EITHER_OR = /\bor\b|\b(?:which|pick|choose|instead)\b/i;
 const STILL_FAILING = /\bstill (?:fail(?:s|ing)?|red|broken)\b|\b(?:tests?|checks?|ci|lint|build|suite)\W+(?:[\w'-]+\W+){0,2}?(?:fail(?:s|ing)?|red|broken)\b|\bnot (?:yet )?(?:green|passing)\b/gi;
 
 /** Said of a failure that is past ("lint was failing", "no longer fails"). */
-const PAST = /\b(?:no longer|fixed|resolved|was|were|used to)\W+(?:[\w'-]+\W+){0,2}$/i;
+const PAST = /\b(?:no longer|fixed|resolved|was|were|used to)(?:[\s-]+[\w'-]+){0,2}[\s-]+$/i;
 
 function failingNow(text: string): boolean {
   return [...text.matchAll(STILL_FAILING)].some((found) => {

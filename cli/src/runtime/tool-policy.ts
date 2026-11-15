@@ -234,7 +234,7 @@ export function classifyToolCall(name: string, input: Record<string, unknown>): 
 export function afterLandSteps(line: string): AfterLandStep[] {
   return [
     ...(/\b(?:push|sync)\w*/i.test(line) ? ["push" as const] : []),
-    ...(DEPLOY_ACTION.test(line.trim()) ? ["deploy" as const] : []),
+    ...(/^\s*(?:deploy|publish|release|go live|ship (?:it )?to prod(?:uction)?)\b/i.test(line) || DEPLOY_ACTION.test(line) ? ["deploy" as const] : []),
   ];
 }
 

@@ -181,7 +181,7 @@ describe("approving crew follow-ups at dispatch", () => {
     expect(decideToolCall("start_coding_task", { outcome: "Ship the polish", after_land: ["push", "deploy"] }, clean, "trusted"))
       .toEqual({ kind: "confirm", category: "outward", reason: 'build "Ship the polish", then push and deploy once you land it (leaves this machine)' });
     expect(decideToolCall("start_coding_task", { outcome: "Ship the polish" }, clean, "trusted")).toEqual({ kind: "allow" });
-    for (const line of ["Commit and push to GitHub", "Sync to GitHub", "git push origin main", "Push the production error fix to GitHub", "Push the release-notes fix", "Push the release notes fix", "Push the deploy script fix to GitHub", "Push the publishing bug fix"]) {
+    for (const line of ["Commit and push to GitHub", "Sync to GitHub", "git push origin main", "Push the production error fix to GitHub", "Push the release-notes fix", "Push the release notes fix", "Push the deploy script fix to GitHub", "Push the publishing bug fix", "Push the fix to release branch", "Push the login bug fix"]) {
       expect(decideToolCall("start_coding_task", { outcome: "Fix it", after_land: [line] }, clean, "trusted"), line).toEqual({ kind: "allow" });
     }
     const both = { outcome: "Ship it", after_land: ["Push and deploy to production"] };

@@ -83,6 +83,19 @@ describe("George's standing rules in the review step", () => {
     }
     expect(settleCall({ ...call("Two tests still fail on CI. Ready to merge?"), sourceText: "Two tests still fail on CI. Ready to merge?" }, PREFERENCES)?.rule).not.toBe("routine-git");
     expect(settleCall(call("Waiting for George's approval to push the production error fix to GitHub?"), "- George likes tea.")?.rule).toBe("routine-git");
+    // Words describing the work never make a push his question.
+    for (const question of [
+      "Updated the changelog, release notes. Push to GitHub?", "Release notes fixed. Push?", "Push the fix to release branch?",
+      "Push the login bug fix?", "Push the client-side fix?", "Push the accessibility fix?", "Push the email template fix?",
+      "Push the shared config fix?", "Push the tokenizer fix?", "Push the production error fix to GitHub?",
+    ]) expect(settleCall(call(question), "- George likes tea.")?.rule, question).toBe("routine-git");
+    for (const question of ["Force push over main?", "Push the fix upstream?", "Push it to their fork?", "OK to push and deploy to production?"]) {
+      expect(settleCall(call(question), "- George likes tea.")?.rule, question).not.toBe("routine-git");
+    }
+    // A past fix in an earlier clause never makes a current failure look past.
+    for (const report of ["Resolved conflicts; CI red.", "Fixed typo, tests failing.", "Rebase was clean; tests failing."]) {
+      expect(settleCall({ ...call("Ready to merge?"), sourceText: `${report} Ready to merge?` }, PREFERENCES)?.rule, report).not.toBe("routine-git");
+    }
   });
 
   it("stands only on lines he wrote: without them nothing is settled", () => {
