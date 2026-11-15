@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { runFlydWorkerLoop, type FlydCompletionClient } from "./flyd-worker-loop.js";
 import { createFlydWorkerTools } from "./flyd-worker-tools.js";
 import type { FlydWorkerConfig } from "./flyd-worker-config.js";
+import { compatibleClaudeHeaders, recordCompatibleClaudeUsage } from "../lib/claude-spend.js";
 
 function argumentsMap(argv: string[]): Map<string, string> {
   const values = new Map<string, string>();
@@ -45,6 +46,7 @@ interface CompletionResponse {
       function: { name: string; arguments: string };
     }>;
   } }>;
+  usage?: { prompt_tokens?: number | null; completion_tokens?: number | null } | null;
 }
 
 type CompletionRequest = (
@@ -78,7 +80,7 @@ export function completionClient(
   const performRequest: CompletionRequest = request ?? (async (config, input) => {
     let client = clients.get(config.providerIdentity);
     if (!client) {
-      client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseURL });
+      client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseURL, defaultHeaders: compatibleClaudeHeaders(config.baseURL) });
       clients.set(config.providerIdentity, client);
     }
     return client.chat.completions.create({
@@ -97,6 +99,7 @@ export function completionClient(
         const config = configs[index];
         try {
           const response = await performRequest(config, input);
+          recordCompatibleClaudeUsage(config.model, config.baseURL, response.usage, "worker");
           const message = response.choices[0]?.message;
           if (!message) throw new Error("returned no message");
           if (index !== activeProvider) onFallback(config.providerIdentity);

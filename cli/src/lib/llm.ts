@@ -3,7 +3,7 @@ import { elideToolHistory, type ToolHistoryPolicy, type ToolHistoryStats } from 
 import { finalizeEvidenceSurface } from "../evidence/compose-surface.js";
 import { enrichResolutionPromptWithEvidence } from "../evidence/resolution-evidence.js";
 import { usesOpenAITransport, apiModelId, defaultModel, oneShotModelChain, quickModelChain, resolveModelConnection, type ModelConnection } from "./config.js";
-import { claudeHeaders, recordClaudeUsage, type ClaudeUsage } from "./claude-spend.js";
+import { claudeHeaders, compatibleClaudeHeaders, recordClaudeUsage, recordCompatibleClaudeUsage, type ClaudeUsage } from "./claude-spend.js";
 
 interface FixtureRule {
   /** Prompt must contain this substring. */
@@ -563,18 +563,22 @@ async function queryOpenAIWithConfig(
   options: QueryOptions = {}
 ): Promise<string> {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI(openAIClientOptions(apiKey, baseURL));
+  const client = new OpenAI({ ...openAIClientOptions(apiKey, baseURL), defaultHeaders: compatibleClaudeHeaders(baseURL) });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: openAIUserContent(prompt, options.images) });
   const limit = options.maxTokens ?? (options.json ? 8192 : 4096);
-  const ask = (maxTokens: number) => client.chat.completions.create({
-    model: apiModelId(model),
-    ...openAICompletionLimit(maxTokens),
-    messages,
-    ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
-  });
+  const ask = async (maxTokens: number) => {
+    const response = await client.chat.completions.create({
+      model: apiModelId(model),
+      ...openAICompletionLimit(maxTokens),
+      messages,
+      ...(options.json ? { response_format: { type: "json_object" as const } } : {}),
+    });
+    recordCompatibleClaudeUsage(apiModelId(model), baseURL, response.usage, options.source ?? "worker");
+    return response;
+  };
   let res = await ask(limit);
   if (!res.choices.length) throw new Error("OpenAI returned empty choices");
   // Reasoning models can spend the whole budget thinking and return no text;

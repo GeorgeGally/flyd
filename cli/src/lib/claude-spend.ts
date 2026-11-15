@@ -166,6 +166,28 @@ async function defaultNotify(title: string, message: string): Promise<void> {
   await notifyMac(title, message);
 }
 
+/** A base URL on Anthropic's own API (its OpenAI-compatible endpoint): Flyd's Claude account, its workspace and its cap. */
+export function anthropicCompatible(baseURL: string | undefined): boolean {
+  if (!baseURL) return false;
+  try { return new URL(baseURL).host === "api.anthropic.com"; } catch { return false; }
+}
+
+/** Headers an OpenAI-compatible client needs on Anthropic's endpoint; none elsewhere. */
+export function compatibleClaudeHeaders(baseURL: string | undefined): Record<string, string> {
+  return anthropicCompatible(baseURL) ? claudeHeaders() : {};
+}
+
+/** Count an OpenAI-shaped completion's usage against the Claude cap when it went to Anthropic. */
+export function recordCompatibleClaudeUsage(
+  model: string,
+  baseURL: string | undefined,
+  usage: { prompt_tokens?: number | null; completion_tokens?: number | null } | null | undefined,
+  source: string,
+): number {
+  if (!anthropicCompatible(baseURL) || !usage) return 0;
+  return recordClaudeUsage(model.replace(/^anthropic:/i, ""), { input_tokens: usage.prompt_tokens ?? 0, output_tokens: usage.completion_tokens ?? 0 }, source);
+}
+
 /** Price one response's usage and add it to this month's total. Returns its cost in USD. */
 export function recordClaudeUsage(model: string, usage: ClaudeUsage | null | undefined, source = "chat", now = new Date(), path = spendLedgerPath()): number {
   if (!usage) return 0;

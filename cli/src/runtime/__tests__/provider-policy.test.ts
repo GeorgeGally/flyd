@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chatModelChain, defaultModel, oneShotModelChain, quickModelChain, resolveModelConnection } from "../../lib/config.js";
 import { crewBackupModels, crewClaudeArgs, crewModel, DEFAULT_CREW_MODEL, launchCrewmate, type CrewTask } from "../../crew/crew.js";
 import { loadFlydWorkerConfigs } from "../flyd-worker-config.js";
+import { completionClient } from "../flyd-worker-process.js";
 import { routeWorker } from "../worker-router.js";
 import type { WorkerHealth } from "../worker-adapter.js";
 
@@ -79,5 +80,29 @@ describe("provider policy: Claude for text and code, ChatGPT/Codex only for imag
     for (const model of ["opencode-go/gpt-6-luna", "openai/gpt-6.1-sol", "codex", "opencode-go/deepseek-v4-pro"]) {
       expect(() => launchCrewmate({ model } as CrewTask, "brief"), model).toThrow(/no longer uses|images only/);
     }
+  });
+});
+
+describe("the Claude coding worker counts against Flyd's monthly Claude cap", () => {
+  it("stops choosing Claude once worker completions on Anthropic's endpoint have spent the month's cap", async () => {
+    const configs = loadFlydWorkerConfigs({ envFileText: "" });
+    expect(configs.map((config) => config.baseURL)).toEqual(["https://api.anthropic.com/v1"]);
+    // 100M input tokens is far past the default $100 cap at any published Sonnet price.
+    const client = completionClient(configs, undefined, async () => ({
+      choices: [{ message: { content: "done" } }],
+      usage: { prompt_tokens: 100_000_000, completion_tokens: 1_000 },
+    }));
+    await client.complete({ messages: [{ role: "user", content: "plan" }], tools: [] });
+    expect(() => loadFlydWorkerConfigs({ envFileText: "" })).toThrow("Flyd coding model is not configured");
+  });
+
+  it("leaves the cap alone for a worker on another provider", async () => {
+    const configs = [{ apiKey: "k", model: "some-model", baseURL: "https://openrouter.ai/api/v1", providerIdentity: "openrouter.ai/some-model" }];
+    const client = completionClient(configs, undefined, async () => ({
+      choices: [{ message: { content: "done" } }],
+      usage: { prompt_tokens: 100_000_000, completion_tokens: 1_000 },
+    }));
+    await client.complete({ messages: [{ role: "user", content: "plan" }], tools: [] });
+    expect(loadFlydWorkerConfigs({ envFileText: "" })[0].baseURL).toBe("https://api.anthropic.com/v1");
   });
 });
