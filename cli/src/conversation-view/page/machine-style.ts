@@ -12,7 +12,7 @@ export const MACHINE_STYLE = `
 :root[data-layout="front"][data-centre="machines"]:not([data-job]) .stage-head,
 :root[data-layout="front"][data-centre="machines"]:not([data-job]) .jump { display: none !important; }
 :root[data-layout="front"][data-centre="machines"]:not([data-job]) .machines { display: block; }
-:root[data-screen="show"] .machines { display: none !important; }
+
 .mach-fleet {
   position: fixed; z-index: 2; top: calc(var(--top) + 16px); bottom: var(--composer-h, 130px); left: var(--c-left); right: var(--c-right);
   padding: 0 var(--pad-x) 28px; overflow-y: auto; scrollbar-width: none; animation: column-in .24s ease both;

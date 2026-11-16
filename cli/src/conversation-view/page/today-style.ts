@@ -38,7 +38,6 @@ export const TODAY_STYLE = `
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
 }
 .today-feed::-webkit-scrollbar, .news-page::-webkit-scrollbar, .news-side::-webkit-scrollbar { display: none; }
-:root[data-screen="show"] .today-feed, :root[data-screen="show"] .news-page, :root[data-screen="show"] .news-side { display: none !important; }
 
 /* Whether the news is working, over the day's cards: one line, and what stopped when something did. */
 .news-status { margin: 0 0 16px; }
@@ -160,7 +159,7 @@ button.ev:hover { background: var(--sheet); }
   :root[data-layout="front"] .centre-tabs { gap: 14px; margin-left: 0; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   :root[data-layout="front"] .centre-tabs::-webkit-scrollbar { display: none; }
   :root[data-layout="front"] .ctab { flex: none; }
-  :root[data-layout="front"] #flip { display: none !important; }
+  
   :root[data-layout="front"] .rtabs { display: flex !important; position: static; width: auto; height: 48px; padding: 0 var(--gut); background: none; }
   :root[data-layout="front"][data-rtab]:not([data-rtab="jobs"]) .jobs,
   :root[data-layout="front"][data-rtab]:not([data-rtab="arts"]) .rail:not([hidden]),

@@ -7,7 +7,7 @@ export const TODO_STYLE = `
 }
 .todos::-webkit-scrollbar { display: none; }
 :root[data-layout="front"]:not([data-rtab="todo"]) .todos { display: none; }
-:root[data-screen="show"] .todos { display: none !important; }
+
 @media (min-width: 761px) {
   :root[data-layout="front"][data-rtab="todo"] .jobs,
   :root[data-layout="front"][data-rtab="todo"] .rail { display: none !important; }

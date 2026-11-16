@@ -120,7 +120,7 @@ var __name = function (f) { return f; };
   // Pinned: he is reading the latest message, so whatever changes keeps him
   // there. Only his own scrolling up unpins it.
   var pinned = true;
-  function onConversation() { return document.documentElement.getAttribute("data-screen") !== "show" && !document.documentElement.hasAttribute("data-job"); }
+  function onConversation() { return !document.documentElement.hasAttribute("data-job"); }
   function toBottom() { pinned = true; window.scrollTo(0, document.documentElement.scrollHeight); }
   // The message at the top of the window and where it sits, so a change above
   // it cannot move what he is reading (WebKit has no scroll anchoring).

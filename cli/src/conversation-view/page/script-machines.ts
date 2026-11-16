@@ -6,8 +6,7 @@
  * Claude's spend and the usage left.
  * A button asks Flyd in the conversation, in Core's words. One that would change
  * something asks him first, in place. The list is read only while the screen is
- * up, soon again while a machine is still being checked; applyScreen reads
- * again on the way back from the artefact screen. Borrows VIEW_TOKEN, ago,
+ * up, soon again while a machine is still being checked. Borrows VIEW_TOKEN, ago,
  * clock, frontEsc, frontRoot, current, deliver, noteRefusal, centre and
  * setCentre from the page's closure.
  */

@@ -74,10 +74,7 @@ button[role="switch"] .track::after {
 header button[role="switch"][aria-checked="true"] { color: var(--strong); }
 button[role="switch"][aria-checked="true"] .track { background: var(--accent); }
 button[role="switch"][aria-checked="true"] .track::after { transform: translateX(12px); background: var(--bg); }
-header .air { display: none; flex: 1; align-items: center; gap: 9px; min-width: 0; white-space: nowrap; }
-header .air::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
-header .air.on { color: var(--k-live, var(--accent)); }
-header .air.on::before { background: currentColor; opacity: 1; }
+
 /* The current conversation title stays in the header; past sessions live in the right column. */
 header .picker { flex: 1; min-width: 0; display: flex; }
 #conversation-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

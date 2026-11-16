@@ -477,7 +477,6 @@ export const MESSAGES_SCRIPT = `
     if (!onConversation()) { /* the terminal is hidden; it finds its place when it comes back */ }
     else if (stick) { toBottom(); jump.hidden = true; } else { restore(at); if (added) jump.hidden = false; }
     first = false;
-    if (update.show) renderShow(update.show, update.boxes);
     renderSite(update.page);
     notices = (update.rail && update.rail.notices) || [];
     if (update.rail) renderArtefacts(update.rail.artefacts || []);

@@ -9,7 +9,7 @@ export const THREAD_STYLE = `
 :root[data-layout="front"]:not([data-rtab="threads"]) .threads,
 :root[data-layout="front"][data-rtab="threads"] .jobs,
 :root[data-layout="front"][data-rtab="threads"] .rail { display: none !important; }
-:root[data-screen="show"] .threads { display: none !important; }
+
 /* The Projects tab as a contents page: no cards, one entry per project split by a white hairline. An unread mark
    hangs in the gutter; the name and time share a baseline; his words, muted, then Flyd's line in one sentence. */
 .thread-list { display: block; }

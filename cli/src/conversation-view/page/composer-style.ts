@@ -143,8 +143,7 @@ export const COMPOSER_STYLE = `
   header .controls #left-open { white-space: nowrap; }
   header button { padding: 0 6px; }
   header button[role="switch"] { gap: 5px; }
-  /* A phone keeps the light of "on air", not its words. */
-  header .air { font-size: 0; gap: 0; }
+  
   header .site { max-width: 34vw; padding: 0 10px; }
   header .site-kind, header .site-host { display: none; }
 }

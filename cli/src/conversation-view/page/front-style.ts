@@ -158,11 +158,7 @@ export const FRONT_STYLE = `
 /* The chat reads at a comfortable size: his words at body size, Flyd's a step under, both on a generous line. */
 :root[data-layout="front"] .msg .body { font-size: 18px; }
 :root[data-layout="front"] .msg.assistant { font-size: 17px; line-height: 1.55; }
-/* What needs him lives in the left column; the conversation doesn't repeat it. */
-:root[data-layout="front"]:not([data-screen="show"]) #show, :root[data-layout="front"] .inline-screen { display: none !important; }
-/* The decision the conversation carries: the same quiet well as the message box, a hairline of the dot's colour. */
-:root[data-layout="front"] .inline-card { border: 0; border-left: 2px solid var(--line); background: var(--well); }
-:root[data-layout="front"] .inline-card.k-call { border-left-color: var(--hot); }
+
 :root[data-layout="front"] .empty { margin-top: 18vh; }
 :root[data-layout="front"] .composer {
   left: var(--c-left); right: var(--c-right); bottom: 0; z-index: 4;
@@ -298,7 +294,7 @@ button.jv-thread { cursor: pointer; }
 :root[data-layout="front"] .rail .art-card .art-title:hover { color: var(--link); }
 /* The card's kind sits under its name as a quiet word, never a label over it. */
 :root[data-layout="front"] .rail .art-kind { order: 2; margin: 10px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--mute); }
-:root[data-layout="front"] .rail .art-advice-line { order: 0; font: 500 19px/1.34 var(--sans); letter-spacing: -0.015em; text-wrap: pretty; }
+
 :root[data-layout="front"] .rail .art-plain { gap: 16px; margin-top: 0; }
 :root[data-layout="front"] .rail .art-plain + .brief-top { margin-top: 32px; }
 :root[data-layout="front"] .rail .art-grid + .art-plain { padding-top: 0; border-top: 0; }
@@ -404,10 +400,6 @@ button.jv-thread { cursor: pointer; }
 .jobs .history-item { padding: 9px 4px; font-size: 14px; color: var(--ink2); }
 .jobs .history-item:hover { color: var(--ink); }
 .jobs .history-item-age { font-size: 12.5px; }
-
-/* The artefact view keeps the whole screen. */
-:root[data-screen="show"] .rtabs, :root[data-screen="show"] .jobs,
-:root[data-screen="show"] .stage-head, :root[data-screen="show"] .job-view { display: none !important; }
 
 /* Narrower: the column gives up width with the window; the cards keep their shape. */
 @media (max-width: 1100px) {

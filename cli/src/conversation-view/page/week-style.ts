@@ -21,7 +21,7 @@ export const WEEK_STYLE = `
   padding: 40px var(--wk-side) 48px; overflow-y: auto; scrollbar-width: none; background: var(--paper); animation: column-in .24s ease both;
 }
 .week-page::-webkit-scrollbar { display: none; }
-:root[data-screen="show"] .week-page { display: none !important; }
+
 @media (min-width: 761px) {
   :root[data-layout="front"][data-centre="week"]:not([data-job]) :is(.rtabs, .jobs, .rail, .machines, .todos, .threads) { display: none !important; }
 }

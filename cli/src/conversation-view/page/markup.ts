@@ -4,7 +4,7 @@ import { FRONT_HTML } from "./front-markup.js";
 
 export interface PageOptions { assistantLabel: string; sendToken?: string; newSession?: string }
 
-/** The page's markup: header, preferences, columns, stream, artefact view and message box. */
+/** The page's markup: header, preferences, columns, stream and message box. */
 export function pageMarkup(options: PageOptions, style: string, script: string): string {
   const label = escapeHtml(options.assistantLabel);
   const token = (options.sendToken ? ` data-send-token="${escapeHtml(options.sendToken)}"` : "")
@@ -25,12 +25,10 @@ export function pageMarkup(options: PageOptions, style: string, script: string):
   <span class="project-badge" id="project-badge" hidden></span>
   <span class="picker" id="conversation-title" aria-label="Current conversation"></span>
   <a class="article-back" id="article-back" hidden target="_blank" rel="noopener noreferrer"></a>
-  <span class="air" id="air">standby</span>
   <a class="site" id="site" hidden target="_blank" rel="noopener noreferrer"><span class="site-kind" id="site-kind"></span><span class="site-host" id="site-host"></span><span class="site-path" id="site-path"></span></a>
   <span class="when" id="when"></span>
   <span class="controls">
     ${LEFT_BUTTON}<a href="/whatsapp" style="font-size:12px;color:var(--muted);text-decoration:none;padding:0 8px">people</a><button id="prefs-open" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prefs">preferences</button>
-    <button id="flip" type="button" role="switch" aria-checked="false" aria-label="Artefact view">artefact<span class="track" aria-hidden="true"></span></button>
   </span>
 </header>
 <div class="prefs" id="prefs" hidden role="dialog" aria-label="Preferences">
@@ -63,39 +61,11 @@ ${FRONT_HTML}
   <p class="empty" id="empty" hidden>Nothing said yet.</p>
   <div class="article-starters" id="article-starters" hidden></div>
   <div class="working" id="working" hidden aria-label="${label} is working"><span class="dots"><i></i><i></i><i></i></span></div>
-  <section class="inline-screen" id="inline-screen" hidden aria-label="The artefact"></section>
 </main>
 <button class="jump" id="jump" type="button" hidden>↓ new</button>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Image"><button class="lightbox-nav lightbox-prev" type="button" aria-label="Previous image">‹</button><img id="lightbox-img" alt=""><button class="lightbox-nav lightbox-next" type="button" aria-label="Next image">›</button></div>
 <div class="problem" id="problem"></div>
 <a id="routine-suggestion" href="/routines" hidden style="position:fixed;bottom:150px;right:24px;font-size:14px;color:var(--accent);padding:12px;background:var(--tint);border-radius:12px">Keep this repeated request as a routine →</a>
-<section class="show" id="show" hidden aria-label="Flyd's artefact: what it thinks you need to see">
-  <div class="tv">
-    <div class="scene" id="scene" aria-live="polite">
-      <div class="scene-text">
-        <h1 class="scene-head" id="scene-head"></h1>
-        <p class="scene-line" id="scene-line"></p>
-        <div class="scene-meta" id="scene-meta"></div>
-      </div>
-    </div>
-  </div>
-  <div class="ticks" id="ticks" aria-label="Flyd's scenes" hidden></div>
-  <nav class="semantic-context" id="semantic-context" aria-label="Other work"></nav>
-  <div class="readouts" id="readouts" aria-label="Readouts"></div>
-  <div class="calls" id="calls" hidden role="dialog" aria-modal="true" aria-labelledby="calls-title">
-    <div class="calls-sheet" tabindex="-1">
-      <div class="calls-top"><h2 id="calls-title">Your decisions</h2><button id="calls-close" type="button" aria-label="Close">✕</button></div>
-      <ol class="calls-list" id="calls-list"></ol>
-    </div>
-  </div>
-  <div class="drill" id="drill" hidden role="dialog" aria-modal="true" aria-labelledby="drill-title">
-    <div class="drill-sheet" tabindex="-1">
-      <div class="drill-top"><h2 id="drill-title"></h2><button id="drill-close" type="button" aria-label="Close">✕</button></div>
-      <ul class="drill-list" id="drill-list"></ul>
-    </div>
-  </div>
-  <div class="foot"><p class="doing" id="show-doing">Standby</p><span id="show-nav" hidden><button class="show-nav" id="show-prev" type="button" aria-label="Previous card">←</button><button class="show-nav" id="show-next" type="button" aria-label="Next card">→</button></span></div>
-</section>
 <form class="composer" id="composer" hidden autocomplete="off">
   <div class="row">
     <p class="unread" id="staff" role="status" hidden></p>

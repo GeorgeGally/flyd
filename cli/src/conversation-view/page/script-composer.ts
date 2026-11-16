@@ -283,13 +283,6 @@ export const COMPOSER_SCRIPT = `
     if (taken) noteRefusal("");
     if (refused.length) noteRefusal(refused.join(" · "));
   }
-  // A dropped file is going into the message box, so the box comes back with it
-  // instead of the file landing unseen behind the artefact screen.
-  function revealComposer() {
-    if (composer.hidden || showEl.hidden) return;
-    applyScreen("terminal", false);
-    store("flyd-view-screen", "terminal");
-  }
   // The + button opens the picker; what is picked goes the same way as a drop.
   var attachInput = document.getElementById("attach-input");
   attachInput.accept = IMAGE_TYPES.concat(DOCUMENTS.map(function (ext) { return "." + ext; })).join(",");
@@ -322,7 +315,6 @@ export const COMPOSER_SCRIPT = `
     composer.classList.remove("dropping");
     var files = event.dataTransfer ? event.dataTransfer.files : null;
     if (!files || !files.length) return;
-    revealComposer();
     addFiles(files);
   });
   input.addEventListener("input", grow);
@@ -603,8 +595,6 @@ export const COMPOSER_SCRIPT = `
       endVoiceWait();
       var active = document.activeElement;
       voiceInput = active && active.classList && active.classList.contains("reply-input") ? active : null;
-      // Speaking is conversation: the terminal comes back for it, this once.
-      if (!voiceInput && onShow()) applyScreen("terminal", false);
       if (!voiceInput && composer.hidden) return;
       voiceBase = voiceField().value;
       if (voiceInput) return;

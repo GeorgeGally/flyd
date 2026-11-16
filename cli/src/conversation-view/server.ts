@@ -1371,7 +1371,6 @@ export class ConversationViewServer {
       .filter((item) => !item.id.startsWith("call:"))
       .map((item) => ({
         id: item.id,
-        ...(item.status === "advice" ? { label: "Advice" } : {}),
         title: item.headline,
         ...(item.detail ? { line: item.detail } : {}),
         ...(item.links?.[0]?.url ? { url: item.links[0].url } : {}),
