@@ -16,8 +16,8 @@ export type Place = "needs" | "moving" | "done";
 /** What the records say about one piece of work, before it is placed. */
 export type WorkFact =
   | "asks" | "ready" | "report"
-  | "running" | "queued" | "paused" | "blocked" | "unfinished" | "quiet"
-  | "landed" | "closed" | "told";
+  | "running" | "queued" | "paused" | "blocked" | "quiet"
+  | "landed" | "closed" | "told" | "handled";
 
 export interface Placed {
   place: Place;
@@ -34,11 +34,11 @@ export const STATE_WORDS: Record<WorkFact, string> = {
   queued: "Queued",
   paused: "Paused",
   blocked: "Blocked",
-  unfinished: "Not finished",
   quiet: "Waiting",
   landed: "Done",
   closed: "Done",
   told: "Done",
+  handled: "Handled for you",
 };
 
 /** Each place's own name: the column's sections and the island's count. */
@@ -52,11 +52,11 @@ const PLACE_OF: Record<WorkFact, Place> = {
   queued: "moving",
   paused: "moving",
   blocked: "moving",
-  unfinished: "moving",
   quiet: "moving",
   landed: "done",
   closed: "done",
   told: "done",
+  handled: "done",
 };
 
 /** The rule: one fact, one place, one word. Pure. */

@@ -9,7 +9,11 @@
  * closure and borrows its helpers (el, ago, clock, withToken, sceneAsk,
  * artefactChat, openImage, store, cardRead, itemKey, connect).
  */
+import { PLACE_WORDS } from "../placement.js";
+
 export const FRONT_SCRIPT = `
+  // The one set of words for where work sits, as Core says it (placement.ts).
+  var PLACE_WORDS = ${JSON.stringify(PLACE_WORDS)};
   // The front page: jobs, the one open job, artefacts.
   var frontRoot = document.documentElement;
   var jobsEl = document.getElementById("jobs");
@@ -225,9 +229,9 @@ export const FRONT_SCRIPT = `
     var done = jobs.filter(function (job) { return job.group === "done"; });
     rtabDot.hidden = !needs.length;
     var html = !listed ? '<p class="fempty">Checking…</p>'
-      : frontSection("needs", "Needs you", needs, "No decision is waiting.", Infinity)
-        + frontSection("moving", "Moving", moving, "Nothing is moving right now.", MOVING_FEW_FRONT)
-        + frontSection("done", "Done", done, "Nothing has landed lately.", DONE_FEW_FRONT)
+      : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity)
+        + frontSection("moving", PLACE_WORDS.moving, moving, "Nothing is moving right now.", MOVING_FEW_FRONT)
+        + frontSection("done", PLACE_WORDS.done, done, "Nothing has landed lately.", DONE_FEW_FRONT)
         + (VIEW_TOKEN ? '<form class="job-new"><input name="name" maxlength="60" placeholder="New job" aria-label="New job"><button type="submit">Add</button></form>' : "");
     if (html === frontDrawn.jobs) return;
     frontDrawn.jobs = html;

@@ -450,11 +450,12 @@ export function jobsFrom(input: {
     // A staff status line ("Checks green: PR ready for review…") is said as what it means for him.
     const detail = item.detail && (statusSaid(item.detail) ?? item.detail);
     const ask = group === "needs" ? (item.decision?.question || detail || item.headline) : "";
-    const state = handled ? "Handled for you" : group === "done" ? undefined : placedState;
+    const state = handled ? STATE_WORDS.handled : group === "done" ? undefined : placedState;
     const signal: Signal = {
       group,
       ...(state ? { state } : {}),
       at: item.at || item.started || "",
+      ...(item.started ? { started: item.started } : {}),
       // "Under way" says nothing the Working group has not.
       next: item.kind === "live" && /^under way\.?$/i.test(item.detail ?? "") ? "" : detail || item.headline,
       owner: group === "needs" ? "you" : "Flyd",

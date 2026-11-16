@@ -358,7 +358,7 @@ final class DictationPill: NSObject {
                 title = String(title.dropFirst(decisionPrefix.count)).trimmingCharacters(in: .whitespaces)
             }
             guard !title.isEmpty else { return nil }
-            return Message(meta: tone == .decision ? "Your decision" : tone == .failure ? "Didn't go through" : "Reply", title: quoted(title, limit: statusLimit), body: nil)
+            return Message(meta: tone == .decision ? "Needs you" : tone == .failure ? "Didn't go through" : "Reply", title: quoted(title, limit: statusLimit), body: nil)
         case .notice(let text), .failed(let text):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             let parts = trimmed.split(separator: "\n", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
