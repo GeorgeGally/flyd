@@ -113,6 +113,28 @@ describe("board cards from staff status lines", () => {
     expect(board.untranslated.map((source) => source.line)).toEqual([RAW]);
   });
 
+  it("puts held-up work whose reading asks his call in Needs you, and leaves held-up work that wants nothing where it was", () => {
+    const run = (outcome: string) => ({ id: "run-b", status: "failed" as const, project: "Easel", outcome, owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "blocked" as const });
+    const read = (outcome: string, body: string) => {
+      const pending = jobsFrom({ projects: [easel], runs: [run(outcome)], cardWords: new Map(), now: NOW });
+      expect(pending.jobs.find((job) => job.id !== "easel" || job.group === "moving")).toMatchObject({ group: "moving", state: "Blocked" });
+      return jobsFrom({ projects: [easel], runs: [run(outcome)], cardWords: new Map([[pending.untranslated[0]!.key, { title: "Easel: held up", body }]]), now: NOW }).jobs[0]!;
+    };
+    expect(read("Stopped at the crop step", "I'm stuck and need you to decide which crop to keep before I can continue.")).toMatchObject({ group: "needs", state: "Needs you", ask: "I'm stuck and need you to decide which crop to keep before I can continue." });
+    expect(read("Test leftover", "This was a test leftover, so nothing needs your decision.")).toMatchObject({ group: "moving", state: "Blocked" });
+    // An offer if he still wants it, or Flyd checking first, leaves the next move with Flyd.
+    expect(read("Map run never started", "The map run never got going. If you still want the map, tell me and I'll start it fresh.")).toMatchObject({ group: "moving", state: "Blocked" });
+  });
+
+  it("never opens a title on stray punctuation", () => {
+    const pending = jobsFrom({ projects: [easel], runs: [{ id: "run-d", status: "completed", project: "Easel", outcome: "Request email redesign", owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "landed" }], cardWords: new Map(), now: NOW });
+    const key = pending.untranslated[0]!.key;
+    const said = jobsFrom({ projects: [easel], runs: [{ id: "run-d", status: "completed", project: "Easel", outcome: "Request email redesign", owner: "FirstMate", updatedAt: "2026-11-12T11:30:00.000Z", artifacts: [], work: "landed" }], cardWords: new Map([[key, { title: ": DIR request email redesign is done", body: "The request email now shows the artist." }]]), now: NOW });
+    expect(said.jobs[0]!.title).toBe("DIR request email redesign is done");
+    // A finished card with only "finished" to say is bare: the board keeps it, no surface shows it.
+    expect(pending.jobs[0]).toMatchObject({ title: "Easel: finished", bare: true });
+  });
+
   it("says a working card is under way while its plain words are pending", () => {
     const board = jobsFrom({
       projects: [easel],

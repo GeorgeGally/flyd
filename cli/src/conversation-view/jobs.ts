@@ -12,6 +12,7 @@ import { namedAnswers, type NamedAnswers } from "./choices.js";
 import { holdDecisions, numberedChoice, type HoldDecision } from "./artefact.js";
 import type { ShowItem, ShowScreen } from "./show.js";
 import { movingRank, placeOf, placeRank, STATE_WORDS, type Place } from "./placement.js";
+import { asksSomething } from "./asks.js";
 import { cardSource, fallbackWords, jargonIn, placeholderLine, type CardSource, type CardWords } from "./card-words.js";
 
 /**
@@ -82,6 +83,8 @@ export interface Job {
   domainRun?: string;
   /** A call Flyd answered for him by one of his standing rules; his own answer takes it back. */
   handled?: { decisionId: string; task: string };
+  /** Finished, with nothing of its own to say yet (its words only "finished"): kept on the board, shown nowhere. */
+  bare?: true;
   /** An old call firstmate still holds open: it stays on Needs you, but never rings him again. */
   quiet?: true;
 }
@@ -146,6 +149,10 @@ const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
 /** A reading that says his answer is not wanted: "Nothing is waiting on you", "Nothing to decide here". */
 const NOTHING_WANTED = /\bnothing (?:to decide|(?:is )?(?:waiting|needed|wanted) (?:on|from) you|needs you)\b/i;
+/** Words that say nothing waits on him, in any of the ways a held-up card's reading puts it. */
+const NOTHING_FOR_HIM = /\bnothing (?:here |else |more )?(?:needs|is needed from|is waiting on|for you to act on|to act on|for you)(?: you| your)?\b|\bno (?:work|action) for you\b|\bneeds no action\b/i;
+/** Words that leave the next move with Flyd: an offer if he still wants it, or Flyd checking and coming back first. */
+const FLYD_MOVES_NEXT = /\bif you (?:still )?want\b|\bwon'?t keep asking\b|\bonly if\b|\bI'?ll (?:check|look into|find out)\b|\bbring you the (?:specific )?(?:question|decision|choice)\b|\bonce I have the details\b|\bnever reached the team\b/i;
 /** A group's own state word, when its signal names none. */
 const STATE: Record<JobGroup, string> = { needs: STATE_WORDS.asks, moving: STATE_WORDS.quiet, done: STATE_WORDS.landed };
 
@@ -503,6 +510,7 @@ export function jobsFrom(input: {
   const pending: DigestSource[] = [];
   const untranslated: CardSource[] = [];
   const timeline: CardSource[] = [];
+  const noticed = new Set<Job>();
   // A shown run's Timeline entry is said in his words too, never as the staff wrote it: a stored reading in full, else the generic line alone.
   const said = (thread: JobThread, card?: CardSource): JobThread => {
     const item = input.cardWords && runThreads.get(thread);
@@ -554,7 +562,9 @@ export function jobsFrom(input: {
     // So is one whose stored reading says nothing is wanted from him.
     const reading = raw ? input.cardWords!.get(raw.key) : undefined;
     const notice = lead.group === "needs" && !asks && (raw?.asks === false || Boolean(reading && NOTHING_WANTED.test(reading.body)));
-    const group: JobGroup = notice ? "done" : lead.group;
+    // Held-up work whose reading asks for his call is his move: it sits in Needs you, not among work under way.
+    const heldAsks = lead.group === "moving" && /^blocked$/i.test(state) && Boolean(reading && asksSomething(reading.body) && !NOTHING_FOR_HIM.test(reading.body) && !NOTHING_WANTED.test(reading.body) && !FLYD_MOVES_NEXT.test(reading.body));
+    const group: JobGroup = notice ? "done" : heldAsks ? "needs" : lead.group;
     const fallback = fallbackWords(bucket.name ?? "", group, state, raw?.asks !== false);
     const named = raw ? input.cardWords!.get(raw.key) ?? fallback : undefined;
     // A question with its own answers keeps its words while they are plain; asked in developer words, it is said plainly and its answers stay. Only a question the run put to him is ever shown as asked: a staff status line never is.
@@ -568,15 +578,15 @@ export function jobsFrom(input: {
     jobs.push(shownPlainly({
       id: bucket.id,
       group,
-      state: notice ? STATE.done : shownState,
+      state: notice ? STATE.done : heldAsks ? STATE_WORDS.asks : shownState,
       title: named ? named.title : bucket.title,
       project: bucket.project,
       at,
       ...(lead.started ? { started: lead.started } : {}),
       // The question is said once: a next line that only repeats it is left out.
-      next: words ? (group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, group),
+      next: heldAsks ? "" : words ? (group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, group),
       owner: notice ? "" : lead.owner,
-      ask: notice ? "" : words ? (group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
+      ask: notice ? "" : heldAsks ? reading!.body : words ? (group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: shots.slice(0, 4),
@@ -592,6 +602,15 @@ export function jobsFrom(input: {
       ...(lead.handled ? { handled: lead.handled } : {}),
       ...(lead.quiet ? { quiet: true as const } : {}),
     }, fallback, unread));
+    // A finished card with nothing of its own to say yet (only "finished", no picture, link or digest) is bare: no surface shows it.
+    const told = jobs.at(-1)!;
+    if (told.group === "done" && !told.handled && told.title === fallback.title && !told.shots.length && !told.links.length && !told.digest) told.bare = true;
+    if (notice) noticed.add(told);
+  }
+  // A notice is overtaken by anything newer on its project: what it told him ("the FX panel still shows the old design") is no longer current.
+  for (const told of noticed) {
+    const about = subjectOf(told);
+    if (about && jobs.some((other) => other !== told && subjectOf(other) === about && Date.parse(other.at) > Date.parse(told.at))) told.bare = true;
   }
   jobs.sort((a, b) => rank(a.group, a.state) - rank(b.group, b.state) || Date.parse(b.at) - Date.parse(a.at));
   return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8), untranslated: [...untranslated, ...timeline].filter((source, index, all) => all.findIndex((item) => item.key === source.key) === index) };
@@ -686,7 +705,8 @@ function shownPlainly(job: Job, fallback: CardWords, asked = false): Job {
   const { choices: _choices, recommended: _recommended, labels: _labels, ...unasked } = job;
   const shown: Job = {
     ...(ask === job.ask ? job : unasked),
-    title: check(job.title, fallback.title) as string,
+    // A title never opens on stray punctuation (": DIR request…" when a project name came back empty).
+    title: (check(job.title, fallback.title) as string).replace(/^[\s:;,.\-–—|·]+/, ""),
     next: check(job.next, job.group === "needs" ? "" : fallback.body) as string,
     ask,
     threads: job.threads.map((thread) => {
@@ -724,6 +744,12 @@ function idleSignal(project: Project): Signal {
     return { ...placedAs("paused"), at, next: project.next || "Paused. No next step is written down.", owner: "you", ask: "", because: `Project status is ${project.status}` };
   }
   return { ...placedAs("quiet"), at, next: project.next || "Nothing is moving this.", owner: "you", ask: "", because: "No open run" };
+}
+
+/** What a card is about: its project, else the name its plain title leads with ("DIR: the FX panel…"). Pure. */
+function subjectOf(job: Job): string {
+  const named = job.project || (/^([^:]{2,40}):\s/.exec(job.title)?.[1] ?? "");
+  return named.trim().toLowerCase();
 }
 
 function placedAs(fact: Parameters<typeof placeOf>[0]): { group: JobGroup; state: string } {

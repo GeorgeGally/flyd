@@ -222,16 +222,29 @@ export const FRONT_SCRIPT = `
     return frontGroup(label, list.length, shown.map(frontJobCard).join(""),
       list.length > few ? '<button type="button" class="fmore" data-more="' + key + '">' + (frontOpen[key] ? "Show fewer" : "Show all " + list.length) + '</button>' : "");
   }
+  // Next remembers whether he opened it, across redraws.
+  jobsList.addEventListener("toggle", function (event) {
+    if (event.target.classList && event.target.classList.contains("fnext")) frontOpen.next = event.target.open;
+  }, true);
+  // Work not yet under way: one closed line with its count, opened on a tap.
+  function frontNext(list) {
+    if (!list.length) return "";
+    return '<details class="fgroup fnext"' + (frontOpen.next ? " open" : "") + '><summary class="fhead"><span>Next</span><span>' + list.length + '</span></summary>'
+      + '<div class="fstrip">' + list.map(frontJobCard).join("") + '</div></details>';
+  }
   // Three places, as Core placed each card: his move, what is moving, what is done.
   function frontDrawJobs(jobs) {
     var listed = !!(frontUpdate && Array.isArray(frontUpdate.jobs));
     var needs = jobs.filter(function (job) { return job.group === "needs"; });
-    var moving = jobs.filter(function (job) { return job.group === "moving"; });
-    var done = jobs.filter(function (job) { return job.group === "done"; });
+    // Moving holds only work actually under way; queued, paused and held-up work waits folded under Next.
+    var moving = jobs.filter(function (job) { return job.group === "moving" && String(job.state).indexOf(PLACE_STATES.running) === 0; });
+    var next = jobs.filter(function (job) { return job.group === "moving" && String(job.state).indexOf(PLACE_STATES.running) !== 0; });
+    var done = jobs.filter(function (job) { return job.group === "done" && !job.bare; });
     rtabDot.hidden = !needs.length;
     var html = !listed ? '<p class="fempty">Checking…</p>'
       : frontSection("needs", PLACE_WORDS.needs, needs, "No decision is waiting.", Infinity)
-        + frontSection("moving", PLACE_WORDS.moving, moving, "Nothing is moving right now.", MOVING_FEW_FRONT)
+        + frontSection("moving", PLACE_WORDS.moving, moving, "Nothing is under way right now.", MOVING_FEW_FRONT)
+        + frontNext(next)
         + frontSection("done", PLACE_WORDS.done, done, "Nothing has landed lately.", DONE_FEW_FRONT);
     if (html === frontDrawn.jobs) return;
     frontDrawn.jobs = html;
@@ -609,6 +622,7 @@ export const FRONT_SCRIPT = `
       choices: Array.isArray(job.choices) ? job.choices : [], recommended: job.recommended || "", labels: job.labels && typeof job.labels === "object" ? job.labels : {},
       decisions: Array.isArray(job.decisions) ? job.decisions : [],
       handled: job.handled && job.handled.decisionId ? { decisionId: job.handled.decisionId, task: job.handled.task || "" } : null,
+      bare: job.bare === true,
     };
   }
   function frontPostJob(body) {

@@ -20,7 +20,7 @@ export const TIMELINE_SCRIPT = `
   function workInTimeline(job) {
     if (workKept[job.id] || job.group === "needs") return true;
     if (job.group === "moving") return job.state === PLACE_STATES.running;
-    return job.group === "done" && workToday(job.at);
+    return job.group === "done" && !job.bare && workToday(job.at);
   }
   function workMessage(job) {
     var node = workNodes.get(job.id);

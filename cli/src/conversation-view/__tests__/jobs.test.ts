@@ -223,6 +223,22 @@ describe("jobsFrom", () => {
     expect(board.jobs[0]).toMatchObject({ group: "done", state: "Done", owner: "", ask: "" });
   });
 
+  it("lets newer work on the same project overtake a notice, so what it told him never lingers as current", () => {
+    const call = { id: "call-fx", kind: "call", headline: "FX panel", why: "", detail: "The FX panel isn't supported yet.", questionIdentity: "call:fx", at: "2026-11-06T09:00:00.000Z" };
+    const pending = jobsFrom({ show: { ...screen, calls: [call] } as unknown as ShowScreen, cardWords: new Map(), now: NOW });
+    const words = new Map([[pending.untranslated[0]!.key, { title: "DIR: the FX panel still shows the old design", body: "The FX panel hasn't picked up the new design yet." }]]);
+    const alone = jobsFrom({ show: { ...screen, calls: [call] } as unknown as ShowScreen, cardWords: words, now: NOW });
+    expect(alone.jobs[0]).toMatchObject({ group: "done", title: "DIR: the FX panel still shows the old design" });
+    expect(alone.jobs[0]!.bare).toBeUndefined();
+    const landed = { id: "landed:fx-fixed", kind: "landed", headline: "DIR: the FX panel now shows the new design", why: "", task: "fx-fixed", at: "2026-11-06T11:00:00.000Z" };
+    const first = jobsFrom({ show: { ...screen, calls: [call], done: [landed] } as unknown as ShowScreen, cardWords: words, now: NOW });
+    words.set(first.untranslated[0]!.key, { title: "DIR: the FX panel now shows the new design", body: "It is live." });
+    const later = jobsFrom({ show: { ...screen, calls: [call], done: [landed] } as unknown as ShowScreen, cardWords: words, now: NOW });
+    expect(later.jobs.find((job) => job.title === "DIR: the FX panel still shows the old design")!.bare).toBe(true);
+    expect(later.jobs.find((job) => job.title === "DIR: the FX panel now shows the new design")!.bare).toBeUndefined();
+  });
+
+
   it("keeps an ask he has not answered in three days on Needs you, still answerable", () => {
     const board = jobsFrom({ runs: [run({ id: "old", status: "needs_decision", question: "Which price should ship?", updatedAt: "2026-10-01T10:00:00.000Z" })], now: NOW });
     expect(board.jobs[0]).toMatchObject({ group: "needs", ask: "Which price should ship?", domainRun: "old" });

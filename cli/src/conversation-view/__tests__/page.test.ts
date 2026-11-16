@@ -3488,12 +3488,27 @@ describe("the front page", () => {
     expect(act("call:plain")).toBeNull();
   });
 
+  it("keeps Moving for work under way, folds what waits under a closed Next, and shows no bare finished card", async () => {
+    const stream = await opened();
+    const job = (over: Record<string, unknown>) => ({ project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString(), ...over });
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs: [
+      job({ id: "run", group: "moving", state: "Working", title: "Under way" }),
+      job({ id: "queued", group: "moving", state: "Queued", title: "Next in line" }),
+      job({ id: "held", group: "moving", state: "Blocked", title: "Held up" }),
+      job({ id: "bare", group: "done", state: "Done", title: "Finished", next: "This is done.", bare: true }),
+    ] });
+    expect(groups()).toEqual([["Needs you", "No decision is waiting."], ["Moving", 1], ["Next", 2], ["Done", "Nothing has landed lately."]]);
+    const next = document.querySelector<HTMLDetailsElement>("#jobs-list details.fnext")!;
+    expect(next.open).toBe(false);
+    expect(document.querySelector('#stream > .msg.work[data-job="bare"]')).toBeNull();
+  });
+
   it("lists Core's board as cards in three places, and an unread board as unknown rather than empty", async () => {
     const stream = await opened();
     // The conversation is the middle of the page, not a card: he starts one by typing in it.
     expect(document.querySelector("#jobs-list")!.textContent).toBe("Checking…");
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
-    expect(groups()).toEqual([["Needs you", 1], ["Moving", "Nothing is moving right now."], ["Done", 1]]);
+    expect(groups()).toEqual([["Needs you", 1], ["Moving", "Nothing is under way right now."], ["Done", 1]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
     expect(needs.querySelector(".frame img")).not.toBeNull();
     // Under "Needs you" the dot says it; the card names the project.
@@ -3744,7 +3759,7 @@ describe("the front page", () => {
     expect(document.body.textContent).not.toContain("Not read yet");
     expect(groups()).toEqual([
       ["Needs you", "No decision is waiting."],
-      ["Moving", "Nothing is moving right now."],
+      ["Moving", "Nothing is under way right now."],
       ["Done", "Nothing has landed lately."],
     ]);
     stream.emit("update", {

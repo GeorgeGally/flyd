@@ -172,6 +172,10 @@ export const FRONT_STYLE = `
 
 /* A job opens in place under its own message, which already names it: the head keeps only Close and Back. */
 :root[data-layout="front"][data-job] .stage-head h1, :root[data-layout="front"][data-job] .stage-sub { display: none; }
+/* Next: work not yet under way, one closed line with its count. */
+:root[data-layout="front"] .fnext > summary { list-style: none; cursor: pointer; }
+:root[data-layout="front"] .fnext > summary::-webkit-details-marker { display: none; }
+:root[data-layout="front"] .fnext > summary:hover span:first-child, :root[data-layout="front"] .fnext > summary:focus-visible span:first-child { color: var(--ink); }
 /* Earlier conversations: folded at the top of the timeline, one quiet line until opened. */
 :root[data-layout="front"] .earlier { margin: 0 0 32px; }
 :root[data-layout="front"] .earlier summary { width: fit-content; padding: 4px 0; font: 400 14px/1.4 var(--sans); color: var(--mute); cursor: pointer; list-style: none; }
