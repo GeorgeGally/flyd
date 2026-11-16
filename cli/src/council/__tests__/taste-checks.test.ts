@@ -90,4 +90,11 @@ describe("the spacing check", () => {
     expect(trips).toHaveLength(1);
     expect(trips[0]!.line).toMatch(/src\/site\.css adds a massive 240px gap/);
   });
+
+  it("ignores horizontal spacing but trips vertical shorthand values", () => {
+    const quiet = ["+++ b/a.css", "+  margin: 0 10rem;", "+  gap: 0 10rem;", "+  column-gap: 10rem;", "+  margin-left: 300px;"].join("\n");
+    expect(cssSpacingTrips(quiet)).toEqual([]);
+    const loud = ["+++ b/a.css", "+  margin: 10rem auto 0;", "+  gap: 12rem 1rem;", "+  row-gap: 200px;"].join("\n");
+    expect(cssSpacingTrips(loud)).toHaveLength(3);
+  });
 });

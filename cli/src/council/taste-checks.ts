@@ -122,7 +122,14 @@ export function spacingTrips(metrics: SpacingMetrics): SpacingTrip[] {
 
 /** Spacing values in added CSS lines; a gap this big between stacked elements reads as a hole. */
 const MASSIVE_GAP_PX = 160;
-const SPACING_DECL = /^\+(?!\+\+)\s*(?:margin|gap|row-gap|column-gap)(?:-(?:top|bottom|block|block-start|block-end))?\s*:\s*([^;]+)/i;
+const SPACING_DECL = /^\+(?!\+\+)\s*(margin|gap|row-gap|margin-(?:top|bottom|block|block-start|block-end))\s*:\s*([^;]+)/i;
+
+function verticalTokens(property: string, value: string): string[] {
+  const tokens = value.trim().split(/\s+/);
+  if (property === "margin") return [tokens[0], tokens[2]].filter((token): token is string => Boolean(token));
+  if (property === "gap") return tokens.slice(0, 1);
+  return tokens;
+}
 
 /** The spacing check on a build's diff of CSS: added spacing that would leave a massive gap. */
 export function cssSpacingTrips(diff: string): SpacingTrip[] {
@@ -134,7 +141,7 @@ export function cssSpacingTrips(diff: string): SpacingTrip[] {
     if (!/\.(?:css|scss|sass|less|pcss)$/i.test(file) && !/\.(?:html?|vue|svelte|astro)$/i.test(file)) continue;
     const declaration = SPACING_DECL.exec(line);
     if (!declaration) continue;
-    const values = [...declaration[1]!.matchAll(/(-?\d*\.?\d+)\s*(px|rem|em)\b/gi)].map(([, amount, unit]) => Number(amount) * (unit!.toLowerCase() === "px" ? 1 : 16));
+    const values = verticalTokens(declaration[1]!.toLowerCase(), declaration[2]!).flatMap((token) => [...token.matchAll(/(-?\d*\.?\d+)(px|rem|em)\b/gi)]).map(([, amount, unit]) => Number(amount) * (unit!.toLowerCase() === "px" ? 1 : 16));
     const biggest = Math.max(0, ...values);
     if (biggest >= MASSIVE_GAP_PX) {
       trips.push({ line: `${file} adds a massive ${Math.round(biggest)}px gap ("${clip(line.slice(1))}"); layouts should breathe, not leave holes. Bring it under ${MASSIVE_GAP_PX}px.` });
