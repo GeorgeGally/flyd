@@ -78,7 +78,7 @@ export const MACHINE_STYLE = `
 .setup-usage-read { margin: 18px 0 0; font: 400 14px/1.35 var(--sans); color: var(--mute); }
 
 @media (max-width: 760px) {
-  :root[data-layout="front"][data-centre="machines"]:not([data-job]) :is(.rtabs, .jobs, .rail, .rail:not([hidden]), .todos, .threads, .today-feed) { display: none !important; }
+  :root[data-layout="front"][data-centre="machines"]:not([data-job]) :is(.rtabs, .jobs, .rail, .rail:not([hidden]), .todos, .threads) { display: none !important; }
   .mach-fleet, .mach-tools { position: static; overflow: visible; -webkit-mask-image: none; mask-image: none; }
   .mach-fleet { padding: 4px var(--gut) 8px; }
   .mach-tools { width: auto; margin: 40px 0 0; padding: 0 var(--gut) calc(var(--composer-h, 130px) + 36px); }

@@ -20,6 +20,7 @@ import { BOOT_SCRIPT } from "./page/script-boot.js";
 import { THREADS_SCRIPT } from "./page/script-threads.js";
 import { TODOS_SCRIPT } from "./page/script-todos.js";
 import { TODAY_SCRIPT } from "./page/script-today.js";
+import { TIMELINE_SCRIPT } from "./page/script-timeline.js";
 import { WEEK_SCRIPT } from "./page/script-week.js";
 import { TODAY_STYLE } from "./page/today-style.js";
 import { SHOW_STYLE } from "./page/show-style.js";
@@ -58,6 +59,7 @@ const SCRIPT = joined([
   MACHINES_SCRIPT,
   TODOS_SCRIPT,
   TODAY_SCRIPT,
+  TIMELINE_SCRIPT,
   WEEK_SCRIPT,
   BOOT_SCRIPT,
 ]);

@@ -144,7 +144,6 @@ export const FRONT_STYLE = `
   margin: 8px 0 0; font: 500 22px/1.25 var(--sans); letter-spacing: -0.015em; color: var(--ink); text-wrap: balance;
   overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
 }
-:root[data-layout="front"] .front-fade { opacity: 0; }
 
 /* The conversation, straight on the paper. */
 :root[data-layout="front"] main {
@@ -171,13 +170,32 @@ export const FRONT_STYLE = `
 :root[data-layout="front"] .composer:hover .hint, :root[data-layout="front"] .composer:focus-within .hint { opacity: 1; }
 :root[data-layout="front"] .jump { right: calc(var(--c-right) + var(--pad-x)); bottom: calc(var(--composer-h, 130px) + var(--gut) + 12px); }
 
-/* One job, open: what it is, its pictures large enough to judge and its words. The one message box stays under it. */
-:root[data-layout="front"][data-job] main, :root[data-layout="front"][data-job] .jump { display: none !important; }
-/* The job's Reply sits at its top; its thread needs no second one. */
+/* A job opens in place under its own message, which already names it: the head keeps only Close and Back. */
+:root[data-layout="front"][data-job] .stage-head h1, :root[data-layout="front"][data-job] .stage-sub { display: none; }
+/* Earlier conversations: folded at the top of the timeline, one quiet line until opened. */
+:root[data-layout="front"] .earlier { margin: 0 0 32px; }
+:root[data-layout="front"] .earlier summary { width: fit-content; padding: 4px 0; font: 400 14px/1.4 var(--sans); color: var(--mute); cursor: pointer; list-style: none; }
+:root[data-layout="front"] .earlier summary::-webkit-details-marker { display: none; }
+:root[data-layout="front"] .earlier summary:hover, :root[data-layout="front"] .earlier summary:focus-visible { color: var(--ink); }
+:root[data-layout="front"] .earlier[open] summary { margin-bottom: 12px; }
+/* What needs him and what finished, told in the timeline as Flyd's own messages among his words. */
+:root[data-layout="front"] .msg.work { max-width: 64ch; padding: 18px 20px 20px; border-radius: 12px; background: var(--sheet); box-shadow: 0 0 0 1px var(--line); }
+:root[data-layout="front"] .msg.work.needs { box-shadow: 0 0 0 1px color-mix(in srgb, var(--hot) 40%, var(--line)); }
+.work-meta { display: flex; align-items: center; gap: 8px; margin: 0; font: 400 13px/1.4 var(--sans); color: var(--mute); }
+.work-title { margin: 8px 0 0; font: 500 18px/1.35 var(--sans); color: var(--ink); text-wrap: pretty; overflow-wrap: anywhere; }
+.work-line { margin: 8px 0 0; font: 400 16px/1.55 var(--sans); color: var(--ink2); text-wrap: pretty; overflow-wrap: anywhere; }
+.work-shot { display: block; width: 100%; margin: 16px 0 0; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--well); cursor: pointer; }
+.work-shot img { display: block; width: 100%; max-height: 320px; object-fit: cover; object-position: top; }
+.work .jpicks { margin-top: 16px; }
+.work-acts { display: flex; gap: 8px; margin-top: 20px; }
+.work-acts button { height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--well); color: var(--ink); font: 500 14px/1 var(--sans); cursor: pointer; }
+.work-acts button:hover { background: var(--well-on); }
+.work-acts button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* One job, open: it unfolds under its own message, and the one message box stays under the conversation. */
 .job-view:has(.jv-acts .jv-reply) .art-chat-reply { display: none; }
-:root[data-layout="front"][data-job] .job-view {
-  display: block; margin: 0 var(--c-right) 0 var(--c-left); padding: calc(var(--stage-head-h, 110px) + 6px) var(--pad-x) calc(var(--composer-h, 130px) + var(--gut) + 40px);
-  font: 400 17px/1.55 var(--sans); color: var(--ink); transition: opacity .2s ease;
+:root[data-layout="front"][data-job] .work .job-view {
+  display: block; margin: 20px 0 0; padding: 20px 0 0; border-top: 1px solid var(--line);
+  font: 400 17px/1.55 var(--sans); color: var(--ink);
 }
 .jv-lead { margin: 0 0 20px; max-width: 64ch; color: var(--ink2); overflow-wrap: anywhere; }
 .jv-ask { margin: 0 0 16px; max-width: 40ch; font: 500 19px/1.35 var(--sans); }
@@ -391,7 +409,7 @@ button.jv-thread { cursor: pointer; }
 .history-article:hover { color: var(--ink, var(--fg)); }
 
 /* Past conversations, under the jobs: a quiet list. */
-.fhistory:has(> .history[hidden]) { display: none; }
+.earlier:has(> .history[hidden]) { display: none; }
 .jobs .history { display: block; max-height: none; padding: 0; border: 0; overflow: visible; }
 .jobs .history[hidden] { display: none; }
 .jobs .history-top { display: none; }

@@ -1,8 +1,7 @@
 /**
- * The middle of the front page at rest: Today, a feed of what happened today
- * as cards, and News, the stories in two columns with the weather beside them.
- * A conversation still takes the middle once he writes; the Today tab brings
- * the feed back. On News the message box talks about the story he picked with
+ * The middle of the front page: the conversation, which is home (the timeline,
+ * script-timeline.ts), and News, the stories in two columns with the weather
+ * beside them. On News the message box talks about the story he picked with
  * "Chat about this" under its source (pointing or scrolling never changes
  * which): his question and Flyd's answer sit under that story, in the story's
  * own article conversation. Runs inside the page script's closure after the
@@ -11,28 +10,22 @@
  * renderFront, connect, input, composer, historyList).
  */
 export const TODAY_SCRIPT = `
-  // Today and News: the middle of the front page when no conversation holds it.
+  // The middle: the conversation (the timeline, home), or one of the header's tools.
   var centreTabs = document.getElementById("centre-tabs");
-  var feedEl = document.getElementById("feed");
   var newsCols = document.getElementById("news-cols");
   var newsWhen = document.getElementById("news-when");
   var newsSide = document.getElementById("news-side");
   var newsSidePhone = document.getElementById("news-side-phone");
   var centre = "";
   var conversationConfirm = null;
-  var centreChosen = false;
-  var todayUpdate = null;
-  var todayDrawn = "";
   var newsDrawn = "";
-  var todaySessions = [];
   var inputPlaceholder = input.getAttribute("placeholder") || "";
   function setCentre(name, chosen) {
-    if (chosen) centreChosen = true;
     if (name === centre) return;
     centre = name;
     frontRoot.setAttribute("data-centre", name);
     centreTabs.querySelectorAll(".ctab").forEach(function (tab) {
-      var on = tab.dataset.centre === (name === "talk" ? "today" : name);
+      var on = tab.dataset.centre === name;
       tab.setAttribute("aria-pressed", String(on));
       // On a phone the tabs scroll sideways; the chosen one is kept in view.
       if (on && centreTabs.scrollWidth > centreTabs.clientWidth) centreTabs.scrollLeft = Math.max(0, tab.offsetLeft - centreTabs.offsetLeft - 8);
@@ -51,93 +44,6 @@ export const TODAY_SCRIPT = `
     if (frontActive !== "talk") frontSelect("talk");
     setCentre(tab.dataset.centre, true);
   });
-
-  // The feed: what moved today, in plain words, newest first.
-  function todayIs(iso) {
-    var d = new Date(iso);
-    return !isNaN(d) && d.toDateString() === new Date().toDateString();
-  }
-  function todaySentence(text) {
-    var line = frontText(text);
-    if (!line) return "";
-    line = frontGlance(line, 150);
-    return /[.!?…]$/.test(line) ? line : line + ".";
-  }
-  function todayShot(item) {
-    var shot = (item.shots || []).filter(function (one) { return one && one.src; })[0];
-    return shot ? withToken(shot.src) : "";
-  }
-  function todayEvents(update) {
-    var live = update.live || {};
-    var events = [];
-    var seen = {};
-    function add(event) {
-      if (!event.text || seen[event.text]) return;
-      seen[event.text] = true;
-      events.push(event);
-    }
-    (live.running || []).forEach(function (item) {
-      var at = item.at || item.since;
-      add({ at: at, text: todaySentence(item.step), moving: true, shot: todayShot(item) });
-    });
-    (live.landed || []).forEach(function (item) {
-      if (!todayIs(item.at)) return;
-      add({ at: item.at, text: todaySentence(item.step), shot: todayShot(item) });
-    });
-    // Where he left off: his latest other conversation today, which opens again from here.
-    var left = todaySessions.filter(function (session) { return session.id !== current && session.title && todayIs(session.updatedAt); })[0];
-    if (left) add({ at: left.updatedAt, text: "You left off on " + frontText(left.title).replace(/[.!?]+$/, "") + ".", session: left.id });
-    events.sort(function (a, b) { return (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0); });
-    // Moving work leads, then the rest by time.
-    return events.filter(function (event) { return event.moving; }).concat(events.filter(function (event) { return !event.moving; }));
-  }
-  function todayCard(event) {
-    var time = '<time>' + frontEsc(event.at ? clock(event.at) : "") + (event.moving ? '<i class="fdot pulse" aria-label="moving"></i>' : "") + '</time>';
-    var text = '<p>' + frontEsc(event.text) + '</p>';
-    var tag = event.session ? "button" : "div";
-    var open = '<' + tag + ' class="ev' + (event.shot ? " pic" : "") + '"' + (event.session ? ' type="button" data-session="' + frontEsc(event.session) + '"' : "") + '>';
-    if (event.shot) return open + '<img src="' + frontEsc(event.shot) + '" alt="" loading="lazy"><div>' + time + text + '</div></' + tag + '>';
-    return open + time + text + '</' + tag + '>';
-  }
-  // Whether the news is working, said on the front page without his asking.
-  var newsStatusEl = document.getElementById("news-status");
-  var newsStatusDrawn = "";
-  function drawNewsStatus(news) {
-    var signature = JSON.stringify(news || null);
-    if (signature === newsStatusDrawn) return;
-    newsStatusDrawn = signature;
-    newsStatusEl.hidden = !(news && news.line);
-    if (newsStatusEl.hidden) return;
-    document.getElementById("news-status-line").textContent = news.line;
-    var warn = document.getElementById("news-status-warn");
-    warn.textContent = news.warning || "";
-    warn.hidden = !news.warning;
-  }
-  function drawToday() {
-    if (!todayUpdate) return;
-    if (todayUpdate.leftColumn) drawNewsStatus(todayUpdate.leftColumn.news);
-    var live = todayUpdate.live || {};
-    var events = todayEvents(todayUpdate);
-    var html = events.length ? events.map(todayCard).join("")
-      : '<p class="feed-empty">' + (todayUpdate.live && !live.known ? "Not read yet." : "Nothing has moved yet today.") + '</p>';
-    if (html === todayDrawn) return;
-    todayDrawn = html;
-    feedEl.innerHTML = html;
-  }
-  feedEl.addEventListener("click", function (event) {
-    var card = event.target.closest("[data-session]");
-    if (!card) return;
-    explicit = card.dataset.session;
-    if (window.history && window.history.replaceState) window.history.replaceState(null, "", "?session=" + encodeURIComponent(explicit));
-    setCentre("talk", true);
-    connect(explicit);
-  });
-  function loadTodaySessions() {
-    fetch("/api/sessions").then(function (r) { return r.json(); }).then(function (data) {
-      todaySessions = data.sessions || [];
-      drawToday();
-    }).catch(function () {});
-  }
 
   // News: the stories of the latest editions in two columns.
   var NEWS_FILLER = /^(giphy|pexels|google trends)$/i;
@@ -202,6 +108,20 @@ export const TODAY_SCRIPT = `
     var talk = newsTalks[story.url];
     if (talk) node.appendChild(talk.box);
     return node;
+  }
+  // Whether the news is working, said on News without his asking.
+  var newsStatusEl = document.getElementById("news-status");
+  var newsStatusDrawn = "";
+  function drawNewsStatus(news) {
+    var signature = JSON.stringify(news || null);
+    if (signature === newsStatusDrawn) return;
+    newsStatusDrawn = signature;
+    newsStatusEl.hidden = !(news && news.line);
+    if (newsStatusEl.hidden) return;
+    document.getElementById("news-status-line").textContent = news.line;
+    var warn = document.getElementById("news-status-warn");
+    warn.textContent = news.warning || "";
+    warn.hidden = !news.warning;
   }
   function drawNews2(recent) {
     var news = newsOf(recent);
@@ -503,7 +423,7 @@ export const TODAY_SCRIPT = `
     }).catch(function () { weatherAt = 0; });
   }
 
-  // Only the conversation keeps him at its latest message; Today and News open at their top.
+  // Only the conversation keeps him at its latest message; the tools open at their top.
   var onConversationBase = onConversation;
   onConversation = function () { return onConversationBase() && (centre === "talk" || !!frontRoot.getAttribute("data-job")); };
   // The front page's redraw carries Today and News along.
@@ -511,15 +431,10 @@ export const TODAY_SCRIPT = `
   renderFront = function (update) {
     renderFrontBase(update);
     if (!update) return;
-    todayUpdate = update;
-    // At rest the middle is Today; a conversation that already has words keeps it.
-    if (!centreChosen) setCentre((update.order || []).length ? "talk" : "today");
-    drawToday();
-    if (update.leftColumn) drawNews2(update.leftColumn.recent);
+    if (update.leftColumn) { drawNewsStatus(update.leftColumn.news); drawNews2(update.leftColumn.recent); }
   };
   historyList.addEventListener("click", function (event) { if (event.target.closest(".history-item")) setCentre("talk", true); });
-  // A job opened from the column takes the middle as it always has; closing it goes back to what was there.
-  setCentre("today");
-  loadTodaySessions();
-  setInterval(function () { loadTodaySessions(); if (centre === "news") loadWeather(); }, 60000);
+  // The conversation is home: the window opens on it.
+  setCentre("talk");
+  setInterval(function () { if (centre === "news") loadWeather(); }, 60000);
 `;

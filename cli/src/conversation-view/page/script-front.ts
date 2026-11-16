@@ -9,11 +9,12 @@
  * closure and borrows its helpers (el, ago, clock, withToken, sceneAsk,
  * artefactChat, openImage, store, cardRead, itemKey, connect).
  */
-import { PLACE_WORDS } from "../placement.js";
+import { PLACE_WORDS, STATE_WORDS } from "../placement.js";
 
 export const FRONT_SCRIPT = `
   // The one set of words for where work sits, as Core says it (placement.ts).
   var PLACE_WORDS = ${JSON.stringify(PLACE_WORDS)};
+  var PLACE_STATES = ${JSON.stringify(STATE_WORDS)};
   // The front page: jobs, the one open job, artefacts.
   var frontRoot = document.documentElement;
   var jobsEl = document.getElementById("jobs");
@@ -551,6 +552,8 @@ export const FRONT_SCRIPT = `
     }
     frontRoot.setAttribute("data-job", job.id);
     frontHead(job, VIEW_TOKEN && Array.isArray(frontUpdate.jobs));
+    // The job opens in place, under its own message in the timeline.
+    if (typeof workHold === "function") workHold(job.id);
     var drawn = JSON.stringify([job.id, job.state, job.title, job.detail, job.shots, job.previews, job.links, job.decision, job.domainRun, job.questionIdentity, job.next, job.ask, job.digest, job.threads, job.files, job.choices, job.recommended, job.decisions]);
     // A job already open stays as he left it while he is typing in it.
     if (drawn === frontDrawn.view || (frontDrawn.viewId === job.id && jobView.contains(document.activeElement))) return;
@@ -569,17 +572,17 @@ export const FRONT_SCRIPT = `
       if (on) card.setAttribute("aria-current", "true"); else card.removeAttribute("aria-current");
     });
     frontDrawn.jobs = "";
-    var fading = [stageHead, jobView, main];
-    fading.forEach(function (node) { node.classList.add("front-fade"); });
-    setTimeout(function () {
-      frontStage();
-      if (frontUpdate) frontDrawJobs(Array.from(frontJobs.values()));
-      // On a phone the middle sits under the strips of cards: the job opens where its heading is.
-      var stacked = getComputedStyle(stageHead).position !== "fixed";
-      if (id === "talk") { if (pinned) toBottom(); }
-      else window.scrollTo(0, stacked ? Math.max(0, stageHead.getBoundingClientRect().top + window.scrollY - document.querySelector("header").offsetHeight) : 0);
-      fading.forEach(function (node) { node.classList.remove("front-fade"); });
-    }, 200);
+    // The conversation stays; the job unfolds under its own message in it.
+    frontStage();
+    if (frontUpdate) frontDrawJobs(Array.from(frontJobs.values()));
+    if (typeof drawTimeline === "function") drawTimeline();
+    if (id === "talk") return;
+    var node = typeof workNodes === "undefined" ? null : workNodes.get(id);
+    if (!node) return;
+    pinned = false;
+    var head = document.querySelector("header");
+    var above = (head ? head.offsetHeight : 0) + (getComputedStyle(stageHead).position === "fixed" ? stageHead.offsetHeight : 0);
+    window.scrollTo(0, Math.max(0, node.getBoundingClientRect().top + window.scrollY - above - 16));
   }
 
   function frontListedJob(job) {
@@ -634,14 +637,12 @@ export const FRONT_SCRIPT = `
     var card = event.target.closest(".job");
     if (card) frontSelect(card.dataset.job);
   });
-  // Past conversations sit under the jobs; opening one brings the conversation back to the middle.
+  // Earlier conversations fold away at the top of the timeline; opening one brings it to the middle.
   (function () {
-    var group = el("section", "fgroup fhistory");
-    var head = el("h2", "fhead");
-    head.appendChild(el("span", "", "Earlier conversations"));
-    group.appendChild(head);
+    var group = el("details", "earlier");
+    group.appendChild(el("summary", "", "Earlier conversations"));
     group.appendChild(historyEl);
-    jobsEl.appendChild(group);
+    main.insertBefore(group, main.firstChild);
     historyList.addEventListener("click", function (event) { if (event.target.closest(".history-item")) frontSelect("talk"); });
   })();
   document.getElementById("stage-back").addEventListener("click", function () {

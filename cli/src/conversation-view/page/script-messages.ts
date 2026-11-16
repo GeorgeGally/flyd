@@ -442,7 +442,9 @@ export const MESSAGES_SCRIPT = `
     clearLanded();
     var keep = new Set(update.order);
     nodes.forEach(function (el, id) { if (!keep.has(id)) { el.remove(); nodes.delete(id); } });
+    // The fold of earlier conversations stays at the top of the timeline.
     var cursor = main.firstElementChild;
+    if (cursor && cursor.classList.contains("earlier")) cursor = cursor.nextElementSibling;
     var day = "";
     var previous = null;
     update.order.forEach(function (id) {

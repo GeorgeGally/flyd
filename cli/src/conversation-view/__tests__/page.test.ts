@@ -1944,7 +1944,7 @@ describe("header and artefact view", () => {
     expect(document.querySelector("#done li .card-dismiss")).toBeNull();
   });
 
-  it("says on Today whether the news is working, and what stopped, without being asked", async () => {
+  it("says on News whether the news is working, and what stopped, without being asked", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
@@ -2760,9 +2760,9 @@ describe("what Flyd shows of its staff, at a glance", () => {
     expect(more.textContent).toBe("Show all 9");
     more.click();
     expect(rows()).toBe(9);
-    // On the front page History sits under the jobs; the artefact column keeps the work, then the news.
+    // On the front page earlier conversations fold away at the top of the timeline; the artefact column keeps the work, then the news.
     expect([...document.querySelectorAll(".rail-pane > *")].map((node) => node.id)).toEqual(["brief", "brief-news"]);
-    expect(document.getElementById("history")!.closest("#jobs")).not.toBeNull();
+    expect(document.getElementById("history")!.closest("details.earlier")!.parentElement!.id).toBe("stream");
   });
 
   it("forgets Done cards it saw that have long left the column, and keeps at most 300", async () => {
@@ -2853,7 +2853,7 @@ describe("the front page", () => {
     const story = { title: "State that lasts", url: "https://magazine.example/state", source: "Magazine", gist: "The machinery, not a wrapper." };
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
     await settle();
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
     expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => (
@@ -2869,46 +2869,40 @@ describe("the front page", () => {
     document.documentElement.removeAttribute("data-layout");
   });
 
-  it("rests on Today: the day's events as cards, moving work with its dot, and a picture across both columns", async () => {
+  it("tells what needs him, what is under way and what finished today as messages in the one conversation, in time order", async () => {
     load("");
     await settle();
     const stream = open("latest", []);
     const now = new Date();
     const at = (hour: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, 5).toISOString();
+    const job = (over: Record<string, unknown>) => ({ project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, ...over });
     stream.emit("update", {
-      order: [], messages: [], working: false, show: SHOW,
-      live: {
-        known: true, counts: { running: 1, needs: 0 }, paused: [], needs: [], older: [],
-        running: [{ id: "live:cx", state: "running", title: "CleanX credit packs", step: "CleanX now shows credit packs only when you're under 200 credits", at: at(0), shots: [{ src: "/api/artefact-shot?task=cx&file=a.png", label: "a.png" }], previews: [], links: [] }],
-        landed: [{ id: "landed:today", state: "landed", title: "Conversation work", step: "Conversations are now split by project.", at: at(0), shots: [], previews: [], links: [] },
-          { id: "landed:no-detail", state: "landed", title: "A job title", at: at(0), shots: [], previews: [], links: [] },
-          { id: "landed:old", state: "landed", title: "Something from last week landed.", at: "2026-10-01T09:00:00.000Z", shots: [], previews: [], links: [] }],
-      },
+      order: [], messages: [], working: false, show: SHOW, jobsFleetKnown: true,
+      jobs: [
+        job({ id: "ask", group: "needs", state: "Needs you", title: "Which hero ships", at: at(2) }),
+        job({ id: "cx", group: "moving", state: "Working", title: "CleanX credit packs", at: at(1) }),
+        job({ id: "queued", group: "moving", state: "Queued", title: "Waiting its turn", at: at(1) }),
+        job({ id: "landed", group: "done", state: "Done", title: "Conversations split by project", at: at(0), shots: [{ src: "/api/artefact-shot?task=l&file=a.png", label: "a.png" }] }),
+        job({ id: "old", group: "done", state: "Done", title: "Something from last week", at: "2026-10-01T09:00:00.000Z" }),
+      ],
     });
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
     await settle();
-    expect(document.documentElement.getAttribute("data-centre")).toBe("today");
-    expect(document.querySelector('.ctab[data-centre="today"]')!.getAttribute("aria-pressed")).toBe("true");
-    const cards = [...document.querySelectorAll<HTMLElement>("#feed .ev")];
-    expect(cards.map((card) => card.querySelector("p")!.textContent)).toEqual([
-      "CleanX now shows credit packs only when you're under 200 credits.",
-      "Conversations are now split by project.",
-    ]);
-    expect(cards[0]!.classList.contains("pic")).toBe(true);
-    expect(cards[0]!.querySelector("time .fdot.pulse")).not.toBeNull();
-    expect(cards[0]!.querySelector("img")!.getAttribute("src")).toContain("/api/artefact-shot?task=cx");
-    expect(document.getElementById("feed")!.textContent).not.toContain("last week");
-    expect(document.getElementById("feed")!.textContent).not.toContain("A job title");
+    const work = [...document.querySelectorAll<HTMLElement>("#stream > .msg.work")];
+    expect(work.map((node) => node.dataset.job)).toEqual(["landed", "cx", "ask"]);
+    expect(work[2]!.classList.contains("needs")).toBe(true);
+    expect(work[1]!.querySelector(".work-meta .fdot.pulse")).not.toBeNull();
+    expect(work[0]!.querySelector(".work-shot img")!.getAttribute("src")).toContain("/api/artefact-shot?task=l");
+    // Open unfolds the job in place, under its own message.
+    work[2]!.querySelector<HTMLButtonElement>(".work-open")!.click();
+    expect(document.querySelector(".job-view")!.closest(".msg.work")).toBe(work[2]);
   });
 
-  it("starts in the conversation when it has words, and Today brings the feed back", async () => {
+  it("starts in the conversation, the one home with no Today feed beside it", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, live: { known: true, counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] } });
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
-    expect(document.querySelector('.ctab[data-centre="today"]')!.getAttribute("aria-pressed")).toBe("true");
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
-    expect(document.documentElement.getAttribute("data-centre")).toBe("today");
-    expect(document.querySelector("#feed .feed-empty")!.textContent).toBe("Nothing has moved yet today.");
+    expect(document.querySelector('.ctab[data-centre="talk"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(document.getElementById("feed")).toBeNull();
     // Writing takes the middle back for the conversation.
     await type("hello again");
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
@@ -3073,7 +3067,7 @@ describe("the front page", () => {
     const talk = shown[1]!.querySelector(".talk")!;
     expect([...talk.children].map((line) => [line.className, line.textContent])).toEqual([["q", "Which tab?"], ["a", "Any browser tab."]]);
     // Back on Today the box is the conversation's again.
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     expect(input.placeholder).toBe("Message firstmate");
   });
 
@@ -3103,7 +3097,7 @@ describe("the front page", () => {
     expect(reconnected).not.toBe(first);
     reconnected.emit("update", { order: ["q1", "a1"], messages: [{ id: "q1", role: "user", html: "Question?" }, { id: "a1", role: "assistant", html: "Answer." }], working: false });
     expect(document.querySelector("#news-cols .story .talk")!.textContent).toContain("Answer.");
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     expect(reconnected.closed).toBe(true);
     showNews();
     const returned = FakeEventSource.instances.at(-1)!;
@@ -3211,7 +3205,7 @@ describe("the front page", () => {
     expect(input.placeholder).toBe("Ask about this story");
     document.getElementById("story-chip-clear")!.click();
     expect(input.placeholder).toBe("Message firstmate about DIR");
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     expect(input.placeholder).toBe("Message firstmate");
   });
 
@@ -3413,7 +3407,7 @@ describe("the front page", () => {
     showNews();
     await settle();
     expect(document.querySelector("#news-side .wxcard")).toBeNull();
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     showNews();
     await settle();
     expect(document.querySelector("#news-side .wx-deg")!.textContent).toBe("29°");
@@ -3510,7 +3504,7 @@ describe("the front page", () => {
   it("gives an open job a back button that returns to the conversation and forgets the job", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
     expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
     expect(sessionStorage.getItem("flyd-front-job")).toBe("call:pick");
@@ -3764,17 +3758,18 @@ describe("the front page", () => {
     expect(said).toEqual(["The deck dropped the third pricing tier.", "Send it."]);
     expect(document.querySelector(".job-view .jv-digest b")).toBeNull();
     expect(document.querySelector(".job-view")!.textContent).not.toContain("Cap5 can review one offer.");
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     expect(document.querySelector('.job[data-job="pick"] .next')!.textContent).toContain("Pick a hero");
     after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     expect(document.querySelector(".jv-ask")!.textContent).toBe("Which hero should ship?");
     expect(document.querySelector(".jv-thread")!.textContent).toBe("Hero thread");
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     document.querySelector<HTMLButtonElement>(".jv-thread")!.click();
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
     expect(FakeEventSource.instances.at(-1)!.url).toContain("session=s1");
     // No rename row in the job: its one Close is a quiet action in the heading.
+    after(() => document.querySelector<HTMLElement>('.job[data-job="pick"]')!.click());
     const view = document.querySelector(".job-view")!;
     expect(view.querySelector('input[name="name"]')).toBeNull();
     expect(Array.from(view.querySelectorAll("button")).map((button) => button.textContent)).not.toEqual(expect.arrayContaining(["Rename"]));
@@ -4041,7 +4036,7 @@ describe("project threads", () => {
     listed(LIST);
     load("");
     await settle();
-    document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
+    document.querySelector<HTMLElement>('.ctab[data-centre="talk"]')!.click();
     (document.querySelector('[data-thread="project:dir"]') as HTMLElement).click();
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
     await settle();
@@ -4123,11 +4118,11 @@ describe("the Machines screen", () => {
     expect(document.querySelector(".machine-name")!.textContent).toBe("Mac");
   });
 
-  it("is a tab beside Today, News and Week, off the right column, and reads nothing until it is open", async () => {
+  it("is a tab beside Conversation, News and Week, off the right column, and reads nothing until it is open", async () => {
     const fetcher = serve(() => ({ machines: [ONLINE] }));
     load("");
     await settle();
-    expect(Array.from(document.querySelectorAll(".ctab")).map((one) => one.textContent)).toEqual(["Today", "News", "Week", "Machines"]);
+    expect(Array.from(document.querySelectorAll(".ctab")).map((one) => one.textContent)).toEqual(["Conversation", "News", "Week", "Machines"]);
     expect(Array.from(document.querySelectorAll(".rtab")).map((one) => one.textContent)).toEqual(["Jobs", "Projects", "Artefacts", "Todo"]);
     expect(reads(fetcher)).toBe(0);
     tab().click();
@@ -4135,7 +4130,7 @@ describe("the Machines screen", () => {
     expect(reads(fetcher)).toBe(1);
     expect(document.documentElement.dataset.centre).toBe("machines");
     expect(tab().getAttribute("aria-pressed")).toBe("true");
-    expect(document.querySelector('.ctab[data-centre="today"]')!.getAttribute("aria-pressed")).toBe("false");
+    expect(document.querySelector('.ctab[data-centre="talk"]')!.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("shows each machine's one sentence and one button, escaped, and no numbers of its own", async () => {
@@ -4311,7 +4306,7 @@ describe("the Machines screen", () => {
       expect(reads(fetcher)).toBe(3);
       await vi.advanceTimersByTimeAsync(1000);
       expect(reads(fetcher)).toBe(4);
-      (document.querySelector('.ctab[data-centre="today"]') as HTMLElement).click();
+      (document.querySelector('.ctab[data-centre="talk"]') as HTMLElement).click();
       await vi.advanceTimersByTimeAsync(120_000);
       expect(reads(fetcher)).toBe(4);
     } finally {
@@ -4405,7 +4400,7 @@ describe("the Machines screen", () => {
     const field = (document.getElementById("machine-form") as HTMLFormElement).elements.namedItem("name") as HTMLInputElement;
     field.value = "half typed";
     machines = [ONLINE];
-    (document.querySelector('.ctab[data-centre="today"]') as HTMLElement).click();
+    (document.querySelector('.ctab[data-centre="talk"]') as HTMLElement).click();
     tab().click();
     await settle();
     expect(document.querySelectorAll(".machine")).toHaveLength(1);

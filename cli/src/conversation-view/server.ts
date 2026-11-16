@@ -1068,10 +1068,12 @@ export class ConversationViewServer {
         // Inline page only; the right column may frame a loopback site it previews.
         "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self' http://127.0.0.1:* http://localhost:*",
       });
+      // One lasting conversation: every window opens the one he last talked in, never a fresh one of its own.
+      const lasting = this.source.newSession ? await this.lastingSession() : undefined;
       res.end(renderPage({
         assistantLabel: this.source.assistantLabel,
         ...(this.source.canSend ? { sendToken: this.token } : {}),
-        ...(this.source.newSession ? { newSession: `window:${randomBytes(16).toString("hex")}` } : {}),
+        ...(this.source.newSession ? { newSession: lasting ?? `window:${randomBytes(16).toString("hex")}` } : {}),
       }));
       return;
     }
@@ -2387,6 +2389,16 @@ export class ConversationViewServer {
     } catch (error) {
       console.error(`[todos] ${error instanceof Error ? error.message : String(error)}`);
       sendJson(res, 500, { error: "Could not save that." });
+    }
+  }
+
+  /** His one lasting conversation: the newest one a window started (not an article's or a project thread's). */
+  private async lastingSession(): Promise<string | undefined> {
+    try {
+      const sessions = await this.source.listSessions();
+      return sessions.find((session) => /^window:[a-f0-9]{32}$/.test(session.id))?.id;
+    } catch {
+      return undefined;
     }
   }
 
