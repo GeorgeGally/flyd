@@ -37,6 +37,8 @@ final class DictationPill: NSObject {
         case sent
         /// What is happening to his message now (its line under the message): spinner, briefly.
         case progress
+        /// His message did not get through, or its answer failed: rust dot, never a green reply.
+        case failure
 
         var holdSeconds: TimeInterval? {
             switch self {
@@ -45,6 +47,7 @@ final class DictationPill: NSObject {
             case .decision: return 10
             case .sent: return 2
             case .progress: return 3.5
+            case .failure: return 8
             }
         }
     }
@@ -355,7 +358,7 @@ final class DictationPill: NSObject {
                 title = String(title.dropFirst(decisionPrefix.count)).trimmingCharacters(in: .whitespaces)
             }
             guard !title.isEmpty else { return nil }
-            return Message(meta: tone == .decision ? "Your decision" : "Reply", title: quoted(title, limit: statusLimit), body: nil)
+            return Message(meta: tone == .decision ? "Your decision" : tone == .failure ? "Didn't go through" : "Reply", title: quoted(title, limit: statusLimit), body: nil)
         case .notice(let text), .failed(let text):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             let parts = trimmed.split(separator: "\n", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -590,6 +593,7 @@ final class DictationPill: NSObject {
         case .failed: return setMessage(message, layout, dot: FlydPalette.signalRust, meta: FlydPalette.signalRust)
         case .notice: return setMessage(message, layout, dot: FlydPalette.brassGlow, meta: quiet)
         case .status(_, .decision): return setMessage(message, layout, dot: FlydPalette.brassGlow, meta: FlydPalette.brassGlow, pulsing: true)
+        case .status(_, .failure): return setMessage(message, layout, dot: FlydPalette.signalRust, meta: FlydPalette.signalRust)
         // The spinner already says it is under way.
         case .status(_, .progress): return setMessage(message, layout, dot: nil, meta: quiet)
         case .status: return setMessage(message, layout, dot: FlydPalette.signalGreen, meta: FlydPalette.signalGreen)

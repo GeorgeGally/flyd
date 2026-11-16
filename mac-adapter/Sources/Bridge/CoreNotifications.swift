@@ -26,7 +26,7 @@ struct CoreNotificationPayload: Decodable, Equatable {
     /// The notification is not lost — it shows once the island is free.
     static func canShow(over phase: DictationPill.Phase?) -> Bool {
         switch phase {
-        case .listening, .working, .thinking, .failed, .notification, .status(_, .working), .status(_, .decision), .status(_, .reply):
+        case .listening, .working, .thinking, .failed, .notification, .status(_, .working), .status(_, .decision), .status(_, .reply), .status(_, .failure):
             return false
         default:
             return true

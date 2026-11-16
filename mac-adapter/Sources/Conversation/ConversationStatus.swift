@@ -46,7 +46,7 @@ enum ConversationStatusDecision: Equatable {
         // A failed line is said once; a new reply's headline is never overwritten by it.
         if !newSession, decisions.isEmpty, let waiting = current.waiting, waiting.failed == true,
            waiting.id != previous?.waiting?.id || previous?.waiting?.failed != true {
-            decisions.append(.announce(waiting.text, .reply))
+            decisions.append(.announce(waiting.text, .failure))
         }
         // A notice that needs him (a permission prompt, a usage limit) rings once per id; each new ask gets a new id.
         if !newSession, let notice = current.notice, notice.id != previous?.notice?.id {
