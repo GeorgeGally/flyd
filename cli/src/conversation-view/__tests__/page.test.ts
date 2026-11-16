@@ -2885,6 +2885,17 @@ describe("the front page", () => {
     }],
     landedWeek: [{ id: "landed:fix", kind: "landed", headline: "Restore dropping files onto Flyd", why: "", at: "2026-10-24", project: "Flyd", task: "file-drop", links: [{ label: "flyd #224", url: "https://github.com/GeorgeGally/flyd/pull/224" }] }],
   };
+  // The board Core placed from that fleet (placement.ts): the page draws it and never re-sorts it.
+  const PICK = {
+    id: "call:pick", group: "needs", state: "Needs you", title: "Which bezel should CopyCopy build?", project: "CopyCopy", at: "2026-10-24T15:30:00.000Z",
+    next: "", owner: "you", ask: "Which bezel should CopyCopy build?", because: "", detail: "Both read well at small sizes.",
+    shots: SHOW.calls[0]!.shots, links: [], files: [], threads: [], digest: null, decision: SHOW.calls[0]!.decision,
+  };
+  const LANDED = {
+    id: "landed:fix", group: "done", state: "Done", title: "Restore dropping files onto Flyd", project: "Flyd", at: "2026-10-24T09:00:00.000Z",
+    next: "", owner: "", ask: "", because: "", shots: [], links: SHOW.landedWeek[0]!.links, files: [], threads: [], digest: null,
+  };
+  const BOARD = [PICK, LANDED];
   const groups = () => Array.from(document.querySelectorAll("#jobs-list .fgroup")).map((group) => [
     group.querySelector(".fhead span")!.textContent,
     group.querySelector(".fempty")?.textContent ?? group.querySelectorAll(".job").length,
@@ -2913,7 +2924,7 @@ describe("the front page", () => {
     document.documentElement.setAttribute("data-layout", "front");
     const stream = await opened();
     const story = { title: "State that lasts", url: "https://magazine.example/state", source: "Magazine", gist: "The machinery, not a wrapper." };
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD, leftColumn: { now: [], recent: [{ id: "record:scout-edition", kind: "news", title: "Put together today's news", stories: [story], at: "2026-10-21T06:00:00.000Z" }], semantic: [] } });
     await settle();
     document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
@@ -3528,24 +3539,24 @@ describe("the front page", () => {
 
   it("says a job's next step in real counts or Flyd's own pick, and nothing when it has neither", async () => {
     const stream = await opened();
-    const call = SHOW.calls[0]!;
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, calls: [
-      { ...call, id: "call:dir", decision: { ...call.decision, decisions: [{ question: "Numbers", options: ["Yes"], done: "Done" }, { question: "Clock", options: ["Yes"] }, { question: "Dial", options: ["Yes"] }] } },
-      { ...call, id: "call:radio", task: "radio", decision: { ...call.decision, task: "radio", decisionId: "d9", recommended: "Radio" } },
-      { ...call, id: "call:plain", task: "plain", decision: { ...call.decision, task: "plain", decisionId: "d8" } },
-    ], counts: { call: 3 } } });
+    const decision = PICK.decision;
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: [
+      { ...PICK, id: "call:dir", decision: { ...decision, decisions: [{ question: "Numbers", options: ["Yes"], done: "Done" }, { question: "Clock", options: ["Yes"] }, { question: "Dial", options: ["Yes"] }] } },
+      { ...PICK, id: "call:radio", decision: { ...decision, task: "radio", decisionId: "d9", recommended: "Radio" } },
+      { ...PICK, id: "call:plain", decision: { ...decision, task: "plain", decisionId: "d8" } },
+    ] });
     const act = (id: string) => document.querySelector(`.job[data-job="${id}"] .act`)?.textContent ?? null;
     expect(act("call:dir")).toBe("1 of 3 decided");
     expect(act("call:radio")).toBe("Go with Radio");
     expect(act("call:plain")).toBeNull();
   });
 
-  it("lists the jobs as cards, and an unread fleet as unknown rather than empty", async () => {
+  it("lists Core's board as cards in three places, and an unread board as unknown rather than empty", async () => {
     const stream = await opened();
     // The conversation is the middle of the page, not a card: he starts one by typing in it.
-    expect(groups()).toEqual([["Needs you", "Checking…"], ["Working", "Checking…"], ["Done", "Checking…"]]);
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
-    expect(groups()).toEqual([["Needs you", 1], ["Working", "Nothing is running right now."], ["Done", 1]]);
+    expect(document.querySelector("#jobs-list")!.textContent).toBe("Checking…");
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
+    expect(groups()).toEqual([["Needs you", 1], ["Moving", "Nothing is moving right now."], ["Done", 1]]);
     const needs = document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!;
     expect(needs.querySelector(".frame img")).not.toBeNull();
     // Under "Needs you" the dot says it; the card names the project.
@@ -3557,7 +3568,7 @@ describe("the front page", () => {
 
   it("opens one job on the sheet, with its pictures, its choices and its own box, and Escape brings the conversation back", async () => {
     const stream = await opened();
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
     expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
     expect(document.getElementById("stage-title")!.textContent).toBe("Which bezel should CopyCopy build?");
@@ -3571,7 +3582,7 @@ describe("the front page", () => {
 
   it("gives an open job a back button that returns to the conversation and forgets the job", async () => {
     const stream = await opened();
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW });
+    stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, jobs: BOARD });
     document.querySelector<HTMLElement>('.ctab[data-centre="today"]')!.click();
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:pick"]')!.click());
     expect(document.documentElement.getAttribute("data-job")).toBe("call:pick");
@@ -3583,83 +3594,6 @@ describe("the front page", () => {
     expect(document.documentElement.hasAttribute("data-job")).toBe(false);
     expect(sessionStorage.getItem("flyd-front-job")).toBe("talk");
     expect(document.querySelector(".job.on")).toBeNull();
-  });
-
-  it("opens a decision that carries candidate previews: every design shown, its phone view beside it, and its choices with them", async () => {
-    const stream = await opened();
-    const lab = {
-      id: "call:new-lab", kind: "call", headline: "Which /new version should obj0 build?", why: "", status: "Needs your choice", project: "obj0",
-      at: "2026-10-24T15:30:00.000Z", task: "obj0-new-direction", detail: "Twelve versions, all in the existing look.",
-      shots: [{ src: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png", label: "v2-desktop.png" }],
-      previews: [
-        { label: "V2 · Live page", image: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png", phone: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-phone.png" },
-        { label: "V10 · Edit the page", image: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv10-desktop.png", phone: "/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv10-phone.png" },
-      ],
-      decision: { task: "obj0-new-direction", decisionId: "d2", question: "Which /new version should obj0 build?", choices: ["V2 Live page", "V10 Edit the page"], recommended: "V10 Edit the page" },
-    };
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, calls: [lab], counts: { call: 1 } } });
-    after(() => document.querySelector<HTMLElement>('.job[data-job="call:new-lab"]')!.click());
-    const candidates = [...document.querySelectorAll<HTMLElement>(".job-view .jv-candidate")];
-    expect(candidates.map((candidate) => candidate.querySelector("figcaption span")!.textContent)).toEqual(["V2 · Live page", "V10 · Edit the page"]);
-    expect(candidates[0]!.querySelector<HTMLImageElement>(".jv-view img")!.getAttribute("src")).toBe(`/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png&token=${"a".repeat(48)}`);
-    expect(candidates[0]!.querySelector<HTMLImageElement>(".jv-phone img")!.getAttribute("src")).toContain("shots%2Fv2-phone.png");
-    expect(candidates[1]!.querySelector(".jv-phone img")).not.toBeNull();
-    // The choice stays under the designs, so he picks without leaving the card.
-    expect([...document.querySelectorAll(".job-view .choice-pick")].map((button) => button.textContent)).toEqual(["V10 Edit the pagerecommended", "V2 Live page"]);
-  });
-
-  it("states a working row in Flyd's words: no framing, no George, and one line of state and what happens next", async () => {
-    const stream = await opened();
-    stream.emit("update", {
-      order: ["u1"], messages: [], working: false,
-      show: {
-        ...SHOW, calls: [], counts: {},
-        underway: [{
-          id: "live:answer", kind: "live", project: "flyd", status: "Working", at: "2026-10-26T12:00:00.000Z",
-          // The shape Core used to hand firstmate: it is rewritten, not shown.
-          headline: "Act on George's answer to: Which one(s) to build for real, or another round?",
-          detail: "Building V5 with a framed hero. Then the editorial image goes in.",
-        }, {
-          id: "live:hero", kind: "waiting", project: "hftw", at: "2026-10-26T13:00:00.000Z",
-          headline: "The HFTW shop hero images currently use product shots, and V5 is ready for review with a framed hero and a plain product card row",
-          detail: "Waiting for your pick: V5 framed hero.",
-        }],
-      },
-    });
-    const answer = document.querySelector<HTMLElement>('.job[data-job="live:answer"]')!;
-    expect(answer.getAttribute("aria-label")).toBeNull();
-    expect(answer.querySelector(".jproject")!.textContent).toBe("flyd");
-    expect(answer.querySelector(".w")!.textContent).toBeTruthy();
-    expect(answer.querySelector(".jfoot .fdot.pulse")).not.toBeNull();
-    expect(answer.querySelector(".next")!.textContent).toBe("Building V5 with a framed hero. Then the editorial image goes in.");
-    expect(answer.textContent).not.toMatch(/George|answer to:/);
-    expect(answer.textContent).toContain("flyd");
-    expect(answer.textContent).toContain("Building V5 with a framed hero.");
-    const hero = document.querySelector<HTMLElement>('.job[data-job="live:hero"]')!;
-    // A long run-on gives the card its first whole clause; the line says the state and the next step.
-    expect(hero.getAttribute("aria-label")).toBeNull();
-    expect(hero.textContent).toContain("hftw");
-    expect(hero.querySelector(".w")!.textContent).toBeTruthy();
-    expect(hero.textContent).toContain("Waiting for your pick: V5 framed hero.");
-    expect(hero.querySelector(".next")!.textContent).toBe("Waiting for your pick: V5 framed hero.");
-  });
-
-  it("lists what needs him from the one list, a finished design lab among them, led by its picture", async () => {
-    const stream = await opened();
-    const lab = {
-      id: "lab:run-7", kind: "activity", lifecycle: "active", subject: "Ten directions for the CapFive deal alert", summary: "Ready for your review.",
-      project: "capfive", evidence: [{ kind: "web", ref: "https://example.test/lab.html", label: "Open the lab" }, { kind: "image", ref: "/api/rail-image?path=%2Ftmp%2Fv1.png", label: "v1.png" }],
-      actions: [], source: { showItemId: "lab:run-7", ref: "run-7" }, activity: { phase: "ready", started: "2026-10-24T08:00:00.000Z" }, updatedAt: "2026-10-24T09:00:00.000Z",
-    };
-    const focus = { id: "task:bezel", kind: "decision", lifecycle: "interrupted", subject: "Which bezel should CopyCopy build?", source: { showItemId: "call:pick", task: "bezel" } };
-    stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, focus, needs: [lab] }, leftColumn: { now: [], recent: [], week: [], monitors: [], semantic: [lab] } });
-    expect(Array.from(document.querySelectorAll("#jobs-list .job.needs")).map((card) => card.getAttribute("data-job"))).toEqual(["call:pick", "lab:run-7"]);
-    const card = document.querySelector<HTMLElement>('.job[data-job="lab:run-7"]')!;
-    expect(card.querySelector(".jproject")!.textContent).toBe("capfive");
-    expect(card.querySelector(".frame img")!.getAttribute("src")).toContain("/api/rail-image?path=");
-    after(() => card.click());
-    expect(document.querySelector<HTMLAnchorElement>(".job-view a.fbtn")!.href).toBe("https://example.test/lab.html");
-    expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
   });
 
   it("keeps a job card to its project, its time and two or three lines, with all of it in the open job", async () => {
@@ -3830,7 +3764,7 @@ describe("the front page", () => {
     const stream = await opened();
     const long = "Rework the Today page so the WhatsApp card, the horoscope source and the News tab each follow what you decided in the last review round.";
     const job = {
-      id: "today", group: "working", state: "Working", title: "Today page", project: "", at: "2026-10-26T12:00:00.000Z", next: "Under way", owner: "Flyd", ask: "", because: "",
+      id: "today", group: "moving", state: "Working", title: "Today page", project: "", at: "2026-10-26T12:00:00.000Z", next: "Under way", owner: "Flyd", ask: "", because: "",
       shots: [], links: [], files: [], digest: null, threads: [{ id: "run-1", title: "Rework the Today page so the WhatsApp card…", full: long, at: "2026-10-26T12:00:00.000Z", kind: "run" }],
     };
     stream.emit("update", { order: ["u1"], messages: [], working: false, jobsFleetKnown: true, show: { title: "", summary: "", items: [], counts: {}, live: false }, jobs: [job] });
@@ -3871,15 +3805,14 @@ describe("the front page", () => {
     expect(document.body.textContent).not.toContain("Not read yet");
     expect(groups()).toEqual([
       ["Needs you", "No decision is waiting."],
-      ["Working", "Nothing is running right now."],
-      ["Waiting", "Nothing is waiting."],
+      ["Moving", "Nothing is moving right now."],
       ["Done", "Nothing has landed lately."],
     ]);
     stream.emit("update", {
       order: ["u1"], messages: [], working: false, jobsFleetKnown: true,
       show: { title: "", summary: "", items: [], counts: {}, live: false },
       jobs: [{
-        id: "cap5", group: "waiting", state: "Waiting", title: "Cap5", project: "Client", at: "2026-10-26T12:00:00.000Z",
+        id: "cap5", group: "moving", state: "Waiting", title: "Cap5", project: "Client", at: "2026-10-26T12:00:00.000Z",
         next: "Send the revised deck", owner: "you", ask: "", because: "No open run",
         shots: [], links: [{ label: "Deck", url: "https://example.com/deck" }], files: [{ label: "deck.pdf" }], threads: [],
         digest: { changed: "The deck dropped the third pricing tier.", means: "Cap5 can review one offer.", needed: "Send it.", link: "https://example.com/deck" },

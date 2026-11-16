@@ -2,6 +2,7 @@ import type { Job } from "./jobs.js";
 import type { HoldDecision } from "./artefact.js";
 import { needsGeorge, type SemanticObject } from "./semantic.js";
 import type { ShowItem, ShowLink, ShowPreview, ShowScreen, ShowShot } from "./show.js";
+import { STATE_WORDS } from "./placement.js";
 
 /**
  * What is running, what needs George and what landed, in one model, so a count
@@ -131,7 +132,7 @@ function needsOf(show: ShowScreen, jobs: readonly Job[] = []): LiveItem[] {
 
 /** Open runs the board has beside the fleet's workers: their cards count as running too. */
 function runningRuns(jobs: readonly Job[] | undefined): LiveItem[] {
-  return (jobs ?? []).filter((job) => job.group === "working" && !job.id.startsWith("live:")).map((job) => ({
+  return (jobs ?? []).filter((job) => job.group === "moving" && job.state === STATE_WORDS.running && !job.id.startsWith("live:")).map((job) => ({
     id: job.id, state: "running", title: job.title, ...(job.project ? { project: job.project } : {}), ...(job.at ? { at: job.at } : {}), ...(job.started ? { since: job.started } : {}),
     ...(job.next && job.next !== job.title ? { step: job.next } : {}), shots: job.shots, previews: [], links: job.links,
   }));

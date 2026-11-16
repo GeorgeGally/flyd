@@ -120,7 +120,7 @@ describe("board cards from staff status lines", () => {
       cardWords: new Map(),
       now: NOW,
     });
-    const card = board.jobs.find((job) => job.group === "working")!;
+    const card = board.jobs.find((job) => job.group === "moving" && job.state === "Working")!;
     expect(card).toMatchObject({ title: "Easel: work is under way", next: "I'm working on this now." });
   });
 
@@ -210,13 +210,13 @@ describe("card words", () => {
   it("falls back to a plain line for its state, never the raw one, and says what a card needing him needs", () => {
     expect(fallbackWords("easel", "needs")).toEqual({ title: "Easel: needs your answer", body: "I need your answer on this before it can go any further." });
     expect(fallbackWords("easel", "needs", "Ready for you")).toEqual({ title: "Easel: ready for you to look over", body: "This is finished. Have a look when you can and tell me if anything should change." });
-    expect(fallbackWords("easel", "working")).toEqual({ title: "Easel: work is under way", body: "I'm working on this now." });
-    expect(fallbackWords("easel", "waiting")).toEqual({ title: "Easel: waiting for now", body: "Nothing needs you on this yet." });
-    expect(fallbackWords("easel", "waiting", "Blocked")).toEqual({ title: "Easel: held up for now", body: "This is held up. I'll tell you if it needs you." });
+    expect(fallbackWords("easel", "moving", "Working")).toEqual({ title: "Easel: work is under way", body: "I'm working on this now." });
+    expect(fallbackWords("easel", "moving")).toEqual({ title: "Easel: waiting for now", body: "Nothing needs you on this yet." });
+    expect(fallbackWords("easel", "moving", "Blocked")).toEqual({ title: "Easel: held up for now", body: "This is held up. I'll tell you if it needs you." });
     expect(fallbackWords("easel", "done")).toEqual({ title: "Easel: finished", body: "This is done." });
     expect(fallbackWords("", "needs")).toEqual({ title: "Needs your answer", body: "I need your answer on this before it can go any further." });
-    for (const group of ["needs", "working", "waiting", "done"] as const) {
-      for (const state of ["", "Ready for you", "Report ready", "Blocked", "Paused", "Queued"]) {
+    for (const group of ["needs", "moving", "done"] as const) {
+      for (const state of ["", "Ready for you", "Report ready", "Blocked", "Paused", "Queued", "Working"]) {
         expect(JSON.stringify(fallbackWords("easel", group, state))).not.toMatch(/an update is ready|Open to see details/i);
       }
     }

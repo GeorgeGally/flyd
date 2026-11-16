@@ -64,9 +64,9 @@ describe("liveActivityOf", () => {
 
   it("counts an open run the board shows beside the fleet's workers, so the two never disagree", () => {
     const jobs = [
-      { id: "live:live-a", group: "working", title: "a", project: "", at: "", next: "", shots: [], links: [] },
-      { id: "writer", group: "working", title: "Draft the note", project: "", at: "2026-11-06T11:00:00.000Z", next: "Reading sources", shots: [], links: [] },
-      { id: "idle", group: "waiting", title: "Idle", project: "", at: "", next: "", shots: [], links: [] },
+      { id: "live:live-a", group: "moving", state: "Working", title: "a", project: "", at: "", next: "", shots: [], links: [] },
+      { id: "writer", group: "moving", state: "Working", title: "Draft the note", project: "", at: "2026-11-06T11:00:00.000Z", next: "Reading sources", shots: [], links: [] },
+      { id: "idle", group: "moving", title: "Idle", project: "", at: "", next: "", shots: [], links: [] },
     ] as unknown as Job[];
     const live = liveActivityOf(screen({ underway: [item("live", "a")] }), jobs, NOW);
     expect(live.running.map((row) => row.title)).toEqual(["a", "Draft the note"]);
@@ -83,7 +83,7 @@ describe("liveActivityOf", () => {
   });
 
   it("keeps a run's start distinct from its latest update", () => {
-    const board = [{ id: "run:1", group: "working", state: "Working", title: "Work", project: "", at: "2026-11-06T11:59:00Z", started: "2026-11-06T10:00:00Z", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null }] as Job[];
+    const board = [{ id: "run:1", group: "moving", state: "Working", title: "Work", project: "", at: "2026-11-06T11:59:00Z", started: "2026-11-06T10:00:00Z", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null }] as Job[];
     expect(liveActivityOf(screen(), board, NOW).running[0]).toMatchObject({ at: "2026-11-06T11:59:00Z", since: "2026-11-06T10:00:00Z" });
   });
 

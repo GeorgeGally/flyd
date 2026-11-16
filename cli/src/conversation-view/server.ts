@@ -844,6 +844,7 @@ export class ConversationViewServer {
   private readonly jobWake = new Set<() => void>();
   /** The jobs the column last drew: a tick on a Flyd ask is checked against these. */
   private boardJobs: Job[] = [];
+  private boardJobsAt = 0;
   /** His notes from cards: accepted at once, routed in order behind. */
   private readonly cardNotes = new CardNotes();
   /** Opens a card's Liesel board, starting Liesel first when it is down. Tests replace it. */
@@ -2232,7 +2233,7 @@ export class ConversationViewServer {
     let sent = "";
     const emit = () => {
       if (!latest) return;
-      const current = this.islandRung.once(islandStatusOf(statusOf(latest), this.feed.current().fleet));
+      const current = this.islandRung.once(islandStatusOf(statusOf(latest), this.feed.current().fleet, this.placedNeeds(latest)));
       const found = this.notices.ringing();
       const ringing = found ? this.islandRung.onceNotice({ id: found.id, text: noticeLine(found) }) : undefined;
       const status = JSON.stringify({ session: session.id, ...current, ...(ringing ? { notice: ringing } : {}) });
@@ -2341,6 +2342,7 @@ export class ConversationViewServer {
   /** The Todo tab's list, from the board the column just drew. A read that fails leaves the page's list as it is. */
   private todoList(jobs: Job[]): TodoRow[] | undefined {
     this.boardJobs = jobs;
+    this.boardJobsAt = Date.now();
     try {
       return readTodos(jobs);
     } catch (error) {
@@ -2385,6 +2387,22 @@ export class ConversationViewServer {
     } catch (error) {
       console.error(`[todos] ${error instanceof Error ? error.message : String(error)}`);
       sendJson(res, 500, { error: "Could not save that." });
+    }
+  }
+
+  /**
+   * What needs him now, by the one placement rule: the column's own board when a window drew one
+   * lately, else the same board built for the island alone (no readings asked for, nothing written).
+   */
+  private placedNeeds(snapshot: ConversationSnapshot): Job[] {
+    if (this.boardJobs.length && Date.now() - this.boardJobsAt < 60_000) return this.boardJobs.filter((job) => job.group === "needs");
+    try {
+      const show = showOf(snapshot, { projects: this.show?.projects?.() ?? [], artefact: this.artefactInputs() });
+      return jobsFrom({ projects: readProjects(), runs: listDomainRuns().map(jobRunFromDomain), show, cardWords: readCardWords(), exhausted: exhaustedCardWords() })
+        .jobs.filter((job) => job.group === "needs");
+    } catch (error) {
+      console.error(`[island] ${error instanceof Error ? error.message : String(error)}`);
+      return [];
     }
   }
 

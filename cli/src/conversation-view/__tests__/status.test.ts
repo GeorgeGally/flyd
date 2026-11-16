@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { asksForDecision, forCaptain, headlineOf, islandStatusOf, statusOf } from "../status.js";
-import { parseBearings } from "../artefact.js";
+import { parseBearings, type FleetArtefact } from "../artefact.js";
+import { jobsFrom } from "../jobs.js";
+import { showOf } from "../show.js";
+
+/** What the column's Needs you holds for a fleet: the one answer the island reads. */
+const needsOf = (fleet: FleetArtefact) => jobsFrom({ show: showOf({ messages: [], working: false }, { artefact: { fleet, memories: [], news: [], taste: [] } }) }).jobs;
 import { ABOUT_FIXES, PHANTOM_NOTICES, STAFF_LANDED, STAFF_PROGRESS } from "./fixtures/replies.js";
 
 describe("conversation status for the island", () => {
@@ -11,8 +16,9 @@ describe("conversation status for the island", () => {
       activity: "Reading worker status from run 01M5",
     });
     const askFleet = parseBearings({ decisions_open: [{ id: "launch", summary: "Choose the launch date" }] });
-    const ask = islandStatusOf(current, { ...askFleet, calls: [{ label: "Move launch or keep the date?", task: "launch", question: "Move launch or keep the date?", choices: ["Move launch", "Keep the date"] }] });
-    expect(ask.reply).toEqual({ id: "decision:launch", headline: "Move launch or keep the date?", asks: true });
+    const asking = { ...askFleet, calls: [{ label: "Move launch or keep the date?", task: "launch", question: "Move launch or keep the date?", choices: ["Move launch", "Keep the date"] }] };
+    const ask = islandStatusOf(current, asking, needsOf(asking));
+    expect(ask.reply).toEqual({ id: "decision:call:call-launch", headline: "Move launch or keep the date?", asks: true, item: "call:call-launch" });
     expect(ask.activity).toBeUndefined();
 
     const ordinary = islandStatusOf(current, parseBearings({ in_flight: [{ id: "w", state: "working", name: "Build Flyd", doing: "checking tests" }] }));
@@ -26,7 +32,8 @@ describe("conversation status for the island", () => {
 
   it("stops asking on the island once his answered call is settled", () => {
     const current = statusOf({ messages: [], working: false });
-    const settled = islandStatusOf(current, { ...parseBearings({}), calls: [{ label: "Ship it today, or hold it for review?", task: "gnm-9", question: "Ship it today, or hold it for review?", choices: ["ship it today", "hold it for review"], ledgerOnly: true }] });
+    const answeredFleet = { ...parseBearings({}), calls: [{ label: "Ship it today, or hold it for review?", task: "gnm-9", question: "Ship it today, or hold it for review?", choices: ["ship it today", "hold it for review"], ledgerOnly: true }] };
+    const settled = islandStatusOf(current, answeredFleet, needsOf(answeredFleet));
     expect(settled.reply).toBeUndefined();
   });
 

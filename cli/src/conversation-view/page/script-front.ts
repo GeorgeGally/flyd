@@ -4,7 +4,7 @@
  * column (#rail: artefacts, notices, news), restyled as cards by front-style.ts.
  * When the stream sends update.jobs, those are the cards: a project George is
  * moving, with the digest already stored on it. The page never asks for a new
- * reading while drawing. Without that list it still maps the fleet (frontJobsOf).
+ * reading while drawing. Core places every card (placement.ts); the page never re-sorts them.
  * A group with nothing in it says something true. Runs inside the page script's
  * closure and borrows its helpers (el, ago, clock, withToken, sceneAsk,
  * artefactChat, openImage, store, cardRead, itemKey, connect).
@@ -28,6 +28,7 @@ export const FRONT_SCRIPT = `
   var frontDrawn = { jobs: "", view: "", viewId: "" };
   var frontVersion = {};
   var DONE_FEW_FRONT = 5;
+  var MOVING_FEW_FRONT = 8;
 
   // The right column's tabs; the choice is remembered.
   var rtabs = document.getElementById("rtabs");
@@ -117,16 +118,6 @@ export const FRONT_SCRIPT = `
     });
   }
   // The candidates a lab put up: the desktop page large, its phone view beside it.
-  function frontPreviews(list) {
-    return (list || []).filter(function (preview) { return preview && preview.image; }).map(function (preview) {
-      return { label: frontText(preview.label), image: withToken(preview.image), phone: preview.phone ? withToken(preview.phone) : "" };
-    });
-  }
-  function frontEvidenceShots(evidence) {
-    return frontShots((evidence || []).filter(function (object) { return object.kind === "image" && !object.closed; }).map(function (object) {
-      return { src: object.ref, label: object.label };
-    }));
-  }
   // A long headline: its first sentence heads the job, the rest reads under it.
   function frontSplit(text) {
     if (text.length <= 110) return { title: text, rest: "" };
@@ -148,89 +139,6 @@ export const FRONT_SCRIPT = `
     var head = frontText(title);
     if (!text || !head || text.toLowerCase().indexOf(head.toLowerCase()) !== 0) return text;
     return text.slice(head.length).replace(/^[\\s:.–—-]+/, "");
-  }
-  var FRONT_WORKING = { live: "Working", ready: "Ready for you", waiting: "Waiting", next: "Queued" };
-  var FRONT_PHASE = { needs_you: "needs", ready: "working", working: "working", queued: "working", paused: "working", finished: "done" };
-
-  // The same test Core uses for "needs George" (semantic.ts needsGeorge).
-  function frontNeeds(object) {
-    var phase = object.activity && object.activity.phase;
-    return object.kind === "decision" || (object.lifecycle === "interrupted" && object.status !== "paused") || !!(object.monitor && object.monitor.phase === "changed") || phase === "needs_you" || phase === "ready";
-  }
-  // One semantic object as a job: a design lab, a review, a decision with no fleet call behind it.
-  function frontObjectJob(object, group) {
-    var phase = object.activity && object.activity.phase || "";
-    var lab = String(object.id).indexOf("lab:") === 0;
-    var decision = object.decision && (object.decision.alternatives || object.decision.choices) ? {
-      decisionId: object.decision.decisionId, task: object.decision.target || object.decision.task || "", question: object.decision.question || object.subject,
-      choices: object.decision.alternatives || object.decision.choices || [],
-      // Every decision the work puts to him, so the card says what they are and which is done.
-      decisions: object.decision.decisions,
-      recommended: object.decision.recommended,
-    } : null;
-    return {
-      id: object.id, group: group || (frontNeeds(object) ? "needs" : FRONT_PHASE[phase] || "working"),
-      state: lab ? "Lab ready for review" : object.status || (phase ? capital(String(phase).replace(/_/g, " ")) : "Needs you"),
-      title: frontHeading(object.subject, frontProject(object.project)), project: frontProject(object.project),
-      at: object.updatedAt || object.activity && object.activity.started || object.createdAt,
-      shots: frontEvidenceShots(object.evidence), detail: frontText(object.detail || object.summary), previews: frontPreviews(object.previews),
-      links: (object.evidence || []).filter(function (one) { return one.kind === "web" && !one.closed; }).map(function (one) { return { label: one.label, url: one.ref }; }),
-      decision: decision, task: object.source && object.source.task || "",
-    };
-  }
-  // Every job the stream knows, in three groups: what needs him, what is under way, what landed.
-  function frontJobsOf(update) {
-    var show = update.show || {};
-    var jobs = [];
-    var seen = {};
-    var tasks = {};
-    function add(job) {
-      if (!job.title || seen[job.id] || (job.task && tasks[job.group + ":" + job.task])) return;
-      seen[job.id] = true;
-      if (job.task) tasks[job.group + ":" + job.task] = true;
-      jobs.push(job);
-    }
-    var calls = {};
-    (show.calls || []).forEach(function (call) { calls[call.id] = call; });
-    function callJob(call) {
-      return { id: call.id, group: "needs", state: call.status || "Needs your choice", title: frontHeading(call.headline, frontProject(call.project)), project: frontProject(call.project),
-        at: call.at, shots: frontShots(call.shots), previews: frontPreviews(call.previews), detail: frontText(call.detail), links: call.links || [], decision: call.decision || null, task: call.task || "" };
-    }
-    // What needs him is one list (the corner, the count and the drill read it too): the focus, then the rest.
-    // A call carries its pictures and its choices; anything else (a finished design lab) is drawn from its own object.
-    if (show.needs) {
-      var focus = show.focus && frontNeeds(show.focus) ? [show.focus] : [];
-      focus.concat(show.needs).forEach(function (object) {
-        var call = calls[object.source && object.source.showItemId];
-        add(call ? callJob(call) : frontObjectJob(object, "needs"));
-      });
-    } else {
-      (show.calls || []).forEach(function (call) { add(callJob(call)); });
-    }
-    [show.underway, show.ready, show.held, show.next].forEach(function (list) {
-      (list || []).forEach(function (item) {
-        add({ id: item.id, group: "working", state: FRONT_WORKING[item.kind] || capital(item.status || "Working"), title: frontHeading(item.headline, frontProject(item.project)), project: frontProject(item.project),
-          at: item.at || item.started, shots: frontShots(item.shots), previews: frontPreviews(item.previews), detail: frontText(item.detail || item.why), links: item.links || [], decision: item.decision || null, task: item.task || "" });
-      });
-    });
-    // Anything else the left column carries (a review, an activity) becomes a card of its kind.
-    ((update.leftColumn && update.leftColumn.semantic) || []).forEach(function (activity) {
-      var from = activity.source && activity.source.showItemId;
-      if (from && seen[from]) return;
-      add(frontObjectJob(activity));
-    });
-    var landed = (show.done || []).concat(show.landedWeek || []);
-    landed.sort(function (a, b) { return frontAge(a.at) - frontAge(b.at); });
-    // New: Flyd first saw it after he last looked at Done (the same record the Done list keeps).
-    var doneSeen = cardRead("flyd-done-seen");
-    landed.forEach(function (item) {
-      // A call Flyd answered for him by one of his rules: one quiet line, and his own answer takes it back.
-      var handled = item.status === "handled" && item.executiveDecisionId ? { decisionId: item.executiveDecisionId, task: item.task || "" } : null;
-      add({ id: item.id, group: "done", state: handled ? "Handled for you" : "Finished", title: frontHeading(item.headline, frontProject(item.project)), project: frontProject(item.project), at: item.at,
-        shots: frontShots(item.shots), previews: frontPreviews(item.previews), detail: frontText(item.detail || item.why), links: item.links || [], decision: null, task: item.task || "",
-        handled: handled, fresh: isNew(item, doneSeen) });
-    });
-    return jobs;
   }
   function frontTalk(update) {
     return { id: "talk", group: "talk", state: update.working ? "Working" : "With " + assistant, title: conversationTitle.textContent || "New conversation",
@@ -283,7 +191,8 @@ export const FRONT_SCRIPT = `
     return picks ? '<div class="jobask' + (job.id === frontActive ? " on" : "") + '">' + card + picks + '</div>' : card;
   }
   function frontJobButton(job, picks) {
-    var moving = job.group === "working";
+    // Work under way is words only, with a pulsing dot; every other card may lead with its picture.
+    var moving = job.group === "moving" && job.state === "Working";
     var pic = !moving && job.shots && job.shots.length
       ? '<div class="frame"><img src="' + frontEsc(job.shots[0].src) + '" alt="" loading="lazy"></div>' : "";
     var line = frontLine(job);
@@ -301,27 +210,25 @@ export const FRONT_SCRIPT = `
     return '<section class="fgroup"><h2 class="fhead"><span>' + frontEsc(label) + '</span><span>' + (count === "" ? "" : count) + '</span></h2>'
       + '<div class="fstrip">' + body + '</div>' + (extra || "") + '</section>';
   }
+  // A section that holds many shows its newest few, with the rest one tap away.
+  function frontSection(key, label, list, empty, few) {
+    if (!list.length) return frontGroup(label, 0, "", '<p class="fempty">' + empty + '</p>');
+    var shown = frontOpen[key] ? list : list.slice(0, few);
+    return frontGroup(label, list.length, shown.map(frontJobCard).join(""),
+      list.length > few ? '<button type="button" class="fmore" data-more="' + key + '">' + (frontOpen[key] ? "Show fewer" : "Show all " + list.length) + '</button>' : "");
+  }
+  // Three places, as Core placed each card: his move, what is moving, what is done.
   function frontDrawJobs(jobs) {
-    // A jobs array is the list. Until one arrives, an empty fleet group is unknown.
     var listed = !!(frontUpdate && Array.isArray(frontUpdate.jobs));
-    var known = listed || !!(frontUpdate && frontUpdate.show && frontUpdate.show.read);
-    var unread = '<p class="fempty">Checking…</p>';
     var needs = jobs.filter(function (job) { return job.group === "needs"; });
-    var working = jobs.filter(function (job) { return job.group === "working"; });
-    var waiting = jobs.filter(function (job) { return job.group === "waiting"; });
+    var moving = jobs.filter(function (job) { return job.group === "moving"; });
     var done = jobs.filter(function (job) { return job.group === "done"; });
-    var shownDone = frontOpen.done ? done : done.slice(0, DONE_FEW_FRONT);
-    var needsEmpty = listed ? "No decision is waiting." : "Nothing waits on you.";
-    var workingEmpty = "Nothing is running right now.";
-    var doneEmpty = listed ? "Nothing has landed lately." : "Nothing landed this week.";
     rtabDot.hidden = !needs.length;
-    var html = (needs.length ? frontGroup("Needs you", needs.length, needs.map(frontJobCard).join("")) : frontGroup("Needs you", known ? 0 : "", "", known ? '<p class="fempty">' + needsEmpty + '</p>' : unread))
-      + (working.length ? frontGroup("Working", working.length, working.map(frontJobCard).join("")) : frontGroup("Working", known ? 0 : "", "", known ? '<p class="fempty">' + workingEmpty + '</p>' : unread))
-      + (listed ? (waiting.length ? frontGroup("Waiting", waiting.length, waiting.map(frontJobCard).join("")) : frontGroup("Waiting", 0, "", '<p class="fempty">Nothing is waiting.</p>')) : "")
-      + (done.length ? frontGroup("Done", done.length, shownDone.map(frontJobCard).join(""),
-          done.length > DONE_FEW_FRONT ? '<button type="button" class="fmore" data-more="done">' + (frontOpen.done ? "Show fewer" : "Show all " + done.length) + '</button>' : "")
-        : frontGroup("Done", known ? 0 : "", "", known ? '<p class="fempty">' + doneEmpty + '</p>' : unread))
-      + (listed && VIEW_TOKEN ? '<form class="job-new"><input name="name" maxlength="60" placeholder="New job" aria-label="New job"><button type="submit">Add</button></form>' : "");
+    var html = !listed ? '<p class="fempty">Checking…</p>'
+      : frontSection("needs", "Needs you", needs, "No decision is waiting.", Infinity)
+        + frontSection("moving", "Moving", moving, "Nothing is moving right now.", MOVING_FEW_FRONT)
+        + frontSection("done", "Done", done, "Nothing has landed lately.", DONE_FEW_FRONT)
+        + (VIEW_TOKEN ? '<form class="job-new"><input name="name" maxlength="60" placeholder="New job" aria-label="New job"><button type="submit">Add</button></form>' : "");
     if (html === frontDrawn.jobs) return;
     frontDrawn.jobs = html;
     jobsList.innerHTML = html;
@@ -704,7 +611,7 @@ export const FRONT_SCRIPT = `
   function renderFront(update) {
     if (update) frontUpdate = update;
     if (!frontUpdate) return;
-    var jobs = Array.isArray(frontUpdate.jobs) ? frontUpdate.jobs.map(frontListedJob) : frontJobsOf(frontUpdate);
+    var jobs = (Array.isArray(frontUpdate.jobs) ? frontUpdate.jobs : []).map(frontListedJob);
     frontJobs = new Map(jobs.map(function (job) { return [job.id, job]; }));
     frontDrawJobs(jobs);
     frontStage();

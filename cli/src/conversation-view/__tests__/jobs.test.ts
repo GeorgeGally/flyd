@@ -33,7 +33,7 @@ describe("jobsFrom", () => {
     const item = (kind: string, id: string, over = {}) => ({ id: `${kind}:${id}`, kind, headline: id, why: "", task: id, project: "Cap5", ...over });
     const show = { ...screen, calls: [item("call", "pick")], underway: [item("live", "one"), item("live", "two")] } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [project()], show, now: NOW });
-    expect(board.jobs.filter((job) => job.group === "working").map((job) => [job.id, job.project])).toEqual([["live:one", "Cap5"], ["live:two", "Cap5"]]);
+    expect(board.jobs.filter((job) => job.group === "moving" && job.state === "Working").map((job) => [job.id, job.project])).toEqual([["live:one", "Cap5"], ["live:two", "Cap5"]]);
     expect(board.jobs.find((job) => job.id === "cap5")!.group).toBe("needs");
   });
 
@@ -50,7 +50,7 @@ describe("jobsFrom", () => {
 
   it("carries the run start separately from its latest update", () => {
     const board = jobsFrom({ runs: [run({ started: "2026-10-26T09:00:00Z", updatedAt: "2026-10-26T11:59:00Z" })], now: NOW });
-    expect(board.jobs.find((job) => job.group === "working")).toMatchObject({ started: "2026-10-26T09:00:00Z", at: "2026-10-26T11:59:00Z" });
+    expect(board.jobs.find((job) => job.group === "moving" && job.state === "Working")).toMatchObject({ started: "2026-10-26T09:00:00Z", at: "2026-10-26T11:59:00Z" });
   });
 
   it("never names the staff or how the work runs on a card, whatever a run's status", () => {
@@ -71,10 +71,10 @@ describe("jobsFrom", () => {
   it("does not count queued work or a run gone quiet as working", () => {
     const show = { ...screen, next: [{ id: "next:q", kind: "next", headline: "Queued thing", why: "", task: "q" }] } as unknown as ShowScreen;
     const board = jobsFrom({ show, runs: [run({ id: "stale", project: "", updatedAt: "2026-10-20T11:00:00.000Z" }), run({ id: "note", project: "", status: "queued" })], now: NOW });
-    expect(board.jobs.filter((job) => job.group === "working")).toEqual([]);
-    expect(board.jobs.find((job) => job.id === "next:q")).toMatchObject({ group: "waiting", state: "Queued" });
-    expect(board.jobs.find((job) => job.id === "stale")).toMatchObject({ group: "waiting", state: "Waiting" });
-    expect(board.jobs.find((job) => job.id === "note")).toMatchObject({ group: "waiting", state: "Queued" });
+    expect(board.jobs.filter((job) => job.group === "moving" && job.state === "Working")).toEqual([]);
+    expect(board.jobs.find((job) => job.id === "next:q")).toMatchObject({ group: "moving", state: "Queued" });
+    expect(board.jobs.find((job) => job.id === "stale")).toMatchObject({ group: "moving", state: "Waiting" });
+    expect(board.jobs.find((job) => job.id === "note")).toMatchObject({ group: "moving", state: "Queued" });
   });
 
   it("shows paused, parked and blocked workers as paused without requiring attention", () => {
@@ -82,9 +82,9 @@ describe("jobsFrom", () => {
     const show = { ...screen, held: heldItems(fleet) };
     const board = jobsFrom({ show, now: NOW });
     expect(board.jobs.map((job) => [job.title, job.group, job.state, job.ask])).toEqual([
-      ["Paused job", "waiting", "Paused", ""],
-      ["Parked job", "waiting", "Paused", ""],
-      ["Blocked job", "waiting", "Paused", ""],
+      ["Paused job", "moving", "Paused", ""],
+      ["Parked job", "moving", "Paused", ""],
+      ["Blocked job", "moving", "Paused", ""],
     ]);
   });
 
@@ -99,7 +99,7 @@ describe("jobsFrom", () => {
     applyProjectOps(first.inferred.map((item) => ({ op: "upsert" as const, name: item.name, kind: item.kind, status: "active", what: "" })), { knownRepos: [], path });
     expect(readProjects(path)).toEqual([]);
     const board = jobsFrom({ projects: readProjects(path), show, now: NOW });
-    expect(board.jobs.map((job) => [job.title, job.group, job.state])).toEqual([["Lab hardware pass", "waiting", "Paused"]]);
+    expect(board.jobs.map((job) => [job.title, job.group, job.state])).toEqual([["Lab hardware pass", "moving", "Paused"]]);
   });
 
   it("retains the paused count on a project card alongside its leading signal", () => {
@@ -111,7 +111,7 @@ describe("jobsFrom", () => {
     for (const extra of [{}, { calls: [call] }, { ready: [ready] }]) {
       const board = jobsFrom({ projects: [project()], show: { ...screen, held, ...extra }, now: NOW });
       expect(board.jobs).toHaveLength(1);
-      expect(board.jobs[0]).toMatchObject({ id: "cap5", group: Object.keys(extra).length ? "needs" : "waiting", state: expect.stringContaining("3 paused") });
+      expect(board.jobs[0]).toMatchObject({ id: "cap5", group: Object.keys(extra).length ? "needs" : "moving", state: expect.stringContaining("3 paused") });
       if ("calls" in extra) expect(board.jobs[0]!.ask).toBe("Choose a direction");
     }
   });
@@ -119,7 +119,7 @@ describe("jobsFrom", () => {
   it("uses the fleet for FirstMate workers while retaining domain decisions", () => {
     const show = { ...screen, underway: [{ id: "live:worker", kind: "live", headline: "Revise", why: "", task: "worker", project: "Cap5" }] } as unknown as ShowScreen;
     const board = jobsFrom({ projects: [project()], show, runs: [run({ id: "domain-123", transport: "firstmate" }), run({ id: "domain-456", transport: "native" }), run({ id: "domain-789", transport: "firstmate", status: "needs_decision" })], now: NOW });
-    expect(board.jobs.filter((job) => job.group === "working").map((job) => job.id).sort()).toEqual(["live:worker", "run:domain-456"]);
+    expect(board.jobs.filter((job) => job.group === "moving" && job.state === "Working").map((job) => job.id).sort()).toEqual(["live:worker", "run:domain-456"]);
     expect(board.jobs.find((job) => job.id === "run:domain-789")?.group).toBe("needs");
     expect(board.jobs.find((job) => job.id === "cap5")).toBeUndefined();
   });
@@ -213,7 +213,7 @@ describe("jobsFrom", () => {
     expect(board.jobs).toEqual([]);
     expect(board.fleetKnown).toBe(false);
     const listed = jobsFrom({ projects: [project()], now: NOW, idle: true });
-    expect(listed.jobs[0]).toMatchObject({ id: "cap5", group: "waiting", state: "Waiting", project: "Client", next: "Send the deck", owner: "you" });
+    expect(listed.jobs[0]).toMatchObject({ id: "cap5", group: "moving", state: "Waiting", project: "Client", next: "Send the deck", owner: "you" });
     expect(listed.jobs[0]!.next).not.toContain("Librarian");
   });
 
@@ -233,7 +233,7 @@ describe("jobsFrom", () => {
 
   it("keeps active runs distinct beside a project decision", () => {
     const board = jobsFrom({ projects: [project()], runs: [run(), run({ id: "run-2", outcome: "Review the deck" }), run({ id: "choice", status: "needs_decision" })], now: NOW });
-    expect(board.jobs.filter((job) => job.group === "working").map((job) => job.id).sort()).toEqual(["run:run-1", "run:run-2"]);
+    expect(board.jobs.filter((job) => job.group === "moving" && job.state === "Working").map((job) => job.id).sort()).toEqual(["run:run-1", "run:run-2"]);
     expect(board.jobs.find((job) => job.id === "run:choice")?.group).toBe("needs");
   });
 
@@ -418,7 +418,7 @@ describe("jobsFrom", () => {
     expect(once.jobs[0]!.digest).toEqual({ changed: "The third tier is gone.", needed: "Send it.", link: "https://example.com/deck" });
     expect(once.pending).toEqual([]);
     expect(twice.jobs[0]!.digest).toEqual(once.jobs[0]!.digest);
-    expect(once.jobs[0]!.group).toBe("waiting");
+    expect(once.jobs[0]!.group).toBe("moving");
   });
 
   it("hides a closed project that landed more than three weeks ago", () => {
@@ -439,7 +439,7 @@ describe("editJob", () => {
   it("creates, renames and closes on the project list", () => {
     const path = join(mkdtempSync(join(tmpdir(), "flyd-jobs-")), "projects.json");
     const created = editJob({ op: "create", name: "Cap5" }, { path, now: NOW });
-    expect(created.job).toMatchObject({ id: "cap5", title: "Cap5", group: "waiting", next: "Say what the next step is." });
+    expect(created.job).toMatchObject({ id: "cap5", title: "Cap5", group: "moving", next: "Say what the next step is." });
     const renamed = editJob({ op: "rename", id: "cap5", name: "Cap Five" }, { path, now: NOW });
     expect(renamed.job).toMatchObject({ id: "cap5", title: "Cap Five" });
     const closed = editJob({ op: "close", id: "cap5" }, { path, now: NOW });

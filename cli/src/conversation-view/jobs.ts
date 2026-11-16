@@ -11,6 +11,7 @@ import { digestHash, type DigestSource, type JobDigest } from "./job-digest.js";
 import { namedAnswers, type NamedAnswers } from "./choices.js";
 import { holdDecisions, numberedChoice, type HoldDecision } from "./artefact.js";
 import type { ShowItem, ShowScreen } from "./show.js";
+import { movingRank, placeOf, placeRank, STATE_WORDS, type Place } from "./placement.js";
 import { cardSource, fallbackWords, jargonIn, placeholderLine, type CardSource, type CardWords } from "./card-words.js";
 
 /**
@@ -20,7 +21,8 @@ import { cardSource, fallbackWords, jargonIn, placeholderLine, type CardSource, 
  * `project.now` is not a status.
  */
 
-export type JobGroup = "needs" | "working" | "waiting" | "done";
+/** Where a job sits: the one placement rule (placement.ts). */
+export type JobGroup = Place;
 
 export interface JobArtifact {
   label: string;
@@ -80,6 +82,8 @@ export interface Job {
   domainRun?: string;
   /** A call Flyd answered for him by one of his standing rules; his own answer takes it back. */
   handled?: { decisionId: string; task: string };
+  /** An old call firstmate still holds open: it stays on Needs you, but never rings him again. */
+  quiet?: true;
 }
 
 export interface JobRun {
@@ -142,9 +146,8 @@ const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
 /** A reading that says his answer is not wanted: "Nothing is waiting on you", "Nothing to decide here". */
 const NOTHING_WANTED = /\bnothing (?:to decide|(?:is )?(?:waiting|needed|wanted) (?:on|from) you|needs you)\b/i;
-const STATE: Record<JobGroup, string> = { needs: "Needs you", working: "Working", waiting: "Waiting", done: "Done" };
-/** Finished work waiting on his look, in his words: never "ready to land". */
-const READY = "Ready for you";
+/** A group's own state word, when its signal names none. */
+const STATE: Record<JobGroup, string> = { needs: STATE_WORDS.asks, moving: STATE_WORDS.quiet, done: STATE_WORDS.landed };
 
 export function jobKey(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -226,6 +229,7 @@ interface Signal {
   decision?: ShowItem["decision"];
   domainRun?: string;
   handled?: Job["handled"];
+  quiet?: true;
   /** The hash of this signal's own report, so its card reads its own digest and never another item's. */
   reportHash?: string;
   /** The staff's own words this card came from (a worker's status line), when it is not his decision: said plainly before he reads it. */
@@ -235,8 +239,9 @@ interface Signal {
   links?: Job["links"];
 }
 
-function rank(group: JobGroup): number {
-  return group === "needs" ? 0 : group === "working" ? 1 : group === "waiting" ? 2 : 3;
+/** His move first; within Moving, work under way before work that waits. */
+function rank(group: JobGroup, state = ""): number {
+  return placeRank(group) * 2 + (group === "moving" ? movingRank(state) : 0);
 }
 
 /**
@@ -262,44 +267,41 @@ function runSignalOf(run: JobRun, now: number): Signal | null {
   const read = run.work ?? workStateOfRun(run.status as DomainRunStatus);
   // Finished work waits on him for a day from when it settled; after that it is done, PR or not.
   const work = read === "ready" && now - Date.parse(run.settled ?? at) > READY_KEEP_MS ? "landed" : read;
+  const placed = (fact: Parameters<typeof placeOf>[0]) => { const { place, state } = placeOf(fact); return { group: place, state }; };
   // Closed in firstmate's record, or retired by his own word: it never asks again.
-  if (run.closed) return work === "ready" || work === "landed" ? { group: "done", at, next: run.outcome || "Done", owner: "", ask: "", because: `Run ${run.id} was closed: ${run.closed}` } : null;
+  if (run.closed) return work === "ready" || work === "landed" ? { ...placed("closed"), at, next: run.outcome || "Done", owner: "", ask: "", because: `Run ${run.id} was closed: ${run.closed}` } : null;
   if (work === "needs_you") {
     if (run.source === "flyd") return null;
-    return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
+    // An unanswered ask stays his, however old: it is never parked where he would not look.
+    return { ...placed("asks"), at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
   // Who on the staff does the work is Flyd's business: the card says only whether it is his move or Flyd's.
-  if (run.status === "queued") return { group: "waiting", state: "Queued", at, next: run.outcome || "Queued", owner: "Flyd", ask: "", because: `Run ${run.id} is queued` };
-  if (run.status === "incomplete") return { group: "waiting", at, next: run.outcome || "Not finished yet", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
-  if (work === "blocked") return { group: "waiting", state: "Blocked", at, next: run.outcome || "Not finished yet", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
+  if (run.status === "queued") return { ...placed("queued"), at, next: run.outcome || "Queued", owner: "Flyd", ask: "", because: `Run ${run.id} is queued` };
+  if (run.status === "incomplete") return { ...placed("quiet"), at, next: run.outcome || "Not finished yet", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
+  if (work === "blocked") return { ...placed("blocked"), at, next: run.outcome || "Not finished yet", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
   if (work === "moving") {
     if (run.transport === "firstmate") return null;
-    if (now - Date.parse(at) > QUIET_RUN_MS) return { group: "waiting", at, next: run.outcome || "Waiting", owner: "Flyd", ask: "", because: `Run ${run.id} has gone quiet` };
-    return { group: "working", at, ...(run.started ? { started: run.started } : {}), next: run.outcome || "Under way", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
+    if (now - Date.parse(at) > QUIET_RUN_MS) return { ...placed("quiet"), at, next: run.outcome || "Waiting", owner: "Flyd", ask: "", because: `Run ${run.id} has gone quiet` };
+    return { ...placed("running"), at, ...(run.started ? { started: run.started } : {}), next: run.outcome || "Under way", owner: "Flyd", ask: "", because: `Run ${run.id} is ${run.status}` };
   }
   if (work === "ready") {
     if (run.source === "flyd") return null;
-    return { group: "needs", state: READY, at, next: run.outcome || READY, owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is ready to land` };
+    return { ...placed("ready"), at, next: run.outcome || STATE_WORDS.ready, owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is ready to land` };
   }
-  if (work === "landed") return { group: "done", at, next: run.outcome || "Landed", owner: "", ask: "", because: `Run ${run.id} completed` };
+  if (work === "landed") return { ...placed("landed"), at, next: run.outcome || "Landed", owner: "", ask: "", because: `Run ${run.id} completed` };
   return null;
 }
 
-function itemGroup(kind: ShowItem["kind"]): JobGroup | null {
-  if (kind === "call") return "needs";
-  if (kind === "ready") return "needs";
-  if (kind === "live") return "working";
-  if (kind === "waiting" || kind === "next") return "waiting";
-  if (kind === "landed") return "done";
+/** What a fleet item says about its work, for the one placement rule. */
+function itemFact(item: ShowItem, now: number): Parameters<typeof placeOf>[0] | null {
+  if (item.kind === "call") return "asks";
+  // A finished worker's row waits on his look for a day, as a run does; after that it is done work, not his to do.
+  if (item.kind === "ready") return item.at && now - Date.parse(item.at) > READY_KEEP_MS ? "landed" : item.status === "report available" ? "report" : "ready";
+  if (item.kind === "live") return "running";
+  if (item.kind === "next") return "queued";
+  if (item.kind === "waiting") return item.status === "paused" ? "paused" : "quiet";
+  if (item.kind === "landed") return "landed";
   return null;
-}
-
-/** The word a show item has for itself on the board: finished work is ready, not a question; queued is not waiting on him. */
-function itemState(item: ShowItem): string | undefined {
-  if (item.kind === "ready") return item.status === "report available" ? "Report ready" : READY;
-  if (item.kind === "next") return "Queued";
-  if (item.kind === "waiting" && item.status === "paused") return "Paused";
-  return undefined;
 }
 
 function dayNumber(iso: string, now: number): number {
@@ -395,10 +397,11 @@ export function jobsFrom(input: {
     const name = run.project;
     if (!name && signal.group === "done") continue;
     const title = runTitle(run.outcome) || name || "Untitled run";
-    const bucket = (signal.group === "working" || signal.group === "needs")
+    const running = signal.group === "moving" && signal.state === STATE_WORDS.running;
+    const bucket = (running || signal.group === "needs")
       ? lone(buckets, `run:${run.id}`, title)
       : name ? bucketFor(name) : lone(buckets, run.id, title);
-    if ((signal.group === "working" || signal.group === "needs") && name) { bucket.project = name; bucket.name = name; markActive(name, bucket); }
+    if ((running || signal.group === "needs") && name) { bucket.project = name; bucket.name = name; markActive(name, bucket); }
     bucket.signals.push(signal);
     const full = runSentence(run.outcome);
     const thread: JobThread = { id: run.id, title, at: run.updatedAt, kind: "run", ...(full && full !== title ? { full } : {}) };
@@ -413,7 +416,7 @@ export function jobsFrom(input: {
       const name = key ? input.boardName?.(key) : undefined;
       const link = viaOpener({ label: artifact.label, url: artifact.href });
       ownLinks.push(name ? { ...link, label: `Open ${boardTitle(name)}` } : link);
-      const picture = key && (signal.group === "needs" || signal.group === "working") ? input.boardPicture?.(key) : undefined;
+      const picture = key && (signal.group === "needs" || running) ? input.boardPicture?.(key) : undefined;
       if (picture) ownShots.push({ src: picture, label: name ? boardTitle(name) : `Board for ${title}` });
     }
     bucket.shots.push(...ownShots);
@@ -433,10 +436,10 @@ export function jobsFrom(input: {
   }
 
   for (const item of showItems(input.show)) {
-    // A finished worker's row waits on his look for a day, as a run does; after that it is done work, not his to do.
-    // An old call firstmate still holds open stays his: an unanswered ask is never parked in Waiting.
-    const group = item.kind === "ready" && item.at && now - Date.parse(item.at) > READY_KEEP_MS ? "done" : itemGroup(item.kind);
-    if (!group) continue;
+    // An old call firstmate still holds open stays his: an unanswered ask is never parked.
+    const fact = itemFact(item, now);
+    if (!fact) continue;
+    const { place: group, state: placedState } = placeOf(fact);
     // Every running worker is its own card: two on one project are two, and a project's open call never hides one.
     const name = item.project && (projectOfRepo(item.project) ?? item.project);
     // A call Flyd answered for him is its own quiet line, so his take-back reaches that one answer.
@@ -447,7 +450,7 @@ export function jobsFrom(input: {
     // A staff status line ("Checks green: PR ready for review…") is said as what it means for him.
     const detail = item.detail && (statusSaid(item.detail) ?? item.detail);
     const ask = group === "needs" ? (item.decision?.question || detail || item.headline) : "";
-    const state = handled ? "Handled for you" : group === "done" ? undefined : itemState(item);
+    const state = handled ? "Handled for you" : group === "done" ? undefined : placedState;
     const signal: Signal = {
       group,
       ...(state ? { state } : {}),
@@ -460,6 +463,7 @@ export function jobsFrom(input: {
       ...(group === "needs" && item.decision ? { decision: item.decision } : {}),
       ...(group === "needs" && item.questionIdentity ? { questionIdentity: item.questionIdentity } : {}),
       ...(handled ? { handled } : {}),
+      ...(item.kind === "call" && item.quiet ? { quiet: true as const } : {}),
       // A call or a decision is his and keeps its question, with only its title said plainly; a handled line is Flyd's own.
       ...(!handled ? { raw: { title: item.headline, line: (item.detail && !placeholderLine(item.detail) ? item.detail : "") || item.headline, ...(item.kind === "call" || item.decision ? { keep: true } : {}) } } : {}),
     };
@@ -516,7 +520,7 @@ export function jobsFrom(input: {
     // A project with nothing running is not work under way: it is found under Projects, never as a Waiting card.
     if (!bucket.signals.length && project && input.idle) bucket.signals.push(idleSignal(project));
     if (!bucket.signals.length) continue;
-    const lead = [...bucket.signals].sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at))[0]!;
+    const lead = [...bucket.signals].sort((a, b) => rank(a.group, a.state) - rank(b.group, b.state) || Date.parse(b.at) - Date.parse(a.at))[0]!;
     const paused = bucket.signals.filter((signal) => signal.state === "Paused").length;
     const state = lead.state ?? STATE[lead.group];
     const at = [...bucket.signals.map((signal) => signal.at), ...bucket.threads.map((thread) => thread.at)].filter(Boolean).sort().at(-1) ?? "";
@@ -585,9 +589,10 @@ export function jobsFrom(input: {
       ...(Object.keys(labels).some((option) => labels[option] !== option) ? { labels } : {}),
       ...(lead.domainRun ? { domainRun: lead.domainRun } : {}),
       ...(lead.handled ? { handled: lead.handled } : {}),
+      ...(lead.quiet ? { quiet: true as const } : {}),
     }, fallback, unread));
   }
-  jobs.sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at));
+  jobs.sort((a, b) => rank(a.group, a.state) - rank(b.group, b.state) || Date.parse(b.at) - Date.parse(a.at));
   return { jobs, fleetKnown: Boolean(input.show?.read), inferred, pending: pending.slice(0, 8), untranslated: [...untranslated, ...timeline].filter((source, index, all) => all.findIndex((item) => item.key === source.key) === index) };
 }
 
@@ -696,7 +701,7 @@ function shownPlainly(job: Job, fallback: CardWords, asked = false): Job {
 }
 
 /** What a card says when its own words would name the staff or how the work is run. */
-const QUIET_LINE: Record<Exclude<JobGroup, "needs">, string> = { working: "Under way", waiting: "Waiting", done: "Done" };
+const QUIET_LINE: Record<Exclude<JobGroup, "needs">, string> = { moving: "Under way", done: "Done" };
 
 /** A card's line as he may see it: the relay check holds back staff names, branches and ids. A decision keeps its question, said plainly: the call is his. Pure. */
 function shownLine(line: string, group: JobGroup): string {
@@ -715,9 +720,14 @@ function idleSignal(project: Project): Signal {
   const at = project.updated;
   if (project.status === "done") return { group: "done", at, next: "Closed", owner: "", ask: "", because: "The project is closed" };
   if (project.status === "waiting" || project.status === "paused") {
-    return { group: "waiting", at, next: project.next || "Paused. No next step is written down.", owner: "you", ask: "", because: `Project status is ${project.status}` };
+    return { ...placedAs("paused"), at, next: project.next || "Paused. No next step is written down.", owner: "you", ask: "", because: `Project status is ${project.status}` };
   }
-  return { group: "waiting", at, next: project.next || "Nothing is moving this.", owner: "you", ask: "", because: "No open run" };
+  return { ...placedAs("quiet"), at, next: project.next || "Nothing is moving this.", owner: "you", ask: "", because: "No open run" };
+}
+
+function placedAs(fact: Parameters<typeof placeOf>[0]): { group: JobGroup; state: string } {
+  const { place, state } = placeOf(fact);
+  return { group: place, state };
 }
 
 function lone(buckets: Map<string, Bucket>, id: string, title: string): Bucket {
