@@ -845,6 +845,7 @@ export class ConversationViewServer {
   /** The jobs the column last drew: a tick on a Flyd ask is checked against these. */
   private boardJobs: Job[] = [];
   private boardJobsAt = 0;
+  private islandNeeds: { at: number; jobs: Job[] } | undefined;
   /** His notes from cards: accepted at once, routed in order behind. */
   private readonly cardNotes = new CardNotes();
   /** Opens a card's Liesel board, starting Liesel first when it is down. Tests replace it. */
@@ -2408,10 +2409,13 @@ export class ConversationViewServer {
    */
   private placedNeeds(snapshot: ConversationSnapshot): Job[] {
     if (this.boardJobs.length && Date.now() - this.boardJobsAt < 60_000) return this.boardJobs.filter((job) => job.group === "needs");
+    if (this.islandNeeds && Date.now() - this.islandNeeds.at < 5_000) return this.islandNeeds.jobs;
     try {
       const show = showOf(snapshot, { projects: this.show?.projects?.() ?? [], artefact: this.artefactInputs() });
-      return jobsFrom({ projects: readProjects(), runs: listDomainRuns().map(jobRunFromDomain), show, cardWords: readCardWords(), exhausted: exhaustedCardWords() })
+      const jobs = jobsFrom({ projects: readProjects(), runs: listDomainRuns().map(jobRunFromDomain), show, cardWords: readCardWords(), exhausted: exhaustedCardWords() })
         .jobs.filter((job) => job.group === "needs");
+      this.islandNeeds = { at: Date.now(), jobs };
+      return jobs;
     } catch (error) {
       console.error(`[island] ${error instanceof Error ? error.message : String(error)}`);
       return [];

@@ -114,9 +114,11 @@ export const LEFT_SCRIPT = `
   // Clicking a card takes it to the main chat: the message box says it is replying to that card, and he talks there.
   function aboutCard(info) {
     if (leftAbout === info.key) { replyTo(null); leftAbout = null; drawActivity(); return; }
-    replyTo(info.title, function (text) {
+    replyTo(info.title, function (text, pictures, kept) {
       leftAbout = null;
       drawActivity();
+      attachments = (kept || []).slice();
+      renderAttachments();
       input.value = "About “" + info.title + "”:\\n\\n" + text;
       composer.requestSubmit();
     });

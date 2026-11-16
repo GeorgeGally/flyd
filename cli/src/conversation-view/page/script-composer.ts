@@ -699,7 +699,7 @@ export const COMPOSER_SCRIPT = `
       attachments = [];
       renderAttachments();
       saveDraftNow();
-      to.send(text, sending.filter(function (a) { return !a.name; }));
+      to.send(text, sending.filter(function (a) { return !a.name; }), sending);
       return;
     }
     if (!current) { if (spoken) endVoiceWait(); return; }
