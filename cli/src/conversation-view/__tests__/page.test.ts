@@ -3881,6 +3881,17 @@ describe("his own to-dos, in Needs you", () => {
     expect(document.getElementById("todo-new")).toBeNull();
   });
 
+  it("stay in Needs you when the board changes later", async () => {
+    const stream = await opened();
+    const job = (id: string, title: string) => ({ id, group: "needs", state: "Needs you", title, project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString() });
+    const base = { order: [], messages: [], working: false, todos: LIST, jobsFleetKnown: true };
+    stream.emit("update", { ...base, jobs: [job("a", "First ask")] });
+    stream.emit("update", { ...base, jobs: [job("a", "First ask"), job("b", "Second ask")] });
+    expect(document.querySelector("#jobs-list .fgroup #todos")).not.toBeNull();
+    expect(document.querySelectorAll("#jobs-list .fgroup #todos .todo").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll("#todos")).toHaveLength(1);
+  });
+
   it("lists what he must do in his own words, escaped", async () => {
     await opened();
     // The Flyd ask has its own card in Needs you; the list keeps only what is his alone.

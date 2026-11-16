@@ -19,6 +19,7 @@ export const FRONT_SCRIPT = `
   var frontRoot = document.documentElement;
   var jobsEl = document.getElementById("jobs");
   var jobsList = document.getElementById("jobs-list");
+  var todosEl = document.getElementById("todos");
   var jobView = document.getElementById("job-view");
   var stageHead = document.getElementById("stage-head");
   var stageCrumb = document.getElementById("stage-crumb");
@@ -248,11 +249,10 @@ export const FRONT_SCRIPT = `
         + frontSection("done", PLACE_WORDS.done, done, "Nothing has landed lately.", DONE_FEW_FRONT);
     if (html === frontDrawn.jobs) return;
     frontDrawn.jobs = html;
+    if (todosEl) jobsEl.insertAdjacentElement("afterend", todosEl);
     jobsList.innerHTML = html;
-    // His own to-dos are his move too: they sit in Needs you, under the calls.
-    var todos = document.getElementById("todos");
     var needsGroup = listed && jobsList.querySelector(".fgroup");
-    if (todos && needsGroup) needsGroup.insertBefore(todos, needsGroup.querySelector(".fstrip").nextSibling);
+    if (todosEl && needsGroup) needsGroup.insertBefore(todosEl, needsGroup.querySelector(".fstrip").nextSibling);
     frontNeedsCount();
   }
   // Needs you counts his calls and his own to-dos alike.
