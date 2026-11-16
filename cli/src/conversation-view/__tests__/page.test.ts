@@ -5044,7 +5044,7 @@ describe("the front page", () => {
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: { ...SHOW, calls: [lab], counts: { call: 1 } } });
     after(() => document.querySelector<HTMLElement>('.job[data-job="call:new-lab"]')!.click());
     const candidates = [...document.querySelectorAll<HTMLElement>(".job-view .jv-candidate")];
-    expect(candidates.map((candidate) => candidate.querySelector("figcaption")!.textContent)).toEqual(["V2 · Live page", "V10 · Edit the page"]);
+    expect(candidates.map((candidate) => candidate.querySelector("figcaption span")!.textContent)).toEqual(["V2 · Live page", "V10 · Edit the page"]);
     expect(candidates[0]!.querySelector<HTMLImageElement>(".jv-view img")!.getAttribute("src")).toBe(`/api/artefact-shot?task=obj0-new-lab-r2&file=shots%2Fv2-desktop.png&token=${"a".repeat(48)}`);
     expect(candidates[0]!.querySelector<HTMLImageElement>(".jv-phone img")!.getAttribute("src")).toContain("shots%2Fv2-phone.png");
     expect(candidates[1]!.querySelector(".jv-phone img")).not.toBeNull();
@@ -5102,7 +5102,7 @@ describe("the front page", () => {
     expect(card.querySelector(".jproject")!.textContent).toBe("capfive");
     expect(card.querySelector(".frame img")!.getAttribute("src")).toContain("/api/rail-image?path=");
     after(() => card.click());
-    expect(document.querySelector<HTMLAnchorElement>(".job-view .fbtn")!.href).toBe("https://example.test/lab.html");
+    expect(document.querySelector<HTMLAnchorElement>(".job-view a.fbtn")!.href).toBe("https://example.test/lab.html");
     expect(document.querySelector(".job-view .art-chat")).not.toBeNull();
   });
 
