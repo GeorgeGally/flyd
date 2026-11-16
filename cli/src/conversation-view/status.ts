@@ -7,6 +7,7 @@ import { inFlydsVoice } from "./flyd-voice.js";
 import { authorSummary, digestReply, isActionable, isRoutine } from "./summaries.js";
 import type { FleetArtefact } from "./artefact.js";
 import type { Job } from "./jobs.js";
+import { STATE_WORDS } from "./placement.js";
 import type { ConversationSnapshot } from "./types.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -146,7 +147,7 @@ export function islandStatusOf(current: ConversationStatus, fleet?: FleetArtefac
   // An old call firstmate still holds sits quietly in the list: it never rings him again.
   // The conversation's own question is said by its reply's own reading, not again as a card.
   const own = current.reply ? `call:${current.reply.id}` : "";
-  const ask = needs.find((job) => job.group === "needs" && !job.quiet && job.id !== own && ringsHim({ label: job.title, question: job.ask || job.title }));
+  const ask = needs.find((job) => job.group === "needs" && !job.quiet && job.id !== own && job.state !== STATE_WORDS.ready && job.state !== STATE_WORDS.report && ringsHim({ label: job.title, question: job.ask || job.title }));
   const notable = fleet?.landed.find((row) => row.notable);
   // A call firstmate names the lifecycle of rings once for that lifecycle: a new decision id or new wording for the
   // same open hold is the same question, and the hold raised again is a new one.

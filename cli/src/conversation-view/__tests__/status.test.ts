@@ -30,6 +30,14 @@ describe("conversation status for the island", () => {
     expect(notable.reply).toEqual({ id: "outcome:result", headline: "The release is verified", asks: false });
   });
 
+  it("does not ring the island for finished work waiting in Needs you", () => {
+    const current = statusOf({ messages: [], working: false });
+    const fleet = { ...parseBearings({}), ready: [{ label: "The pricing page is ready to land", task: "pricing" }] };
+    const needs = needsOf(fleet);
+    expect(needs.some((job) => job.group === "needs")).toBe(true);
+    expect(islandStatusOf(current, fleet, needs).reply).toBeUndefined();
+  });
+
   it("stops asking on the island once his answered call is settled", () => {
     const current = statusOf({ messages: [], working: false });
     const answeredFleet = { ...parseBearings({}), calls: [{ label: "Ship it today, or hold it for review?", task: "gnm-9", question: "Ship it today, or hold it for review?", choices: ["ship it today", "hold it for review"], ledgerOnly: true }] };

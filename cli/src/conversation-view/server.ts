@@ -44,7 +44,6 @@ import { answerLead, deliver, reportFromReply } from "../runtime/delivery.js";
 import { ASKS_HIM, condense, fitsAtAGlance, georgeMarkdown, outcomesOf, replyCard, staffLine, type Outcomes, type OutcomeState } from "./for-george.js";
 import { showOf, situationOf, titleOf, type ShowProject, type ShowScreen } from "./show.js";
 import { editJob, jobRunFromDomain, jobsFrom, type Job, type JobReport } from "./jobs.js";
-import { liveActivityOf, type LiveActivity } from "./live-activity.js";
 import { readDigests, scheduleDigest } from "./job-digest.js";
 import { exhaustedCardWords, readCardWords, scheduleCardWords } from "./card-words.js";
 import { ArtefactFeed, composeArtefact, type ArtefactInputs, type ArtefactRow } from "./artefact.js";
@@ -239,8 +238,6 @@ interface StreamUpdate {
   jobsFleetKnown?: boolean;
   /** What he must do himself. Present only when the view built it. */
   todos?: TodoRow[];
-  /** What is running, what needs George and what landed, counted once. */
-  live?: LiveActivity;
 }
 
 /**
@@ -762,7 +759,6 @@ export class SnapshotDiffer {
       ...(page ? { page } : {}),
       ...(board ? { jobs: board.jobs, jobsFleetKnown: board.fleetKnown } : {}),
       ...(todos ? { todos } : {}),
-      live: liveActivityOf(show, board?.jobs),
     };
   }
 }

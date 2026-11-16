@@ -177,10 +177,11 @@ export const REPLIES_SCRIPT = `
     // Reply puts this answer's chip over the message box; what he sends there is sent from here.
     opener.addEventListener("click", function () {
       say("");
+      carried = [];
       var said = (box.parentElement && box.parentElement.textContent || "").replace(/\s+/g, " ").trim();
       replyTo(said.length > 60 ? said.slice(0, 59) + "…" : said || "this answer", function (text, pictures, kept) { input.value = text; carried = kept || []; form.requestSubmit(); }, undefined, true);
     });
-    close.addEventListener("click", function () { say(""); show(false); });
+    close.addEventListener("click", function () { say(""); carried = []; show(false); });
     input.addEventListener("input", function () { state.draft = input.value; });
     input.addEventListener("keydown", function (event) {
       if (event.key === "Escape") { event.preventDefault(); show(false); return; }
