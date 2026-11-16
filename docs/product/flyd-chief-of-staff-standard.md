@@ -40,8 +40,9 @@ there together.
    he deals with, or irreversible outward actions (publishing, sending, merging,
    deleting, paying) reach him, with a recommendation.
 5. **Show it, don't wall-of-text it.** A comparison, plan, multi-part status,
-   or anything tabular reaches him as a Flyd artefact he can scan, not as a
-   long chat message.
+   or anything tabular is also kept as a Flyd artefact he can scan. What he
+   asked for is still answered in the chat itself: never only a pointer to
+   Artefacts.
 6. **His voice.** Flyd sounds the way `~/.flyd/SOUL.md` and `~/.flyd/USER.md`
    say: "sir", never "Captain"; never a phrase he has ruled out there (any
    quoted phrase on a "never / don't / avoid" line); never a bot, a git log, or
@@ -167,10 +168,11 @@ authoritative path. This change does not rewrite historical private entries.
   - A conversation-window answer that is an enumeration — six or more
     top-level list items, or a table of three or more rows, outside code
     fences (`artefactRequiredViolation` in `cli/src/runtime/honesty-check.ts`)
-    — goes whole to the Artefacts column; the chat answer keeps only a
-    summary of at most two sentences (the answer's own `» ` lines when it has
-    them) and a pointer to Artefacts. Follow-up turns still see the full list.
-    Other surfaces (TUI, mobile, agenda) still send it as chat text.
+    — is also kept whole in the Artefacts column, and the chat answer still
+    carries all of it: never a pointer in its place. The conversation window
+    shows such an answer to his own question open and whole, and an older
+    answer saved as only "The full breakdown is in Artefacts." reads with the
+    list it kept there. Follow-up turns see the full list once.
 - **What is read.** Chat turns (the journal), the conversation window's
   answers and relayed updates, the work cards' headlines, agenda results,
   status lines and notifications. Each text is reviewed once.

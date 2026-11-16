@@ -456,7 +456,36 @@ export const ARTEFACT_CHAT_SCRIPT = `
     form.appendChild(thread);
     form.appendChild(field);
     form.appendChild(receipt);
-    var chat = { form: form, state: state, deliver: deliver, save: save, target: target, watch: watch, onPaint: null };
+    // A reply about one thing he is looking at: the box comes into view with the caret in it, naming
+    // that picture, with the picture itself attached (when this box takes pictures). Nothing is sent
+    // until he does. Quoting the same picture twice neither repeats its name nor attaches it again.
+    function quote(label, src) {
+      var line = label ? 'On "' + label + '": ' : "";
+      if (line && input.value.indexOf(line) === -1) input.value = line + input.value.replace(/^\s+/, "");
+      state.text = input.value;
+      state.error = "";
+      save();
+      paint();
+      try { form.scrollIntoView({ block: "center" }); } catch (_) { form.scrollIntoView(); }
+      try { input.focus({ preventScroll: true }); } catch (_) { input.focus(); }
+      try { input.setSelectionRange(input.value.length, input.value.length); } catch (_) {}
+      if (!takesImages || !src || images.some(function (image) { return image.from === src; })) return;
+      if (images.length >= 4) { state.error = "4 images at most"; paint(); return; }
+      fetch(src).then(function (response) { return response.ok ? response.blob() : null; }).then(function (blob) {
+        if (!blob || ["image/png", "image/jpeg", "image/gif", "image/webp"].indexOf(blob.type) === -1) return;
+        if (blob.size > ${MAX_IMAGE_BYTES}) { state.error = "Images must be under " + Math.round(${MAX_IMAGE_BYTES} / 1048576) + "MB"; paint(); return; }
+        var reader = new FileReader();
+        reader.onload = function () {
+          if (images.length >= 4 || images.some(function (image) { return image.from === src; })) return;
+          var url = String(reader.result);
+          images.push({ url: url, mediaType: blob.type, data: url.slice(url.indexOf(",") + 1), from: src });
+          paintImages();
+          paint();
+        };
+        reader.readAsDataURL(blob);
+      }).catch(function () { state.error = "The picture didn't attach; say which one in words"; paint(); });
+    }
+    var chat = { form: form, state: state, deliver: deliver, save: save, target: target, watch: watch, quote: quote, onPaint: null };
     paintThread();
     paint();
     watch();

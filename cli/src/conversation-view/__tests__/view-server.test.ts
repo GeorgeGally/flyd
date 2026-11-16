@@ -359,6 +359,28 @@ describe("SnapshotDiffer summaries", () => {
     ]);
   });
 
+  it("shows an answer to his question whole in the chat, even one Artefacts keeps, and an older pointer with its list", () => {
+    const versions = Array.from({ length: 10 }, (_, index) => `${index + 1}. Version ${index + 1}: the last station plays on.`).join("\n");
+    const [whole, pointed, repeated] = new SnapshotDiffer().next({ messages: [
+      { id: "ask:1", role: "user", text: "give me 10 versions" },
+      { id: "answer:1", role: "assistant", text: `» Ten versions, lore first.\n\n${versions}`, answers: "ask:1", artefact: versions },
+      { id: "ask:2", role: "user", text: "and again" },
+      { id: "answer:2", role: "assistant", text: "» Ten more.\n\nThe full breakdown is in Artefacts.", answers: "ask:2", artefact: versions },
+      { id: "ask:3", role: "user", text: "once more" },
+      { id: "answer:3", role: "assistant", text: "» Keep the first line.\n\nThe full breakdown is in Artefacts.", answers: "ask:3", artefact: `Keep the first line. It carries the lore.\n\n${versions}` },
+    ], working: false }).messages.filter((rendered) => rendered.role === "assistant");
+    for (const rendered of [whole!, pointed!, repeated!]) {
+      expect(rendered.summary).toBeUndefined();
+      expect(rendered.card).toBeUndefined();
+      expect(rendered.html).toContain("Version 10: the last station plays on.");
+      expect(rendered.html).not.toContain("Artefacts");
+      expect(rendered.html).not.toContain("»");
+    }
+    expect(whole!.html).toContain("Ten versions, lore first.");
+    expect(pointed!.html).toContain("Ten more.");
+    expect(repeated!.html.match(/Keep the first line\./g)).toHaveLength(1);
+  });
+
   it("puts options in the column as a choice that answers the reply, and steps as a list", async () => {
     const { judge, release } = jev("options");
     const options = "Two ways to fix it:\n1. Use a wildcard rule — simpler.\n2. Keep separate rules — more control.";

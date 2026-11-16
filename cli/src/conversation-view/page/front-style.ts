@@ -219,14 +219,19 @@ button.jv-thread { cursor: pointer; }
 /* The candidates a lab put up: every version, its desktop page large with its phone view beside it. */
 .jv-candidates { display: grid; gap: 34px; margin: 4px 0 8px; }
 .jv-candidate { margin: 0; }
-.jv-candidate figcaption { margin: 0 0 12px; font: 500 16px/1.35 var(--sans); color: var(--ink); }
+.jv-candidate figcaption { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 12px; font: 500 16px/1.35 var(--sans); color: var(--ink); }
+/* The picture on show, its name under it and a Reply that answers about that one picture. */
+.jv-shot { min-width: 0; }
+.jv-shot-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
+.jv-shot-name { min-width: 0; font: 500 15px/1.3 var(--sans); color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jv-reply { flex: none; }
 .jv-pair { display: flex; align-items: flex-start; gap: 14px; }
 .jv-pair .jv-view { flex: 1 1 auto; min-width: 0; padding: 12px; }
 .jv-phone { flex: none; width: 104px; margin: 0; padding: 6px; border: 0; border-radius: 8px; background: var(--mat); cursor: zoom-in; }
 .jv-phone img { display: block; width: 100%; height: auto; border-radius: 4px; box-shadow: 0 2px 14px rgba(0, 0, 0, .12); }
 .jv-plain { padding: 24px 28px; border-radius: 12px; background: var(--well); }
 .jv-plain .big { margin: 0; font: 500 21px/1.3 var(--sans); letter-spacing: -0.01em; max-width: 34ch; overflow-wrap: anywhere; }
-.jv-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.jv-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
 .fbtn {
   display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: none;
   box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); font: 500 14px/1 var(--sans); text-decoration: none; cursor: pointer;

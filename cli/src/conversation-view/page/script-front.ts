@@ -360,7 +360,15 @@ export const FRONT_SCRIPT = `
     img.alt = shots[at].label;
     view.appendChild(img);
     view.addEventListener("click", function () { openImage(img.src); });
-    work.appendChild(view);
+    var shown = el("div", "jv-shot");
+    shown.appendChild(view);
+    var foot = el("div", "jv-shot-foot");
+    var named = el("span", "jv-shot-name", shots[at].label || "Picture " + (at + 1));
+    foot.appendChild(named);
+    var reply = frontReplyButton(job, function () { var shot = shots[frontVersion[job.id] || 0] || shots[0]; return { label: shot.label || "Picture " + ((frontVersion[job.id] || 0) + 1), src: shot.src }; });
+    if (reply) foot.appendChild(reply);
+    shown.appendChild(foot);
+    work.appendChild(shown);
     if (shots.length > 1) {
       var vers = el("div", "jv-vers");
       vers.setAttribute("role", "group");
@@ -377,6 +385,8 @@ export const FRONT_SCRIPT = `
         ver.addEventListener("click", function () {
           if (frontVersion[job.id] === index) return;
           frontVersion[job.id] = index;
+          named.textContent = shot.label || "Picture " + (index + 1);
+          if (reply) reply.setAttribute("aria-label", "Reply about " + named.textContent);
           vers.querySelectorAll(".ver").forEach(function (one, i) { one.classList.toggle("on", i === index); one.setAttribute("aria-pressed", String(i === index)); });
           img.classList.add("fade");
           setTimeout(function () {
@@ -400,7 +410,11 @@ export const FRONT_SCRIPT = `
     var wrap = el("div", "jv-candidates");
     job.previews.forEach(function (preview) {
       var candidate = el("figure", "jv-candidate");
-      candidate.appendChild(el("figcaption", "", preview.label));
+      var caption = el("figcaption", "");
+      caption.appendChild(el("span", "", preview.label));
+      var reply = frontReplyButton(job, function () { return { label: preview.label, src: preview.image }; });
+      if (reply) caption.appendChild(reply);
+      candidate.appendChild(caption);
       var pair = el("div", "jv-pair");
       pair.appendChild(frontCandidatePicture(preview.image, preview.label, "jv-view"));
       if (preview.phone) pair.appendChild(frontCandidatePicture(preview.phone, preview.label + " on a phone", "jv-phone"));
@@ -408,6 +422,20 @@ export const FRONT_SCRIPT = `
       wrap.appendChild(candidate);
     });
     return wrap;
+  }
+  // A reply about one picture: the job's own box opens on it, naming the picture, with the picture attached.
+  // \`picked\` says which picture at the moment he taps, so a version switched to since is the one quoted.
+  function frontReplyButton(job, picked) {
+    if (!VIEW_TOKEN || job.handled) return null;
+    var button = el("button", "fbtn jv-reply", "Reply to this picture");
+    button.type = "button";
+    button.setAttribute("aria-label", "Reply about " + picked().label);
+    button.addEventListener("click", function (event) {
+      event.stopPropagation();
+      var shot = picked();
+      frontAnswer(job).chat.quote(shot.label, shot.src);
+    });
+    return button;
   }
   function frontCandidatePicture(src, label, look) {
     var view = el("button", look);
@@ -479,8 +507,17 @@ export const FRONT_SCRIPT = `
       parts.push(frontCandidates(job));
     } else if (job.shots.length || !(split.rest || job.detail || job.ask || job.next || (job.digest && job.digest.changed))) parts.push(frontWork(job));
     var links = (job.links || []).filter(function (link) { return link && link.url && !link.closed; });
-    if (links.length) {
+    // The job itself can always be answered from the top: Reply takes him to its box.
+    var replyJob = VIEW_TOKEN && !job.handled;
+    if (links.length || replyJob) {
       var acts = el("div", "jv-acts");
+      if (replyJob) {
+        var replyAll = el("button", "fbtn jv-reply", "Reply");
+        replyAll.type = "button";
+        replyAll.setAttribute("aria-label", "Reply about this job");
+        replyAll.addEventListener("click", function () { frontAnswer(job).chat.quote("", ""); });
+        acts.appendChild(replyAll);
+      }
       links.forEach(function (link) {
         var a = el("a", "fbtn", link.label || "Open");
         a.href = link.url;
