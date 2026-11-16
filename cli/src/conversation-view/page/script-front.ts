@@ -45,7 +45,7 @@ export const FRONT_SCRIPT = `
   }
   var savedTab = "jobs";
   try { savedTab = localStorage.getItem("flyd-front-tab") || "jobs"; } catch (_) {}
-  frontTab(savedTab === "arts" || savedTab === "threads" || savedTab === "todo" ? savedTab : "jobs");
+  frontTab(savedTab === "arts" || savedTab === "threads" ? savedTab : "jobs");
   rtabs.addEventListener("click", function (event) {
     var tab = event.target.closest(".rtab");
     if (!tab) return;
@@ -236,6 +236,21 @@ export const FRONT_SCRIPT = `
     if (html === frontDrawn.jobs) return;
     frontDrawn.jobs = html;
     jobsList.innerHTML = html;
+    // His own to-dos are his move too: they sit in Needs you, under the calls.
+    var todos = document.getElementById("todos");
+    var needsGroup = listed && jobsList.querySelector(".fgroup");
+    if (todos && needsGroup) needsGroup.insertBefore(todos, needsGroup.querySelector(".fstrip").nextSibling);
+    frontNeedsCount();
+  }
+  // Needs you counts his calls and his own to-dos alike.
+  function frontNeedsCount() {
+    var needsGroup = jobsList.querySelector(".fgroup");
+    var todos = needsGroup && needsGroup.querySelector("#todos");
+    if (!todos) return;
+    var count = needsGroup.querySelectorAll(".fstrip .job").length + todos.querySelectorAll(".todo").length;
+    var empty = needsGroup.querySelector(":scope > .fempty");
+    if (empty) empty.hidden = count > 0;
+    needsGroup.querySelector(".fhead span:last-child").textContent = count ? String(count) : "0";
   }
 
   // The open job's heading: what the open job is, then its state, where and when said as one plain line under it; nothing above the title.

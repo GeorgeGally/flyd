@@ -148,7 +148,6 @@ export const TODAY_STYLE = `
   :root[data-layout="front"][data-rtab]:not([data-rtab="jobs"]) .jobs,
   :root[data-layout="front"][data-rtab]:not([data-rtab="arts"]) .rail:not([hidden]),
   :root[data-layout="front"][data-rtab]:not([data-rtab="arts"]) .rail,
-  :root[data-layout="front"][data-rtab]:not([data-rtab="todo"]) .todos,
   :root[data-layout="front"][data-rtab]:not([data-rtab="threads"]) .threads { display: none !important; }
   :root[data-layout="front"] .fstrip { display: block; margin: 0; padding: 0; overflow: visible; }
   :root[data-layout="front"] .fstrip > * { width: auto; margin: 0 0 16px; }
