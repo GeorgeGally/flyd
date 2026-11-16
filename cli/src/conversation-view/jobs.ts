@@ -133,11 +133,6 @@ export interface JobBoard {
 
 const DAY = 24 * 60 * 60 * 1000;
 const DONE_KEEP_DAYS = 21;
-/**
- * A run's question goes unanswered this long and stops asking: whatever its record still says, a call nobody has
- * touched in three days is no longer in front of him. Firstmate's record settling it is the real close; this is the backstop.
- */
-export const NEEDS_YOU_TTL_MS = 3 * DAY;
 /** Finished work waits on his look for a day, then it is done work: the same for a fleet row as for a run. */
 export const READY_KEEP_MS = DAY;
 /** An open run that has not moved for this long is not work under way, whatever its record still says. */
@@ -269,7 +264,6 @@ function runSignalOf(run: JobRun, now: number): Signal | null {
   if (run.closed) return work === "ready" || work === "landed" ? { group: "done", at, next: run.outcome || "Done", owner: "", ask: "", because: `Run ${run.id} was closed: ${run.closed}` } : null;
   if (work === "needs_you") {
     if (run.source === "flyd") return null;
-    if (now - Date.parse(at) > NEEDS_YOU_TTL_MS) return { group: "waiting", at, next: run.outcome || "Waiting", owner: "Flyd", ask: "", because: `Run ${run.id} asked over three days ago and has not moved` };
     return { group: "needs", at, next: run.question || run.outcome || "A decision is open", owner: "you", ask: run.question || run.outcome, questionIdentity: run.questionIdentity, because: `Run ${run.id} is waiting on a decision`, ...(run.phase === "done" ? {} : { domainRun: run.id }) };
   }
   // Who on the staff does the work is Flyd's business: the card says only whether it is his move or Flyd's.
@@ -343,6 +337,8 @@ export function jobsFrom(input: {
   /** Where the page loads a picture of a board an open run names, by key; undefined until Flyd has pictured it. Never asked for finished work. */
   boardPicture?: (key: string) => string | undefined;
   now?: number;
+  /** Also list projects with nothing running. Off for the column: a project row is a filter, not work. */
+  idle?: boolean;
 }): JobBoard {
   const now = input.now ?? Date.now();
   const exists = input.exists ?? (() => false);
@@ -436,8 +432,8 @@ export function jobsFrom(input: {
 
   for (const item of showItems(input.show)) {
     // A finished worker's row waits on his look for a day, as a run does; after that it is done work, not his to do.
-    // An old call firstmate still holds open waits quietly: Needs you holds only fresh calls.
-    const group = item.kind === "call" && item.quiet ? "waiting" : item.kind === "ready" && item.at && now - Date.parse(item.at) > READY_KEEP_MS ? "done" : itemGroup(item.kind);
+    // An old call firstmate still holds open stays his: an unanswered ask is never parked in Waiting.
+    const group = item.kind === "ready" && item.at && now - Date.parse(item.at) > READY_KEEP_MS ? "done" : itemGroup(item.kind);
     if (!group) continue;
     // Every running worker is its own card: two on one project are two, and a project's open call never hides one.
     const name = item.project && (projectOfRepo(item.project) ?? item.project);
@@ -515,10 +511,8 @@ export function jobsFrom(input: {
   for (const bucket of buckets.values()) {
     const project = projects.find((item) => item.id === bucket.id);
     if (!bucket.signals.length && activeProjects.has(jobKey(bucket.id))) continue;
-    if (!bucket.signals.length && project) bucket.signals.push(idleSignal(project));
-    if (!bucket.signals.length && (bucket.threads.length || bucket.reports.length)) {
-      bucket.signals.push({ group: "waiting", at: bucket.threads[0]?.at ?? "", next: "Nothing is moving this.", owner: "you", ask: "", because: "Named in a conversation, no open run" });
-    }
+    // A project with nothing running is not work under way: it is found under Projects, never as a Waiting card.
+    if (!bucket.signals.length && project && input.idle) bucket.signals.push(idleSignal(project));
     if (!bucket.signals.length) continue;
     const lead = [...bucket.signals].sort((a, b) => rank(a.group) - rank(b.group) || Date.parse(b.at) - Date.parse(a.at))[0]!;
     const paused = bucket.signals.filter((signal) => signal.state === "Paused").length;
@@ -833,10 +827,11 @@ export function editJob(edit: JobEdit, options: { path: string; now?: number }):
     applyProjectOps([{ op: "upsert", id: edit.id, name }], written);
   } else {
     if (!edit.id) return { job: null, error: "Close needs the job." };
-    if (!readProjects(options.path).some((project) => project.id === edit.id)) return { job: null, error: "That job is not on the list." };
+    // Only a project closes from here: a run or a call settles when it is answered.
+    if (!readProjects(options.path).some((project) => project.id === edit.id)) return { job: null, error: "Only a project can be closed here. Answer this one, or tell Flyd to drop it." };
     applyProjectOps([{ op: "archive", id: edit.id, reason: "Closed" }], written);
   }
-  const board = jobsFrom({ projects: readProjects(options.path), now: options.now });
+  const board = jobsFrom({ projects: readProjects(options.path), now: options.now, idle: true });
   const job = board.jobs.find((item) => item.id === id) ?? null;
   return job ? { job } : { job: null, error: "That job is not on the list." };
 }

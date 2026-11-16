@@ -686,16 +686,20 @@ export const FRONT_SCRIPT = `
   function frontPostJob(body) {
     if (!VIEW_TOKEN) return;
     fetch("/api/jobs", { method: "POST", headers: { "content-type": "application/json", "x-flyd-view-token": VIEW_TOKEN }, body: JSON.stringify(body) })
-      .then(function (response) { return response.json(); })
-      .then(function (data) {
-        if (!frontUpdate || !Array.isArray(frontUpdate.jobs) || !data.job) return;
+      .then(function (response) { return response.json().catch(function () { return {}; }).then(function (data) { return { ok: response.ok, data: data }; }); })
+      .then(function (reply) {
+        var data = reply.data || {};
+        // A refused edit says why where he is typing; it never fails silently.
+        if (!reply.ok || !data.job) { noteRefusal(data.error || (body.op === "close" ? "Flyd couldn't close that." : "Flyd couldn't change that.")); return; }
+        noteRefusal("");
+        if (!frontUpdate || !Array.isArray(frontUpdate.jobs)) return;
         frontUpdate.jobs = frontUpdate.jobs.filter(function (job) { return job.id !== data.job.id && job.id !== body.id; }).concat([data.job]);
         frontDrawn.jobs = "";
         frontDrawn.view = "";
         if (body.op === "close" && frontActive === body.id) frontActive = "talk";
         renderFront();
       })
-      .catch(function () {});
+      .catch(function () { noteRefusal(body.op === "close" ? "Flyd couldn't close that. The view lost its connection." : "Flyd couldn't change that. The view lost its connection."); });
   }
   function renderFront(update) {
     if (update) frontUpdate = update;

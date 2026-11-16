@@ -208,12 +208,21 @@ describe("jobsFrom", () => {
     expect(board.jobs.map((job) => [job.id, job.group, job.state])).toEqual(expect.arrayContaining([["ready:lab", "needs", "Ready for you"], ["ready:scout", "needs", "Report ready"]]));
   });
 
-  it("keeps an active project with no run as waiting, and does not treat project.now as status", () => {
+  it("leaves a project with nothing running off the column: a project is a filter, not a Waiting card", () => {
     const board = jobsFrom({ projects: [project()], now: NOW });
-    expect(board.jobs).toHaveLength(1);
-    expect(board.jobs[0]).toMatchObject({ id: "cap5", group: "waiting", state: "Waiting", project: "Client", next: "Send the deck", owner: "you" });
-    expect(board.jobs[0]!.next).not.toContain("Librarian");
+    expect(board.jobs).toEqual([]);
     expect(board.fleetKnown).toBe(false);
+    const listed = jobsFrom({ projects: [project()], now: NOW, idle: true });
+    expect(listed.jobs[0]).toMatchObject({ id: "cap5", group: "waiting", state: "Waiting", project: "Client", next: "Send the deck", owner: "you" });
+    expect(listed.jobs[0]!.next).not.toContain("Librarian");
+  });
+
+  it("keeps an ask he has not answered in three days on Needs you, still answerable", () => {
+    const board = jobsFrom({ runs: [run({ id: "old", status: "needs_decision", question: "Which price should ship?", updatedAt: "2026-10-01T10:00:00.000Z" })], now: NOW });
+    expect(board.jobs[0]).toMatchObject({ group: "needs", ask: "Which price should ship?", domainRun: "old" });
+    const call = { id: "call-old", kind: "call", headline: "Pick the About page", why: "", quiet: true };
+    const fleet = jobsFrom({ show: { ...screen, calls: [call] } as unknown as ShowScreen, now: NOW });
+    expect(fleet.jobs[0]).toMatchObject({ group: "needs" });
   });
 
   it("keeps active runs distinct beside a project decision", () => {
@@ -256,13 +265,13 @@ describe("jobsFrom", () => {
     expect(board.jobs[0]!.links).toEqual([{ label: "Pull request", url: "https://github.com/GeorgeGally/flyd/pull/12" }]);
   });
 
-  it("infers a job from a conversation name and waits, without pretending a run is open", () => {
+  it("infers a project from a conversation name without drawing a card that pretends work is open", () => {
     const board = jobsFrom({
       sessions: [{ id: "s9", title: "Kickoff", project: "Northwind", updatedAt: "2026-10-26T01:00:00.000Z" }],
       now: NOW,
     });
     expect(board.inferred).toEqual([{ name: "Northwind", kind: "product" }]);
-    expect(board.jobs[0]).toMatchObject({ group: "waiting", next: "Nothing is moving this.", owner: "you" });
+    expect(board.jobs).toEqual([]);
   });
 
   it("speaks a reading stored in the third person to him, in two sentences", () => {
@@ -397,7 +406,7 @@ describe("jobsFrom", () => {
       hash, project: "Cap5", changed: "The third tier is gone.", means: "One offer is enough.", needed: "Send it.",
       link: "https://example.com/deck", at: "2026-10-26T10:00:00.000Z", model: "claude-haiku-5-5", inputTokens: 10, outputTokens: 8, usd: 0,
     };
-    const input = { projects: [project()], reports: [{ project: "Cap5", title: "Deck", text }], digests: [digest], now: NOW };
+    const input = { projects: [project()], reports: [{ project: "Cap5", title: "Deck", text }], digests: [digest], now: NOW, idle: true };
     const once = jobsFrom(input);
     const twice = jobsFrom(input);
     expect(once.jobs[0]!.digest).toEqual({ changed: "The third tier is gone.", needed: "Send it.", link: "https://example.com/deck" });
@@ -429,7 +438,7 @@ describe("editJob", () => {
     expect(renamed.job).toMatchObject({ id: "cap5", title: "Cap Five" });
     const closed = editJob({ op: "close", id: "cap5" }, { path, now: NOW });
     expect(closed.job).toMatchObject({ id: "cap5", group: "done" });
-    expect(editJob({ op: "close", id: "missing" }, { path, now: NOW }).error).toBe("That job is not on the list.");
+    expect(editJob({ op: "close", id: "missing" }, { path, now: NOW }).error).toMatch(/^Only a project can be closed here/);
   });
 });
 
