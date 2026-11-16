@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { offCode, offRoute, planBrief, planBudget, planTurn, visibleTools, type TurnRoute } from "../turn-plan.js";
+import { parseRoom } from "../read-the-room.js";
+import { offCode, offRoute, planBrief, planBudget, planTurn, settleClarify, visibleTools, type TurnRoute } from "../turn-plan.js";
+import { readRoomStage } from "../turn-stages.js";
 import { contractError } from "../tool-contracts.js";
 
 const tools = ["read_file", "bash", "edit_file", "write_file", "web_search", "remember", "todos", "background_task", "start_coding_task", "start_knowledge_task", "speaking_style"].map((name) => ({ name }));
@@ -69,6 +71,32 @@ describe("turn plan", () => {
     expect(brief).toMatch(/If your own tools can't do it \(no account connected/);
     expect(brief).toMatch(/send email through the project's own mailer and look figures up in its data/);
     expect(brief).toMatch(/Never tell him you can't, never ask his approval for what he just asked for, and never ask him for figures the crew can look up/);
+  });
+
+  it("never puts a question of fact to George: a fact gap reroutes in the harness (GNM email)", async () => {
+    // "ok send checks to hello@goodneighboursmarket.com for the uninvoiced power etc": the totals are missing, but
+    // they are a fact the crew can look up in the project's data, not something only George knows.
+    const message = "ok send checks to hello@goodneighboursmarket.com for the uninvoiced power etc";
+    const reading = (gap: string) => JSON.stringify({ need: "do", mode: "companion", route: "clarify", gap, cover: ["the email is sent"], stance: "He wants it sent.", avoid: "", length: "short", use: [], raise: null, act: null });
+    const room = parseRoom(reading("fact"), { knowledge: [], notes: [], message });
+    expect(room).toMatchObject({ route: "clarify", gap: "fact" });
+    const stage = (gap: string) => readRoomStage({
+      message, unattended: false, sessionId: "gnm", fast: null,
+      roomInput: { message, history: [], now: new Date("2026-11-16T09:00:00Z"), core: "", knowledge: [], notes: [] },
+      readRoom: async (input) => parseRoom(reading(gap), input),
+    });
+    const previous = process.env.FLYD_ROUTING_LEARNING;
+    process.env.FLYD_ROUTING_LEARNING = "0";
+    try {
+      expect((await stage("fact")).reading?.route).toBe("delegate");
+      // Only he knows a preference: that still asks him.
+      expect((await stage("preference")).reading?.route).toBe("clarify");
+    } finally {
+      if (previous === undefined) delete process.env.FLYD_ROUTING_LEARNING; else process.env.FLYD_ROUTING_LEARNING = previous;
+    }
+    expect(settleClarify("clarify", "fact", "ask")).toBe("answer");
+    expect(settleClarify("clarify", null, "do")).toBe("clarify");
+    expect(settleClarify("act", "fact", "do")).toBe("act");
   });
 
   it("asks back on an unclear request, without researching first", () => {

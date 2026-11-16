@@ -561,20 +561,24 @@ export function acceptancePrompt(objective: Objective, finals: Array<{ run: Plan
   ].join("\n");
 }
 
-/** Whether the finished result meets done_when; a check that can't be read lets it through, said so in the report's detail. */
+/**
+ * Whether the finished result meets done_when. A reply that can't be read is asked once more; still unreadable, the
+ * result is not counted as met: it is unchecked (`checked: false`), and George hears it is finished but not double-checked.
+ */
 async function accept(objective: Objective, finals: PlannedRun[], deps: CosTickDeps): Promise<{ met: boolean; missing: string; checked: boolean }> {
   const { listJobs } = await import("../../runtime/background-jobs.js");
   const jobs = finals.some((run) => run.ref?.startsWith("job:")) ? listJobs() : [];
   const crew = await crewTasks(finals);
-  try {
-    const parsed = JSON.parse((await (deps.complete ?? defaultComplete)(acceptancePrompt(objective, finals.map((run) => ({ run, text: resultText(run.ref!, jobs, crew) })))))
-      .replace(/^```(?:json)?\s*|\s*```$/g, "")) as Record<string, unknown>;
-    if (typeof parsed.met !== "boolean") return { met: true, missing: "", checked: false };
-    return { met: parsed.met, missing: plainLine(String(parsed.missing ?? "")), checked: true };
-  } catch {
-    // The domain's own review (FirstMate's checks, the Creative Director) still stands; acceptance is the extra look.
-    return { met: true, missing: "", checked: false };
+  const prompt = acceptancePrompt(objective, finals.map((run) => ({ run, text: resultText(run.ref!, jobs, crew) })));
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const parsed = JSON.parse((await (deps.complete ?? defaultComplete)(prompt)).replace(/^```(?:json)?\s*|\s*```$/g, "")) as Record<string, unknown>;
+      if (typeof parsed.met === "boolean") return { met: parsed.met, missing: plainLine(String(parsed.missing ?? "")), checked: true };
+    } catch {
+      // Unreadable or failed: asked once more below.
+    }
   }
+  return { met: false, missing: "", checked: false };
 }
 
 /**
@@ -598,6 +602,18 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
   const taken = objective.takenAsIs === finalsKey;
   if (!taken && objective.reportIds.includes(`${id}:${shortKey}`)) return;
   const verdict = taken ? { met: true, missing: "", checked: true } : await accept(objective, finals, deps);
+  if (!verdict.checked) {
+    // The check couldn't be read twice: not a pass and not a shortfall. He hears it plainly, with the result to look at.
+    const { listJobs } = await import("../../runtime/background-jobs.js");
+    const jobs = finals.some((run) => run.ref?.startsWith("job:")) ? listJobs() : [];
+    const crew = await crewTasks(finals);
+    const made: CosReport = {
+      ...plainReport(objective, "done", `${workOf(objective)} is finished, but I couldn't double-check it against what you asked for, so give it a look.`, ""), id: reportId,
+      detail: finals.map((run) => resultText(run.ref!, jobs, crew)).filter(Boolean).join("\n\n"), evidenceRefs: finals.map((run) => linkOf(run.ref!)),
+    };
+    await report(objective, made, deps, store, async () => (deps.say ?? defaultSay)(made), "done");
+    return;
+  }
   if (!verdict.met) {
     const missing = verdict.missing || "it does not yet meet what done means";
     const retry = finals.find((run) => run.ref && !run.ref.startsWith("job:") && !run.ref.startsWith("crew:"));
@@ -626,7 +642,6 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
     }));
     return;
   }
-  const unchecked = verdict.checked ? "" : "Not checked against done_when (the check couldn't be read).";
   const final = finals.length === 1 && finals[0]!.ref && !finals[0]!.ref.includes(":") ? readDomainRun(finals[0]!.ref) : null;
   if (final) {
     // Told already (before a restart could record it): recorded as told, never said again.
@@ -637,14 +652,14 @@ async function finish(id: string, deps: CosTickDeps, store: IntelligenceEventSto
     }
     const decision = decisions.get(final.id) ?? await (deps.decide ?? defaultDecide)(final);
     const made = runReport(objective, final, decision, reportId);
-    return report(objective, { ...made, detail: [made.detail, unchecked].filter(Boolean).join("\n") }, deps, store, async () => (deps.tell ?? defaultTell)(final, decision, `cos:${reportId}`), "done");
+    return report(objective, made, deps, store, async () => (deps.tell ?? defaultTell)(final, decision, `cos:${reportId}`), "done");
   }
   const { listJobs } = await import("../../runtime/background-jobs.js");
   const jobs = finals.some((run) => run.ref?.startsWith("job:")) ? listJobs() : [];
   const crew = await crewTasks(finals);
   const made: CosReport = {
     ...plainReport(objective, "done", `${workOf(objective)} is done.`, ""), id: reportId,
-    detail: [...finals.map((run) => resultText(run.ref!, jobs, crew)), unchecked].filter(Boolean).join("\n\n"), evidenceRefs: finals.map((run) => linkOf(run.ref!)),
+    detail: finals.map((run) => resultText(run.ref!, jobs, crew)).filter(Boolean).join("\n\n"), evidenceRefs: finals.map((run) => linkOf(run.ref!)),
   };
   // The crew already told him its work is ready: recorded, never said twice.
   const toldItself = finals.every((run) => run.ref?.startsWith("crew:"));

@@ -26,6 +26,20 @@ export type TurnRoute = "answer" | "clarify" | "act" | "delegate";
 
 export const TURN_ROUTES: TurnRoute[] = ["answer", "clarify", "act", "delegate"];
 
+/** What a clarify reading is missing: a fact (a lookup, or something the crew can get) or a preference (only George knows). */
+export type ClarifyGap = "fact" | "preference";
+export const CLARIFY_GAPS: ClarifyGap[] = ["fact", "preference"];
+
+/**
+ * Questions of fact are never George's. A clarify reading whose gap is a fact is rerouted here, in the harness: a
+ * request to do something is handed off to whoever can get the fact and do the work; anything else is answered by
+ * looking it up (or passing the question on). Only a preference gap, or an untagged one, still asks him.
+ */
+export function settleClarify(route: TurnRoute, gap: ClarifyGap | null | undefined, need?: string): TurnRoute {
+  if (route !== "clarify" || gap !== "fact") return route;
+  return need === "do" ? "delegate" : "answer";
+}
+
 export interface TurnBudget { iterations: number; toolCalls: number }
 
 /** Private notes weighed per turn; the rest wait for a turn they fit. */

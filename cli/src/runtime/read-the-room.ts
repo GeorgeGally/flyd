@@ -1,6 +1,6 @@
 import { parsePreparationReading, preparationReadingInstructions, type PreparationReading, type RemitSummary } from "./preparation-reading.js";
 import { localDay } from "../council/memory-store.js";
-import { TURN_ROUTES, type TurnRoute } from "./turn-plan.js";
+import { CLARIFY_GAPS, TURN_ROUTES, type ClarifyGap, type TurnRoute } from "./turn-plan.js";
 import { decisionBrief, decisionPolicyBlock, decisionPolicyVersion } from "../lib/decision-policy.js";
 
 // Before Flyd answers, it reads the room: what George needs from this
@@ -11,7 +11,7 @@ import { decisionBrief, decisionPolicyBlock, decisionPolicyVersion } from "../li
 // here as private notes; Flyd decides whether any belongs in this moment.
 
 export type RoomNeed = "vent" | "think" | "decide" | "do" | "ask" | "chat";
-export const ROOM_RUBRIC_VERSION = "room-read.v4";
+export const ROOM_RUBRIC_VERSION = "room-read.v5";
 
 export interface RoomRead {
   preparation?: PreparationReading | null;
@@ -26,6 +26,8 @@ export interface RoomRead {
   act: string | null;
   /** What kind of turn this is; the harness enforces it (turn-plan.ts). */
   route: TurnRoute;
+  /** On a clarify reading, what's missing: a fact (looked up, or got by the crew) or his preference. */
+  gap?: ClarifyGap | null;
   /** The points the reply must address, whatever its length. */
   cover: string[];
 }
@@ -90,10 +92,11 @@ export function roomPrompt(input: RoomInput): string {
     "- route: what this turn is. answer = he wants to know, hear, or think something through; answer from what you know or can look up, and change nothing. clarify = what he wants is genuinely unclear and a wrong guess would waste real effort; ask one question. act = he asked for something done now, outside any codebase (a reminder, a note, a setting, a schedule), or anything that needs his yes before it runs (installing, running a command, sending): only a live turn can ask him. delegate = any change at all to code in one of his repos (a feature, a fix, a typo), or other real work that takes minutes or more and needs no approval along the way (a long document, research across sources, generating and judging things); it gets handed off with checkable done_when points. Anything you can write well in the reply itself (an email, a message, a short plan) is answer. " + (decisionPolicyVersion()
       ? "Missing optional details alone do not make a clear request ambiguous: use a reasonable assumption for established authorized work. A mood or speculative idea is not an instruction to act. Keep intent and action permission separate; tool policy owns approval."
       : "When in doubt between answer and act, answer and offer."),
+    "- gap: for clarify only, what is missing. fact = something that can be looked up or the crew can get (a figure, a total, an address, what an email, file or account says). preference = only George knows (which option he wants, his taste, his priorities, who it's for). null on any other route.",
     "- cover: the 1-3 things the reply must address for him to have what he asked for (e.g. for \"anything I should know before tomorrow?\": tomorrow's calendar and reminders; the open loose end that matters). Short replies still cover these.",
     "- act: for act or delegate only, the concrete piece of work to start (e.g. generate two new DIR sets with better prompts and judge them; draft the follow-up email). Only local, reversible work. null for answer and clarify.",
     "",
-    'Reply with JSON only: {"need":"...","mode":"...","route":"...","cover":["..."],"stance":"...","avoid":"...","length":"...","use":["k1"],"raise":null,"act":null,"preparation":null}',
+    'Reply with JSON only: {"need":"...","mode":"...","route":"...","cover":["..."],"stance":"...","avoid":"...","length":"...","use":["k1"],"raise":null,"act":null,"gap":null,"preparation":null}',
   ].join("\n");
 }
 
@@ -121,6 +124,7 @@ export function parseRoom(text: string, input: Pick<RoomInput, "knowledge" | "no
       act: typeof raw.act === "string" && raw.act.trim() ? clip(raw.act.trim(), 300) : null,
       // A malformed action reading cannot establish authority to mutate.
       route: TURN_ROUTES.includes(raw.route as TurnRoute) ? raw.route as TurnRoute : raw.need === "do" ? "clarify" : "answer",
+      gap: CLARIFY_GAPS.includes(raw.gap as ClarifyGap) ? raw.gap as ClarifyGap : null,
       cover: Array.isArray(raw.cover) ? raw.cover.map((item) => clip(String(item ?? "").trim(), 160)).filter(Boolean).slice(0, 3) : [],
     };
   } catch {
