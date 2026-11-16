@@ -1695,6 +1695,25 @@ describe("header and artefact view", () => {
     expect(copy.defaultPrevented).toBe(false);
   });
 
+  it("keeps an attachment in the box when the reply he is writing goes as words only", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const choice = { question: "Want me to add all three?", options: ["Yes", "No"], replyTo: "reply:a#2", session: "asked-session" };
+    stream.emit("update", { order: ["reply:a#2"], messages: [{ id: "reply:a#2", role: "assistant", html: "<p>Motion.</p>", aside: true, choice }], working: false });
+    await settle();
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+    const paste = new Event("paste", { cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", getAsFile: () => new File([png], "shot.png", { type: "image/png" }) }] } });
+    document.getElementById("input")!.dispatchEvent(paste);
+    for (let i = 0; i < 20 && !document.querySelector(".attachment img"); i += 1) await settle();
+    document.querySelector<HTMLButtonElement>(".own-words")!.click();
+    await type("Only the first");
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/send")!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({ session: "asked-session", text: "Only the first", replyTo: "reply:a#2" });
+    expect(document.querySelectorAll(".attachment img")).toHaveLength(1);
+  });
+
   it("puts a question a reply asks him in a card under it, answered by one tap or his own words", async () => {
     load("");
     await settle();

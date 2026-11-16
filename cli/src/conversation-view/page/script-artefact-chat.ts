@@ -461,7 +461,7 @@ export const ARTEFACT_CHAT_SCRIPT = `
         images = takesImages ? (pictures || []).slice(0, 4) : [];
         paintImages();
         deliver(text);
-      }, prefill);
+      }, prefill, true);
     }
     var reply = el("button", "art-chat-reply", "Reply");
     reply.type = "button";

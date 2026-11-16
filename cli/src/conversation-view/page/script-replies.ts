@@ -173,11 +173,12 @@ export const REPLIES_SCRIPT = `
       if (open) input.focus(); else opener.focus();
     }
     function say(text) { state.note = text; note.textContent = text; note.hidden = !text; }
+    var carried = [];
     // Reply puts this answer's chip over the message box; what he sends there is sent from here.
     opener.addEventListener("click", function () {
       say("");
       var said = (box.parentElement && box.parentElement.textContent || "").replace(/\s+/g, " ").trim();
-      replyTo(said.length > 60 ? said.slice(0, 59) + "…" : said || "this answer", function (text) { input.value = text; form.requestSubmit(); });
+      replyTo(said.length > 60 ? said.slice(0, 59) + "…" : said || "this answer", function (text, pictures, kept) { input.value = text; carried = kept || []; form.requestSubmit(); }, undefined, true);
     });
     close.addEventListener("click", function () { say(""); show(false); });
     input.addEventListener("input", function () { state.draft = input.value; });
@@ -191,9 +192,9 @@ export const REPLIES_SCRIPT = `
       if (!text || !from || state.sending) return;
       state.sending = true;
       say("Sending…");
-      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: from, text: text, replyTo: id }) }, true)
+      authed("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: from, text: text, replyTo: id, images: carried.filter(function (a) { return !a.name; }).map(function (image) { return { mediaType: image.mediaType, data: image.data }; }), files: carried.filter(function (a) { return a.name; }).map(function (file) { return { name: file.name, data: file.data }; }) }) }, true)
         .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || "not sent"); return data; }); })
-        .then(function () { input.value = ""; state.draft = ""; say(""); show(false); })
+        .then(function () { input.value = ""; state.draft = ""; carried = []; say(""); show(false); })
         .catch(function (error) { say("Not sent: " + (error.message || "try again")); })
         .then(function () { state.sending = false; });
     });

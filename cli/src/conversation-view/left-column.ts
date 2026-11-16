@@ -121,7 +121,7 @@ export const LEFT_SCRIPT = `
       renderAttachments();
       input.value = "About “" + info.title + "”:\\n\\n" + text;
       composer.requestSubmit();
-    });
+    }, undefined, true);
     leftAbout = info.key;
     drawActivity();
   }

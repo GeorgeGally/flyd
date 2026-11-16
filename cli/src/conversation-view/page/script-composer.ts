@@ -651,8 +651,8 @@ export const COMPOSER_SCRIPT = `
   // own reply always went. ✕ goes back to plain talk with Flyd.
   var replying = null;
   var replyingEl = document.getElementById("replying");
-  function replyTo(title, send, prefill) {
-    replying = title && send ? { title: title, send: send } : null;
+  function replyTo(title, send, prefill, takesAttachments) {
+    replying = title && send ? { title: title, send: send, takes: !!takesAttachments } : null;
     replyingEl.hidden = !replying;
     document.getElementById("replying-title").textContent = replying ? title : "";
     if (!replying) return;
@@ -696,10 +696,14 @@ export const COMPOSER_SCRIPT = `
       var to = replying;
       replyTo(null);
       input.value = "";
-      attachments = [];
-      renderAttachments();
+      if (to.takes) {
+        attachments = [];
+        renderAttachments();
+      } else if (sending.length) {
+        noteRefusal("This reply goes as words only; your attachments are still in the box");
+      }
       saveDraftNow();
-      to.send(text, sending.filter(function (a) { return !a.name; }), sending);
+      to.send(text, to.takes ? sending.filter(function (a) { return !a.name; }) : [], to.takes ? sending : []);
       return;
     }
     if (!current) { if (spoken) endVoiceWait(); return; }
