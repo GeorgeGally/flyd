@@ -613,3 +613,34 @@ describe("lab camera", () => {
     }
   }, 90_000);
 });
+
+describe("George's spacing check in the Creative Director's round", () => {
+  afterEach(() => { delete process.env.FLYD_TASTE_FILE; });
+
+  it("fails a round the check trips, whatever the score, and rebuilds with the trip leading the critique", async () => {
+    const { writeTaste, ruleId } = await import("../../council/taste.js");
+    process.env.FLYD_TASTE_FILE = join(home, "TASTE.md");
+    const text = "Ensure adequate padding above elements so layouts breathe";
+    writeTaste({ rules: [{ id: ruleId(text), text, scope: "personal", count: 3, projects: [], skill: "spacing", evidence: [{ quote: "massive gap", source: "Claude Code", date: "2026-11-12" }] }], vetoed: [], names: {} }, process.env.FLYD_TASTE_FILE);
+    const calls: string[] = [];
+    const measured: string[] = [];
+    const deps: DesignMateDeps = {
+      ...staff([10], calls),
+      measure: async (page, viewport) => {
+        measured.push(`${page.split("/").at(-1)}@${viewport.width}`);
+        const first = measured.filter((item) => item.startsWith("v1.html@1440")).length === 1;
+        return {
+          viewport, pageHeight: 2000, content: { top: 100, bottom: 1900 }, text: [],
+          headingActions: page.endsWith("v1.html") && viewport.width === 1440 && first ? [{ heading: "Hi", fontSize: 40, gap: 300 }] : [],
+        };
+      },
+    };
+    const done = await driveDesignRun(start(), deps);
+    expect(done.status).toBe("completed");
+    expect(measured).toContain("v1.html@390");
+    expect(calls.filter((call) => call === "rebuild")).toHaveLength(1);
+    const lab = readLab(done.id, labs)!;
+    expect(lab.log.some((line) => /V1: the spacing check tripped/.test(line))).toBe(true);
+    expect(lab.versions.find((version) => version.n === 1)!.score).toBe(10);
+  });
+});

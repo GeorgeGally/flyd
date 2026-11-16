@@ -10,7 +10,7 @@ import {
   qualifiedModelProvider,
 } from "../runtime/flyd-worker-config.js";
 import { allowedForText, refuseForText } from "../runtime/provider-policy.js";
-import { CLAUDE_CHAT_MODEL_ID, CLAUDE_QUICK_MODEL_ID, modelRoutes } from "../runtime/model-routing.js";
+import { CLAUDE_CHAT_MODEL_ID, CLAUDE_QUICK_MODEL_ID, modelFamily, modelRoutes } from "../runtime/model-routing.js";
 export { apiModelId, opencodeProviderFor } from "../runtime/flyd-worker-config.js";
 import { claudeApiKey, claudeAvailable } from "./claude-spend.js";
 import { resolveFlydDir } from "./flyd-dir.js";
@@ -160,11 +160,15 @@ export function getKey(key: keyof FlydConfig): string | undefined {
  * Claude entries drop out while Claude is off or at its monthly cap, CommandCode ones
  * without its key. An empty list is an error rather than a quiet hop elsewhere.
  */
-function apiModelChain(job: "chat" | "quick" | "background"): string[] {
-  const chain = modelRoutes(job)
+function availableChain(job: "chat" | "quick" | "background" | "checker"): string[] {
+  return [...new Set(modelRoutes(job)
     .filter((route) => route.provider === "anthropic" ? claudeAvailable() : route.provider === "commandcode" ? Boolean(commandCodeKey()) : true)
     .map((route) => `${route.provider}:${route.model}`)
-    .filter(allowedForText);
+    .filter(allowedForText))];
+}
+
+function apiModelChain(job: "chat" | "quick" | "background"): string[] {
+  const chain = availableChain(job);
   if (chain.length === 0) {
     throw new Error(`No model can do Flyd's ${job} jobs: the model config lists none that is available (is Claude off or at its monthly cap?)`);
   }
@@ -213,6 +217,19 @@ export function chatModelChain(): string[] {
 /** Quick jobs: room reading, rewrites, the view's routing, retold answers, status lines. */
 export function quickModelChain(): string[] {
   return apiModelChain("quick");
+}
+
+/**
+ * The models that check work another model built: a checker of the builder's own family shares its blind spots.
+ * The `checker` job's models when ~/.flyd/models.json lists them, otherwise every model the text jobs list;
+ * of those, the ones from another family than any builder's, in order. Only when no other family is configured
+ * does the check fall back to `fallback`, the chain it ran on before.
+ */
+export function checkerModelChain(builtBy: Array<string | undefined>, fallback: () => string[]): string[] {
+  const builders = new Set(builtBy.filter((model): model is string => Boolean(model?.trim())).map(modelFamily));
+  const listed = modelRoutes("checker").length ? availableChain("checker") : [...new Set((["chat", "quick", "background"] as const).flatMap(availableChain))];
+  const other = listed.filter((model) => !builders.has(modelFamily(model)));
+  return other.length ? other : fallback();
 }
 
 /** One-shot queries (the news edition, the council, taste, self-improvement). */

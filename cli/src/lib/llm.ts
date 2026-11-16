@@ -269,7 +269,7 @@ export async function query(
 export async function quickQuery(prompt: string, options: QueryOptions & { model?: string; system?: string } = {}): Promise<string> {
   const { model, system, ...rest } = options;
   if (model) return query(prompt, model, system, undefined, undefined, rest);
-  return query(prompt, undefined, system, undefined, undefined, { source: "quick", ...rest, chain: quickModelChain() });
+  return query(prompt, undefined, system, undefined, undefined, { source: "quick", ...rest, chain: rest.chain ?? quickModelChain() });
 }
 
 export async function streamQuery(

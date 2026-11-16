@@ -500,7 +500,8 @@ export interface SuperviseDependencies {
   runCommand?: (command: string, cwd: string) => Promise<{ ok: boolean; output: string }>;
   kill?: (pid: number) => void;
   /** The independent reviewer's raw reply, or null to skip review. Defaults to a model call outside tests. */
-  review?: (prompt: string) => Promise<string | null>;
+  /** The independent review; `builtBy` is the crewmate's model, so the reviewer can be another family. */
+  review?: (prompt: string, builtBy: string) => Promise<string | null>;
   /** Restart the crewmate in its worktree for a repair round. */
   launch?: (task: CrewTask, brief: string) => number | undefined;
 }
@@ -603,9 +604,11 @@ const REVIEW_TIMEOUT_MS = Number(process.env.FLYD_CREW_REVIEW_TIMEOUT_MS) || 5 *
 /** Generated and vendored files say nothing about whether the outcome was delivered. */
 const REVIEW_EXCLUDES = [":(exclude)**/package-lock.json", ":(exclude)**/yarn.lock", ":(exclude)**/pnpm-lock.yaml", ":(exclude)**/dist/**", ":(exclude)**/*.min.js"];
 
-async function defaultReview(prompt: string): Promise<string | null> {
+async function defaultReview(prompt: string, builtBy: string): Promise<string | null> {
   if (process.env.VITEST || process.env.FLYD_CREW_REVIEW === "0") return null;
-  const { query } = await import("../lib/llm.js");
+  const [{ query }, { checkerModelChain, oneShotModelChain }] = await Promise.all([import("../lib/llm.js"), import("../lib/config.js")]);
+  // Another model family than the crewmate's when one is configured: its own family shares its blind spots.
+  const chain = checkerModelChain([builtBy], oneShotModelChain);
   // A hung reviewer must not stall every supervise tick behind it.
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -613,7 +616,7 @@ async function defaultReview(prompt: string): Promise<string | null> {
     timer.unref();
   });
   try {
-    return await Promise.race([query(prompt), timeout]);
+    return await Promise.race([query(prompt, undefined, undefined, undefined, undefined, { chain }), timeout]);
   } finally {
     clearTimeout(timer);
   }
@@ -931,7 +934,7 @@ async function verifyFinishedTask(task: CrewTask, observed: CrewTask, deps: Supe
   if (verified) {
     const criteria = acceptanceCriteria(task);
     try {
-      const reply = await (deps.review ?? defaultReview)(reviewPrompt({ ...task, summary }, await reviewDiff(task)));
+      const reply = await (deps.review ?? defaultReview)(reviewPrompt({ ...task, summary }, await reviewDiff(task)), task.model ?? crewModel());
       if (reply !== null) review = parseVerdicts(criteria, reply);
     } catch (error) {
       console.warn("[crew] independent review failed:", error instanceof Error ? error.message : error);
@@ -988,7 +991,7 @@ async function superviseSettled(changed: CrewTask[], deps: SuperviseDependencies
   if (unjudged) {
     const retries = (unjudged.reviewRetries ?? 0) + 1;
     try {
-      const reply = await (deps.review ?? defaultReview)(reviewPrompt(unjudged, await reviewDiff(unjudged)));
+      const reply = await (deps.review ?? defaultReview)(reviewPrompt(unjudged, await reviewDiff(unjudged)), unjudged.model ?? crewModel());
       if (reply !== null && readTask(unjudged.id, dir)?.status === "ready") {
         const judged: CrewTask = { ...unjudged, review: parseVerdicts(acceptanceCriteria(unjudged), reply), reviewRetries: retries, notified: false };
         // The late verdict carries the same weight as a prompt one.

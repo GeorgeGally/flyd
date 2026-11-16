@@ -24,7 +24,8 @@ dropping a provider is a one-line edit, picked up on the next call:
     "worker":     [{ "provider": "anthropic", "model": "claude-sonnet-5-5" }],
     "crew":       [{ "provider": "claude", "model": "default" }],
     "design":     [{ "provider": "claude", "model": "opus" }],
-    "images":     [{ "provider": "codex", "model": "default" }]
+    "images":     [{ "provider": "codex", "model": "default" }],
+    "checker":    []
   }
 }
 ```
@@ -58,6 +59,7 @@ models bill the separate `OPENAI_API_KEY` and are not that allowance.
 | `crew`: `flyd crew`, `start_coding_task` | Claude Code (`claude -p`) on George's subscription, its own default model | `claude/<model>` or `cursor/<model>`; later entries are backups a refused crewmate moves to in the same worktree. None by default: a limited Claude waits |
 | `design`: the Creative Director, Flyd's review of a lab, the Designers | Claude Opus through the `claude` CLI on George's subscription, never the metered `CLAUDE_API_KEY` | The first `claude` entry is used; `FLYD_CLAUDE_BIN` names the CLI. A plan limit or missing login stops the lab and George is told why |
 | `images` | Codex (the ChatGPT/Codex allowance) | The only job allowed on `imagesOnly` providers |
+| `checker`: the Chief of Staff's acceptance check, the crew's independent diff review, a background job's checker turn | Empty: another model family than the one that built the work, picked from the text jobs' models (`chat`, `quick`, `background`) | A checker of the builder's own family shares its blind spots (`checkerModelChain` in `cli/src/lib/config.ts`, families from `modelFamily` in `model-routing.ts`). Listing entries here limits the choice to them. Only when no other family is configured does each check run on the models it used before (quick, background, chat), so the default all-Claude setup is unchanged. George approved this routing on 2026-11-16 |
 
 Claude entries run while `CLAUDE_API_KEY` is set, `FLYD_CLAUDE` isn't `0` and
 the month is under its cap; CommandCode entries need `COMMANDCODE_API_KEY`. A

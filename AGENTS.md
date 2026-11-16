@@ -137,7 +137,7 @@ flyd learning [--approve|--reject <n>]  # dictation corrections → docs/product
 flyd view [--session id] [--project dir]  # conversation view on 127.0.0.1:4818 → docs/product/flyd-conversation-view.md
 flyd taste [show|for <project|path>|learn [--days N]|curate|skills|edit]  # learned design/code taste → docs/product/flyd-taste.md
 flyd transitions                     # recent transitions/judgments/directives; --export <sourceId>, --forget <sourceId>
-~/.flyd/models.json                  # one model config: each job (chat, quick, background, worker, crew, design, images) → ordered {provider, model}, plus banned providers; .env holds keys only (`cli/src/runtime/model-routing.ts`); every model setting: docs/product/flyd-models.md
+~/.flyd/models.json                  # one model config: each job (chat, quick, background, worker, crew, design, images, checker) → ordered {provider, model}, plus banned providers; .env holds keys only (`cli/src/runtime/model-routing.ts`); every model setting: docs/product/flyd-models.md
 FLYD_TRANSITIONS_DISABLED=1          # kill switch for all transition capture
 FLYD_JEV_MODEL=jev-1.13.0            # pin an exact Jev release (default jev-latest); thresholds were tuned against the pinned one
 FLYD_JEV_EVAL=1 TYPESAFE_API_KEY=… FLYD_JEV_EVAL_RECORD=/tmp/r.jsonl npm run evals   # live System-1 replay (synthetic fixtures only); freeze as src/evals/fixtures/system-one/recordings.jsonl
