@@ -217,6 +217,12 @@ describe("jobsFrom", () => {
     expect(listed.jobs[0]!.next).not.toContain("Librarian");
   });
 
+  it("tells a call that only tells him something as done, never as Needs you", () => {
+    const call = { id: "call-note", kind: "call", headline: "Image replies", why: "", detail: "Replying to image cards from the thumbnail isn't supported yet.", questionIdentity: "call:image-replies" };
+    const board = jobsFrom({ show: { ...screen, calls: [call] } as unknown as ShowScreen, cardWords: new Map(), now: NOW });
+    expect(board.jobs[0]).toMatchObject({ group: "done", state: "Done", owner: "", ask: "" });
+  });
+
   it("keeps an ask he has not answered in three days on Needs you, still answerable", () => {
     const board = jobsFrom({ runs: [run({ id: "old", status: "needs_decision", question: "Which price should ship?", updatedAt: "2026-10-01T10:00:00.000Z" })], now: NOW });
     expect(board.jobs[0]).toMatchObject({ group: "needs", ask: "Which price should ship?", domainRun: "old" });

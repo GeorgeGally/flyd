@@ -140,6 +140,8 @@ const QUIET_RUN_MS = DAY;
 const REPORT_CHARS = 240;
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
+/** A reading that says his answer is not wanted: "Nothing is waiting on you", "Nothing to decide here". */
+const NOTHING_WANTED = /\bnothing (?:to decide|(?:is )?(?:waiting|needed|wanted) (?:on|from) you|needs you)\b/i;
 const STATE: Record<JobGroup, string> = { needs: "Needs you", working: "Working", waiting: "Waiting", done: "Done" };
 /** Finished work waiting on his look, in his words: never "ready to land". */
 const READY = "Ready for you";
@@ -543,10 +545,15 @@ export function jobsFrom(input: {
     // Only a call is put to him by its own words: a run waiting on him says so by its record, whatever its line says.
     const wantsAnswer = lead.group === "needs" && Boolean(identity) && !/^(?:ready for you|report ready)$/i.test(state);
     const raw = input.cardWords && lead.raw ? cardSource(bucket.name ?? "", state, lead.raw.title, lead.raw.line, shownAnswers ? answers!.options.map((option) => shownAnswers[option]!) : undefined, { ...(identity ? { identity } : {}), wantsAnswer }) : undefined;
-    const fallback = fallbackWords(bucket.name ?? "", lead.group, state, raw?.asks !== false);
+    // A call that only tells him something is a notice, not a need: it is told as done, never filed under Needs you or Todo.
+    // So is one whose stored reading says nothing is wanted from him.
+    const reading = raw ? input.cardWords!.get(raw.key) : undefined;
+    const notice = lead.group === "needs" && !asks && (raw?.asks === false || Boolean(reading && NOTHING_WANTED.test(reading.body)));
+    const group: JobGroup = notice ? "done" : lead.group;
+    const fallback = fallbackWords(bucket.name ?? "", group, state, raw?.asks !== false);
     const named = raw ? input.cardWords!.get(raw.key) ?? fallback : undefined;
     // A question with its own answers keeps its words while they are plain; asked in developer words, it is said plainly and its answers stay. Only a question the run put to him is ever shown as asked: a staff status line never is.
-    const unread = Boolean(raw && lead.group === "needs" && lead.raw?.asked && jargonIn(lead.ask) && !input.cardWords!.has(raw.key) && input.exhausted?.has(raw.key));
+    const unread = Boolean(raw && group === "needs" && lead.raw?.asked && jargonIn(lead.ask) && !input.cardWords!.has(raw.key) && input.exhausted?.has(raw.key));
     const words = lead.raw?.keep || unread || (asks && !jargonIn(lead.ask)) ? undefined : named;
     // Its answers wait for a stored reading that puts the question to him: never buttons without the question they answer.
     const blind = Boolean(words && asks && !input.cardWords!.has(raw!.key));
@@ -555,16 +562,16 @@ export function jobsFrom(input: {
     if (raw && words && !lead.raw!.thread) bucket.threads.push({ id: `note:${raw.key}`, title: words.title, ...(input.cardWords!.has(raw.key) ? { full: words.body } : {}), at: lead.at || at, kind: "run" });
     jobs.push(shownPlainly({
       id: bucket.id,
-      group: lead.group,
-      state: shownState,
+      group,
+      state: notice ? STATE.done : shownState,
       title: named ? named.title : bucket.title,
       project: bucket.project,
       at,
       ...(lead.started ? { started: lead.started } : {}),
       // The question is said once: a next line that only repeats it is left out.
-      next: words ? (lead.group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, lead.group),
-      owner: lead.owner,
-      ask: words ? (lead.group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
+      next: words ? (group === "needs" ? "" : words.body) : sameWords(lead.next, lead.ask) ? "" : shownLine(lead.next, group),
+      owner: notice ? "" : lead.owner,
+      ask: notice ? "" : words ? (group === "needs" ? words.body : "") : lead.ask && forHim(plainSaid(lead.ask)),
       ...(lead.questionIdentity ? { questionIdentity: lead.questionIdentity } : {}),
       because: lead.because,
       shots: shots.slice(0, 4),
