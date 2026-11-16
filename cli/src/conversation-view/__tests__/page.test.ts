@@ -2913,6 +2913,21 @@ describe("the front page", () => {
     expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
   });
 
+  it("keeps a link to a job the board has not carried yet, and opens it when a later update brings it", async () => {
+    load("");
+    await settle();
+    const stream = open("latest", []);
+    const job = (over: Record<string, unknown>) => ({ project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString(), ...over });
+    const base = { order: [], messages: [], working: false, show: SHOW, jobsFleetKnown: true };
+    stream.emit("update", { ...base, jobs: [job({ id: "cx", group: "moving", state: "Working", title: "CleanX" })] });
+    await settle();
+    (window as unknown as { flydOpen(id: string): boolean }).flydOpen("late");
+    expect(document.documentElement.getAttribute("data-job")).not.toBe("late");
+    stream.emit("update", { ...base, jobs: [job({ id: "cx", group: "moving", state: "Working", title: "CleanX" }), job({ id: "late", group: "needs", state: "Needs you", title: "Late ask" })] });
+    await settle();
+    expect(document.documentElement.getAttribute("data-job")).toBe("late");
+  });
+
   it("starts in the conversation, the one home with no Today feed beside it", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, live: { known: true, counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] } });

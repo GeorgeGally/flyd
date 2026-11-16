@@ -109,6 +109,7 @@ export const TIMELINE_SCRIPT = `
   // "needs" means whatever needs him first. Before the board has come, the link waits for it.
   var workLinked = null;
   try { workLinked = new URLSearchParams(location.search).get("job"); } catch (_) {}
+  var workLinkedAt = Date.now();
   function workOpenLinked() {
     if (!workLinked || !frontUpdate || !Array.isArray(frontUpdate.jobs)) return;
     var id = workLinked;
@@ -116,14 +117,18 @@ export const TIMELINE_SCRIPT = `
       var first = frontUpdate.jobs.find(function (job) { return job.group === "needs"; });
       id = first ? first.id : "talk";
     }
+    if (id !== "talk" && !frontJobs.has(id)) {
+      if (Date.now() - workLinkedAt > 30000) workLinked = null;
+      return;
+    }
     workLinked = null;
     if (typeof setCentre === "function") setCentre("talk", true);
-    if (id !== "talk" && !frontJobs.has(id)) return;
     if (frontActive === id) { var node = workNodes.get(id); if (node) node.scrollIntoView({ block: "start" }); return; }
     frontSelect(id);
   }
   window.flydOpen = function (id) {
     workLinked = String(id || "needs");
+    workLinkedAt = Date.now();
     workOpenLinked();
     return true;
   };
