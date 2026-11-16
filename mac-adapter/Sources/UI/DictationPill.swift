@@ -56,6 +56,8 @@ final class DictationPill: NSObject {
     private(set) var currentPhase: Phase?
     /// Clicking a conversation status opens the Conversation window.
     var onStatusClick: (() -> Void)?
+    /// A notification on the island opens what it is about.
+    var onNotificationClick: (() -> Void)?
 
     /// Dictation or a voice question is using the island; conversation status waits.
     var isBusyWithVoice: Bool {
@@ -491,7 +493,7 @@ final class DictationPill: NSObject {
         if phase == .inserted || Self.isSent(phase) {
             check?.draw(animated: !FlydPalette.reduceMotion)
         }
-        if case .status = phase {
+        if Self.isClickable(phase) {
             setClickArea([target])
         } else {
             setClickArea([])
@@ -888,9 +890,24 @@ final class DictationPill: NSObject {
     }
 
     @objc private func islandClicked() {
-        guard case .status = currentPhase else { return }
-        hide()
-        onStatusClick?()
+        switch currentPhase {
+        case .status:
+            hide()
+            onStatusClick?()
+        case .notification:
+            hide()
+            onNotificationClick?()
+        default:
+            return
+        }
+    }
+
+    /// A status or a notification takes a click on the island; nothing else does.
+    static func isClickable(_ phase: Phase?) -> Bool {
+        switch phase {
+        case .status, .notification: return true
+        default: return false
+        }
     }
 
     /// Lets a status take clicks on the island only; everywhere else on the canvas the

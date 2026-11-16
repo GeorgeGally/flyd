@@ -105,10 +105,32 @@ export const TIMELINE_SCRIPT = `
     var opener = event.target.closest("[data-open-job]");
     if (opener) frontSelect(frontActive === opener.dataset.openJob ? "talk" : opener.dataset.openJob);
   });
+  // A link from outside (the island, a notification, ?job=) opens one item in place in the timeline.
+  // "needs" means whatever needs him first. Before the board has come, the link waits for it.
+  var workLinked = null;
+  try { workLinked = new URLSearchParams(location.search).get("job"); } catch (_) {}
+  function workOpenLinked() {
+    if (!workLinked || !frontUpdate || !Array.isArray(frontUpdate.jobs)) return;
+    var id = workLinked;
+    if (id === "needs") {
+      var first = frontUpdate.jobs.find(function (job) { return job.group === "needs"; });
+      id = first ? first.id : "talk";
+    }
+    workLinked = null;
+    if (typeof setCentre === "function") setCentre("talk", true);
+    if (id !== "talk" && !frontJobs.has(id)) return;
+    if (frontActive === id) { var node = workNodes.get(id); if (node) node.scrollIntoView({ block: "start" }); return; }
+    frontSelect(id);
+  }
+  window.flydOpen = function (id) {
+    workLinked = String(id || "needs");
+    workOpenLinked();
+    return true;
+  };
   // The front page's redraw carries the timeline along.
   var renderFrontTimeline = renderFront;
   renderFront = function (update) {
     renderFrontTimeline(update);
-    if (frontUpdate) drawTimeline();
+    if (frontUpdate) { drawTimeline(); workOpenLinked(); }
   };
 `;

@@ -2897,6 +2897,22 @@ describe("the front page", () => {
     expect(document.querySelector(".job-view")!.closest(".msg.work")).toBe(work[2]);
   });
 
+  it("opens the item a link names in place, and what needs him first for a call, once the board has come", async () => {
+    load("?job=moving");
+    await settle();
+    const stream = open("latest", []);
+    const job = (over: Record<string, unknown>) => ({ project: "", next: "", owner: "", ask: "", because: "", shots: [], links: [], files: [], threads: [], digest: null, at: new Date().toISOString(), ...over });
+    const jobs = [job({ id: "ask", group: "needs", state: "Needs you", title: "Which hero ships" }), job({ id: "moving", group: "moving", state: "Working", title: "CleanX" })];
+    stream.emit("update", { order: [], messages: [], working: false, show: SHOW, jobsFleetKnown: true, jobs });
+    await settle();
+    expect(document.documentElement.getAttribute("data-job")).toBe("moving");
+    expect(document.querySelector(".job-view")!.closest(".msg.work")!.getAttribute("data-job")).toBe("moving");
+    // The island or a notification asks for what needs him.
+    (window as unknown as { flydOpen(id: string): boolean }).flydOpen("needs");
+    expect(document.documentElement.getAttribute("data-job")).toBe("ask");
+    expect(document.documentElement.getAttribute("data-centre")).toBe("talk");
+  });
+
   it("starts in the conversation, the one home with no Today feed beside it", async () => {
     const stream = await opened();
     stream.emit("update", { order: ["u1"], messages: [], working: false, show: SHOW, live: { known: true, counts: { running: 0, needs: 0 }, running: [], paused: [], needs: [], older: [], landed: [] } });
